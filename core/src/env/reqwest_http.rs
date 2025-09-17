@@ -163,33 +163,62 @@ impl HTTPEnvironment {
     }
 }
 
+#[derive(Debug)]
+pub struct OptionalIter<I> {
+    inner: Option<I>
+}
+
+impl<I: Iterator> Iterator for OptionalIter<I> {
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(inner) = &mut self.inner {
+            inner.next()
+        } else {
+            None
+        }
+    }
+}
+
+type HTTPLinesIter = std::iter::Map<std::io::Lines<BufReader<reqwest::blocking::Response>>, fn(Result<String, std::io::Error>) -> Result<String, HTTPEnvironmentError>>;
+
 impl ReadEnvironment for HTTPEnvironment {
     type ReadError = HTTPEnvironmentError;
 
-    type UriIter = std::iter::Map<
-        std::io::Lines<BufReader<reqwest::blocking::Response>>,
-        fn(Result<String, std::io::Error>) -> Result<String, Self::ReadError>,
-    >;
+    type UriIter = OptionalIter<HTTPLinesIter>;
 
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
         let response = self.get_entries_request()?.send()?;
 
-        Ok(BufReader::new(response)
-            .lines()
-            .map(|line| Ok(line?.trim().to_string())))
+        let inner: std::option::Option<HTTPLinesIter> = if response.status().is_success() {
+            Some(
+                BufReader::new(response)
+                    .lines()
+                    .map(|line| Ok(line?.trim().to_string()))
+            )
+        } else {
+            None
+        };
+
+        Ok(OptionalIter { inner })
     }
 
-    type VersionIter = std::iter::Map<
-        std::io::Lines<BufReader<reqwest::blocking::Response>>,
-        fn(Result<String, std::io::Error>) -> Result<String, Self::ReadError>,
-    >;
+    type VersionIter = OptionalIter<HTTPLinesIter>;
 
     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
         let response = self.get_versions_request(uri)?.send()?;
 
-        Ok(BufReader::new(response)
-            .lines()
-            .map(|line| Ok(line?.trim().to_string())))
+        let inner: Option<HTTPLinesIter> = if response.status().is_success() {
+            Some(
+                BufReader::new(response)
+                    .lines()
+                    .map(|line| Ok(line?.trim().to_string()))
+            ) 
+        } else {
+            None
+        };
+
+        Ok(OptionalIter { inner })
     }
 
     type InterchangeProjectRead = HTTPProject;
