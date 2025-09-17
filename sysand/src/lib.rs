@@ -122,7 +122,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 no_deps,
             }) => command_sources_env(iri, version, !no_deps, current_environment),
         },
-        cli::Command::Lock { use_index } => {
+        cli::Command::Lock {
+            mut use_index,
+            no_index,
+        } => {
+            if no_index {
+                use_index = None;
+            }
             if let Some(path) = project_root {
                 crate::commands::lock::command_lock(path, client, use_index)
             } else {
@@ -153,8 +159,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             auto,
             location,
             no_normalise,
-            use_index,
+            mut use_index,
+            no_index,
         } => {
+            if no_index {
+                use_index = None;
+            }
             match location {
                 Some(actual_location) => {
                     if iri {
@@ -195,8 +205,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             versions_constraint,
             no_lock,
             no_sync,
-            use_index,
+            mut use_index,
+            no_index,
         } => {
+            if no_index {
+                use_index = None;
+            }
             command_add(iri, versions_constraint, current_project)?;
 
             if !no_lock {

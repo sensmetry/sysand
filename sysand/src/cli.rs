@@ -67,15 +67,23 @@ pub enum Command {
         /// Do not try to normalise the IRI/URI when resolving
         #[arg(long, default_value = "false", visible_alias = "no-normalize")]
         no_normalise: bool,
+        /// Use an index when resolving this usage
         #[arg(long, default_value = Some(DEFAULT_INDEX_URL))]
         use_index: Option<String>,
+        /// Do not use any index when resolving this usage
+        #[arg(long, default_value = "false", conflicts_with = "use_index")]
+        no_index: bool,
         // TODO: Add various options, such as whether to take local environment
         //       into consideration
     },
     /// Update lockfile
     Lock {
+        /// Use an index when updating the lockfile
         #[arg(long, default_value = Some(DEFAULT_INDEX_URL))]
         use_index: Option<String>,
+        /// Do not use any index when updating the lockfile
+        #[arg(long, default_value = "false", conflicts_with = "use_index")]
+        no_index: bool,
     },
     /// Add usage to project information
     Add {
@@ -92,6 +100,9 @@ pub enum Command {
         /// Use an index when resolving this usage
         #[arg(long, default_value = Some(DEFAULT_INDEX_URL))]
         use_index: Option<String>,
+        /// Do not use any index when resolving this usage
+        #[arg(long, default_value = "false", conflicts_with = "use_index")]
+        no_index: bool,
     },
     /// Remove usage from project information
     Remove {
