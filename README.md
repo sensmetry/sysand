@@ -8,10 +8,10 @@
 
 This repository contains Sysand, a [package
 manager](https://en.wikipedia.org/wiki/Package_manager) for SysML v2 and KerML
-similar to package mangers for programming languages such as Pip for Python, NPM
-for JavaScript, Maven for Java, and NuGet for .NET. Sysand is based on a concept
-of a model interchange project, a slight generalization of a project interchange
-file (`*.kpar`), defined in [KerML clause
+similar to package managers for programming languages such as Pip for Python,
+NPM for JavaScript, Maven for Java, and NuGet for .NET. Sysand is based on a
+concept of a model interchange project, a slight generalization of a project
+interchange file (`*.kpar`), defined in [KerML clause
 10.3](https://www.omg.org/spec/KerML/1.0/Beta4/PDF#page=428).
 
 Sysand can be used as a standalone tool through its command line interface (CLI)
@@ -93,7 +93,7 @@ $ sysand sources
 /path/to/my_project/MyProject.sysml
 ```
 
-The followin subsection shows how to add dependencies to our project.
+The following subsection shows how to add dependencies to our project.
 
 ### Dependencies
 
@@ -104,24 +104,44 @@ you.
 KerML (and by extension in SysML v2) specification calls a project dependency a
 usage. Each usage is identified by an [Internationalized Resource Identifier
 (IRI)](https://en.wikipedia.org/wiki/Internationalized_Resource_Identifier) with
-an optional version constraint. The most straightforward example is a URL, that
-directly resolves to the interchange project.
+an optional version constraint. To add dependencies, use the `sysand add`
+command. The simplest way to use it is to give an IRI to a package you want to
+install from the [Sysand Package Index](https://sysand.org). You can find the
+IRI (and the full install command) in the card of the package on the index
+website. For example, to install the standard Function Library, run:
 
 ```bash
-$ sysand add https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar
-      Adding usage: https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar
+$ sysand add urn:kpar:function-library
+      Adding usage: urn:kpar:function-library
+     Creating env
      Syncing env
+  Installing urn:kpar:semantic-library 1.0.0
+  Installing urn:kpar:data-type-library 1.0.0
+  Installing urn:kpar:function-library 1.0.0
+```
+
+It is also possible to install packages from the URL that points to the `.kpar`
+file as shown in the following snippet:
+
+```bash
+$ sysand add https://www.omg.org/spec/KerML/20250201/Function-Library.kpar
+      Adding usage: https://www.omg.org/spec/KerML/20250201/Function-Library.kpar
+    Creating env
+     Syncing env
+  Installing https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar 1.0.0
+  Installing https://www.omg.org/spec/KerML/20250201/Data-Type-Library.kpar 1.0.0
   Installing https://www.omg.org/spec/KerML/20250201/Function-Library.kpar 1.0.0
 ```
 
-This may take a few seconds to run, as it will find and install the project (and
-any transitive usages) into a new local environment. Once finished, this will
-have created a file called `SysandLock.toml` and a directory `sysand_env`. The
-former records the precise versions installed, so that the same installation can
-be reproduced later. The latter directory will contain a local installation of
-the added project, as well as any of its (transitive) usages. `SysandLock.toml`
-is sufficient to reproduce `sysand_env`; therefore, we recommend checking in
-`SysandLock.toml` into git and adding `sysand_env` to `.gitignore`.
+Adding a dependency may take a few seconds to run, as it will find and install
+the project (and any transitive usages) into a new local environment. Once
+finished, this will have created a file called `SysandLock.toml` and a directory
+`sysand_env`. The former records the precise versions installed, so that the
+same installation can be reproduced later. The latter directory will contain a
+local installation of the added project, as well as any of its (transitive)
+usages. `SysandLock.toml` is sufficient to reproduce `sysand_env`; therefore, we
+recommend checking in `SysandLock.toml` into your version control system and
+adding `sysand_env` to `.gitignore`.
 
 We can confirm that the usage was successfully added by running the `info`
 command again:
@@ -227,9 +247,9 @@ Installed package `sysand v0.0.1 (/...)` (executable `sysand`)
 
 ## Licensing
 
-The implementation is dual-licensed under the MIT and Apache-2.0 licences,
-meaning users may choose to use the code under *either* licence. Contributors
-agree to provide contributed code under **both** licences.
+The implementation is dual-licensed under the MIT and Apache-2.0 licenses,
+meaning users may choose to use the code under *either* license. Contributors
+agree to provide contributed code under **both** licenses.
 
 Sysand is maintained by [Sensmetry](https://www.sensmetry.com), with
 contributions from the community. To see the complete list of contributors,
