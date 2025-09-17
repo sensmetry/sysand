@@ -1,0 +1,8 @@
+{
+  "index": {
+    "Foo": "extras/foo.sysml",
+    "LibTest": "libtest.sysml",
+    "Baz": "extras/bar/baz.sysml"
+  },
+  "created": "2025-05-30T12:34:24.977672Z"
+}

@@ -1,0 +1,54 @@
+<!--
+SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
+
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.sysand</groupId>
+  <artifactId>sysand</artifactId>
+  <packaging>jar</packaging>
+  <version>VERSION</version>
+  <name>sysand</name>
+  <properties>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+  <dependencies>
+  </dependencies>
+  <build>
+    <plugins>
+      <!--   Build jar with dependencies   -->
+      <plugin>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <version>3.7.1</version>
+        <configuration>
+          <archive>
+            <manifest>
+              <mainClass>org.sysand.Sysand</mainClass>
+            </manifest>
+          </archive>
+          <descriptorRefs>
+            <descriptorRef>jar-with-dependencies</descriptorRef>
+          </descriptorRefs>
+        </configuration>
+      </plugin>
+      <!--   Produce headers   -->
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.7.0</version>
+        <configuration>
+          <compilerArgs>
+            <arg>-h</arg>
+            <arg>target/headers</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+      <!--  -->
+    </plugins>
+  </build>
+</project>

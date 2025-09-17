@@ -1,0 +1,4 @@
+target/
+.vscode/
+sysand-py/python/sysand/_sysand_core.abi3.so
+**/__pycache__

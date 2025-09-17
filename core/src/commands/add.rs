@@ -1,0 +1,47 @@
+// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
+// SPDX-License-Identifier: MIT OR Apache-2.0
+use thiserror::Error;
+
+use crate::{model::InterchangeProjectValidationError, project::ProjectMut};
+
+#[derive(Error, Debug)]
+pub enum AddError<ProjectError> {
+    #[error("{0}")]
+    ProjectError(ProjectError),
+    #[error("{0}")]
+    ValidationError(#[from] InterchangeProjectValidationError),
+    #[error("missing project information: {0}")]
+    MissingInfo(String),
+}
+
+pub fn do_add<P: ProjectMut>(
+    project: &mut P,
+    iri: String,
+    versions_constraint: Option<String>,
+) -> Result<(), AddError<P::Error>> {
+    let usage: crate::model::InterchangeProjectUsageRaw =
+        crate::model::InterchangeProjectUsageRaw {
+            resource: iri.clone(),
+            version_constraint: versions_constraint.clone(),
+        }
+        .validate()?
+        .into();
+
+    if let Some(info) = project.get_info().map_err(AddError::ProjectError)?.as_mut() {
+        // TODO: Would ideally try to merge version constraint
+        //       rather than having multiple usages
+        if !info.usage.contains(&usage) {
+            info.usage.push(usage);
+        }
+
+        project
+            .put_info(info, true)
+            .map_err(AddError::ProjectError)?;
+
+        Ok(())
+    } else {
+        Err(AddError::MissingInfo(
+            "project is missing the interchange project information".to_string(),
+        ))
+    }
+}

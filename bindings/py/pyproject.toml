@@ -1,0 +1,30 @@
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[project]
+name = "sysand"
+license = "MIT OR Apache-2.0"
+dynamic = ["version"]
+requires-python = ">= 3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python",
+    "Programming Language :: Rust"
+]
+
+[tool.maturin]
+python-source = "python"
+features = ["pyo3/extension-module"]
+module-name = "sysand._sysand_core"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-httpserver>=1.1.1",
+]
+linters = [
+    "mypy>=1.14.1",
+    "ruff>=0.12.11",
+]

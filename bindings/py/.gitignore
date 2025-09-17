@@ -1,0 +1,4 @@
+.venv
+python/sysand/_sysand_core.abi3.*
+python/sysand/__pycache__/*.pyc
+python/sysand/env/__pycache__/*.pyc
