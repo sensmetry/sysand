@@ -165,7 +165,7 @@ impl HTTPEnvironment {
 
 #[derive(Debug)]
 pub struct OptionalIter<I> {
-    inner: Option<I>
+    inner: Option<I>,
 }
 
 impl<I: Iterator> Iterator for OptionalIter<I> {
@@ -180,7 +180,10 @@ impl<I: Iterator> Iterator for OptionalIter<I> {
     }
 }
 
-type HTTPLinesIter = std::iter::Map<std::io::Lines<BufReader<reqwest::blocking::Response>>, fn(Result<String, std::io::Error>) -> Result<String, HTTPEnvironmentError>>;
+type HTTPLinesIter = std::iter::Map<
+    std::io::Lines<BufReader<reqwest::blocking::Response>>,
+    fn(Result<String, std::io::Error>) -> Result<String, HTTPEnvironmentError>,
+>;
 
 impl ReadEnvironment for HTTPEnvironment {
     type ReadError = HTTPEnvironmentError;
@@ -194,7 +197,7 @@ impl ReadEnvironment for HTTPEnvironment {
             Some(
                 BufReader::new(response)
                     .lines()
-                    .map(|line| Ok(line?.trim().to_string()))
+                    .map(|line| Ok(line?.trim().to_string())),
             )
         } else {
             None
@@ -212,8 +215,8 @@ impl ReadEnvironment for HTTPEnvironment {
             Some(
                 BufReader::new(response)
                     .lines()
-                    .map(|line| Ok(line?.trim().to_string()))
-            ) 
+                    .map(|line| Ok(line?.trim().to_string())),
+            )
         } else {
             None
         };
