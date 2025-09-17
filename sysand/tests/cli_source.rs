@@ -47,7 +47,13 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &path,
-        &vec!["add", "--no-sync", "urn:kpar:list_sources_dep"],
+        &vec![
+            "add",
+            "--no-sync",
+            "urn:kpar:list_sources_dep",
+            "--no-index",
+            "--verbose",
+        ],
         None,
     )?;
     out.assert().success();
