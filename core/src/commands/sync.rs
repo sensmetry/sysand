@@ -72,6 +72,7 @@ where
 
     let mut updated = false;
     'main_loop: for project in lockfile.project {
+        // TODO: We need a proper way to treat multiple IRIs here
         let main_uri = project.iris.first().cloned();
 
         if project.sources.is_empty() {
@@ -84,7 +85,7 @@ where
         for uri in &project.iris {
             if is_installed(uri, &project.checksum, env)? {
                 log::debug!("{} found in sysand_env", &uri);
-                continue;
+                continue 'main_loop;
             }
         }
 
