@@ -135,7 +135,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 bail!("Not inside a project")
             }
         }
-        cli::Command::Sync => {
+        cli::Command::Sync { include_std } => {
             let mut local_environment = match current_environment {
                 Some(env) => env,
                 None => command_env(
@@ -146,10 +146,16 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )?,
             };
 
+            let exclude_iris = if !include_std {
+                known_std_libs()
+            } else {
+                std::collections::HashSet::default()
+            };
             command_sync(
                 project_root.unwrap_or(std::env::current_dir()?),
                 &mut local_environment,
                 client,
+                &exclude_iris,
             )
         }
         cli::Command::PrintRoot => command_print_root(std::env::current_dir()?),
@@ -207,6 +213,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_sync,
             mut use_index,
             no_index,
+            include_std,
         } => {
             if no_index {
                 use_index = None;
@@ -232,10 +239,16 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         )?,
                     };
 
+                    let exclude_iris = if !include_std {
+                        known_std_libs()
+                    } else {
+                        std::collections::HashSet::default()
+                    };
                     command_sync(
                         project_root.unwrap_or(std::env::current_dir()?),
                         &mut local_environment,
                         client,
+                        &exclude_iris,
                     )?;
                 }
             }
@@ -270,6 +283,35 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             command_sources_project(!no_deps, current_project, current_environment)
         }
     }
+}
+
+// TODO: These should not be hard-coded, this is just a stop-gap solution
+fn known_std_libs() -> std::collections::HashSet<String> {
+    std::collections::HashSet::from([
+        "urn:kpar:quantities-and-units-library".to_string(),
+        "urn:kpar:function-library".to_string(),
+        "urn:kpar:systems-library".to_string(),
+        "urn:kpar:cause-and-effect-library".to_string(),
+        "urn:kpar:requirement-derivation-library".to_string(),
+        "urn:kpar:metadata-library".to_string(),
+        "urn:kpar:geometry-library".to_string(),
+        "urn:kpar:analysis-library".to_string(),
+        "urn:kpar:data-type-library".to_string(),
+        "urn:kpar:semantic-library".to_string(),
+        //
+        "https://www.omg.org/spec/SysML/20230201/Quantities-and-Units-Domain-Library.kpar"
+            .to_string(),
+        "https://www.omg.org/spec/KerML/20230201/Function-Library.kpar".to_string(),
+        "https://www.omg.org/spec/SysML/20230201/Systems-Library.kpar".to_string(),
+        "https://www.omg.org/spec/SysML/20230201/Cause-and-Effect-Domain-Library.kpar".to_string(),
+        "https://www.omg.org/spec/SysML/20230201/Requirement-Derivation-Domain-Library.kpar"
+            .to_string(),
+        "https://www.omg.org/spec/SysML/20230201/Metadata-Domain-Library.kpar".to_string(),
+        "https://www.omg.org/spec/SysML/20230201/Geometry-Domain-Library.kpar".to_string(),
+        "https://www.omg.org/spec/SysML/20230201/Analysis-Domain-Library.kpar".to_string(),
+        "https://www.omg.org/spec/KerML/20230201/Data-Type-Library.kpar".to_string(),
+        "https://www.omg.org/spec/KerML/20230201/Semantic-Library.kpar".to_string(),
+    ])
 }
 
 pub fn get_env(project_root: &std::path::Path) -> Option<LocalDirectoryEnvironment> {
