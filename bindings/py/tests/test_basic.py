@@ -173,9 +173,9 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
 def compare_sources(sources: List[str], expected_sources: List[str]) -> None:
     assert len(sources) == len(expected_sources)
     for source, expected_source in zip(sources, expected_sources):
-        assert os.path.samefile(
-            source, expected_source
-        ), f"source: {source}, expected_source: {expected_source}"
+        assert os.path.samefile(source, expected_source), (
+            f"source: {source}, expected_source: {expected_source}"
+        )
 
 
 def test_end_to_end_install_sources():
