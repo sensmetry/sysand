@@ -40,7 +40,13 @@ pub enum Command {
         command: Option<EnvCommand>,
     },
     /// Sync env to lockfile
-    Sync,
+    Sync {
+        /// Includes the KerML/SysML standard libraries when installing.
+        /// By default these are excluded because they are typically
+        /// shipped with your language implementation.
+        #[arg(long, default_value = "false")]
+        include_std: bool,
+    },
     /// Prints the root directory of the current project
     PrintRoot,
     /// Resolve and describe current interchange project or one at at a specified path or IRI/URL.
@@ -103,6 +109,11 @@ pub enum Command {
         /// Do not use any index when resolving this usage
         #[arg(long, default_value = "false", conflicts_with = "use_index")]
         no_index: bool,
+        /// Allows installation of the KerML/SysML standard libraries. By default
+        /// these are excluded, as they are typically shipped with your language
+        /// implementation.
+        #[arg(long, default_value = "false")]
+        include_std: bool,
     },
     /// Remove usage from project information
     Remove {
