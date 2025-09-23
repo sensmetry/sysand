@@ -9,9 +9,9 @@ SPDX-License-Identifier: MIT OR Apache-2.0
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.sensmetry</groupId>
-  <artifactId>sysandTests</artifactId>
-  <version>VERSION</version>
-  <description>Java Sysand Tests</description>
+  <artifactId>sysandDeployTests</artifactId>
+  <version>0.1.0</version>
+  <description>Java Sysand Deploy Tests</description>
   <properties>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
@@ -32,28 +32,28 @@ SPDX-License-Identifier: MIT OR Apache-2.0
   </profiles>
   <repositories>
     <repository>
-      <!-- local repository (autoupdated) -->
-      <id>local-maven-repo</id>
-      <url>file:///${project.basedir}/local-maven-repo</url>
+      <name>Central Portal Snapshots</name>
+      <id>central-portal-snapshots</id>
+      <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
     </repository>
   </repositories>
   <dependencies>
-
-    <!-- local-maven-repo -->
     <dependency>
       <groupId>com.sensmetry</groupId>
       <artifactId>sysand</artifactId>
       <version>VERSION</version>
     </dependency>
-
-    <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
     <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter-engine</artifactId>
-      <version>6.0.1</version>
-      <scope>test</scope>
+      <groupId>com.sensmetry</groupId>
+      <artifactId>sysand-maven-plugin</artifactId>
+      <version>VERSION</version>
     </dependency>
-
   </dependencies>
   <build>
     <plugins>
@@ -61,9 +61,6 @@ SPDX-License-Identifier: MIT OR Apache-2.0
         <!-- test runner -->
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.5.4</version>
-        <configuration>
-          <argLine>--enable-native-access=ALL-UNNAMED</argLine>
-        </configuration>
       </plugin>
     </plugins>
   </build>
