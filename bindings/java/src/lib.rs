@@ -184,3 +184,36 @@ pub extern "system" fn Java_org_sysand_Sysand_info<'local>(
 
     results.to_jobject_array(&mut env)
 }
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_sysand_Sysand_build__Ljava_lang_String_2Ljava_lang_String_2<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    output_path: JString<'local>,
+    project_path: JString<'local>,
+) {
+    let output_path: String = env.get_string(&output_path).expect("Failed to get output path").into();
+    let project_path: String = env.get_string(&project_path).expect("Failed to get project path").into();
+    let project = LocalSrcProject {
+        project_path: std::path::PathBuf::from(project_path)
+    };
+    let command_result = sysand_core::commands::build::do_build_kpar(&project, &output_path, true);
+    match command_result {
+        Ok(_) => {},
+        Err(error) => match error {
+            sysand_core::build::KParBuildError::ProjectReadError(_) => todo!(),
+            sysand_core::build::KParBuildError::SrcError(local_src_error) => todo!(),
+            sysand_core::build::KParBuildError::IncompleteSourceError(_) => todo!(),
+            sysand_core::build::KParBuildError::IOError(error) => todo!(),
+            sysand_core::build::KParBuildError::ValidationError(interchange_project_validation_error) => todo!(),
+            sysand_core::build::KParBuildError::ExtractError(extract_error) => todo!(),
+            sysand_core::build::KParBuildError::UnknownFormat(_) => todo!(),
+            sysand_core::build::KParBuildError::MissingInfo => todo!(),
+            sysand_core::build::KParBuildError::MissingMeta => todo!(),
+            sysand_core::build::KParBuildError::ZipWriteError(zip_error) => todo!(),
+            sysand_core::build::KParBuildError::PathFailure(_) => todo!(),
+            sysand_core::build::KParBuildError::FileNameError => todo!(),
+            sysand_core::build::KParBuildError::SerdeError(error) => todo!(),
+        }
+    }
+}
