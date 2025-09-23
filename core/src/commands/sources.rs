@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::collections::HashMap;
+
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 
@@ -10,8 +12,12 @@ use crate::{
     env::ReadEnvironment,
     lock::{Lock, LockResolutionEror},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
-    project::ProjectRead,
-    resolve::env::EnvResolver,
+    project::{ProjectRead, memory::InMemoryProject},
+    resolve::{
+        env::EnvResolver,
+        memory::{AcceptAll, MemoryResolver},
+        replace::{ReplaceProject, ReplaceResolver},
+    },
     solve::pubgrub::SolverError,
 };
 
@@ -83,16 +89,37 @@ pub fn do_sources_local_src_project_no_deps(
 
 /// Transitively resolve a list of usages (typically the usages of some project)
 /// in an environment and enumerate the resolved projects.
+///
+/// `provided_iris` are assumed to have been satisfied (including their dependencies)
+/// but have to match .
 pub fn find_project_dependencies<Env: ReadEnvironment + std::fmt::Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
+    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<Vec<<Env as ReadEnvironment>::InterchangeProjectRead>, SolverError<EnvResolver<Env>>> {
-    Ok(
-        crate::solve::pubgrub::solve(requested, EnvResolver { env })?
-            .drain()
-            .map(|(_, (_, _, project))| project)
-            .collect(),
-    )
+    let mut memory_projects = HashMap::default();
+
+    for (k, v) in provided_iris {
+        memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
+    }
+
+    let wrapped_resolver = ReplaceResolver::new(
+        MemoryResolver {
+            iri_predicate: AcceptAll {},
+            projects: memory_projects,
+        },
+        EnvResolver { env },
+    );
+
+    let mut wrapped_result = crate::solve::pubgrub::solve(requested, wrapped_resolver).unwrap();
+
+    Ok(wrapped_result
+        .drain()
+        .filter_map(|(_, (_, _, project))| match project {
+            ReplaceProject::PrimaryProject(_) => None,
+            ReplaceProject::SecondaryProject(project) => Some(project),
+        })
+        .collect())
 }
 
 /// Finds all (locked) projects from a `Lock` (typically loaded from a lock file)

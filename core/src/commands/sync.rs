@@ -1,13 +1,15 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::collections::HashMap;
+
 use thiserror::Error;
 
 use crate::{
     commands::env::do_env_install_project,
     env::{ReadEnvironment, WriteEnvironment},
     lock::{Lock, Source},
-    project::ProjectRead,
+    project::{ProjectRead, memory::InMemoryProject},
 };
 
 #[derive(Error, Debug)]
@@ -30,6 +32,14 @@ pub enum SyncError<UrlError> {
     UnsupportedSources(String),
     #[error("failed to install project {uri}:\n{cause}")]
     InstallFailure { uri: String, cause: String },
+    #[error(
+        "tried to install {iri} (checksum {hash}) which is not among the versions supported by your environment"
+    )]
+    InvalidProvidedVersion {
+        iri: String,
+        hash: String,
+        provided: Vec<String>,
+    },
     // TODO: less opaque read errors
     #[error("read error")]
     ReadError,
@@ -53,7 +63,7 @@ pub fn do_sync<
     remote_src_storage: Option<CreateRemoteSrcStorage>,
     kpar_path_storage: Option<CreateKParPathStorage>,
     remote_kpar_storage: Option<CreateRemoteKParStorage>,
-    exclude_iris: &std::collections::HashSet<String>,
+    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<(), SyncError<UrlError>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
@@ -75,6 +85,43 @@ where
         // TODO: We need a proper way to treat multiple IRIs here
         let main_uri = project.iris.first().cloned();
 
+        for iri in &project.iris {
+            let excluded_versions = if let Ok(parsed_iri) = fluent_uri::Iri::parse(iri.clone()) {
+                provided_iris.get(parsed_iri.normalize().as_str())
+            } else {
+                provided_iris.get(iri.as_str())
+            };
+
+            let checksum = &project.checksum;
+            if let Some(versions) = excluded_versions {
+                let mut provided = vec![];
+
+                for project_version in versions {
+                    if let Some(provided_checksum) =
+                        project_version.checksum_canonical_hex().ok().flatten()
+                    {
+                        if checksum == &provided_checksum {
+                            log::debug!("{} is marked as provided, skipping installation", iri);
+                            continue 'main_loop;
+                        }
+
+                        provided.push(provided_checksum);
+                    } else {
+                        log::debug!(
+                            "Failed to get checksum for provided project: {:?}",
+                            project_version
+                        );
+                    }
+                }
+
+                return Err(SyncError::InvalidProvidedVersion {
+                    iri: iri.clone(),
+                    hash: project.checksum.clone(),
+                    provided,
+                });
+            }
+        }
+
         if project.sources.is_empty() {
             return Err(SyncError::MissingSource(format!(
                 "Project with IRI(s) {:?} has no known sources",
@@ -85,19 +132,6 @@ where
         for uri in &project.iris {
             if is_installed(uri, &project.checksum, env)? {
                 log::debug!("{} found in sysand_env", &uri);
-                continue 'main_loop;
-            }
-        }
-
-        for iri in &project.iris {
-            let excluded = if let Ok(parsed_iri) = fluent_uri::Iri::parse(iri.clone()) {
-                exclude_iris.contains(parsed_iri.normalize().as_str())
-            } else {
-                exclude_iris.contains(iri.as_str())
-            };
-
-            if excluded {
-                log::debug!("{} excluded from installation", iri);
                 continue 'main_loop;
             }
         }

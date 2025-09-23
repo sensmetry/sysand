@@ -648,7 +648,7 @@ mod tests {
 
         let mut projects = HashMap::new();
 
-        projects.insert(uri, project);
+        projects.insert(uri, vec![project]);
 
         Some(MemoryResolver {
             iri_predicate: AcceptAll {},

@@ -90,6 +90,11 @@ pub enum Command {
         /// Do not use any index when updating the lockfile
         #[arg(long, default_value = "false", conflicts_with = "use_index")]
         no_index: bool,
+        /// By default standard libraries are assumed to be shipped with
+        /// your language implementation. With this option enabled, standard
+        /// libraries are treated as any other project.
+        #[arg(long, default_value = "false")]
+        include_std: bool,
     },
     /// Add usage to project information
     Add {
@@ -149,6 +154,14 @@ pub enum Command {
         /// Do not include the project dependencies
         #[arg(long, default_value = "false")]
         no_deps: bool,
+        /// Include KerML/SysML standard libraries. By default
+        /// these are excluded, as they are typically shipped with your language
+        /// implementation.
+        ///
+        /// This assumes these standard libraries have been explicitly
+        /// installed by sysand.
+        #[arg(long, default_value = "false")]
+        include_std: bool,
     },
 }
 
@@ -190,6 +203,14 @@ pub enum EnvCommand {
         /// Do not include the project dependencies
         #[arg(long, default_value = "false")]
         no_deps: bool,
+        /// Include KerML/SysML standard libraries. By default
+        /// these are excluded, as they are typically shipped with your language
+        /// implementation.
+        ///
+        /// This assumes these standard libraries have been explicitly
+        /// installed by sysand.
+        #[arg(long, default_value = "false")]
+        include_std: bool,
     },
 }
 

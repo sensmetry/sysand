@@ -98,7 +98,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
         iri_predicate: AcceptAll {},
         projects: HashMap::from([(
             fluent_uri::Iri::parse("urn::sysand_test::1".to_string())?,
-            source_project.clone(),
+            vec![source_project.clone()],
         )]),
     };
 
