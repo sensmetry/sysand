@@ -53,6 +53,7 @@ pub fn do_sync<
     remote_src_storage: Option<CreateRemoteSrcStorage>,
     kpar_path_storage: Option<CreateKParPathStorage>,
     remote_kpar_storage: Option<CreateRemoteKParStorage>,
+    exclude_iris: &std::collections::HashSet<String>,
 ) -> Result<(), SyncError<UrlError>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
@@ -70,19 +71,34 @@ where
     log::info!("{header}{syncing:>12}{header:#} env");
 
     let mut updated = false;
-    for project in lockfile.project {
-        let uri: Option<&String> = project.iris.first();
+    'main_loop: for project in lockfile.project {
+        // TODO: We need a proper way to treat multiple IRIs here
+        let main_uri = project.iris.first().cloned();
 
         if project.sources.is_empty() {
-            return Err(SyncError::MissingSource(
-                uri.cloned().unwrap_or("project without IRI".to_string()),
-            ));
+            return Err(SyncError::MissingSource(format!(
+                "Project with IRI(s) {:?} has no known sources",
+                project.iris
+            )));
         }
 
-        if let Some(uri) = uri {
+        for uri in &project.iris {
             if is_installed(uri, &project.checksum, env)? {
                 log::debug!("{} found in sysand_env", &uri);
-                continue;
+                continue 'main_loop;
+            }
+        }
+
+        for iri in &project.iris {
+            let excluded = if let Ok(parsed_iri) = fluent_uri::Iri::parse(iri.clone()) {
+                exclude_iris.contains(parsed_iri.normalize().as_str())
+            } else {
+                exclude_iris.contains(iri.as_str())
+            };
+
+            if excluded {
+                log::debug!("{} excluded from installation", iri);
+                continue 'main_loop;
             }
         }
 
@@ -94,7 +110,9 @@ where
                     // Nothing to install for editable
                 }
                 Source::LocalSrc { src_path } => {
-                    let uri = uri.ok_or(SyncError::MissingIri(format!("src_path = {src_path}")))?;
+                    let uri = main_uri
+                        .as_ref()
+                        .ok_or(SyncError::MissingIri(format!("src_path = {src_path}")))?;
                     let src_path_storage = src_path_storage
                         .as_ref()
                         .ok_or(SyncError::MissingSrcPathStorage)?;
@@ -103,8 +121,9 @@ where
                     try_install(uri, &project.checksum, storage, env)?;
                 }
                 Source::RemoteSrc { remote_src } => {
-                    let uri =
-                        uri.ok_or(SyncError::MissingIri(format!("remote_src = {remote_src}")))?;
+                    let uri = main_uri
+                        .as_ref()
+                        .ok_or(SyncError::MissingIri(format!("remote_src = {remote_src}")))?;
                     let remote_src_storage = remote_src_storage
                         .as_ref()
                         .ok_or(SyncError::MissingRemoteSrcStorage)?;
@@ -114,8 +133,9 @@ where
                     try_install(uri, &project.checksum, storage, env)?;
                 }
                 Source::LocalKpar { kpar_path } => {
-                    let uri =
-                        uri.ok_or(SyncError::MissingIri(format!("kpar_path = {kpar_path}")))?;
+                    let uri = main_uri
+                        .as_ref()
+                        .ok_or(SyncError::MissingIri(format!("kpar_path = {kpar_path}")))?;
                     let kpar_path_storage = kpar_path_storage
                         .as_ref()
                         .ok_or(SyncError::MissingSrcPathStorage)?;
@@ -127,7 +147,7 @@ where
                     remote_kpar,
                     remote_kpar_size: _,
                 } => {
-                    let uri = uri.ok_or(SyncError::MissingIri(format!(
+                    let uri = main_uri.as_ref().ok_or(SyncError::MissingIri(format!(
                         "remote_kpar = {remote_kpar}"
                     )))?;
                     let remote_kpar_storage = remote_kpar_storage
@@ -146,7 +166,7 @@ where
         }
         if no_supported {
             return Err(SyncError::UnsupportedSources(
-                uri.cloned().unwrap_or("project without IRI".to_string()),
+                main_uri.unwrap_or("project without IRI".to_string()),
             ));
         }
         updated = true;

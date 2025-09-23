@@ -13,7 +13,7 @@ use sysand_core::resolve::standard::{StandardResolver, standard_resolver};
 pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
     path: P,
     client: Client,
-    index_base_url: Option<S>,
+    index_base_urls: Option<Vec<S>>,
 ) -> Result<()> {
     let cwd = current_dir().ok();
 
@@ -28,8 +28,8 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
             None
         },
         Some(client),
-        index_base_url
-            .map(|x| url::Url::parse(x.as_ref()))
+        index_base_urls
+            .map(|xs| xs.iter().map(|x| url::Url::parse(x.as_ref())).collect())
             .transpose()?,
     );
 

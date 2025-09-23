@@ -40,7 +40,13 @@ pub enum Command {
         command: Option<EnvCommand>,
     },
     /// Sync env to lockfile
-    Sync,
+    Sync {
+        /// Includes the KerML/SysML standard libraries when installing.
+        /// By default these are excluded because they are typically
+        /// shipped with your language implementation.
+        #[arg(long, default_value = "false")]
+        include_std: bool,
+    },
     /// Prints the root directory of the current project
     PrintRoot,
     /// Resolve and describe current interchange project or one at at a specified path or IRI/URL.
@@ -67,9 +73,9 @@ pub enum Command {
         /// Do not try to normalise the IRI/URI when resolving
         #[arg(long, default_value = "false", visible_alias = "no-normalize")]
         no_normalise: bool,
-        /// Use an index when resolving this usage
-        #[arg(long, default_value = Some(DEFAULT_INDEX_URL))]
-        use_index: Option<String>,
+        /// Use this index when resolving this usage
+        #[arg(long, default_values = vec![DEFAULT_INDEX_URL], num_args=0..)]
+        use_index: Vec<String>,
         /// Do not use any index when resolving this usage
         #[arg(long, default_value = "false", conflicts_with = "use_index")]
         no_index: bool,
@@ -78,9 +84,9 @@ pub enum Command {
     },
     /// Update lockfile
     Lock {
-        /// Use an index when updating the lockfile
-        #[arg(long, default_value = Some(DEFAULT_INDEX_URL))]
-        use_index: Option<String>,
+        /// Use this index when resolving this usage
+        #[arg(long, default_values = vec![DEFAULT_INDEX_URL], num_args=0..)]
+        use_index: Vec<String>,
         /// Do not use any index when updating the lockfile
         #[arg(long, default_value = "false", conflicts_with = "use_index")]
         no_index: bool,
@@ -98,11 +104,16 @@ pub enum Command {
         #[arg(long, default_value = "false")]
         no_sync: bool,
         /// Use an index when resolving this usage
-        #[arg(long, default_value = Some(DEFAULT_INDEX_URL))]
-        use_index: Option<String>,
+        #[arg(long, default_values = vec![DEFAULT_INDEX_URL], num_args=0..)]
+        use_index: Vec<String>,
         /// Do not use any index when resolving this usage
         #[arg(long, default_value = "false", conflicts_with = "use_index")]
         no_index: bool,
+        /// Allows installation of the KerML/SysML standard libraries. By default
+        /// these are excluded, as they are typically shipped with your language
+        /// implementation.
+        #[arg(long, default_value = "false")]
+        include_std: bool,
     },
     /// Remove usage from project information
     Remove {
