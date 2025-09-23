@@ -1,0 +1,9 @@
+{
+  "name": "project2",
+  "version": "0.0.1",
+  "usage": [
+    {
+      "resource": "urn:kpar:project1"
+    }
+  ]
+}

@@ -8,13 +8,40 @@ SPDX-License-Identifier: MIT OR Apache-2.0
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>org.sysand</groupId>
+  <groupId>com.sensmetry</groupId>
   <artifactId>sysand</artifactId>
   <packaging>jar</packaging>
   <version>VERSION</version>
-  <name>sysand</name>
+  <name>${project.groupId}:${project.artifactId}</name>
+  <description>A package manager for SysML v2 and KerML.</description>
+  <url>https://sysand.org/</url>
+  <licenses>
+    <license>
+      <name>The Apache License, Version 2.0</name>
+      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+    <license>
+      <name>MIT License</name>
+      <url>http://www.opensource.org/licenses/mit-license.php</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <name>Sensmetry</name>
+      <email>opensource@sensmetry.com</email>
+      <organization>Sensmetry</organization>
+      <organizationUrl>https://sensmetry.com/</organizationUrl>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:git://github.com/sensmetry/sysand.git</connection>
+    <developerConnection>scm:git:ssh://github.com:sensmetry/sysand.git</developerConnection>
+    <url>https://github.com/sensmetry/sysand/tree/master</url>
+  </scm>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
   </properties>
   <dependencies>
   </dependencies>
@@ -27,7 +54,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
         <configuration>
           <archive>
             <manifest>
-              <mainClass>org.sysand.Sysand</mainClass>
+              <mainClass>com.sensmetry.sysand.Sysand</mainClass>
             </manifest>
           </archive>
           <descriptorRefs>
@@ -45,6 +72,86 @@ SPDX-License-Identifier: MIT OR Apache-2.0
             <arg>-h</arg>
             <arg>target/headers</arg>
           </compilerArgs>
+        </configuration>
+      </plugin>
+      <!--   Attach -sources.jar   -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <!--   Attach -javadoc.jar   -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.8.0</version>
+        <configuration>
+          <source>${maven.compiler.source}</source>
+          <doclint>none</doclint>
+          <javadocDirectory>${basedir}/src/main/javadoc</javadocDirectory>
+          <docfilessubdirs>true</docfilessubdirs>
+        </configuration>
+        <executions>
+          <execution>
+            <id>generate-javadoc</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>javadoc</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>attach-javadocs</id>
+            <phase>package</phase>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <!--   Copy README.md to javadoc output   -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>copy-readme-to-javadoc-output</id>
+            <phase>prepare-package</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/apidocs</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${basedir}/src/main/javadoc</directory>
+                  <includes>
+                    <include>README.md</include>
+                  </includes>
+                  <filtering>false</filtering>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <!--   Publish to Maven Central via Central Portal   -->
+      <plugin>
+        <groupId>org.sonatype.central</groupId>
+        <artifactId>central-publishing-maven-plugin</artifactId>
+        <version>0.9.0</version>
+        <extensions>true</extensions>
+        <configuration>
+          <publishingServerId>central</publishingServerId>
+          <autoPublish>false</autoPublish>
         </configuration>
       </plugin>
       <!--  -->

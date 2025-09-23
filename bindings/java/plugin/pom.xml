@@ -1,0 +1,134 @@
+<!--
+SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
+
+SPDX-License-Identifier: MIT OR Apache-2.0
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.sensmetry</groupId>
+  <artifactId>sysand-maven-plugin</artifactId>
+  <version>VERSION</version>
+  <packaging>maven-plugin</packaging>
+  <name>${project.groupId}:${project.artifactId}</name>
+  <description>Maven plugin to invoke Sysand.info_path at package phase</description>
+  <properties>
+    <maven.compiler.source>1.8</maven.compiler.source>
+    <maven.compiler.target>1.8</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.plugin.tools.version>3.13.1</maven.plugin.tools.version>
+    <maven.api.version>3.9.11</maven.api.version>
+  </properties>
+  <profiles>
+    <!-- maven.compiler.release is only available in Java 9+, but it is required
+    to disallow usage of Java >8 APIs when building with Java >8 -->
+    <profile>
+      <id>java-8-api</id>
+      <activation>
+        <jdk>[9,)</jdk>
+      </activation>
+      <properties>
+        <maven.compiler.release>8</maven.compiler.release>
+      </properties>
+    </profile>
+  </profiles>
+
+  <dependencies>
+    <!-- Depend on the sysand Java library that provides com.sensmetry.sysand.Sysand -->
+    <dependency>
+      <groupId>com.sensmetry</groupId>
+      <artifactId>sysand</artifactId>
+      <version>VERSION</version>
+    </dependency>
+
+    <!-- Maven Plugin API for AbstractMojo, MojoExecutionException -->
+    <dependency>
+      <groupId>org.apache.maven</groupId>
+      <artifactId>maven-plugin-api</artifactId>
+      <version>${maven.api.version}</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Annotations for Mojo (@Mojo, @Parameter) -->
+    <dependency>
+      <groupId>org.apache.maven.plugin-tools</groupId>
+      <artifactId>maven-plugin-annotations</artifactId>
+      <version>${maven.plugin.tools.version}</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Ensure plugin descriptor is generated from annotations -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-plugin-plugin</artifactId>
+        <version>${maven.plugin.tools.version}</version>
+        <configuration>
+          <skipErrorNoDescriptorsFound>false</skipErrorNoDescriptorsFound>
+        </configuration>
+        <executions>
+          <execution>
+            <id>default-descriptor</id>
+            <goals>
+              <goal>descriptor</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- Run integration tests using Maven Invoker Plugin -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-invoker-plugin</artifactId>
+        <version>3.9.1</version>
+        <configuration>
+          <projectsDirectory>src/it</projectsDirectory>
+          <cloneProjectsTo>${project.build.directory}/it</cloneProjectsTo>
+          <showVersion>true</showVersion>
+          <streamLogs>true</streamLogs>
+          <filterPom>true</filterPom>
+        </configuration>
+        <executions>
+          <execution>
+            <id>run-it</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>install</goal>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- Install this plugin artifact into the local repo BEFORE running integration tests -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-install-plugin</artifactId>
+        <version>3.1.2</version>
+        <executions>
+          <execution>
+            <id>install-plugin-early</id>
+            <phase>pre-integration-test</phase>
+            <goals>
+              <goal>install</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <!--   Publish to Maven Central via Central Portal   -->
+      <plugin>
+        <groupId>org.sonatype.central</groupId>
+        <artifactId>central-publishing-maven-plugin</artifactId>
+        <version>0.9.0</version>
+        <extensions>true</extensions>
+        <configuration>
+          <publishingServerId>central</publishingServerId>
+          <autoPublish>false</autoPublish>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

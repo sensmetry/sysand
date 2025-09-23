@@ -4,3 +4,5 @@ sysand-py/python/sysand/_sysand_core.abi3.so
 **/__pycache__
 .DS_Store
 .vscode/
+native-bindings
+version.txt

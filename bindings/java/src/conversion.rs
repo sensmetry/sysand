@@ -12,17 +12,18 @@ use sysand_core::model::{
     InterchangeProjectUsageRaw,
 };
 
-pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: &str = "org/sysand/model/InterchangeProjectUsage";
-pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS: &str = "org/sysand/model/InterchangeProjectInfo";
-pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS_CONSTRUCTOR: &str = "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Lorg/sysand/model/InterchangeProjectUsage;)V";
+pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: &str =
+    "com/sensmetry/sysand/model/InterchangeProjectUsage";
+pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS: &str =
+    "com/sensmetry/sysand/model/InterchangeProjectInfo";
+pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS_CONSTRUCTOR: &str = "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Lcom/sensmetry/sysand/model/InterchangeProjectUsage;)V";
 pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS: &str =
-    "org/sysand/model/InterchangeProjectMetadata";
+    "com/sensmetry/sysand/model/InterchangeProjectMetadata";
 pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS_CONSTRUCTOR: &str = "(Ljava/util/LinkedHashMap;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/util/LinkedHashMap;)V";
-pub(crate) const INTERCHANGE_PROJECT_CLASS: &str = "org/sysand/model/InterchangeProject";
-pub(crate) const INTERCHANGE_PROJECT_CLASS_CONSTRUCTOR: &str =
-    "(Lorg/sysand/model/InterchangeProjectInfo;Lorg/sysand/model/InterchangeProjectMetadata;)V";
+pub(crate) const INTERCHANGE_PROJECT_CLASS: &str = "com/sensmetry/sysand/model/InterchangeProject";
+pub(crate) const INTERCHANGE_PROJECT_CLASS_CONSTRUCTOR: &str = "(Lcom/sensmetry/sysand/model/InterchangeProjectInfo;Lcom/sensmetry/sysand/model/InterchangeProjectMetadata;)V";
 pub(crate) const INTERCHANGE_PROJECT_CHECKSUM_CLASS: &str =
-    "org/sysand/model/InterchangeProjectChecksum";
+    "com/sensmetry/sysand/model/InterchangeProjectChecksum";
 pub(crate) const INTERCHANGE_PROJECT_CHECKSUM_CLASS_CONSTRUCTOR: &str =
     "(Ljava/lang/String;Ljava/lang/String;)V";
 

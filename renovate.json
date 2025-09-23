@@ -21,7 +21,7 @@
       "matchPackageNames": ["pyo3*"]
     },
     {
-      "matchPackageNames": ["org.sysand:sysand"],
+      "matchPackageNames": ["com.sensmetry.sysand:sysand"],
       "enabled": false
     },
     {
