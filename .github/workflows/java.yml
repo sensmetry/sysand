@@ -44,11 +44,19 @@ jobs:
     - name: Build Java bindings
       shell: bash
       run: python bindings/java/scripts/java-builder.py build
+    - name: Install sysand jar to local Maven repo
+      shell: bash
+      run: mvn -B -DskipTests -f bindings/java/java/pom.xml install
+    - name: Build sysand Maven plugin (with ITs)
+      shell: bash
+      run: mvn -B -DskipTests=false -f bindings/java/plugin/pom.xml verify
     - name: Upload JARs
       uses: actions/upload-artifact@v4
       with:
         name: jars-${{ matrix.os }}
-        path: target/java/target/sysand*.jar
+        path: |
+          target/java/target/sysand*.jar
+          bindings/java/plugin/target/sysand-maven-plugin-*.jar
     - name: Test Java bindings
       shell: bash
       run: python bindings/java/scripts/java-builder.py test
