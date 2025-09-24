@@ -14,4 +14,4 @@ maturin develop
 
 cargo test --no-default-features
 
-pytest
+uv run --with=pytest pytest

@@ -142,7 +142,7 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     ).respond_with_json({"index": {}, "created": "0000-00-00T00:00:00.123456789Z"})
 
     info_metas = sysand.info(
-        "urn:kpar:test_index_info", index_url=httpserver.url_for("")
+        "urn:kpar:test_index_info", index_urls=httpserver.url_for("")
     )
 
     assert len(info_metas) == 1
