@@ -18,7 +18,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
       <plugin>
         <groupId>org.sysand</groupId>
         <artifactId>sysand-maven-plugin</artifactId>
-        <version>${project.version}</version>
+        <version>@project.version@</version>
         <executions>
           <execution>
             <goals>

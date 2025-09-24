@@ -10,7 +10,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
   <modelVersion>4.0.0</modelVersion>
   <groupId>org.sysand</groupId>
   <artifactId>sysand-maven-plugin</artifactId>
-  <version>VERSION</version>
+  <version>1.0.0</version>
   <packaging>maven-plugin</packaging>
   <name>sysand-maven-plugin</name>
   <description>Maven plugin to invoke Sysand.info_path at package phase</description>
@@ -27,7 +27,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
     <dependency>
       <groupId>org.sysand</groupId>
       <artifactId>sysand</artifactId>
-      <version>VERSION</version>
+      <version>0.0.1</version>
     </dependency>
 
     <!-- Maven Plugin API for AbstractMojo, MojoExecutionException -->
@@ -76,6 +76,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
           <cloneProjectsTo>${project.build.directory}/it</cloneProjectsTo>
           <showVersion>true</showVersion>
           <streamLogs>true</streamLogs>
+          <filterPom>true</filterPom>
         </configuration>
         <executions>
           <execution>
@@ -85,6 +86,21 @@ SPDX-License-Identifier: MIT OR Apache-2.0
               <goal>install</goal>
               <goal>integration-test</goal>
               <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- Install this plugin artifact into the local repo BEFORE running ITs -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-install-plugin</artifactId>
+        <version>3.1.2</version>
+        <executions>
+          <execution>
+            <id>install-plugin-early</id>
+            <phase>pre-integration-test</phase>
+            <goals>
+              <goal>install</goal>
             </goals>
           </execution>
         </executions>
