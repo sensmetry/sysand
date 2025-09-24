@@ -73,9 +73,9 @@ pub enum Command {
         /// Do not try to normalise the IRI/URI when resolving
         #[arg(long, default_value = "false", visible_alias = "no-normalize")]
         no_normalise: bool,
-        /// Use an index when resolving this usage
-        #[arg(long, default_value = Some(DEFAULT_INDEX_URL))]
-        use_index: Option<String>,
+        /// Use this index when resolving this usage
+        #[arg(long, default_values = vec![DEFAULT_INDEX_URL], num_args=0..)]
+        use_index: Vec<String>,
         /// Do not use any index when resolving this usage
         #[arg(long, default_value = "false", conflicts_with = "use_index")]
         no_index: bool,
@@ -84,9 +84,9 @@ pub enum Command {
     },
     /// Update lockfile
     Lock {
-        /// Use an index when updating the lockfile
-        #[arg(long, default_value = Some(DEFAULT_INDEX_URL))]
-        use_index: Option<String>,
+        /// Use this index when resolving this usage
+        #[arg(long, default_values = vec![DEFAULT_INDEX_URL], num_args=0..)]
+        use_index: Vec<String>,
         /// Do not use any index when updating the lockfile
         #[arg(long, default_value = "false", conflicts_with = "use_index")]
         no_index: bool,
@@ -104,8 +104,8 @@ pub enum Command {
         #[arg(long, default_value = "false")]
         no_sync: bool,
         /// Use an index when resolving this usage
-        #[arg(long, default_value = Some(DEFAULT_INDEX_URL))]
-        use_index: Option<String>,
+        #[arg(long, default_values = vec![DEFAULT_INDEX_URL], num_args=0..)]
+        use_index: Vec<String>,
         /// Do not use any index when resolving this usage
         #[arg(long, default_value = "false", conflicts_with = "use_index")]
         no_index: bool,

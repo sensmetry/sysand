@@ -14,6 +14,7 @@ pub mod null;
 pub mod remote;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod reqwest_http;
+pub mod sequential;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod standard;
 

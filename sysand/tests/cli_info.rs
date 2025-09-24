@@ -365,7 +365,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
     let versions_mock = server
         .mock(
             "GET",
-            "/dac306141e1d854f462500d5b3fc829bf61237cf782849e27e904e43e37da4d9/versions.txt",
+            "/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe/versions.txt",
         )
         .with_status(200)
         .with_header("content-type", "text/plain")
@@ -374,7 +374,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
         .create();
 
     let project_mock_head = server
-        .mock("HEAD", "/dac306141e1d854f462500d5b3fc829bf61237cf782849e27e904e43e37da4d9/1.2.3.kpar/.project.json")
+        .mock("HEAD", "/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe/1.2.3.kpar/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_index_url","version":"1.2.3","usage":[]}"#)
@@ -382,7 +382,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
         .create();
 
     let project_mock = server
-        .mock("GET", "/dac306141e1d854f462500d5b3fc829bf61237cf782849e27e904e43e37da4d9/1.2.3.kpar/.project.json")
+        .mock("GET", "/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe/1.2.3.kpar/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_index_url","version":"1.2.3","usage":[]}"#)
@@ -390,7 +390,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
         .create();
 
     let meta_mock = server
-        .mock("GET", "/dac306141e1d854f462500d5b3fc829bf61237cf782849e27e904e43e37da4d9/1.2.3.kpar/.meta.json")
+        .mock("GET", "/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe/1.2.3.kpar/.meta.json")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
@@ -401,7 +401,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
         &vec![
             "info",
             "--iri",
-            "urn::kpar::info_basic_index_url",
+            "urn:kpar:info_basic_index_url",
             "--use-index",
             &server.url(),
         ],
@@ -422,7 +422,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
         &vec![
             "info",
             "--iri",
-            "urn::kpar::other",
+            "urn:kpar:other",
             "--use-index",
             &server.url(),
         ],
@@ -430,7 +430,146 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "Unable to find interchange project at urn::kpar::other",
+        "Unable to find interchange project at urn:kpar:other",
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
+    let mut server = mockito::Server::new();
+    let mut server_alt = mockito::Server::new();
+
+    let versions_mock = server
+        .mock(
+            "GET",
+            "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/versions.txt",
+        )
+        .with_status(200)
+        .with_header("content-type", "text/plain")
+        .with_body("1.2.3\n")
+        .expect_at_most(1)
+        .create();
+
+    let project_mock_head = server
+        .mock("HEAD", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(1)
+        .create();
+
+    let project_mock = server
+        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .create();
+
+    let meta_mock = server
+        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.meta.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .create();
+
+    let versions_alt_mock = server_alt
+        .mock(
+            "GET",
+            "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/versions.txt",
+        )
+        .with_status(200)
+        .with_header("content-type", "text/plain")
+        .with_body("1.2.3\n")
+        .expect_at_most(1)
+        .create();
+
+    let project_alt_mock_head = server_alt
+        .mock("HEAD", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url_alt","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(1)
+        .create();
+
+    let project_alt_mock = server_alt
+        .mock("GET", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url_alt","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .create();
+
+    let meta_alt_mock = server_alt
+        .mock("GET", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.meta.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .create();
+
+    let (_, _, out) = run_sysand(
+        &vec![
+            "info",
+            "--iri",
+            "urn:kpar:info_multi_index_url",
+            "--use-index",
+            &server.url(),
+            "--use-index",
+            &server_alt.url(),
+        ],
+        None,
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: info_multi_index_url"))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    let (_, _, out) = run_sysand(
+        &vec![
+            "info",
+            "--iri",
+            "urn:kpar:info_multi_index_url_alt",
+            "--use-index",
+            &server.url(),
+            "--use-index",
+            &server_alt.url(),
+        ],
+        None,
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: info_multi_index_url_alt"))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    versions_mock.assert();
+    project_mock_head.assert();
+    project_mock.assert();
+    meta_mock.assert();
+
+    versions_alt_mock.assert();
+    project_alt_mock_head.assert();
+    project_alt_mock.assert();
+    meta_alt_mock.assert();
+
+    let (_, _, out) = run_sysand(
+        &vec![
+            "info",
+            "--iri",
+            "urn:kpar:other",
+            "--use-index",
+            &server.url(),
+        ],
+        None,
+    )?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "Unable to find interchange project at urn:kpar:other",
     ));
 
     Ok(())
