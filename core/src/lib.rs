@@ -13,6 +13,7 @@ pub mod project;
 pub mod resolve;
 pub mod solve;
 pub mod style;
+pub mod stdlib;
 pub mod symbols;
 
 #[cfg(feature = "filesystem")]

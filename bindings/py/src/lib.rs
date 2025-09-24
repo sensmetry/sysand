@@ -25,6 +25,7 @@ use sysand_core::{
     remove::do_remove,
     resolve::standard::standard_resolver,
     sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
+    stdlib::known_std_libs,
     symbols::Language,
 };
 
@@ -201,14 +202,21 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
 
 #[pyfunction(name = "do_sources_env_py")]
 #[pyo3(
-    signature = (env_path, iri, version, include_deps),
+    signature = (env_path, iri, version, include_deps, include_std),
 )]
 pub fn do_sources_env_py(
     env_path: String,
     iri: String,
     version: Option<String>,
     include_deps: bool,
+    include_std: bool,
 ) -> PyResult<Vec<String>> {
+    let provided_iris = if !include_std {
+        known_std_libs()
+    } else {
+        std::collections::HashMap::default()
+    };
+
     let version = match version {
         Some(version) => Some(
             semver::VersionReq::parse(&version)
@@ -298,6 +306,7 @@ pub fn do_sources_env_py(
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
                 .usage,
             env,
+            &provided_iris,
         )
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
         {
@@ -321,12 +330,13 @@ pub fn do_sources_env_py(
 
 #[pyfunction(name = "do_sources_project_py")]
 #[pyo3(
-    signature = (path, include_deps, env_path),
+    signature = (path, include_deps, env_path, include_std),
 )]
 pub fn do_sources_project_py(
     path: String,
     include_deps: bool,
     env_path: Option<String>,
+    include_std: bool,
 ) -> PyResult<Vec<String>> {
     let mut result = vec![];
 
@@ -364,6 +374,12 @@ pub fn do_sources_project_py(
             ));
         };
 
+        let provided_iris = if !include_std {
+            known_std_libs()
+        } else {
+            std::collections::HashMap::default()
+        };
+
         let env = LocalDirectoryEnvironment {
             environment_path: env_path.into(),
         };
@@ -373,6 +389,7 @@ pub fn do_sources_project_py(
                 .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
                 .usage,
             env,
+            &provided_iris,
         )
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
         {
