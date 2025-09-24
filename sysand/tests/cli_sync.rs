@@ -59,7 +59,7 @@ src_path = "lib/sync_to_local"
         .as_bytes(),
     )?;
 
-    let out = run_sysand_in(&cwd, &vec!["sync"], None)?;
+    let out = run_sysand_in(&cwd, ["sync"], None)?;
 
     out.assert()
         .success()
@@ -67,13 +67,13 @@ src_path = "lib/sync_to_local"
         .stderr(predicate::str::contains("Syncing"))
         .stderr(predicate::str::contains("Installing"));
 
-    let out = run_sysand_in(&cwd, &vec!["env", "list"], None)?;
+    let out = run_sysand_in(&cwd, ["env", "list"], None)?;
 
     out.assert()
         .success()
         .stdout(predicate::str::contains("urn:kpar:sync_to_local 1.2.3"));
 
-    let out = run_sysand_in(&cwd, &vec!["sync"], None)?;
+    let out = run_sysand_in(&cwd, ["sync"], None)?;
 
     out.assert()
         .success()
@@ -126,7 +126,7 @@ remote_src = "{}"
         .as_bytes(),
     )?;
 
-    let out = run_sysand_in(&cwd, &vec!["sync"], None)?;
+    let out = run_sysand_in(&cwd, ["sync"], None)?;
 
     out.assert()
         .success()
@@ -137,13 +137,13 @@ remote_src = "{}"
     info_mock.assert();
     meta_mock.assert();
 
-    let out = run_sysand_in(&cwd, &vec!["env", "list"], None)?;
+    let out = run_sysand_in(&cwd, ["env", "list"], None)?;
 
     out.assert()
         .success()
         .stdout(predicate::str::contains("urn:kpar:sync_to_remote 1.2.3"));
 
-    let out = run_sysand_in(&cwd, &vec!["sync"], None)?;
+    let out = run_sysand_in(&cwd, ["sync"], None)?;
 
     out.assert()
         .success()

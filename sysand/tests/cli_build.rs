@@ -16,10 +16,8 @@ pub use common::*;
 
 #[test]
 fn test_build() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        &vec!["init", "--version", "1.2.3", "--name", "test_build"],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        run_sysand(["init", "--version", "1.2.3", "--name", "test_build"], None)?;
 
     {
         let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
@@ -28,21 +26,17 @@ fn test_build() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(
-        &cwd,
-        &vec!["include", "--no-index-symbols", "test.sysml"],
-        None,
-    )?;
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, &vec!["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
 
     out.assert().success();
 
     let out = run_sysand_in(
         &cwd,
-        &vec![
+        [
             "info",
             "--path",
             &cwd.join("test_build.kpar").to_string_lossy(),

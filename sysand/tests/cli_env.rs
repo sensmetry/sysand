@@ -15,7 +15,7 @@ pub use common::*;
 /// ./sysand_env, containing only an empty entries.txt file
 #[test]
 fn env_init_empty_env() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(&vec!["env"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(["env"], None)?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -50,7 +50,7 @@ fn env_init_empty_env() -> Result<(), Box<dyn std::error::Error>> {
 /// uninstall <IRI>` should remove it from the env
 #[test]
 fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, _) = run_sysand(&vec!["env"], None)?;
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
 
     let test_path = fixture_path("test_lib");
 
@@ -58,7 +58,7 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &cwd,
-        &vec![
+        [
             "env",
             "install",
             "urn:kpar:test",
@@ -109,13 +109,13 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
             .is_file()
     );
 
-    let out = run_sysand_in(&cwd, &vec!["env", "list"], None)?;
+    let out = run_sysand_in(&cwd, ["env", "list"], None)?;
 
     out.assert()
         .success()
         .stdout(predicate::str::contains("urn:kpar:test 0.0.1"));
 
-    let out = run_sysand_in(&cwd, &vec!["env", "uninstall", "urn:kpar:test"], None)?;
+    let out = run_sysand_in(&cwd, ["env", "uninstall", "urn:kpar:test"], None)?;
 
     out.assert()
         .success()
@@ -138,13 +138,13 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
 /// and if run again with flag `--allow-overwrite` it should succeed
 #[test]
 fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, _) = run_sysand(&vec!["env"], None)?;
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
 
     let test_path = fixture_path("test_lib");
 
     let out = run_sysand_in(
         &cwd,
-        &vec![
+        [
             "env",
             "install",
             "urn:kpar:test",
@@ -160,7 +160,7 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
 
     let out = run_sysand_in(
         &cwd,
-        &vec![
+        [
             "env",
             "install",
             "urn:kpar:test",
@@ -176,7 +176,7 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
 
     let out = run_sysand_in(
         &cwd,
-        &vec![
+        [
             "env",
             "install",
             "urn:kpar:test",

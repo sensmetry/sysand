@@ -13,14 +13,13 @@ pub use common::*;
 /// on directory name as name.
 #[test]
 fn discover_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, _) =
-        run_sysand(&vec!["new", "--version", "1.2.3", "discover_basic"], None)?;
+    let (_temp_dir, cwd, _) = run_sysand(["new", "--version", "1.2.3", "discover_basic"], None)?;
 
     let project_path = cwd.join("discover_basic").join("path");
 
     std::fs::create_dir(&project_path)?;
 
-    let out_1 = run_sysand_in(&project_path, &vec!["print-root"], None)?;
+    let out_1 = run_sysand_in(&project_path, ["print-root"], None)?;
 
     out_1
         .assert()

@@ -13,7 +13,7 @@ pub use common::*;
 /// on directory name as name.
 #[test]
 fn new_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(&vec!["new", "--version", "1.2.3", "new_basic"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(["new", "--version", "1.2.3", "new_basic"], None)?;
 
     let proj_dir_path = cwd.join("new_basic");
 
@@ -42,7 +42,7 @@ fn new_basic() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn new_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "new",
             "--version",
             "1.2.3",
@@ -81,7 +81,7 @@ fn new_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
 fn new_fail_on_double_new() -> Result<(), Box<dyn std::error::Error>> {
     // Run 1
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec!["new", "--version", "1.2.3", "new_fail_on_double_new"],
+        ["new", "--version", "1.2.3", "new_fail_on_double_new"],
         None,
     )?;
     out.assert().success().stdout(predicate::str::is_empty());
@@ -96,7 +96,7 @@ fn new_fail_on_double_new() -> Result<(), Box<dyn std::error::Error>> {
     // Run 2
     let out_again = run_sysand_in(
         &cwd,
-        &vec!["new", "--version", "1.2.3", "new_fail_on_double_new"],
+        ["new", "--version", "1.2.3", "new_fail_on_double_new"],
         None,
     )?;
     out_again

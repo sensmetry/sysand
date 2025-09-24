@@ -11,13 +11,13 @@ pub use common::*;
 #[test]
 fn add_and_remove() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec!["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
         None,
     )?;
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, &vec!["add", "--no-lock", "urn:kpar:test"], None)?;
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "urn:kpar:test"], None)?;
 
     out.assert()
         .success()
@@ -38,7 +38,7 @@ fn add_and_remove() -> Result<(), Box<dyn std::error::Error>> {
 }"#
     );
 
-    let out = run_sysand_in(&cwd, &vec!["remove", "urn:kpar:test"], None)?;
+    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], None)?;
 
     out.assert().success().stderr(predicate::str::contains(
         r#"Removed usages:
@@ -62,13 +62,13 @@ fn add_and_remove() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn remove_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec!["init", "--version", "1.2.3", "--name", "remove_nonexistent"],
+        ["init", "--version", "1.2.3", "--name", "remove_nonexistent"],
         None,
     )?;
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, &vec!["remove", "urn:kpar:remove_nonexistent"], None)?;
+    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:remove_nonexistent"], None)?;
 
     out.assert().failure().stderr(predicate::str::contains(
         "could not find usage for urn:kpar:remove_nonexistent",

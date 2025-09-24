@@ -23,13 +23,13 @@ use serde_json::json;
 #[test]
 fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec!["init", "--name", "lock_trivial", "--version", "1.2.3"],
+        ["init", "--name", "lock_trivial", "--version", "1.2.3"],
         None,
     )?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let out = run_sysand_in(&cwd, &vec!["lock"], None)?;
+    let out = run_sysand_in(&cwd, ["lock"], None)?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -164,7 +164,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--name",
             "lock_basic_http_deps",
@@ -178,7 +178,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
 
     inject_usages(cwd.join(".project.json"), [a_url.clone(), b_url.clone()])?;
 
-    let out = run_sysand_in(&cwd, &vec!["lock"], None)?;
+    let out = run_sysand_in(&cwd, ["lock"], None)?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -198,12 +198,12 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     assert!(project_names.contains(&"lock_basic_http_deps_b".to_string()));
     assert!(project_names.contains(&"lock_basic_http_deps_c".to_string()));
 
-    run_sysand_in(&cwd, &vec!["env"], None)?
+    run_sysand_in(&cwd, ["env"], None)?
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
 
-    run_sysand_in(&cwd, &vec!["sync"], None)?
+    run_sysand_in(&cwd, ["sync"], None)?
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
@@ -230,7 +230,7 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
     let a_url = mock_project(&mut server, "a", "lock_basic_http_deps_a", "1.0.0", NO_DEP);
 
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--name",
             "lock_basic_http_deps",
@@ -244,7 +244,7 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
 
     inject_usages_versions(cwd.join(".project.json"), [(a_url, Some(">1.0.0"))])?;
 
-    let out = run_sysand_in(&cwd, &vec!["lock"], None)?;
+    let out = run_sysand_in(&cwd, ["lock"], None)?;
 
     out.assert()
         .failure()

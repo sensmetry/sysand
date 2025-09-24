@@ -12,10 +12,8 @@ pub use common::*;
 /// and .meta.json files in the current working directory. (Non-interactive use)
 #[test]
 fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        &vec!["init", "--name", "init_basic", "--version", "1.2.3"],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        run_sysand(["init", "--name", "init_basic", "--version", "1.2.3"], None)?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -43,7 +41,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
 fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     // Run 1
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--name",
             "init_fail_on_double_init",
@@ -60,7 +58,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     // Run 2
     let out_again = run_sysand_in(
         &cwd,
-        &vec![
+        [
             "init",
             "--name",
             "init_fail_on_double_init_again",

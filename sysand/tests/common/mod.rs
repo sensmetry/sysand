@@ -19,15 +19,15 @@ pub fn fixture_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-pub fn sysand_cmd_in(
+pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
     cwd: &std::path::Path,
-    args: &[&str],
+    args: I,
     cfg: Option<&str>,
 ) -> Result<Command, Box<dyn std::error::Error>> {
     let args = [
-        args.to_vec(),
-        cfg.map(|config| vec!["--config", config])
-            .unwrap_or(vec!["--no-config"]),
+        args.into_iter().map(|s| s.to_string()).collect(),
+        cfg.map(|config| vec!["--config".to_string(), config.to_string()])
+            .unwrap_or(vec!["--no-config".to_string()]),
     ]
     .concat();
     // NOTE had trouble getting test-temp-dir crate working, but would be better
@@ -54,8 +54,8 @@ pub fn new_temp_cwd() -> Result<(TempDir, std::path::PathBuf), Box<dyn std::erro
     Ok((temp_dir, temp_dir_path))
 }
 
-pub fn sysand_cmd(
-    args: &Vec<&str>,
+pub fn sysand_cmd<'a, I: IntoIterator<Item = &'a str>>(
+    args: I,
     cfg: Option<&str>,
 ) -> Result<(TempDir, PathBuf, Command), Box<dyn std::error::Error>> {
     // NOTE had trouble getting test-temp-dir crate working, but would be better
@@ -65,16 +65,16 @@ pub fn sysand_cmd(
     Ok((temp_dir, cwd, cmd))
 }
 
-pub fn run_sysand_in(
+pub fn run_sysand_in<'a, I: IntoIterator<Item = &'a str>>(
     cwd: &std::path::Path,
-    args: &Vec<&str>,
+    args: I,
     cfg: Option<&str>,
 ) -> Result<Output, Box<dyn std::error::Error>> {
     Ok(sysand_cmd_in(cwd, args, cfg)?.output()?)
 }
 
-pub fn run_sysand(
-    args: &Vec<&str>,
+pub fn run_sysand<'a, I: IntoIterator<Item = &'a str>>(
+    args: I,
     cfg: Option<&str>,
 ) -> Result<(TempDir, std::path::PathBuf, Output), Box<dyn std::error::Error>> {
     let (temp_dir, cwd, mut cmd) = sysand_cmd(args /*, stdin*/, cfg)?;
@@ -84,9 +84,9 @@ pub fn run_sysand(
 
 // TODO: Figure out how to do interactive tests on Windows.
 #[cfg(not(target_os = "windows"))]
-pub fn run_sysand_interactive_in(
+pub fn run_sysand_interactive_in<'a, I: IntoIterator<Item = &'a str>>(
     cwd: &std::path::Path,
-    args: &Vec<&str>,
+    args: I,
     timeout_ms: Option<u64>,
     cfg: Option<&str>,
 ) -> Result<PtySession, Box<dyn std::error::Error>> {
@@ -97,8 +97,8 @@ pub fn run_sysand_interactive_in(
 
 // TODO: Figure out how to do interactive tests on Windows.
 #[cfg(not(target_os = "windows"))]
-pub fn run_sysand_interactive(
-    args: &Vec<&str>,
+pub fn run_sysand_interactive<'a, I: IntoIterator<Item = &'a str>>(
+    args: I,
     timeout_ms: Option<u64>,
     cfg: Option<&str>,
 ) -> Result<(TempDir, std::path::PathBuf, PtySession), Box<dyn std::error::Error>> {

@@ -11,30 +11,29 @@ pub use common::*;
 #[test]
 fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir1, cwd_dep, out) =
-        run_sysand(&vec!["new", "--version", "1.2.3", "list_sources_dep"], None)?;
+        run_sysand(["new", "--version", "1.2.3", "list_sources_dep"], None)?;
     out.assert().success();
 
     let dep_path = cwd_dep.join("list_sources_dep");
 
     std::fs::write(dep_path.join("dep_src.sysml"), "package DepSrc;")?;
 
-    let out = run_sysand_in(&dep_path, &vec!["include", "dep_src.sysml"], None)?;
+    let out = run_sysand_in(&dep_path, ["include", "dep_src.sysml"], None)?;
     out.assert().success();
 
-    let (_temp_dir2, cwd, out) =
-        run_sysand(&vec!["new", "--version", "1.2.3", "list_sources"], None)?;
+    let (_temp_dir2, cwd, out) = run_sysand(["new", "--version", "1.2.3", "list_sources"], None)?;
     out.assert().success();
 
     let path = cwd.join("list_sources");
 
     std::fs::write(path.join("src.sysml"), "package Src;")?;
 
-    let out = run_sysand_in(&path, &vec!["include", "src.sysml"], None)?;
+    let out = run_sysand_in(&path, ["include", "src.sysml"], None)?;
     out.assert().success();
 
     let out = run_sysand_in(
         &path,
-        &vec![
+        [
             "env",
             "install",
             "urn:kpar:list_sources_dep",
@@ -47,7 +46,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &path,
-        &vec![
+        [
             "add",
             "--no-sync",
             "urn:kpar:list_sources_dep",
@@ -73,21 +72,36 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     combined_path.push_str(&expected_path);
     combined_path.push_str(&dep_expected_path);
 
-    let out = run_sysand_in(&path, &vec!["sources", "--no-deps"], None)?;
+    let out = run_sysand_in(&path, ["sources", "--no-deps"], None)?;
 
     out.assert().success().stdout(expected_path);
 
     let out = run_sysand_in(
         &path,
-        &vec!["env", "sources", "urn:kpar:list_sources_dep", "--no-deps"],
+        ["env", "sources", "urn:kpar:list_sources_dep", "--no-deps"],
         None,
     )?;
 
     out.assert().success().stdout(dep_expected_path);
 
-    let out = run_sysand_in(&path, &vec!["sources"], None)?;
+    let out = run_sysand_in(&path, ["sources"], None)?;
 
     out.assert().success().stdout(combined_path);
+
+    Ok(())
+}
+
+#[test]
+fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir1, cwd_dep, out) =
+        run_sysand(["new", "--version", "1.2.3", "sources_without_std"], None)?;
+    out.assert().success();
+
+    let path_dep = cwd_dep.join("sources_without_std");
+
+    std::fs::write(path_dep.join("src_dep.sysml"), "package SrcDep;")?;
+
+    run_sysand_in(&cwd_dep, vec![], None)?;
 
     Ok(())
 }

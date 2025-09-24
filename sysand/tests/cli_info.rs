@@ -12,16 +12,14 @@ pub use common::*;
 
 #[test]
 fn info_basic_in_cwd() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out_init) = run_sysand(
-        &vec!["init", "--version", "1.2.3", "--name", "info_basic"],
-        None,
-    )?;
+    let (_temp_dir, cwd, out_init) =
+        run_sysand(["init", "--version", "1.2.3", "--name", "info_basic"], None)?;
     out_init
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
 
-    let out = run_sysand_in(&cwd, &vec!["info"], None)?;
+    let out = run_sysand_in(&cwd, ["info"], None)?;
 
     out.assert()
         .success()
@@ -32,8 +30,7 @@ fn info_basic_in_cwd() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out_new) =
-        run_sysand(&vec!["new", "--version", "1.2.3", "info_basic"], None)?;
+    let (_temp_dir, cwd, out_new) = run_sysand(["new", "--version", "1.2.3", "info_basic"], None)?;
     out_new
         .assert()
         .success()
@@ -74,7 +71,7 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::E
             } else {
                 add_path_args(&mut args, use_auto, "info_basic");
             }
-            run_sysand_in(&cwd, &args, None)?
+            run_sysand_in(&cwd, args, None)?
         };
 
         out_relative
@@ -90,11 +87,11 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::E
         if use_iri {
             let project_path_uri = url::Url::from_file_path(project_path).unwrap().to_string();
             add_iri_args(&mut args, use_auto, &project_path_uri);
-            run_sysand_in(&cwd, &args, None)?
+            run_sysand_in(&cwd, args, None)?
         } else {
             let project_path_str = project_path.display().to_string();
             add_path_args(&mut args, use_auto, &project_path_str);
-            run_sysand_in(&cwd, &args, None)?
+            run_sysand_in(&cwd, args, None)?
         }
     };
 
@@ -179,7 +176,7 @@ fn info_basic_http_url() -> Result<(), Box<dyn std::error::Error>> {
         .expect_at_most(3) // TODO: Reduce this to 1 after caching
         .create();
 
-    let (_, _, out) = run_sysand(&vec!["info", "--iri", &server.url()], None)?;
+    let (_, _, out) = run_sysand(["info", "--iri", &server.url()], None)?;
 
     out.assert()
         .success()
@@ -241,7 +238,7 @@ fn info_non_ranged_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
 
     let url = format!("{}/info_non_ranged_http_kpar.kpar", server.url());
 
-    let (_, _, out) = run_sysand(&vec!["info", "--iri", &url], None)?;
+    let (_, _, out) = run_sysand(["info", "--iri", &url], None)?;
 
     out.assert()
         .success()
@@ -275,7 +272,7 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
         zip.finish().unwrap();
     }
 
-    let (_, _, out) = run_sysand(&vec!["info", "--path", &zip_path.to_string_lossy()], None)?;
+    let (_, _, out) = run_sysand(["info", "--path", &zip_path.to_string_lossy()], None)?;
 
     out.assert()
         .success()
@@ -343,7 +340,7 @@ fn info_basic_file_git() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let (_, _, out) = run_sysand(
-        &vec![
+        [
             "info",
             "--uri",
             url::Url::from_file_path(cwd.path()).unwrap().as_str(),
@@ -398,7 +395,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
         .create();
 
     let (_, _, out) = run_sysand(
-        &vec![
+        [
             "info",
             "--iri",
             "urn:kpar:info_basic_index_url",
@@ -419,7 +416,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
     meta_mock.assert();
 
     let (_, _, out) = run_sysand(
-        &vec![
+        [
             "info",
             "--iri",
             "urn:kpar:other",
@@ -512,7 +509,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
         .create();
 
     let (_, _, out) = run_sysand(
-        &vec![
+        [
             "info",
             "--iri",
             "urn:kpar:info_multi_index_url",
@@ -530,7 +527,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     let (_, _, out) = run_sysand(
-        &vec![
+        [
             "info",
             "--iri",
             "urn:kpar:info_multi_index_url_alt",
@@ -558,7 +555,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
     meta_alt_mock.assert();
 
     let (_, _, out) = run_sysand(
-        &vec![
+        [
             "info",
             "--iri",
             "urn:kpar:other",

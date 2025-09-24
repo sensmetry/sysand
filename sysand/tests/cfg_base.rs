@@ -10,7 +10,7 @@ pub use common::*;
 
 #[test]
 fn cfg_set_quiet() -> Result<(), Box<dyn std::error::Error>> {
-    let (_, _, out_normal) = run_sysand(&vec!["new", "cfg_set_quiet"], None)?;
+    let (_, _, out_normal) = run_sysand(["new", "cfg_set_quiet"], None)?;
 
     out_normal
         .assert()
@@ -19,7 +19,7 @@ fn cfg_set_quiet() -> Result<(), Box<dyn std::error::Error>> {
             "Creating interchange project `cfg_set_quiet`",
         ));
 
-    let (_, _, out_quiet_flag) = run_sysand(&vec!["new", "--quiet", "cfg_set_quiet"], None)?;
+    let (_, _, out_quiet_flag) = run_sysand(["new", "--quiet", "cfg_set_quiet"], None)?;
 
     out_quiet_flag
         .assert()
@@ -38,8 +38,7 @@ fn cfg_set_quiet() -> Result<(), Box<dyn std::error::Error>> {
 
     std::fs::write(&cfg_path, quiet_cfg.clone())?;
 
-    let out_quiet_local_config =
-        run_sysand_in(&cwd, &vec!["new", "cfg_set_quiet"], cfg_path.to_str())?;
+    let out_quiet_local_config = run_sysand_in(&cwd, ["new", "cfg_set_quiet"], cfg_path.to_str())?;
 
     out_quiet_local_config
         .assert()
