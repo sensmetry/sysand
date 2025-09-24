@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Create an empty .project.json in the IT project base directory
-touch .project.json
-
