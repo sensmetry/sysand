@@ -1,0 +1,1 @@
+{"name":"Kernel Semantic Library","version":"1.0.0","description":"Standard semantic library for the Kernel Modeling Language (KerML)","usage":[{"resource":"urn:kpar:data-type-library","versionConstraint":"1.0.0"},{"resource":"urn:kpar:function-library","versionConstraint":"1.0.0"}],"topic":["Standard"]}

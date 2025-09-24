@@ -1,0 +1,1 @@
+{"name":"Kernel Function Library","version":"1.0.0","description":"Standard function library for the Kernel Modeling Language (KerML)","usage":[{"resource":"urn:kpar:semantic-library","versionConstraint":"1.0.0"},{"resource":"urn:kpar:data-type-library","versionConstraint":"1.0.0"}],"topic":["Standard"]}
