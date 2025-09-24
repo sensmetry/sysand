@@ -4,15 +4,16 @@
 #[cfg(not(feature = "std"))]
 compile_error!("`std` feature is currently required to build `sysand`");
 
-
 use anyhow::{Result, bail};
 
 use sysand_core::{
     config::{
-        local_fs::{get_config, load_configs}, Config
+        Config,
+        local_fs::{get_config, load_configs},
     },
-    env::local_directory::{LocalDirectoryEnvironment, DEFAULT_ENV_NAME},
-    project::ProjectRead, stdlib::known_std_libs,
+    env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
+    project::ProjectRead,
+    stdlib::known_std_libs,
 };
 
 use crate::commands::{
@@ -317,8 +318,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         }
     }
 }
-
-
 
 pub fn get_env(project_root: &std::path::Path) -> Option<LocalDirectoryEnvironment> {
     let environment_path = project_root.join(DEFAULT_ENV_NAME);
