@@ -134,13 +134,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         },
         cli::Command::Lock {
-            mut use_index,
+            use_index,
             no_index,
             include_std,
         } => {
-            if no_index {
-                use_index = None;
-            }
+            let index_base_urls = if no_index { None } else { Some(use_index) };
 
             let provided_iris = if !include_std {
                 known_std_libs()
@@ -149,7 +147,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             };
 
             if let Some(path) = project_root {
-                crate::commands::lock::command_lock(path, client, use_index, &provided_iris)
+                crate::commands::lock::command_lock(path, client, index_base_urls, &provided_iris)
             } else {
                 bail!("Not inside a project")
             }
@@ -184,12 +182,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             auto,
             location,
             no_normalise,
-            mut use_index,
+            use_index,
             no_index,
         } => {
-            if no_index {
-                use_index = None;
-            }
+            let index_base_urls = if no_index { None } else { Some(use_index) };
+
             match location {
                 Some(actual_location) => {
                     if iri {
@@ -201,7 +198,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                             uri,
                             !no_normalise,
                             client,
-                            use_index,
+                            index_base_urls,
                         )
                     } else if auto {
                         debug_assert!(!path);
@@ -210,7 +207,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                 uri,
                                 !no_normalise,
                                 client,
-                                use_index,
+                                index_base_urls,
                             )
                         } else {
                             command_info_path(std::path::Path::new(&actual_location))
@@ -230,13 +227,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             versions_constraint,
             no_lock,
             no_sync,
-            mut use_index,
+            use_index,
             no_index,
             include_std,
         } => {
-            if no_index {
-                use_index = None;
-            }
+            let index_base_urls = if no_index { None } else { Some(use_index) };
+
             command_add(iri, versions_constraint, current_project)?;
 
             if !no_lock {
@@ -250,7 +246,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     crate::commands::lock::command_lock(
                         path,
                         client.clone(),
-                        use_index,
+                        index_base_urls,
                         &provided_iris,
                     )?;
                 } else {

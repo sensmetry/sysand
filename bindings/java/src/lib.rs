@@ -170,7 +170,7 @@ pub extern "system" fn Java_org_sysand_Sysand_info<'local>(
         Some(std::path::PathBuf::from(&relative_file_root)),
         None,
         Some(client),
-        index_base_url,
+        index_base_url.map(|x| vec![x]),
     );
 
     let results = match sysand_core::commands::info::do_info(&uri, &combined_resolver) {

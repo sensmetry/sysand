@@ -99,13 +99,13 @@ fn do_info_py_path(
 
 #[pyfunction(name = "do_info_py")]
 #[pyo3(
-    signature = (uri, relative_file_root, index_url),
+    signature = (uri, relative_file_root, index_urls),
 )]
 fn do_info_py(
     py: Python,
     uri: String,
     relative_file_root: String,
-    index_url: Option<String>,
+    index_urls: Option<Vec<String>>,
 ) -> PyResult<Vec<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>> {
     py.allow_threads(|| {
         let mut results = vec![];
@@ -113,8 +113,13 @@ fn do_info_py(
             .build()
             .expect("internal HTTP error");
 
-        let index_url = index_url
-            .map(|url_str| url::Url::parse(&url_str))
+        let index_url = index_urls
+            .map(|url_strs| {
+                url_strs
+                    .iter()
+                    .map(|url_str| url::Url::parse(url_str))
+                    .collect()
+            })
             .transpose()
             .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
 

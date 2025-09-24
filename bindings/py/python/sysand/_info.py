@@ -23,12 +23,15 @@ def info(
     uri: str,
     *,
     relative_file_root: str | Path | None = None,
-    index_url: str | None = None,
+    index_urls: str | typing.List[str] | None = None,
 ) -> typing.List[typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata]]:
     if relative_file_root is None:
         relative_file_root = getcwd()
 
-    return sysand_rs.do_info_py(uri, relative_file_root, index_url)  # type: ignore
+    if isinstance(index_urls, str):
+        index_urls = [index_urls]
+
+    return sysand_rs.do_info_py(uri, relative_file_root, index_urls)  # type: ignore
 
 
 __all__ = [

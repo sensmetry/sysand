@@ -13,13 +13,14 @@ use crate::{
         gix_git::GitResolver,
         remote::{RemotePriority, RemoteResolver},
         reqwest_http::HTTPResolver,
+        sequential::SequentialResolve,
     },
 };
 use reqwest::blocking::Client;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
-pub type RemoteIndexResolver = EnvResolver<HTTPEnvironment>;
+pub type RemoteIndexResolver = SequentialResolve<EnvResolver<HTTPEnvironment>>;
 
 type StandardResolverInner = CombinedResolver<
     FileResolver,
@@ -79,15 +80,15 @@ pub fn standard_local_resolver(local_env_path: PathBuf) -> LocalEnvResolver {
     }
 }
 
-pub fn standard_index_resolver(client: Client, base_url: url::Url) -> RemoteIndexResolver {
-    EnvResolver {
+pub fn standard_index_resolver(client: Client, base_urls: Vec<url::Url>) -> RemoteIndexResolver {
+    SequentialResolve::new(base_urls.into_iter().map(|base_url| EnvResolver {
         env: HTTPEnvironment {
-            client,
-            base_url,
+            client: client.clone(),
+            base_url: base_url.clone(),
             prefer_src: true,
             try_ranged: true,
         },
-    }
+    }))
 }
 
 // TODO: Replace most of these arguments by some general CLIOptions object
@@ -95,7 +96,7 @@ pub fn standard_resolver(
     cwd: Option<PathBuf>,
     local_env_path: Option<PathBuf>,
     client: Option<Client>,
-    index_base_url: Option<url::Url>,
+    index_base_url: Option<Vec<url::Url>>,
 ) -> StandardResolver {
     let file_resolver = standard_file_resolver(cwd);
     let remote_resolver = client.clone().map(standard_remote_resolver);
