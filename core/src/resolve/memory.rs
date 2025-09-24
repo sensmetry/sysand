@@ -13,7 +13,7 @@ use crate::{
 #[derive(Debug)]
 pub struct MemoryResolver<Predicate, ProjectStorage: Clone> {
     pub iri_predicate: Predicate,
-    pub projects: HashMap<fluent_uri::Iri<String>, ProjectStorage>,
+    pub projects: HashMap<fluent_uri::Iri<String>, Vec<ProjectStorage>>,
 }
 
 pub trait IRIPredicate {
@@ -27,6 +27,7 @@ pub trait IRIPredicate {
     }
 }
 
+#[derive(Debug)]
 pub struct AcceptAll {}
 
 impl IRIPredicate for AcceptAll {
@@ -35,6 +36,7 @@ impl IRIPredicate for AcceptAll {
     }
 }
 
+#[derive(Debug)]
 pub struct AcceptScheme<'a> {
     pub scheme: &'a Scheme,
 }
@@ -52,7 +54,7 @@ impl<Predicate: IRIPredicate, ProjectStorage: ProjectRead + Clone> ResolveRead
 
     type ProjectStorage = ProjectStorage;
 
-    type ResolvedStorages = std::iter::Once<Result<Self::ProjectStorage, Self::Error>>;
+    type ResolvedStorages = Vec<Result<Self::ProjectStorage, Self::Error>>;
 
     fn resolve_read(
         &self,
@@ -65,7 +67,7 @@ impl<Predicate: IRIPredicate, ProjectStorage: ProjectRead + Clone> ResolveRead
         }
 
         Ok(match self.projects.get(uri) {
-            Some(x) => ResolutionOutcome::Resolved(std::iter::once(Ok(x.clone()))),
+            Some(xs) => ResolutionOutcome::Resolved(xs.iter().map(|x| Ok(x.clone())).collect()),
             None => ResolutionOutcome::Unresolvable(uri.to_string()),
         })
     }

@@ -119,7 +119,7 @@ mod tests {
     ) -> MemoryResolver<AcceptAll, InMemoryProject> {
         MemoryResolver {
             iri_predicate: AcceptAll {},
-            projects: HashMap::from_iter(projects),
+            projects: HashMap::from_iter(projects.into_iter().map(|(k, v)| (k, vec![v]))),
         }
     }
 

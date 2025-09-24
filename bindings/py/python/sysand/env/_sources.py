@@ -15,8 +15,11 @@ def sources(
     version: str | None = None,
     *,
     include_deps: bool = True,
+    include_std: bool = False,
 ) -> List[Path]:
-    return sysand_rs.do_sources_env_py(str(env_path), iri, version, include_deps)  # type: ignore
+    return sysand_rs.do_sources_env_py(  # type: ignore
+        str(env_path), iri, version, include_deps, include_std
+    )
 
 
 __all__ = [

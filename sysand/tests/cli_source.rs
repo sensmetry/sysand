@@ -7,34 +7,34 @@ use assert_cmd::prelude::*;
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
+use predicates::prelude::PredicateBooleanExt;
 
 #[test]
 fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir1, cwd_dep, out) =
-        run_sysand(&vec!["new", "--version", "1.2.3", "list_sources_dep"], None)?;
+        run_sysand(["new", "--version", "1.2.3", "list_sources_dep"], None)?;
     out.assert().success();
 
     let dep_path = cwd_dep.join("list_sources_dep");
 
     std::fs::write(dep_path.join("dep_src.sysml"), "package DepSrc;")?;
 
-    let out = run_sysand_in(&dep_path, &vec!["include", "dep_src.sysml"], None)?;
+    let out = run_sysand_in(&dep_path, ["include", "dep_src.sysml"], None)?;
     out.assert().success();
 
-    let (_temp_dir2, cwd, out) =
-        run_sysand(&vec!["new", "--version", "1.2.3", "list_sources"], None)?;
+    let (_temp_dir2, cwd, out) = run_sysand(["new", "--version", "1.2.3", "list_sources"], None)?;
     out.assert().success();
 
     let path = cwd.join("list_sources");
 
     std::fs::write(path.join("src.sysml"), "package Src;")?;
 
-    let out = run_sysand_in(&path, &vec!["include", "src.sysml"], None)?;
+    let out = run_sysand_in(&path, ["include", "src.sysml"], None)?;
     out.assert().success();
 
     let out = run_sysand_in(
         &path,
-        &vec![
+        [
             "env",
             "install",
             "urn:kpar:list_sources_dep",
@@ -47,7 +47,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &path,
-        &vec![
+        [
             "add",
             "--no-sync",
             "urn:kpar:list_sources_dep",
@@ -73,21 +73,85 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     combined_path.push_str(&expected_path);
     combined_path.push_str(&dep_expected_path);
 
-    let out = run_sysand_in(&path, &vec!["sources", "--no-deps"], None)?;
+    let out = run_sysand_in(&path, ["sources", "--no-deps"], None)?;
 
     out.assert().success().stdout(expected_path);
 
     let out = run_sysand_in(
         &path,
-        &vec!["env", "sources", "urn:kpar:list_sources_dep", "--no-deps"],
+        ["env", "sources", "urn:kpar:list_sources_dep", "--no-deps"],
         None,
     )?;
 
     out.assert().success().stdout(dep_expected_path);
 
-    let out = run_sysand_in(&path, &vec!["sources"], None)?;
+    let out = run_sysand_in(&path, ["sources"], None)?;
 
     out.assert().success().stdout(combined_path);
+
+    Ok(())
+}
+
+#[test]
+fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir1, cwd_dep, out) = run_sysand(
+        ["new", "--version", "1.2.3", "sources_without_std_dep"],
+        None,
+    )?;
+    out.assert().success();
+
+    let path_dep = cwd_dep.join("sources_without_std_dep");
+
+    std::fs::write(path_dep.join("src_dep.sysml"), "package SrcDep;")?;
+
+    let out = run_sysand_in(&path_dep, ["include", "src_dep.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(
+        &path_dep,
+        ["add", "--no-index", "urn:kpar:function-library"],
+        None,
+    )?;
+    out.assert().success();
+
+    let (_temp_dir2, cwd, out) =
+        run_sysand(["new", "--version", "1.2.3", "sources_without_std"], None)?;
+    out.assert().success();
+
+    let path = cwd.join("sources_without_std");
+
+    std::fs::write(path.join("src.sysml"), "package Src;")?;
+
+    let out = run_sysand_in(&path, ["include", "src.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&path, ["env"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(
+        &path,
+        [
+            "env",
+            "install",
+            "urn:kpar:sources_without_std_dep",
+            "--location",
+            path_dep.to_str().unwrap(),
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let out = run_sysand_in(
+        &path,
+        ["add", "--no-index", "urn:kpar:sources_without_std_dep"],
+        None,
+    )?;
+    out.assert().success();
+
+    let out = run_sysand_in(&path, ["sources"], None)?;
+    out.assert().success().stdout(
+        predicates::str::contains("src.sysml").and(predicates::str::contains("src_dep.sysml")),
+    );
 
     Ok(())
 }

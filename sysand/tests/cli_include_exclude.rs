@@ -15,7 +15,7 @@ pub use common::*;
 #[test]
 fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--version",
             "1.2.3",
@@ -32,11 +32,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(
-        &cwd,
-        &vec!["include", "test.sysml", "--compute-checksum"],
-        None,
-    )?;
+    let out = run_sysand_in(&cwd, ["include", "test.sysml", "--compute-checksum"], None)?;
 
     out.assert().success();
 
@@ -60,7 +56,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
         ),])
     );
 
-    let out = run_sysand_in(&cwd, &vec!["exclude", "test.sysml"], None)?;
+    let out = run_sysand_in(&cwd, ["exclude", "test.sysml"], None)?;
 
     out.assert().success();
 
@@ -78,7 +74,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--version",
             "1.2.3",
@@ -95,7 +91,7 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, &vec!["include", "test.sysml"], None)?;
+    let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
 
     out.assert().success();
 
@@ -124,7 +120,7 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--version",
             "1.2.3",
@@ -143,7 +139,7 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &cwd,
-        &vec![
+        [
             "include",
             "test.sysml",
             "--compute-checksum",
@@ -177,7 +173,7 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--version",
             "1.2.3",
@@ -193,11 +189,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(
-        &cwd,
-        &vec!["include", "test.sysml", "--compute-checksum"],
-        None,
-    )?;
+    let out = run_sysand_in(&cwd, ["include", "test.sysml", "--compute-checksum"], None)?;
 
     out.assert().success();
 
@@ -221,11 +213,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     sysml_file.write_all(b"package P;\n")?;
     sysml_file.flush()?;
 
-    let out = run_sysand_in(
-        &cwd,
-        &vec!["include", "test.sysml", "--compute-checksum"],
-        None,
-    )?;
+    let out = run_sysand_in(&cwd, ["include", "test.sysml", "--compute-checksum"], None)?;
 
     out.assert().success();
 
@@ -255,7 +243,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--version",
             "1.2.3",
@@ -279,7 +267,7 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &cwd,
-        &vec![
+        [
             "include",
             "--compute-checksum",
             "test.sysml",
@@ -325,11 +313,7 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
         ])
     );
 
-    let out = run_sysand_in(
-        &cwd,
-        &vec!["exclude", "test.sysml", "extra/test.sysml"],
-        None,
-    )?;
+    let out = run_sysand_in(&cwd, ["exclude", "test.sysml", "extra/test.sysml"], None)?;
 
     out.assert().success();
 
@@ -347,7 +331,7 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--version",
             "1.2.3",
@@ -371,7 +355,7 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
 
     let out = run_sysand_in(
         &cwd,
-        &vec![
+        [
             "include",
             "--compute-checksum",
             "test.sysml",
@@ -417,7 +401,7 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
         ])
     );
 
-    let out = run_sysand_in(&cwd, &vec!["exclude", "test.sysml"], None)?;
+    let out = run_sysand_in(&cwd, ["exclude", "test.sysml"], None)?;
 
     out.assert().success();
 
@@ -449,7 +433,7 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
 #[test]
 fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--version",
             "1.2.3",
@@ -461,7 +445,7 @@ fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, &vec!["include", "test.sysml"], None)?;
+    let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
 
     let expected_error = if cfg!(windows) {
         "The system cannot find the file specified"
@@ -486,7 +470,7 @@ fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        &vec![
+        [
             "init",
             "--version",
             "1.2.3",
@@ -498,7 +482,7 @@ fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, &vec!["exclude", "test.sysml"], None)?;
+    let out = run_sysand_in(&cwd, ["exclude", "test.sysml"], None)?;
 
     out.assert().failure().stderr(predicates::str::contains(
         "could not find test.sysml in project metadata.",

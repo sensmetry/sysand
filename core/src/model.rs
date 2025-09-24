@@ -111,6 +111,18 @@ impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
 impl<Iri: PartialEq + std::clone::Clone, Version, VersionReq: std::clone::Clone>
     InterchangeProjectInfoG<Iri, Version, VersionReq>
 {
+    pub fn minimal(name: String, version: Version) -> Self {
+        InterchangeProjectInfoG {
+            name,
+            description: None,
+            version,
+            license: None,
+            maintainer: vec![],
+            website: None,
+            topic: vec![],
+            usage: vec![],
+        }
+    }
     // pub fn push_usage(&mut self, resource: Iri, version_requirement: Option<VersionReq>) {
     //     self.usage.push(InterchangeProjectUsageG {
     //         resource: resource,
@@ -358,6 +370,17 @@ impl TryFrom<InterchangeProjectMetadataRaw> for InterchangeProjectMetadata {
 }
 
 impl<Iri, Path: Eq + Hash + Clone, DateTime> InterchangeProjectMetadataG<Iri, Path, DateTime> {
+    pub fn minimal(created: DateTime) -> Self {
+        InterchangeProjectMetadataG {
+            index: IndexMap::default(),
+            created,
+            metamodel: None,
+            includes_derived: None,
+            includes_implied: None,
+            checksum: None,
+        }
+    }
+
     pub fn source_paths(&self, include_index: bool) -> HashSet<Path> {
         let mut result: HashSet<Path> = HashSet::new();
 

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashSet, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
 use url::ParseError;
@@ -11,7 +11,7 @@ use sysand_core::{
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     project::{
-        local_kpar::LocalKParProject, local_src::LocalSrcProject,
+        local_kpar::LocalKParProject, local_src::LocalSrcProject, memory::InMemoryProject,
         reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProject,
     },
 };
@@ -20,7 +20,7 @@ pub fn command_sync(
     project_root: PathBuf,
     env: &mut LocalDirectoryEnvironment,
     client: reqwest::blocking::Client,
-    exclude_iris: &HashSet<String>,
+    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
     let lockfile: Lock = toml::from_str(&std::fs::read_to_string(
         project_root.join(DEFAULT_LOCKFILE_NAME),
@@ -51,7 +51,7 @@ pub fn command_sync(
                 )
             },
         ),
-        exclude_iris,
+        provided_iris,
     )?;
     Ok(())
 }

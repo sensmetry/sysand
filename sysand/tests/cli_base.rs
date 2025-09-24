@@ -10,7 +10,7 @@ pub use common::*;
 
 #[test]
 fn basic_execution() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, _cwd, out) = run_sysand(&vec!["--version"], None)?;
+    let (_temp_dir, _cwd, out) = run_sysand(["--version"], None)?;
 
     out.assert()
         .success()

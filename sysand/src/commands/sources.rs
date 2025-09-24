@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::collections::HashMap;
+
 use crate::CliError;
 
 use anyhow::{Result, bail};
 use sysand_core::{
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
-    project::ProjectRead,
+    project::{ProjectRead, memory::InMemoryProject},
     sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
 };
 
@@ -18,6 +20,7 @@ pub fn command_sources_env(
     version: Option<VersionReq>,
     include_deps: bool,
     env: Option<LocalDirectoryEnvironment>,
+    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
     let Some(env) = env else {
         bail!("Unable to identify local environment");
@@ -61,7 +64,7 @@ pub fn command_sources_env(
             bail!("project is missing project information")
         };
 
-        for dep in find_project_dependencies(info.validate()?.usage, env)? {
+        for dep in find_project_dependencies(info.validate()?.usage, env, provided_iris)? {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
                 println!("{}", src_path.display());
             }
@@ -75,6 +78,7 @@ pub fn command_sources_project(
     include_deps: bool,
     current_project: Option<sysand_core::project::local_src::LocalSrcProject>,
     env: Option<LocalDirectoryEnvironment>,
+    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
     let current_project =
         current_project.ok_or(CliError::MissingProject("in current directory".to_string()))?;
@@ -90,10 +94,10 @@ pub fn command_sources_project(
         };
 
         let deps = match env {
-            Some(env) => find_project_dependencies(info.validate()?.usage, env)?,
+            Some(env) => find_project_dependencies(info.validate()?.usage, env, provided_iris)?,
             None => {
                 let env = NullEnvironment::new();
-                find_project_dependencies(info.validate()?.usage, env)?
+                find_project_dependencies(info.validate()?.usage, env, provided_iris)?
             }
         };
 

@@ -28,6 +28,18 @@ impl InMemoryProject {
         Self::default()
     }
 
+    pub fn from_info_meta(
+        info: InterchangeProjectInfoRaw,
+        meta: InterchangeProjectMetadataRaw,
+    ) -> Self {
+        Self {
+            info: Some(info),
+            meta: Some(meta),
+            files: HashMap::default(),
+            nominal_sources: vec![],
+        }
+    }
+
     pub fn from_project<Pr: ProjectRead>(
         from: &Pr,
     ) -> Result<InMemoryProject, CloneError<<Pr as ProjectRead>::Error, InMemoryError>> {
