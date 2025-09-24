@@ -33,7 +33,7 @@ pub enum SyncError<UrlError> {
     #[error("failed to install project {uri}:\n{cause}")]
     InstallFailure { uri: String, cause: String },
     #[error(
-        "tried to install {iri} (checksum {hash}) which is not among the versions supported by your environment"
+        "tried to install a non-provided version (checksum {hash}) of {iri}, which is an IRI marked as being provided by your tooling"
     )]
     InvalidProvidedVersion {
         iri: String,
