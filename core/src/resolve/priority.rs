@@ -4,99 +4,94 @@ use thiserror::Error;
 
 use crate::{project::ProjectRead, resolve::ResolveRead};
 
-/// Resolver that overrides the resolution of some underlying (secondary)
-/// by that of another (primary) resolver.
+/// Resolver that overrides the resolution of some underlying (lower priority)
+/// resolver by that of another (higher priority) resolver.
 #[derive(Debug)]
-pub struct ReplaceResolver<Primary, Secondary> {
-    primary: Primary,
-    secondary: Secondary,
+pub struct PriorityResolver<Higher, Lower> {
+    higher: Higher,
+    lower: Lower,
 }
 
-impl<Primary, Secondary> ReplaceResolver<Primary, Secondary> {
-    pub fn new(primary: Primary, secondary: Secondary) -> Self {
-        ReplaceResolver { primary, secondary }
+impl<Higher, Lower> PriorityResolver<Higher, Lower> {
+    pub fn new(higher: Higher, lower: Lower) -> Self {
+        PriorityResolver { higher, lower }
     }
 }
 
 #[derive(Error, Debug)]
-pub enum ReplaceError<PrimaryError, SecondaryError> {
+pub enum PriorityError<HigherError, LowerError> {
     #[error(transparent)]
-    PrimaryError(PrimaryError),
+    HigherError(HigherError),
     #[error(transparent)]
-    SecondaryError(SecondaryError),
+    LowerError(LowerError),
 }
 
 #[derive(Debug)]
-pub enum ReplaceProject<PrimaryProject, SecondaryProject> {
-    PrimaryProject(PrimaryProject),
-    SecondaryProject(SecondaryProject),
+pub enum PriorityProject<HigherProject, LowerProject> {
+    HigherProject(HigherProject),
+    LowerProject(LowerProject),
 }
 
 #[derive(Debug)]
-pub enum ReplaceReader<PrimaryReader, SecondaryReader> {
-    PrimaryReader(PrimaryReader),
-    SecondaryReader(SecondaryReader),
+pub enum PriorityReader<HigherReader, LowerReader> {
+    HigherReader(HigherReader),
+    LowerReader(LowerReader),
 }
 
-pub enum ReplaceIterator<Primary: ResolveRead, Secondary: ResolveRead> {
-    PrimaryIterator(<<Primary as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter),
-    SecondaryIterator(<<Secondary as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter),
+pub enum PriorityIterator<Higher: ResolveRead, Lower: ResolveRead> {
+    HigherIterator(<<Higher as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter),
+    LowerIterator(<<Lower as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter),
 }
 
-impl<Primary: ResolveRead + std::fmt::Debug, Secondary: ResolveRead + std::fmt::Debug>
-    std::fmt::Debug for ReplaceIterator<Primary, Secondary>
+impl<Higher: ResolveRead + std::fmt::Debug, Lower: ResolveRead + std::fmt::Debug> std::fmt::Debug
+    for PriorityIterator<Higher, Lower>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::PrimaryIterator(_arg0) => f
-                .debug_tuple("PrimaryIterator")
+            Self::HigherIterator(_arg0) => f
+                .debug_tuple("HigherIterator")
                 .field(&"<iterator>")
                 .finish(),
-            Self::SecondaryIterator(_arg0) => f
-                .debug_tuple("SecondaryIterator")
-                .field(&"<iterator>")
-                .finish(),
+            Self::LowerIterator(_arg0) => {
+                f.debug_tuple("LowerIterator").field(&"<iterator>").finish()
+            }
         }
     }
 }
 
-impl<Primary: ResolveRead, Secondary: ResolveRead> Iterator
-    for ReplaceIterator<Primary, Secondary>
-{
+impl<Higher: ResolveRead, Lower: ResolveRead> Iterator for PriorityIterator<Higher, Lower> {
     type Item = Result<
-        ReplaceProject<Primary::ProjectStorage, Secondary::ProjectStorage>,
-        ReplaceError<Primary::Error, Secondary::Error>,
+        PriorityProject<Higher::ProjectStorage, Lower::ProjectStorage>,
+        PriorityError<Higher::Error, Lower::Error>,
     >;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            ReplaceIterator::PrimaryIterator(project) => project.next().map(|x| {
-                x.map(ReplaceProject::PrimaryProject)
-                    .map_err(ReplaceError::PrimaryError)
+            PriorityIterator::HigherIterator(project) => project.next().map(|x| {
+                x.map(PriorityProject::HigherProject)
+                    .map_err(PriorityError::HigherError)
             }),
-            ReplaceIterator::SecondaryIterator(project) => project.next().map(|x| {
-                x.map(ReplaceProject::SecondaryProject)
-                    .map_err(ReplaceError::SecondaryError)
+            PriorityIterator::LowerIterator(project) => project.next().map(|x| {
+                x.map(PriorityProject::LowerProject)
+                    .map_err(PriorityError::LowerError)
             }),
         }
     }
 }
 
-impl<PrimaryReader: Read, SecondaryReader: Read> Read
-    for ReplaceReader<PrimaryReader, SecondaryReader>
-{
+impl<HigherReader: Read, LowerReader: Read> Read for PriorityReader<HigherReader, LowerReader> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
-            ReplaceReader::PrimaryReader(reader) => reader.read(buf),
-            ReplaceReader::SecondaryReader(reader) => reader.read(buf),
+            PriorityReader::HigherReader(reader) => reader.read(buf),
+            PriorityReader::LowerReader(reader) => reader.read(buf),
         }
     }
 }
 
-impl<PrimaryProject: ProjectRead, SecondaryProject: ProjectRead> ProjectRead
-    for ReplaceProject<PrimaryProject, SecondaryProject>
+impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
+    for PriorityProject<HigherProject, LowerProject>
 {
-    type Error = ReplaceError<PrimaryProject::Error, SecondaryProject::Error>;
+    type Error = PriorityError<HigherProject::Error, LowerProject::Error>;
 
     fn get_project(
         &self,
@@ -108,17 +103,17 @@ impl<PrimaryProject: ProjectRead, SecondaryProject: ProjectRead> ProjectRead
         Self::Error,
     > {
         match self {
-            ReplaceProject::PrimaryProject(project) => {
-                project.get_project().map_err(ReplaceError::PrimaryError)
+            PriorityProject::HigherProject(project) => {
+                project.get_project().map_err(PriorityError::HigherError)
             }
-            ReplaceProject::SecondaryProject(project) => {
-                project.get_project().map_err(ReplaceError::SecondaryError)
+            PriorityProject::LowerProject(project) => {
+                project.get_project().map_err(PriorityError::LowerError)
             }
         }
     }
 
     type SourceReader<'a>
-        = ReplaceReader<PrimaryProject::SourceReader<'a>, SecondaryProject::SourceReader<'a>>
+        = PriorityReader<HigherProject::SourceReader<'a>, LowerProject::SourceReader<'a>>
     where
         Self: 'a;
 
@@ -127,60 +122,58 @@ impl<PrimaryProject: ProjectRead, SecondaryProject: ProjectRead> ProjectRead
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self {
-            ReplaceProject::PrimaryProject(project) => project
+            PriorityProject::HigherProject(project) => project
                 .read_source(path)
-                .map(ReplaceReader::PrimaryReader)
-                .map_err(ReplaceError::PrimaryError),
-            ReplaceProject::SecondaryProject(project) => project
+                .map(PriorityReader::HigherReader)
+                .map_err(PriorityError::HigherError),
+            PriorityProject::LowerProject(project) => project
                 .read_source(path)
-                .map(ReplaceReader::SecondaryReader)
-                .map_err(ReplaceError::SecondaryError),
+                .map(PriorityReader::LowerReader)
+                .map_err(PriorityError::LowerError),
         }
     }
 
     fn sources(&self) -> Vec<crate::lock::Source> {
         match self {
-            ReplaceProject::PrimaryProject(project) => project.sources(),
-            ReplaceProject::SecondaryProject(project) => project.sources(),
+            PriorityProject::HigherProject(project) => project.sources(),
+            PriorityProject::LowerProject(project) => project.sources(),
         }
     }
 
     fn is_definitely_invalid(&self) -> bool {
         match self {
-            ReplaceProject::PrimaryProject(project) => project.is_definitely_invalid(),
-            ReplaceProject::SecondaryProject(project) => project.is_definitely_invalid(),
+            PriorityProject::HigherProject(project) => project.is_definitely_invalid(),
+            PriorityProject::LowerProject(project) => project.is_definitely_invalid(),
         }
     }
 }
 
-impl<Primary: ResolveRead, Secondary: ResolveRead> ResolveRead
-    for ReplaceResolver<Primary, Secondary>
-{
-    type Error = ReplaceError<Primary::Error, Secondary::Error>;
+impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<Higher, Lower> {
+    type Error = PriorityError<Higher::Error, Lower::Error>;
 
-    type ProjectStorage = ReplaceProject<Primary::ProjectStorage, Secondary::ProjectStorage>;
+    type ProjectStorage = PriorityProject<Higher::ProjectStorage, Lower::ProjectStorage>;
 
-    type ResolvedStorages = ReplaceIterator<Primary, Secondary>;
+    type ResolvedStorages = PriorityIterator<Higher, Lower>;
 
     fn resolve_read(
         &self,
         uri: &fluent_uri::Iri<String>,
     ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         if let super::ResolutionOutcome::Resolved(resolved) = self
-            .primary
+            .higher
             .resolve_read(uri)
-            .map_err(ReplaceError::PrimaryError)?
+            .map_err(PriorityError::HigherError)?
         {
             return Ok(super::ResolutionOutcome::Resolved(
-                ReplaceIterator::PrimaryIterator(resolved.into_iter()),
+                PriorityIterator::HigherIterator(resolved.into_iter()),
             ));
         };
 
         Ok(self
-            .secondary
+            .lower
             .resolve_read(uri)
-            .map_err(ReplaceError::SecondaryError)?
-            .map(|resolved| ReplaceIterator::SecondaryIterator(resolved.into_iter())))
+            .map_err(PriorityError::LowerError)?
+            .map(|resolved| PriorityIterator::LowerIterator(resolved.into_iter())))
     }
 }
 
@@ -258,17 +251,17 @@ mod tests {
 
     #[test]
     fn resolution_priority() -> Result<(), Box<dyn std::error::Error>> {
-        let primary = mock_resolver([
+        let higher = mock_resolver([
             mock_project("urn::kpar::foo", "foo", "1.2.3"),
             mock_project("urn::kpar::bar", "bar", "1.2.3"),
         ]);
 
-        let secondary = mock_resolver([
+        let lower = mock_resolver([
             mock_project("urn::kpar::bar", "bar", "3.2.1"),
             mock_project("urn::kpar::baz", "baz", "3.2.1"),
         ]);
 
-        let resolver = super::ReplaceResolver::new(primary, secondary);
+        let resolver = super::PriorityResolver::new(higher, lower);
 
         let foos = expect_to_resolve(&resolver, "urn::kpar::foo");
 

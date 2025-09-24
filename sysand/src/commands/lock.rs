@@ -11,7 +11,7 @@ use sysand_core::commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome};
 
 use sysand_core::project::memory::InMemoryProject;
 use sysand_core::resolve::memory::{AcceptAll, MemoryResolver};
-use sysand_core::resolve::replace::ReplaceResolver;
+use sysand_core::resolve::priority::PriorityResolver;
 use sysand_core::resolve::standard::standard_resolver;
 
 pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
@@ -31,7 +31,7 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
     }
 
-    let wrapped_resolver = ReplaceResolver::new(
+    let wrapped_resolver = PriorityResolver::new(
         MemoryResolver {
             iri_predicate: AcceptAll {},
             projects: memory_projects,

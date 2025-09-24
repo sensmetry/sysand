@@ -16,7 +16,7 @@ use crate::{
     resolve::{
         env::EnvResolver,
         memory::{AcceptAll, MemoryResolver},
-        replace::{ReplaceProject, ReplaceResolver},
+        priority::{PriorityProject, PriorityResolver},
     },
     solve::pubgrub::SolverError,
 };
@@ -103,7 +103,7 @@ pub fn find_project_dependencies<Env: ReadEnvironment + std::fmt::Debug + 'stati
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
     }
 
-    let wrapped_resolver = ReplaceResolver::new(
+    let wrapped_resolver = PriorityResolver::new(
         MemoryResolver {
             iri_predicate: AcceptAll {},
             projects: memory_projects,
@@ -116,8 +116,8 @@ pub fn find_project_dependencies<Env: ReadEnvironment + std::fmt::Debug + 'stati
     Ok(wrapped_result
         .drain()
         .filter_map(|(_, (_, _, project))| match project {
-            ReplaceProject::PrimaryProject(_) => None,
-            ReplaceProject::SecondaryProject(project) => Some(project),
+            PriorityProject::HigherProject(_) => None,
+            PriorityProject::LowerProject(project) => Some(project),
         })
         .collect())
 }

@@ -11,8 +11,8 @@ pub mod file;
 pub mod gix_git;
 pub mod memory;
 pub mod null;
+pub mod priority;
 pub mod remote;
-pub mod replace;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod reqwest_http;
 pub mod sequential;
