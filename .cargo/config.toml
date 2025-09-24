@@ -1,0 +1,2 @@
+[target.'cfg(windows)']
+rustflags = ["-Ctarget-feature=+crt-static"]
