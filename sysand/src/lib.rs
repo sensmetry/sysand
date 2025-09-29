@@ -22,7 +22,7 @@ use crate::commands::{
     env::{command_env, command_env_install, command_env_list, command_env_uninstall},
     exclude::command_exclude,
     include::command_include,
-    info::command_info_path,
+    info::{command_info_current_project, command_info_path, command_info_verb_path},
     new::command_new,
     print_root::command_print_root,
     remove::command_remove,
@@ -178,46 +178,92 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         cli::Command::Info {
             path,
             iri,
-            auto,
-            location,
+            auto_location,
             no_normalise,
             use_index,
             no_index,
+            subcommand,
         } => {
             let index_base_urls = if no_index { None } else { Some(use_index) };
 
-            match location {
-                Some(actual_location) => {
-                    if iri {
-                        debug_assert!(!path);
-                        debug_assert!(!auto);
-                        let uri = fluent_uri::Iri::parse(actual_location.clone())
-                            .map_err(|e| CliError::NoResolve(format!("Invalid URI: {}", e)))?;
-                        crate::commands::info::command_info_uri(
-                            uri,
-                            !no_normalise,
-                            client,
-                            index_base_urls,
-                        )
-                    } else if auto {
-                        debug_assert!(!path);
-                        if let Ok(uri) = fluent_uri::Iri::parse(actual_location.clone()) {
-                            crate::commands::info::command_info_uri(
-                                uri,
-                                !no_normalise,
-                                client,
-                                index_base_urls,
-                            )
-                        } else {
-                            command_info_path(std::path::Path::new(&actual_location))
+            enum Location {
+                WorkDir,
+                Iri(fluent_uri::Iri<String>),
+                Path(String),
+            }
+
+            let location = if let Some(auto_location) = auto_location {
+                debug_assert!(path.is_none());
+                debug_assert!(iri.is_none());
+
+                if let Ok(iri) = fluent_uri::Iri::parse(auto_location.clone()) {
+                    Location::Iri(iri)
+                } else {
+                    Location::Path(auto_location)
+                }
+            } else if let Some(path) = path {
+                debug_assert!(auto_location.is_none());
+                debug_assert!(iri.is_none());
+
+                Location::Path(path)
+            } else if let Some(iri) = iri {
+                debug_assert!(path.is_none());
+                debug_assert!(auto_location.is_none());
+
+                Location::Iri(
+                    fluent_uri::Iri::parse(iri)
+                        .map_err(|e| CliError::NoResolve(format!("Invalid URI: {}", e)))?,
+                )
+            } else {
+                Location::WorkDir
+            };
+
+            match (location, subcommand) {
+                (Location::WorkDir, subcommand) => {
+                    if let Some(current_project) = sysand_core::discover::current_project()? {
+                        match subcommand {
+                            Some(subcommand) => {
+                                let numbered = subcommand.numbered();
+                                command_info_current_project(
+                                    current_project,
+                                    subcommand.as_verb(),
+                                    numbered,
+                                )
+                            }
+                            None => command_info_path(current_project.root_path()),
                         }
                     } else {
-                        command_info_path(std::path::Path::new(&actual_location))
+                        bail!(
+                            "run outside of an active project, did you mean to use '--path' or '--iri'?"
+                        )
                     }
                 }
-                None => {
-                    // TODO: Do project discovery
-                    command_info_path(std::path::Path::new("."))
+                (Location::Iri(iri), None) => crate::commands::info::command_info_uri(
+                    iri,
+                    !no_normalise,
+                    client,
+                    index_base_urls,
+                ),
+                (Location::Iri(iri), Some(subcommand)) => {
+                    let numbered = subcommand.numbered();
+
+                    crate::commands::info::command_info_verb_uri(
+                        iri,
+                        subcommand.as_verb(),
+                        numbered,
+                        client,
+                        index_base_urls,
+                    )
+                }
+                (Location::Path(path), None) => command_info_path(std::path::Path::new(&path)),
+                (Location::Path(path), Some(subcommand)) => {
+                    let numbered = subcommand.numbered();
+
+                    command_info_verb_path(
+                        std::path::Path::new(&path),
+                        subcommand.as_verb(),
+                        numbered,
+                    )
                 }
             }
         }

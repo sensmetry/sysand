@@ -38,7 +38,7 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::E
 
     fn add_iri_args<'a>(args: &mut Vec<&'a str>, use_auto: bool, path: &'a str) {
         if use_auto {
-            args.push("--auto");
+            args.push("--auto-location");
         } else {
             args.push("--iri");
         }
@@ -47,7 +47,9 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::E
 
     fn add_path_args<'a>(args: &mut Vec<&'a str>, use_auto: bool, path: &'a str) {
         if use_auto {
-            args.push("--auto");
+            args.push("--auto-location");
+        } else {
+            args.push("--path")
         }
         args.push(path);
     }

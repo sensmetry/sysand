@@ -18,7 +18,7 @@ pub enum InfoError<Error: std::error::Error> {
 }
 
 pub fn do_info_project<P: ProjectRead>(
-    project: P,
+    project: &P,
 ) -> Option<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     match project.get_project() {
         Ok((Some(info), Some(meta))) => Some((info, meta)),
@@ -59,7 +59,7 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
                 vec![];
 
             for project in resolved.into_iter() {
-                if let Some(info_meta) = do_info_project(project?) {
+                if let Some(info_meta) = do_info_project(&project?) {
                     result.push(info_meta);
                 }
             }
