@@ -235,7 +235,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
-        clear: Option<bool>,
+        clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'description' is not a list, did you mean to use 'sysand info description --set'?"))]
         add: Option<Infallible>,
@@ -265,7 +265,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
-        clear: Option<bool>,
+        clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'licence' is not a list, did you mean to use 'sysand info licence --set'?"))]
         add: Option<Infallible>,
@@ -279,7 +279,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
-        clear: Option<bool>,
+        clear: bool,
         #[arg(long, default_value=None)]
         add: Option<String>,
         #[arg(long, default_value=None)]
@@ -294,7 +294,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
-        clear: Option<bool>,
+        clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'website' is not a list, did you mean to use 'sysand info website --set'?"))]
         add: Option<Infallible>,
@@ -308,7 +308,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
-        clear: Option<bool>,
+        clear: bool,
         #[arg(long, default_value=None)]
         add: Option<String>,
         #[arg(long, default_value=None)]
@@ -336,14 +336,14 @@ pub enum InfoCommand {
         #[arg(long, default_value = "false")]
         numbered: bool,
     },
-    // Get project index
+    /// Get project index
     #[group(required = false, multiple = false)]
     Index {
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'index' cannot be set directly, please use 'sysand include' and 'sysand exclude'"))]
         set: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide = true, long, default_value = None, value_parser=invalid_command("'index' cannot be cleared directly, please use 'sysand exclude'"))]
+        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=invalid_command("'index' cannot be cleared directly, please use 'sysand exclude'"))]
         clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'index' cannot be added to directly, please use 'sysand include' and 'sysand exclude'"))]
@@ -355,14 +355,14 @@ pub enum InfoCommand {
         #[arg(long, default_value = "false")]
         numbered: bool,
     },
-    // Get project creation time
+    /// Get project metadata manifest creation time
     #[group(required = false, multiple = false)]
     Created {
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'created' cannot be set directly, it is automatically updated"))]
         set: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide = true, long, default_value = None, value_parser=invalid_command("'created' cannot be cleared, it is automatically updated"))]
+        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=invalid_command("'created' cannot be cleared, it is automatically updated"))]
         clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'created' cannot be added to, it is automatically updated"))]
@@ -376,8 +376,8 @@ pub enum InfoCommand {
     Metamodel {
         #[arg(long, default_value=None)]
         set: Option<String>,
-        #[arg(long, default_value = None)]
-        clear: Option<bool>,
+        #[arg(long, num_args=0, default_missing_value="true", default_value = None)]
+        clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'metamodel' is not a list, did you mean to use 'sysand info metamodel --set'?"))]
         add: Option<Infallible>,
@@ -388,10 +388,10 @@ pub enum InfoCommand {
     /// Get or set whether the project includes derived properties
     #[group(required = false, multiple = false)]
     IncludesDerived {
-        #[arg(long, num_args=0..1, default_missing_value="true", default_value=None)]
+        #[arg(long, num_args=1, default_value=None)]
         set: Option<bool>,
-        #[arg(long, num_args=0, default_missing_value="Some(())", default_value = None)]
-        clear: Option<bool>,
+        #[arg(long, default_value = None)]
+        clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'include_derived' is not a list, did you mean to use 'sysand info include_derived --set'?"))]
         add: Option<Infallible>,
@@ -402,10 +402,10 @@ pub enum InfoCommand {
     /// Get or set whether the project includes implied properties
     #[group(required = false, multiple = false)]
     IncludesImplied {
-        #[arg(long, num_args=0..1, default_missing_value="true", default_value=None)]
+        #[arg(long, num_args=1, default_value=None)]
         set: Option<bool>,
-        #[arg(long, num_args=0, default_missing_value="true", default_value = None)]
-        clear: Option<bool>,
+        #[arg(long, default_value = None)]
+        clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'include_implied' is not a list, did you mean to use 'sysand info include_implied --set'?"))]
         add: Option<Infallible>,
@@ -413,14 +413,14 @@ pub enum InfoCommand {
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'include_implied' is not a list, did you mean to use 'sysand info include_implied --clear'?"))]
         remove: Option<Infallible>,
     },
-    // Get project checksums
+    /// Get project source file checksums
     #[group(required = false, multiple = false)]
     Checksum {
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("checksum cannot be set directly, please use 'sysand include' and 'sysand exclude'"))]
         set: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide = true, long, default_value = None, value_parser=invalid_command("checksum cannot be cleared directly, please use 'sysand exclude'"))]
+        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=invalid_command("checksum cannot be cleared directly, please use 'sysand exclude'"))]
         clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command("checksum cannot be added to directly, please use 'sysand include'"))]
@@ -655,7 +655,7 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetDescription,
                 set.map(SetInfoVerb::SetDescription),
-                clear.map(|_| ClearInfoVerb::ClearDescription),
+                if clear { Some(ClearInfoVerb::ClearDescription) } else { None },
                 impossible(add),
                 impossible(remove),
             ),
@@ -679,7 +679,7 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetLicence,
                 set.map(SetInfoVerb::SetLicence),
-                clear.map(|_| ClearInfoVerb::ClearLicence),
+                if clear { Some(ClearInfoVerb::ClearLicence) } else { None },
                 impossible(add),
                 impossible(remove),
             ),
@@ -692,7 +692,7 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetMaintainer,
                 set.map(|x| SetInfoVerb::SetMaintainer(vec![x])),
-                clear.map(|_| ClearInfoVerb::ClearMaintainer),
+                if clear { Some(ClearInfoVerb::ClearMaintainer) } else { None },
                 add.map(|x| AddInfoVerb::AddMaintainer(vec![x])),
                 remove.map(RemoveInfoVerb::RemoveMaintainer),
             ),
@@ -704,7 +704,7 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetWebsite,
                 set.map(SetInfoVerb::SetWebsite),
-                clear.map(|_| ClearInfoVerb::ClearWebsite),
+                if clear { Some(ClearInfoVerb::ClearWebsite) } else { None },
                 impossible(add),
                 impossible(remove),
             ),
@@ -717,7 +717,7 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetTopic,
                 set.map(|x| SetInfoVerb::SetTopic(vec![x])),
-                clear.map(|_| ClearInfoVerb::ClearTopic),
+                if clear { Some(ClearInfoVerb::ClearTopic) } else { None },
                 add.map(|x| AddInfoVerb::AddTopic(vec![x])),
                 remove.map(RemoveInfoVerb::RemoveTopic),
             ),
@@ -767,7 +767,7 @@ impl InfoCommand {
             } => pack_meta(
                 GetMetaVerb::GetMetamodel,
                 set.map(SetMetaVerb::SetMetamodel),
-                clear.map(|_| ClearMetaVerb::ClearMetamodel),
+                if clear { Some(ClearMetaVerb::ClearMetamodel) } else { None },
                 impossible(add),
                 impossible(remove),
             ),
@@ -779,7 +779,7 @@ impl InfoCommand {
             } => pack_meta(
                 GetMetaVerb::GetIncludesDerived,
                 set.map(SetMetaVerb::SetIncludesDerived),
-                clear.map(|_| ClearMetaVerb::ClearIncludesDerived),
+                if clear { Some(ClearMetaVerb::ClearIncludesDerived) } else { None },
                 impossible(add),
                 impossible(remove),
             ),
@@ -791,7 +791,7 @@ impl InfoCommand {
             } => pack_meta(
                 GetMetaVerb::GetIncludesImplied,
                 set.map(SetMetaVerb::SetIncludesImplied),
-                clear.map(|_| ClearMetaVerb::ClearIncludesImplied),
+                if clear { Some(ClearMetaVerb::ClearIncludesImplied) } else { None },
                 impossible(add),
                 impossible(remove),
             ),
