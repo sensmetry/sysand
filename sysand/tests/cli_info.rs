@@ -602,7 +602,6 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
                 out.assert().success();
                 get_field(field, Some("".to_string()))?;
             } else {
-                //out.assert().failure();
                 out.assert()
                     .stderr(predicates::str::contains("unexpected argument"));
                 get_field(field, Some(before))?;
@@ -622,8 +621,8 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
             expected_output.push('\n');
             get_field(field, Some(expected_output))?;
         } else {
-            //out.assert().failure();
             out.assert()
+                .failure()
                 .stderr(predicates::str::contains("unexpected argument"));
             get_field(field, Some(before))?;
         }
@@ -643,8 +642,8 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
             expected_output.push('\n');
             get_field(field, Some(expected_output))?;
         } else {
-            //out.assert().failure();
             out.assert()
+                .failure()
                 .stderr(predicates::str::contains("unexpected argument"));
             get_field(field, Some(before))?;
         }
@@ -669,8 +668,8 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
             }
             get_field(field, Some(expected_output))?;
         } else {
-            //out.assert().failure();
             out.assert()
+                .failure()
                 .stderr(predicates::str::contains("unexpected argument"));
             get_field(field, Some(before))?;
         }

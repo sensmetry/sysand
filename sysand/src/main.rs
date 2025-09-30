@@ -18,6 +18,7 @@ fn main() {
         }
         Err(err) => {
             err.print().expect("Failed to write Clap error");
+            std::process::exit(err.exit_code())
         }
     }
 }
