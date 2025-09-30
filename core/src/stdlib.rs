@@ -6,10 +6,14 @@ const QUANTITIES_AND_UNITS_LIBRARY_INFO_20250201: &str =
     include_str!("stdlib_assets/20250201/quantities-and-units-library.project.json");
 const QUANTITIES_AND_UNITS_LIBRARY_META_20250201: &str =
     include_str!("stdlib_assets/20250201/quantities-and-units-library.meta.json");
-const FUNCTION_LIBRARY_INFO_20250201: &str = include_str!("stdlib_assets/20250201/function-library.project.json");
-const FUNCTION_LIBRARY_META_20250201: &str = include_str!("stdlib_assets/20250201/function-library.meta.json");
-const SYSTEMS_LIBRARY_INFO_20250201: &str = include_str!("stdlib_assets/20250201/systems-library.project.json");
-const SYSTEMS_LIBRARY_META_20250201: &str = include_str!("stdlib_assets/20250201/systems-library.meta.json");
+const FUNCTION_LIBRARY_INFO_20250201: &str =
+    include_str!("stdlib_assets/20250201/function-library.project.json");
+const FUNCTION_LIBRARY_META_20250201: &str =
+    include_str!("stdlib_assets/20250201/function-library.meta.json");
+const SYSTEMS_LIBRARY_INFO_20250201: &str =
+    include_str!("stdlib_assets/20250201/systems-library.project.json");
+const SYSTEMS_LIBRARY_META_20250201: &str =
+    include_str!("stdlib_assets/20250201/systems-library.meta.json");
 const CAUSE_AND_EFFECT_LIBRARY_INFO_20250201: &str =
     include_str!("stdlib_assets/20250201/cause-and-effect-library.project.json");
 const CAUSE_AND_EFFECT_LIBRARY_META_20250201: &str =
@@ -18,25 +22,39 @@ const REQUIREMENT_DERIVATION_LIBRARY_INFO_20250201: &str =
     include_str!("stdlib_assets/20250201/requirement-derivation-library.project.json");
 const REQUIREMENT_DERIVATION_LIBRARY_META_20250201: &str =
     include_str!("stdlib_assets/20250201/requirement-derivation-library.meta.json");
-const METADATA_LIBRARY_INFO_20250201: &str = include_str!("stdlib_assets/20250201/metadata-library.project.json");
-const METADATA_LIBRARY_META_20250201: &str = include_str!("stdlib_assets/20250201/metadata-library.meta.json");
-const GEOMETRY_LIBRARY_INFO_20250201: &str = include_str!("stdlib_assets/20250201/geometry-library.project.json");
-const GEOMETRY_LIBRARY_META_20250201: &str = include_str!("stdlib_assets/20250201/geometry-library.meta.json");
-const ANALYSIS_LIBRARY_INFO_20250201: &str = include_str!("stdlib_assets/20250201/analysis-library.project.json");
-const ANALYSIS_LIBRARY_META_20250201: &str = include_str!("stdlib_assets/20250201/analysis-library.meta.json");
-const DATA_TYPE_LIBRARY_INFO_20250201: &str = include_str!("stdlib_assets/20250201/data-type-library.project.json");
-const DATA_TYPE_LIBRARY_META_20250201: &str = include_str!("stdlib_assets/20250201/data-type-library.meta.json");
-const SEMANTIC_LIBRARY_INFO_20250201: &str = include_str!("stdlib_assets/20250201/semantic-library.project.json");
-const SEMANTIC_LIBRARY_META_20250201: &str = include_str!("stdlib_assets/20250201/semantic-library.meta.json");
+const METADATA_LIBRARY_INFO_20250201: &str =
+    include_str!("stdlib_assets/20250201/metadata-library.project.json");
+const METADATA_LIBRARY_META_20250201: &str =
+    include_str!("stdlib_assets/20250201/metadata-library.meta.json");
+const GEOMETRY_LIBRARY_INFO_20250201: &str =
+    include_str!("stdlib_assets/20250201/geometry-library.project.json");
+const GEOMETRY_LIBRARY_META_20250201: &str =
+    include_str!("stdlib_assets/20250201/geometry-library.meta.json");
+const ANALYSIS_LIBRARY_INFO_20250201: &str =
+    include_str!("stdlib_assets/20250201/analysis-library.project.json");
+const ANALYSIS_LIBRARY_META_20250201: &str =
+    include_str!("stdlib_assets/20250201/analysis-library.meta.json");
+const DATA_TYPE_LIBRARY_INFO_20250201: &str =
+    include_str!("stdlib_assets/20250201/data-type-library.project.json");
+const DATA_TYPE_LIBRARY_META_20250201: &str =
+    include_str!("stdlib_assets/20250201/data-type-library.meta.json");
+const SEMANTIC_LIBRARY_INFO_20250201: &str =
+    include_str!("stdlib_assets/20250201/semantic-library.project.json");
+const SEMANTIC_LIBRARY_META_20250201: &str =
+    include_str!("stdlib_assets/20250201/semantic-library.meta.json");
 
 const QUANTITIES_AND_UNITS_LIBRARY_INFO_20230201: &str =
     include_str!("stdlib_assets/20230201/quantities-and-units-library.project.json");
 const QUANTITIES_AND_UNITS_LIBRARY_META_20230201: &str =
     include_str!("stdlib_assets/20230201/quantities-and-units-library.meta.json");
-const FUNCTION_LIBRARY_INFO_20230201: &str = include_str!("stdlib_assets/20230201/function-library.project.json");
-const FUNCTION_LIBRARY_META_20230201: &str = include_str!("stdlib_assets/20230201/function-library.meta.json");
-const SYSTEMS_LIBRARY_INFO_20230201: &str = include_str!("stdlib_assets/20230201/systems-library.project.json");
-const SYSTEMS_LIBRARY_META_20230201: &str = include_str!("stdlib_assets/20230201/systems-library.meta.json");
+const FUNCTION_LIBRARY_INFO_20230201: &str =
+    include_str!("stdlib_assets/20230201/function-library.project.json");
+const FUNCTION_LIBRARY_META_20230201: &str =
+    include_str!("stdlib_assets/20230201/function-library.meta.json");
+const SYSTEMS_LIBRARY_INFO_20230201: &str =
+    include_str!("stdlib_assets/20230201/systems-library.project.json");
+const SYSTEMS_LIBRARY_META_20230201: &str =
+    include_str!("stdlib_assets/20230201/systems-library.meta.json");
 const CAUSE_AND_EFFECT_LIBRARY_INFO_20230201: &str =
     include_str!("stdlib_assets/20230201/cause-and-effect-library.project.json");
 const CAUSE_AND_EFFECT_LIBRARY_META_20230201: &str =
@@ -45,16 +63,26 @@ const REQUIREMENT_DERIVATION_LIBRARY_INFO_20230201: &str =
     include_str!("stdlib_assets/20230201/requirement-derivation-library.project.json");
 const REQUIREMENT_DERIVATION_LIBRARY_META_20230201: &str =
     include_str!("stdlib_assets/20230201/requirement-derivation-library.meta.json");
-const METADATA_LIBRARY_INFO_20230201: &str = include_str!("stdlib_assets/20230201/metadata-library.project.json");
-const METADATA_LIBRARY_META_20230201: &str = include_str!("stdlib_assets/20230201/metadata-library.meta.json");
-const GEOMETRY_LIBRARY_INFO_20230201: &str = include_str!("stdlib_assets/20230201/geometry-library.project.json");
-const GEOMETRY_LIBRARY_META_20230201: &str = include_str!("stdlib_assets/20230201/geometry-library.meta.json");
-const ANALYSIS_LIBRARY_INFO_20230201: &str = include_str!("stdlib_assets/20230201/analysis-library.project.json");
-const ANALYSIS_LIBRARY_META_20230201: &str = include_str!("stdlib_assets/20230201/analysis-library.meta.json");
-const DATA_TYPE_LIBRARY_INFO_20230201: &str = include_str!("stdlib_assets/20230201/data-type-library.project.json");
-const DATA_TYPE_LIBRARY_META_20230201: &str = include_str!("stdlib_assets/20230201/data-type-library.meta.json");
-const SEMANTIC_LIBRARY_INFO_20230201: &str = include_str!("stdlib_assets/20230201/semantic-library.project.json");
-const SEMANTIC_LIBRARY_META_20230201: &str = include_str!("stdlib_assets/20230201/semantic-library.meta.json");
+const METADATA_LIBRARY_INFO_20230201: &str =
+    include_str!("stdlib_assets/20230201/metadata-library.project.json");
+const METADATA_LIBRARY_META_20230201: &str =
+    include_str!("stdlib_assets/20230201/metadata-library.meta.json");
+const GEOMETRY_LIBRARY_INFO_20230201: &str =
+    include_str!("stdlib_assets/20230201/geometry-library.project.json");
+const GEOMETRY_LIBRARY_META_20230201: &str =
+    include_str!("stdlib_assets/20230201/geometry-library.meta.json");
+const ANALYSIS_LIBRARY_INFO_20230201: &str =
+    include_str!("stdlib_assets/20230201/analysis-library.project.json");
+const ANALYSIS_LIBRARY_META_20230201: &str =
+    include_str!("stdlib_assets/20230201/analysis-library.meta.json");
+const DATA_TYPE_LIBRARY_INFO_20230201: &str =
+    include_str!("stdlib_assets/20230201/data-type-library.project.json");
+const DATA_TYPE_LIBRARY_META_20230201: &str =
+    include_str!("stdlib_assets/20230201/data-type-library.meta.json");
+const SEMANTIC_LIBRARY_INFO_20230201: &str =
+    include_str!("stdlib_assets/20230201/semantic-library.project.json");
+const SEMANTIC_LIBRARY_META_20230201: &str =
+    include_str!("stdlib_assets/20230201/semantic-library.meta.json");
 
 // TODO: These should not be hard-coded, this is just a stop-gap solution
 // even if we keep some of these hard-coded it might be neater if we can
