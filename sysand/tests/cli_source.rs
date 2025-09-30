@@ -114,6 +114,34 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     out.assert().success();
 
+    let out = run_sysand_in(
+        &path_dep,
+        ["add", "--no-index", "urn:kpar:function-library"],
+        None,
+    )?;
+    out.assert().success();
+
+    let out = run_sysand_in(
+        &path_dep,
+        ["add", "--no-index", "urn:kpar:function-library"],
+        None,
+    )?;
+    out.assert().success();
+
+    let out = run_sysand_in(
+        &path_dep,
+        ["add", "--no-index", "https://www.omg.org/spec/KerML/20230201/Function-Library.kpar"],
+        None,
+    )?;
+    out.assert().success();
+
+    let out = run_sysand_in(
+        &path_dep,
+        ["add", "--no-index", "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar"],
+        None,
+    )?;
+    out.assert().success();
+
     let (_temp_dir2, cwd, out) =
         run_sysand(["new", "--version", "1.2.3", "sources_without_std"], None)?;
     out.assert().success();
