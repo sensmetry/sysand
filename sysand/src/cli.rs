@@ -655,7 +655,11 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetDescription,
                 set.map(SetInfoVerb::SetDescription),
-                if clear { Some(ClearInfoVerb::ClearDescription) } else { None },
+                if clear {
+                    Some(ClearInfoVerb::ClearDescription)
+                } else {
+                    None
+                },
                 impossible(add),
                 impossible(remove),
             ),
@@ -679,7 +683,11 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetLicence,
                 set.map(SetInfoVerb::SetLicence),
-                if clear { Some(ClearInfoVerb::ClearLicence) } else { None },
+                if clear {
+                    Some(ClearInfoVerb::ClearLicence)
+                } else {
+                    None
+                },
                 impossible(add),
                 impossible(remove),
             ),
@@ -692,7 +700,11 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetMaintainer,
                 set.map(|x| SetInfoVerb::SetMaintainer(vec![x])),
-                if clear { Some(ClearInfoVerb::ClearMaintainer) } else { None },
+                if clear {
+                    Some(ClearInfoVerb::ClearMaintainer)
+                } else {
+                    None
+                },
                 add.map(|x| AddInfoVerb::AddMaintainer(vec![x])),
                 remove.map(RemoveInfoVerb::RemoveMaintainer),
             ),
@@ -704,7 +716,11 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetWebsite,
                 set.map(SetInfoVerb::SetWebsite),
-                if clear { Some(ClearInfoVerb::ClearWebsite) } else { None },
+                if clear {
+                    Some(ClearInfoVerb::ClearWebsite)
+                } else {
+                    None
+                },
                 impossible(add),
                 impossible(remove),
             ),
@@ -717,7 +733,11 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetTopic,
                 set.map(|x| SetInfoVerb::SetTopic(vec![x])),
-                if clear { Some(ClearInfoVerb::ClearTopic) } else { None },
+                if clear {
+                    Some(ClearInfoVerb::ClearTopic)
+                } else {
+                    None
+                },
                 add.map(|x| AddInfoVerb::AddTopic(vec![x])),
                 remove.map(RemoveInfoVerb::RemoveTopic),
             ),
@@ -767,7 +787,11 @@ impl InfoCommand {
             } => pack_meta(
                 GetMetaVerb::GetMetamodel,
                 set.map(SetMetaVerb::SetMetamodel),
-                if clear { Some(ClearMetaVerb::ClearMetamodel) } else { None },
+                if clear {
+                    Some(ClearMetaVerb::ClearMetamodel)
+                } else {
+                    None
+                },
                 impossible(add),
                 impossible(remove),
             ),
@@ -779,7 +803,11 @@ impl InfoCommand {
             } => pack_meta(
                 GetMetaVerb::GetIncludesDerived,
                 set.map(SetMetaVerb::SetIncludesDerived),
-                if clear { Some(ClearMetaVerb::ClearIncludesDerived) } else { None },
+                if clear {
+                    Some(ClearMetaVerb::ClearIncludesDerived)
+                } else {
+                    None
+                },
                 impossible(add),
                 impossible(remove),
             ),
@@ -791,7 +819,11 @@ impl InfoCommand {
             } => pack_meta(
                 GetMetaVerb::GetIncludesImplied,
                 set.map(SetMetaVerb::SetIncludesImplied),
-                if clear { Some(ClearMetaVerb::ClearIncludesImplied) } else { None },
+                if clear {
+                    Some(ClearMetaVerb::ClearIncludesImplied)
+                } else {
+                    None
+                },
                 impossible(add),
                 impossible(remove),
             ),

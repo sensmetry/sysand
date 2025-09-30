@@ -581,7 +581,9 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
 
     let project_path = &cwd.join("info_detailed_verbs");
 
-    let get_field = |field: &'static str, expected: Option<String>| -> Result<String, Box<dyn std::error::Error>> {
+    let get_field = |field: &'static str,
+                     expected: Option<String>|
+     -> Result<String, Box<dyn std::error::Error>> {
         let out = run_sysand_in(project_path, ["info", field], None)?;
         let stdout = out.stdout.clone();
         if let Some(expected) = expected {
@@ -591,22 +593,27 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Check that a field does/does not get cleared
-    let try_clear = |field: &'static str, expected: bool| -> Result<(), Box<dyn std::error::Error>> {
-        let before = get_field(field, None)?;
+    let try_clear =
+        |field: &'static str, expected: bool| -> Result<(), Box<dyn std::error::Error>> {
+            let before = get_field(field, None)?;
 
-        let out = run_sysand_in(project_path, ["info", field, "--clear"], None)?;
-        if expected {
-            out.assert().success();
-            get_field(field, Some("".to_string()))?;
-        } else {
-            //out.assert().failure();
-            out.assert().stderr(predicates::str::contains("unexpected argument"));
-            get_field(field, Some(before))?;
-        }
-        Ok(())
-    };
+            let out = run_sysand_in(project_path, ["info", field, "--clear"], None)?;
+            if expected {
+                out.assert().success();
+                get_field(field, Some("".to_string()))?;
+            } else {
+                //out.assert().failure();
+                out.assert()
+                    .stderr(predicates::str::contains("unexpected argument"));
+                get_field(field, Some(before))?;
+            }
+            Ok(())
+        };
 
-    let try_set = |field: &'static str, value: &'static str, expected: bool| -> Result<(), Box<dyn std::error::Error>> {
+    let try_set = |field: &'static str,
+                   value: &'static str,
+                   expected: bool|
+     -> Result<(), Box<dyn std::error::Error>> {
         let before = get_field(field, None)?;
         let out = run_sysand_in(project_path, ["info", field, "--set", value], None)?;
         if expected {
@@ -616,13 +623,17 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
             get_field(field, Some(expected_output))?;
         } else {
             //out.assert().failure();
-            out.assert().stderr(predicates::str::contains("unexpected argument"));
+            out.assert()
+                .stderr(predicates::str::contains("unexpected argument"));
             get_field(field, Some(before))?;
         }
         Ok(())
     };
 
-    let try_add = |field: &'static str, value: &'static str, expected: bool| -> Result<(), Box<dyn std::error::Error>> {
+    let try_add = |field: &'static str,
+                   value: &'static str,
+                   expected: bool|
+     -> Result<(), Box<dyn std::error::Error>> {
         let before = get_field(field, None)?;
         let out = run_sysand_in(project_path, ["info", field, "--add", value], None)?;
         if expected {
@@ -633,13 +644,17 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
             get_field(field, Some(expected_output))?;
         } else {
             //out.assert().failure();
-            out.assert().stderr(predicates::str::contains("unexpected argument"));
+            out.assert()
+                .stderr(predicates::str::contains("unexpected argument"));
             get_field(field, Some(before))?;
         }
         Ok(())
     };
 
-    let try_remove = |field: &'static str, index: &'static str, expected: bool| -> Result<(), Box<dyn std::error::Error>> {
+    let try_remove = |field: &'static str,
+                      index: &'static str,
+                      expected: bool|
+     -> Result<(), Box<dyn std::error::Error>> {
         let before = get_field(field, None)?;
         let out = run_sysand_in(project_path, ["info", field, "--remove", index], None)?;
         if expected {
@@ -655,7 +670,8 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
             get_field(field, Some(expected_output))?;
         } else {
             //out.assert().failure();
-            out.assert().stderr(predicates::str::contains("unexpected argument"));
+            out.assert()
+                .stderr(predicates::str::contains("unexpected argument"));
             get_field(field, Some(before))?;
         }
         Ok(())
