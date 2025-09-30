@@ -220,13 +220,16 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         set: Option<String>,
         // Only for better error messages
-        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=invalid_command("'name' cannot be unset"))]
+        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=
+            invalid_command("'name' cannot be unset"))]
         clear: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'name' is not a list, did you mean to use 'sysand info name --set'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=
+            invalid_command("'name' is not a list, consider using 'sysand info name --set'?"))]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'name' is not a list, and cannot be unset"))]
+        #[arg(hide=true, long, default_value=None, value_parser=
+            invalid_command("'name' is not a list, and cannot be unset"))]
         remove: Option<Infallible>,
     },
     /// Get or set the description of the project
@@ -237,10 +240,14 @@ pub enum InfoCommand {
         #[arg(long, default_value = None)]
         clear: bool,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'description' is not a list, did you mean to use 'sysand info description --set'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'description' is not a list, consider using 'sysand info description --set'?"
+        ))]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'description' is not a list, did you mean to use 'sysand info description --clear'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'description' is not a list, consider using 'sysand info description --clear'?"
+        ))]
         remove: Option<Infallible>,
     },
     /// Get or set the version of the project
@@ -249,13 +256,24 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         set: Option<String>,
         // Only for better error messages
-        #[arg(hide = true, long, num_args=0, default_missing_value="None", default_value = None, value_parser=invalid_command("'version' cannot be unset"))]
+        #[arg(
+            hide = true,
+            long,
+            num_args=0,
+            default_missing_value="None",
+            default_value = None,
+            value_parser=invalid_command("'version' cannot be unset")
+        )]
         clear: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'version' is not a list, did you mean to use 'sysand info version --set'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'version' is not a list, consider using 'sysand info version --set'?"
+        ))]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'version' is not a list, and cannot be unset"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'version' is not a list, and cannot be unset"
+        ))]
         remove: Option<Infallible>,
     },
     /// Get or set the licence of the project
@@ -267,10 +285,14 @@ pub enum InfoCommand {
         #[arg(long, default_value = None)]
         clear: bool,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'licence' is not a list, did you mean to use 'sysand info licence --set'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'licence' is not a list, consider using 'sysand info licence --set'?"
+        ))]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'licence' is not a list, did you mean to use 'sysand info licence --clear'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'licence' is not a list, consider using 'sysand info licence --clear'?"
+        ))]
         remove: Option<Infallible>,
     },
     /// Get or manipulate the list of maintainers of the project
@@ -296,10 +318,14 @@ pub enum InfoCommand {
         #[arg(long, default_value = None)]
         clear: bool,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'website' is not a list, did you mean to use 'sysand info website --set'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'website' is not a list, consider using 'sysand info website --set'?"
+        ))]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'website' is not a list, did you mean to use 'sysand info website --clear'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'website' is not a list, consider using 'sysand info website --clear'?"
+        ))]
         remove: Option<Infallible>,
     },
     /// Get or manipulate the list of topics of the project
@@ -321,16 +347,30 @@ pub enum InfoCommand {
     #[group(required = false, multiple = false)]
     Usage {
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'usage' cannot be set directly, please use 'sysand add' and 'sysand remove'"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'usage' cannot be set directly, please use 'sysand add' and 'sysand remove'"
+        ))]
         set: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=invalid_command("'usage' cannot be cleared directly, please use 'sysand remove'"))]
+        #[arg(
+            hide = true,
+            long,
+            num_args=0,
+            default_missing_value="None",
+            value_parser=invalid_command(
+              "'usage' cannot be cleared directly, please use 'sysand remove'"
+            )
+        )]
         clear: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'usage' cannot be added to directly, please use 'sysand add'"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'usage' cannot be added to directly, please use 'sysand add'"
+        ))]
         add: Option<Infallible>,
         // Only for Infallible error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'usage' cannot be removed from directly, please use 'sysand remove'"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'usage' cannot be removed from directly, please use 'sysand remove'"
+        ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
         #[arg(long, default_value = "false")]
@@ -340,16 +380,30 @@ pub enum InfoCommand {
     #[group(required = false, multiple = false)]
     Index {
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'index' cannot be set directly, please use 'sysand include' and 'sysand exclude'"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'index' cannot be set directly, please use 'sysand include' and 'sysand exclude'"
+        ))]
         set: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=invalid_command("'index' cannot be cleared directly, please use 'sysand exclude'"))]
+        #[arg(
+            hide = true,
+            long,
+            num_args=0,
+            default_missing_value="None",
+            value_parser=invalid_command(
+              "'index' cannot be cleared directly, please use 'sysand exclude'"
+            )
+        )]
         clear: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'index' cannot be added to directly, please use 'sysand include' and 'sysand exclude'"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'index' cannot be added to directly, please use 'sysand include' and 'sysand exclude'"
+        ))]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'index' cannot be removed from directly, please use 'sysand exclude'"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'index' cannot be removed from directly, please use 'sysand exclude'"
+        ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
         #[arg(long, default_value = "false")]
@@ -359,16 +413,30 @@ pub enum InfoCommand {
     #[group(required = false, multiple = false)]
     Created {
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'created' cannot be set directly, it is automatically updated"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'created' cannot be set directly, it is automatically updated"
+        ))]
         set: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=invalid_command("'created' cannot be cleared, it is automatically updated"))]
+        #[arg(
+            hide = true,
+            long,
+            num_args=0,
+            default_missing_value="None",
+            value_parser=invalid_command(
+              "'created' cannot be cleared, it is automatically updated"
+            )
+        )]
         clear: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'created' cannot be added to, it is automatically updated"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'created' cannot be added to, it is automatically updated"
+        ))]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'created' cannot be removed from, it is automatically updated"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'created' cannot be removed from, it is automatically updated"
+        ))]
         remove: Option<Infallible>,
     },
     /// Get or set the metamodel of the project
@@ -379,10 +447,14 @@ pub enum InfoCommand {
         #[arg(long, num_args=0, default_missing_value="true", default_value = None)]
         clear: bool,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'metamodel' is not a list, did you mean to use 'sysand info metamodel --set'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'metamodel' is not a list, consider using 'sysand info metamodel --set'?"
+        ))]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'metamodel' is not a list, did you mean to use 'sysand info metamodel --clear'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'metamodel' is not a list, consider using 'sysand info metamodel --clear'?"
+        ))]
         remove: Option<Infallible>,
     },
     /// Get or set whether the project includes derived properties
@@ -393,10 +465,23 @@ pub enum InfoCommand {
         #[arg(long, default_value = None)]
         clear: bool,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'include_derived' is not a list, did you mean to use 'sysand info include_derived --set'?"))]
+        #[arg(
+            hide=true,
+            long,
+            default_value=None,
+            value_parser=invalid_command(
+            "'include_derived' is not a list, consider using 'sysand info include_derived --set'?"
+            )
+        )]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'include_derived' is not a list, did you mean to use 'sysand info include_derived --clear'?"))]
+        #[arg(hide=true,
+          long,
+          default_value=None,
+          value_parser=invalid_command(
+          "'include_derived' is not a list, consider using 'sysand info include_derived --clear'?"
+          )
+        )]
         remove: Option<Infallible>,
     },
     /// Get or set whether the project includes implied properties
@@ -407,26 +492,44 @@ pub enum InfoCommand {
         #[arg(long, default_value = None)]
         clear: bool,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'include_implied' is not a list, did you mean to use 'sysand info include_implied --set'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'include_implied' is not a list, consider using 'sysand info include_implied --set'?"
+        ))]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("'include_implied' is not a list, did you mean to use 'sysand info include_implied --clear'?"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "'include_implied' is not a list, consider using 'sysand info include_implied --clear'?"
+        ))]
         remove: Option<Infallible>,
     },
     /// Get project source file checksums
     #[group(required = false, multiple = false)]
     Checksum {
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("checksum cannot be set directly, please use 'sysand include' and 'sysand exclude'"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "checksum cannot be set directly, please use 'sysand include' and 'sysand exclude'"
+        ))]
         set: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=invalid_command("checksum cannot be cleared directly, please use 'sysand exclude'"))]
+        #[arg(
+            hide = true,
+            long,
+            num_args=0,
+            default_missing_value="None",
+            value_parser=invalid_command(
+              "checksum cannot be cleared directly, please use 'sysand exclude'"
+            )
+        )]
         clear: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("checksum cannot be added to directly, please use 'sysand include'"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "checksum cannot be added to directly, please use 'sysand include'"
+        ))]
         add: Option<Infallible>,
         // Only for better error messages
-        #[arg(hide=true, long, default_value=None, value_parser=invalid_command("checksum cannot be removed from directly, please use 'sysand exclude'"))]
+        #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
+          "checksum cannot be removed from directly, please use 'sysand exclude'"
+        ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
         #[arg(long, default_value = "false")]
