@@ -741,18 +741,5 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
     try_add("checksum", "checksum_1", false)?;
     try_remove("checksum", "1", false)?;
 
-    // description
-    // licence
-    // maintainer
-    // website
-    // topic
-    // usage
-    // index
-    // created
-    // metamodel
-    // includes-derive
-    // includes-implie
-    // checksum
-
     Ok(())
 }
