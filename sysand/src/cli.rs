@@ -434,34 +434,6 @@ pub enum InfoCommand {
     },
 }
 
-// #[derive(Debug, Clone)]
-// pub enum InfoAction<S, C, A, R> {
-//     Get,
-//     Set(S),
-//     Clear(C),
-//     Add(A),
-//     Remove(R),
-// }
-
-// type ROMultiFieldVerb = InfoAction<Infallible, Infallible, Infallible, Infallible>;
-// type MandatorySingleFieldVerb = InfoAction<String, Infallible, Infallible, Infallible>;
-// type OptionalSingleFieldVerb = InfoAction<String, bool, Infallible, Infallible>;
-// type OptionalSingleBoolFieldVerb = InfoAction<bool, bool, Infallible, Infallible>;
-// type OptionalMultiFieldVerb = InfoAction<String, bool, String, usize>;
-
-// impl<S, C, A, R> InfoAction<S, C, A, R> {
-//     fn from_args(set: Option<S>, clear: Option<C>, add: Option<A>, remove: Option<R>) -> Self {
-//         match (set, clear, add, remove) {
-//             (None, None, None, None) => InfoAction::Get,
-//             (Some(set), None, None, None) => InfoAction::Set(set),
-//             (None, Some(clear), None, None) => InfoAction::Clear(clear),
-//             (None, None, Some(add), None) => InfoAction::Add(add),
-//             (None, None, None, Some(remove)) => InfoAction::Remove(remove),
-//             _ => panic!("internal error: invalid CLI command produced"),
-//         }
-//     }
-//}
-
 #[derive(Debug, Clone)]
 pub enum InfoCommandVerb {
     Get(GetVerb),
