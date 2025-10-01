@@ -919,6 +919,8 @@ impl InfoCommand {
     }
 
     pub fn numbered(&self) -> bool {
+        // NOTE: Avoid using { .. } here, in order to not accidentally miss the introduction of
+        //       relevant flags in the future.
         match self {
             InfoCommand::Name {
                 set: _,
