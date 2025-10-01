@@ -95,7 +95,7 @@ fn do_info_py_path(
         project_path: Path::new(&path).to_path_buf(),
     };
 
-    Ok(do_info_project(project))
+    Ok(do_info_project(&project))
 }
 
 #[pyfunction(name = "do_info_py")]

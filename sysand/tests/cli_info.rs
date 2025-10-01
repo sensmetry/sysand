@@ -38,7 +38,7 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::E
 
     fn add_iri_args<'a>(args: &mut Vec<&'a str>, use_auto: bool, path: &'a str) {
         if use_auto {
-            args.push("--auto");
+            args.push("--auto-location");
         } else {
             args.push("--iri");
         }
@@ -47,7 +47,9 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::E
 
     fn add_path_args<'a>(args: &mut Vec<&'a str>, use_auto: bool, path: &'a str) {
         if use_auto {
-            args.push("--auto");
+            args.push("--auto-location");
+        } else {
+            args.push("--path")
         }
         args.push(path);
     }
@@ -568,6 +570,191 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().failure().stderr(predicate::str::contains(
         "Unable to find interchange project at urn:kpar:other",
     ));
+
+    Ok(())
+}
+
+#[test]
+fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
+    let (_tmp, cwd, out) = run_sysand(["new", "info_detailed_verbs", "--version", "1.2.3"], None)?;
+    out.assert().success();
+
+    let project_path = &cwd.join("info_detailed_verbs");
+
+    let get_field = |field: &'static str,
+                     expected: Option<String>|
+     -> Result<String, Box<dyn std::error::Error>> {
+        let out = run_sysand_in(project_path, ["info", field], None)?;
+        let stdout = out.stdout.clone();
+        if let Some(expected) = expected {
+            out.assert().success().stdout(expected);
+        }
+        Ok(String::from_utf8(stdout)?)
+    };
+
+    // Check that a field does/does not get cleared
+    let try_clear =
+        |field: &'static str, expected: bool| -> Result<(), Box<dyn std::error::Error>> {
+            let before = get_field(field, None)?;
+
+            let out = run_sysand_in(project_path, ["info", field, "--clear"], None)?;
+            if expected {
+                out.assert().success();
+                get_field(field, Some("".to_string()))?;
+            } else {
+                out.assert()
+                    .stderr(predicates::str::contains("unexpected argument"));
+                get_field(field, Some(before))?;
+            }
+            Ok(())
+        };
+
+    let try_set = |field: &'static str,
+                   value: &'static str,
+                   expected: bool|
+     -> Result<(), Box<dyn std::error::Error>> {
+        let before = get_field(field, None)?;
+        let out = run_sysand_in(project_path, ["info", field, "--set", value], None)?;
+        if expected {
+            out.assert().success();
+            let mut expected_output = value.to_string();
+            expected_output.push('\n');
+            get_field(field, Some(expected_output))?;
+        } else {
+            out.assert()
+                .failure()
+                .stderr(predicates::str::contains("unexpected argument"));
+            get_field(field, Some(before))?;
+        }
+        Ok(())
+    };
+
+    let try_add = |field: &'static str,
+                   value: &'static str,
+                   expected: bool|
+     -> Result<(), Box<dyn std::error::Error>> {
+        let before = get_field(field, None)?;
+        let out = run_sysand_in(project_path, ["info", field, "--add", value], None)?;
+        if expected {
+            out.assert().success();
+            let mut expected_output = before;
+            expected_output.push_str(value);
+            expected_output.push('\n');
+            get_field(field, Some(expected_output))?;
+        } else {
+            out.assert()
+                .failure()
+                .stderr(predicates::str::contains("unexpected argument"));
+            get_field(field, Some(before))?;
+        }
+        Ok(())
+    };
+
+    let try_remove = |field: &'static str,
+                      index: &'static str,
+                      expected: bool|
+     -> Result<(), Box<dyn std::error::Error>> {
+        let before = get_field(field, None)?;
+        let out = run_sysand_in(project_path, ["info", field, "--remove", index], None)?;
+        if expected {
+            out.assert().success();
+            let skipped = index.parse::<usize>()? - 1;
+            let mut expected_output = "".to_string();
+            for (i, line) in before.lines().enumerate() {
+                if i != skipped {
+                    expected_output.push_str(line);
+                    expected_output.push('\n');
+                }
+            }
+            get_field(field, Some(expected_output))?;
+        } else {
+            out.assert()
+                .failure()
+                .stderr(predicates::str::contains("unexpected argument"));
+            get_field(field, Some(before))?;
+        }
+        Ok(())
+    };
+
+    get_field("name", Some("info_detailed_verbs\n".to_string()))?;
+    try_set("name", "info_detailed_verbs_alt", true)?;
+    try_clear("name", false)?;
+    try_add("name", "name_1", false)?;
+    try_remove("name", "1", false)?;
+    get_field("version", Some("1.2.3\n".to_string()))?;
+    try_set("version", "3.2.1", true)?;
+    try_clear("version", false)?;
+    try_add("version", "version_1", false)?;
+    try_remove("version", "1", false)?;
+    get_field("description", Some("".to_string()))?;
+    try_set("description", "description", true)?;
+    try_clear("description", true)?;
+    try_add("description", "description_1", false)?;
+    try_remove("description", "1", false)?;
+    get_field("licence", Some("".to_string()))?;
+    try_set("licence", "BSD4", true)?;
+    try_clear("licence", true)?;
+    try_add("licence", "licence_1", false)?;
+    try_remove("licence", "1", false)?;
+    get_field("license", Some("".to_string()))?;
+    try_set("license", "BSD4", true)?;
+    try_clear("license", true)?;
+    try_add("license", "license_1", false)?;
+    try_remove("license", "1", false)?;
+    get_field("maintainer", Some("".to_string()))?;
+    try_set("maintainer", "maintainer", true)?;
+    try_clear("maintainer", true)?;
+    try_add("maintainer", "maintainer_1", true)?;
+    try_add("maintainer", "maintainer_2", true)?;
+    try_add("maintainer", "maintainer_3", true)?;
+    try_remove("maintainer", "2", true)?;
+    get_field("website", Some("".to_string()))?;
+    try_set("website", "www.example.com", true)?;
+    try_clear("website", true)?;
+    try_add("website", "website_1", false)?;
+    try_remove("website", "1", false)?;
+    get_field("topic", Some("".to_string()))?;
+    try_set("topic", "example", true)?;
+    try_clear("topic", true)?;
+    try_add("topic", "topic_1", true)?;
+    try_add("topic", "topic_2", true)?;
+    try_add("topic", "topic_3", true)?;
+    try_remove("topic", "2", true)?;
+    get_field("usage", Some("".to_string()))?;
+    try_set("usage", "usage", false)?;
+    try_clear("usage", false)?;
+    try_add("usage", "usage_1", false)?;
+    try_remove("usage", "1", false)?;
+    get_field("index", Some("".to_string()))?;
+    try_set("index", "index", false)?;
+    try_clear("index", false)?;
+    try_add("index", "index_1", false)?;
+    try_remove("index", "1", false)?;
+    // get_field("created", Some("".to_string()))?;
+    try_set("created", "created", false)?;
+    try_clear("created", false)?;
+    try_add("created", "created_1", false)?;
+    try_remove("created", "1", false)?;
+    get_field("metamodel", Some("".to_string()))?;
+    try_set("metamodel", "metamodel", true)?;
+    try_clear("metamodel", true)?;
+    try_add("metamodel", "metamodel_1", false)?;
+    try_remove("metamodel", "1", false)?;
+    get_field("includes-derived", Some("".to_string()))?;
+    try_set("includes-derived", "true", true)?;
+    try_clear("includes-derived", true)?;
+    try_add("includes-derived", "includes_1", false)?;
+    try_remove("includes-derived", "1", false)?;
+    get_field("includes-implied", Some("".to_string()))?;
+    try_set("includes-implied", "false", true)?;
+    try_clear("includes-implied", true)?;
+    try_add("includes-implied", "includes_1", false)?;
+    try_remove("includes-implied", "1", false)?;
+    get_field("checksum", Some("".to_string()))?;
+    try_set("checksum", "checksum", false)?;
+    try_clear("checksum", false)?;
+    try_add("checksum", "checksum_1", false)?;
+    try_remove("checksum", "1", false)?;
 
     Ok(())
 }

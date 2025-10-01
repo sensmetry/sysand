@@ -26,7 +26,7 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
 ) -> Result<Command, Box<dyn std::error::Error>> {
     let args = [
         args.into_iter().map(|s| s.to_string()).collect(),
-        cfg.map(|config| vec!["--config".to_string(), config.to_string()])
+        cfg.map(|config| vec!["--config-file".to_string(), config.to_string()])
             .unwrap_or(vec!["--no-config".to_string()]),
     ]
     .concat();
