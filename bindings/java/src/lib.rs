@@ -118,7 +118,7 @@ pub extern "system" fn Java_org_sysand_Sysand_info_1path__Ljava_lang_String_2<'l
         project_path: std::path::PathBuf::from(&path),
     };
 
-    let command_result = sysand_core::commands::info::do_info_project(project);
+    let command_result = sysand_core::commands::info::do_info_project(&project);
     match command_result {
         Some(info_metadata) => info_metadata.to_jobject(&mut env),
         None => JObject::null(),
