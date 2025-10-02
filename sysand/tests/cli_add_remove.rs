@@ -41,7 +41,7 @@ fn add_and_remove() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], None)?;
 
     out.assert().success().stderr(predicate::str::contains(
-        r#"Removed usages:
+        r#"Removing urn:kpar:test from usages
              urn:kpar:test"#,
     ));
 

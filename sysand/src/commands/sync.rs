@@ -7,7 +7,6 @@ use anyhow::Result;
 use url::ParseError;
 
 use sysand_core::{
-    commands::lock::DEFAULT_LOCKFILE_NAME,
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     project::{
@@ -17,16 +16,14 @@ use sysand_core::{
 };
 
 pub fn command_sync(
+    lock: Lock,
     project_root: PathBuf,
     env: &mut LocalDirectoryEnvironment,
     client: reqwest::blocking::Client,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
-    let lockfile: Lock = toml::from_str(&std::fs::read_to_string(
-        project_root.join(DEFAULT_LOCKFILE_NAME),
-    )?)?;
     sysand_core::commands::sync::do_sync(
-        lockfile,
+        lock,
         env,
         Some(|src_path: String| LocalSrcProject {
             project_path: project_root.join(src_path),

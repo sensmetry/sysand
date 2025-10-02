@@ -17,13 +17,16 @@ use sysand_core::{
 use anyhow::{Result, bail};
 use fluent_uri::Iri;
 use reqwest::blocking::Client;
-use std::{env::current_dir, path::Path};
+use std::{collections::HashSet, env::current_dir, path::Path};
 use sysand_core::{
     info::{do_info, do_info_project},
     project::{local_kpar::LocalKParProject, local_src::LocalSrcProject},
 };
 
-pub fn pprint_interchange_project(info: InterchangeProjectInfoRaw) {
+pub fn pprint_interchange_project(
+    info: InterchangeProjectInfoRaw,
+    excluded_iris: &HashSet<String>,
+) {
     println!("Name: {}", info.name);
     if let Some(description) = info.description {
         println!("Description: {}", description);
@@ -46,6 +49,9 @@ pub fn pprint_interchange_project(info: InterchangeProjectInfoRaw) {
         println!("No usages.");
     } else {
         for usage in info.usage {
+            if excluded_iris.contains(&usage.resource) {
+                continue;
+            }
             print!("    Usage: {}", usage.resource);
             if let Some(v) = usage.version_constraint {
                 println!(" ({})", v);
@@ -71,12 +77,12 @@ fn interpret_project_path<P: AsRef<Path>>(path: P) -> Result<FileResolverProject
     })
 }
 
-pub fn command_info_path<P: AsRef<Path>>(path: P) -> Result<()> {
+pub fn command_info_path<P: AsRef<Path>>(path: P, excluded_iris: &HashSet<String>) -> Result<()> {
     let project = interpret_project_path(&path)?;
 
     match do_info_project(&project) {
         Some((info, _)) => {
-            pprint_interchange_project(info);
+            pprint_interchange_project(info, excluded_iris);
 
             Ok(())
         }
@@ -92,6 +98,7 @@ pub fn command_info_uri<S: AsRef<str>>(
     _normalise: bool,
     client: Client,
     index_base_urls: Option<Vec<S>>,
+    excluded_iris: &HashSet<String>,
 ) -> Result<()> {
     let cwd = current_dir().ok();
 
@@ -115,7 +122,7 @@ pub fn command_info_uri<S: AsRef<str>>(
 
     for (info, _) in do_info(&uri, &combined_resolver)? {
         found = true;
-        pprint_interchange_project(info);
+        pprint_interchange_project(info, excluded_iris);
     }
 
     if !found {

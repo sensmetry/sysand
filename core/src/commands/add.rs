@@ -27,6 +27,17 @@ pub fn do_add<P: ProjectMut>(
         .validate()?
         .into();
 
+    let adding = "Adding";
+    let header = crate::style::get_style_config().header;
+    log::info!(
+        "{header}{adding:>12}{header:#} usage: {} {}",
+        &iri,
+        versions_constraint
+            .as_ref()
+            .map(|vr| vr.to_string())
+            .unwrap_or("".to_string()),
+    );
+
     if let Some(info) = project.get_info().map_err(AddError::ProjectError)?.as_mut() {
         // TODO: Would ideally try to merge version constraint
         //       rather than having multiple usages

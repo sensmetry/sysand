@@ -4,6 +4,8 @@
 #[cfg(not(feature = "std"))]
 compile_error!("`std` feature is currently required to build `sysand`");
 
+use std::collections::HashSet;
+
 use anyhow::{Result, bail};
 
 use sysand_core::{
@@ -12,6 +14,7 @@ use sysand_core::{
         local_fs::{get_config, load_configs},
     },
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
+    lock::Lock,
     project::ProjectRead,
     stdlib::known_std_libs,
 };
@@ -19,10 +22,14 @@ use sysand_core::{
 use crate::commands::{
     add::command_add,
     build::command_build,
-    env::{command_env, command_env_install, command_env_list, command_env_uninstall},
+    env::{
+        command_env, command_env_install, command_env_install_path, command_env_list,
+        command_env_uninstall,
+    },
     exclude::command_exclude,
     include::command_include,
     info::{command_info_current_project, command_info_path, command_info_verb_path},
+    lock::command_lock,
     new::command_new,
     print_root::command_print_root,
     remove::command_remove,
@@ -85,29 +92,30 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             Some(cli::EnvCommand::Install {
                 iri,
                 version,
-                location,
-                index,
-                allow_overwrite,
-                allow_multiple,
+                path,
+                install_opts,
+                dependency_opts,
             }) => {
-                let mut local_environment = match current_environment {
-                    Some(env) => env,
-                    None => command_env(
-                        project_root
-                            .unwrap_or(std::env::current_dir()?)
-                            .join(DEFAULT_ENV_NAME),
-                    )?,
-                };
-
-                command_env_install(
-                    iri,
-                    version,
-                    &mut local_environment,
-                    location,
-                    index,
-                    allow_overwrite,
-                    allow_multiple,
-                )
+                if let Some(path) = path {
+                    command_env_install_path(
+                        iri,
+                        version,
+                        path,
+                        install_opts,
+                        dependency_opts,
+                        project_root,
+                        client,
+                    )
+                } else {
+                    command_env_install(
+                        iri,
+                        version,
+                        install_opts,
+                        dependency_opts,
+                        project_root,
+                        client,
+                    )
+                }
             }
             Some(cli::EnvCommand::Uninstall { iri, version }) => match current_environment {
                 Some(local_environment) => command_env_uninstall(iri, version, local_environment),
@@ -120,9 +128,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             Some(cli::EnvCommand::Sources {
                 iri,
                 version,
-                no_deps,
-                include_std,
+                sources_opts,
             }) => {
+                let cli::SourcesOptions {
+                    no_deps,
+                    include_std,
+                } = sources_opts;
                 let provided_iris = if !include_std {
                     known_std_libs()
                 } else {
@@ -132,11 +143,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 command_sources_env(iri, version, !no_deps, current_environment, &provided_iris)
             }
         },
-        cli::Command::Lock {
-            use_index,
-            no_index,
-            include_std,
-        } => {
+        cli::Command::Lock { dependency_opts } => {
+            let cli::DependencyOptions {
+                use_index,
+                no_index,
+                include_std,
+            } = dependency_opts;
             let index_base_urls = if no_index { None } else { Some(use_index) };
 
             let provided_iris = if !include_std {
@@ -151,7 +163,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 bail!("Not inside a project")
             }
         }
-        cli::Command::Sync { include_std } => {
+        cli::Command::Sync { dependency_opts } => {
+            let cli::DependencyOptions {
+                use_index,
+                no_index,
+                include_std,
+            } = dependency_opts;
             let mut local_environment = match current_environment {
                 Some(env) => env,
                 None => command_env(
@@ -167,8 +184,23 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } else {
                 std::collections::HashMap::default()
             };
+            let project_root = project_root.unwrap_or(std::env::current_dir()?);
+            let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
+            if !lockfile.is_file() {
+                let index_base_urls = if no_index { None } else { Some(use_index) };
+                command_lock(
+                    &project_root,
+                    client.clone(),
+                    index_base_urls,
+                    &provided_iris,
+                )?;
+            }
+            let lock: Lock = toml::from_str(&std::fs::read_to_string(
+                project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
+            )?)?;
             command_sync(
-                project_root.unwrap_or(std::env::current_dir()?),
+                lock,
+                project_root,
                 &mut local_environment,
                 client,
                 &provided_iris,
@@ -180,11 +212,20 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             iri,
             auto_location,
             no_normalise,
-            use_index,
-            no_index,
+            dependency_opts,
             subcommand,
         } => {
+            let cli::DependencyOptions {
+                use_index,
+                no_index,
+                include_std,
+            } = dependency_opts;
             let index_base_urls = if no_index { None } else { Some(use_index) };
+            let excluded_iris: HashSet<_> = if !include_std {
+                known_std_libs().keys().cloned().collect()
+            } else {
+                std::collections::HashSet::default()
+            };
 
             enum Location {
                 WorkDir,
@@ -230,7 +271,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                     numbered,
                                 )
                             }
-                            None => command_info_path(current_project.root_path()),
+                            None => command_info_path(current_project.root_path(), &excluded_iris),
                         }
                     } else {
                         bail!(
@@ -243,6 +284,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     !no_normalise,
                     client,
                     index_base_urls,
+                    &excluded_iris,
                 ),
                 (Location::Iri(iri), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
@@ -255,7 +297,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         index_base_urls,
                     )
                 }
-                (Location::Path(path), None) => command_info_path(std::path::Path::new(&path)),
+                (Location::Path(path), None) => {
+                    command_info_path(std::path::Path::new(&path), &excluded_iris)
+                }
                 (Location::Path(path), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
 
@@ -272,55 +316,16 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             versions_constraint,
             no_lock,
             no_sync,
-            use_index,
-            no_index,
-            include_std,
-        } => {
-            let index_base_urls = if no_index { None } else { Some(use_index) };
-
-            command_add(iri, versions_constraint, current_project)?;
-
-            if !no_lock {
-                let provided_iris = if !include_std {
-                    known_std_libs()
-                } else {
-                    std::collections::HashMap::default()
-                };
-
-                if let Some(path) = &project_root {
-                    crate::commands::lock::command_lock(
-                        path,
-                        client.clone(),
-                        index_base_urls,
-                        &provided_iris,
-                    )?;
-                } else {
-                    bail!("Not inside a project")
-                }
-
-                if !no_sync {
-                    // TODO: Deduplicate this code
-                    let mut local_environment = match current_environment {
-                        Some(env) => env,
-                        None => command_env(
-                            project_root
-                                .as_ref()
-                                .unwrap_or(&std::env::current_dir()?)
-                                .join(DEFAULT_ENV_NAME),
-                        )?,
-                    };
-
-                    command_sync(
-                        project_root.unwrap_or(std::env::current_dir()?),
-                        &mut local_environment,
-                        client,
-                        &provided_iris,
-                    )?;
-                }
-            }
-
-            Ok(())
-        }
+            dependency_opts,
+        } => command_add(
+            iri,
+            versions_constraint,
+            no_lock,
+            no_sync,
+            dependency_opts,
+            current_project,
+            client,
+        ),
         cli::Command::Remove { iri } => command_remove(iri, current_project),
         cli::Command::Include {
             paths,
@@ -345,10 +350,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
             command_build(path, current_project)
         }
-        cli::Command::Sources {
-            no_deps,
-            include_std,
-        } => {
+        cli::Command::Sources { sources_opts } => {
+            let cli::SourcesOptions {
+                no_deps,
+                include_std,
+            } = sources_opts;
             let provided_iris = if !include_std {
                 known_std_libs()
             } else {
@@ -371,6 +377,13 @@ pub fn get_env(project_root: &std::path::Path) -> Option<LocalDirectoryEnvironme
         None
     } else {
         Some(LocalDirectoryEnvironment { environment_path })
+    }
+}
+
+pub fn get_or_create_env(project_root: &std::path::Path) -> Result<LocalDirectoryEnvironment> {
+    match get_env(project_root) {
+        Some(env) => Ok(env),
+        None => command_env(project_root.join(DEFAULT_ENV_NAME)),
     }
 }
 

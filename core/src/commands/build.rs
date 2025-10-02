@@ -13,18 +13,18 @@ use crate::{
 #[cfg(feature = "filesystem")]
 #[derive(Error, Debug)]
 pub enum KParBuildError<ProjectReadError> {
-    #[error("{0}")]
-    ProjectReadError(ProjectReadError),
-    #[error("{0}")]
-    SrcError(#[from] crate::project::local_src::LocalSrcError),
+    #[error(transparent)]
+    ProjectRead(ProjectReadError),
+    #[error(transparent)]
+    LocalSrc(#[from] crate::project::local_src::LocalSrcError),
     #[error("incomplete sources {0}")]
-    IncompleteSourceError(String),
-    #[error("{0}")]
-    IOError(#[from] std::io::Error),
-    #[error("{0}")]
-    ValidationError(#[from] InterchangeProjectValidationError),
-    #[error("{0}")]
-    ExtractError(#[from] crate::symbols::ExtractError),
+    IncompleteSource(String),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Validation(#[from] InterchangeProjectValidationError),
+    #[error(transparent)]
+    Extract(#[from] crate::symbols::ExtractError),
     #[error("unknown format {0}")]
     UnknownFormat(String),
     #[error("missing project info")]
@@ -32,13 +32,13 @@ pub enum KParBuildError<ProjectReadError> {
     #[error("missing project metadata")]
     MissingMeta,
     #[error("{0}")]
-    ZipWriteError(#[from] zip::result::ZipError),
+    ZipWrite(#[from] zip::result::ZipError),
     #[error("path failure: {0}")]
     PathFailure(String),
-    #[error("inalid filename")]
-    FileNameError,
-    #[error("{0}")]
-    SerdeError(#[from] serde_json::Error),
+    #[error("invalid filename")]
+    InvalidFileName,
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
 }
 
 // impl<ProjectReadError> From<...> for KParBuildError<ProjectReadError> {
@@ -56,12 +56,10 @@ impl<ProjectReadError>
         >,
     ) -> Self {
         match value {
-            crate::env::utils::CloneError::ReadError(error) => {
-                KParBuildError::ProjectReadError(error)
-            }
+            crate::env::utils::CloneError::ReadError(error) => KParBuildError::ProjectRead(error),
             crate::env::utils::CloneError::WriteError(error) => error.into(),
             crate::env::utils::CloneError::IncompleteSourceError(error) => {
-                KParBuildError::IncompleteSourceError(error)
+                KParBuildError::IncompleteSource(error)
             }
             crate::env::utils::CloneError::IOError(error) => error.into(),
         }
@@ -74,9 +72,9 @@ impl<ProjectReadError> From<super::include::IncludeError<crate::project::local_s
 {
     fn from(value: super::include::IncludeError<crate::project::local_src::LocalSrcError>) -> Self {
         match value {
-            super::include::IncludeError::ProjectError(error) => error.into(),
-            super::include::IncludeError::IOError(error) => error.into(),
-            super::include::IncludeError::ExtractError(extract_error) => extract_error.into(),
+            super::include::IncludeError::Project(error) => error.into(),
+            super::include::IncludeError::Io(error) => error.into(),
+            super::include::IncludeError::Extract(extract_error) => extract_error.into(),
             super::include::IncludeError::UnknownFormat(error) => {
                 KParBuildError::UnknownFormat(error)
             }
@@ -102,7 +100,7 @@ impl<ProjectReadError>
             }
             crate::project::local_kpar::IntoKparError::IOError(error) => error.into(),
             crate::project::local_kpar::IntoKparError::FileNameError => {
-                KParBuildError::FileNameError
+                KParBuildError::InvalidFileName
             }
             crate::project::local_kpar::IntoKparError::SerdeError(error) => error.into(),
         }
@@ -116,6 +114,13 @@ pub fn do_build_kpar<P: AsRef<Path>, Pr: ProjectRead>(
     canonicalise: bool,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::{model::InterchangeProjectMetadataRaw, project::local_src::LocalSrcProject};
+
+    let building = "Building";
+    let header = crate::style::get_style_config().header;
+    log::info!(
+        "{header}{building:>12}{header:#} kpar: {}",
+        path.as_ref().display()
+    );
 
     let (_tmp, mut local_project) = LocalSrcProject::temporary_from_project(project)?;
 
