@@ -16,6 +16,15 @@ pub struct Lock {
     pub project: Vec<Project>,
 }
 
+impl Default for Lock {
+    fn default() -> Self {
+        Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            project: vec![],
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum LockResolutionEror<EnvironmentError> {
     #[error("{0}")]

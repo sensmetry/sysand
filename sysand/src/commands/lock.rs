@@ -53,47 +53,58 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
     let LockOutcome { lock, .. } =
         match sysand_core::commands::lock::do_lock_local_editable(&path, wrapped_resolver) {
             Ok(lock_outcome) => lock_outcome,
-            Err(sysand_core::commands::lock::LockError::SolverError(solver_error)) => {
-                match solver_error.inner {
-                    pubgrub::PubGrubError::NoSolution(mut derivation_tree) => {
-                        derivation_tree.collapse_no_versions();
-                        bail!(
-                            "Failed to satisfy usage constraints:\n{}",
-                            pubgrub::DefaultStringReporter::report(&derivation_tree)
-                        );
-                    }
-                    pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                        package, source, ..
-                    } => match package {
-                        sysand_core::solve::pubgrub::DependencyIdentifier::Requested(_) => {
-                            bail!("Unexpected internal error: {:?}", source)
+            Err(sysand_core::commands::lock::LockProjectError::LockError(lock_error)) => {
+                if let sysand_core::commands::lock::LockError::SolverError(solver_error) =
+                    lock_error
+                {
+                    match solver_error.inner {
+                        pubgrub::PubGrubError::NoSolution(mut derivation_tree) => {
+                            derivation_tree.collapse_no_versions();
+                            bail!(
+                                "Failed to satisfy usage constraints:\n{}",
+                                pubgrub::DefaultStringReporter::report(&derivation_tree)
+                            );
                         }
-                        sysand_core::solve::pubgrub::DependencyIdentifier::Remote(iri) => {
-                            bail!("Failed to retrieve (transitive) usages of usage {}", iri)
-                        }
-                    },
-                    pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => {
-                        match package {
+                        pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                            package,
+                            source,
+                            ..
+                        } => match package {
                             sysand_core::solve::pubgrub::DependencyIdentifier::Requested(_) => {
-                                bail!("Unxpected internal error: {:?}", source)
+                                bail!("Unexpected internal error: {:?}", source)
                             }
                             sysand_core::solve::pubgrub::DependencyIdentifier::Remote(iri) => {
-                                bail!("Unable to select version of usage {}", iri)
+                                bail!("Failed to retrieve (transitive) usages of usage {}", iri)
+                            }
+                        },
+                        pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => {
+                            match package {
+                                sysand_core::solve::pubgrub::DependencyIdentifier::Requested(_) => {
+                                    bail!("Unxpected internal error: {:?}", source)
+                                }
+                                sysand_core::solve::pubgrub::DependencyIdentifier::Remote(iri) => {
+                                    bail!("Unable to select version of usage {}", iri)
+                                }
                             }
                         }
+                        pubgrub::PubGrubError::ErrorInShouldCancel(err) => match err {
+                            sysand_core::solve::pubgrub::InternalSolverError::ResolutionError(
+                                err,
+                            ) => {
+                                bail! {"Resolution error {:?}", err}
+                            }
+                            sysand_core::solve::pubgrub::InternalSolverError::InvalidProject => {
+                                bail!("Found invalid project during usage resolution")
+                            }
+                            sysand_core::solve::pubgrub::InternalSolverError::NotResolvable(
+                                iri,
+                            ) => {
+                                bail!("Unable to resolve usage {}", iri)
+                            }
+                        },
                     }
-                    pubgrub::PubGrubError::ErrorInShouldCancel(err) => match err {
-                        sysand_core::solve::pubgrub::InternalSolverError::ResolutionError(err) => {
-                            bail! {"Resolution error {:?}", err}
-                        }
-                        sysand_core::solve::pubgrub::InternalSolverError::InvalidProject => {
-                            bail!("Found invalid project during usage resolution")
-                        }
-                        sysand_core::solve::pubgrub::InternalSolverError::NotResolvable(iri) => {
-                            bail!("Unable to resolve usage {}", iri)
-                        }
-                    },
                 }
+                Err(lock_error)?
             }
             Err(err) => Err(err)?,
         };

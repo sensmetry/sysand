@@ -12,7 +12,7 @@ pub const DEFAULT_LOCKFILE_NAME: &str = "SysandLock.toml";
 #[cfg(feature = "filesystem")]
 use crate::project::{editable::EditableProject, local_src::LocalSrcProject};
 use crate::{
-    lock::{CURRENT_LOCK_VERSION, Lock, Project},
+    lock::{Lock, Project},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{CanonicalisationError, ProjectRead},
     resolve::ResolveRead,
@@ -20,13 +20,27 @@ use crate::{
 };
 
 #[derive(Error, Debug)]
-pub enum LockError<PI: ProjectRead, PD: ProjectRead, R: ResolveRead + std::fmt::Debug + 'static> {
+pub enum LockProjectError<
+    PI: ProjectRead,
+    PD: ProjectRead,
+    R: ResolveRead + std::fmt::Debug + 'static,
+> {
     #[error("{0}")]
     InputProjectError(PI::Error),
     #[error("{0}")]
-    DependencyProjectError(PD::Error),
-    #[error("{0}")]
     InputProjectCanonicalisationError(CanonicalisationError<PI::Error>),
+    #[error(transparent)]
+    LockError(#[from] LockError<PD, R>),
+}
+
+#[derive(Error, Debug)]
+pub enum LockError<PD: ProjectRead, R: ResolveRead + std::fmt::Debug + 'static> {
+    // #[error("{0}")]
+    // InputProjectError(PI::Error),
+    #[error("{0}")]
+    DependencyProjectError(PD::Error),
+    // #[error("{0}")]
+    // InputProjectCanonicalisationError(CanonicalisationError<PI::Error>),
     #[error("{0}")]
     DependencyProjectCanonicalisationError(CanonicalisationError<PD::Error>),
     #[error("{0}")]
@@ -55,7 +69,7 @@ pub struct LockOutcome<PI, PD> {
 ///
 /// Returns a lockfile, as well as a list of dependency projects to install (in addition to)
 /// `projects`.
-pub fn do_lock<
+pub fn do_lock_projects<
     PI: ProjectRead + std::fmt::Debug,
     PD: ProjectRead + std::fmt::Debug,
     I: IntoIterator<Item = PI>,
@@ -63,11 +77,8 @@ pub fn do_lock<
 >(
     projects: I, // TODO: Should this be an iterable over Q?
     resolver: R,
-) -> Result<LockOutcome<PI, PD>, LockError<PI, PD, R>> {
-    let mut lock = Lock {
-        lock_version: CURRENT_LOCK_VERSION.to_string(),
-        project: vec![],
-    };
+) -> Result<LockOutcome<PI, PD>, LockProjectError<PI, PD, R>> {
+    let mut lock = Lock::default();
 
     let mut all_deps = vec![];
     let mut inputs = vec![];
@@ -75,7 +86,7 @@ pub fn do_lock<
     for project in projects.into_iter() {
         let info = project
             .get_info()
-            .map_err(LockError::InputProjectError)?
+            .map_err(LockProjectError::InputProjectError)?
             .ok_or(LockError::IncompleteInputProjectError(format!(
                 "{:?}",
                 project
@@ -83,7 +94,7 @@ pub fn do_lock<
 
         let canonical_hash = project
             .checksum_canonical_hex()
-            .map_err(LockError::InputProjectCanonicalisationError)?
+            .map_err(LockProjectError::InputProjectCanonicalisationError)?
             .ok_or(LockError::IncompleteInputProjectError(format!(
                 "{:?}",
                 project
@@ -113,8 +124,31 @@ pub fn do_lock<
         all_deps.extend(usages);
     }
 
+    let LockOutcome {
+        lock,
+        inputs: _,
+        dependencies,
+    } = do_lock_extend(lock, all_deps, resolver)?;
+
+    Ok(LockOutcome {
+        lock,
+        inputs,
+        dependencies,
+    })
+}
+
+pub fn do_lock_extend<
+    PD: ProjectRead + std::fmt::Debug,
+    I: IntoIterator<Item = InterchangeProjectUsage>,
+    R: ResolveRead<ProjectStorage = PD> + std::fmt::Debug,
+>(
+    mut lock: Lock,
+    usages: I, // TODO: Should this be an iterable over Q?
+    resolver: R,
+) -> Result<LockOutcome<InterchangeProjectUsage, PD>, LockError<PD, R>> {
+    let inputs: Vec<_> = usages.into_iter().collect();
     let mut dependencies = vec![];
-    let solution = solve(all_deps, resolver).map_err(LockError::SolverError)?;
+    let solution = solve(inputs.to_vec(), resolver).map_err(LockError::SolverError)?;
 
     for (iri, (info, _meta, project)) in solution {
         let info_json = json!({
@@ -162,7 +196,10 @@ pub fn do_lock_local_editable<
 >(
     path: P,
     resolver: R,
-) -> Result<LockOutcome<EditableLocalSrcProject, PD>, LockError<EditableLocalSrcProject, PD, R>> {
+) -> Result<
+    LockOutcome<EditableLocalSrcProject, PD>,
+    LockProjectError<EditableLocalSrcProject, PD, R>,
+> {
     let project = EditableProject::new(
         path.as_ref()
             .to_str()
@@ -174,5 +211,5 @@ pub fn do_lock_local_editable<
         },
     );
 
-    do_lock(std::iter::once(project), resolver)
+    do_lock_projects(std::iter::once(project), resolver)
 }
