@@ -16,10 +16,6 @@ pub fn command_include(
     let mut current_project =
         current_project.ok_or(CliError::MissingProject("in current directory".to_string()))?;
 
-    let including = "Including";
-    let header = crate::style::CONFIG.header;
-    log::info!("{header}{including:>12}{header:#} files: {:?}", &files,);
-
     for file in files {
         let unix_path = current_project.get_unix_path(file)?;
 

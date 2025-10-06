@@ -158,22 +158,22 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
     do_build_kpar(&project, &output_path, true)
         .map(|_| ())
         .map_err(|err| match err {
-            sysand_core::build::KParBuildError::ProjectReadError(_) => {
+            sysand_core::build::KParBuildError::ProjectRead(_) => {
                 pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
             }
-            sysand_core::build::KParBuildError::SrcError(_) => {
+            sysand_core::build::KParBuildError::LocalSrc(_) => {
                 pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
             }
-            sysand_core::build::KParBuildError::IncompleteSourceError(_) => {
+            sysand_core::build::KParBuildError::IncompleteSource(_) => {
                 pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
             }
-            sysand_core::build::KParBuildError::IOError(_) => {
+            sysand_core::build::KParBuildError::Io(_) => {
                 pyo3::exceptions::PyIOError::new_err(err.to_string())
             }
-            sysand_core::build::KParBuildError::ValidationError(_) => {
+            sysand_core::build::KParBuildError::Validation(_) => {
                 pyo3::exceptions::PyValueError::new_err(err.to_string())
             }
-            sysand_core::build::KParBuildError::ExtractError(_) => {
+            sysand_core::build::KParBuildError::Extract(_) => {
                 pyo3::exceptions::PyValueError::new_err(err.to_string())
             }
             sysand_core::build::KParBuildError::UnknownFormat(_) => {
@@ -185,16 +185,16 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
             sysand_core::build::KParBuildError::MissingMeta => {
                 pyo3::exceptions::PyValueError::new_err(err.to_string())
             }
-            sysand_core::build::KParBuildError::ZipWriteError(_) => {
+            sysand_core::build::KParBuildError::ZipWrite(_) => {
                 pyo3::exceptions::PyIOError::new_err(err.to_string())
             }
             sysand_core::build::KParBuildError::PathFailure(_) => {
                 pyo3::exceptions::PyIOError::new_err(err.to_string())
             }
-            sysand_core::build::KParBuildError::FileNameError => {
+            sysand_core::build::KParBuildError::InvalidFileName => {
                 pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
             }
-            sysand_core::build::KParBuildError::SerdeError(_) => {
+            sysand_core::build::KParBuildError::Serde(_) => {
                 pyo3::exceptions::PyValueError::new_err(err.to_string())
             }
         })
