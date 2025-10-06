@@ -35,12 +35,8 @@ pub enum LockProjectError<
 
 #[derive(Error, Debug)]
 pub enum LockError<PD: ProjectRead, R: ResolveRead + std::fmt::Debug + 'static> {
-    // #[error("{0}")]
-    // InputProjectError(PI::Error),
     #[error("{0}")]
     DependencyProjectError(PD::Error),
-    // #[error("{0}")]
-    // InputProjectCanonicalisationError(CanonicalisationError<PI::Error>),
     #[error("{0}")]
     DependencyProjectCanonicalisationError(CanonicalisationError<PD::Error>),
     #[error("{0}")]
@@ -137,13 +133,17 @@ pub fn do_lock_projects<
     })
 }
 
+/// Solves for compatible set of dependencies based on usages and adds the solution
+/// to existing lockfile.
+/// Note: The content of the lockfile is not taken into account when solving.
+// TODO: Fix this or find a better way.
 pub fn do_lock_extend<
     PD: ProjectRead + std::fmt::Debug,
     I: IntoIterator<Item = InterchangeProjectUsage>,
     R: ResolveRead<ProjectStorage = PD> + std::fmt::Debug,
 >(
     mut lock: Lock,
-    usages: I, // TODO: Should this be an iterable over Q?
+    usages: I,
     resolver: R,
 ) -> Result<LockOutcome<InterchangeProjectUsage, PD>, LockError<PD, R>> {
     let inputs: Vec<_> = usages.into_iter().collect();
