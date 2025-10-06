@@ -10,7 +10,7 @@ const DEFAULT_INDEX_URL: &str = "https://beta.sysand.org";
 
 /// A project manager for KerML and SysML
 #[derive(clap::Parser, Debug)]
-#[command(author, version, about, long_about = None, arg_required_else_help = true)]
+#[command(author, version, about, long_about = None, arg_required_else_help = true, disable_help_flag = true, disable_version_flag = true)]
 #[command(styles=crate::style::STYLING)]
 pub struct Args {
     #[command(flatten)]
@@ -18,6 +18,10 @@ pub struct Args {
 
     #[command(subcommand)]
     pub command: Command,
+
+    /// Display the sysand version.
+    #[arg(short = 'V', long, action = clap::ArgAction::Version)]
+    version: Option<bool>,
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -36,51 +40,6 @@ pub enum Command {
         name: Option<String>,
         #[arg(long)]
         version: Option<String>,
-    },
-    /// Create a local sysand_env environment for installing dependencies
-    Env {
-        #[command(subcommand)]
-        command: Option<EnvCommand>,
-    },
-    /// Sync env to lockfile, creating a lockfile if none is found
-    Sync {
-        #[command(flatten)]
-        dependency_opts: DependencyOptions,
-    },
-    /// Prints the root directory of the current project
-    PrintRoot,
-    /// Resolve and describe current interchange project or one at at a specified path or IRI/URL.
-    Info {
-        /// Use the project at the given path instead of the current project
-        #[arg(short = 'p', long, group = "location")]
-        path: Option<String>,
-        /// Use the project with the given IRI/URI/URL instead of the current project
-        #[arg(
-            short = 'i',
-            long,
-            visible_alias = "uri",
-            visible_alias = "url",
-            group = "location"
-        )]
-        iri: Option<String>,
-        /// Use the project with the given location, trying to parse it
-        /// as an IRI/URI/URL and otherwise falling back to a local path
-        #[arg(short = 'a', long, group = "location")]
-        auto_location: Option<String>,
-        /// Do not try to normalise the IRI/URI when resolving
-        #[arg(long, default_value = "false", visible_alias = "no-normalize")]
-        no_normalise: bool,
-        // TODO: Add various options, such as whether to take local environment
-        //       into consideration
-        #[command(flatten)]
-        dependency_opts: DependencyOptions,
-        #[command(subcommand)]
-        subcommand: Option<InfoCommand>,
-    },
-    /// Update lockfile
-    Lock {
-        #[command(flatten)]
-        dependency_opts: DependencyOptions,
     },
     /// Add usage to project information
     Add {
@@ -121,17 +80,62 @@ pub enum Command {
         #[arg(num_args = 1..)]
         paths: Vec<String>,
     },
-    /// Build kpar
+    /// Build a KerML Project Archive (KPAR)
     Build {
         /// Path giving where to put the finished kpar
         path: Option<std::path::PathBuf>,
     },
-    /// Enumerate source files for the current project and
+    /// Create or update lockfile
+    Lock {
+        #[command(flatten)]
+        dependency_opts: DependencyOptions,
+    },
+    /// Create a local sysand_env directory for installing dependencies
+    Env {
+        #[command(subcommand)]
+        command: Option<EnvCommand>,
+    },
+    /// Sync sysand_env to lockfile, creating a lockfile and sysand_env if needed
+    Sync {
+        #[command(flatten)]
+        dependency_opts: DependencyOptions,
+    },
+    /// Resolve and describe current project or one at at a specified path or IRI/URL.
+    Info {
+        /// Use the project at the given path instead of the current project
+        #[arg(short = 'p', long, group = "location")]
+        path: Option<String>,
+        /// Use the project with the given IRI/URI/URL instead of the current project
+        #[arg(
+            short = 'i',
+            long,
+            visible_alias = "uri",
+            visible_alias = "url",
+            group = "location"
+        )]
+        iri: Option<String>,
+        /// Use the project with the given location, trying to parse it
+        /// as an IRI/URI/URL and otherwise falling back to a local path
+        #[arg(short = 'a', long, group = "location")]
+        auto_location: Option<String>,
+        /// Do not try to normalise the IRI/URI when resolving
+        #[arg(long, default_value = "false", visible_alias = "no-normalize")]
+        no_normalise: bool,
+        // TODO: Add various options, such as whether to take local environment
+        //       into consideration
+        #[command(flatten)]
+        dependency_opts: DependencyOptions,
+        #[command(subcommand)]
+        subcommand: Option<InfoCommand>,
+    },
+    /// List source files for the current project and
     /// (optionally) its dependencies.
     Sources {
         #[command(flatten)]
         sources_opts: SourcesOptions,
     },
+    /// Prints the root directory of the current project
+    PrintRoot,
 }
 
 #[derive(Clone, Debug)]
@@ -1004,7 +1008,7 @@ pub enum EnvCommand {
     },
     /// List projects installed in sysand_env
     List,
-    /// Enumerate source files for an installed project and
+    /// List source files for an installed project and
     /// (optionally) its dependencies.
     Sources {
         /// IRI of the (already installed) project for which
@@ -1092,6 +1096,9 @@ pub struct GlobalOptions {
     /// Give path to 'sysand.toml' to use for configuration
     #[arg(long, short, global = true, help_heading = "Global options")]
     pub config_file: Option<String>,
+    /// Print help
+    #[arg(long, short, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
+    pub help: Option<bool>,
 }
 
 impl GlobalOptions {
