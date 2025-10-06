@@ -5,6 +5,7 @@ members = ["sysand", "core", "bindings/py", "bindings/js", "bindings/java"]
 [workspace.package]
 version = "0.0.2"
 edition = "2024"
+rust-version = "1.85"
 publish = false
 authors = ["Sensmetry <opensource@sensmetry.com>"]
 license = "MIT OR Apache-2.0"
