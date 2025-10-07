@@ -90,12 +90,12 @@ pub enum Command {
         #[command(flatten)]
         dependency_opts: DependencyOptions,
     },
-    /// Create a local sysand_env directory for installing dependencies
+    /// Create a local `sysand_env` directory for installing dependencies
     Env {
         #[command(subcommand)]
         command: Option<EnvCommand>,
     },
-    /// Sync sysand_env to lockfile, creating a lockfile and sysand_env if needed
+    /// Sync `sysand_env` to lockfile, creating a lockfile and `sysand_env if needed
     Sync {
         #[command(flatten)]
         dependency_opts: DependencyOptions,
@@ -988,7 +988,7 @@ impl InfoCommand {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum EnvCommand {
-    /// Install project in sysand_env
+    /// Install project in `sysand_env
     Install {
         iri: String,
         version: Option<String>,
@@ -1001,12 +1001,12 @@ pub enum EnvCommand {
         #[command(flatten)]
         dependency_opts: DependencyOptions,
     },
-    /// Uninstall project in sysand_env
+    /// Uninstall project in `sysand_env`
     Uninstall {
         iri: String,
         version: Option<String>,
     },
-    /// List projects installed in sysand_env
+    /// List projects installed in `sysand_env`
     List,
     /// List source files for an installed project and
     /// (optionally) its dependencies.

@@ -14,8 +14,8 @@ sysand new [OPTIONS] <DIR>
 
 ### Description
 
-Create new project at `<PATH>`, i.e. a new directory containing .project.json
-and .meta.json.
+Create new project at `<PATH>`, i.e. a new directory containing `.project.json`
+and `.meta.json`.
 
 ## `sysand init`
 
@@ -29,8 +29,8 @@ sysand init [OPTIONS]
 
 ### Description
 
-Create new project in current directory, i.e. create .project.json and
-.meta.json files.
+Create new project in current directory, i.e. create `.project.json` and
+`.meta.json` files.
 
 ## `sysand add`
 
@@ -44,8 +44,8 @@ sysand add [OPTIONS] <IRI> [VERSIONS_CONSTRAINT]
 
 ### Description
 
-Adds IRI and optional VERSIONS_CONSTRAINT to list of usages in the project
-information file .project.json. By default this will also update the lockfile
+Adds IRI and optional `<VERSIONS_CONSTRAINT>` to list of usages in the project
+information file `.project.json`. By default this will also update the lockfile
 and sync the local environment (creating one if not already present).
 
 ## `sysand remove`
@@ -61,7 +61,7 @@ sysand remove [OPTIONS] <IRI>
 ### Description
 
 Removes all instances of IRI from list usages in the project information file
-.project.json. By default this will also update the lockfile and sync the local
+`.project.json`. By default this will also update the lockfile and sync the local
 environment (creating one if not already present).
 
 ## `sysand include`
@@ -77,8 +77,8 @@ sysand include [OPTIONS] [PATHS]...
 ### Description
 
 Takes all files given by PATHS and adds them to project metadata index and
-checksum list in .meta.json for the current project. By default the checksum is
-not computed and is left blank (with algorithm as "None").
+checksum list in `.meta.json` for the current project. By default the checksum is
+not computed and is left blank (with algorithm as `"None"`).
 
 Current project is determined as in [sysand print-root](#sysand-print-root) and
 if none is found uses the current directory instead.
@@ -96,7 +96,7 @@ sysand exclude [OPTIONS] [PATHS]...
 ### Description
 
 Takes all files given by PATHS and removes all instances of them to project
-metadata index and checksum list in .meta.json for the current project.
+metadata index and checksum list in `.meta.json` for the current project.
 
 Current project is determined as in [sysand print-root](#sysand-print-root) and
 if none is found uses the current directory instead.
@@ -220,7 +220,7 @@ project and (optionally) its dependencies. Is intended to be machine readable.
 
 ## `sysand sync`
 
-Sync env to lockfile, creating a lockfile if none is found
+Sync `sysand_env` to lockfile, creating a lockfile and `sysand_env if needed
 
 ### Usage
 
@@ -257,7 +257,7 @@ sysand info [OPTIONS] [COMMAND]
 
 Prints out the information contained in the .project.json file for the specified
 project, defaulting to current project if no project is specified. Optionally an
-extra command can be given to gte or set values in .project.json and .meta.json.
+extra command can be given to gte or set values in `.project.json` and `.meta.json`.
 
 Current project is determined as in [sysand print-root](#sysand-print-root) and
 if none is found uses the current directory instead.
@@ -296,4 +296,4 @@ Tries to find the current project by starting in the current directory end then
 iteratively going up the parent directories until a project directory is found.
 
 A project directory is considered to be any directory containing either a
-.project.json or a .meta.json file.
+`.project.json` or a `.meta.json file`.
