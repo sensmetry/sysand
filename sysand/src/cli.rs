@@ -1095,10 +1095,10 @@ pub struct GlobalOptions {
     )]
     pub quiet: bool,
     /// Disable discovery of configuration files
-    #[arg(long, short, global = true, help_heading = "Global options")]
+    #[arg(long, global = true, help_heading = "Global options")]
     pub no_config: bool,
     /// Give path to 'sysand.toml' to use for configuration
-    #[arg(long, short, global = true, help_heading = "Global options")]
+    #[arg(long, global = true, help_heading = "Global options")]
     pub config_file: Option<String>,
     /// Print help
     #[arg(long, short, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
