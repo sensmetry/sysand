@@ -5,6 +5,7 @@
         "kerml",
         "kpar",
         "metamodel",
+        "mdbook",
         "thiserror",
         "reqwest",
         "pubgrub",
