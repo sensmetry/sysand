@@ -28,24 +28,29 @@ pub struct Args {
 pub enum Command {
     /// Create new project in current directory
     Init {
+        /// Set the project name. Defaults to the directory name
         #[arg(long)]
         name: Option<String>,
+        /// Set the version. Defaults to `0.0.1`
         #[arg(long)]
         version: Option<String>,
     },
     /// Create new project in given directory
     New {
-        dir: String,
+        /// Path to the new project
+        path: String,
         #[arg(long)]
+        /// Set the project name. Defaults to the directory name
         name: Option<String>,
         #[arg(long)]
+        /// Set the version. Defaults to `0.0.1`
         version: Option<String>,
     },
     /// Add usage to project information
     Add {
-        /// IRI identifying the project to be used.
+        /// IRI identifying the project to be used
         iri: String,
-        /// A constraint on the allowable versions of a used project.
+        /// A constraint on the allowable versions of a used project
         versions_constraint: Option<String>,
         /// Do not automatically resolve usages (and generate lockfile)
         #[arg(long, default_value = "false")]
@@ -59,30 +64,32 @@ pub enum Command {
     },
     /// Remove usage from project information
     Remove {
-        /// IRI identifying the project used.
+        /// IRI identifying the project usage to be removed
         iri: String,
     },
     /// Include model interchange files in project metadata
     Include {
-        /// File to include in the project.
+        /// File(s) to include in the project.
         #[arg(num_args = 1..)]
         paths: Vec<String>,
-        /// Compute and add file (current) SHA256 checksum.
+        /// Compute and add file (current) SHA256 checksum
         #[arg(long, default_value = "false")]
         compute_checksum: bool,
-        /// Do not detect and add top level symbols to index.
+        /// Do not detect and add top level symbols to index
         #[arg(long, default_value = "false")]
         no_index_symbols: bool,
     },
     /// Exclude model interchange file from project metadata
     Exclude {
-        /// Files to exclude from the project.
+        /// File(s) to exclude from the project
         #[arg(num_args = 1..)]
         paths: Vec<String>,
     },
     /// Build a KerML Project Archive (KPAR)
     Build {
-        /// Path giving where to put the finished kpar
+        /// Path giving where to put the finished KPAR.
+        /// Defaults to `output/<project name>.kpar` or
+        /// `output/project.kpar` if no name is found
         path: Option<std::path::PathBuf>,
     },
     /// Create or update lockfile
@@ -100,7 +107,7 @@ pub enum Command {
         #[command(flatten)]
         dependency_opts: DependencyOptions,
     },
-    /// Resolve and describe current project or one at at a specified path or IRI/URL.
+    /// Resolve and describe current project or one at at a specified path or IRI/URL
     Info {
         /// Use the project at the given path instead of the current project
         #[arg(short = 'p', long, group = "location")]
@@ -129,7 +136,7 @@ pub enum Command {
         subcommand: Option<InfoCommand>,
     },
     /// List source files for the current project and
-    /// (optionally) its dependencies.
+    /// (optionally) its dependencies
     Sources {
         #[command(flatten)]
         sources_opts: SourcesOptions,
@@ -990,7 +997,9 @@ impl InfoCommand {
 pub enum EnvCommand {
     /// Install project in `sysand_env
     Install {
+        /// IRI identifying the project to be installed
         iri: String,
+        /// Version to be installed
         version: Option<String>,
         /// Local path to interchange project
         #[arg(long, default_value = None)]
@@ -1003,19 +1012,20 @@ pub enum EnvCommand {
     },
     /// Uninstall project in `sysand_env`
     Uninstall {
+        /// IRI identifying the project to be uninstalled
         iri: String,
+        /// Version to be uninstalled
         version: Option<String>,
     },
     /// List projects installed in `sysand_env`
     List,
     /// List source files for an installed project and
-    /// (optionally) its dependencies.
+    /// (optionally) its dependencies
     Sources {
         /// IRI of the (already installed) project for which
         /// to enumerate source files
         iri: String,
         /// Version of project to list sources for
-        #[arg(long, default_value = None)]
         version: Option<VersionReq>,
 
         #[command(flatten)]
@@ -1049,24 +1059,18 @@ pub struct DependencyOptions {
         help_heading = "Dependency options"
     )]
     pub no_index: bool,
-    /// Include possible usages of KerML/SysML standard libraries. By default
-    /// these are excluded, as they are typically shipped with your language
-    /// implementation.
+    /// Include usages of KerML/SysML standard libraries if present
     #[arg(long, default_value = "false", help_heading = "Dependency options")]
     pub include_std: bool,
 }
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
-    #[arg(long, default_value = "false")]
+    /// Do not include sources for dependencies
+    #[arg(long, default_value = "false", conflicts_with = "include_std")]
     pub no_deps: bool,
-    /// Include KerML/SysML standard libraries. By default
-    /// these are excluded, as they are typically shipped with your language
-    /// implementation.
-    ///
-    /// This assumes these standard libraries have been explicitly
-    /// installed by sysand.
-    #[arg(long, default_value = "false")]
+    /// Include (installed) KerML/SysML standard libraries
+    #[arg(long, default_value = "false", conflicts_with = "no_deps")]
     pub include_std: bool,
 }
 
