@@ -29,3 +29,9 @@ as [sysand env](../env.md).
 - `--allow-overwrite`: Allow overwriting existing installation
 - `--allow-multiple`: Install even if another version is already installed
 - `--no-deps`: Don't install any dependencies
+
+## Dependency options
+
+- `--use-index [<USE_INDEX>...]`: Use an index when resolving this usage
+- `--no-index`: Do not use any index when resolving this usage
+- `--include`: Include usages of KerML/SysML standard libraries if present

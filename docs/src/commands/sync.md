@@ -21,3 +21,9 @@ as [sysand env](env.md).
 
 Current project is determined as in [sysand print-root](root.md) and
 if none is found uses the current directory instead.
+
+## Dependency options
+
+- `--use-index [<USE_INDEX>...]`: Use an index when resolving this usage
+- `--no-index`: Do not use any index when resolving this usage
+- `--include`: Include usages of KerML/SysML standard libraries if present
