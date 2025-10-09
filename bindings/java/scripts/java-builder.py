@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# 
 # SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
