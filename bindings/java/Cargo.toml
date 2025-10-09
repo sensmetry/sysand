@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish.workspace = true
 authors.workspace = true
 license.workspace = true
+description.workspace = true
+repository.workspace = true
 
 [lib]
 name = "sysand"
