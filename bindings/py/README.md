@@ -12,11 +12,11 @@ First, set up a Python venv:
 ```bash
 uv venv
 source .venv/bin/activate # or e.g. .venv/bin/activate.fish depending on your shell
-uv pip install -r requirements-dev.txt
 ```
 
 Rust/"native" tests use PyO3, which does not work well within a Python venv.
-It is therefore recommended to use the supplied script to run all ("native" and pytest) tests:
+It is therefore recommended to use the supplied script to run all ("native"
+and pytest) tests:
 
 ```sh
 ./scripts/run_tests.sh
@@ -25,6 +25,7 @@ It is therefore recommended to use the supplied script to run all ("native" and 
 Alternatively, to build and run Python tests:
 
 ```sh
+uv sync --only-dev
 uv run maturin develop
 uv run pytest
 ```
@@ -51,6 +52,6 @@ Format Rust and Python code and run linters for both:
 Python version used by default is specified in `.python-version`. If you change
 the version there, you should run
 ```sh
-cargo clean -p pyo3-build-config`
+cargo clean -p pyo3-build-config
 ```
 to ensure that no references to previously used Python version remain in build cache.
