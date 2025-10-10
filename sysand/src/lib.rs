@@ -76,9 +76,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         cli::Command::Init { name, version } => {
             command_new(name, version, std::env::current_dir()?)
         }
-        cli::Command::New { dir, name, version } => {
-            command_new(name, version, std::path::Path::new(&dir))
-        }
+        cli::Command::New {
+            path,
+            name,
+            version,
+        } => command_new(name, version, std::path::Path::new(&path)),
         cli::Command::Env { command } => match command {
             None => {
                 command_env(

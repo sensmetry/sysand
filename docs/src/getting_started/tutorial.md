@@ -1,42 +1,6 @@
-# Sysand: a package manager for SysML v2 and KerML
+# Tutorial
 
-> [!important]
-> This is an early preview release, intended for early adopters
-> to test, integrate, and give feedback. While we hope to keep the tool in a
-> usable state, interfaces are subject to change and usability will likely not
-> yet be representative of a stable release.
-
-This repository contains Sysand, a [package
-manager](https://en.wikipedia.org/wiki/Package_manager) for SysML v2 and KerML
-similar to package managers for programming languages such as Pip for Python,
-NPM for JavaScript, Maven for Java, and NuGet for .NET. Sysand is based on a
-concept of a model interchange project, a slight generalization of a project
-interchange file (`*.kpar`), defined in [KerML clause
-10.3](https://www.omg.org/spec/KerML/1.0/Beta4/PDF#page=428).
-
-Sysand can be used as a standalone tool through its command line interface (CLI)
-or be integrated into other tools through one of its APIs (currently, Python and
-Java are supported).
-
-The following section provides basic information on how to use Sysand via CLI.
-The later sections provide information relevant for potential contributors.
-
-## Basic use via the command line interface
-
-### Installation
-
-Sysand is written in Rust programming language. To build it, [install
-Rust](https://www.rust-lang.org/tools/install) and run the following command in
-the terminal:
-
-```bash
-cargo install sysand --git=https://github.com/sensmetry/sysand.git
-```
-
-With Sysand installed, you can now create a model interchange project as shown
-in the following subsection.
-
-### Model interchange projects
+## Model interchange projects
 
 A model interchange project is a collection of SysML or KerML files with
 additional metadata such as project name, versions, and the list of projects on
@@ -60,7 +24,7 @@ Version: 0.0.1
 No usages.
 ```
 
-### Source files
+## Source files
 
 The project we created in the previous subsection contains no source files as
 can be seen by running the following command:
@@ -95,7 +59,7 @@ $ sysand sources
 
 The following subsection shows how to add dependencies to our project.
 
-### Dependencies
+## Dependencies
 
 Effectively all projects depend on elements defined in other projects. The key
 benefit of Sysand is that it can automatically manage project dependencies for
@@ -166,7 +130,7 @@ $ sysand sources
 ...
 ```
 
-### Environments
+## Environments
 
 When we executed `sysand add` in the previous subsection, it implicitly created
 and synchronized an *environment* for us. For users familiar with Python, Sysand
@@ -196,7 +160,7 @@ $ sysand sync
   Installing https://www.omg.org/spec/KerML/20250201/Function-Library.kpar 1.0.0
 ```
 
-### Packaging projects for distribution
+## Packaging projects for distribution
 
 To package your project for distribution, run `sysand build`:
 
@@ -207,67 +171,3 @@ $ sysand build
 
 This command creates a `my_project.kpar` file that can be installed in a
 different project using `sysand`.
-
-## Documentation
-
-The "Sysand User Guide" is currently a work in progress. To preview make sure
-you have `mdbook` installed (`cargo install mdbook`), then either run
-
-```bash
-mdbook build docs/
-```
-
-and open `docs/book/index.html`, or run
-
-```bash
-mdbook serve docs/
-```
-
-and open [localhost:3000](http://localhost:3000/).
-
-## Contributing
-
-### Legal
-
-For contributors' guidelines regarding legal matters, please see the
-[CONTRIBUTING.md](CONTRIBUTING.md) file.
-
-### Compiling
-
-Ensure a recent Rust toolchain [is installed (see
-here)](https://www.rust-lang.org/tools/install). Once installed, the command
-line utility can be compiled and installed as follows.
-
-```bash
-$ cargo install --path=sysand
-[...]
-Installed package `sysand v0.0.1 (/...)` (executable `sysand`)
-```
-
-### Repository structure
-
-- `core` contains all the core logic, and can be used as a Rust library. It also
-  contains (optional) coercion trait implementations for Python and
-  WASM/JavaScript.
-- `sysand` wraps `core` into a user interface, currently a command line
-  application.
-- `bindings` wraps `core` for various programming languages:
-
-  - `bindings/js` wraps `core` into a WASM/JavaScript library that can be used
-    in Node, Deno, browsers, and so on.
-  - `bindings/py` wraps `core` into a Python module.
-  - `bindings/java` wraps `core` into a Java library.
-
-  Note that the language libraries are currently in a very early state of
-  development. Especially the JavaScript/WASM library is only a proof-of-concept
-  that is not yet usable.
-
-## Licensing
-
-The implementation is dual-licensed under the MIT and Apache-2.0 licenses,
-meaning users may choose to use the code under *either* license. Contributors
-agree to provide contributed code under **both** licenses.
-
-Sysand is maintained by [Sensmetry](https://www.sensmetry.com), with
-contributions from the community. To see the complete list of contributors,
-please see the git history.
