@@ -25,7 +25,6 @@ and pytest) tests:
 Alternatively, to build and run Python tests:
 
 ```sh
-uv sync --only-dev
 uv run maturin develop
 uv run pytest
 ```

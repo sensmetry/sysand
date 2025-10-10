@@ -8,8 +8,6 @@ PACKAGE_DIR=$(dirname $SCRIPT_DIR)
 
 cd $PACKAGE_DIR
 
-uv sync --only-dev
-
 uv run maturin develop
 
 # Workaround to make pyo3 embedded Python detect venv python libs.
