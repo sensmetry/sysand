@@ -10,6 +10,7 @@ cd $PACKAGE_DIR
 
 cargo fmt
 cargo clippy --all-targets -- --deny warnings
-uv tool run ruff format python tests
-uv tool run ruff check python
-uv tool run mypy --strict python
+uv sync --group linters
+uv run ruff format python tests
+uv run ruff check python
+uv run mypy --strict python
