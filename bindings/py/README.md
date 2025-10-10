@@ -49,8 +49,8 @@ Format Rust and Python code and run linters for both:
 
 ## Changing Python version
 
-Python version used by default is specified in `.python-version`. If you change
-the version there, you should run
+Python version used by default for venvs is specified in `.python-version`.
+If you change the version there, you should run
 ```sh
 cargo clean -p pyo3-build-config
 ```
