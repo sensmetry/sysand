@@ -399,6 +399,19 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &provided_iris,
             )
         }
+        cli::Command::PrintLock => {
+            let project_root = project_root.unwrap_or(std::env::current_dir()?);
+            let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
+            if !lockfile.is_file() {
+                bail!("No lockfile");
+            }
+            let lock: Lock = toml::from_str(&std::fs::read_to_string(
+                project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
+            )?)?;
+
+            println!("{}", lock.to_toml());
+            Ok(())
+        }
     }
 }
 

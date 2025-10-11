@@ -4,6 +4,9 @@
 use serde::{Deserialize, Serialize};
 
 use thiserror::Error;
+use toml_edit::{
+    Array, ArrayOfTables, DocumentMut, Formatted, InlineTable, Item, Table, Value, value,
+};
 
 use crate::{env::ReadEnvironment, project::ProjectRead};
 
@@ -77,6 +80,19 @@ impl Lock {
 
         Ok(found)
     }
+
+    pub fn to_toml(&self) -> DocumentMut {
+        let mut doc = DocumentMut::new();
+        doc.insert("lock_version", value(Value::from(&self.lock_version)));
+
+        let mut projects = ArrayOfTables::new();
+        for project in &self.project {
+            projects.push(project.to_toml());
+        }
+        doc.insert("project", Item::ArrayOfTables(projects));
+
+        doc
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -102,6 +118,49 @@ impl Project {
             None
         }
     }
+    pub fn to_toml(&self) -> Table {
+        let mut table = Table::new();
+        if let Some(info) = &self.info {
+            // table.insert("info", value(info.to_string()));
+            // TODO: Break up info to avoid this nonsense
+            let info_str = toml::to_string(info).unwrap();
+            let info_toml = info_str.parse::<DocumentMut>().unwrap();
+            table.insert("info", info_toml.as_item().clone());
+        }
+        if let Some(meta) = &self.meta {
+            // table.insert("meta", value(meta.to_string()));
+            // TODO: Break up meta to avoid this nonsense
+            let meta_str = toml::to_string(meta).unwrap();
+            let meta_toml = meta_str.parse::<DocumentMut>().unwrap();
+            table.insert("meta", meta_toml.as_item().clone());
+        }
+        let iris = multiline_array(self.iris.iter().map(Value::from));
+        if !iris.is_empty() {
+            table.insert("iris", value(iris));
+        }
+        table.insert("checksum", value(&self.checksum));
+        if let Some(specification) = &self.specification {
+            table.insert("specification", value(specification));
+        }
+        let sources = multiline_array(self.sources.iter().map(|s| s.to_toml()));
+        if !sources.is_empty() {
+            table.insert("sources", value(sources));
+        }
+        table
+    }
+}
+
+fn multiline_array(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
+    let mut array: Array = elements
+        .map(|item| {
+            let mut value = item.into();
+            value.decor_mut().set_prefix("\n    ");
+            value
+        })
+        .collect();
+    array.set_trailing_comma(true);
+    array.set_trailing("\n");
+    array
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -132,6 +191,46 @@ pub enum Source {
     RemoteApi {
         remote_api: String,
     },
+}
+
+impl Source {
+    pub fn to_toml(&self) -> InlineTable {
+        let mut table = InlineTable::new();
+        match self {
+            Source::Editable { editable } => {
+                table.insert("editable", Value::from(editable));
+            }
+            Source::LocalKpar { kpar_path } => {
+                table.insert("kpar_path", Value::from(kpar_path));
+            }
+            Source::LocalSrc { src_path } => {
+                table.insert("src_path", Value::from(src_path));
+            }
+            Source::Registry { registry } => {
+                table.insert("registry", Value::from(registry));
+            }
+            Source::RemoteApi { remote_api } => {
+                table.insert("remote_api", Value::from(remote_api));
+            }
+            Source::RemoteGit { remote_git } => {
+                table.insert("remote_git", Value::from(remote_git));
+            }
+            Source::RemoteKpar {
+                remote_kpar,
+                remote_kpar_size,
+            } => {
+                table.insert("remote_kpar", Value::from(remote_kpar));
+                if let Some(remote_kpar_size) = remote_kpar_size {
+                    let size = i64::try_from(*remote_kpar_size).unwrap();
+                    table.insert("remote_kpar_size", Value::Integer(Formatted::new(size)));
+                }
+            }
+            Source::RemoteSrc { remote_src } => {
+                table.insert("remote_src", Value::from(remote_src));
+            }
+        }
+        table
+    }
 }
 
 #[test]
