@@ -21,9 +21,8 @@
 ## Setup
 
 Development is done on Linux (including WSL) or macOS. For Sysand core and CLI
-development, you only need to [install
-Rust](https://rust-lang.org/tools/install/) 1.85 or later.
-
+development, you need to [install
+Rust](https://rust-lang.org/tools/install/) 1.85 or later and [uv](https://docs.astral.sh/uv/).
 It is also recommended to use [`rust-analyzer`](https://github.com/rust-lang/rust-analyzer).
 It has an [extension for VS
 Code](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
