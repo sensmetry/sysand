@@ -268,62 +268,327 @@ fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
     array
 }
 
-#[test]
-fn toml_example() {
-    let example = Lock {
-        lock_version: CURRENT_LOCK_VERSION.to_string(),
-        projects: vec![
-            Project {
-                name: "foo".to_string(),
-                version: "1.2.3".to_string(),
+#[cfg(test)]
+mod tests {
+    use std::fmt::Display;
+
+    use crate::lock::{CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage};
+
+    fn test_to_toml<S: Display>(projects: Vec<Project>, toml: S) {
+        let lockfile = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects,
+        };
+        let expected = format!(
+            "{}lock_version = \"{}\"\n{}",
+            LOCKFILE_PREFIX, CURRENT_LOCK_VERSION, toml
+        );
+        assert_eq!(lockfile.to_string(), expected.to_string());
+    }
+
+    #[test]
+    fn minimal_to_toml() {
+        test_to_toml(
+            vec![Project {
+                name: "Minimal".to_string(),
+                version: "0.0.1".to_string(),
                 exports: vec![],
                 iris: vec![],
-                checksum: "FF".to_string(),
+                checksum: "00".to_string(),
+                specification: None,
+                sources: vec![],
+                usages: vec![],
+            }],
+            r#"
+[[project]]
+name = "Minimal"
+version = "0.0.1"
+checksum = "00"
+"#,
+        );
+    }
+
+    #[test]
+    fn one_export_to_toml() {
+        test_to_toml(
+            vec![Project {
+                name: "One Package".to_string(),
+                version: "0.1.1".to_string(),
+                exports: vec!["PackageName".to_string()],
+                iris: vec![],
+                checksum: "00".to_string(),
+                specification: None,
+                sources: vec![],
+                usages: vec![],
+            }],
+            r#"
+[[project]]
+name = "One Package"
+version = "0.1.1"
+exports = [
+    "PackageName",
+]
+checksum = "00"
+"#,
+        );
+    }
+
+    #[test]
+    fn many_exports_to_toml() {
+        test_to_toml(
+            vec![Project {
+                name: "Three Packages".to_string(),
+                version: "0.1.3".to_string(),
+                exports: vec![
+                    "Package1".to_string(),
+                    "Package2".to_string(),
+                    "Package3".to_string(),
+                ],
+                iris: vec![],
+                checksum: "00".to_string(),
+                specification: None,
+                sources: vec![],
+                usages: vec![],
+            }],
+            r#"
+[[project]]
+name = "Three Packages"
+version = "0.1.3"
+exports = [
+    "Package1",
+    "Package2",
+    "Package3",
+]
+checksum = "00"
+"#,
+        );
+    }
+
+    #[test]
+    fn one_iri_to_toml() {
+        test_to_toml(
+            vec![Project {
+                name: "One IRI".to_string(),
+                version: "0.2.1".to_string(),
+                exports: vec![],
+                iris: vec!["urn:kpar:example".to_string()],
+                checksum: "00".to_string(),
+                specification: None,
+                sources: vec![],
+                usages: vec![],
+            }],
+            r#"
+[[project]]
+name = "One IRI"
+version = "0.2.1"
+iris = [
+    "urn:kpar:example",
+]
+checksum = "00"
+"#,
+        );
+    }
+
+    #[test]
+    fn many_iris_to_toml() {
+        test_to_toml(
+            vec![Project {
+                name: "Three IRI:s".to_string(),
+                version: "0.2.3".to_string(),
+                exports: vec![],
+                iris: vec![
+                    "urn:kpar:example".to_string(),
+                    "ftp://www.example.com".to_string(),
+                    "http://www.example.com".to_string(),
+                ],
+                checksum: "00".to_string(),
+                specification: None,
+                sources: vec![],
+                usages: vec![],
+            }],
+            r#"
+[[project]]
+name = "Three IRI:s"
+version = "0.2.3"
+iris = [
+    "urn:kpar:example",
+    "ftp://www.example.com",
+    "http://www.example.com",
+]
+checksum = "00"
+"#,
+        );
+    }
+
+    #[test]
+    fn some_specification_to_toml() {
+        test_to_toml(
+            vec![Project {
+                name: "Some specification".to_string(),
+                version: "0.3.0".to_string(),
+                exports: vec![],
+                iris: vec![],
+                checksum: "00".to_string(),
+                specification: Some("example".to_string()),
+                sources: vec![],
+                usages: vec![],
+            }],
+            r#"
+[[project]]
+name = "Some specification"
+version = "0.3.0"
+checksum = "00"
+specification = "example"
+"#,
+        );
+    }
+
+    #[test]
+    fn ome_source_to_toml() {
+        test_to_toml(
+            vec![Project {
+                name: "One source".to_string(),
+                version: "0.4.1".to_string(),
+                exports: vec![],
+                iris: vec![],
+                checksum: "00".to_string(),
                 specification: None,
                 sources: vec![Source::Editable {
                     editable: ".".to_string(),
                 }],
                 usages: vec![],
-            },
-            Project {
-                name: "bar".to_string(),
-                version: "3.2.1".to_string(),
-                exports: vec![],
-                iris: vec![
-                    "ftp://www.example.com".to_string(),
-                    "http://www.example.com".to_string(),
-                ],
-                checksum: "00".to_string(),
-                specification: Some("example".to_string()),
-                sources: vec![],
-                usages: vec![],
-            },
-        ],
-    };
-
-    let expected = format!(
-        r#"{}lock_version = "{}"
-
+            }],
+            r#"
 [[project]]
-name = "foo"
-version = "1.2.3"
-checksum = "FF"
-sources = [
-    {{ editable = "." }},
-]
-
-[[project]]
-name = "bar"
-version = "3.2.1"
-iris = [
-    "ftp://www.example.com",
-    "http://www.example.com",
-]
+name = "One source"
+version = "0.4.1"
 checksum = "00"
-specification = "example"
+sources = [
+    { editable = "." },
+]
 "#,
-        LOCKFILE_PREFIX, CURRENT_LOCK_VERSION
-    );
+        );
+    }
 
-    assert_eq!(example.to_string(), expected.to_string());
+    #[test]
+    fn many_sources_to_toml() {
+        test_to_toml(
+            vec![Project {
+                name: "Seven sources".to_string(),
+                version: "0.4.7".to_string(),
+                exports: vec![],
+                iris: vec![],
+                checksum: "00".to_string(),
+                specification: None,
+                sources: vec![
+                    Source::LocalKpar {
+                        kpar_path: "example.kpar".to_string(),
+                    },
+                    Source::LocalSrc {
+                        src_path: "example/path".to_string(),
+                    },
+                    Source::Registry {
+                        registry: "www.example.com".to_string(),
+                    },
+                    Source::RemoteKpar {
+                        remote_kpar: "www.example.com/remote.kpar".to_string(),
+                        remote_kpar_size: Some(64),
+                    },
+                    Source::RemoteSrc {
+                        remote_src: "www.example.com/remote".to_string(),
+                    },
+                    Source::RemoteGit {
+                        remote_git: "github.com/example/remote.git".to_string(),
+                    },
+                    Source::RemoteApi {
+                        remote_api: "www.example.com/api".to_string(),
+                    },
+                ],
+                usages: vec![],
+            }],
+            r#"
+[[project]]
+name = "Seven sources"
+version = "0.4.7"
+checksum = "00"
+sources = [
+    { kpar_path = "example.kpar" },
+    { src_path = "example/path" },
+    { registry = "www.example.com" },
+    { remote_kpar = "www.example.com/remote.kpar", remote_kpar_size = 64 },
+    { remote_src = "www.example.com/remote" },
+    { remote_git = "github.com/example/remote.git" },
+    { remote_api = "www.example.com/api" },
+]
+"#,
+        );
+    }
+
+    #[test]
+    fn one_usage_to_toml() {
+        test_to_toml(
+            vec![Project {
+                name: "One usage".to_string(),
+                version: "0.5.1".to_string(),
+                exports: vec![],
+                iris: vec![],
+                checksum: "00".to_string(),
+                specification: None,
+                sources: vec![],
+                usages: vec![Usage {
+                    resource: "urn:kpar:usage".to_string(),
+                    version_constraint: None,
+                }],
+            }],
+            r#"
+[[project]]
+name = "One usage"
+version = "0.5.1"
+checksum = "00"
+usages = [
+    { resource = "urn:kpar:usage" },
+]
+"#,
+        );
+    }
+
+    #[test]
+    fn many_usage_to_toml() {
+        test_to_toml(
+            vec![Project {
+                name: "Three usages".to_string(),
+                version: "0.5.3".to_string(),
+                exports: vec![],
+                iris: vec![],
+                checksum: "00".to_string(),
+                specification: None,
+                sources: vec![],
+                usages: vec![
+                    Usage {
+                        resource: "urn:kpar:first".to_string(),
+                        version_constraint: None,
+                    },
+                    Usage {
+                        resource: "urn:kpar:second".to_string(),
+                        version_constraint: Some("^2.0.0".to_string()),
+                    },
+                    Usage {
+                        resource: "urn:kpar:third".to_string(),
+                        version_constraint: Some(">=3.0.0".to_string()),
+                    },
+                ],
+            }],
+            r#"
+[[project]]
+name = "Three usages"
+version = "0.5.3"
+checksum = "00"
+usages = [
+    { resource = "urn:kpar:first" },
+    { resource = "urn:kpar:second", version_constraint = "^2.0.0" },
+    { resource = "urn:kpar:third", version_constraint = ">=3.0.0" },
+]
+"#,
+        );
+    }
 }
