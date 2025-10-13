@@ -1,8 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use serde::{Deserialize, Serialize};
-
+use serde::Deserialize;
 use thiserror::Error;
 use toml_edit::{
     Array, ArrayOfTables, DocumentMut, Formatted, InlineTable, Item, Table, Value, value,
@@ -12,18 +11,18 @@ use crate::{env::ReadEnvironment, project::ProjectRead};
 
 pub const CURRENT_LOCK_VERSION: &str = "0.1";
 
-#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Deserialize, Debug)]
 pub struct Lock {
     pub lock_version: String,
     #[serde(rename = "project", skip_serializing_if = "Vec::is_empty", default)]
-    pub project: Vec<Project>,
+    pub projects: Vec<Project>,
 }
 
 impl Default for Lock {
     fn default() -> Self {
         Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
-            project: vec![],
+            projects: vec![],
         }
     }
 }
@@ -47,7 +46,7 @@ impl Lock {
         let mut missing = vec![];
         let mut found = vec![];
 
-        for project in &self.project {
+        for project in &self.projects {
             let checksum = &project.checksum;
 
             let mut resolved_project = None;
@@ -86,7 +85,7 @@ impl Lock {
         doc.insert("lock_version", value(Value::from(&self.lock_version)));
 
         let mut projects = ArrayOfTables::new();
-        for project in &self.project {
+        for project in &self.projects {
             projects.push(project.to_toml());
         }
         doc.insert("project", Item::ArrayOfTables(projects));
@@ -95,46 +94,33 @@ impl Lock {
     }
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Deserialize, Debug)]
 pub struct Project {
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub info: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub meta: Option<serde_json::Value>,
+    pub name: String,
+    pub version: String,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub exports: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub iris: Vec<String>,
     pub checksum: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub specification: Option<String>,
-    #[serde(rename = "source", skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub sources: Vec<Source>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub usages: Vec<Usage>,
 }
 
 impl Project {
-    pub fn name(&self) -> Option<String> {
-        if let Some(info) = &self.info {
-            Some(info.as_object()?.get("name")?.as_str()?.to_string())
-        } else {
-            None
-        }
-    }
     pub fn to_toml(&self) -> Table {
         let mut table = Table::new();
-        if let Some(info) = &self.info {
-            // table.insert("info", value(info.to_string()));
-            // TODO: Break up info to avoid this nonsense
-            let info_str = toml::to_string(info).unwrap();
-            let info_toml = info_str.parse::<DocumentMut>().unwrap();
-            table.insert("info", info_toml.as_item().clone());
+        table.insert("name", value(&self.name));
+        table.insert("version", value(&self.version));
+        let exports = multiline_list(self.exports.iter().map(Value::from));
+        if !exports.is_empty() {
+            table.insert("exports", value(exports));
         }
-        if let Some(meta) = &self.meta {
-            // table.insert("meta", value(meta.to_string()));
-            // TODO: Break up meta to avoid this nonsense
-            let meta_str = toml::to_string(meta).unwrap();
-            let meta_toml = meta_str.parse::<DocumentMut>().unwrap();
-            table.insert("meta", meta_toml.as_item().clone());
-        }
-        let iris = multiline_array(self.iris.iter().map(Value::from));
+        let iris = multiline_list(self.iris.iter().map(Value::from));
         if !iris.is_empty() {
             table.insert("iris", value(iris));
         }
@@ -142,28 +128,19 @@ impl Project {
         if let Some(specification) = &self.specification {
             table.insert("specification", value(specification));
         }
-        let sources = multiline_array(self.sources.iter().map(|s| s.to_toml()));
+        let sources = multiline_list(self.sources.iter().map(|s| s.to_toml()));
         if !sources.is_empty() {
             table.insert("sources", value(sources));
+        }
+        let usages = multiline_list(self.usages.iter().map(|u| u.to_toml()));
+        if !usages.is_empty() {
+            table.insert("usages", value(usages));
         }
         table
     }
 }
 
-fn multiline_array(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
-    let mut array: Array = elements
-        .map(|item| {
-            let mut value = item.into();
-            value.decor_mut().set_prefix("\n    ");
-            value
-        })
-        .collect();
-    array.set_trailing_comma(true);
-    array.set_trailing("\n");
-    array
-}
-
-#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum Source {
     Editable {
@@ -233,59 +210,84 @@ impl Source {
     }
 }
 
+#[derive(Clone, PartialEq, Deserialize, Debug)]
+pub struct Usage {
+    pub resource: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version_constraint: Option<String>,
+}
+
+impl Usage {
+    pub fn to_toml(&self) -> InlineTable {
+        let mut table = InlineTable::new();
+        table.insert("resource", Value::from(&self.resource));
+        if let Some(version_constraint) = &self.version_constraint {
+            table.insert("version_constraint", Value::from(version_constraint));
+        }
+        table
+    }
+}
+
+impl From<crate::model::InterchangeProjectUsageRaw> for Usage {
+    fn from(value: crate::model::InterchangeProjectUsageRaw) -> Usage {
+        Usage {
+            resource: value.resource,
+            version_constraint: value.version_constraint,
+        }
+    }
+}
+
+impl From<crate::model::InterchangeProjectUsage> for Usage {
+    fn from(value: crate::model::InterchangeProjectUsage) -> Usage {
+        Usage {
+            resource: value.resource.to_string(),
+            version_constraint: value.version_constraint.map(|vr| vr.to_string()),
+        }
+    }
+}
+
+fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
+    let mut array: Array = elements
+        .map(|item| {
+            let mut value = item.into();
+            value.decor_mut().set_prefix("\n    ");
+            value
+        })
+        .collect();
+    array.set_trailing_comma(true);
+    array.set_trailing("\n");
+    array
+}
+
 #[test]
 fn toml_example() {
-    let json_1 = serde_json::from_str(
-        r#"
-    { "name": "foobar", "version": "1.2.3" }
-    "#,
-    )
-    .unwrap();
-
-    let meta_1 = serde_json::from_str(
-        r#"
-    null
-    "#,
-    )
-    .unwrap();
-
-    let json_2 = serde_json::from_str(
-        r#"
-    null
-    "#,
-    )
-    .unwrap();
-
-    let meta_2 = serde_json::from_str(
-        r#"
-    { "created": "1871-03-18T12:00:00.000000000+01:00" }
-    "#,
-    )
-    .unwrap();
-
     let example = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
-        project: vec![
+        projects: vec![
             Project {
-                info: json_1,
-                meta: meta_1,
-                iris: vec![
-                    "ftp://www.example.com".to_string(),
-                    "http://www.example.com".to_string(),
-                ],
+                name: "foo".to_string(),
+                version: "1.2.3".to_string(),
+                exports: vec![],
+                iris: vec![],
                 checksum: "FF".to_string(),
                 specification: None,
                 sources: vec![Source::Editable {
                     editable: ".".to_string(),
                 }],
+                usages: vec![],
             },
             Project {
-                info: json_2,
-                meta: meta_2,
-                iris: vec![],
+                name: "bar".to_string(),
+                version: "3.2.1".to_string(),
+                exports: vec![],
+                iris: vec![
+                    "ftp://www.example.com".to_string(),
+                    "http://www.example.com".to_string(),
+                ],
                 checksum: "00".to_string(),
                 specification: Some("example".to_string()),
                 sources: vec![],
+                usages: vec![],
             },
         ],
     };
@@ -294,25 +296,25 @@ fn toml_example() {
         r#"lock_version = "{}"
 
 [[project]]
-iris = ["ftp://www.example.com", "http://www.example.com"]
-checksum = "FF"
-
-[project.info]
-name = "foobar"
+name = "foo"
 version = "1.2.3"
-
-[[project.source]]
-editable = "."
+checksum = "FF"
+sources = [
+    {{ editable = "." }},
+]
 
 [[project]]
+name = "bar"
+version = "3.2.1"
+iris = [
+    "ftp://www.example.com",
+    "http://www.example.com",
+]
 checksum = "00"
 specification = "example"
-
-[project.meta]
-created = "1871-03-18T12:00:00.000000000+01:00"
 "#,
         CURRENT_LOCK_VERSION
     );
 
-    assert_eq!(toml::to_string(&example).unwrap(), expected.to_string());
+    assert_eq!(example.to_toml().to_string(), expected.to_string());
 }

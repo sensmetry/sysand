@@ -96,7 +96,7 @@ where
     log::info!("{header}{syncing:>12}{header:#} env");
 
     let mut updated = false;
-    'main_loop: for project in lockfile.project {
+    'main_loop: for project in lockfile.projects {
         // TODO: We need a proper way to treat multiple IRIs here
         let main_uri = project.iris.first().cloned();
 
