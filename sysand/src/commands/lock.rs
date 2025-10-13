@@ -113,7 +113,7 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
 
     fs::write(
         Path::new(path.as_ref()).join(DEFAULT_LOCKFILE_NAME),
-        lock.to_toml().to_string(),
+        lock.to_string(),
     )?;
 
     Ok(())
