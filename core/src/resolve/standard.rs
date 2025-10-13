@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use crate::{
-    env::{local_directory::LocalDirectoryEnvironment, reqwest_http::HTTPEnvironment},
+    env::{local_directory::LocalDirectoryEnvironment, reqwest_http::HTTPEnvironmentSync},
     resolve::{
         ResolveRead,
         combined::CombinedResolver,
@@ -20,7 +20,7 @@ use reqwest::blocking::Client;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
-pub type RemoteIndexResolver = SequentialResolve<EnvResolver<HTTPEnvironment>>;
+pub type RemoteIndexResolver = SequentialResolve<EnvResolver<HTTPEnvironmentSync>>;
 
 type StandardResolverInner = CombinedResolver<
     FileResolver,
@@ -82,7 +82,7 @@ pub fn standard_local_resolver(local_env_path: PathBuf) -> LocalEnvResolver {
 
 pub fn standard_index_resolver(client: Client, base_urls: Vec<url::Url>) -> RemoteIndexResolver {
     SequentialResolve::new(base_urls.into_iter().map(|base_url| EnvResolver {
-        env: HTTPEnvironment {
+        env: HTTPEnvironmentSync {
             client: client.clone(),
             base_url: base_url.clone(),
             prefer_src: true,

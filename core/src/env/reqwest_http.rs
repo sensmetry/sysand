@@ -20,11 +20,20 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct HTTPEnvironment {
+pub struct HTTPEnvironmentSync {
     pub client: reqwest::blocking::Client,
     pub base_url: reqwest::Url,
     pub prefer_src: bool,
     pub try_ranged: bool,
+}
+
+#[derive(Debug)]
+pub struct HTTPEnvironmentAsync {
+    pub client: reqwest::Client,
+    pub base_url: reqwest::Url,
+    pub prefer_src: bool,
+    // Currently no async implementation of ranged
+    // pub try_ranged: bool,
 }
 
 #[derive(Error, Debug)]
@@ -43,7 +52,7 @@ pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> std::vec::IntoIter<std::string:
     segment_uri_generic::<S, Sha256>(uri)
 }
 
-impl HTTPEnvironment {
+impl HTTPEnvironmentSync {
     pub fn root_url(&self) -> url::Url {
         let mut result = self.base_url.clone();
 
@@ -185,7 +194,7 @@ type HTTPLinesIter = std::iter::Map<
     fn(Result<String, std::io::Error>) -> Result<String, HTTPEnvironmentError>,
 >;
 
-impl ReadEnvironment for HTTPEnvironment {
+impl ReadEnvironment for HTTPEnvironmentSync {
     type ReadError = HTTPEnvironmentError;
 
     type UriIter = OptionalIter<HTTPLinesIter>;
@@ -261,7 +270,7 @@ mod test {
 
     #[test]
     fn test_uri_examples() -> Result<(), Box<dyn std::error::Error>> {
-        let env = super::HTTPEnvironment {
+        let env = super::HTTPEnvironmentSync {
             client: reqwest::blocking::Client::new(),
             base_url: url::Url::parse("https://www.example.com/a/b")?,
             prefer_src: true,
@@ -295,7 +304,7 @@ mod test {
 
         let host = server.url();
 
-        let env = super::HTTPEnvironment {
+        let env = super::HTTPEnvironmentSync {
             client: reqwest::blocking::Client::new(),
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
@@ -362,7 +371,7 @@ mod test {
 
         let host = server.url();
 
-        let env = super::HTTPEnvironment {
+        let env = super::HTTPEnvironmentSync {
             client: reqwest::blocking::Client::new(),
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
@@ -396,7 +405,7 @@ mod test {
 
         let host = server.url();
 
-        let env = super::HTTPEnvironment {
+        let env = super::HTTPEnvironmentSync {
             client: reqwest::blocking::Client::new(),
             base_url: url::Url::parse(&host)?,
             prefer_src: false,
@@ -430,7 +439,7 @@ mod test {
 
         let host = server.url();
 
-        let env = super::HTTPEnvironment {
+        let env = super::HTTPEnvironmentSync {
             client: reqwest::blocking::Client::new(),
             base_url: url::Url::parse(&host)?,
             prefer_src: false,
@@ -476,7 +485,7 @@ mod test {
 
         let host = server.url();
 
-        let env = super::HTTPEnvironment {
+        let env = super::HTTPEnvironmentSync {
             client: reqwest::blocking::Client::new(),
             base_url: url::Url::parse(&host)?,
             prefer_src: true,

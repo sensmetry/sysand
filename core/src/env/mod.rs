@@ -1,11 +1,16 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::sync::Arc;
+
+use futures::{Stream, StreamExt};
 use sha2::Digest;
 
 use thiserror::Error;
 
-use crate::project::{ProjectMut, ProjectRead};
+use crate::project::{
+    AsAsyncProject, AsSyncProjectTokio, ProjectMut, ProjectRead, ProjectReadAsync,
+};
 
 // pub mod utils;
 
@@ -79,6 +84,206 @@ pub trait ReadEnvironment {
             .collect();
 
         projects
+    }
+
+    fn to_async(self) -> AsAsyncEnvironment<Self>
+    where
+        Self: Sized,
+    {
+        AsAsyncEnvironment { inner: self }
+    }
+}
+
+pub trait ReadEnvironmentAsync {
+    type ReadError: std::error::Error + std::fmt::Debug;
+
+    type UriStream: futures::Stream<Item = Result<String, Self::ReadError>>;
+    fn uris_async(&self) -> impl Future<Output = Result<Self::UriStream, Self::ReadError>>;
+
+    type VersionStream: futures::Stream<Item = Result<String, Self::ReadError>>;
+    fn versions_async<S: AsRef<str>>(
+        &self,
+        uri: S,
+    ) -> impl Future<Output = Result<Self::VersionStream, Self::ReadError>>;
+
+    type InterchangeProjectRead: ProjectReadAsync + std::fmt::Debug;
+    fn get_project_async<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> impl Future<Output = Result<Self::InterchangeProjectRead, Self::ReadError>>;
+
+    // Utilities
+
+    fn has_async<S: AsRef<str>>(
+        &self,
+        uri: S,
+    ) -> impl Future<Output = Result<bool, Self::ReadError>> {
+        async move {
+            let uri = uri.as_ref();
+
+            Ok(self
+                .uris_async()
+                .await?
+                .filter_map(|x| async move { Result::ok(x) })
+                .any(|u: String| async move { u == uri })
+                .await)
+        }
+    }
+
+    fn has_version_async<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+    ) -> impl Future<Output = Result<bool, Self::ReadError>> {
+        async move {
+            let version = version.as_ref();
+
+            Ok(self
+                .versions_async(&uri)
+                .await?
+                .filter_map(|x| async move { Result::ok(x) })
+                .any(|v: String| async move { v == version })
+                .await)
+        }
+    }
+
+    fn candidate_projects_async<S: AsRef<str>>(
+        &self,
+        uri: S,
+    ) -> impl Future<Output = Result<Vec<Self::InterchangeProjectRead>, Self::ReadError>> {
+        async move {
+            futures::future::join_all(
+                self.versions_async(&uri)
+                    .await?
+                    .map(async |v| self.get_project_async(&uri, v?).await)
+                    .collect::<Vec<_>>()
+                    .await,
+            )
+            .await
+            .into_iter()
+            .collect()
+        }
+    }
+
+    // Maybe make this return an associated type instead? Would, for example, allow
+    // .as_async.as_tokio_sync == .as_tokio_sync.as_async == id
+    fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncEnvironmentTokio<Self>
+    where
+        Self: Sized,
+    {
+        AsSyncEnvironmentTokio {
+            runtime,
+            inner: self,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct AsAsyncEnvironment<T> {
+    inner: T,
+}
+
+impl<T: ReadEnvironment> ReadEnvironmentAsync for AsAsyncEnvironment<T>
+where
+    for<'a> <<T as ReadEnvironment>::InterchangeProjectRead as ProjectRead>::SourceReader<'a>:
+        Unpin,
+{
+    type ReadError = <T as ReadEnvironment>::ReadError;
+
+    type UriStream =
+        futures::stream::Iter<<<T as ReadEnvironment>::UriIter as IntoIterator>::IntoIter>;
+
+    async fn uris_async(&self) -> Result<Self::UriStream, Self::ReadError> {
+        Ok(futures::stream::iter(self.inner.uris()?))
+    }
+
+    type VersionStream =
+        futures::stream::Iter<<<T as ReadEnvironment>::VersionIter as IntoIterator>::IntoIter>;
+
+    async fn versions_async<S: AsRef<str>>(
+        &self,
+        uri: S,
+    ) -> Result<Self::VersionStream, Self::ReadError> {
+        Ok(futures::stream::iter(self.inner.versions(uri)?))
+    }
+
+    type InterchangeProjectRead = AsAsyncProject<<T as ReadEnvironment>::InterchangeProjectRead>;
+
+    async fn get_project_async<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+    ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
+        Ok(AsAsyncProject {
+            inner: self.inner.get_project(uri, version)?,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct AsSyncEnvironmentTokio<T> {
+    runtime: Arc<tokio::runtime::Runtime>,
+    inner: T,
+}
+
+#[derive(Debug)]
+pub struct SyncStreamIter<S> {
+    pub runtime: Arc<tokio::runtime::Runtime>,
+    pub inner: S,
+}
+
+impl<S: Stream + std::marker::Unpin> Iterator for SyncStreamIter<S> {
+    type Item = <S as Stream>::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.runtime.block_on(self.inner.next())
+    }
+}
+
+impl<T: ReadEnvironmentAsync> ReadEnvironment for AsSyncEnvironmentTokio<T>
+where
+    <T as ReadEnvironmentAsync>::UriStream: Unpin,
+    <T as ReadEnvironmentAsync>::VersionStream: Unpin,
+{
+    type ReadError = <T as ReadEnvironmentAsync>::ReadError;
+
+    type UriIter = SyncStreamIter<<T as ReadEnvironmentAsync>::UriStream>;
+
+    fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
+        let stream = self.runtime.block_on(self.inner.uris_async())?;
+
+        Ok(SyncStreamIter {
+            runtime: self.runtime.clone(),
+            inner: stream,
+        })
+    }
+
+    type VersionIter = SyncStreamIter<<T as ReadEnvironmentAsync>::VersionStream>;
+
+    fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
+        let stream = self.runtime.block_on(self.inner.versions_async(uri))?;
+
+        Ok(SyncStreamIter {
+            runtime: self.runtime.clone(),
+            inner: stream,
+        })
+    }
+
+    type InterchangeProjectRead =
+        AsSyncProjectTokio<<T as ReadEnvironmentAsync>::InterchangeProjectRead>;
+
+    fn get_project<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+    ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
+        Ok(AsSyncProjectTokio {
+            runtime: self.runtime.clone(),
+            inner: self
+                .runtime
+                .block_on(self.inner.get_project_async(uri, version))?,
+        })
     }
 }
 

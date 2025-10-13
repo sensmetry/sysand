@@ -7,8 +7,12 @@ use crate::model::{
 };
 use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
-use std::io::{BufRead as _, BufReader, Read};
+use std::{
+    io::{BufRead as _, BufReader, Read},
+    sync::Arc,
+};
 use thiserror::Error;
+use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _};
 use typed_path::Utf8UnixPath;
 
 // Implementations
@@ -36,6 +40,28 @@ fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, std::io::Error> {
 
     loop {
         let buffer = buffered.fill_buf()?;
+        let length = buffer.len();
+
+        if length == 0 {
+            break;
+        }
+
+        hasher.update(buffer);
+
+        buffered.consume(length);
+    }
+
+    Ok(hasher.finalize())
+}
+
+async fn hash_reader_async<R: tokio::io::AsyncRead + std::marker::Unpin>(
+    reader: &mut R,
+) -> Result<ProjectHash, std::io::Error> {
+    let mut hasher = Sha256::new();
+    let mut buffered = tokio::io::BufReader::new(reader);
+
+    loop {
+        let buffer = buffered.fill_buf().await?;
         let length = buffer.len();
 
         if length == 0 {
@@ -194,6 +220,177 @@ pub trait ProjectRead {
             .zip(meta)
             .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
     }
+
+    // Make this return an associated type instead?
+    fn to_async(self) -> AsAsyncProject<Self>
+    where
+        Self: Sized,
+    {
+        AsAsyncProject { inner: self }
+    }
+}
+
+pub trait ProjectReadAsync {
+    // Mandatory
+
+    type Error: std::error::Error + std::fmt::Debug;
+
+    /// Fetch project information and metadata (if they exist).
+    fn get_project_async(
+        &self,
+    ) -> impl Future<
+        Output = Result<
+            (
+                Option<InterchangeProjectInfoRaw>,
+                Option<InterchangeProjectMetadataRaw>,
+            ),
+            Self::Error,
+        >,
+    >;
+
+    type SourceReader<'a>: tokio::io::AsyncRead + std::marker::Unpin
+    where
+        Self: 'a;
+
+    /// Produces a `Read`er for the source file with path `path`
+    /// inside a project. *May* require significant network activity.
+    fn read_source_async<P: AsRef<Utf8UnixPath>>(
+        &self,
+        path: P,
+    ) -> impl Future<Output = Result<Self::SourceReader<'_>, Self::Error>>;
+
+    /// List (known) sources of this package. Typically
+    /// this is a singleton, but may list multiple. In case
+    /// multiple ones are listed they should aim to be in
+    /// some typical order of preference.
+    ///
+    /// May be empty if no valid sources are known.
+    fn sources_async(&self) -> impl Future<Output = Vec<crate::lock::Source>>;
+
+    // Optional and helpers
+
+    fn get_info_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<InterchangeProjectInfoRaw>, Self::Error>> {
+        async { Ok(self.get_project_async().await?.0) }
+    }
+
+    fn get_meta_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<InterchangeProjectMetadataRaw>, Self::Error>> {
+        async { Ok(self.get_project_async().await?.1) }
+    }
+
+    fn name_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        async { Ok(self.get_info_async().await?.map(|info| info.name)) }
+    }
+
+    /// `is_definitely_invalid` will return `true`` only if get_project() would definitely
+    /// produce an error or return `Some((info, meta))` where either `info` or `meta`
+    /// are `None`. If it returns `false` nothing definite can be said.
+    ///
+    /// Implementations may use this to give shortcuts for eliminating potential interchange
+    /// projects. *Should* be significantly faster than running `get_project`.
+    fn is_definitely_invalid_async(&self) -> impl Future<Output = bool> {
+        async { false }
+    }
+
+    fn version_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        async { Ok(self.get_info_async().await?.map(|info| info.version)) }
+    }
+
+    fn usage_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error>> {
+        async { Ok(self.get_info_async().await?.map(|info| info.usage)) }
+    }
+
+    fn checksum_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksum>>, Self::Error>>
+    {
+        async { Ok(self.get_meta_async().await?.and_then(|meta| meta.checksum)) }
+    }
+
+    /// Produces canonicalised project metadata, replacing all source file hashes by SHA256.
+    fn canonical_meta_async(
+        &self,
+    ) -> impl Future<
+        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>>,
+    > {
+        async move {
+            let Some(mut meta) = self
+                .get_meta_async()
+                .await
+                .map_err(CanonicalisationError::ReadError)?
+            else {
+                return Ok(None);
+            };
+
+            if let Some(mut checksums) = meta.checksum {
+                let future_checksums = checksums.drain(..).map(|(path, mut checksum)| async move {
+                    if checksum.algorithm != "SHA256" {
+                        checksum.algorithm = "SHA256".to_string();
+
+                        let mut src = self
+                            .read_source_async(&path)
+                            .await
+                            .map_err(CanonicalisationError::ReadError)?;
+                        checksum.value = format!(
+                            "{:x}",
+                            hash_reader_async(&mut src)
+                                .await
+                                .map_err(CanonicalisationError::IOError)?
+                        );
+                    } else {
+                        checksum.value = checksum.value.to_lowercase();
+                    }
+
+                    Ok((path, checksum))
+                });
+
+                let collected_checksums: Result<Vec<(String, InterchangeProjectChecksum)>, _> =
+                    futures::future::join_all(future_checksums.into_iter())
+                        .await
+                        .into_iter()
+                        .collect();
+
+                meta.checksum = Some(indexmap::IndexMap::from_iter(collected_checksums?));
+            }
+
+            Ok(Some(meta))
+        }
+    }
+
+    /// Produces a project hash based on project information and the *non-canonicalised* metadata.
+    fn checksum_noncanonical_hex_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        async {
+            Ok(self
+                .get_project_async()
+                .await
+                .map(|(info, meta)| info.zip(meta))?
+                .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
+        }
+    }
+
+    /// Produces a project hash based on project information and the *canonicalised* metadata.
+    fn checksum_canonical_hex_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<String>, CanonicalisationError<Self::Error>>> {
+        async {
+            let info = self
+                .get_info_async()
+                .await
+                .map_err(CanonicalisationError::ReadError)?;
+            let meta = self.canonical_meta_async().await?;
+
+            Ok(info
+                .zip(meta)
+                .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
+        }
+    }
 }
 
 // TODO: Eliminate the need for this?
@@ -335,6 +532,122 @@ pub trait ProjectMut: ProjectRead {
             .map_err(ProjectOrIOError::ProjectError)?;
 
         Ok(IndexMergeOutcome { new, existing })
+    }
+}
+
+#[derive(Debug)]
+pub struct AsAsyncProject<T> {
+    pub inner: T,
+}
+
+#[derive(Debug)]
+pub struct AsAsyncReader<T> {
+    inner: T,
+}
+
+impl<T: Read + std::marker::Unpin> AsyncRead for AsAsyncReader<T> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let len = self.get_mut().inner.read(buf.initialize_unfilled())?;
+        buf.advance(len);
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+impl<T: ProjectRead> ProjectReadAsync for AsAsyncProject<T>
+where
+    for<'a> <T as ProjectRead>::SourceReader<'a>: Unpin,
+{
+    type Error = <T as ProjectRead>::Error;
+
+    async fn get_project_async(
+        &self,
+    ) -> Result<
+        (
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
+        ),
+        Self::Error,
+    > {
+        self.inner.get_project()
+    }
+
+    type SourceReader<'a>
+        = AsAsyncReader<<T as ProjectRead>::SourceReader<'a>>
+    where
+        Self: 'a;
+
+    async fn read_source_async<P: AsRef<Utf8UnixPath>>(
+        &self,
+        path: P,
+    ) -> Result<Self::SourceReader<'_>, Self::Error> {
+        Ok(AsAsyncReader {
+            inner: self.inner.read_source(path)?,
+        })
+    }
+
+    async fn sources_async(&self) -> Vec<crate::lock::Source> {
+        self.inner.sources()
+    }
+}
+
+#[derive(Debug)]
+pub struct AsSyncProjectTokio<T> {
+    pub runtime: Arc<tokio::runtime::Runtime>,
+    pub inner: T,
+}
+
+#[derive(Debug)]
+pub struct AsSyncReaderTokio<T> {
+    runtime: Arc<tokio::runtime::Runtime>,
+    inner: T,
+}
+
+impl<T: AsyncRead + std::marker::Unpin> Read for AsSyncReaderTokio<T> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.runtime.block_on(async { self.inner.read(buf).await })
+    }
+}
+
+impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
+    type Error = <T as ProjectReadAsync>::Error;
+
+    fn get_project(
+        &self,
+    ) -> Result<
+        (
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
+        ),
+        Self::Error,
+    > {
+        self.runtime.block_on(self.inner.get_project_async())
+    }
+
+    type SourceReader<'a>
+        = AsSyncReaderTokio<<T as ProjectReadAsync>::SourceReader<'a>>
+    where
+        Self: 'a;
+
+    fn read_source<P: AsRef<Utf8UnixPath>>(
+        &self,
+        path: P,
+    ) -> Result<Self::SourceReader<'_>, Self::Error> {
+        let cloned_runtime = self.runtime.clone();
+
+        self.runtime.block_on(async move {
+            Ok(AsSyncReaderTokio {
+                runtime: cloned_runtime,
+                inner: self.inner.read_source_async(path).await?,
+            })
+        })
+    }
+
+    fn sources(&self) -> Vec<crate::lock::Source> {
+        self.runtime.block_on(self.inner.sources_async())
     }
 }
 
