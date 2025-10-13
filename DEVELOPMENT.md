@@ -6,21 +6,22 @@ Requirements for contributing are specified in [CONTRIBUTING.md](CONTRIBUTING.md
 
 The whole repository is a [Cargo
 workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html) composed
-of multiple crates (Rust packages).
+of multiple crates (Rust packages) and variour other language libraries that
+wrap the Rust core.
 
 Directory structure:
 
-- `core` contains all the core logic, and can be used as a Rust library. It also
-  contains (optional) coercion trait implementations for Python and
-  WASM/JavaScript.
-- `sysand` wraps `core` into a user interface, currently a command line
-  application.
-- `bindings` wraps `core` for various programming languages:
+- `core` (crate `sysand-core`) contains all the core logic, and can be used as
+  a Rust library. It also contains (optional) coercion trait implementations for
+  Python and WASM/JavaScript.
+- `sysand` (crate `sysand`) wraps `sysand-core` into a user interface, currently
+  a command line application.
+- `bindings` contains wrappers for various programming languages:
 
-  - `bindings/js` wraps `core` into a WASM/JavaScript library that can be used
-    in Node, Deno, browsers, and so on.
-  - `bindings/py` wraps `core` into a Python module.
-  - `bindings/java` wraps `core` into a Java library.
+  - `bindings/js` wraps `sysand-core` into a WASM/JavaScript library that can be
+    used in Node, Deno, browsers, and so on.
+  - `bindings/py` wraps `sysand-core` into a Python module.
+  - `bindings/java` wraps `sysand-core` into a Java library.
 
   Note that the language libraries are currently in a very early state of
   development. Especially the JavaScript/WASM library is only a proof-of-concept
