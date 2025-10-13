@@ -1,6 +1,14 @@
 # Developing Sysand
 
+Requirements for contributing are specified in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Repository structure
+
+The whole repository is a [Cargo
+workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html) composed
+of multiple crates (Rust packages).
+
+Directory structure:
 
 - `core` contains all the core logic, and can be used as a Rust library. It also
   contains (optional) coercion trait implementations for Python and
@@ -21,13 +29,15 @@
 ## Setup
 
 Development is done on Linux (including WSL) or macOS. For Sysand core and CLI
-development, you need to [install
-Rust](https://rust-lang.org/tools/install/) 1.85 or later and [uv](https://docs.astral.sh/uv/).
-It is also recommended to use [`rust-analyzer`](https://github.com/rust-lang/rust-analyzer).
+development, you need to [install Rust](https://rust-lang.org/tools/install/)
+1.85 or later and [uv](https://docs.astral.sh/uv/). It is also recommended
+to use [`rust-analyzer`](https://github.com/rust-lang/rust-analyzer).
 It has an [extension for VS
-Code](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
-and many other code editors can use it via
+Code](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyze
+r) and many other code editors can use it via
 [LSP](https://microsoft.github.io/language-server-protocol/).
+Other useful VS Code extensions can be found in
+[`.vscode/extensions.json`](.vscode/extensions.json).
 
 Get the repository:
 ```sh
@@ -57,7 +67,14 @@ their respective READMEs:
 
 ## Building
 
-Build all Rust binaries:
+Build the Sysand CLI:
+```sh
+cargo build -p sysand # unoptimized
+# or
+cargo build -p sysand --release # optimized
+```
+
+Build binaries of all Rust crates in the workspace:
 ```sh
 cargo build # unoptimized
 # or
@@ -66,20 +83,40 @@ cargo build --release # optimized
 
 ## Running tests
 
-Run Rust tests:
+Run tests for main Rust crates. This excludes language bindings, because they
+have their own test suites:
 ```sh
 cargo test -p sysand-core -F filesystem,js,python,alltests
 cargo test -p sysand -F alltests
 ```
 
-Run all tests (requires bindings dependencies):
+Run tests for all crates and language bindings (requires bindings dependencies):
 ```sh
 ./scripts/run_tests.sh
 ```
 
 ## Formatting and linting
 
-Format and lint all code (requires bindings dependencies):
+Format Rust code in core crates:
+```sh
+cargo fmt -p sysand-core -p sysand
+```
+
+Format and lint all Rust and bindings code (requires bindings dependencies):
 ```sh
 ./scripts/run_chores.sh
 ```
+
+## Commits and pull requests
+
+Committing your changes:
+```sh
+git commit -sm "your commit message"
+```
+The `-s` flag signs the commit, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Pull requests must pass CI and be reviewed by a maintainer to be
+merged. The project uses GitHub Actions CI, its configuration is in
+[`.github/workflows` directory](.github/workflows). The CI runs the same tests
+as [`./scripts/run_tests.sh`](scripts/run_tests.sh). Therefore it is recommended
+to make sure that all tests pass locally before submitting a pull request.
