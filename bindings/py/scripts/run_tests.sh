@@ -1,17 +1,16 @@
 #!/bin/bash
 
-set -e
+set -eu
 
 # Compute the root directory based on the location of this script.
-SCRIPT_DIR=$(dirname $(realpath $0))
-PACKAGE_DIR=$(dirname $SCRIPT_DIR)
+SCRIPT_DIR=$(dirname "$(realpath "$0")")
+PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 
-cd $PACKAGE_DIR
+cd "$PACKAGE_DIR"
 
-export LD_LIBRARY_PATH=$(python -c "from distutils.sysconfig import get_config_var as s; print(s(\"LIBDIR\"))")
+uv run maturin develop
 
-maturin develop
-
+source ../../scripts/py_path.sh
 cargo test --no-default-features
 
-uv run --with=pytest pytest
+uv run pytest

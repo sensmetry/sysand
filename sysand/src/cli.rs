@@ -10,7 +10,7 @@ const DEFAULT_INDEX_URL: &str = "https://beta.sysand.org";
 
 /// A project manager for KerML and SysML
 #[derive(clap::Parser, Debug)]
-#[command(author, version, about, long_about = None, arg_required_else_help = true)]
+#[command(author, version, about, long_about = None, arg_required_else_help = true, disable_help_flag = true, disable_version_flag = true)]
 #[command(styles=crate::style::STYLING)]
 pub struct Args {
     #[command(flatten)]
@@ -18,38 +18,96 @@ pub struct Args {
 
     #[command(subcommand)]
     pub command: Command,
+
+    /// Display the sysand version.
+    #[arg(short = 'V', long, action = clap::ArgAction::Version)]
+    version: Option<bool>,
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
     /// Create new project in current directory
     Init {
+        /// Set the project name. Defaults to the directory name
         #[arg(long)]
         name: Option<String>,
+        /// Set the version. Defaults to `0.0.1`
         #[arg(long)]
         version: Option<String>,
     },
     /// Create new project in given directory
     New {
-        dir: String,
+        /// Path to the new project
+        path: String,
         #[arg(long)]
+        /// Set the project name. Defaults to the directory name
         name: Option<String>,
         #[arg(long)]
+        /// Set the version. Defaults to `0.0.1`
         version: Option<String>,
     },
-    /// Create a local sysand_env environment for installing dependencies
+    /// Add usage to project information
+    Add {
+        /// IRI identifying the project to be used
+        iri: String,
+        /// A constraint on the allowable versions of a used project
+        versions_constraint: Option<String>,
+        /// Do not automatically resolve usages (and generate lockfile)
+        #[arg(long, default_value = "false")]
+        no_lock: bool,
+        /// Do not automatically install dependencies
+        #[arg(long, default_value = "false")]
+        no_sync: bool,
+
+        #[command(flatten)]
+        dependency_opts: DependencyOptions,
+    },
+    /// Remove usage from project information
+    Remove {
+        /// IRI identifying the project usage to be removed
+        iri: String,
+    },
+    /// Include model interchange files in project metadata
+    Include {
+        /// File(s) to include in the project.
+        #[arg(num_args = 1..)]
+        paths: Vec<String>,
+        /// Compute and add file (current) SHA256 checksum
+        #[arg(long, default_value = "false")]
+        compute_checksum: bool,
+        /// Do not detect and add top level symbols to index
+        #[arg(long, default_value = "false")]
+        no_index_symbols: bool,
+    },
+    /// Exclude model interchange file from project metadata
+    Exclude {
+        /// File(s) to exclude from the project
+        #[arg(num_args = 1..)]
+        paths: Vec<String>,
+    },
+    /// Build a KerML Project Archive (KPAR)
+    Build {
+        /// Path giving where to put the finished KPAR.
+        /// Defaults to `output/<project name>.kpar` or
+        /// `output/project.kpar` if no name is found
+        path: Option<std::path::PathBuf>,
+    },
+    /// Create or update lockfile
+    Lock {
+        #[command(flatten)]
+        dependency_opts: DependencyOptions,
+    },
+    /// Create a local `sysand_env` directory for installing dependencies
     Env {
         #[command(subcommand)]
         command: Option<EnvCommand>,
     },
-    /// Sync env to lockfile, creating a lockfile if none is found
+    /// Sync `sysand_env` to lockfile, creating a lockfile and `sysand_env if needed
     Sync {
         #[command(flatten)]
         dependency_opts: DependencyOptions,
     },
-    /// Prints the root directory of the current project
-    PrintRoot,
-    /// Resolve and describe current interchange project or one at at a specified path or IRI/URL.
+    /// Resolve and describe current project or one at at a specified path or IRI/URL
     Info {
         /// Use the project at the given path instead of the current project
         #[arg(short = 'p', long, group = "location")]
@@ -77,61 +135,14 @@ pub enum Command {
         #[command(subcommand)]
         subcommand: Option<InfoCommand>,
     },
-    /// Update lockfile
-    Lock {
-        #[command(flatten)]
-        dependency_opts: DependencyOptions,
-    },
-    /// Add usage to project information
-    Add {
-        /// IRI identifying the project to be used.
-        iri: String,
-        /// A constraint on the allowable versions of a used project.
-        versions_constraint: Option<String>,
-        /// Do not automatically resolve usages (and generate lockfile)
-        #[arg(long, default_value = "false")]
-        no_lock: bool,
-        /// Do not automatically install dependencies
-        #[arg(long, default_value = "false")]
-        no_sync: bool,
-
-        #[command(flatten)]
-        dependency_opts: DependencyOptions,
-    },
-    /// Remove usage from project information
-    Remove {
-        /// IRI identifying the project used.
-        iri: String,
-    },
-    /// Include model interchange files in project metadata
-    Include {
-        /// File to include in the project.
-        #[arg(num_args = 1..)]
-        paths: Vec<String>,
-        /// Compute and add file (current) SHA256 checksum.
-        #[arg(long, default_value = "false")]
-        compute_checksum: bool,
-        /// Do not detect and add top level symbols to index.
-        #[arg(long, default_value = "false")]
-        no_index_symbols: bool,
-    },
-    /// Exclude model interchange file from project metadata
-    Exclude {
-        /// Files to exclude from the project.
-        #[arg(num_args = 1..)]
-        paths: Vec<String>,
-    },
-    /// Build kpar
-    Build {
-        /// Path giving where to put the finished kpar
-        path: Option<std::path::PathBuf>,
-    },
-    /// Enumerate source files for the current project and
-    /// (optionally) its dependencies.
+    /// List source files for the current project and
+    /// (optionally) its dependencies
     Sources {
         #[command(flatten)]
         sources_opts: SourcesOptions,
     },
+    /// Prints the root directory of the current project
+    PrintRoot,
 }
 
 #[derive(Clone, Debug)]
@@ -984,9 +995,11 @@ impl InfoCommand {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum EnvCommand {
-    /// Install project in sysand_env
+    /// Install project in `sysand_env
     Install {
+        /// IRI identifying the project to be installed
         iri: String,
+        /// Version to be installed
         version: Option<String>,
         /// Local path to interchange project
         #[arg(long, default_value = None)]
@@ -997,21 +1010,22 @@ pub enum EnvCommand {
         #[command(flatten)]
         dependency_opts: DependencyOptions,
     },
-    /// Uninstall project in sysand_env
+    /// Uninstall project in `sysand_env`
     Uninstall {
+        /// IRI identifying the project to be uninstalled
         iri: String,
+        /// Version to be uninstalled
         version: Option<String>,
     },
-    /// List projects installed in sysand_env
+    /// List projects installed in `sysand_env`
     List,
-    /// Enumerate source files for an installed project and
-    /// (optionally) its dependencies.
+    /// List source files for an installed project and
+    /// (optionally) its dependencies
     Sources {
         /// IRI of the (already installed) project for which
         /// to enumerate source files
         iri: String,
         /// Version of project to list sources for
-        #[arg(long, default_value = None)]
         version: Option<VersionReq>,
 
         #[command(flatten)]
@@ -1045,24 +1059,18 @@ pub struct DependencyOptions {
         help_heading = "Dependency options"
     )]
     pub no_index: bool,
-    /// Include possible usages of KerML/SysML standard libraries. By default
-    /// these are excluded, as they are typically shipped with your language
-    /// implementation.
+    /// Include usages of KerML/SysML standard libraries if present
     #[arg(long, default_value = "false", help_heading = "Dependency options")]
     pub include_std: bool,
 }
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
-    #[arg(long, default_value = "false")]
+    /// Do not include sources for dependencies
+    #[arg(long, default_value = "false", conflicts_with = "include_std")]
     pub no_deps: bool,
-    /// Include KerML/SysML standard libraries. By default
-    /// these are excluded, as they are typically shipped with your language
-    /// implementation.
-    ///
-    /// This assumes these standard libraries have been explicitly
-    /// installed by sysand.
-    #[arg(long, default_value = "false")]
+    /// Include (installed) KerML/SysML standard libraries
+    #[arg(long, default_value = "false", conflicts_with = "no_deps")]
     pub include_std: bool,
 }
 
@@ -1087,11 +1095,14 @@ pub struct GlobalOptions {
     )]
     pub quiet: bool,
     /// Disable discovery of configuration files
-    #[arg(long, short, global = true, help_heading = "Global options")]
+    #[arg(long, global = true, help_heading = "Global options")]
     pub no_config: bool,
     /// Give path to 'sysand.toml' to use for configuration
-    #[arg(long, short, global = true, help_heading = "Global options")]
+    #[arg(long, global = true, help_heading = "Global options")]
     pub config_file: Option<String>,
+    /// Print help
+    #[arg(long, short, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
+    pub help: Option<bool>,
 }
 
 impl GlobalOptions {

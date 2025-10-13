@@ -437,7 +437,7 @@ mod tests {
             .arg(&free_port)
             .current_dir(cwd.path())
             .spawn()?;
-        sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(3000));
 
         let client = reqwest::blocking::ClientBuilder::new().build().unwrap();
         let resolver = super::HTTPResolver {

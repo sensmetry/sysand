@@ -208,7 +208,7 @@ mod tests {
             .arg(&free_port)
             .current_dir(cwd.path())
             .spawn()?;
-        sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(3000));
 
         let project = super::ReqwestKparRangedProject::new_guess_root(format!(
             "http://localhost:{}/project.kpar",

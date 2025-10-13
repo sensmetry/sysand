@@ -1,0 +1,7 @@
+[book]
+title = "Sysand User Guide"
+description = "Documentation for the Sysand CLI tool"
+language = "en"
+
+[build]
+build-dir = "book"

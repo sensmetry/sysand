@@ -30,7 +30,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
     <dependency>
       <groupId>org.sysand</groupId>
       <artifactId>sysand</artifactId>
-      <version>0.0.1</version>
+      <version>SYSAND_VERSION</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->

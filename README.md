@@ -208,6 +208,23 @@ $ sysand build
 This command creates a `my_project.kpar` file that can be installed in a
 different project using `sysand`.
 
+## Documentation
+
+The "Sysand User Guide" is currently a work in progress. To preview make sure
+you have `mdbook` installed (`cargo install mdbook`), then either run
+
+```bash
+mdbook build docs/
+```
+
+and open `docs/book/index.html`, or run
+
+```bash
+mdbook serve docs/
+```
+
+and open [localhost:3000](http://localhost:3000/).
+
 ## Contributing
 
 ### Legal
