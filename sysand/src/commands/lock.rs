@@ -111,7 +111,7 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
 
     fs::write(
         std::path::Path::new(path.as_ref()).join(DEFAULT_LOCKFILE_NAME),
-        toml::to_string_pretty(&lock)?,
+        lock.to_toml().to_string(),
     )?;
 
     Ok(())

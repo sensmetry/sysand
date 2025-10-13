@@ -4,15 +4,14 @@
 #[cfg(feature = "filesystem")]
 use std::path::Path;
 
-use serde_json::json;
 use thiserror::Error;
 
-pub const DEFAULT_LOCKFILE_NAME: &str = "SysandLock.toml";
+pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
 
 #[cfg(feature = "filesystem")]
 use crate::project::{editable::EditableProject, local_src::LocalSrcProject};
 use crate::{
-    lock::{Lock, Project},
+    lock::{Lock, Project, Usage},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{CanonicalisationError, ProjectRead},
     resolve::ResolveRead,
@@ -87,6 +86,13 @@ pub fn do_lock_projects<
                 "{:?}",
                 project
             )))?;
+        let meta = project
+            .get_meta()
+            .map_err(LockProjectError::InputProjectError)?
+            .ok_or(LockError::IncompleteInputProjectError(format!(
+                "{:?}",
+                project
+            )))?;
 
         let canonical_hash = project
             .checksum_canonical_hex()
@@ -96,19 +102,15 @@ pub fn do_lock_projects<
                 project
             )))?;
 
-        let info_json = json!({
-            "name": info.name,
-            "version": info.version,
-            "usage": info.usage
-        });
-
-        lock.project.push(Project {
-            info: Some(info_json),
-            meta: None,
+        lock.projects.push(Project {
+            name: info.name,
+            version: info.version,
+            exports: meta.index.keys().cloned().collect(),
             iris: vec![],
             checksum: canonical_hash,
             specification: None,
             sources: project.sources(),
+            usages: info.usage.iter().cloned().map(Usage::from).collect(),
         });
 
         let usages: Result<Vec<InterchangeProjectUsage>, InterchangeProjectValidationError> =
@@ -150,13 +152,7 @@ pub fn do_lock_extend<
     let mut dependencies = vec![];
     let solution = solve(inputs.to_vec(), resolver).map_err(LockError::SolverError)?;
 
-    for (iri, (info, _meta, project)) in solution {
-        let info_json = json!({
-            "name": info.name,
-            "version": info.version,
-            "usage": info.usage
-        });
-
+    for (iri, (info, meta, project)) in solution {
         let canonical_hash = project
             .checksum_canonical_hex()
             .map_err(LockError::DependencyProjectCanonicalisationError)?
@@ -165,13 +161,15 @@ pub fn do_lock_extend<
                 project
             )))?;
 
-        lock.project.push(Project {
-            info: Some(info_json),
-            meta: None,
+        lock.projects.push(Project {
+            name: info.name,
+            version: info.version.to_string(),
+            exports: meta.index.keys().cloned().collect(),
             iris: vec![iri.to_string()],
             checksum: canonical_hash,
             specification: None,
             sources: project.sources(),
+            usages: info.usage.iter().cloned().map(Usage::from).collect(),
         });
 
         dependencies.push((iri, project));
