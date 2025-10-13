@@ -10,5 +10,4 @@ cd "$PACKAGE_DIR"
 
 cargo test --features filesystem,networking,alltests
 cargo test --features js
-source ../scripts/py_path.sh
 cargo test --features python
