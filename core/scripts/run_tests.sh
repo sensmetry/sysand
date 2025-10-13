@@ -1,14 +1,14 @@
 #!/bin/bash
 
-set -e
+set -eu
 
 # Compute the root directory based on the location of this script.
-SCRIPT_DIR=$(dirname $(realpath $0))
-PACKAGE_DIR=$(dirname $SCRIPT_DIR)
+SCRIPT_DIR=$(dirname "$(realpath "$0")")
+PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 
-cd $PACKAGE_DIR
+cd "$PACKAGE_DIR"
 
-cargo test --features "filesystem networking alltests"
+cargo test --features filesystem,networking,alltests
 cargo test --features js
-
-LD_LIBRARY_PATH=$(python -c "from distutils.sysconfig import get_config_var as s; print(s(\"LIBDIR\"))") cargo test --features python
+source ../scripts/py_path.sh
+cargo test --features python
