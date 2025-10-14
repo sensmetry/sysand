@@ -37,10 +37,10 @@ impl Display for Lock {
 }
 
 #[derive(Error, Debug)]
-pub enum LockResolutionEror<EnvironmentError> {
+pub enum LockResolutionError<EnvironmentError> {
     #[error(transparent)]
-    Environment(EnvironmentError),
-    #[error("missing projects:\n{0:?}")]
+    CandidateProjects(EnvironmentError),
+    #[error("missing projects: {0:?}")]
     MissingProjects(Vec<Project>),
 }
 
@@ -50,7 +50,7 @@ impl Lock {
         env: &Env,
     ) -> Result<
         Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
-        LockResolutionEror<Env::ReadError>,
+        LockResolutionError<Env::ReadError>,
     > {
         let mut missing = vec![];
         let mut found = vec![];
@@ -63,7 +63,7 @@ impl Lock {
             'outer: for iri in &project.iris {
                 for candidate_project in env
                     .candidate_projects(iri)
-                    .map_err(LockResolutionEror::Environment)?
+                    .map_err(LockResolutionError::CandidateProjects)?
                 {
                     if let Ok(Some(candidate_checksum)) = candidate_project.checksum_canonical_hex()
                     {
@@ -83,7 +83,7 @@ impl Lock {
         }
 
         if !missing.is_empty() {
-            return Err(LockResolutionEror::MissingProjects(missing));
+            return Err(LockResolutionError::MissingProjects(missing));
         }
 
         Ok(found)
