@@ -559,7 +559,7 @@ mod test {
             //try_ranged: false,
         }
         .to_tokio_sync(Arc::new(
-            tokio::runtime::Builder::new_current_thread().build()?,
+            tokio::runtime::Builder::new_current_thread().enable_all().build()?,
         ));
 
         let entries_mock = server
@@ -629,7 +629,7 @@ mod test {
             //try_ranged: false,
         }
         .to_tokio_sync(Arc::new(
-            tokio::runtime::Builder::new_current_thread().build()?,
+            tokio::runtime::Builder::new_current_thread().enable_all().build()?,
         ));
 
         let kpar_mock = server
@@ -666,7 +666,7 @@ mod test {
             //try_ranged: false,
         }
         .to_tokio_sync(Arc::new(
-            tokio::runtime::Builder::new_current_thread().build()?,
+            tokio::runtime::Builder::new_current_thread().enable_all().build()?,
         ));
 
         let src_mock = server
@@ -703,7 +703,7 @@ mod test {
             //try_ranged: false,
         }
         .to_tokio_sync(Arc::new(
-            tokio::runtime::Builder::new_current_thread().build()?,
+            tokio::runtime::Builder::new_current_thread().enable_all().build()?,
         ));
 
         let kpar_mock = server
@@ -752,7 +752,7 @@ mod test {
             //try_ranged: false,
         }
         .to_tokio_sync(Arc::new(
-            tokio::runtime::Builder::new_current_thread().build()?,
+            tokio::runtime::Builder::new_current_thread().enable_all().build()?,
         ));
 
         let kpar_mock = server

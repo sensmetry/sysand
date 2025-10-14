@@ -197,7 +197,7 @@ mod tests {
             url,
         ), 
         reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
-        )?.to_tokio_sync(std::sync::Arc::new(tokio::runtime::Builder::new_current_thread().build().unwrap()));
+        )?.to_tokio_sync(std::sync::Arc::new(tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()));
 
         let (Some(info), Some(meta)) = project.get_project()? else {
             panic!()

@@ -333,6 +333,7 @@ mod tests {
         }
         .to_tokio_sync(Arc::new(
             tokio::runtime::Builder::new_current_thread()
+                .enable_all()
                 .build()
                 .unwrap(),
         ));
@@ -373,6 +374,7 @@ mod tests {
         }
         .to_tokio_sync(Arc::new(
             tokio::runtime::Builder::new_current_thread()
+                .enable_all()
                 .build()
                 .unwrap(),
         ));

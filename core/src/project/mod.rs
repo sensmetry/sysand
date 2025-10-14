@@ -658,6 +658,10 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
     fn sources(&self) -> Vec<crate::lock::Source> {
         self.runtime.block_on(self.inner.sources_async())
     }
+
+    fn is_definitely_invalid(&self) -> bool {
+        self.runtime.block_on(self.inner.is_definitely_invalid_async())
+    }
 }
 
 #[cfg(test)]

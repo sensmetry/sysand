@@ -197,7 +197,7 @@ mod tests {
                 .build();
 
         let project = ReqwestSrcProjectAsync { client, url }.to_tokio_sync(Arc::new(
-            tokio::runtime::Builder::new_current_thread().build()?,
+            tokio::runtime::Builder::new_current_thread().enable_all().build()?,
         ));
 
         assert!(project.is_definitely_invalid());
@@ -240,7 +240,7 @@ mod tests {
                 .build();
 
         let project = ReqwestSrcProjectAsync { client, url }.to_tokio_sync(Arc::new(
-            tokio::runtime::Builder::new_current_thread().build()?,
+            tokio::runtime::Builder::new_current_thread().enable_all().build()?,
         ));
 
         let (Some(info), Some(meta)) = project.get_project()? else {
