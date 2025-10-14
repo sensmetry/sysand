@@ -1,35 +1,40 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 
+use futures::{Stream, TryStreamExt};
 use sha2::Sha256;
 use thiserror::Error;
 
 use crate::{
     env::{
-        ReadEnvironment,
+        AsSyncEnvironmentTokio, ReadEnvironmentAsync,
         local_directory::{ENTRIES_PATH, VERSIONS_PATH},
         segment_uri_generic,
     },
     project::{
-        reqwest_kpar_download::ReqwestKparDownloadedProject,
-        reqwest_kpar_ranged::ReqwestKparRangedProject, reqwest_src::ReqwestSrcProject,
+        ProjectRead, reqwest_kpar_download::ReqwestKparDownloadedProject,
+        reqwest_src::ReqwestSrcProjectAsync,
     },
-    resolve::reqwest_http::HTTPProject,
+    resolve::reqwest_http::HTTPProjectAsync,
 };
 
-#[derive(Debug)]
-pub struct HTTPEnvironmentSync {
-    pub client: reqwest::blocking::Client,
-    pub base_url: reqwest::Url,
-    pub prefer_src: bool,
-    pub try_ranged: bool,
-}
+use futures::{AsyncBufReadExt as _, StreamExt as _};
+
+// #[derive(Debug)]
+// pub struct HTTPEnvironment {
+//     pub client: reqwest::blocking::Client,
+//     pub base_url: reqwest::Url,
+//     pub prefer_src: bool,
+//     pub try_ranged: bool,
+// }
+
+pub type HTTPEnvironment = AsSyncEnvironmentTokio<HTTPEnvironmentAsync>;
 
 #[derive(Debug)]
 pub struct HTTPEnvironmentAsync {
-    pub client: reqwest::Client,
+    pub client: reqwest_middleware::ClientWithMiddleware,
     pub base_url: reqwest::Url,
     pub prefer_src: bool,
     // Currently no async implementation of ranged
@@ -40,6 +45,8 @@ pub struct HTTPEnvironmentAsync {
 pub enum HTTPEnvironmentError {
     #[error("{0}")]
     URLError(#[from] url::ParseError),
+    #[error("{0}")]
+    ReqwestMiddlewareError(#[from] reqwest_middleware::Error),
     #[error("{0}")]
     ReqwestError(#[from] reqwest::Error),
     #[error("{0}")]
@@ -52,7 +59,127 @@ pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> std::vec::IntoIter<std::string:
     segment_uri_generic::<S, Sha256>(uri)
 }
 
-impl HTTPEnvironmentSync {
+// impl HTTPEnvironment {
+//     pub fn root_url(&self) -> url::Url {
+//         let mut result = self.base_url.clone();
+
+//         if self.base_url.path() != "" {
+//             result
+//         } else {
+//             result.set_path("/");
+
+//             result
+//         }
+//     }
+
+//     pub fn entries_url(&self) -> Result<url::Url, HTTPEnvironmentError> {
+//         Ok(self.root_url().join(ENTRIES_PATH)?)
+//     }
+
+//     pub fn get_entries_request(
+//         &self,
+//     ) -> Result<reqwest::blocking::RequestBuilder, HTTPEnvironmentError> {
+//         Ok(self.client.get(self.entries_url()?))
+//     }
+
+//     pub fn iri_url<S: AsRef<str>>(&self, iri: S) -> Result<url::Url, HTTPEnvironmentError> {
+//         let mut result = self.root_url();
+
+//         for mut component in path_encode_uri(iri) {
+//             component.push('/');
+//             result = result.join(&component)?;
+//         }
+
+//         Ok(result)
+//     }
+
+//     pub fn versions_url<S: AsRef<str>>(&self, iri: S) -> Result<url::Url, HTTPEnvironmentError> {
+//         Ok(self.iri_url(iri)?.join(VERSIONS_PATH)?)
+//     }
+
+//     pub fn get_versions_request<S: AsRef<str>>(
+//         &self,
+//         iri: S,
+//     ) -> Result<reqwest::blocking::RequestBuilder, HTTPEnvironmentError> {
+//         Ok(self.client.get(self.iri_url(iri)?.join(VERSIONS_PATH)?))
+//     }
+
+//     pub fn project_kpar_url<S: AsRef<str>, T: AsRef<str>>(
+//         &self,
+//         iri: S,
+//         version: T,
+//     ) -> Result<url::Url, HTTPEnvironmentError> {
+//         Ok(self
+//             .iri_url(iri)?
+//             .join(&format!("{}.kpar", version.as_ref()))?)
+//     }
+
+//     pub fn project_src_url<S: AsRef<str>, T: AsRef<str>>(
+//         &self,
+//         iri: S,
+//         version: T,
+//     ) -> Result<url::Url, HTTPEnvironmentError> {
+//         Ok(self
+//             .iri_url(iri)?
+//             .join(&format!("{}.kpar/", version.as_ref()))?)
+//     }
+
+//     fn try_get_project_src<S: AsRef<str>, T: AsRef<str>>(
+//         &self,
+//         uri: S,
+//         version: T,
+//     ) -> Result<Option<HTTPProject>, HTTPEnvironmentError> {
+//         let src_project_url = self.project_src_url(uri, version)?.join(".project.json")?;
+
+//         if !self
+//             .client
+//             .head(src_project_url.clone())
+//             .header("ACCEPT", "application/json, text/plain")
+//             .send()?
+//             .status()
+//             .is_success()
+//         {
+//             return Ok(None);
+//         }
+
+//         Ok(Some(HTTPProject::HTTPSrcProject(ReqwestSrcProject {
+//             client: self.client.clone(),
+//             url: src_project_url,
+//         })))
+//     }
+
+//     fn try_get_project_kpar<S: AsRef<str>, T: AsRef<str>>(
+//         &self,
+//         uri: S,
+//         version: T,
+//     ) -> Result<Option<HTTPProject>, HTTPEnvironmentError> {
+//         let kpar_project_url = self.project_kpar_url(&uri, &version)?;
+
+//         if !self
+//             .client
+//             .head(kpar_project_url.clone())
+//             .header("ACCEPT", "application/zip, application/octet-stream")
+//             .send()?
+//             .status()
+//             .is_success()
+//         {
+//             return Ok(None);
+//         }
+
+//         if self.try_ranged {
+//             if let Ok(proj) = ReqwestKparRangedProject::new_guess_root(&kpar_project_url) {
+//                 return Ok(Some(HTTPProject::HTTPKParProjectRanged(proj)));
+//             }
+//         }
+
+//         Ok(Some(HTTPProject::HTTPKParProjectDownloaded(
+//             ReqwestKparDownloadedProject::new_guess_root(&self.project_kpar_url(&uri, &version)?)
+//                 .expect("internal IO error"),
+//         )))
+//     }
+// }
+
+impl HTTPEnvironmentAsync {
     pub fn root_url(&self) -> url::Url {
         let mut result = self.base_url.clone();
 
@@ -71,7 +198,7 @@ impl HTTPEnvironmentSync {
 
     pub fn get_entries_request(
         &self,
-    ) -> Result<reqwest::blocking::RequestBuilder, HTTPEnvironmentError> {
+    ) -> Result<reqwest_middleware::RequestBuilder, HTTPEnvironmentError> {
         Ok(self.client.get(self.entries_url()?))
     }
 
@@ -93,7 +220,7 @@ impl HTTPEnvironmentSync {
     pub fn get_versions_request<S: AsRef<str>>(
         &self,
         iri: S,
-    ) -> Result<reqwest::blocking::RequestBuilder, HTTPEnvironmentError> {
+    ) -> Result<reqwest_middleware::RequestBuilder, HTTPEnvironmentError> {
         Ok(self.client.get(self.iri_url(iri)?.join(VERSIONS_PATH)?))
     }
 
@@ -117,67 +244,66 @@ impl HTTPEnvironmentSync {
             .join(&format!("{}.kpar/", version.as_ref()))?)
     }
 
-    fn try_get_project_src<S: AsRef<str>, T: AsRef<str>>(
+    async fn try_get_project_src<S: AsRef<str>, T: AsRef<str>>(
         &self,
         uri: S,
         version: T,
-    ) -> Result<Option<HTTPProject>, HTTPEnvironmentError> {
+    ) -> Result<Option<HTTPProjectAsync>, HTTPEnvironmentError> {
         let src_project_url = self.project_src_url(uri, version)?.join(".project.json")?;
 
         if !self
             .client
             .head(src_project_url.clone())
             .header("ACCEPT", "application/json, text/plain")
-            .send()?
+            .send()
+            .await?
             .status()
             .is_success()
         {
             return Ok(None);
         }
 
-        Ok(Some(HTTPProject::HTTPSrcProject(ReqwestSrcProject {
-            client: self.client.clone(),
-            url: src_project_url,
-        })))
+        Ok(Some(HTTPProjectAsync::HTTPSrcProject(
+            ReqwestSrcProjectAsync {
+                client: self.client.clone(),
+                url: src_project_url,
+            },
+        )))
     }
 
-    fn try_get_project_kpar<S: AsRef<str>, T: AsRef<str>>(
+    async fn try_get_project_kpar<S: AsRef<str>, T: AsRef<str>>(
         &self,
         uri: S,
         version: T,
-    ) -> Result<Option<HTTPProject>, HTTPEnvironmentError> {
+    ) -> Result<Option<HTTPProjectAsync>, HTTPEnvironmentError> {
         let kpar_project_url = self.project_kpar_url(&uri, &version)?;
 
         if !self
             .client
             .head(kpar_project_url.clone())
             .header("ACCEPT", "application/zip, application/octet-stream")
-            .send()?
+            .send()
+            .await?
             .status()
             .is_success()
         {
             return Ok(None);
         }
 
-        if self.try_ranged {
-            if let Ok(proj) = ReqwestKparRangedProject::new_guess_root(&kpar_project_url) {
-                return Ok(Some(HTTPProject::HTTPKParProjectRanged(proj)));
-            }
-        }
-
-        Ok(Some(HTTPProject::HTTPKParProjectDownloaded(
+        Ok(Some(HTTPProjectAsync::HTTPKParProjectDownloaded(
             ReqwestKparDownloadedProject::new_guess_root(&self.project_kpar_url(&uri, &version)?)
-                .expect("internal IO error"),
+                .expect("internal IO error")
+                .to_async(),
         )))
     }
 }
 
 #[derive(Debug)]
-pub struct OptionalIter<I> {
+pub struct Optionally<I> {
     inner: Option<I>,
 }
 
-impl<I: Iterator> Iterator for OptionalIter<I> {
+impl<I: Iterator> Iterator for Optionally<I> {
     type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -189,61 +315,180 @@ impl<I: Iterator> Iterator for OptionalIter<I> {
     }
 }
 
+impl<I: Stream + std::marker::Unpin> Stream for Optionally<I> {
+    type Item = I::Item;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        use futures::StreamExt as _;
+
+        if let Some(thing) = self.get_mut().inner.as_mut() {
+            thing.poll_next_unpin(cx)
+        } else {
+            std::task::Poll::Ready(None)
+        }
+    }
+}
+
 type HTTPLinesIter = std::iter::Map<
     std::io::Lines<BufReader<reqwest::blocking::Response>>,
     fn(Result<String, std::io::Error>) -> Result<String, HTTPEnvironmentError>,
 >;
 
-impl ReadEnvironment for HTTPEnvironmentSync {
+// impl ReadEnvironment for HTTPEnvironment {
+//     type ReadError = HTTPEnvironmentError;
+
+//     type UriIter = OptionalIter<HTTPLinesIter>;
+
+//     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
+//         let response = self.get_entries_request()?.send()?;
+
+//         let inner: std::option::Option<HTTPLinesIter> = if response.status().is_success() {
+//             Some(
+//                 BufReader::new(response)
+//                     .lines()
+//                     .map(|line| Ok(line?.trim().to_string())),
+//             )
+//         } else {
+//             None
+//         };
+
+//         Ok(OptionalIter { inner })
+//     }
+
+//     type VersionIter = OptionalIter<HTTPLinesIter>;
+
+//     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
+//         let response = self.get_versions_request(uri)?.send()?;
+
+//         let inner: Option<HTTPLinesIter> = if response.status().is_success() {
+//             Some(
+//                 BufReader::new(response)
+//                     .lines()
+//                     .map(|line| Ok(line?.trim().to_string())),
+//             )
+//         } else {
+//             None
+//         };
+
+//         Ok(OptionalIter { inner })
+//     }
+
+//     type InterchangeProjectRead = HTTPProject;
+
+//     fn get_project<S: AsRef<str>, T: AsRef<str>>(
+//         &self,
+//         uri: S,
+//         version: T,
+//     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
+//         if self.prefer_src {
+//             if let Some(proj) = self.try_get_project_src(&uri, &version)? {
+//                 return Ok(proj);
+//             } else if let Some(proj) = self.try_get_project_kpar(&uri, &version)? {
+//                 return Ok(proj);
+//             } else {
+//                 return Err(HTTPEnvironmentError::InvalidURL(
+//                     self.project_kpar_url(&uri, &version)?,
+//                 ));
+//             }
+//         }
+
+//         if let Some(proj) = self.try_get_project_kpar(&uri, &version)? {
+//             Ok(proj)
+//         } else if let Some(proj) = self.try_get_project_src(&uri, &version)? {
+//             Ok(proj)
+//         } else {
+//             Err(HTTPEnvironmentError::InvalidURL(
+//                 self.project_kpar_url(&uri, &version)?,
+//             ))
+//         }
+//     }
+// }
+
+fn trim_line<E>(line: Result<String, E>) -> Result<String, E> {
+    Ok(line?.trim().to_string())
+}
+
+impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
     type ReadError = HTTPEnvironmentError;
 
-    type UriIter = OptionalIter<HTTPLinesIter>;
+    // This can be made more concrete, but the type is humongous
+    type UriStream = Optionally<
+        std::pin::Pin<
+            Box<
+                dyn futures::Stream<Item = Result<std::string::String, HTTPEnvironmentError>>
+                    + std::marker::Send,
+            >,
+        >,
+    >;
 
-    fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-        let response = self.get_entries_request()?.send()?;
+    async fn uris_async(&self) -> Result<Self::UriStream, Self::ReadError> {
+        let response = self.get_entries_request()?.send().await?;
 
-        let inner: std::option::Option<HTTPLinesIter> = if response.status().is_success() {
+        let inner = if response.status().is_success() {
             Some(
-                BufReader::new(response)
+                response
+                    .bytes_stream()
+                    .map_err(std::io::Error::other)
+                    .into_async_read()
                     .lines()
-                    .map(|line| Ok(line?.trim().to_string())),
+                    .map(trim_line)
+                    .map_err(HTTPEnvironmentError::IOError)
+                    .boxed(),
             )
         } else {
             None
         };
 
-        Ok(OptionalIter { inner })
+        Ok(Optionally { inner })
     }
 
-    type VersionIter = OptionalIter<HTTPLinesIter>;
+    type VersionStream = Optionally<
+        std::pin::Pin<
+            Box<
+                dyn futures::Stream<Item = Result<std::string::String, HTTPEnvironmentError>>
+                    + std::marker::Send,
+            >,
+        >,
+    >;
 
-    fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
-        let response = self.get_versions_request(uri)?.send()?;
+    async fn versions_async<S: AsRef<str>>(
+        &self,
+        uri: S,
+    ) -> Result<Self::VersionStream, Self::ReadError> {
+        let response = self.get_versions_request(uri)?.send().await?;
 
-        let inner: Option<HTTPLinesIter> = if response.status().is_success() {
+        let inner = if response.status().is_success() {
             Some(
-                BufReader::new(response)
+                response
+                    .bytes_stream()
+                    .map_err(std::io::Error::other)
+                    .into_async_read()
                     .lines()
-                    .map(|line| Ok(line?.trim().to_string())),
+                    .map(trim_line)
+                    .map_err(HTTPEnvironmentError::IOError)
+                    .boxed(),
             )
         } else {
             None
         };
 
-        Ok(OptionalIter { inner })
+        Ok(Optionally { inner })
     }
 
-    type InterchangeProjectRead = HTTPProject;
+    type InterchangeProjectRead = HTTPProjectAsync;
 
-    fn get_project<S: AsRef<str>, T: AsRef<str>>(
+    async fn get_project_async<S: AsRef<str>, T: AsRef<str>>(
         &self,
         uri: S,
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
         if self.prefer_src {
-            if let Some(proj) = self.try_get_project_src(&uri, &version)? {
+            if let Some(proj) = self.try_get_project_src(&uri, &version).await? {
                 return Ok(proj);
-            } else if let Some(proj) = self.try_get_project_kpar(&uri, &version)? {
+            } else if let Some(proj) = self.try_get_project_kpar(&uri, &version).await? {
                 return Ok(proj);
             } else {
                 return Err(HTTPEnvironmentError::InvalidURL(
@@ -252,9 +497,9 @@ impl ReadEnvironment for HTTPEnvironmentSync {
             }
         }
 
-        if let Some(proj) = self.try_get_project_kpar(&uri, &version)? {
+        if let Some(proj) = self.try_get_project_kpar(&uri, &version).await? {
             Ok(proj)
-        } else if let Some(proj) = self.try_get_project_src(&uri, &version)? {
+        } else if let Some(proj) = self.try_get_project_src(&uri, &version).await? {
             Ok(proj)
         } else {
             Err(HTTPEnvironmentError::InvalidURL(
@@ -266,15 +511,20 @@ impl ReadEnvironment for HTTPEnvironmentSync {
 
 #[cfg(test)]
 mod test {
-    use crate::{env::ReadEnvironment, resolve::reqwest_http::HTTPProject};
+    use std::sync::Arc;
+
+    use crate::{
+        env::{ReadEnvironment, ReadEnvironmentAsync},
+        resolve::reqwest_http::HTTPProjectAsync,
+    };
 
     #[test]
     fn test_uri_examples() -> Result<(), Box<dyn std::error::Error>> {
-        let env = super::HTTPEnvironmentSync {
-            client: reqwest::blocking::Client::new(),
+        let env = super::HTTPEnvironmentAsync {
+            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse("https://www.example.com/a/b")?,
             prefer_src: true,
-            try_ranged: false,
+            // try_ranged: false,
         };
 
         assert_eq!(env.root_url().to_string(), "https://www.example.com/a/b");
@@ -304,12 +554,15 @@ mod test {
 
         let host = server.url();
 
-        let env = super::HTTPEnvironmentSync {
-            client: reqwest::blocking::Client::new(),
+        let env = super::HTTPEnvironmentAsync {
+            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
-            try_ranged: false,
-        };
+            //try_ranged: false,
+        }
+        .to_tokio_sync(Arc::new(
+            tokio::runtime::Builder::new_current_thread().build()?,
+        ));
 
         let entries_mock = server
             .mock("GET", "/entries.txt")
@@ -371,12 +624,15 @@ mod test {
 
         let host = server.url();
 
-        let env = super::HTTPEnvironmentSync {
-            client: reqwest::blocking::Client::new(),
+        let env = super::HTTPEnvironmentAsync {
+            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
-            try_ranged: false,
-        };
+            //try_ranged: false,
+        }
+        .to_tokio_sync(Arc::new(
+            tokio::runtime::Builder::new_current_thread().build()?,
+        ));
 
         let kpar_mock = server
             .mock(
@@ -390,7 +646,7 @@ mod test {
 
         let project = env.get_project("urn:kpar:a", "1.0.0")?;
 
-        let HTTPProject::HTTPKParProjectDownloaded(_) = project else {
+        let HTTPProjectAsync::HTTPKParProjectDownloaded(_) = project.inner else {
             panic!("Expected to resolve to KPar project");
         };
 
@@ -405,12 +661,15 @@ mod test {
 
         let host = server.url();
 
-        let env = super::HTTPEnvironmentSync {
-            client: reqwest::blocking::Client::new(),
+        let env = super::HTTPEnvironmentAsync {
+            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse(&host)?,
             prefer_src: false,
-            try_ranged: false,
-        };
+            //try_ranged: false,
+        }
+        .to_tokio_sync(Arc::new(
+            tokio::runtime::Builder::new_current_thread().build()?,
+        ));
 
         let src_mock = server
             .mock(
@@ -424,7 +683,7 @@ mod test {
 
         let project = env.get_project("urn:kpar:a", "1.0.0")?;
 
-        let HTTPProject::HTTPSrcProject(_) = project else {
+        let HTTPProjectAsync::HTTPSrcProject(_) = project.inner else {
             panic!("Expected to resolve to src project");
         };
 
@@ -439,12 +698,15 @@ mod test {
 
         let host = server.url();
 
-        let env = super::HTTPEnvironmentSync {
-            client: reqwest::blocking::Client::new(),
+        let env = super::HTTPEnvironmentAsync {
+            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse(&host)?,
             prefer_src: false,
-            try_ranged: false,
-        };
+            //try_ranged: false,
+        }
+        .to_tokio_sync(Arc::new(
+            tokio::runtime::Builder::new_current_thread().build()?,
+        ));
 
         let kpar_mock = server
             .mock(
@@ -469,7 +731,7 @@ mod test {
 
         let project = env.get_project("urn:kpar:a", "1.0.0")?;
 
-        let HTTPProject::HTTPKParProjectDownloaded(_) = project else {
+        let HTTPProjectAsync::HTTPKParProjectDownloaded(_) = project.inner else {
             panic!("Expected to resolve to KPar project");
         };
 
@@ -485,12 +747,15 @@ mod test {
 
         let host = server.url();
 
-        let env = super::HTTPEnvironmentSync {
-            client: reqwest::blocking::Client::new(),
+        let env = super::HTTPEnvironmentAsync {
+            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
-            try_ranged: false,
-        };
+            //try_ranged: false,
+        }
+        .to_tokio_sync(Arc::new(
+            tokio::runtime::Builder::new_current_thread().build()?,
+        ));
 
         let kpar_mock = server
             .mock(
@@ -515,7 +780,7 @@ mod test {
 
         let project = env.get_project("urn:kpar:a", "1.0.0")?;
 
-        let HTTPProject::HTTPSrcProject(_) = project else {
+        let HTTPProjectAsync::HTTPSrcProject(_) = project.inner else {
             panic!("Expected to resolve to src project");
         };
 

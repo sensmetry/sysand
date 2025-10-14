@@ -5,6 +5,7 @@ use crate::model::{
     InterchangeProjectChecksum, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     InterchangeProjectUsageRaw, ProjectHash, project_hash_raw,
 };
+use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
 use std::{
@@ -12,7 +13,6 @@ use std::{
     sync::Arc,
 };
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _};
 use typed_path::Utf8UnixPath;
 
 // Implementations
@@ -54,11 +54,11 @@ fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, std::io::Error> {
     Ok(hasher.finalize())
 }
 
-async fn hash_reader_async<R: tokio::io::AsyncRead + std::marker::Unpin>(
+async fn hash_reader_async<R: AsyncRead + std::marker::Unpin>(
     reader: &mut R,
 ) -> Result<ProjectHash, std::io::Error> {
     let mut hasher = Sha256::new();
-    let mut buffered = tokio::io::BufReader::new(reader);
+    let mut buffered = futures::io::BufReader::new(reader);
 
     loop {
         let buffer = buffered.fill_buf().await?;
@@ -70,7 +70,7 @@ async fn hash_reader_async<R: tokio::io::AsyncRead + std::marker::Unpin>(
 
         hasher.update(buffer);
 
-        buffered.consume(length);
+        buffered.consume_unpin(length);
     }
 
     Ok(hasher.finalize())
@@ -248,7 +248,7 @@ pub trait ProjectReadAsync {
         >,
     >;
 
-    type SourceReader<'a>: tokio::io::AsyncRead + std::marker::Unpin
+    type SourceReader<'a>: AsyncRead + std::marker::Unpin
     where
         Self: 'a;
 
@@ -389,6 +389,16 @@ pub trait ProjectReadAsync {
             Ok(info
                 .zip(meta)
                 .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
+        }
+    }
+
+    fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncProjectTokio<Self>
+    where
+        Self: Sized,
+    {
+        AsSyncProjectTokio {
+            runtime,
+            inner: self,
         }
     }
 }
@@ -549,11 +559,9 @@ impl<T: Read + std::marker::Unpin> AsyncRead for AsAsyncReader<T> {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        let len = self.get_mut().inner.read(buf.initialize_unfilled())?;
-        buf.advance(len);
-        std::task::Poll::Ready(Ok(()))
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::task::Poll::Ready(self.get_mut().inner.read(buf))
     }
 }
 
@@ -608,6 +616,7 @@ pub struct AsSyncReaderTokio<T> {
 
 impl<T: AsyncRead + std::marker::Unpin> Read for AsSyncReaderTokio<T> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use futures::AsyncReadExt as _;
         self.runtime.block_on(async { self.inner.read(buf).await })
     }
 }
