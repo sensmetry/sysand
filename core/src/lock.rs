@@ -274,7 +274,7 @@ mod tests {
 
     use crate::lock::{CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage};
 
-    fn test_to_toml<S: Display>(projects: Vec<Project>, toml: S) {
+    fn test_to_toml<D: Display>(projects: Vec<Project>, toml: D) {
         let lockfile = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects,
@@ -303,6 +303,60 @@ mod tests {
 [[project]]
 name = "Minimal"
 version = "0.0.1"
+checksum = "00"
+"#,
+        );
+    }
+
+    #[test]
+    fn many_projects_to_toml() {
+        test_to_toml(
+            vec![
+                Project {
+                    name: "One".to_string(),
+                    version: "0.0.1".to_string(),
+                    exports: vec![],
+                    iris: vec![],
+                    checksum: "00".to_string(),
+                    specification: None,
+                    sources: vec![],
+                    usages: vec![],
+                },
+                Project {
+                    name: "Two".to_string(),
+                    version: "0.0.2".to_string(),
+                    exports: vec![],
+                    iris: vec![],
+                    checksum: "00".to_string(),
+                    specification: None,
+                    sources: vec![],
+                    usages: vec![],
+                },
+                Project {
+                    name: "Three".to_string(),
+                    version: "0.0.3".to_string(),
+                    exports: vec![],
+                    iris: vec![],
+                    checksum: "00".to_string(),
+                    specification: None,
+                    sources: vec![],
+                    usages: vec![],
+                },
+            ],
+            r#"
+[[project]]
+name = "One"
+version = "0.0.1"
+checksum = "00"
+
+[[project]]
+name = "Two"
+version = "0.0.2"
+checksum = "00"
+
+[[project]]
+name = "Three"
+version = "0.0.3"
 checksum = "00"
 "#,
         );

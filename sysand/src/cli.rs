@@ -143,8 +143,6 @@ pub enum Command {
     },
     /// Prints the root directory of the current project
     PrintRoot,
-    /// Debug lock
-    PrintLock,
 }
 
 #[derive(Clone, Debug)]
