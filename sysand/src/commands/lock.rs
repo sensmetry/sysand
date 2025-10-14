@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::{env::current_dir, fs, path::Path};
 
 use anyhow::{Result, bail};
 use pubgrub::Reporter as _;
-use reqwest::blocking::Client;
 use sysand_core::commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome};
 
 use sysand_core::project::memory::InMemoryProject;
@@ -16,9 +16,10 @@ use sysand_core::resolve::standard::standard_resolver;
 
 pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
     path: P,
-    client: Client,
+    client: reqwest_middleware::ClientWithMiddleware,
     index_base_urls: Option<Vec<S>>,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     let cwd = current_dir().ok();
 
@@ -47,6 +48,7 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
             index_base_urls
                 .map(|xs| xs.iter().map(|x| url::Url::parse(x.as_ref())).collect())
                 .transpose()?,
+            runtime,
         ),
     );
 

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::io::BufReader;
 
 use futures::{Stream, TryStreamExt};
 use sha2::Sha256;
@@ -14,7 +13,7 @@ use crate::{
         segment_uri_generic,
     },
     project::{
-        ProjectRead, reqwest_kpar_download::ReqwestKparDownloadedProject,
+        reqwest_kpar_download::ReqwestKparDownloadedProject,
         reqwest_src::ReqwestSrcProjectAsync,
     },
     resolve::reqwest_http::HTTPProjectAsync,
@@ -291,9 +290,8 @@ impl HTTPEnvironmentAsync {
         }
 
         Ok(Some(HTTPProjectAsync::HTTPKParProjectDownloaded(
-            ReqwestKparDownloadedProject::new_guess_root(&self.project_kpar_url(&uri, &version)?)
-                .expect("internal IO error")
-                .to_async(),
+            ReqwestKparDownloadedProject::new_guess_root(&self.project_kpar_url(&uri, &version)?, self.client.clone())
+                .expect("internal IO error"),
         )))
     }
 }
@@ -332,10 +330,10 @@ impl<I: Stream + std::marker::Unpin> Stream for Optionally<I> {
     }
 }
 
-type HTTPLinesIter = std::iter::Map<
-    std::io::Lines<BufReader<reqwest::blocking::Response>>,
-    fn(Result<String, std::io::Error>) -> Result<String, HTTPEnvironmentError>,
->;
+// type HTTPLinesIter = std::iter::Map<
+//     std::io::Lines<BufReader<reqwest::blocking::Response>>,
+//     fn(Result<String, std::io::Error>) -> Result<String, HTTPEnvironmentError>,
+// >;
 
 // impl ReadEnvironment for HTTPEnvironment {
 //     type ReadError = HTTPEnvironmentError;

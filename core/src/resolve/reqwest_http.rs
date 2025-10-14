@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{convert::Infallible, io::Read};
+use std::convert::Infallible;
 
 use fluent_uri::component::Scheme;
 use futures::AsyncRead;
@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::{
     project::{
-        AsAsyncProject, ProjectRead, ProjectReadAsync,
+        ProjectRead, ProjectReadAsync,
         reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProjectAsync,
     },
     resolve::ResolveReadAsync,
@@ -30,7 +30,7 @@ pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 pub enum HTTPProjectAsync {
     HTTPSrcProject(ReqwestSrcProjectAsync),
     // HTTPKParProjectRanged(ReqwestKparRangedProject),
-    HTTPKParProjectDownloaded(AsAsyncProject<ReqwestKparDownloadedProject>),
+    HTTPKParProjectDownloaded(ReqwestKparDownloadedProject),
 }
 
 #[derive(Error, Debug)]
@@ -40,7 +40,7 @@ pub enum HTTPProjectError {
     // #[error("{0}")]
     // KParRangedError(<ReqwestKparRangedProjectAsync as ProjectReadAsync>::Error),
     #[error("{0}")]
-    KparDownloadedError(<ReqwestKparDownloadedProject as ProjectRead>::Error),
+    KparDownloadedError(<ReqwestKparDownloadedProject as ProjectReadAsync>::Error),
 }
 
 // pub enum HTTPProjectReader<'a> {
@@ -62,7 +62,7 @@ pub enum HTTPProjectError {
 pub enum HTTPProjectAsyncReader<'a> {
     SrcProjectReader(<ReqwestSrcProjectAsync as ProjectReadAsync>::SourceReader<'a>),
     //KParRangedReader(<ReqwestKparRangedProject as ProjectRead>::SourceReader<'a>),
-    KparDownloadedReader(<ReqwestKparDownloadedProject as ProjectRead>::SourceReader<'a>),
+    KparDownloadedReader(<ReqwestKparDownloadedProject as ProjectReadAsync>::SourceReader<'a>),
 }
 
 impl AsyncRead for HTTPProjectAsyncReader<'_> {
@@ -77,7 +77,7 @@ impl AsyncRead for HTTPProjectAsyncReader<'_> {
             }
             //HTTPProjectAsyncReader::KParRangedReader(proj) => todo!(),
             HTTPProjectAsyncReader::KparDownloadedReader(proj) => {
-                std::task::Poll::Ready(proj.read(buf))
+                std::pin::Pin::new(proj).poll_read(cx, buf)
             }
         }
     }
@@ -111,8 +111,8 @@ impl ProjectReadAsync for HTTPProjectAsync {
             //     .get_project()
             //     .map_err(HTTPProjectError::KParRangedError),
             HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
-                .inner
-                .get_project()
+                .get_project_async()
+                .await
                 .map_err(HTTPProjectError::KparDownloadedError),
         }
     }
@@ -137,8 +137,8 @@ impl ProjectReadAsync for HTTPProjectAsync {
             //     .map_err(HTTPProjectError::KParRangedError)
             //     .map(HTTPProjectReader::KParRangedReader),
             HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
-                .inner
-                .read_source(path)
+                .read_source_async(path)
+                .await
                 .map_err(HTTPProjectError::KparDownloadedError)
                 .map(HTTPProjectAsyncReader::KparDownloadedReader),
         }
@@ -198,9 +198,8 @@ impl HTTPProjects {
         // }
 
         Some(HTTPProjectAsync::HTTPKParProjectDownloaded(
-            ReqwestKparDownloadedProject::new_guess_root(&url)
+            ReqwestKparDownloadedProject::new_guess_root(&url, self.client.clone())
                 .expect("internal IO error")
-                .to_async(),
         ))
     }
 

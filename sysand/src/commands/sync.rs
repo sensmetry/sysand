@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use url::ParseError;
@@ -10,8 +10,9 @@ use sysand_core::{
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     project::{
-        local_kpar::LocalKParProject, local_src::LocalSrcProject, memory::InMemoryProject,
-        reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProject,
+        AsSyncProjectTokio, ProjectReadAsync, local_kpar::LocalKParProject,
+        local_src::LocalSrcProject, memory::InMemoryProject,
+        reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProjectAsync,
     },
 };
 
@@ -19,8 +20,9 @@ pub fn command_sync(
     lock: Lock,
     project_root: PathBuf,
     env: &mut LocalDirectoryEnvironment,
-    client: reqwest::blocking::Client,
+    client: reqwest_middleware::ClientWithMiddleware,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     sysand_core::commands::sync::do_sync(
         lock,
@@ -29,22 +31,23 @@ pub fn command_sync(
             project_path: project_root.join(src_path),
         }),
         Some(
-            |remote_src: String| -> Result<ReqwestSrcProject, ParseError> {
-                Ok(ReqwestSrcProject {
+            |remote_src: String| -> Result<AsSyncProjectTokio<ReqwestSrcProjectAsync>, ParseError> {
+                Ok(ReqwestSrcProjectAsync {
                     client: client.clone(),
                     url: reqwest::Url::parse(&remote_src)?,
-                })
+                }
+                .to_tokio_sync(runtime.clone()))
             },
         ),
         // TODO: Fix error handling here
         Some(|kpar_path: String| LocalKParProject::new_guess_root(kpar_path).unwrap()),
         Some(
-            |remote_kpar: String| -> Result<ReqwestKparDownloadedProject, ParseError> {
+            |remote_kpar: String| -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject>, ParseError> {
                 Ok(
                     ReqwestKparDownloadedProject::new_guess_root(reqwest::Url::parse(
                         &remote_kpar,
-                    )?)
-                    .unwrap(),
+                    )?, client.clone())
+                    .unwrap().to_tokio_sync(runtime.clone()),
                 )
             },
         ),
