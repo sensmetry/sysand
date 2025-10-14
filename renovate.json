@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
-  ]
+  ],
   "packageRules": [
     {
       "groupName": "all non-major dependencies",
@@ -11,7 +11,13 @@
         "*"
       ],
       "matchUpdateTypes": ["minor", "patch"],
-      "matchCurrentVersion": "!/^0/",
+      "matchCurrentVersion": "!/^0/"
+    },
+    {
+      "groupName": "all pyo3 packages",
+      "groupSlug": "all-pyo3",
+      "matchDatasources": ["crate"],
+      "matchPackageNames": ["pyo3*"]
     }
   ]
 }
