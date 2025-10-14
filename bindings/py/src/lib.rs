@@ -108,7 +108,7 @@ fn do_info_py(
     relative_file_root: String,
     index_urls: Option<Vec<String>>,
 ) -> PyResult<Vec<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>> {
-    py.allow_threads(|| {
+    py.detach(|| {
         let mut results = vec![];
         let client = reqwest::blocking::ClientBuilder::new()
             .build()
