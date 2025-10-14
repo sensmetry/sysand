@@ -259,7 +259,7 @@ fn get_info_or_bail<Project: ProjectRead>(project: &Project) -> Result<Interchan
         Ok(Some(info)) => Ok(info),
         Ok(None) => bail!("project does not appear to have a valid .project.json"),
         Err(err) => {
-            bail!("failed to read .project.json: {}", err.to_string())
+            bail!("failed to read .project.json: {}", err)
         }
     }
 }
@@ -271,7 +271,7 @@ fn get_meta_or_bail<Project: ProjectRead>(
         Ok(Some(meta)) => Ok(meta),
         Ok(None) => bail!("project does not appear to have a valid .meta.json"),
         Err(err) => {
-            bail!("failed to read .project.json: {}", err.to_string())
+            bail!("failed to read .project.json: {}", err)
         }
     }
 }
@@ -281,7 +281,7 @@ fn set_info_or_bail<Project: ProjectMut>(
     info: &InterchangeProjectInfoRaw,
 ) -> Result<()> {
     if let Err(err) = project.put_info(info, true) {
-        bail!("failed to write .project.json: {}", err.to_string());
+        bail!("failed to write .project.json: {}", err);
     }
 
     Ok(())
@@ -292,7 +292,7 @@ fn set_meta_or_bail<Project: ProjectMut>(
     meta: &InterchangeProjectMetadataRaw,
 ) -> Result<()> {
     if let Err(err) = project.put_meta(meta, true) {
-        bail!("failed to write .meta.json: {}", err.to_string());
+        bail!("failed to write .meta.json: {}", err);
     }
 
     Ok(())
