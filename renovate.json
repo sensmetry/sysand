@@ -19,6 +19,10 @@
       "groupSlug": "all-pyo3",
       "matchDatasources": ["crate"],
       "matchPackageNames": ["pyo3*"]
+    },
+    {
+      "matchPackageNames": ["org.sysand:sysand"],
+      "enabled": false
     }
   ]
 }
