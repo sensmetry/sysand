@@ -645,4 +645,71 @@ usages = [
 "#,
         );
     }
+
+    fn test_roundtrip<D: Display>(toml: D) {
+        let expected = format!(
+            "{}lock_version = \"{}\"\n{}",
+            LOCKFILE_PREFIX, CURRENT_LOCK_VERSION, toml
+        );
+        let lockfile: Lock = toml::from_str(&expected).unwrap();
+        assert_eq!(lockfile.to_string(), expected);
+    }
+
+    #[test]
+    fn simple_roundtrip() {
+        test_roundtrip(
+            r#"
+[[project]]
+name = "Simple"
+version = "0.0.1"
+checksum = "00"
+"#,
+        );
+    }
+
+    #[test]
+    fn complex_roundtrip() {
+        test_roundtrip(
+            r#"
+[[project]]
+name = "One"
+version = "0.0.1"
+exports = [
+    "Package1",
+    "Package2",
+    "Package3",
+]
+checksum = "00"
+usages = [
+    { resource = "urn:kpar:usage" },
+]
+
+[[project]]
+name = "Two"
+version = "0.0.2"
+exports = [
+    "PackageName",
+]
+iris = [
+    "urn:kpar:example",
+    "ftp://www.example.com",
+    "http://www.example.com",
+]
+checksum = "00"
+
+[[project]]
+name = "Three"
+version = "0.0.3"
+iris = [
+    "urn:kpar:example",
+]
+checksum = "00"
+usages = [
+    { resource = "urn:kpar:first" },
+    { resource = "urn:kpar:second", version_constraint = "^2.0.0" },
+    { resource = "urn:kpar:third", version_constraint = ">=3.0.0" },
+]
+"#,
+        );
+    }
 }
