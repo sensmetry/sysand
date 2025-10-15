@@ -54,7 +54,8 @@ public class Sysand {
      *
      * @param path
      */
-    public static void env(java.nio.file.Path path) throws org.sysand.exceptions.SysandException {
+    public static void env(java.nio.file.Path path)
+            throws org.sysand.exceptions.SysandException {
         env(path.toString());
     }
 
@@ -86,8 +87,11 @@ public class Sysand {
      *                         relative file URIs.
      * @return The project information and metadata.
      */
-    public static native org.sysand.model.InterchangeProject[] info(String uri, String relativeFileRoot,
-            String indexUrl) throws org.sysand.exceptions.SysandException;
+    public static native org.sysand.model.InterchangeProject[] info(
+            String uri,
+            String relativeFileRoot,
+            String indexUrl)
+            throws org.sysand.exceptions.SysandException;
 
     /**
      * Get the project information and metadata at the given URI.
@@ -97,8 +101,10 @@ public class Sysand {
      *                         relative file URIs.
      * @return The project information and metadata.
      */
-    public static org.sysand.model.InterchangeProject[] info(java.net.URI uri,
-            java.nio.file.Path relativeFileRoot, java.net.URL indexUrl)
+    public static org.sysand.model.InterchangeProject[] info(
+            java.net.URI uri,
+            java.nio.file.Path relativeFileRoot,
+            java.net.URL indexUrl)
             throws org.sysand.exceptions.SysandException {
         String indexUrlString;
         if (indexUrl != null) {
@@ -117,8 +123,10 @@ public class Sysand {
      *                         relative file URIs.
      * @return The project information and metadata.
      */
-    public static org.sysand.model.InterchangeProject[] info(java.net.URI uri,
-            java.nio.file.Path relativeFileRoot) throws org.sysand.exceptions.SysandException {
+    public static org.sysand.model.InterchangeProject[] info(
+            java.net.URI uri,
+            java.nio.file.Path relativeFileRoot)
+            throws org.sysand.exceptions.SysandException {
         return info(uri, relativeFileRoot, null);
     }
 
@@ -135,4 +143,25 @@ public class Sysand {
         return info(uri, relativeFileRoot, null);
     }
 
+    /**
+     * Build Model Project Interchange file (.kpar) from the project at the given
+     * path.
+     *
+     * @param outputPath  The path to the output file.
+     * @param projectPath The path to the project.
+     */
+    public static native void build(String outputPath, String projectPath)
+            throws org.sysand.exceptions.SysandException;
+
+    /**
+     * Build Model Project Interchange file (.kpar) from the project at the given
+     * path.
+     *
+     * @param outputPath  The path to the output file.
+     * @param projectPath The path to the project.
+     */
+    public static void build(java.nio.file.Path outputPath, java.nio.file.Path projectPath)
+            throws org.sysand.exceptions.SysandException {
+        build(outputPath.toString(), projectPath.toString());
+    }
 }
