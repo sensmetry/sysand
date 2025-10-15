@@ -191,7 +191,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let project_names: Vec<_> = projects
         .iter()
         .cloned()
-        .map(|project| project.name)
+        .filter_map(|project| project.name)
         .collect();
 
     assert!(project_names.contains(&"lock_basic_http_deps".to_string()));

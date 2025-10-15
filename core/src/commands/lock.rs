@@ -97,7 +97,7 @@ pub fn do_lock_projects<
             )))?;
 
         lock.projects.push(Project {
-            name: info.name,
+            name: Some(info.name),
             version: info.version,
             exports: meta.index.keys().cloned().collect(),
             iris: vec![],
@@ -156,7 +156,7 @@ pub fn do_lock_extend<
             )))?;
 
         lock.projects.push(Project {
-            name: info.name,
+            name: Some(info.name),
             version: info.version.to_string(),
             exports: meta.index.keys().cloned().collect(),
             iris: vec![iri.to_string()],

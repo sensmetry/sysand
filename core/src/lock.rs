@@ -32,7 +32,7 @@ impl Default for Lock {
 
 impl Display for Lock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", LOCKFILE_PREFIX, self.to_toml())
+        write!(f, "{}", self.to_toml())
     }
 }
 
@@ -91,6 +91,7 @@ impl Lock {
 
     pub fn to_toml(&self) -> DocumentMut {
         let mut doc = DocumentMut::new();
+        doc.decor_mut().set_prefix(LOCKFILE_PREFIX);
         doc.insert("lock_version", value(Value::from(&self.lock_version)));
 
         let mut projects = ArrayOfTables::new();
@@ -105,7 +106,7 @@ impl Lock {
 
 #[derive(Clone, PartialEq, Deserialize, Debug)]
 pub struct Project {
-    pub name: String,
+    pub name: Option<String>,
     pub version: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub exports: Vec<String>,
@@ -123,7 +124,9 @@ pub struct Project {
 impl Project {
     pub fn to_toml(&self) -> Table {
         let mut table = Table::new();
-        table.insert("name", value(&self.name));
+        if let Some(name) = &self.name {
+            table.insert("name", value(name));
+        }
         table.insert("version", value(&self.version));
         let exports = multiline_list(self.exports.iter().map(Value::from));
         if !exports.is_empty() {
@@ -290,7 +293,7 @@ mod tests {
     fn minimal_to_toml() {
         test_to_toml(
             vec![Project {
-                name: "Minimal".to_string(),
+                name: None,
                 version: "0.0.1".to_string(),
                 exports: vec![],
                 iris: vec![],
@@ -301,7 +304,6 @@ mod tests {
             }],
             r#"
 [[project]]
-name = "Minimal"
 version = "0.0.1"
 checksum = "00"
 "#,
@@ -313,7 +315,7 @@ checksum = "00"
         test_to_toml(
             vec![
                 Project {
-                    name: "One".to_string(),
+                    name: Some("One".to_string()),
                     version: "0.0.1".to_string(),
                     exports: vec![],
                     iris: vec![],
@@ -323,7 +325,7 @@ checksum = "00"
                     usages: vec![],
                 },
                 Project {
-                    name: "Two".to_string(),
+                    name: Some("Two".to_string()),
                     version: "0.0.2".to_string(),
                     exports: vec![],
                     iris: vec![],
@@ -333,7 +335,7 @@ checksum = "00"
                     usages: vec![],
                 },
                 Project {
-                    name: "Three".to_string(),
+                    name: Some("Three".to_string()),
                     version: "0.0.3".to_string(),
                     exports: vec![],
                     iris: vec![],
@@ -366,7 +368,7 @@ checksum = "00"
     fn one_export_to_toml() {
         test_to_toml(
             vec![Project {
-                name: "One Package".to_string(),
+                name: Some("One Package".to_string()),
                 version: "0.1.1".to_string(),
                 exports: vec!["PackageName".to_string()],
                 iris: vec![],
@@ -391,7 +393,7 @@ checksum = "00"
     fn many_exports_to_toml() {
         test_to_toml(
             vec![Project {
-                name: "Three Packages".to_string(),
+                name: Some("Three Packages".to_string()),
                 version: "0.1.3".to_string(),
                 exports: vec![
                     "Package1".to_string(),
@@ -422,7 +424,7 @@ checksum = "00"
     fn one_iri_to_toml() {
         test_to_toml(
             vec![Project {
-                name: "One IRI".to_string(),
+                name: Some("One IRI".to_string()),
                 version: "0.2.1".to_string(),
                 exports: vec![],
                 iris: vec!["urn:kpar:example".to_string()],
@@ -447,7 +449,7 @@ checksum = "00"
     fn many_iris_to_toml() {
         test_to_toml(
             vec![Project {
-                name: "Three IRI:s".to_string(),
+                name: Some("Three IRI:s".to_string()),
                 version: "0.2.3".to_string(),
                 exports: vec![],
                 iris: vec![
@@ -478,7 +480,7 @@ checksum = "00"
     fn some_specification_to_toml() {
         test_to_toml(
             vec![Project {
-                name: "Some specification".to_string(),
+                name: Some("Some specification".to_string()),
                 version: "0.3.0".to_string(),
                 exports: vec![],
                 iris: vec![],
@@ -501,7 +503,7 @@ specification = "example"
     fn ome_source_to_toml() {
         test_to_toml(
             vec![Project {
-                name: "One source".to_string(),
+                name: Some("One source".to_string()),
                 version: "0.4.1".to_string(),
                 exports: vec![],
                 iris: vec![],
@@ -528,7 +530,7 @@ sources = [
     fn many_sources_to_toml() {
         test_to_toml(
             vec![Project {
-                name: "Seven sources".to_string(),
+                name: Some("Seven sources".to_string()),
                 version: "0.4.7".to_string(),
                 exports: vec![],
                 iris: vec![],
@@ -582,7 +584,7 @@ sources = [
     fn one_usage_to_toml() {
         test_to_toml(
             vec![Project {
-                name: "One usage".to_string(),
+                name: Some("One usage".to_string()),
                 version: "0.5.1".to_string(),
                 exports: vec![],
                 iris: vec![],
@@ -610,7 +612,7 @@ usages = [
     fn many_usage_to_toml() {
         test_to_toml(
             vec![Project {
-                name: "Three usages".to_string(),
+                name: Some("Three usages".to_string()),
                 version: "0.5.3".to_string(),
                 exports: vec![],
                 iris: vec![],
