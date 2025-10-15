@@ -46,15 +46,13 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
         r#"lock_version = "0.1"
 
 [[project]]
-iris = ["urn:kpar:sync_to_local"]
-checksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c"
-
-[project.info]
 name = "sync_to_local"
 version = "1.2.3"
-
-[[project.source]]
-src_path = "lib/sync_to_local"
+iris = ["urn:kpar:sync_to_local"]
+checksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c"
+sources = [
+    { src_path = "lib/sync_to_local" },
+]
 "#
         .as_bytes(),
     )?;
@@ -111,15 +109,13 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
             r#"lock_version = "0.1"
 
 [[project]]
-iris = ["urn:kpar:sync_to_remote"]
-checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
-
-[project.info]
 name = "sync_to_remote"
 version = "1.2.3"
-
-[[project.source]]
-remote_src = "{}"
+iris = ["urn:kpar:sync_to_remote"]
+checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
+sources = [
+    {{ remote_src = "{}" }},
+]
 "#,
             &server.url()
         )
