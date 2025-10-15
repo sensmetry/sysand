@@ -23,6 +23,10 @@
     {
       "matchPackageNames": ["org.sysand:sysand"],
       "enabled": false
+    },
+    {
+      "matchPackageNames": ["python"],
+      "enabled": false
     }
   ]
 }
