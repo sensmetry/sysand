@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: 3.13
+          python-version: 3.14
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
       - name: Build wheels
@@ -107,7 +107,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: 3.13
+          python-version: 3.14
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
       - name: Build wheels
@@ -216,7 +216,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: 3.13
+          python-version: 3.14
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
       - name: Build wheels
