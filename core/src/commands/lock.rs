@@ -102,7 +102,7 @@ pub fn do_lock_projects<
             exports: meta.index.keys().cloned().collect(),
             identifiers: vec![],
             checksum: canonical_hash,
-            specification: None,
+            // specification: None,
             sources: project.sources(),
             usages: info.usage.iter().cloned().map(Usage::from).collect(),
         });
@@ -161,7 +161,7 @@ pub fn do_lock_extend<
             exports: meta.index.keys().cloned().collect(),
             identifiers: vec![iri.to_string()],
             checksum: canonical_hash,
-            specification: None,
+            // specification: None,
             sources: project.sources(),
             usages: info.usage.iter().cloned().map(Usage::from).collect(),
         });

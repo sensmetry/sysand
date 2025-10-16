@@ -209,13 +209,11 @@ pub struct Project {
     pub exports: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub identifiers: Vec<String>,
-    pub checksum: String,
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub specification: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub sources: Vec<Source>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub usages: Vec<Usage>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub sources: Vec<Source>,
+    pub checksum: String,
 }
 
 impl Ord for Project {
@@ -251,18 +249,15 @@ impl Project {
         if !identifiers.is_empty() {
             table.insert("identifiers", value(identifiers));
         }
-        table.insert("checksum", value(&self.checksum));
-        if let Some(specification) = &self.specification {
-            table.insert("specification", value(specification));
+        let usages = multiline_list(self.usages.iter().map(|u| u.to_toml()));
+        if !usages.is_empty() {
+            table.insert("usages", value(usages));
         }
         let sources = multiline_list(self.sources.iter().map(|s| s.to_toml()));
         if !sources.is_empty() {
             table.insert("sources", value(sources));
         }
-        let usages = multiline_list(self.usages.iter().map(|u| u.to_toml()));
-        if !usages.is_empty() {
-            table.insert("usages", value(usages));
-        }
+        table.insert("checksum", value(&self.checksum));
         table
     }
 }
@@ -414,10 +409,9 @@ mod tests {
                 version: "0.0.1".to_string(),
                 exports: vec![],
                 identifiers: vec![],
-                checksum: "00".to_string(),
-                specification: None,
-                sources: vec![],
                 usages: vec![],
+                sources: vec![],
+                checksum: "00".to_string(),
             }],
             r#"
 [[project]]
@@ -436,30 +430,27 @@ checksum = "00"
                     version: "0.0.1".to_string(),
                     exports: vec![],
                     identifiers: vec![],
-                    checksum: "00".to_string(),
-                    specification: None,
-                    sources: vec![],
                     usages: vec![],
+                    sources: vec![],
+                    checksum: "00".to_string(),
                 },
                 Project {
                     name: Some("Two".to_string()),
                     version: "0.0.2".to_string(),
                     exports: vec![],
                     identifiers: vec![],
-                    checksum: "00".to_string(),
-                    specification: None,
-                    sources: vec![],
                     usages: vec![],
+                    sources: vec![],
+                    checksum: "00".to_string(),
                 },
                 Project {
                     name: Some("Three".to_string()),
                     version: "0.0.3".to_string(),
                     exports: vec![],
                     identifiers: vec![],
-                    checksum: "00".to_string(),
-                    specification: None,
-                    sources: vec![],
                     usages: vec![],
+                    sources: vec![],
+                    checksum: "00".to_string(),
                 },
             ],
             r#"
@@ -489,10 +480,9 @@ checksum = "00"
                 version: "0.1.1".to_string(),
                 exports: vec!["PackageName".to_string()],
                 identifiers: vec![],
-                checksum: "00".to_string(),
-                specification: None,
-                sources: vec![],
                 usages: vec![],
+                sources: vec![],
+                checksum: "00".to_string(),
             }],
             r#"
 [[project]]
@@ -518,10 +508,9 @@ checksum = "00"
                     "Package3".to_string(),
                 ],
                 identifiers: vec![],
-                checksum: "00".to_string(),
-                specification: None,
-                sources: vec![],
                 usages: vec![],
+                sources: vec![],
+                checksum: "00".to_string(),
             }],
             r#"
 [[project]]
@@ -545,10 +534,9 @@ checksum = "00"
                 version: "0.2.1".to_string(),
                 exports: vec![],
                 identifiers: vec!["urn:kpar:example".to_string()],
-                checksum: "00".to_string(),
-                specification: None,
-                sources: vec![],
                 usages: vec![],
+                sources: vec![],
+                checksum: "00".to_string(),
             }],
             r#"
 [[project]]
@@ -574,10 +562,9 @@ checksum = "00"
                     "ftp://www.example.com".to_string(),
                     "http://www.example.com".to_string(),
                 ],
-                checksum: "00".to_string(),
-                specification: None,
-                sources: vec![],
                 usages: vec![],
+                sources: vec![],
+                checksum: "00".to_string(),
             }],
             r#"
 [[project]]
@@ -594,29 +581,6 @@ checksum = "00"
     }
 
     #[test]
-    fn some_specification_to_toml() {
-        test_to_toml(
-            vec![Project {
-                name: Some("Some specification".to_string()),
-                version: "0.3.0".to_string(),
-                exports: vec![],
-                identifiers: vec![],
-                checksum: "00".to_string(),
-                specification: Some("example".to_string()),
-                sources: vec![],
-                usages: vec![],
-            }],
-            r#"
-[[project]]
-name = "Some specification"
-version = "0.3.0"
-checksum = "00"
-specification = "example"
-"#,
-        );
-    }
-
-    #[test]
     fn ome_source_to_toml() {
         test_to_toml(
             vec![Project {
@@ -624,21 +588,20 @@ specification = "example"
                 version: "0.4.1".to_string(),
                 exports: vec![],
                 identifiers: vec![],
-                checksum: "00".to_string(),
-                specification: None,
+                usages: vec![],
                 sources: vec![Source::Editable {
                     editable: ".".to_string(),
                 }],
-                usages: vec![],
+                checksum: "00".to_string(),
             }],
             r#"
 [[project]]
 name = "One source"
 version = "0.4.1"
-checksum = "00"
 sources = [
     { editable = "." },
 ]
+checksum = "00"
 "#,
         );
     }
@@ -651,8 +614,7 @@ sources = [
                 version: "0.4.7".to_string(),
                 exports: vec![],
                 identifiers: vec![],
-                checksum: "00".to_string(),
-                specification: None,
+                usages: vec![],
                 sources: vec![
                     Source::LocalKpar {
                         kpar_path: "example.kpar".to_string(),
@@ -677,13 +639,12 @@ sources = [
                         remote_api: "www.example.com/api".to_string(),
                     },
                 ],
-                usages: vec![],
+                checksum: "00".to_string(),
             }],
             r#"
 [[project]]
 name = "Seven sources"
 version = "0.4.7"
-checksum = "00"
 sources = [
     { kpar_path = "example.kpar" },
     { src_path = "example/path" },
@@ -693,6 +654,7 @@ sources = [
     { remote_git = "github.com/example/remote.git" },
     { remote_api = "www.example.com/api" },
 ]
+checksum = "00"
 "#,
         );
     }
@@ -705,22 +667,21 @@ sources = [
                 version: "0.5.1".to_string(),
                 exports: vec![],
                 identifiers: vec![],
-                checksum: "00".to_string(),
-                specification: None,
-                sources: vec![],
                 usages: vec![Usage {
                     resource: "urn:kpar:usage".to_string(),
                     version_constraint: None,
                 }],
+                sources: vec![],
+                checksum: "00".to_string(),
             }],
             r#"
 [[project]]
 name = "One usage"
 version = "0.5.1"
-checksum = "00"
 usages = [
     { resource = "urn:kpar:usage" },
 ]
+checksum = "00"
 "#,
         );
     }
@@ -733,9 +694,6 @@ usages = [
                 version: "0.5.3".to_string(),
                 exports: vec![],
                 identifiers: vec![],
-                checksum: "00".to_string(),
-                specification: None,
-                sources: vec![],
                 usages: vec![
                     Usage {
                         resource: "urn:kpar:first".to_string(),
@@ -750,17 +708,19 @@ usages = [
                         version_constraint: Some(">=3.0.0".to_string()),
                     },
                 ],
+                sources: vec![],
+                checksum: "00".to_string(),
             }],
             r#"
 [[project]]
 name = "Three usages"
 version = "0.5.3"
-checksum = "00"
 usages = [
     { resource = "urn:kpar:first" },
     { resource = "urn:kpar:second", version_constraint = "^2.0.0" },
     { resource = "urn:kpar:third", version_constraint = ">=3.0.0" },
 ]
+checksum = "00"
 "#,
         );
     }
@@ -798,10 +758,10 @@ exports = [
     "Package2",
     "Package3",
 ]
-checksum = "00"
 usages = [
     { resource = "urn:kpar:usage" },
 ]
+checksum = "00"
 
 [[project]]
 name = "Two"
@@ -822,12 +782,12 @@ version = "0.0.3"
 identifiers = [
     "urn:kpar:example",
 ]
-checksum = "00"
 usages = [
     { resource = "urn:kpar:first" },
     { resource = "urn:kpar:second", version_constraint = "^2.0.0" },
     { resource = "urn:kpar:third", version_constraint = ">=3.0.0" },
 ]
+checksum = "00"
 "#,
         );
     }
@@ -844,10 +804,9 @@ usages = [
             version: version.as_ref().to_string(),
             exports: exports.iter().map(|s| String::from(*s)).collect(),
             identifiers: identifiers.iter().map(|s| String::from(*s)).collect(),
-            checksum: "00".to_string(),
-            specification: None,
-            sources: vec![],
             usages: usages.to_vec(),
+            sources: vec![],
+            checksum: "00".to_string(),
         }
     }
 
