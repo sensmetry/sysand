@@ -151,7 +151,7 @@ pub fn command_env_install<S: AsRef<str>>(
             && lock
                 .projects
                 .iter()
-                .any(|x| x.iris.iter().any(|y| provided_iris.contains_key(y)))
+                .any(|x| x.identifiers.iter().any(|y| provided_iris.contains_key(y)))
         {
             crate::logger::warn_std_deps();
         }

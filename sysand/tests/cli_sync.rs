@@ -48,7 +48,7 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
 [[project]]
 name = "sync_to_local"
 version = "1.2.3"
-iris = ["urn:kpar:sync_to_local"]
+identifiers = ["urn:kpar:sync_to_local"]
 checksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c"
 sources = [
     { src_path = "lib/sync_to_local" },
@@ -111,7 +111,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
 [[project]]
 name = "sync_to_remote"
 version = "1.2.3"
-iris = ["urn:kpar:sync_to_remote"]
+identifiers = ["urn:kpar:sync_to_remote"]
 checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
 sources = [
     {{ remote_src = "{}" }},

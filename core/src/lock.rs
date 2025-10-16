@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
+    cmp::Ordering,
     collections::{HashMap, HashSet},
     fmt::Display,
 };
@@ -74,7 +75,7 @@ impl Lock {
 
             let mut resolved_project = None;
 
-            'outer: for iri in &project.iris {
+            'outer: for iri in &project.identifiers {
                 for candidate_project in env
                     .candidate_projects(iri)
                     .map_err(ResolutionError::CandidateProjects)?
@@ -148,7 +149,7 @@ impl Lock {
                     );
                 })
                 .ok();
-            for iri in &project.iris {
+            for iri in &project.identifiers {
                 iri_versions.insert(iri.clone(), version.clone());
             }
         }
@@ -183,16 +184,31 @@ impl Lock {
         }
         Ok(())
     }
+
+    pub fn canonicalize(mut self) -> Self {
+        self.sort();
+        self
+    }
+
+    pub fn sort(&mut self) {
+        for project in &mut self.projects {
+            project.exports.sort();
+            project.identifiers.sort();
+            project.usages.sort();
+            project.sources.sort();
+        }
+        self.projects.sort();
+    }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Eq, Debug, Deserialize, PartialEq)]
 pub struct Project {
     pub name: Option<String>,
     pub version: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub exports: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub iris: Vec<String>,
+    pub identifiers: Vec<String>,
     pub checksum: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub specification: Option<String>,
@@ -200,6 +216,24 @@ pub struct Project {
     pub sources: Vec<Source>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub usages: Vec<Usage>,
+}
+
+impl Ord for Project {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.name
+            .cmp(&other.name)
+            .then(self.exports.cmp(&other.exports))
+            // Since valid lockfiles should never have overlap in exports
+            // further sorting is only for debugging purposes.
+            .then(self.identifiers.cmp(&other.identifiers))
+            .then(self.version.cmp(&other.version))
+    }
+}
+
+impl PartialOrd for Project {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Project {
@@ -213,9 +247,9 @@ impl Project {
         if !exports.is_empty() {
             table.insert("exports", value(exports));
         }
-        let iris = multiline_list(self.iris.iter().map(Value::from));
-        if !iris.is_empty() {
-            table.insert("iris", value(iris));
+        let identifiers = multiline_list(self.identifiers.iter().map(Value::from));
+        if !identifiers.is_empty() {
+            table.insert("identifiers", value(identifiers));
         }
         table.insert("checksum", value(&self.checksum));
         if let Some(specification) = &self.specification {
@@ -233,7 +267,7 @@ impl Project {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd)]
 #[serde(untagged)]
 pub enum Source {
     Editable {
@@ -303,7 +337,7 @@ impl Source {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd)]
 pub struct Usage {
     pub resource: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -379,7 +413,7 @@ mod tests {
                 name: None,
                 version: "0.0.1".to_string(),
                 exports: vec![],
-                iris: vec![],
+                identifiers: vec![],
                 checksum: "00".to_string(),
                 specification: None,
                 sources: vec![],
@@ -401,7 +435,7 @@ checksum = "00"
                     name: Some("One".to_string()),
                     version: "0.0.1".to_string(),
                     exports: vec![],
-                    iris: vec![],
+                    identifiers: vec![],
                     checksum: "00".to_string(),
                     specification: None,
                     sources: vec![],
@@ -411,7 +445,7 @@ checksum = "00"
                     name: Some("Two".to_string()),
                     version: "0.0.2".to_string(),
                     exports: vec![],
-                    iris: vec![],
+                    identifiers: vec![],
                     checksum: "00".to_string(),
                     specification: None,
                     sources: vec![],
@@ -421,7 +455,7 @@ checksum = "00"
                     name: Some("Three".to_string()),
                     version: "0.0.3".to_string(),
                     exports: vec![],
-                    iris: vec![],
+                    identifiers: vec![],
                     checksum: "00".to_string(),
                     specification: None,
                     sources: vec![],
@@ -454,7 +488,7 @@ checksum = "00"
                 name: Some("One Package".to_string()),
                 version: "0.1.1".to_string(),
                 exports: vec!["PackageName".to_string()],
-                iris: vec![],
+                identifiers: vec![],
                 checksum: "00".to_string(),
                 specification: None,
                 sources: vec![],
@@ -483,7 +517,7 @@ checksum = "00"
                     "Package2".to_string(),
                     "Package3".to_string(),
                 ],
-                iris: vec![],
+                identifiers: vec![],
                 checksum: "00".to_string(),
                 specification: None,
                 sources: vec![],
@@ -510,7 +544,7 @@ checksum = "00"
                 name: Some("One IRI".to_string()),
                 version: "0.2.1".to_string(),
                 exports: vec![],
-                iris: vec!["urn:kpar:example".to_string()],
+                identifiers: vec!["urn:kpar:example".to_string()],
                 checksum: "00".to_string(),
                 specification: None,
                 sources: vec![],
@@ -520,7 +554,7 @@ checksum = "00"
 [[project]]
 name = "One IRI"
 version = "0.2.1"
-iris = [
+identifiers = [
     "urn:kpar:example",
 ]
 checksum = "00"
@@ -529,13 +563,13 @@ checksum = "00"
     }
 
     #[test]
-    fn many_iris_to_toml() {
+    fn many_identifiers_to_toml() {
         test_to_toml(
             vec![Project {
                 name: Some("Three IRI:s".to_string()),
                 version: "0.2.3".to_string(),
                 exports: vec![],
-                iris: vec![
+                identifiers: vec![
                     "urn:kpar:example".to_string(),
                     "ftp://www.example.com".to_string(),
                     "http://www.example.com".to_string(),
@@ -549,7 +583,7 @@ checksum = "00"
 [[project]]
 name = "Three IRI:s"
 version = "0.2.3"
-iris = [
+identifiers = [
     "urn:kpar:example",
     "ftp://www.example.com",
     "http://www.example.com",
@@ -566,7 +600,7 @@ checksum = "00"
                 name: Some("Some specification".to_string()),
                 version: "0.3.0".to_string(),
                 exports: vec![],
-                iris: vec![],
+                identifiers: vec![],
                 checksum: "00".to_string(),
                 specification: Some("example".to_string()),
                 sources: vec![],
@@ -589,7 +623,7 @@ specification = "example"
                 name: Some("One source".to_string()),
                 version: "0.4.1".to_string(),
                 exports: vec![],
-                iris: vec![],
+                identifiers: vec![],
                 checksum: "00".to_string(),
                 specification: None,
                 sources: vec![Source::Editable {
@@ -616,7 +650,7 @@ sources = [
                 name: Some("Seven sources".to_string()),
                 version: "0.4.7".to_string(),
                 exports: vec![],
-                iris: vec![],
+                identifiers: vec![],
                 checksum: "00".to_string(),
                 specification: None,
                 sources: vec![
@@ -670,7 +704,7 @@ sources = [
                 name: Some("One usage".to_string()),
                 version: "0.5.1".to_string(),
                 exports: vec![],
-                iris: vec![],
+                identifiers: vec![],
                 checksum: "00".to_string(),
                 specification: None,
                 sources: vec![],
@@ -698,7 +732,7 @@ usages = [
                 name: Some("Three usages".to_string()),
                 version: "0.5.3".to_string(),
                 exports: vec![],
-                iris: vec![],
+                identifiers: vec![],
                 checksum: "00".to_string(),
                 specification: None,
                 sources: vec![],
@@ -775,7 +809,7 @@ version = "0.0.2"
 exports = [
     "PackageName",
 ]
-iris = [
+identifiers = [
     "urn:kpar:example",
     "ftp://www.example.com",
     "http://www.example.com",
@@ -785,7 +819,7 @@ checksum = "00"
 [[project]]
 name = "Three"
 version = "0.0.3"
-iris = [
+identifiers = [
     "urn:kpar:example",
 ]
 checksum = "00"
@@ -799,16 +833,17 @@ usages = [
     }
 
     fn make_project<S: AsRef<str>>(
+        name: Option<String>,
         version: S,
         exports: &[&'static str],
         identifiers: &[&'static str],
         usages: &[Usage],
     ) -> Project {
         Project {
-            name: None,
+            name,
             version: version.as_ref().to_string(),
             exports: exports.iter().map(|s| String::from(*s)).collect(),
-            iris: identifiers.iter().map(|s| String::from(*s)).collect(),
+            identifiers: identifiers.iter().map(|s| String::from(*s)).collect(),
             checksum: "00".to_string(),
             specification: None,
             sources: vec![],
@@ -830,7 +865,7 @@ usages = [
     fn validate_minimal() {
         Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
-            projects: vec![make_project("0.0.1", &[], &[], &[])],
+            projects: vec![make_project(None, "0.0.1", &[], &[], &[])],
         }
         .validate()
         .unwrap();
@@ -843,6 +878,7 @@ usages = [
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![
                 make_project(
+                    None,
                     "0.0.1",
                     &[],
                     &[],
@@ -851,7 +887,7 @@ usages = [
                         version_constraint: None,
                     }],
                 ),
-                make_project("0.0.1", &[], &[iri], &[]),
+                make_project(None, "0.0.1", &[], &[iri], &[]),
             ],
         }
         .validate()
@@ -866,6 +902,7 @@ usages = [
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![
                 make_project(
+                    None,
                     "0.0.1",
                     &[],
                     &[],
@@ -880,8 +917,8 @@ usages = [
                         },
                     ],
                 ),
-                make_project("0.0.1", &[], &[iri1], &[]),
-                make_project("0.0.1", &[], &[iri2], &[]),
+                make_project(None, "0.0.1", &[], &[iri1], &[]),
+                make_project(None, "0.0.1", &[], &[iri2], &[]),
             ],
         }
         .validate()
@@ -896,6 +933,7 @@ usages = [
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![
                 make_project(
+                    None,
                     "0.0.1",
                     &[],
                     &[],
@@ -905,6 +943,7 @@ usages = [
                     }],
                 ),
                 make_project(
+                    None,
                     "0.0.1",
                     &[],
                     &[iri1],
@@ -913,7 +952,7 @@ usages = [
                         version_constraint: None,
                     }],
                 ),
-                make_project("0.0.1", &[], &[iri2], &[]),
+                make_project(None, "0.0.1", &[], &[iri2], &[]),
             ],
         }
         .validate()
@@ -928,6 +967,7 @@ usages = [
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![
                 make_project(
+                    None,
                     "0.0.1",
                     &[name],
                     &[],
@@ -936,7 +976,7 @@ usages = [
                         version_constraint: None,
                     }],
                 ),
-                make_project("0.0.1", &[name], &[iri], &[]),
+                make_project(None, "0.0.1", &[name], &[iri], &[]),
             ],
         }
         .validate() else {
@@ -959,6 +999,7 @@ usages = [
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![
                 make_project(
+                    None,
                     "0.0.1",
                     &[name1, name2, name3],
                     &[],
@@ -967,7 +1008,7 @@ usages = [
                         version_constraint: None,
                     }],
                 ),
-                make_project("0.0.1", &[name2, name3, name4], &[iri], &[]),
+                make_project(None, "0.0.1", &[name2, name3, name4], &[iri], &[]),
             ],
         }
         .validate() else {
@@ -986,7 +1027,7 @@ usages = [
         };
         let Err(err) = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
-            projects: vec![make_project("0.0.1", &[], &[], &[usage.clone()])],
+            projects: vec![make_project(None, "0.0.1", &[], &[], &[usage.clone()])],
         }
         .validate() else {
             panic!()
@@ -1008,8 +1049,8 @@ usages = [
         let Err(err) = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![
-                make_project("0.0.1", &[], &[], &[usage.clone()]),
-                make_project(version, &[], &[iri], &[]),
+                make_project(None, "0.0.1", &[], &[], &[usage.clone()]),
+                make_project(None, version, &[], &[iri], &[]),
             ],
         }
         .validate() else {
@@ -1020,5 +1061,148 @@ usages = [
         };
         assert_eq!(s, usage.to_toml().to_string());
         assert_eq!(v, version.to_string());
+    }
+
+    #[test]
+    fn sort_empty() {
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![],
+        };
+        lock.sort();
+        let Lock { projects, .. } = lock;
+        assert_eq!(projects, vec![]);
+    }
+
+    #[test]
+    fn sort_single_trivial() {
+        let project = make_project(None, "0.0.1", &[], &[], &[]);
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![project.clone()],
+        };
+        lock.sort();
+        let Lock { projects, .. } = lock;
+        assert_eq!(projects, vec![project]);
+    }
+
+    #[test]
+    fn sort_exports() {
+        let project1 = make_project(None, "0.0.1", &["B", "A"], &[], &[]);
+        let project2 = make_project(None, "0.0.1", &["A", "B"], &[], &[]);
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![project1],
+        };
+        lock.sort();
+        let Lock { projects, .. } = lock;
+        assert_eq!(projects, vec![project2]);
+    }
+
+    #[test]
+    fn sort_identifiers() {
+        let project1 = make_project(None, "0.0.1", &[], &["urn:kpar:b", "urn:kpar:a"], &[]);
+        let project2 = make_project(None, "0.0.1", &[], &["urn:kpar:a", "urn:kpar:b"], &[]);
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![project1],
+        };
+        lock.sort();
+        let Lock { projects, .. } = lock;
+        assert_eq!(projects, vec![project2]);
+    }
+
+    #[test]
+    fn sort_sources() {
+        let usage1 = Usage {
+            resource: "urn:kpar:a".to_string(),
+            version_constraint: None,
+        };
+        let usage2 = Usage {
+            resource: "urn:kpar:b".to_string(),
+            version_constraint: None,
+        };
+        let project1 = make_project(None, "0.0.1", &[], &[], &[usage2.clone(), usage1.clone()]);
+        let project2 = make_project(None, "0.0.1", &[], &[], &[usage1, usage2]);
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![project1],
+        };
+        lock.sort();
+        let Lock { projects, .. } = lock;
+        assert_eq!(projects, vec![project2]);
+    }
+
+    #[test]
+    fn sort_sources_with_constraints() {
+        let usage1 = Usage {
+            resource: "urn:kpar:a".to_string(),
+            version_constraint: Some("^1.0.0".to_string()),
+        };
+        let usage2 = Usage {
+            resource: "urn:kpar:a".to_string(),
+            version_constraint: Some("^1.0.0".to_string()),
+        };
+        let project1 = make_project(None, "0.0.1", &[], &[], &[usage2.clone(), usage1.clone()]);
+        let project2 = make_project(None, "0.0.1", &[], &[], &[usage1, usage2]);
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![project1],
+        };
+        lock.sort();
+        let Lock { projects, .. } = lock;
+        assert_eq!(projects, vec![project2]);
+    }
+
+    #[test]
+    fn sort_projects_by_name() {
+        let project1 = make_project(Some("A".to_string()), "0.0.2", &["B"], &["urn:kpar:b"], &[]);
+        let project2 = make_project(Some("B".to_string()), "0.0.1", &["A"], &["urn:kpar:a"], &[]);
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![project2.clone(), project1.clone()],
+        };
+        lock.sort();
+        let Lock { projects, .. } = lock;
+        assert_eq!(projects, vec![project1, project2]);
+    }
+
+    #[test]
+    fn sort_projects_by_exports() {
+        let project1 = make_project(Some("A".to_string()), "0.0.2", &["A"], &["urn:kpar:b"], &[]);
+        let project2 = make_project(Some("A".to_string()), "0.0.1", &["B"], &["urn:kpar:a"], &[]);
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![project2.clone(), project1.clone()],
+        };
+        lock.sort();
+        let Lock { projects, .. } = lock;
+        assert_eq!(projects, vec![project1, project2]);
+    }
+
+    #[test]
+    fn sort_projects_by_identifiers() {
+        let project1 = make_project(Some("A".to_string()), "0.0.2", &["A"], &["urn:kpar:a"], &[]);
+        let project2 = make_project(Some("A".to_string()), "0.0.1", &["A"], &["urn:kpar:b"], &[]);
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![project2.clone(), project1.clone()],
+        };
+        lock.sort();
+        let Lock { projects, .. } = lock;
+        assert_eq!(projects, vec![project1, project2]);
+    }
+
+    #[test]
+    fn sort_projects_by_version() {
+        let project1 = make_project(Some("A".to_string()), "0.0.1", &["A"], &["urn:kpar:a"], &[]);
+        let project2 = make_project(Some("A".to_string()), "0.0.2", &["A"], &["urn:kpar:a"], &[]);
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![project2.clone(), project1.clone()],
+        };
+        lock.sort();
+        let Lock { projects, .. } = lock;
+        assert_eq!(projects, vec![project1, project2]);
     }
 }
