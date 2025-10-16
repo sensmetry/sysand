@@ -12,7 +12,7 @@ use typed_path::Utf8UnixPathBuf;
 use crate::project::local_src::{LocalSrcError, LocalSrcProject, PathError};
 use crate::{
     env::ReadEnvironment,
-    lock::{Lock, LockResolutionError},
+    lock::{Lock, ResolutionError},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectRead, memory::InMemoryProject},
     resolve::{
@@ -131,7 +131,7 @@ pub fn enumerate_projects_lock<Env: ReadEnvironment>(
     env: &Env,
 ) -> Result<
     Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
-    LockResolutionError<<Env as ReadEnvironment>::ReadError>,
+    ResolutionError<<Env as ReadEnvironment>::ReadError>,
 > {
     lock.resolve_projects(env)
 }

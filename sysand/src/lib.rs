@@ -232,7 +232,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
             )?)?;
             command_sync(
-                lock,
+                lock.validate()?,
                 project_root,
                 &mut local_environment,
                 client,

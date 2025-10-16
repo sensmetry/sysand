@@ -1,8 +1,12 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::fmt::Display;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+};
 
+use semver::{Version, VersionReq};
 use serde::Deserialize;
 use thiserror::Error;
 use toml_edit::{
@@ -37,11 +41,21 @@ impl Display for Lock {
 }
 
 #[derive(Error, Debug)]
-pub enum LockResolutionError<EnvironmentError> {
+pub enum ResolutionError<EnvironmentError> {
     #[error(transparent)]
     CandidateProjects(EnvironmentError),
     #[error("missing projects: {0:?}")]
     MissingProjects(Vec<Project>),
+}
+
+#[derive(Error, Debug)]
+pub enum ValidationError {
+    #[error("'{0}' exported by more than one project")]
+    NameCollision(String),
+    #[error("unsatisfied usage '{0}'")]
+    UnsatisfiedUsage(String),
+    #[error("unsatisfied usage '{0}' (found version {1})")]
+    UnsatisfiedUsageVersion(String, String),
 }
 
 impl Lock {
@@ -50,7 +64,7 @@ impl Lock {
         env: &Env,
     ) -> Result<
         Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
-        LockResolutionError<Env::ReadError>,
+        ResolutionError<Env::ReadError>,
     > {
         let mut missing = vec![];
         let mut found = vec![];
@@ -63,7 +77,7 @@ impl Lock {
             'outer: for iri in &project.iris {
                 for candidate_project in env
                     .candidate_projects(iri)
-                    .map_err(LockResolutionError::CandidateProjects)?
+                    .map_err(ResolutionError::CandidateProjects)?
                 {
                     if let Ok(Some(candidate_checksum)) = candidate_project.checksum_canonical_hex()
                     {
@@ -83,7 +97,7 @@ impl Lock {
         }
 
         if !missing.is_empty() {
-            return Err(LockResolutionError::MissingProjects(missing));
+            return Err(ResolutionError::MissingProjects(missing));
         }
 
         Ok(found)
@@ -102,9 +116,76 @@ impl Lock {
 
         doc
     }
+
+    pub fn validate(self) -> Result<Self, ValidationError> {
+        self.check_name_collision()?;
+        self.check_usages()?;
+        Ok(self)
+    }
+
+    fn check_name_collision(&self) -> Result<(), ValidationError> {
+        let mut seen = HashSet::new();
+        for project in &self.projects {
+            for name in &project.exports {
+                if !seen.insert(name) {
+                    return Err(ValidationError::NameCollision(name.clone()));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn check_usages(&self) -> Result<(), ValidationError> {
+        let mut iri_versions = HashMap::new();
+        for project in &self.projects {
+            let version = Version::parse(&project.version)
+                .inspect_err(|err| {
+                    log::warn!(
+                        "invalid semantic version '{}' for project '{:?}'\n{}",
+                        project.version,
+                        project.name,
+                        err
+                    );
+                })
+                .ok();
+            for iri in &project.iris {
+                iri_versions.insert(iri.clone(), version.clone());
+            }
+        }
+        for project in &self.projects {
+            for usage in &project.usages {
+                let Some(version) = iri_versions.get(&usage.resource) else {
+                    return Err(ValidationError::UnsatisfiedUsage(
+                        usage.to_toml().to_string(),
+                    ));
+                };
+                if let Some(version_constraint_str) = &usage.version_constraint {
+                    let version_constraint = VersionReq::parse(version_constraint_str)
+                        .inspect_err(|err| {
+                            log::warn!(
+                                "invalid semantic version requirement for usage '{}'\n{}",
+                                usage.to_toml(),
+                                err
+                            );
+                        })
+                        .ok();
+                    if let (Some(version_constraint), Some(version)) = (version_constraint, version)
+                    {
+                        if !version_constraint.matches(version) {
+                            return Err(ValidationError::UnsatisfiedUsageVersion(
+                                usage.to_toml().to_string(),
+                                version.to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
-#[derive(Clone, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Project {
     pub name: Option<String>,
     pub version: String,
@@ -152,7 +233,7 @@ impl Project {
     }
 }
 
-#[derive(Clone, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum Source {
     Editable {
@@ -222,7 +303,7 @@ impl Source {
     }
 }
 
-#[derive(Clone, PartialEq, Deserialize, Debug)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Usage {
     pub resource: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -275,7 +356,9 @@ fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
 mod tests {
     use std::fmt::Display;
 
-    use crate::lock::{CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage};
+    use crate::lock::{
+        CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
+    };
 
     fn test_to_toml<D: Display>(projects: Vec<Project>, toml: D) {
         let lockfile = Lock {
@@ -713,5 +796,229 @@ usages = [
 ]
 "#,
         );
+    }
+
+    fn make_project<S: AsRef<str>>(
+        version: S,
+        exports: &[&'static str],
+        identifiers: &[&'static str],
+        usages: &[Usage],
+    ) -> Project {
+        Project {
+            name: None,
+            version: version.as_ref().to_string(),
+            exports: exports.iter().map(|s| String::from(*s)).collect(),
+            iris: identifiers.iter().map(|s| String::from(*s)).collect(),
+            checksum: "00".to_string(),
+            specification: None,
+            sources: vec![],
+            usages: usages.to_vec(),
+        }
+    }
+
+    #[test]
+    fn validate_empty() {
+        Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![],
+        }
+        .validate()
+        .unwrap();
+    }
+
+    #[test]
+    fn validate_minimal() {
+        Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![make_project("0.0.1", &[], &[], &[])],
+        }
+        .validate()
+        .unwrap();
+    }
+
+    #[test]
+    fn validate_single_usage() {
+        let iri = "urn:kpar:test";
+        Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![
+                make_project(
+                    "0.0.1",
+                    &[],
+                    &[],
+                    &[Usage {
+                        resource: iri.to_string(),
+                        version_constraint: None,
+                    }],
+                ),
+                make_project("0.0.1", &[], &[iri], &[]),
+            ],
+        }
+        .validate()
+        .unwrap();
+    }
+
+    #[test]
+    fn validate_multiple_usage() {
+        let iri1 = "urn:kpar:test1";
+        let iri2 = "urn:kpar:test2";
+        Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![
+                make_project(
+                    "0.0.1",
+                    &[],
+                    &[],
+                    &[
+                        Usage {
+                            resource: iri1.to_string(),
+                            version_constraint: None,
+                        },
+                        Usage {
+                            resource: iri2.to_string(),
+                            version_constraint: None,
+                        },
+                    ],
+                ),
+                make_project("0.0.1", &[], &[iri1], &[]),
+                make_project("0.0.1", &[], &[iri2], &[]),
+            ],
+        }
+        .validate()
+        .unwrap();
+    }
+
+    #[test]
+    fn validate_chained_usages() {
+        let iri1 = "urn:kpar:test1";
+        let iri2 = "urn:kpar:test2";
+        Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![
+                make_project(
+                    "0.0.1",
+                    &[],
+                    &[],
+                    &[Usage {
+                        resource: iri1.to_string(),
+                        version_constraint: None,
+                    }],
+                ),
+                make_project(
+                    "0.0.1",
+                    &[],
+                    &[iri1],
+                    &[Usage {
+                        resource: iri2.to_string(),
+                        version_constraint: None,
+                    }],
+                ),
+                make_project("0.0.1", &[], &[iri2], &[]),
+            ],
+        }
+        .validate()
+        .unwrap();
+    }
+
+    #[test]
+    fn validate_single_name_collision() {
+        let name = "PackageName";
+        let iri = "urn:kpar:test";
+        let Err(err) = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![
+                make_project(
+                    "0.0.1",
+                    &[name],
+                    &[],
+                    &[Usage {
+                        resource: iri.to_string(),
+                        version_constraint: None,
+                    }],
+                ),
+                make_project("0.0.1", &[name], &[iri], &[]),
+            ],
+        }
+        .validate() else {
+            panic!()
+        };
+        let ValidationError::NameCollision(s) = err else {
+            panic!()
+        };
+        assert_eq!(s, name);
+    }
+
+    #[test]
+    fn validate_multiple_name_collision() {
+        let name1 = "PackageName1";
+        let name2 = "PackageName2";
+        let name3 = "PackageName3";
+        let name4 = "PackageName5";
+        let iri = "urn:kpar:test";
+        let Err(err) = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![
+                make_project(
+                    "0.0.1",
+                    &[name1, name2, name3],
+                    &[],
+                    &[Usage {
+                        resource: iri.to_string(),
+                        version_constraint: None,
+                    }],
+                ),
+                make_project("0.0.1", &[name2, name3, name4], &[iri], &[]),
+            ],
+        }
+        .validate() else {
+            panic!()
+        };
+        let ValidationError::NameCollision(_) = err else {
+            panic!()
+        };
+    }
+
+    #[test]
+    fn validate_unsatisfied_usage() {
+        let usage = Usage {
+            resource: "urn:kpar:test".to_string(),
+            version_constraint: None,
+        };
+        let Err(err) = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![make_project("0.0.1", &[], &[], &[usage.clone()])],
+        }
+        .validate() else {
+            panic!()
+        };
+        let ValidationError::UnsatisfiedUsage(s) = err else {
+            panic!()
+        };
+        assert_eq!(s, usage.to_toml().to_string());
+    }
+
+    #[test]
+    fn validate_unsatisfied_usage_version() {
+        let iri = "urn:kpar:test";
+        let version = "1.0.0";
+        let usage = Usage {
+            resource: iri.to_string(),
+            version_constraint: Some("<1.0.0".to_string()),
+        };
+        let Err(err) = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![
+                make_project("0.0.1", &[], &[], &[usage.clone()]),
+                make_project(version, &[], &[iri], &[]),
+            ],
+        }
+        .validate() else {
+            panic!()
+        };
+        let ValidationError::UnsatisfiedUsageVersion(s, v) = err else {
+            panic!()
+        };
+        assert_eq!(s, usage.to_toml().to_string());
+        assert_eq!(v, version.to_string());
     }
 }
