@@ -208,6 +208,46 @@ $ sysand build
 This command creates a `my_project.kpar` file that can be installed in a
 different project using `sysand`.
 
+## Hosting a project index
+
+> [!important]
+> The structure of indices and `sysand_env` environments is still expected to
+> change, and may currently not be compatible between sysand releases.
+
+The easiest way to host a project index from which to install packages is to
+expose a `sysand_env` over HTTP.
+
+If you have an existing `sysand_env`, and you have a working Python 3 environment
+you can test this with
+```
+$ python3 -m http.server -d sysand_env 8080
+Serving HTTP on 0.0.0.0 port 8080 (http://0.0.0.0:8080/) ...
+```
+
+> [!important]
+> Python's built-in `http.server` module is *not* intended for production use.
+
+Any project in the above `sysand_env` can now be used in `sysand add`, `sysand sync`, 
+`sysand env install`, etc., as long as the flag `--use-index http://localhost:8080` is
+added (or soon by specifying it in `sysand.toml`!).
+
+For example, to create an index to publish the above `my_project` project we can create
+a fresh `sysand_env`.
+```
+$ mkdir my_index
+$ cd my_index
+$ sysand env 
+    Creating env
+```
+Now we install `my_project`, specifying the IRI/URL that you want to use to refer to it:
+```
+$ sysand env install urn:kpar:my_project --path /path/to/my_project/
+  Installing urn:kpar:my_project 0.0.1
+     Syncing env
+```
+By default, this will also install any usages (dependencies) of `my_project`, you can use
+`--no-deps` to install only the project itself.
+
 ## Documentation
 
 The "Sysand User Guide" is currently a work in progress. To preview make sure
