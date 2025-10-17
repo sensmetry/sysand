@@ -33,7 +33,7 @@ Requirements:
 - Rust 1.85 or later
 - Java 8 or later
 - maven
-- Python 3
+- Python 3 (executable named `python3`)
 
 Build and run tests:
 ```bash
