@@ -267,40 +267,14 @@ and open [localhost:3000](http://localhost:3000/).
 
 ## Contributing
 
+### Development
+
+Development instructions are provided in [DEVELOPMENT.md](DEVELOPMENT.md).
+
 ### Legal
 
 For contributors' guidelines regarding legal matters, please see the
 [CONTRIBUTING.md](CONTRIBUTING.md) file.
-
-### Compiling
-
-Ensure a recent Rust toolchain [is installed (see
-here)](https://www.rust-lang.org/tools/install). Once installed, the command
-line utility can be compiled and installed as follows.
-
-```bash
-$ cargo install --path=sysand
-[...]
-Installed package `sysand v0.0.1 (/...)` (executable `sysand`)
-```
-
-### Repository structure
-
-- `core` contains all the core logic, and can be used as a Rust library. It also
-  contains (optional) coercion trait implementations for Python and
-  WASM/JavaScript.
-- `sysand` wraps `core` into a user interface, currently a command line
-  application.
-- `bindings` wraps `core` for various programming languages:
-
-  - `bindings/js` wraps `core` into a WASM/JavaScript library that can be used
-    in Node, Deno, browsers, and so on.
-  - `bindings/py` wraps `core` into a Python module.
-  - `bindings/java` wraps `core` into a Java library.
-
-  Note that the language libraries are currently in a very early state of
-  development. Especially the JavaScript/WASM library is only a proof-of-concept
-  that is not yet usable.
 
 ## Licensing
 

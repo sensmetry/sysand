@@ -29,10 +29,10 @@ jobs:
           - runner: ubuntu-22.04
             target: armv7
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: 3.13
+          python-version: 3.14
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
       - name: Build wheels
@@ -59,7 +59,7 @@ jobs:
           name: wheels-linux-${{ matrix.platform.target }}
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
       - name: pytest
         if: ${{ startsWith(matrix.platform.target, 'x86_64') }}
         shell: bash
@@ -67,7 +67,7 @@ jobs:
           /bin/bash .github/scripts/run-pytest.sh
       - name: pytest
         if: ${{ !startsWith(matrix.platform.target, 'x86') && matrix.platform.target != 'ppc64' }}
-        uses: uraimo/run-on-arch-action@v2
+        uses: uraimo/run-on-arch-action@v3
         with:
           arch: ${{ matrix.platform.target }}
           distro: ubuntu22.04
@@ -104,10 +104,10 @@ jobs:
           - runner: ubuntu-22.04
             target: armv7
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: 3.13
+          python-version: 3.14
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
       - name: Build wheels
@@ -142,7 +142,7 @@ jobs:
             /bin/bash .github/scripts/run-pytest.sh
       - name: pytest
         if: ${{ !startsWith(matrix.platform.target, 'x86') }}
-        uses: uraimo/run-on-arch-action@v2
+        uses: uraimo/run-on-arch-action@v3
         with:
           arch: ${{ matrix.platform.target }}
           distro: alpine_latest
@@ -173,8 +173,8 @@ jobs:
             label: free-threaded
             args_suffix: " -i python3.13t"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python.version }}
           architecture: ${{ matrix.platform.target }}
@@ -194,7 +194,7 @@ jobs:
           cd bindings/py
           cargo test --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
       - name: pytest
         if: ${{ !startsWith(matrix.platform.target, 'aarch64') }}
         shell: bash
@@ -213,10 +213,10 @@ jobs:
           - runner: macos-14
             target: aarch64
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: 3.13
+          python-version: 3.14
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
       - name: Build wheels
@@ -237,7 +237,7 @@ jobs:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
       - name: pytest
         run: |
           /bin/bash .github/scripts/run-pytest.sh
@@ -245,7 +245,7 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
