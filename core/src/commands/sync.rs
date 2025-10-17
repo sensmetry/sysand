@@ -246,7 +246,7 @@ fn try_install<E: ReadEnvironment + WriteEnvironment, P: ProjectRead, U>(
         .ok_or(SyncError::BadProject(uri.clone()))?;
     if checksum == &project_checksum {
         // TODO: Need to decide how to handle existing installations and possible flags to modify behavior
-        do_env_install_project(uri, storage, env, true, true).map_err(|e| {
+        do_env_install_project(uri, &storage, env, true, true).map_err(|e| {
             SyncError::InstallFailure {
                 uri: uri.to_string(),
                 cause: e.to_string(),

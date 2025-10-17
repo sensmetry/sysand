@@ -105,7 +105,7 @@ pub fn do_env_install_project<
     E: WriteEnvironment + ReadEnvironment,
 >(
     uri: S,
-    storage: P,
+    storage: &P,
     env: &mut E,
     allow_overwrite: bool,
     allow_multiple: bool,
@@ -121,7 +121,7 @@ pub fn do_env_install_project<
         >,
     >,
 > {
-    check_install(&uri, &storage, env, allow_overwrite, allow_multiple)?;
+    check_install(&uri, storage, env, allow_overwrite, allow_multiple)?;
 
     let version = storage
         .version()
@@ -135,7 +135,7 @@ pub fn do_env_install_project<
         uri.as_ref(),
     );
 
-    env.put_project(uri, version, |p| clone_project(&storage, p, true))
+    env.put_project(uri, version, |p| clone_project(storage, p, true))
         .map_err(EnvInstallError::InstallationError)?;
 
     Ok(())

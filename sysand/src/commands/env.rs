@@ -15,9 +15,13 @@ use sysand_core::{
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     model::InterchangeProjectUsage,
-    project::{ProjectRead, editable::EditableProject, local_src::LocalSrcProject},
+    project::{
+        ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
+        local_src::LocalSrcProject,
+    },
     resolve::{
         ResolutionOutcome, ResolveRead,
+        file::FileResolverProject,
         standard::{StandardResolver, standard_resolver},
     },
 };
@@ -82,7 +86,7 @@ pub fn command_env_install<S: AsRef<str>>(
                 .ok_or(anyhow!(CliError::MissingProject(iri.as_ref().to_string())))?;
             sysand_core::commands::env::do_env_install_project(
                 &iri,
-                storage,
+                &storage,
                 &mut env,
                 allow_overwrite,
                 allow_multiple,
@@ -141,8 +145,14 @@ pub fn command_env_install_path<S: AsRef<str>>(
             .collect();
         Some(use_index?)
     };
-    let project = LocalSrcProject {
-        project_path: Path::new(&path).to_path_buf(),
+
+    let project_path = PathBuf::from(&path);
+    let project = if project_path.is_dir() {
+        FileResolverProject::LocalSrcProject(LocalSrcProject { project_path })
+    } else if project_path.is_file() {
+        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(project_path)?)
+    } else {
+        bail!("{} does not exist", project_path.display())
     };
 
     if let Some(version) = version {
@@ -159,7 +169,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
     if no_deps {
         sysand_core::commands::env::do_env_install_project(
             iri,
-            project,
+            &project,
             &mut env,
             allow_overwrite,
             allow_multiple,
@@ -169,7 +179,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
         // avoid errors when syncing. Lockfile generation should be configurable.
         sysand_core::commands::env::do_env_install_project(
             iri,
-            project.clone(),
+            &project,
             &mut env,
             allow_overwrite,
             allow_multiple,
