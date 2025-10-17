@@ -57,6 +57,8 @@ pub enum ValidationError {
     UnsatisfiedUsage(String),
     #[error("unsatisfied usage '{0}' (found version {1})")]
     UnsatisfiedUsageVersion(String, String),
+    #[error("invalid SHA256 checksum '{0}'")]
+    InvalidChecksum(String),
 }
 
 impl Lock {
@@ -121,6 +123,7 @@ impl Lock {
     pub fn validate(self) -> Result<Self, ValidationError> {
         self.check_name_collision()?;
         self.check_usages()?;
+        self.validate_checksums()?;
         Ok(self)
     }
 
@@ -185,8 +188,22 @@ impl Lock {
         Ok(())
     }
 
+    fn validate_checksums(&self) -> Result<(), ValidationError> {
+        let fail = self
+            .projects
+            .iter()
+            .map(|p| p.checksum.clone())
+            .find(|cs| cs.len() != 64 || !cs.chars().all(|c| c.is_ascii_hexdigit()));
+        if let Some(checksum) = fail {
+            Err(ValidationError::InvalidChecksum(checksum))
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn canonicalize(mut self) -> Self {
         self.sort();
+        self.canonicalize_checksums();
         self
     }
 
@@ -198,6 +215,12 @@ impl Lock {
             project.sources.sort();
         }
         self.projects.sort();
+    }
+
+    pub fn canonicalize_checksums(&mut self) {
+        for project in &mut self.projects {
+            project.checksum.make_ascii_lowercase();
+        }
     }
 }
 
@@ -389,8 +412,10 @@ mod tests {
         CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
     };
 
+    const CHECKSUM: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
     fn test_to_toml<D: Display>(projects: Vec<Project>, toml: D) {
-        let lockfile = Lock {
+        let lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects,
         };
@@ -398,7 +423,7 @@ mod tests {
             "{}lock_version = \"{}\"\n{}",
             LOCKFILE_PREFIX, CURRENT_LOCK_VERSION, toml
         );
-        assert_eq!(lockfile.to_string(), expected.to_string());
+        assert_eq!(lock.to_string(), expected.to_string());
     }
 
     #[test]
@@ -411,13 +436,15 @@ mod tests {
                 identifiers: vec![],
                 usages: vec![],
                 sources: vec![],
-                checksum: "00".to_string(),
+                checksum: CHECKSUM.to_string(),
             }],
-            r#"
+            format!(
+                r#"
 [[project]]
 version = "0.0.1"
-checksum = "00"
-"#,
+checksum = "{CHECKSUM}"
+"#
+            ),
         );
     }
 
@@ -432,7 +459,7 @@ checksum = "00"
                     identifiers: vec![],
                     usages: vec![],
                     sources: vec![],
-                    checksum: "00".to_string(),
+                    checksum: CHECKSUM.to_string(),
                 },
                 Project {
                     name: Some("Two".to_string()),
@@ -441,7 +468,7 @@ checksum = "00"
                     identifiers: vec![],
                     usages: vec![],
                     sources: vec![],
-                    checksum: "00".to_string(),
+                    checksum: CHECKSUM.to_string(),
                 },
                 Project {
                     name: Some("Three".to_string()),
@@ -450,25 +477,27 @@ checksum = "00"
                     identifiers: vec![],
                     usages: vec![],
                     sources: vec![],
-                    checksum: "00".to_string(),
+                    checksum: CHECKSUM.to_string(),
                 },
             ],
-            r#"
+            format!(
+                r#"
 [[project]]
 name = "One"
 version = "0.0.1"
-checksum = "00"
+checksum = "{CHECKSUM}"
 
 [[project]]
 name = "Two"
 version = "0.0.2"
-checksum = "00"
+checksum = "{CHECKSUM}"
 
 [[project]]
 name = "Three"
 version = "0.0.3"
-checksum = "00"
+checksum = "{CHECKSUM}"
 "#,
+            ),
         );
     }
 
@@ -482,17 +511,19 @@ checksum = "00"
                 identifiers: vec![],
                 usages: vec![],
                 sources: vec![],
-                checksum: "00".to_string(),
+                checksum: CHECKSUM.to_string(),
             }],
-            r#"
+            format!(
+                r#"
 [[project]]
 name = "One Package"
 version = "0.1.1"
 exports = [
     "PackageName",
 ]
-checksum = "00"
-"#,
+checksum = "{CHECKSUM}"
+"#
+            ),
         );
     }
 
@@ -510,9 +541,10 @@ checksum = "00"
                 identifiers: vec![],
                 usages: vec![],
                 sources: vec![],
-                checksum: "00".to_string(),
+                checksum: CHECKSUM.to_string(),
             }],
-            r#"
+            format!(
+                r#"
 [[project]]
 name = "Three Packages"
 version = "0.1.3"
@@ -521,8 +553,9 @@ exports = [
     "Package2",
     "Package3",
 ]
-checksum = "00"
-"#,
+checksum = "{CHECKSUM}"
+"#
+            ),
         );
     }
 
@@ -536,17 +569,19 @@ checksum = "00"
                 identifiers: vec!["urn:kpar:example".to_string()],
                 usages: vec![],
                 sources: vec![],
-                checksum: "00".to_string(),
+                checksum: CHECKSUM.to_string(),
             }],
-            r#"
+            format!(
+                r#"
 [[project]]
 name = "One IRI"
 version = "0.2.1"
 identifiers = [
     "urn:kpar:example",
 ]
-checksum = "00"
-"#,
+checksum = "{CHECKSUM}"
+"#
+            ),
         );
     }
 
@@ -564,9 +599,10 @@ checksum = "00"
                 ],
                 usages: vec![],
                 sources: vec![],
-                checksum: "00".to_string(),
+                checksum: CHECKSUM.to_string(),
             }],
-            r#"
+            format!(
+                r#"
 [[project]]
 name = "Three IRI:s"
 version = "0.2.3"
@@ -575,8 +611,9 @@ identifiers = [
     "ftp://www.example.com",
     "http://www.example.com",
 ]
-checksum = "00"
-"#,
+checksum = "{CHECKSUM}"
+"#
+            ),
         );
     }
 
@@ -592,17 +629,19 @@ checksum = "00"
                 sources: vec![Source::Editable {
                     editable: ".".to_string(),
                 }],
-                checksum: "00".to_string(),
+                checksum: CHECKSUM.to_string(),
             }],
-            r#"
+            format!(
+                r#"
 [[project]]
 name = "One source"
 version = "0.4.1"
 sources = [
-    { editable = "." },
+    {{ editable = "." }},
 ]
-checksum = "00"
-"#,
+checksum = "{CHECKSUM}"
+"#
+            ),
         );
     }
 
@@ -639,23 +678,25 @@ checksum = "00"
                         remote_api: "www.example.com/api".to_string(),
                     },
                 ],
-                checksum: "00".to_string(),
+                checksum: CHECKSUM.to_string(),
             }],
-            r#"
+            format!(
+                r#"
 [[project]]
 name = "Seven sources"
 version = "0.4.7"
 sources = [
-    { kpar_path = "example.kpar" },
-    { src_path = "example/path" },
-    { registry = "www.example.com" },
-    { remote_kpar = "www.example.com/remote.kpar", remote_kpar_size = 64 },
-    { remote_src = "www.example.com/remote" },
-    { remote_git = "github.com/example/remote.git" },
-    { remote_api = "www.example.com/api" },
+    {{ kpar_path = "example.kpar" }},
+    {{ src_path = "example/path" }},
+    {{ registry = "www.example.com" }},
+    {{ remote_kpar = "www.example.com/remote.kpar", remote_kpar_size = 64 }},
+    {{ remote_src = "www.example.com/remote" }},
+    {{ remote_git = "github.com/example/remote.git" }},
+    {{ remote_api = "www.example.com/api" }},
 ]
-checksum = "00"
-"#,
+checksum = "{CHECKSUM}"
+"#
+            ),
         );
     }
 
@@ -672,17 +713,19 @@ checksum = "00"
                     version_constraint: None,
                 }],
                 sources: vec![],
-                checksum: "00".to_string(),
+                checksum: CHECKSUM.to_string(),
             }],
-            r#"
+            format!(
+                r#"
 [[project]]
 name = "One usage"
 version = "0.5.1"
 usages = [
-    { resource = "urn:kpar:usage" },
+    {{ resource = "urn:kpar:usage" }},
 ]
-checksum = "00"
-"#,
+checksum = "{CHECKSUM}"
+"#
+            ),
         );
     }
 
@@ -709,19 +752,21 @@ checksum = "00"
                     },
                 ],
                 sources: vec![],
-                checksum: "00".to_string(),
+                checksum: CHECKSUM.to_string(),
             }],
-            r#"
+            format!(
+                r#"
 [[project]]
 name = "Three usages"
 version = "0.5.3"
 usages = [
-    { resource = "urn:kpar:first" },
-    { resource = "urn:kpar:second", version_constraint = "^2.0.0" },
-    { resource = "urn:kpar:third", version_constraint = ">=3.0.0" },
+    {{ resource = "urn:kpar:first" }},
+    {{ resource = "urn:kpar:second", version_constraint = "^2.0.0" }},
+    {{ resource = "urn:kpar:third", version_constraint = ">=3.0.0" }},
 ]
-checksum = "00"
-"#,
+checksum = "{CHECKSUM}"
+"#
+            ),
         );
     }
 
@@ -736,19 +781,19 @@ checksum = "00"
 
     #[test]
     fn simple_roundtrip() {
-        test_roundtrip(
+        test_roundtrip(format!(
             r#"
 [[project]]
 name = "Simple"
 version = "0.0.1"
-checksum = "00"
-"#,
-        );
+checksum = "{CHECKSUM}"
+"#
+        ));
     }
 
     #[test]
     fn complex_roundtrip() {
-        test_roundtrip(
+        test_roundtrip(format!(
             r#"
 [[project]]
 name = "One"
@@ -759,9 +804,9 @@ exports = [
     "Package3",
 ]
 usages = [
-    { resource = "urn:kpar:usage" },
+    {{ resource = "urn:kpar:usage" }},
 ]
-checksum = "00"
+checksum = "{CHECKSUM}"
 
 [[project]]
 name = "Two"
@@ -774,7 +819,7 @@ identifiers = [
     "ftp://www.example.com",
     "http://www.example.com",
 ]
-checksum = "00"
+checksum = "{CHECKSUM}"
 
 [[project]]
 name = "Three"
@@ -783,13 +828,13 @@ identifiers = [
     "urn:kpar:example",
 ]
 usages = [
-    { resource = "urn:kpar:first" },
-    { resource = "urn:kpar:second", version_constraint = "^2.0.0" },
-    { resource = "urn:kpar:third", version_constraint = ">=3.0.0" },
+    {{ resource = "urn:kpar:first" }},
+    {{ resource = "urn:kpar:second", version_constraint = "^2.0.0" }},
+    {{ resource = "urn:kpar:third", version_constraint = ">=3.0.0" }},
 ]
-checksum = "00"
-"#,
-        );
+checksum = "{CHECKSUM}"
+"#
+        ));
     }
 
     fn make_project<S: AsRef<str>>(
@@ -806,7 +851,7 @@ checksum = "00"
             identifiers: identifiers.iter().map(|s| String::from(*s)).collect(),
             usages: usages.to_vec(),
             sources: vec![],
-            checksum: "00".to_string(),
+            checksum: CHECKSUM.to_string(),
         }
     }
 
@@ -1023,6 +1068,31 @@ checksum = "00"
     }
 
     #[test]
+    fn validate_checksum() {
+        let invalid_checksum =
+            "dA8747a6f27A32f10Ba393113bCE29fX88181037a71f093f90e0ad5829D2b780".to_string();
+        let Err(err) = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![Project {
+                name: None,
+                version: "0.0.1".to_string(),
+                exports: vec![],
+                identifiers: vec![],
+                usages: vec![],
+                sources: vec![],
+                checksum: invalid_checksum.clone(),
+            }],
+        }
+        .validate() else {
+            panic!()
+        };
+        let ValidationError::InvalidChecksum(s) = err else {
+            panic!()
+        };
+        assert_eq!(s, invalid_checksum);
+    }
+
+    #[test]
     fn sort_empty() {
         let mut lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
@@ -1163,5 +1233,31 @@ checksum = "00"
         lock.sort();
         let Lock { projects, .. } = lock;
         assert_eq!(projects, vec![project1, project2]);
+    }
+
+    #[test]
+    fn canonicalize_checksums() {
+        let mut lock = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![Project {
+                name: None,
+                version: "0.0.1".to_string(),
+                exports: vec![],
+                identifiers: vec![],
+                usages: vec![],
+                sources: vec![],
+                checksum: "dA8747a6f27A32f10Ba393113bCE29f788181037a71f093f90e0ad5829D2b780"
+                    .to_string(),
+            }],
+        };
+        lock.canonicalize_checksums();
+        let Lock { projects, .. } = lock;
+        let [project] = projects.as_slice() else {
+            panic!()
+        };
+        assert_eq!(
+            project.checksum,
+            "da8747a6f27a32f10ba393113bce29f788181037a71f093f90e0ad5829d2b780".to_string()
+        );
     }
 }
