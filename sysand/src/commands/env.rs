@@ -15,9 +15,14 @@ use sysand_core::{
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     model::InterchangeProjectUsage,
-    project::{editable::EditableProject, local_kpar::LocalKParProject, local_src::LocalSrcProject, ProjectRead},
+    project::{
+        ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
+        local_src::LocalSrcProject,
+    },
     resolve::{
-        file::FileResolverProject, standard::{standard_resolver, StandardResolver}, ResolutionOutcome, ResolveRead
+        ResolutionOutcome, ResolveRead,
+        file::FileResolverProject,
+        standard::{StandardResolver, standard_resolver},
     },
 };
 
@@ -143,9 +148,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
 
     let project_path = PathBuf::from(&path);
     let project = if project_path.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject {
-            project_path
-        })
+        FileResolverProject::LocalSrcProject(LocalSrcProject { project_path })
     } else if project_path.is_file() {
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(project_path)?)
     } else {
