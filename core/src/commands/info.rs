@@ -67,12 +67,12 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
             Ok(result)
         }
         ResolutionOutcome::UnsupportedIRIType(e) => Err(InfoError::NoResolve(format!(
-            "unsupported IRI '{}': {}",
+            "unsupported IRI `{}`: {}",
             uri.as_ref(),
             e
         ))),
         ResolutionOutcome::Unresolvable(e) => Err(InfoError::NoResolve(format!(
-            "IRI '{}': {}",
+            "IRI `{}`: {}",
             uri.as_ref(),
             e
         ))),

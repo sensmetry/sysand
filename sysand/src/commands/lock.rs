@@ -86,7 +86,7 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
                     pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => {
                         match package {
                             DependencyIdentifier::Requested(_) => {
-                                bail!("Unxpected internal error: {:?}", source)
+                                bail!("Unexpected internal error: {:?}", source)
                             }
                             DependencyIdentifier::Remote(iri) => {
                                 bail!("Unable to select version of usage {}", iri)
@@ -95,13 +95,13 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
                     }
                     pubgrub::PubGrubError::ErrorInShouldCancel(err) => match err {
                         InternalSolverError::Resolution(err) => {
-                            bail! {"Resolution error: {:?}", err}
+                            bail!("Resolution error: {:?}", err)
                         }
                         // InternalSolverError::InvalidProject => {
                         //     bail!("Found invalid project during usage resolution")
                         // }
                         InternalSolverError::NotResolvable(iri) => {
-                            bail!("Unable to resolve usage '{}'", iri)
+                            bail!("Unable to resolve usage `{}`", iri)
                         }
                     },
                 }

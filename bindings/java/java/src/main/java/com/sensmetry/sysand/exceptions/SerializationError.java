@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-package com.sensmetry.sysand.exceptions;
+package org.sysand.exceptions;
 
-public class SerialisationError extends SysandException {
+public class SerializationError extends SysandException {
 
-    public SerialisationError(String message) {
+    public SerializationError(String message) {
         super(message);
     }
 

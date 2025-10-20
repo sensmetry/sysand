@@ -1,0 +1,15 @@
+{
+  "index": {
+    "SYSMOD": "SYSMOD.sysml",
+    "SYSMOD_Metadata": "SYSMOD.sysml",
+    "SYSMOD_Process": "SYSMOD.sysml"
+  },
+  "created": "2025-09-14T14:25:29.646679000Z",
+  "metamodel": "https://www.omg.org/spec/SysML/20250201",
+  "checksum": {
+    "SYSMOD.sysml": {
+      "value": "d139c251d97bae6a0b67f513e941507cf19d2933becf470cca9b5356d4ed7d7c",
+      "algorithm": "SHA256"
+    }
+  }
+}

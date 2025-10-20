@@ -70,7 +70,7 @@ fn interpret_project_path<P: AsRef<Path>>(path: P) -> Result<FileResolverProject
         })
     } else {
         bail!(CliError::NoResolve(format!(
-            "unable to find interchange project at '{}'",
+            "unable to find interchange project at `{}`",
             path.as_ref().display()
         )));
     })
@@ -86,7 +86,7 @@ pub fn command_info_path<P: AsRef<Path>>(path: P, excluded_iris: &HashSet<String
             Ok(())
         }
         None => bail!(CliError::NoResolve(format!(
-            "unable to find interchange project at '{}'",
+            "unable to find interchange project at `{}`",
             path.as_ref().display()
         ))),
     }
@@ -132,7 +132,7 @@ pub fn command_info_uri<S: AsRef<str>>(
         // interchange project was not found without any hints that the provided
         // URI is invalid.
         bail!(CliError::NoResolve(format!(
-            "unable to find interchange project '{}'",
+            "unable to find interchange project `{}`",
             uri
         )));
     }
@@ -259,9 +259,9 @@ pub fn command_info_current_project(
 fn get_info_or_bail<Project: ProjectRead>(project: &Project) -> Result<InterchangeProjectInfoRaw> {
     match project.get_info() {
         Ok(Some(info)) => Ok(info),
-        Ok(None) => bail!("project does not appear to have a valid .project.json"),
+        Ok(None) => bail!("project does not appear to have a valid `.project.json`"),
         Err(err) => {
-            bail!("failed to read .project.json: {}", err)
+            bail!("failed to read `.project.json`: {}", err)
         }
     }
 }
@@ -271,9 +271,9 @@ fn get_meta_or_bail<Project: ProjectRead>(
 ) -> Result<InterchangeProjectMetadataRaw> {
     match project.get_meta() {
         Ok(Some(meta)) => Ok(meta),
-        Ok(None) => bail!("project does not appear to have a valid .meta.json"),
+        Ok(None) => bail!("project does not appear to have a valid `.meta.json`"),
         Err(err) => {
-            bail!("failed to read .project.json: {}", err)
+            bail!("failed to read `.meta.json`: {}", err)
         }
     }
 }
@@ -283,7 +283,7 @@ fn set_info_or_bail<Project: ProjectMut>(
     info: &InterchangeProjectInfoRaw,
 ) -> Result<()> {
     if let Err(err) = project.put_info(info, true) {
-        bail!("failed to write .project.json: {}", err);
+        bail!("failed to write `.project.json`: {}", err);
     }
 
     Ok(())
@@ -294,7 +294,7 @@ fn set_meta_or_bail<Project: ProjectMut>(
     meta: &InterchangeProjectMetadataRaw,
 ) -> Result<()> {
     if let Err(err) = project.put_meta(meta, true) {
-        bail!("failed to write .meta.json: {}", err);
+        bail!("failed to write `.meta.json`: {}", err);
     }
 
     Ok(())
@@ -324,7 +324,7 @@ fn apply_get_info(
         GetInfoVerb::GetName => print_output(Some(vec![info.name]), numbered),
         GetInfoVerb::GetDescription => print_output(info.description.map(|x| vec![x]), numbered),
         GetInfoVerb::GetVersion => print_output(Some(vec![info.version]), numbered),
-        GetInfoVerb::GetLicence => print_output(info.license.map(|x| vec![x]), numbered),
+        GetInfoVerb::GetLicense => print_output(info.license.map(|x| vec![x]), numbered),
         GetInfoVerb::GetMaintainer => print_output(Some(info.maintainer), numbered),
         GetInfoVerb::GetWebsite => print_output(info.website.map(|x| vec![x]), numbered),
         GetInfoVerb::GetTopic => print_output(Some(info.topic), numbered),
@@ -422,7 +422,7 @@ fn set_info(
         SetInfoVerb::SetVersion(value) => {
             result.version = value.clone();
         }
-        SetInfoVerb::SetLicence(value) => {
+        SetInfoVerb::SetLicense(value) => {
             result.license = Some(value.clone());
         }
         SetInfoVerb::SetMaintainer(value) => {
@@ -488,7 +488,7 @@ fn clear_info(
         ClearInfoVerb::ClearDescription => {
             result.description = None;
         }
-        ClearInfoVerb::ClearLicence => {
+        ClearInfoVerb::ClearLicense => {
             result.license = None;
         }
         ClearInfoVerb::ClearMaintainer => {

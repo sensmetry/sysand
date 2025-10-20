@@ -45,11 +45,17 @@ use sysand_core::{
 
 #[pyfunction(name = "do_new_py_local_file")]
 #[pyo3(
-    signature = (name, version, path),
+    signature = (name, version, license, path),
 )]
-fn do_new_py_local_file(name: String, version: String, path: String) -> PyResult<()> {
-    do_new_local_file(name, version, Path::new(&path)).map_err(|err| match err {
+fn do_new_py_local_file(
+    name: String,
+    version: String,
+    license: Option<String>,
+    path: String,
+) -> PyResult<()> {
+    do_new_local_file(name, version, license, Path::new(&path)).map_err(|err| match err {
         NewError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
+        NewError::SPDXLicenseParse(..) => PyValueError::new_err(err.to_string()),
         NewError::Project(err) => match err {
             LocalSrcError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
             LocalSrcError::Deserialize(error) => PyValueError::new_err(error.to_string()),

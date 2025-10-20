@@ -21,7 +21,14 @@ mod browser_tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_basic_new() -> Result<(), Box<dyn Error>> {
-        do_new_js_local_storage("test_basic_new", "1.2.3", "sysand_storage", "/").unwrap();
+        do_new_js_local_storage(
+            "test_basic_new".to_string(),
+            "1.2.3".to_string(),
+            Some("MIT OR Apache-2.0".to_string()),
+            "sysand_storage",
+            "/",
+        )
+        .unwrap();
 
         let local_storage = web_sys::window().unwrap().local_storage().unwrap().unwrap();
 

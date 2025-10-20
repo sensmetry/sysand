@@ -62,9 +62,9 @@ fn check_lock_version(document: &DocumentMut) -> Result<(), VersionError> {
 
 #[derive(Debug, Error)]
 pub enum ParseError {
-    #[error("failed to parse lockfile")]
+    #[error("failed to parse lockfile: {0}")]
     Toml(#[from] toml::de::Error),
-    #[error("failed to parse lockfile")]
+    #[error("failed to parse lockfile: {0}")]
     TomlEdit(#[from] toml_edit::TomlError),
     #[error(transparent)]
     Validation(#[from] ValidationError),

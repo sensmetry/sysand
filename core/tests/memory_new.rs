@@ -8,7 +8,11 @@ use sysand_core::{commands::new::do_new, model::InterchangeProjectInfo, new::do_
 /// and .meta.json files in the current working directory. (Non-interactive use)
 #[test]
 fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let memory_storage = do_new_memory("init_basic".to_string(), "1.2.3".to_string())?;
+    let memory_storage = do_new_memory(
+        "init_basic".to_string(),
+        "1.2.3".to_string(),
+        Some("Apache-2.0".to_string()),
+    )?;
 
     assert_eq!(
         memory_storage.info.unwrap(),
@@ -16,7 +20,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
             name: "init_basic".to_string(),
             description: None,
             version: Version::parse("1.2.3").unwrap(),
-            license: None,
+            license: Some("Apache-2.0".to_string()),
             maintainer: vec![],
             website: None,
             topic: vec![],
@@ -54,8 +58,11 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
 /// project should remain unaffected by the second `sysand init` execution.
 #[test]
 fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
-    let mut memory_storage =
-        do_new_memory("init_fail_on_double_init".to_string(), "1.2.3".to_string())?;
+    let mut memory_storage = do_new_memory(
+        "init_fail_on_double_init".to_string(),
+        "1.2.3".to_string(),
+        Some("Apache-2.0 OR MIT".to_string()),
+    )?;
 
     let original_info = memory_storage.info.clone();
     let original_meta = memory_storage.meta.clone();
@@ -63,6 +70,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     let second_result = do_new(
         "init_fail_on_double_init".to_string(),
         "1.2.3".to_string(),
+        Some("Apache-2.0 OR MIT".to_string()),
         &mut memory_storage,
     );
 

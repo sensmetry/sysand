@@ -22,7 +22,7 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 pub struct InterchangeProjectUsageG<Iri, VersionReq> {
     pub resource: Iri, // TODO: We should have a fallback for invalid IRIs
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvars
+    pub version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvers
 }
 pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String>;
 pub type InterchangeProjectUsage =
@@ -31,9 +31,8 @@ pub type InterchangeProjectUsage =
 impl InterchangeProjectUsageRaw {
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
         Ok(InterchangeProjectUsage {
-            resource: fluent_uri::Iri::parse(self.resource.clone()).map_err(|e| {
-                InterchangeProjectValidationError::IriParse(self.resource.to_string(), e)
-            })?,
+            resource: fluent_uri::Iri::parse(self.resource.clone())
+                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
 
             version_constraint: self
                 .version_constraint
@@ -41,7 +40,7 @@ impl InterchangeProjectUsageRaw {
                 .map(|c| semver::VersionReq::parse(c))
                 .transpose()
                 .map_err(|e| {
-                    InterchangeProjectValidationError::SemverConstraintParse(
+                    InterchangeProjectValidationError::SemVerConstraintParse(
                         self.version_constraint.clone().unwrap(),
                         e,
                     )
@@ -141,7 +140,7 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
     // }
 
     pub fn pop_usage(&mut self, resource: &Iri) -> Vec<InterchangeProjectUsageG<Iri, VersionReq>> {
-        // TODO: Once stabilised
+        // TODO: MSRV >=1.87
         // self.usage.extract_if(.., |InterchangeProjectUsageG { resource: this_resource, .. }| this_resource == resource).collect()
 
         let (removed, kept): (Vec<_>, Vec<_>) = self
@@ -173,7 +172,7 @@ impl InterchangeProjectInfoRaw {
             name: self.name.clone(),
             description: self.description.clone(),
             version: semver::Version::parse(&self.version).map_err(|e| {
-                InterchangeProjectValidationError::SemverParse(self.version.as_str().into(), e)
+                InterchangeProjectValidationError::SemVerParse(self.version.as_str().into(), e)
             })?,
             license: self.license.clone(),
             maintainer: self.maintainer.clone(),
@@ -182,9 +181,7 @@ impl InterchangeProjectInfoRaw {
                 .clone()
                 .map(fluent_uri::Iri::parse)
                 .transpose()
-                .map_err(|e| {
-                    InterchangeProjectValidationError::IriParse(self.website.clone().unwrap(), e)
-                })?,
+                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
 
             topic: self.topic.clone(),
             usage,
@@ -265,13 +262,13 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
 
 #[derive(Error, Debug)]
 pub enum InterchangeProjectValidationError {
-    #[error("failed to parse '{0}' as IRI: {1}")]
-    IriParse(String, fluent_uri::error::ParseError<String>),
-    #[error("failed to parse '{0}' as a Semantic Version: {1}")]
-    SemverParse(Box<str>, semver::Error),
-    #[error("failed to parse '{0}' as a Semantic Version constraint: {1}")]
-    SemverConstraintParse(String, semver::Error),
-    #[error("failed to parse '{0}' as RFC3339 datetime: {1}")]
+    #[error("failed to parse `{0}` as IRI: {1}")]
+    IriParse(String, fluent_uri::ParseError),
+    #[error("failed to parse `{0}` as a Semantic Version: {1}")]
+    SemVerParse(Box<str>, semver::Error),
+    #[error("failed to parse `{0}` as a Semantic Version constraint: {1}")]
+    SemVerConstraintParse(String, semver::Error),
+    #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
     DatetimeParse(Box<str>, chrono::ParseError),
 }
 
@@ -309,9 +306,7 @@ impl InterchangeProjectMetadataRaw {
                 .clone()
                 .map(fluent_uri::Iri::parse)
                 .transpose()
-                .map_err(|e| {
-                    InterchangeProjectValidationError::IriParse(self.metamodel.clone().unwrap(), e)
-                })?,
+                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
             includes_derived: self.includes_derived,
             includes_implied: self.includes_implied,
             checksum: self.checksum.clone().map(|m| {

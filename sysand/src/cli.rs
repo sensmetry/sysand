@@ -31,26 +31,47 @@ pub enum Command {
         /// Set the project name. Defaults to the directory name
         #[arg(long)]
         name: Option<String>,
-        /// Set the version. Defaults to `0.0.1`
+        /// Set the version in Semantic Version format. Defaults to `0.0.1`
         #[arg(long)]
         version: Option<String>,
+        /// Don't require version to conform to Semantic Versioning
+        #[arg(long, requires = "version")]
+        no_semver: bool,
+        /// Set the license in the form of an SPDX license identifier.
+        /// Defaults to omitting the license field
+        #[arg(long, alias = "licence")]
+        license: Option<String>,
+        /// Don't require license to be an SPDX expression
+        #[arg(long, requires = "license")]
+        no_spdx: bool,
     },
     /// Create new project in given directory
     New {
         /// Path to the new project
         path: String,
-        #[arg(long)]
         /// Set the project name. Defaults to the directory name
-        name: Option<String>,
         #[arg(long)]
-        /// Set the version. Defaults to `0.0.1`
+        name: Option<String>,
+        /// Set the version in Semantic Version format. Defaults to `0.0.1`
+        #[arg(long)]
         version: Option<String>,
+        /// Don't require version to conform to Semantic Versioning
+        #[arg(long, requires = "version")]
+        no_semver: bool,
+        /// Set the license in the form of an SPDX license identifier.
+        /// Defaults to omitting the license field
+        #[arg(long, alias = "licence")]
+        license: Option<String>,
+        /// Don't require license to be an SPDX expression
+        #[arg(long, requires = "license")]
+        no_spdx: bool,
     },
     /// Add usage to project information
     Add {
         /// IRI identifying the project to be used
         iri: String,
         /// A constraint on the allowable versions of a used project
+        /// Assumes that the project uses Semantic Versioning
         versions_constraint: Option<String>,
         /// Do not automatically resolve usages (and generate lockfile)
         #[arg(long, default_value = "false")]
@@ -236,8 +257,12 @@ pub enum InfoCommand {
     /// Get or set the version of the project
     #[group(required = false, multiple = false)]
     Version {
+        /// Set the version in Semantic Version format
         #[arg(long, default_value=None)]
         set: Option<String>,
+        /// Don't require version to conform to Semantic Versioning
+        #[arg(long, requires = "set")]
+        no_semver: bool,
         // Only for better error messages
         #[arg(
             hide = true,
@@ -245,36 +270,41 @@ pub enum InfoCommand {
             num_args=0,
             default_missing_value="None",
             default_value = None,
-            value_parser=invalid_command("'version' cannot be unset")
+            value_parser=invalid_command("`version` cannot be unset")
         )]
         clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'version' is not a list, consider using 'sysand info version --set'?"
+          "`version` is not a list, consider using `sysand info version --set`?"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'version' is not a list, and cannot be unset"
+          "`version` is not a list, and cannot be unset"
         ))]
         remove: Option<Infallible>,
     },
-    /// Get or set the licence of the project
-    #[command(visible_alias = "license")]
+    /// Get or set the license of the project
+    #[command(visible_alias = "licence")]
     #[group(required = false, multiple = false)]
-    Licence {
+    License {
+        /// Set the license in the form of an SPDX license identifier
         #[arg(long, default_value=None)]
         set: Option<String>,
+        /// Don't require license to be an SPDX expression
+        #[arg(long, requires = "set")]
+        no_spdx: bool,
+        /// Remove the project's license
         #[arg(long, default_value = None)]
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'licence' is not a list, consider using 'sysand info licence --set'?"
+          "`license` is not a list, consider using `sysand info license --set`?"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'licence' is not a list, consider using 'sysand info licence --clear'?"
+          "`license` is not a list, consider using `sysand info license --clear`?"
         ))]
         remove: Option<Infallible>,
     },
@@ -564,7 +594,7 @@ pub enum GetInfoVerb {
     GetName,
     GetDescription,
     GetVersion,
-    GetLicence,
+    GetLicense,
     GetMaintainer,
     GetWebsite,
     GetTopic,
@@ -576,7 +606,7 @@ pub enum SetInfoVerb {
     SetName(String),
     SetDescription(String),
     SetVersion(String),
-    SetLicence(String),
+    SetLicense(String),
     SetMaintainer(Vec<String>),
     SetWebsite(String),
     SetTopic(Vec<String>),
@@ -585,7 +615,7 @@ pub enum SetInfoVerb {
 #[derive(Debug, Clone)]
 pub enum ClearInfoVerb {
     ClearDescription,
-    ClearLicence,
+    ClearLicense,
     ClearMaintainer,
     ClearWebsite,
     ClearTopic,
@@ -726,6 +756,7 @@ impl InfoCommand {
                 clear,
                 add,
                 remove,
+                no_semver: _,
             } => pack_info(
                 GetInfoVerb::GetVersion,
                 set.map(SetInfoVerb::SetVersion),
@@ -733,16 +764,17 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Licence {
+            InfoCommand::License {
                 set,
                 clear,
                 add,
                 remove,
+                no_spdx: _,
             } => pack_info(
-                GetInfoVerb::GetLicence,
-                set.map(SetInfoVerb::SetLicence),
+                GetInfoVerb::GetLicense,
+                set.map(SetInfoVerb::SetLicense),
                 if clear {
-                    Some(ClearInfoVerb::ClearLicence)
+                    Some(ClearInfoVerb::ClearLicense)
                 } else {
                     None
                 },
@@ -919,12 +951,14 @@ impl InfoCommand {
             } => false,
             InfoCommand::Version {
                 set: _,
+                no_semver: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::Licence {
+            InfoCommand::License {
                 set: _,
+                no_spdx: _,
                 clear: _,
                 add: _,
                 remove: _,

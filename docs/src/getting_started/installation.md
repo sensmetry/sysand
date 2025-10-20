@@ -4,7 +4,7 @@ Sysand is written in Rust programming language. To build it, [install
 Rust](https://www.rust-lang.org/tools/install) and run the following command in
 the terminal:
 
-```bash
+```sh
 cargo install sysand --git=https://github.com/sensmetry/sysand.git
 ```
 

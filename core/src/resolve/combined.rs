@@ -382,7 +382,7 @@ impl<
                 .map_err(CombinedResolverError::File)?
             {
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("File resolver rejects IRI '{}' due to: {}", uri, msg);
+                    log::debug!("File resolver rejects IRI `{}` due to: {}", uri, msg);
                 } // Just continue
                 ResolutionOutcome::Resolved(r) => {
                     //at_least_one_supports = true;

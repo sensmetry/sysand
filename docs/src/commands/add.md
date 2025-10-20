@@ -18,6 +18,7 @@ and sync the local environment (creating one if not already present).
 
 - `<IRI>`: IRI identifying the project to be used
 - `[VERSIONS_CONSTRAINT]`: A constraint on the allowable versions of a used project
+                           Assumes that the project uses Semantic Versioning
 
 ## Options
 

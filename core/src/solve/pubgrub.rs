@@ -570,7 +570,8 @@ mod tests {
 
         let solution = super::solve(
             vec![InterchangeProjectUsage {
-                resource: fluent_uri::Iri::parse("urn:kpar:test_version_selection".to_string())?,
+                resource: fluent_uri::Iri::parse("urn:kpar:test_version_selection".to_string())
+                    .unwrap(),
                 version_constraint: Some(semver::VersionReq::parse(">=2.0.0")?),
             }],
             resolver,
@@ -618,13 +619,15 @@ mod tests {
                 InterchangeProjectUsage {
                     resource: fluent_uri::Iri::parse(
                         "urn:kpar:test_diamond_selection_a".to_string(),
-                    )?,
+                    )
+                    .unwrap(),
                     version_constraint: Some(semver::VersionReq::parse(">=0.1.0")?),
                 },
                 InterchangeProjectUsage {
                     resource: fluent_uri::Iri::parse(
                         "urn:kpar:test_diamond_selection_b".to_string(),
-                    )?,
+                    )
+                    .unwrap(),
                     version_constraint: None,
                 },
             ],

@@ -9,18 +9,22 @@ use jni::{
     objects::{JClass, JObject, JObjectArray, JString},
 };
 use sysand_core::{
+    build::KParBuildError,
     commands,
     env::local_directory::{self, LocalWriteError},
     info::InfoError,
     new::NewError,
-    project::local_src::{LocalSrcError, LocalSrcProject},
+    project::{
+        local_src::{LocalSrcError, LocalSrcProject},
+        utils::wrapfs,
+    },
     resolve::standard::standard_resolver,
     workspace::Workspace,
 };
 
 use crate::{
     conversion::{ToJObject, ToJObjectArray},
-    exceptions::{ExceptionKind, StdlibExceptionKind, Throw},
+    exceptions::{ExceptionKind, JniExt, StdlibExceptionKind},
 };
 
 mod conversion;
@@ -32,20 +36,40 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
     _class: JClass<'local>,
     name: JString<'local>,
     version: JString<'local>,
+    license: JString<'local>,
     path: JString<'local>,
 ) {
-    let name: String = env.get_string(&name).expect("Failed to get name").into();
-    let version: String = env
-        .get_string(&version)
-        .expect("Failed to get version")
-        .into();
-    let path: String = env.get_string(&path).expect("Failed to get path").into();
-    let command_result = commands::new::do_new_local_file(name, version, path);
+    let Some(name) = env.get_str(&name, "name") else {
+        return;
+    };
+    let Some(version) = env.get_str(&version, "version") else {
+        return;
+    };
+    let Some(path) = env.get_str(&path, "path") else {
+        return;
+    };
+
+    // If `license` is `null`, no license is specified
+    let license: Option<String> = match env.get_string(&license) {
+        Ok(s) => Some(s.into()),
+        Err(e) => match e {
+            jni::errors::Error::NullPtr(_) => None,
+            _ => {
+                env.throw_runtime_exception(format!("failed to get argument `license`: {}", e));
+                return;
+            }
+        },
+    };
+
+    let command_result = commands::new::do_new_local_file(name, version, license, path);
     match command_result {
         Ok(_) => {}
         Err(error) => match error {
             NewError::SemVerParse(..) => {
                 env.throw_exception(ExceptionKind::InvalidSemanticVersion, error.to_string())
+            }
+            NewError::SPDXLicenseParse(..) => {
+                env.throw_exception(ExceptionKind::InvalidSPDXLicense, error.to_string())
             }
             NewError::Project(suberror) => match suberror {
                 LocalSrcError::AlreadyExists(msg) => {
@@ -70,11 +94,16 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_sensmetry_sysand_Sysand_defaultEnvName<'local>(
-    env: JNIEnv<'local>,
+    mut env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> JString<'local> {
-    env.new_string(local_directory::DEFAULT_ENV_NAME)
-        .expect("Failed to create String")
+    match env.new_string(local_directory::DEFAULT_ENV_NAME) {
+        Ok(s) => s,
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to create String: {e}"));
+            JString::default()
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -83,7 +112,9 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
     _class: JClass<'local>,
     path: JString<'local>,
 ) {
-    let path: String = env.get_string(&path).expect("Failed to get path").into();
+    let Some(path) = env.get_str(&path, "path") else {
+        return;
+    };
     let command_result = commands::env::do_env_local_dir(path);
     match command_result {
         Ok(_) => {}
@@ -125,15 +156,17 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_infoPath<'local>(
     _class: JClass<'local>,
     path: JString<'local>,
 ) -> JObject<'local> {
-    let path: String = env.get_string(&path).expect("Failed to get path").into();
+    let Some(path) = env.get_str(&path, "path") else {
+        return JObject::default();
+    };
     let project = LocalSrcProject {
         project_path: PathBuf::from(&path),
     };
 
     let command_result = commands::info::do_info_project(&project);
     match command_result {
-        Some(info_metadata) => info_metadata.to_jobject(&mut env),
-        None => JObject::null(),
+        Some(info_metadata) => info_metadata.to_jobject(&mut env).unwrap_or_default(),
+        None => JObject::default(),
     }
 }
 
@@ -145,38 +178,42 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     relative_file_root: JString<'local>,
     index_url: JString<'local>,
 ) -> JObjectArray<'local> {
-    let uri: String = env.get_string(&uri).expect("Failed to get uri").into();
+    let Some(uri) = env.get_str(&uri, "uri") else {
+        return JObjectArray::default();
+    };
     let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
 
-    let runtime = Arc::new(
-        tokio::runtime::Builder::new_current_thread()
-            .build()
-            .expect("failed to initialise async runtime"),
-    );
+    let runtime = {
+        let r = match tokio::runtime::Builder::new_current_thread().build() {
+            Ok(r) => r,
+            Err(e) => {
+                env.throw_exception(
+                    ExceptionKind::IOError,
+                    format!("Failed to build tokio runtime: {e}"),
+                );
+                return JObjectArray::default();
+            }
+        };
+        Arc::new(r)
+    };
 
-    let relative_file_root: String = env
-        .get_string(&relative_file_root)
-        .expect("Failed to get relative file root")
-        .into();
+    let Some(relative_file_root) = env.get_str(&relative_file_root, "relativeFileRoot") else {
+        return JObjectArray::default();
+    };
 
     let index_base_url = if index_url.is_null() {
         None
     } else {
-        let index_url: String = env
-            .get_string(&index_url)
-            .expect("Failed to get index url")
-            .into();
+        let Some(index_url) = env.get_str(&index_url, "indexUrl") else {
+            return JObjectArray::default();
+        };
         match url::Url::parse(&index_url) {
             Ok(url) => Some(url),
             Err(error) => {
-                let exception_class = env
-                    .find_class("java/lang/UnsupportedOperationException")
-                    .expect("Failed to find UnsupportedOperationException class");
-                env.throw_new(
-                    exception_class,
-                    format!("Failed to parse index URL {}: {}", index_url, error),
-                )
-                .expect("Failed to throw UnsupportedOperationException");
+                env.throw_stdlib_exception(
+                    StdlibExceptionKind::UnsupportedOperationException,
+                    format!("Failed to parse index URL `{}`: {}", index_url, error),
+                );
                 return JObjectArray::default();
             }
         }
@@ -199,82 +236,82 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
         }
     };
 
-    results.to_jobject_array(&mut env)
+    results.to_jobject_array(&mut env).unwrap_or_default()
 }
 
-fn handle_build_error(
-    env: &mut JNIEnv<'_>,
-    error: sysand_core::build::KParBuildError<LocalSrcError>,
-) {
+fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>) {
     match error {
-        sysand_core::build::KParBuildError::ProjectRead(error) => {
+        KParBuildError::ProjectRead(error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Project read error: {}", error),
             );
         }
-        sysand_core::build::KParBuildError::LocalSrc(error) => {
+        KParBuildError::LocalSrc(error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Local src error: {}", error),
             );
         }
-        sysand_core::build::KParBuildError::IncompleteSource(error) => {
+        KParBuildError::IncompleteSource(error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Incomplete source error: {}", error),
             );
         }
-        sysand_core::build::KParBuildError::Io(error) => {
+        KParBuildError::Io(error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("IO error: {}", error),
             );
         }
-        sysand_core::build::KParBuildError::Validation(error) => {
+        KParBuildError::Validation(error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Validation error: {}", error),
             );
         }
-        sysand_core::build::KParBuildError::Extract(error) => {
+        KParBuildError::Extract(error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Extract error: {}", error),
             );
         }
-        sysand_core::build::KParBuildError::UnknownFormat(error) => {
+        KParBuildError::UnknownFormat(error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Unknown format error: {}", error),
             );
         }
-        sysand_core::build::KParBuildError::MissingInfo => {
-            env.throw_exception(ExceptionKind::SysandException, "Missing info".to_string());
+        KParBuildError::MissingInfo => {
+            env.throw_exception(
+                ExceptionKind::SysandException,
+                "Missing project information",
+            );
         }
-        sysand_core::build::KParBuildError::MissingMeta => {
-            env.throw_exception(ExceptionKind::SysandException, "Missing meta".to_string());
+        KParBuildError::MissingMeta => {
+            env.throw_exception(ExceptionKind::SysandException, "Missing project metadata");
         }
-        sysand_core::build::KParBuildError::Zip(error) => {
+        KParBuildError::Zip(error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Zip write error: {}", error),
             );
         }
-        sysand_core::build::KParBuildError::Serialize(msg, error) => {
+        KParBuildError::Serialize(msg, error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Project serialization error: {}: {}", msg, error),
             );
         }
-        sysand_core::build::KParBuildError::WorkspaceRead(error) => {
+        KParBuildError::WorkspaceRead(error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Workspace read error: {}", error),
             );
         }
-        sysand_core::build::KParBuildError::InternalError(error) => {
-            env.throw_exception(ExceptionKind::SysandException, error.to_string());
+        KParBuildError::InternalError(error) => {
+            env.throw_exception(ExceptionKind::SysandException, error);
         }
     }
 }
@@ -286,149 +323,19 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     output_path: JString<'local>,
     project_path: JString<'local>,
 ) {
-    let output_path: String = env
-        .get_string(&output_path)
-        .expect("Failed to get output path")
-        .into();
-    let project_path: String = env
-        .get_string(&project_path)
-        .expect("Failed to get project path")
-        .into();
+    let Some(output_path) = env.get_str(&output_path, "outputPath") else {
+        return;
+    };
+    let Some(project_path) = env.get_str(&project_path, "projectPath") else {
+        return;
+    };
     let project = LocalSrcProject {
-        project_path: std::path::PathBuf::from(project_path),
+        project_path: PathBuf::from(project_path),
     };
     let command_result = sysand_core::commands::build::do_build_kpar(&project, &output_path, true);
     match command_result {
         Ok(_) => {}
         Err(error) => handle_build_error(&mut env, error),
-    }
-}
-
-fn get_string<'local>(
-    env: &mut JNIEnv<'local>,
-    string: &JString<'local>,
-    variable_name: &str,
-) -> Option<String> {
-    match env.get_string(string) {
-        Ok(string) => Some(string.into()),
-        Err(error) => match error {
-            jni::errors::Error::WrongJValueType(expected, actual) => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::IllegalArgument,
-                    format!(
-                        "{}: wrong JValue type, expected {:?}, got {:?}",
-                        variable_name, expected, actual
-                    ),
-                );
-                None
-            }
-            jni::errors::Error::InvalidCtorReturn => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::IllegalState,
-                    format!("{}: invalid constructor return", variable_name),
-                );
-                None
-            }
-            jni::errors::Error::InvalidArgList(type_signature) => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::IllegalArgument,
-                    format!(
-                        "{}: invalid argument list, type signature: {}",
-                        variable_name, type_signature
-                    ),
-                );
-                None
-            }
-            jni::errors::Error::MethodNotFound { name, sig } => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::UnsupportedOperation,
-                    format!(
-                        "{}: method not found: {} with signature {}",
-                        variable_name, name, sig
-                    ),
-                );
-                None
-            }
-            jni::errors::Error::FieldNotFound { name, sig } => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::UnsupportedOperation,
-                    format!(
-                        "{}: field not found: {} with signature {}",
-                        variable_name, name, sig
-                    ),
-                );
-                None
-            }
-            jni::errors::Error::JavaException => {
-                // A Java exception was already thrown, let it propagate
-                None
-            }
-            jni::errors::Error::JNIEnvMethodNotFound(method_name) => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::Runtime,
-                    format!(
-                        "{}: JNI environment method not found: {}",
-                        variable_name, method_name
-                    ),
-                );
-                None
-            }
-            jni::errors::Error::NullPtr(_) | jni::errors::Error::NullDeref(_) => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::NullPointer,
-                    format!("{} is null", variable_name),
-                );
-                None
-            }
-            jni::errors::Error::TryLock => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::IllegalState,
-                    format!("{}: failed to acquire lock", variable_name),
-                );
-                None
-            }
-            jni::errors::Error::JavaVMMethodNotFound(method_name) => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::Runtime,
-                    format!(
-                        "{}: Java VM method not found: {}",
-                        variable_name, method_name
-                    ),
-                );
-                None
-            }
-            jni::errors::Error::FieldAlreadySet(field_name) => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::IllegalState,
-                    format!("{}: field already set: {}", variable_name, field_name),
-                );
-                None
-            }
-            jni::errors::Error::ThrowFailed(error_msg) => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::Runtime,
-                    format!(
-                        "{}: failed to throw exception: {}",
-                        variable_name, error_msg
-                    ),
-                );
-                None
-            }
-            jni::errors::Error::ParseFailed(string_stream_error, _) => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::IllegalArgument,
-                    format!("{}: parse failed: {}", variable_name, string_stream_error),
-                );
-                None
-            }
-            jni::errors::Error::JniCall(jni_error) => {
-                env.throw_stdlib_exception(
-                    StdlibExceptionKind::Runtime,
-                    format!("{}: JNI call failed: {}", variable_name, jni_error),
-                );
-                None
-            }
-        },
     }
 }
 
@@ -439,16 +346,16 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
     output_path: JString<'local>,
     workspace_path: JString<'local>,
 ) {
-    let Some(output_path) = get_string(&mut env, &output_path, "output_path") else {
+    let Some(output_path) = env.get_str(&output_path, "outputPath") else {
         return;
     };
-    let Some(workspace_path) = get_string(&mut env, &workspace_path, "workspace_path") else {
+    let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
         return;
     };
     let workspace = Workspace {
-        workspace_path: std::path::PathBuf::from(workspace_path),
+        workspace_path: PathBuf::from(workspace_path),
     };
-    match std::fs::create_dir_all(&output_path) {
+    match wrapfs::create_dir_all(&output_path) {
         Ok(_) => {}
         Err(error) => {
             env.throw_exception(ExceptionKind::IOError, error.to_string());

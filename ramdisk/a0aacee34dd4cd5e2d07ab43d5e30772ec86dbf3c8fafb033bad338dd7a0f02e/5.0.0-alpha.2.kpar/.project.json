@@ -1,0 +1,56 @@
+{
+  "name": "SYSMOD",
+  "description": "The library provides concepts of the common and general purpose MBSE methodology SYSMOD.",
+  "version": "5.0.0-alpha.2",
+  "license": "Apache-2.0",
+  "maintainer": [
+    "MBSE4U, Tim Weilkiens <tim@mbse4u.com>"
+  ],
+  "website": "https://mbse4u.com/sysmod",
+  "topic": [
+    "MBSE",
+    "Methodology"
+  ],
+  "usage": [
+    {
+      "resource": "urn:kpar:semantic-library",
+      "versionConstraint": "^1.0.0"
+    },
+    {
+      "resource": "urn:kpar:data-type-library",
+      "versionConstraint": "^1.0.0"
+    },
+    {
+      "resource": "urn:kpar:function-library",
+      "versionConstraint": "^1.0.0"
+    },
+    {
+      "resource": "urn:kpar:systems-library",
+      "versionConstraint": "^2.0.0"
+    },
+    {
+      "resource": "urn:kpar:analysis-library",
+      "versionConstraint": "^2.0.0"
+    },
+    {
+      "resource": "urn:kpar:cause-and-effect-library",
+      "versionConstraint": "^2.0.0"
+    },
+    {
+      "resource": "urn:kpar:geometry-library",
+      "versionConstraint": "^2.0.0"
+    },
+    {
+      "resource": "urn:kpar:metadata-library",
+      "versionConstraint": "^2.0.0"
+    },
+    {
+      "resource": "urn:kpar:quantities-and-units-library",
+      "versionConstraint": "^2.0.0"
+    },
+    {
+      "resource": "urn:kpar:requirement-derivation-library",
+      "versionConstraint": "^2.0.0"
+    }
+  ]
+}

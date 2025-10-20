@@ -4,9 +4,9 @@
 
 package com.sensmetry.sysand.exceptions;
 
-public class InvalidValue extends SysandException {
+public class InvalidSPDXLicense extends SysandException {
 
-    public InvalidValue(String message) {
+    public InvalidSPDXLicense(String message) {
         super(message);
     }
 
