@@ -3,7 +3,8 @@
 
 use sha2::Sha256;
 use std::{
-    io::{BufRead, Read, Write},
+    fs,
+    io::{self, BufRead, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -74,7 +75,7 @@ fn try_remove_files<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> Result<(
     let mut moved: Vec<PathBuf> = vec![];
 
     for (i, path) in paths.enumerate() {
-        match std::fs::rename(&path, tempdir.path().join(i.to_string())) {
+        match move_fs_item(&path, tempdir.path().join(i.to_string())) {
             Ok(_) => {
                 moved.push(path.as_ref().to_path_buf());
             }
@@ -82,7 +83,7 @@ fn try_remove_files<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> Result<(
                 // NOTE: This dance is to bypass the fact that std::io::error is not Clone-eable...
                 let mut catastrophic_error = None;
                 for (j, recover) in moved.iter().enumerate() {
-                    if let Err(err) = std::fs::rename(tempdir.path().join(j.to_string()), recover) {
+                    if let Err(err) = move_fs_item(tempdir.path().join(j.to_string()), recover) {
                         catastrophic_error = Some(err);
                         break;
                     }
@@ -100,6 +101,47 @@ fn try_remove_files<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> Result<(
     Ok(())
 }
 
+// Recursively copy a directory from `src` to `dst`.
+// Assumes that all parents of `dst` exist.
+fn copy_dir_recursive<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> io::Result<()> {
+    fs::create_dir(&dst)?;
+
+    for entry_result in fs::read_dir(src)? {
+        let entry = entry_result?;
+        let file_type = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.as_ref().join(entry.file_name());
+
+        if file_type.is_dir() {
+            copy_dir_recursive(src_path, dst_path)?;
+        } else {
+            fs::copy(src_path, dst_path)?;
+        }
+    }
+
+    Ok(())
+}
+
+// Renames/moves a file or directory from `src` to `dst`.
+fn move_fs_item<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> io::Result<()> {
+    match fs::rename(&src, &dst) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
+            let metadata = fs::metadata(&src)?;
+            if metadata.is_dir() {
+                copy_dir_recursive(&src, &dst)?;
+                fs::remove_dir_all(&src)?;
+            } else {
+                fs::copy(&src, &dst)?;
+                fs::remove_file(&src)?;
+            }
+            fs::copy(&src, dst).and_then(|_| fs::remove_file(src))?;
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
     let tempdir = tempfile::TempDir::new().map_err(TryMoveError::RecoveredIOError)?;
 
@@ -108,7 +150,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
     // move source files out of the way
     for (i, (path, _)) in paths.iter().enumerate() {
         let src_path = tempdir.path().join(format!("src_{}", i));
-        if let Err(e) = std::fs::rename(path, src_path) {
+        if let Err(e) = move_fs_item(path, src_path) {
             last_err = Some(e);
             break;
         }
@@ -120,7 +162,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if src_path.exists() {
-                if let Err(err) = std::fs::rename(&src_path, path) {
+                if let Err(err) = move_fs_item(src_path, path) {
                     return Err(TryMoveError::CatastrophicIOError { err, cause });
                 }
             }
@@ -135,7 +177,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
     for (i, (_, path)) in paths.iter().enumerate() {
         if path.exists() {
             let trg_path = tempdir.path().join(format!("trg_{}", i));
-            if let Err(e) = std::fs::rename(path, trg_path) {
+            if let Err(e) = move_fs_item(path, trg_path) {
                 last_err = Some(e);
                 break;
             }
@@ -148,7 +190,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let trg_path = tempdir.path().join(format!("trg_{}", i));
 
             if trg_path.exists() {
-                if let Err(err) = std::fs::rename(&trg_path, path) {
+                if let Err(err) = move_fs_item(trg_path, path) {
                     return Err(TryMoveError::CatastrophicIOError { err, cause });
                 }
             }
@@ -158,7 +200,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if src_path.exists() {
-                if let Err(err) = std::fs::rename(&src_path, path) {
+                if let Err(err) = move_fs_item(src_path, path) {
                     return Err(TryMoveError::CatastrophicIOError { err, cause });
                 }
             }
@@ -173,7 +215,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
     for (i, (_, target)) in paths.iter().enumerate() {
         let src_path = tempdir.path().join(format!("src_{}", i));
 
-        if let Err(e) = std::fs::rename(src_path, target) {
+        if let Err(e) = move_fs_item(src_path, target) {
             last_err = Some(e);
             break;
         }
@@ -185,7 +227,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if path.exists() {
-                if let Err(err) = std::fs::rename(path, &src_path) {
+                if let Err(err) = move_fs_item(path, src_path) {
                     return Err(TryMoveError::CatastrophicIOError { err, cause });
                 }
             }
@@ -195,7 +237,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let trg_path = tempdir.path().join(format!("trg_{}", i));
 
             if trg_path.exists() {
-                if let Err(err) = std::fs::rename(&trg_path, path) {
+                if let Err(err) = move_fs_item(trg_path, path) {
                     return Err(TryMoveError::CatastrophicIOError { err, cause });
                 }
             }
@@ -205,7 +247,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if src_path.exists() {
-                if let Err(err) = std::fs::rename(&src_path, path) {
+                if let Err(err) = move_fs_item(src_path, path) {
                     return Err(TryMoveError::CatastrophicIOError { err, cause });
                 }
             }
