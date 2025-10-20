@@ -14,6 +14,7 @@ use sysand_core::{
     resolve::{file::FileResolverProject, standard::standard_resolver},
 };
 
+use anstream::{print, println};
 use anyhow::{Result, bail};
 use fluent_uri::Iri;
 use std::{collections::HashSet, env::current_dir, path::Path, sync::Arc};
@@ -47,11 +48,12 @@ pub fn pprint_interchange_project(
     if info.usage.is_empty() {
         println!("No usages.");
     } else {
+        println!("Usages:");
         for usage in info.usage {
             if excluded_iris.contains(&usage.resource) {
                 continue;
             }
-            print!("    Usage: {}", usage.resource);
+            print!("    {}", usage.resource);
             if let Some(v) = usage.version_constraint {
                 println!(" ({})", v);
             } else {
@@ -69,10 +71,9 @@ fn interpret_project_path<P: AsRef<Path>>(path: P) -> Result<FileResolverProject
             project_path: path.as_ref().to_path_buf(),
         })
     } else {
-        bail!(CliError::NoResolve(format!(
-            "unable to find interchange project at '{}'",
-            path.as_ref().display()
-        )));
+        bail!(CliError::NoResolve(
+            path.as_ref().to_string_lossy().to_string()
+        ));
     })
 }
 
@@ -85,10 +86,9 @@ pub fn command_info_path<P: AsRef<Path>>(path: P, excluded_iris: &HashSet<String
 
             Ok(())
         }
-        None => bail!(CliError::NoResolve(format!(
-            "unable to find interchange project at '{}'",
-            path.as_ref().display()
-        ))),
+        None => bail!(CliError::NoResolve(
+            path.as_ref().to_string_lossy().to_string()
+        )),
     }
 }
 
@@ -100,6 +100,12 @@ pub fn command_info_uri<S: AsRef<str>>(
     excluded_iris: &HashSet<String>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
+    // FIXME: The more precise error messages are ignored here. For example,
+    // if a user provides a relative file URI (this is invalid since file
+    // URIs have to be absolute), the error message will be saying that the
+    // interchange project was not found without any hints that the provided
+    // URI is invalid.
+
     let cwd = current_dir().ok();
 
     let local_env_path = Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
@@ -118,23 +124,8 @@ pub fn command_info_uri<S: AsRef<str>>(
         runtime,
     );
 
-    let mut found = false;
-
     for (info, _) in do_info(&uri, &combined_resolver)? {
-        found = true;
         pprint_interchange_project(info, excluded_iris);
-    }
-
-    if !found {
-        // FIXME: The more precise error messages are ignored here. For example,
-        // if a user provides a relative file URI (this is invalid since file
-        // URIs have to be absolute), the error message will be saying that the
-        // interchange project was not found without any hints that the provided
-        // URI is invalid.
-        bail!(CliError::NoResolve(format!(
-            "unable to find interchange project '{}'",
-            uri
-        )));
     }
 
     Ok(())
@@ -173,10 +164,10 @@ pub fn command_info_verb_path<P: AsRef<Path>>(
         },
         FileResolverProject::LocalKParProject(local_kpar_project) => match verb {
             InfoCommandVerb::Get(get_verb) => apply_get(&get_verb, &local_kpar_project, numbered),
-            InfoCommandVerb::Set(_) => bail!("'set' cannot be used with kpar archives"),
-            InfoCommandVerb::Clear(_) => bail!("'clear' cannot be used with kpar archives"),
-            InfoCommandVerb::Add(_) => bail!("'add' cannot be used with kpar archives"),
-            InfoCommandVerb::Remove(_) => bail!("'remove' cannot be used with kpar archives"),
+            InfoCommandVerb::Set(_) => bail!("`set` cannot be used with kpar archives"),
+            InfoCommandVerb::Clear(_) => bail!("`clear` cannot be used with kpar archives"),
+            InfoCommandVerb::Add(_) => bail!("`add` cannot be used with kpar archives"),
+            InfoCommandVerb::Remove(_) => bail!("`remove` cannot be used with kpar archives"),
         },
     }
 }
@@ -230,13 +221,13 @@ pub fn command_info_verb_uri<S: AsRef<str>>(
             }
 
             if !found {
-                bail!("unable to find a valid project at {}", uri.as_str());
+                bail!("unable to find a valid project at `{}`", uri.as_str());
             };
         }
-        InfoCommandVerb::Set(_) => bail!("'set' cannot be used with remote projects"),
-        InfoCommandVerb::Clear(_) => bail!("'clear' cannot be used with remote projects"),
-        InfoCommandVerb::Add(_) => bail!("'add' cannot be used with remote projects"),
-        InfoCommandVerb::Remove(_) => bail!("'remove' cannot be used with remote projects"),
+        InfoCommandVerb::Set(_) => bail!("`set` cannot be used with remote projects"),
+        InfoCommandVerb::Clear(_) => bail!("`clear` cannot be used with remote projects"),
+        InfoCommandVerb::Add(_) => bail!("`add` cannot be used with remote projects"),
+        InfoCommandVerb::Remove(_) => bail!("`remove` cannot be used with remote projects"),
     }
 
     Ok(())
@@ -259,9 +250,9 @@ pub fn command_info_current_project(
 fn get_info_or_bail<Project: ProjectRead>(project: &Project) -> Result<InterchangeProjectInfoRaw> {
     match project.get_info() {
         Ok(Some(info)) => Ok(info),
-        Ok(None) => bail!("project does not appear to have a valid .project.json"),
+        Ok(None) => bail!("project does not appear to have a valid `.project.json`"),
         Err(err) => {
-            bail!("failed to read .project.json: {}", err)
+            bail!("failed to read `.project.json`: {}", err)
         }
     }
 }
@@ -271,9 +262,9 @@ fn get_meta_or_bail<Project: ProjectRead>(
 ) -> Result<InterchangeProjectMetadataRaw> {
     match project.get_meta() {
         Ok(Some(meta)) => Ok(meta),
-        Ok(None) => bail!("project does not appear to have a valid .meta.json"),
+        Ok(None) => bail!("project does not appear to have a valid `.meta.json`"),
         Err(err) => {
-            bail!("failed to read .project.json: {}", err)
+            bail!("failed to read `.meta.json`: {}", err)
         }
     }
 }
@@ -283,7 +274,7 @@ fn set_info_or_bail<Project: ProjectMut>(
     info: &InterchangeProjectInfoRaw,
 ) -> Result<()> {
     if let Err(err) = project.put_info(info, true) {
-        bail!("failed to write .project.json: {}", err);
+        bail!("failed to write `.project.json`: {}", err);
     }
 
     Ok(())
@@ -294,7 +285,7 @@ fn set_meta_or_bail<Project: ProjectMut>(
     meta: &InterchangeProjectMetadataRaw,
 ) -> Result<()> {
     if let Err(err) = project.put_meta(meta, true) {
-        bail!("failed to write .meta.json: {}", err);
+        bail!("failed to write `.meta.json`: {}", err);
     }
 
     Ok(())

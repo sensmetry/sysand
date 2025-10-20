@@ -22,11 +22,7 @@ fn test_basic_new() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to get do_new_py_local_file function");
 
         do_new_py_local_file_fn
-            .call1((
-                "test_basic_new",
-                "1.2.3",
-                proj_dir_path.to_str().unwrap().to_string(),
-            ))
+            .call1(("test_basic_new", "1.2.3", proj_dir_path.to_str().unwrap()))
             .unwrap();
     });
 
@@ -34,12 +30,17 @@ fn test_basic_new() -> Result<(), Box<dyn std::error::Error>> {
     let meta = std::fs::read_to_string(proj_dir_path.join(".meta.json"))?;
 
     let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}"#,
+        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}\n"#,
     )?;
 
     assert_eq!(
         info,
-        "{\n  \"name\": \"test_basic_new\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}"
+        r#"{
+  "name": "test_basic_new",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
     );
 
     assert!(meta_match.eval(&meta));

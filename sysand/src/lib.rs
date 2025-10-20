@@ -219,7 +219,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             };
             let project_root = project_root.unwrap_or(std::env::current_dir()?);
             let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
-            if !lockfile.is_file() {
+            let lock = if !lockfile.is_file() {
                 let index_base_urls = if no_index { None } else { Some(use_index) };
                 command_lock(
                     PathBuf::from("."),
@@ -227,11 +227,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     index_base_urls,
                     &provided_iris,
                     runtime.clone(),
-                )?;
-            }
-            let lock = Lock::from_str(&std::fs::read_to_string(
-                project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
-            )?)?;
+                )?
+            } else {
+                read_lockfile(lockfile)?
+            };
             command_sync(
                 lock,
                 project_root,
@@ -452,5 +451,31 @@ fn get_log_level(verbose: bool, quiet: bool) -> Result<log::LevelFilter> {
         (true, false) => Ok(log::LevelFilter::Debug),
         (false, true) => Ok(log::LevelFilter::Error),
         (false, false) => Ok(log::LevelFilter::Info),
+    }
+}
+
+fn read_lockfile(lockfile_path: impl AsRef<Path>) -> Result<Lock> {
+    use sysand_core::lock::ParseError;
+    match Lock::from_str(&wrapfs::read_to_string(&lockfile_path)?) {
+        Ok(l) => Ok(l),
+        // This boilerplate is to avoid duplicate error message
+        Err(e) => match e {
+            ParseError::Toml(e) => bail!(
+                "failed to parse lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+            ParseError::TomlEdit(e) => bail!(
+                "failed to parse lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+            ParseError::Validation(e) => bail!(
+                "invalid lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+            ParseError::Version(e) => bail!(
+                "failed to parse lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+        },
     }
 }

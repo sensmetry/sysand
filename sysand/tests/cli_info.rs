@@ -432,7 +432,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "unable to find interchange project 'urn:kpar:other'",
+        "failed to resolve IRI `urn:kpar:other`: no resolver was able to resolve the IRI",
     ));
 
     Ok(())
@@ -571,7 +571,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "unable to find interchange project 'urn:kpar:other'",
+        "failed to resolve IRI `urn:kpar:other`: no resolver was able to resolve the IRI",
     ));
 
     Ok(())

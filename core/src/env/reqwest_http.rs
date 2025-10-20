@@ -39,11 +39,11 @@ pub struct HTTPEnvironmentAsync {
 
 #[derive(Error, Debug)]
 pub enum HTTPEnvironmentError {
-    #[error("failed to extend URL '{0}' with path '{1}': {2}")]
+    #[error("failed to extend URL `{0}` with path `{1}`: {2}")]
     JoinURL(Box<str>, String, url::ParseError),
-    #[error("error making an HTTP request to '{0}':\n{1}")]
+    #[error("error making an HTTP request to `{0}`:\n{1}")]
     HTTPRequest(Box<str>, reqwest_middleware::Error),
-    #[error("failed to get project '{0}', version '{1}' in source or kpar format")]
+    #[error("failed to get project `{0}`, version `{1}` in source or kpar format")]
     InvalidURL(Box<str>, Box<str>),
     #[error("failed to read HTTP response: {0}")]
     HttpIo(io::Error),

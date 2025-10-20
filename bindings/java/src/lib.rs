@@ -192,7 +192,11 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
 
     let results = match commands::info::do_info(&uri, &combined_resolver) {
         Ok(matches) => matches,
-        Err(InfoError::NoResolve(_)) => Vec::new(),
+        Err(InfoError::NoResolve(..)) => Vec::new(),
+        Err(e @ InfoError::UnsupportedIri(..)) => {
+            env.throw_exception(ExceptionKind::ResolutionError, e.to_string());
+            return JObjectArray::default();
+        }
         Err(e @ InfoError::Resolution(_)) => {
             env.throw_exception(ExceptionKind::ResolutionError, e.to_string());
             return JObjectArray::default();
