@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{clone::Clone, collections::HashSet, hash::Hash};
+use std::{clone::Clone, collections::HashSet, fmt::Display, hash::Hash};
 
 #[allow(deprecated)] // will change when `digest` 0.11 is released
 use digest::{generic_array::GenericArray, typenum};
 use indexmap::IndexMap;
 #[cfg(feature = "python")]
-use pyo3::{FromPyObject, IntoPyObject};
+use pyo3::{FromPyObject, IntoPyObject, pyclass};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
@@ -22,7 +22,7 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 pub struct InterchangeProjectUsageG<Iri, VersionReq> {
     pub resource: Iri, // TODO: We should have a fallback for invalid IRIs
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvars
+    pub version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvers
 }
 pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String>;
 pub type InterchangeProjectUsage =
@@ -31,9 +31,8 @@ pub type InterchangeProjectUsage =
 impl InterchangeProjectUsageRaw {
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
         Ok(InterchangeProjectUsage {
-            resource: fluent_uri::Iri::parse(self.resource.clone()).map_err(|e| {
-                InterchangeProjectValidationError::IriParse(self.resource.to_string(), e)
-            })?,
+            resource: fluent_uri::Iri::parse(self.resource.clone())
+                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
 
             version_constraint: self
                 .version_constraint
@@ -41,7 +40,7 @@ impl InterchangeProjectUsageRaw {
                 .map(|c| semver::VersionReq::parse(c))
                 .transpose()
                 .map_err(|e| {
-                    InterchangeProjectValidationError::SemverConstraintParse(
+                    InterchangeProjectValidationError::SemVerConstraintParse(
                         self.version_constraint.clone().unwrap(),
                         e,
                     )
@@ -55,6 +54,17 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
         InterchangeProjectUsageRaw {
             resource: value.resource.to_string(),
             version_constraint: value.version_constraint.map(|x| x.to_string()),
+        }
+    }
+}
+
+impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>>
+    for InterchangeProjectUsageG<String, semver::VersionReq>
+{
+    fn from(value: InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>) -> Self {
+        InterchangeProjectUsageG {
+            resource: value.resource.to_string(),
+            version_constraint: value.version_constraint,
         }
     }
 }
@@ -76,7 +86,7 @@ pub struct InterchangeProjectInfoG<Iri, Version, VersionReq> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    pub version: Version, // TODO We should have a fallback for invalid semvars
+    pub version: Version, // TODO We should have a fallback for invalid semvers
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
@@ -140,8 +150,12 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
     //     });
     // }
 
+    /// Remove and return all occurrences of `resource` in project usages.
+    /// Note that sysand will never add multiple usages of the same resource
+    /// to the project, but it does tolerate such usages.
+    // TODO: the spec does not say anything about this and should be clarified
     pub fn pop_usage(&mut self, resource: &Iri) -> Vec<InterchangeProjectUsageG<Iri, VersionReq>> {
-        // TODO: Once stabilised
+        // TODO: MSRV >=1.87
         // self.usage.extract_if(.., |InterchangeProjectUsageG { resource: this_resource, .. }| this_resource == resource).collect()
 
         let (removed, kept): (Vec<_>, Vec<_>) = self
@@ -173,7 +187,7 @@ impl InterchangeProjectInfoRaw {
             name: self.name.clone(),
             description: self.description.clone(),
             version: semver::Version::parse(&self.version).map_err(|e| {
-                InterchangeProjectValidationError::SemverParse(self.version.as_str().into(), e)
+                InterchangeProjectValidationError::SemVerParse(self.version.as_str().into(), e)
             })?,
             license: self.license.clone(),
             maintainer: self.maintainer.clone(),
@@ -182,9 +196,7 @@ impl InterchangeProjectInfoRaw {
                 .clone()
                 .map(fluent_uri::Iri::parse)
                 .transpose()
-                .map_err(|e| {
-                    InterchangeProjectValidationError::IriParse(self.website.clone().unwrap(), e)
-                })?,
+                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
 
             topic: self.topic.clone(),
             usage,
@@ -200,16 +212,135 @@ impl TryFrom<InterchangeProjectInfoRaw> for InterchangeProjectInfo {
     }
 }
 
+/// KerML 1.0, 10.3 note 6, page 409:
+/// Valid values for the checksum algorithm are:
+/// - SHA1, SHA224, SHA256, SHA-384, SHA3-256, SHA3-384, SHA3-512
+/// - BLAKE2b-256, BLAKE2b-384, BLAKE2b-512, BLAKE3
+/// - MD2, MD4, MD5, MD6
+/// - ADLER32
+// TODO: why is SHA512 missing? Also SHA256 vs SHA-384
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(try_from = "String", into = "&str")]
+#[cfg_attr(feature = "python", pyclass(eq, eq_int))]
+pub enum KerMlChecksumAlg {
+    /// No checksum. Non-standard,
+    /// must not be used in real projects
+    None,
+    Sha1,
+    Sha224,
+    Sha256,
+    Sha384,
+    Sha3_256,
+    Sha3_384,
+    Sha3_512,
+    Blake2b256,
+    Blake2b384,
+    Blake2b512,
+    Blake3,
+    Md2,
+    Md4,
+    Md5,
+    Md6,
+    Adler32,
+}
+
+#[derive(Debug, Error)]
+#[error("failed to parse checksum algorithm")]
+pub struct AlgParseError;
+
+impl TryFrom<String> for KerMlChecksumAlg {
+    type Error = AlgParseError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+impl TryFrom<&str> for KerMlChecksumAlg {
+    type Error = AlgParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        use KerMlChecksumAlg::*;
+        let val = match value {
+            "NONE" => None,
+
+            "SHA1" => Sha1,
+            "SHA224" => Sha224,
+            "SHA256" => Sha256,
+            "SHA-384" => Sha384,
+
+            "SHA3-256" => Sha3_256,
+            "SHA3-384" => Sha3_384,
+            "SHA3-512" => Sha3_512,
+
+            "BLAKE2b-256" => Blake2b256,
+            "BLAKE2b-384" => Blake2b384,
+            "BLAKE2b-512" => Blake2b512,
+            "BLAKE3" => Blake3,
+
+            "MD2" => Md2,
+            "MD4" => Md4,
+            "MD5" => Md5,
+            "MD6" => Md6,
+
+            "ADLER32" => Adler32,
+
+            _ => return Err(AlgParseError),
+        };
+        Ok(val)
+    }
+}
+
+impl From<KerMlChecksumAlg> for String {
+    fn from(val: KerMlChecksumAlg) -> Self {
+        let val: &str = val.into();
+        val.to_string()
+    }
+}
+
+impl From<KerMlChecksumAlg> for &'static str {
+    fn from(val: KerMlChecksumAlg) -> Self {
+        use KerMlChecksumAlg::*;
+        match val {
+            None => "NONE",
+
+            Sha1 => "SHA1",
+            Sha224 => "SHA224",
+            Sha256 => "SHA256",
+            Sha384 => "SHA-384",
+
+            Sha3_256 => "SHA3-256",
+            Sha3_384 => "SHA3-384",
+            Sha3_512 => "SHA3-512",
+
+            Blake2b256 => "BLAKE2b-256",
+            Blake2b384 => "BLAKE2b-384",
+            Blake2b512 => "BLAKE2b-512",
+            Blake3 => "BLAKE3",
+
+            Md2 => "MD2",
+            Md4 => "MD4",
+            Md5 => "MD5",
+            Md6 => "MD6",
+
+            Adler32 => "ADLER32",
+        }
+    }
+}
+
+impl Display for KerMlChecksumAlg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s: &str = (*self).into();
+        f.write_str(s)
+    }
+}
+
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectChecksum {
     pub value: String,
-    // SHA1, SHA224, SHA256, SHA-384, SHA3-256, SHA3-384, SHA3-512 [SHS]
-    // BLAKE2b-256, BLAKE2b-384, BLAKE2b-512, BLAKE3 [BLAKE]
-    // MD2, MD4, MD5, MD6 [MD]
-    // ADLER32 [ADLER]
-    pub algorithm: String,
+    pub algorithm: KerMlChecksumAlg,
 }
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -265,13 +396,13 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
 
 #[derive(Error, Debug)]
 pub enum InterchangeProjectValidationError {
-    #[error("failed to parse '{0}' as IRI: {1}")]
-    IriParse(String, fluent_uri::error::ParseError<String>),
-    #[error("failed to parse '{0}' as a Semantic Version: {1}")]
-    SemverParse(Box<str>, semver::Error),
-    #[error("failed to parse '{0}' as a Semantic Version constraint: {1}")]
-    SemverConstraintParse(String, semver::Error),
-    #[error("failed to parse '{0}' as RFC3339 datetime: {1}")]
+    #[error("failed to parse `{0}` as IRI: {1}")]
+    IriParse(String, fluent_uri::ParseError),
+    #[error("failed to parse `{0}` as a Semantic Version: {1}")]
+    SemVerParse(Box<str>, semver::Error),
+    #[error("failed to parse `{0}` as a Semantic Version constraint: {1}")]
+    SemVerConstraintParse(String, semver::Error),
+    #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
     DatetimeParse(Box<str>, chrono::ParseError),
 }
 
@@ -309,9 +440,7 @@ impl InterchangeProjectMetadataRaw {
                 .clone()
                 .map(fluent_uri::Iri::parse)
                 .transpose()
-                .map_err(|e| {
-                    InterchangeProjectValidationError::IriParse(self.metamodel.clone().unwrap(), e)
-                })?,
+                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
             includes_derived: self.includes_derived,
             includes_implied: self.includes_implied,
             checksum: self.checksum.clone().map(|m| {
@@ -325,13 +454,13 @@ impl InterchangeProjectMetadataRaw {
     // TODO: Get rid of overwrite
     /// Adds a checksum to the metadata.
     ///
-    /// Overwrites any present value if `overwite`.
+    /// Overwrites any present value if `overwrite`.
     ///
     /// Returns the old checksum value, if present
-    pub fn add_checksum<P: AsRef<Utf8UnixPath>, S: AsRef<str>, T: AsRef<str>>(
+    pub fn add_checksum<P: AsRef<Utf8UnixPath>, T: AsRef<str>>(
         &mut self,
         path: P,
-        algorithm: S,
+        algorithm: KerMlChecksumAlg,
         value: T,
         overwrite: bool,
     ) -> Option<InterchangeProjectChecksum> {
@@ -346,7 +475,7 @@ impl InterchangeProjectMetadataRaw {
             indexmap::map::Entry::Occupied(mut occupied_entry) => Some(if overwrite {
                 occupied_entry.insert(InterchangeProjectChecksum {
                     value: value.as_ref().to_string(),
-                    algorithm: algorithm.as_ref().to_string(),
+                    algorithm,
                 })
             } else {
                 occupied_entry.get().clone()
@@ -354,7 +483,7 @@ impl InterchangeProjectMetadataRaw {
             indexmap::map::Entry::Vacant(vacant_entry) => {
                 vacant_entry.insert(InterchangeProjectChecksum {
                     value: value.as_ref().to_string(),
-                    algorithm: algorithm.as_ref().to_string(),
+                    algorithm,
                 });
 
                 None
@@ -448,8 +577,8 @@ pub fn project_hash_raw(
     meta: &InterchangeProjectMetadataRaw,
 ) -> ProjectHash {
     project_hash_str(
-        serde_json::to_string(&info).expect("Unexpected failure to serialise JSON"),
-        serde_json::to_string(&meta).expect("Unexpected failure to serialise JSON"),
+        serde_json::to_string(&info).expect("unexpected failure to serialise JSON"),
+        serde_json::to_string(&meta).expect("unexpected failure to serialise JSON"),
     )
 }
 

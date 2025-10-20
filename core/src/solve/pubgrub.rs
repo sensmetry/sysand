@@ -3,6 +3,7 @@
 
 use fluent_uri::Iri;
 use pubgrub::{DependencyProvider, VersionSet};
+use std::fmt::Write as _;
 
 use std::{
     cell::RefCell,
@@ -77,7 +78,7 @@ impl Display for DiscreteHashSet {
                 let elts: Vec<usize> = hash_set.iter().cloned().collect();
 
                 if elts.is_empty() {
-                    return write!(f, "no valid alterantives");
+                    return write!(f, "no valid alternatives");
                 } else if elts.len() == 1 {
                     return write!(f, "alternative nr {}", elts[0]);
                 }
@@ -208,11 +209,11 @@ fn resolve_candidates<R: ResolveRead>(
                 .resolve_read(uri)
                 .map_err(InternalSolverError::Resolution)?
             {
-                crate::resolve::ResolutionOutcome::UnsupportedIRIType(_) => {
-                    return Err(InternalSolverError::NotResolvable(uri.clone()));
+                crate::resolve::ResolutionOutcome::UnsupportedIRIType(msg) => {
+                    return Err(InternalSolverError::NotResolvable(msg));
                 }
-                crate::resolve::ResolutionOutcome::Unresolvable(_) => {
-                    return Err(InternalSolverError::NotResolvable(uri.clone()));
+                crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
+                    return Err(InternalSolverError::NotResolvable(msg));
                 }
                 crate::resolve::ResolutionOutcome::Resolved(alternatives) => {
                     for alternative in alternatives {
@@ -260,13 +261,29 @@ fn compute_deps<R: ResolveRead>(
         if let Some(constraint) = &usage.version_constraint {
             let mut valid_candidates = HashSet::new();
 
+            let mut found_versions = Vec::new();
             for (i, (candidate_info, _)) in resolve_candidates(resolver, &usage.resource, cache)?
                 .iter()
                 .enumerate()
             {
+                found_versions.push(candidate_info.version.clone());
                 if constraint.matches(&candidate_info.version) {
                     valid_candidates.insert(i);
                 }
+            }
+            if valid_candidates.is_empty() {
+                let mut versions = String::new();
+                write!(versions, "`{}`", found_versions[0]).unwrap();
+                for v in &found_versions[1..] {
+                    write!(versions, ", `{}`", v).unwrap();
+                }
+                return Err(InternalSolverError::VersionNotAvailable(format!(
+                    "project `{}`\n\
+                    was found, but the requested version constraint(s) `{}`\n\
+                    were not satisfied by any of the found versions:\n\
+                    {}",
+                    usage.resource, constraint, versions
+                )));
             }
 
             depmap.insert(
@@ -307,8 +324,13 @@ pub enum InternalSolverError<R: ResolveRead> {
     Resolution(R::Error),
     // #[error("invalid project requested")]
     // InvalidProject,
-    #[error("not resolvable: {0}")]
-    NotResolvable(fluent_uri::Iri<String>),
+    /// Value is the formatted error message
+    #[error("{0}")]
+    NotResolvable(String),
+    /// Project is found, but the requested version is not
+    /// Value is the formatted error message
+    #[error("{0}")]
+    VersionNotAvailable(String),
 }
 
 impl<R: ResolveRead> ProjectSolver<R> {
@@ -381,10 +403,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 
         match package {
             DependencyIdentifier::Requested(_) => {
-                log::debug!("Choosing version for request ({:?})", result)
+                log::debug!("choosing version for request ({:?})", result)
             }
             DependencyIdentifier::Remote(iri) => {
-                log::debug!("Choosing version for {} ({:?})", iri.as_str(), result)
+                log::debug!("choosing version for `{}` ({:?})", iri.as_str(), result)
             }
         }
 
@@ -412,7 +434,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 
                     if *version >= candidates.len() {
                         return Ok(pubgrub::Dependencies::Unavailable(format!(
-                            "Cannot resolve {} to valid project",
+                            "cannot resolve IRI `{}` to valid project",
                             iri
                         )));
                     } else {
@@ -570,7 +592,8 @@ mod tests {
 
         let solution = super::solve(
             vec![InterchangeProjectUsage {
-                resource: fluent_uri::Iri::parse("urn:kpar:test_version_selection".to_string())?,
+                resource: fluent_uri::Iri::parse("urn:kpar:test_version_selection".to_string())
+                    .unwrap(),
                 version_constraint: Some(semver::VersionReq::parse(">=2.0.0")?),
             }],
             resolver,
@@ -583,6 +606,18 @@ mod tests {
             .unwrap();
 
         assert_eq!(install_info.version, semver::Version::new(2, 0, 1));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_version_constraint_default() -> Result<(), Box<dyn std::error::Error>> {
+        // `semver` by default prepends `^` if a version requirement does not
+        // have a comparator. This is not documented, but is also extremely
+        // unlikely to change, as it's the behavior relied on by cargo
+        let v_no_caret = semver::VersionReq::parse("2.0.0")?;
+        let v_caret = semver::VersionReq::parse("^2.0.0")?;
+        assert_eq!(v_no_caret, v_caret);
 
         Ok(())
     }
@@ -618,13 +653,15 @@ mod tests {
                 InterchangeProjectUsage {
                     resource: fluent_uri::Iri::parse(
                         "urn:kpar:test_diamond_selection_a".to_string(),
-                    )?,
+                    )
+                    .unwrap(),
                     version_constraint: Some(semver::VersionReq::parse(">=0.1.0")?),
                 },
                 InterchangeProjectUsage {
                     resource: fluent_uri::Iri::parse(
                         "urn:kpar:test_diamond_selection_b".to_string(),
-                    )?,
+                    )
+                    .unwrap(),
                     version_constraint: None,
                 },
             ],

@@ -6,6 +6,7 @@ compile_error!("`std` feature is currently required to build `sysand`");
 
 use std::{
     collections::{HashMap, HashSet},
+    env::current_dir,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -20,6 +21,8 @@ use sysand_core::{
     },
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     lock::Lock,
+    new::NewError,
+    project::utils::wrapfs,
     stdlib::known_std_libs,
 };
 
@@ -72,7 +75,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     let current_environment = project_root
         .clone()
-        .or_else(|| std::env::current_dir().ok())
+        .or_else(|| current_dir().ok())
         .and_then(|p| crate::get_env(&p));
 
     let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
@@ -88,19 +91,26 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let _runtime_keepalive = runtime.clone();
 
     match args.command {
-        cli::Command::Init { name, version } => {
-            command_new(name, version, std::env::current_dir()?)
-        }
+        cli::Command::Init {
+            name,
+            version,
+            no_semver,
+            license,
+            no_spdx,
+        } => command_new(name, version, no_semver, license, no_spdx, current_dir()?),
         cli::Command::New {
             path,
             name,
             version,
-        } => command_new(name, version, Path::new(&path)),
+            no_semver,
+            license,
+            no_spdx,
+        } => command_new(name, version, no_semver, license, no_spdx, Path::new(&path)),
         cli::Command::Env { command } => match command {
             None => {
                 command_env(
                     project_root
-                        .unwrap_or(std::env::current_dir()?)
+                        .unwrap_or(current_dir()?)
                         .join(DEFAULT_ENV_NAME),
                 )?;
 
@@ -191,8 +201,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     &provided_iris,
                     runtime,
                 )
+                .map(|_| ())
             } else {
-                bail!("Not inside a project")
+                bail!("not inside a project")
             }
         }
         cli::Command::Sync { dependency_opts } => {
@@ -206,7 +217,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 None => command_env(
                     project_root
                         .as_ref()
-                        .unwrap_or(&std::env::current_dir()?)
+                        .unwrap_or(&current_dir()?)
                         .join(DEFAULT_ENV_NAME),
                 )?,
             };
@@ -217,9 +228,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } else {
                 HashMap::default()
             };
-            let project_root = project_root.unwrap_or(std::env::current_dir()?);
+            let project_root = project_root.unwrap_or(current_dir()?);
             let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
-            if !lockfile.is_file() {
+            let lock = if !lockfile.is_file() {
                 let index_base_urls = if no_index { None } else { Some(use_index) };
                 command_lock(
                     PathBuf::from("."),
@@ -227,11 +238,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     index_base_urls,
                     &provided_iris,
                     runtime.clone(),
-                )?;
-            }
-            let lock = Lock::from_str(&std::fs::read_to_string(
-                project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
-            )?)?;
+                )?
+            } else {
+                read_lockfile(lockfile)?
+            };
             command_sync(
                 lock,
                 project_root,
@@ -241,7 +251,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 runtime,
             )
         }
-        cli::Command::PrintRoot => command_print_root(std::env::current_dir()?),
+        cli::Command::PrintRoot => command_print_root(current_dir()?),
         cli::Command::Info {
             path,
             iri,
@@ -257,7 +267,19 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } = dependency_opts;
             let index_base_urls = if no_index { None } else { Some(use_index) };
             let excluded_iris: HashSet<_> = if !include_std {
-                crate::logger::warn_std_deps();
+                // Only print std warning when command is to print usages
+                // It's the only case where stdlib usages affect output
+                use cli::InfoCommand::*;
+                if let Some(Usage {
+                    clear: None,
+                    add: None,
+                    set: None,
+                    remove: None,
+                    numbered: _,
+                }) = subcommand
+                {
+                    crate::logger::warn_std_deps()
+                }
                 known_std_libs().keys().cloned().collect()
             } else {
                 HashSet::default()
@@ -287,9 +309,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 debug_assert!(path.is_none());
                 debug_assert!(auto_location.is_none());
 
-                Location::Iri(fluent_uri::Iri::parse(iri).map_err(|e| {
-                    CliError::NoResolve(format!("invalid URI '{}': {}", e.clone().into_input(), e))
-                })?)
+                Location::Iri(
+                    fluent_uri::Iri::parse(iri).map_err(|(e, val)| CliError::InvalidIri(val, e))?,
+                )
             } else {
                 Location::WorkDir
             };
@@ -299,6 +321,35 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     if let Some(current_project) = sysand_core::discover::current_project()? {
                         match subcommand {
                             Some(subcommand) => {
+                                match subcommand {
+                                    cli::InfoCommand::Version {
+                                        ref set, no_semver, ..
+                                    } => {
+                                        if let Some(v) = set
+                                            && !no_semver
+                                        {
+                                            semver::Version::parse(v).map_err(|e| {
+                                                NewError::<std::convert::Infallible>::SemVerParse(
+                                                    v.as_str().into(),
+                                                    e,
+                                                )
+                                            })?;
+                                        }
+                                    }
+                                    cli::InfoCommand::License {
+                                        ref set, no_spdx, ..
+                                    } => {
+                                        if let Some(l) = set
+                                            && !no_spdx
+                                        {
+                                            spdx::Expression::parse(l).map_err(|e| {
+                                                NewError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
+                                            })?;
+                                        }
+                                    }
+                                    _ => (),
+                                }
+
                                 let numbered = subcommand.numbered();
                                 command_info_current_project(
                                     current_project,
@@ -310,7 +361,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         }
                     } else {
                         bail!(
-                            "run outside of an active project, did you mean to use '--path' or '--iri'?"
+                            "run outside of an active project, did you mean to use `--path` or `--iri`?"
                         )
                     }
                 }
@@ -344,13 +395,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         }
         cli::Command::Add {
             iri,
-            versions_constraint,
+            version_constraint,
             no_lock,
             no_sync,
             dependency_opts,
         } => command_add(
             iri,
-            versions_constraint,
+            version_constraint,
             no_lock,
             no_sync,
             dependency_opts,
@@ -378,7 +429,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         .join("output");
                     let name = sysand_core::build::default_kpar_file_name(&current_project)?;
                     if !output_dir.is_dir() {
-                        std::fs::create_dir(&output_dir)?;
+                        wrapfs::create_dir(&output_dir)?;
                     }
                     output_dir.join(name)
                 };
@@ -392,7 +443,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let output_dir =
                     path.unwrap_or_else(|| current_workspace.workspace_path.join("output"));
                 if !output_dir.is_dir() {
-                    std::fs::create_dir(&output_dir)?;
+                    wrapfs::create_dir(&output_dir)?;
                 }
                 command_build_for_workspace(output_dir, current_workspace)
             }
@@ -452,5 +503,31 @@ fn get_log_level(verbose: bool, quiet: bool) -> Result<log::LevelFilter> {
         (true, false) => Ok(log::LevelFilter::Debug),
         (false, true) => Ok(log::LevelFilter::Error),
         (false, false) => Ok(log::LevelFilter::Info),
+    }
+}
+
+fn read_lockfile(lockfile_path: impl AsRef<Path>) -> Result<Lock> {
+    use sysand_core::lock::ParseError;
+    match Lock::from_str(&wrapfs::read_to_string(&lockfile_path)?) {
+        Ok(l) => Ok(l),
+        // This boilerplate is to avoid duplicate error message
+        Err(e) => match e {
+            ParseError::Toml(e) => bail!(
+                "failed to parse lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+            ParseError::TomlEdit(e) => bail!(
+                "failed to parse lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+            ParseError::Validation(e) => bail!(
+                "invalid lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+            ParseError::Version(e) => bail!(
+                "failed to parse lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+        },
     }
 }

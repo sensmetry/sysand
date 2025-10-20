@@ -29,7 +29,7 @@ use sysand_core::{
     exclude::do_exclude,
     include::do_include,
     info::{InfoError, do_info, do_info_project},
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw},
     new::NewError,
     project::{
         ProjectRead as _,
@@ -45,11 +45,17 @@ use sysand_core::{
 
 #[pyfunction(name = "do_new_py_local_file")]
 #[pyo3(
-    signature = (name, version, path),
+    signature = (name, version, path, license=None),
 )]
-fn do_new_py_local_file(name: String, version: String, path: String) -> PyResult<()> {
-    do_new_local_file(name, version, Path::new(&path)).map_err(|err| match err {
+fn do_new_py_local_file(
+    name: String,
+    version: String,
+    path: String,
+    license: Option<String>,
+) -> PyResult<()> {
+    do_new_local_file(name, version, license, Path::new(&path)).map_err(|err| match err {
         NewError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
+        NewError::SPDXLicenseParse(..) => PyValueError::new_err(err.to_string()),
         NewError::Project(err) => match err {
             LocalSrcError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
             LocalSrcError::Deserialize(error) => PyValueError::new_err(error.to_string()),
@@ -139,7 +145,10 @@ fn do_info_py(
 
         match do_info(&uri, &combined_resolver) {
             Ok(matches) => results.extend(matches),
-            Err(InfoError::NoResolve(_)) => {}
+            Err(InfoError::NoResolve(..)) => {}
+            Err(e @ InfoError::UnsupportedIri(..)) => {
+                return Err(PyRuntimeError::new_err(e.to_string()));
+            }
             Err(e @ InfoError::Resolution(_)) => {
                 return Err(PyRuntimeError::new_err(e.to_string()));
             }
@@ -244,13 +253,13 @@ pub fn do_sources_env_py(
         match version {
             Some(vr) => {
                 return Err(PyRuntimeError::new_err(format!(
-                    "unable to find project {} ({}) in local environment",
+                    "unable to find project `{}` ({}) in local environment",
                     iri, vr
                 )));
             }
             None => {
                 return Err(PyRuntimeError::new_err(format!(
-                    "unable to find project {} in local environment",
+                    "unable to find project `{}` in local environment",
                     iri
                 )));
             }
@@ -343,7 +352,7 @@ pub fn do_sources_project_py(
 
         let Some(env_path) = env_path else {
             return Err(PyRuntimeError::new_err(
-                "Unable to identify local environment",
+                "unable to identify local environment",
             ));
         };
 
@@ -391,7 +400,14 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
         project_path: Path::new(&path).to_path_buf(),
     };
 
-    do_add(&mut project, iri, version).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    do_add(
+        &mut project,
+        InterchangeProjectUsageRaw {
+            resource: iri,
+            version_constraint: version,
+        },
+    )
+    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
 #[pyfunction(name = "do_remove_py")]
@@ -504,7 +520,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     } else {
         return Err(PyRuntimeError::new_err(format!(
-            "unable to find project at {}",
+            "unable to find project at `{}`",
             location
         )));
     }

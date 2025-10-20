@@ -21,12 +21,17 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
     let meta = std::fs::read_to_string(cwd.join(".meta.json"))?;
 
     let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}"#,
+        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}\n"#,
     )?;
 
     assert_eq!(
         info,
-        "{\n  \"name\": \"init_basic\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}"
+        r#"{
+  "name": "init_basic",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
     );
     // Isn't there some nicer way to use this?
     assert!(meta_match.eval(&meta));
@@ -70,7 +75,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     out_again
         .assert()
         .failure()
-        .stderr(predicate::str::contains("'.project.json' already exists"));
+        .stderr(predicate::str::contains("`.project.json` already exists"));
 
     assert_eq!(
         original_info,

@@ -249,7 +249,7 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert()
         .failure()
-        .stderr(contains("Failed to satisfy usage constraints"));
+        .stderr(contains("requested version unavailable"));
 
     Ok(())
 }

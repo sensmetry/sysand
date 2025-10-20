@@ -11,7 +11,7 @@ sysand info [OPTIONS] <COMMAND>
 
 ## Description
 
-Prints out the information contained in the .project.json file for the specified
+Prints out the information contained in the `.project.json` file for the specified
 project, defaulting to current project if no project is specified. Optionally an
 extra command can be given to gte or set values in `.project.json` and `.meta.json`.
 

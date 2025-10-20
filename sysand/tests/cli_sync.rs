@@ -43,7 +43,7 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
     let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
 
     lockfile.write_all(
-        r#"lock_version = "0.2"
+        r#"lock_version = "0.3"
 
 [[project]]
 name = "sync_to_local"
@@ -75,7 +75,7 @@ sources = [
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("env is up to date"));
+        .stderr(predicate::str::contains("env is already up to date"));
 
     Ok(())
 }
@@ -106,7 +106,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
 
     lockfile.write_all(
         format!(
-            r#"lock_version = "0.2"
+            r#"lock_version = "0.3"
 
 [[project]]
 name = "sync_to_remote"
@@ -143,7 +143,7 @@ sources = [
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("env is up to date"));
+        .stderr(predicate::str::contains("env is already up to date"));
 
     Ok(())
 }

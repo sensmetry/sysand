@@ -52,7 +52,7 @@ fn parse_name<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
         Some((invalid_token, original, sp)) => Err(ParseError {
             span: Some(sp.clone()),
             msg: format!(
-                "invalid token of type {:?}, expected a name component: '{}'",
+                "invalid token of type {:?}, expected a name component: `{}`",
                 invalid_token, original
             ),
         }),
@@ -121,7 +121,7 @@ fn skip_whitespace<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
     }
 }
 
-fn maybe_skip_muliplicity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
+fn maybe_skip_multiplicity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
     token_iter: &mut Peekable<I>,
 ) -> Result<(), ParseError> {
     if let Some((Token::OpenSquare, ..)) = token_iter.peek() {
@@ -203,7 +203,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                     Some(KeywordType::MultiReferencesWithMultiplicity) => {
                         token_iter.next();
                         skip_whitespace(token_iter);
-                        maybe_skip_muliplicity(token_iter)?;
+                        maybe_skip_multiplicity(token_iter)?;
                         skip_whitespace(token_iter);
                         skip_list_of_refs(token_iter)?;
                         continue;
@@ -232,7 +232,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                             Some(_) => {
                                 return Err(ParseError {
                                     span: Some(sp.clone()),
-                                    msg: format!("unknown name '{}'", this_name),
+                                    msg: format!("unknown name `{}`", this_name),
                                 });
                             }
                         };
@@ -245,12 +245,32 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
             Token::LineComment => {
                 token_iter.next();
             }
-            Token::String => panic!("floating string"),
+            Token::String => {
+                return Err(ParseError {
+                    span: Some(sp.clone()),
+                    msg: "unexpected floating string".to_string(),
+                });
+            }
             Token::OpenParen => skip_nested(token_iter, Token::OpenParen, Token::CloseParen)?,
-            Token::CloseParen => panic!("floating closing paren"),
+            Token::CloseParen => {
+                return Err(ParseError {
+                    span: Some(sp.clone()),
+                    msg: "unexpected floating `)`".to_string(),
+                });
+            }
             Token::OpenSquare => skip_nested(token_iter, Token::OpenSquare, Token::CloseSquare)?,
-            Token::CloseSquare => panic!("floating closing square bracket"),
-            Token::DoubleColon => panic!("floating double colon"),
+            Token::CloseSquare => {
+                return Err(ParseError {
+                    span: Some(sp.clone()),
+                    msg: "unexpected floating `]`".to_string(),
+                });
+            }
+            Token::DoubleColon => {
+                return Err(ParseError {
+                    span: Some(sp.clone()),
+                    msg: "unexpected floating `::`".to_string(),
+                });
+            }
             Token::LT => {
                 token_iter.next();
                 let this_name = parse_name(token_iter)?;
@@ -261,7 +281,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                     Some(_) => {
                         return Err(ParseError {
                             span: Some(sp.clone()),
-                            msg: format!("unknown name '{}'", this_name),
+                            msg: format!("unknown name `{}`", this_name),
                         });
                     }
                 };
@@ -277,7 +297,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                         return Err(ParseError {
                             span: Some(sp.start..span.end),
                             msg: format!(
-                                "expected '<', found '{}' (token {:?})",
+                                "expected '<', found `{}` (token {:?})",
                                 original, invalid_token
                             ),
                         });
@@ -313,7 +333,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                 Some(KeywordType::MultiReferencesWithMultiplicity) => {
                     token_iter.next();
                     skip_whitespace(token_iter);
-                    maybe_skip_muliplicity(token_iter)?;
+                    maybe_skip_multiplicity(token_iter)?;
                     skip_whitespace(token_iter);
                     skip_list_of_refs(token_iter)?;
                     continue;
@@ -324,7 +344,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                 None => {
                     return Err(ParseError {
                         span: Some(sp.clone()),
-                        msg: format!("floating unknown symbol '{}'", original),
+                        msg: format!("floating unknown symbol `{}`", original),
                     });
                 }
             },
@@ -348,7 +368,7 @@ pub enum ExtractError {
     MissingBodyDelimiter(i32),
     #[error("unable to get token range")]
     TokenRange,
-    #[error("error at line {0}, byte {1}:\n'{2}': {3}")]
+    #[error("error at line {0}, byte {1}:\n`{2}`: {3}")]
     Parse(u32, u32, String, String),
 }
 

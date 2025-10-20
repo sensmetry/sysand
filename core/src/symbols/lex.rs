@@ -6,7 +6,7 @@ use thiserror::Error;
 
 #[derive(Default, Debug, Clone, PartialEq, Error)]
 pub enum LexingError {
-    #[error("unterminated '{0}'")]
+    #[error("unterminated `{0}`")]
     Unterminated(&'static str),
     #[error("{0}")]
     Unexpected(&'static str),

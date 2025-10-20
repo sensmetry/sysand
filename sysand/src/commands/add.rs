@@ -1,19 +1,30 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashMap, path::PathBuf, str::FromStr, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 
-use sysand_core::{add::do_add, lock::Lock, project::local_src::LocalSrcProject};
+use sysand_core::{
+    add::do_add,
+    commands::lock::{LockOutcome, do_lock_extend},
+    lock::Lock,
+    project::{local_src::LocalSrcProject, utils::wrapfs},
+};
 
-use crate::{CliError, cli::DependencyOptions, command_sync};
+use crate::{
+    CliError,
+    cli::DependencyOptions,
+    command_sync,
+    commands::lock::{create_resolver, handle_lock_error},
+    read_lockfile,
+};
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
 pub fn command_add(
     iri: String,
-    versions_constraint: Option<String>,
+    version_constraint: Option<String>,
     no_lock: bool,
     no_sync: bool,
     dependency_opts: DependencyOptions,
@@ -34,30 +45,45 @@ pub fn command_add(
         if sysml_std.contains_key(&iri) {
             crate::logger::warn_std(&iri);
             return Ok(());
-        } else {
-            do_add(&mut current_project, iri, versions_constraint)?;
         }
         sysml_std
     } else {
-        do_add(&mut current_project, iri, versions_constraint)?;
         HashMap::default()
     };
 
+    let usage_raw = sysand_core::model::InterchangeProjectUsageRaw {
+        resource: iri,
+        version_constraint,
+    };
     if !no_lock {
+        let lockfile_path = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
         let index_base_urls = if no_index { None } else { Some(use_index) };
-        crate::commands::lock::command_lock(
-            PathBuf::from("."),
+        let resolver = create_resolver(
+            &project_root,
             client.clone(),
             index_base_urls,
-            &provided_iris,
             runtime.clone(),
+            &provided_iris,
         )?;
+        let current_lock = if !lockfile_path.is_file() {
+            Lock::default()
+        } else {
+            read_lockfile(&lockfile_path)?
+        };
+
+        // Lock before adding to check if resource (and its required version)
+        // can be found
+        let usage = usage_raw.validate()?;
+        let LockOutcome { lock, .. } =
+            do_lock_extend(current_lock, std::iter::once(usage), resolver)
+                .map_err(handle_lock_error)?;
+        let lock = lock.canonicalize();
+        wrapfs::write(lockfile_path, lock.to_string())?;
+
+        do_add(&mut current_project, usage_raw)?;
 
         if !no_sync {
             let mut env = crate::get_or_create_env(project_root.as_path())?;
-            let lock = Lock::from_str(&std::fs::read_to_string(
-                project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
-            )?)?;
             command_sync(
                 lock,
                 project_root,
@@ -67,6 +93,8 @@ pub fn command_add(
                 runtime,
             )?;
         }
+    } else {
+        do_add(&mut current_project, usage_raw)?;
     }
 
     Ok(())

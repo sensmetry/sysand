@@ -35,13 +35,13 @@ pub struct ReqwestKparDownloadedProject {
 
 #[derive(Error, Debug)]
 pub enum ReqwestKparDownloadedError {
-    #[error("HTTP request to '{0}' returned status {1}")]
+    #[error("HTTP request to `{0}` returned status {1}")]
     BadHttpStatus(reqwest::Url, reqwest::StatusCode),
-    #[error("failed to parse URL '{0}': {1}")]
+    #[error("failed to parse URL `{0}`: {1}")]
     ParseUrl(Box<str>, url::ParseError),
-    #[error("HTTP request to '{0}' failed: {1}")]
+    #[error("HTTP request to `{0}` failed: {1}")]
     Reqwest(Box<str>, reqwest_middleware::Error),
-    #[error("failed to decode data received from HTTP request '{0}': {1}")]
+    #[error("failed to decode data received from HTTP request `{0}`: {1}")]
     ResponseDecode(Box<str>, reqwest_middleware::Error),
     #[error(transparent)]
     ReqwestMiddleware(#[from] reqwest_middleware::Error),
