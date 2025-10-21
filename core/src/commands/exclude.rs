@@ -4,14 +4,14 @@
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
-use crate::project::{ProjectMut, ProjectOrIOError, SourceExclusionOutcome};
+use crate::project::{ProjectMut, ProjectOrIOError, SourceExclusionOutcome, utils::FsIoError};
 
 #[derive(Error, Debug)]
 pub enum ExcludeError<ProjectError> {
     #[error(transparent)]
     Project(ProjectError),
     #[error(transparent)]
-    Io(std::io::Error),
+    Io(#[from] Box<FsIoError>),
     #[error("could not find {0} in project metadata")]
     SourceNotFound(String),
 }
@@ -20,7 +20,7 @@ impl<ProjectError> From<ProjectOrIOError<ProjectError>> for ExcludeError<Project
     fn from(value: ProjectOrIOError<ProjectError>) -> Self {
         match value {
             ProjectOrIOError::ProjectError(error) => ExcludeError::Project(error),
-            ProjectOrIOError::IOError(error) => ExcludeError::Io(error),
+            ProjectOrIOError::Io(error) => ExcludeError::from(error),
         }
     }
 }

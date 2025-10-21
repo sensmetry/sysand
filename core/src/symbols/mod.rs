@@ -370,8 +370,8 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, String)>>(
 
 #[derive(Debug, Error)]
 pub enum ExtractError {
-    #[error("failed to read source")]
-    ReadSource,
+    #[error("failed to read SysML source file to extract symbols: {0}")]
+    ReadTopLevelSysml(std::io::Error),
     #[error("syntax error:\n{0}")]
     SyntaxError(String),
     #[error("missing body delimiter")]
@@ -389,7 +389,7 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
     let mut source = String::new();
     reader
         .read_to_string(&mut source)
-        .map_err(|_| ExtractError::ReadSource)?;
+        .map_err(ExtractError::ReadTopLevelSysml)?;
 
     let mut lexer = Token::lexer(&source);
 

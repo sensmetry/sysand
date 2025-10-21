@@ -249,11 +249,11 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
 
 #[derive(Error, Debug)]
 pub enum InterchangeProjectValidationError {
-    #[error("iri parse error")]
+    #[error("IRI parse error: {0}")]
     IriParseError(#[from] fluent_uri::error::ParseError<String>),
-    #[error("semver parse error")]
+    #[error("SemVer parse error: {0}")]
     SemverParseError(#[from] semver::Error),
-    #[error("datetime parse error")]
+    #[error("datetime parse error: {0}")]
     DatetimeParseError(#[from] chrono::ParseError),
 }
 

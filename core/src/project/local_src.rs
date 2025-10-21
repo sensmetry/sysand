@@ -4,7 +4,7 @@
 use crate::{
     env::utils::{CloneError, clone_project},
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectMut, ProjectRead},
+    project::{ProjectMut, ProjectRead, utils::wrapfs},
 };
 use std::{collections::HashSet, fs::File, io::Read, path::PathBuf};
 
@@ -12,6 +12,8 @@ use tempfile::tempdir;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use thiserror::Error;
+
+use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, ToDisplay};
 
 /// Project stored in a local directory as an extracted kpar archive.
 /// Source file paths with (unix) segments segment1/.../segmentn are
@@ -89,7 +91,10 @@ impl LocalSrcProject {
         &self,
         path: P,
     ) -> Result<Utf8UnixPathBuf, UnixPathError> {
-        let project_path = self.root_path().canonicalize().map_err(UnixPathError::Io)?;
+        let project_path = self
+            .root_path()
+            .canonicalize()
+            .map_err(|e| UnixPathError::Canonicalize(self.root_path().to_display(), e))?;
 
         let path = relativise_path(&path, project_path).ok_or(
             UnixPathError::PathOutsideProject(path.as_ref().to_path_buf()),
@@ -101,7 +106,7 @@ impl LocalSrcProject {
                 component
                     .as_os_str()
                     .to_str()
-                    .ok_or(UnixPathError::Conversion)?,
+                    .ok_or_else(|| UnixPathError::Conversion(path.to_display()))?,
             );
         }
 
@@ -113,7 +118,7 @@ impl LocalSrcProject {
             if !cfg!(feature = "lenient_checks") {
                 return Err(PathError::AbsolutePath(path.as_ref().to_owned()));
             }
-            // This should never fail, as the only way for a Unix path to be absolute it to begin
+            // This should never fail, as the only way for a Unix path to be absolute is to begin
             // at root /.
             path.as_ref()
                 .strip_prefix("/")
@@ -138,6 +143,7 @@ impl LocalSrcProject {
                         added_components -= 1;
                     } else {
                         return Err(PathError::UnsafePath(
+                            utf_path.to_string(),
                             typed_path::CheckedPathError::PathTraversalAttack,
                         ));
                     }
@@ -181,9 +187,9 @@ impl LocalSrcProject {
     pub fn temporary_from_project<Pr: ProjectRead>(
         project: &Pr,
     ) -> Result<(tempfile::TempDir, Self), CloneError<Pr::Error, LocalSrcError>> {
-        let tmp = tempdir()?;
+        let tmp = tempdir().map_err(FsIoError::MkTempDir)?;
         let mut tmp_project = Self {
-            project_path: tmp.path().canonicalize()?,
+            project_path: wrapfs::canonicalize(tmp.path())?,
         };
 
         clone_project(project, &mut tmp_project, true)?;
@@ -210,7 +216,9 @@ impl ProjectMut for LocalSrcProject {
             ));
         }
 
-        serde_json::to_writer_pretty(std::fs::File::create(project_json_path)?, info)?;
+        serde_json::to_writer_pretty(wrapfs::File::create(&project_json_path)?, info).map_err(
+            |e| ProjectSerializationError::new("failed to serialize '.project.json'", e),
+        )?;
 
         Ok(())
     }
@@ -227,7 +235,8 @@ impl ProjectMut for LocalSrcProject {
             ));
         }
 
-        serde_json::to_writer_pretty(std::fs::File::create(meta_json_path)?, meta)?;
+        serde_json::to_writer_pretty(wrapfs::File::create(&meta_json_path)?, meta)
+            .map_err(|e| ProjectSerializationError::new("failed to serialize '.meta.json'", e))?;
 
         Ok(())
     }
@@ -248,10 +257,11 @@ impl ProjectMut for LocalSrcProject {
         }
 
         if let Some(parents) = source_path.parent() {
-            std::fs::create_dir_all(parents)?;
+            wrapfs::create_dir_all(parents)?;
         }
 
-        std::io::copy(source, &mut std::fs::File::create(source_path)?)?;
+        std::io::copy(source, &mut wrapfs::File::create(&source_path)?)
+            .map_err(|e| FsIoError::WriteFile(source_path.to_display(), e))?;
 
         Ok(())
     }
@@ -259,35 +269,41 @@ impl ProjectMut for LocalSrcProject {
 
 #[derive(Error, Debug)]
 pub enum LocalSrcError {
+    // Inner string is already an error message, no additional
+    // formatting is needed.
     #[error("{0}")]
     AlreadyExists(String),
-    #[error("project deserialisation error")]
-    Serde(#[from] serde_json::Error),
-    #[error("project read error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Deserialize(#[from] ProjectDeserializationError),
+    #[error(transparent)]
+    Serialize(#[from] ProjectSerializationError),
     #[error(transparent)]
     Path(#[from] PathError),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+}
+
+impl From<FsIoError> for LocalSrcError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 #[derive(Error, Debug)]
 pub enum UnixPathError {
-    #[error("path outside of project: {0}")]
+    #[error("path '{0}'\n  is outside the project directory")]
     PathOutsideProject(std::path::PathBuf),
-    #[error("io error: {0}")]
-    Io(std::io::Error),
-    #[error("conversion error")]
-    Conversion,
+    #[error("failed to canonicalize\n  '{0}':\n  {1}")]
+    Canonicalize(String, std::io::Error),
+    #[error("path '{0}' is not valid Unicode")]
+    Conversion(String),
 }
 
 #[derive(Error, Debug)]
 pub enum PathError {
-    #[error("invalid (native) path error")]
-    InvalidNativePath(std::path::PathBuf),
-    #[error("invalid (encoded) path error")]
-    InvalidEncodedPath(typed_path::TypedPathBuf),
-    #[error("unsafe path error")]
-    UnsafePath(#[from] typed_path::CheckedPathError),
-    #[error("absolute path error")]
+    #[error("path '{0}' is unsafe: {1}")]
+    UnsafePath(String, typed_path::CheckedPathError),
+    #[error("path '{0}' is absolute")]
     AbsolutePath(typed_path::Utf8UnixPathBuf),
 }
 
@@ -306,9 +322,11 @@ impl ProjectRead for LocalSrcProject {
         let info_json_path = self.info_path();
 
         let info_json = if info_json_path.exists() {
-            Some(serde_json::from_reader(std::fs::File::open(
-                info_json_path,
-            )?)?)
+            Some(
+                serde_json::from_reader(wrapfs::File::open(&info_json_path)?).map_err(|e| {
+                    ProjectDeserializationError::new("failed to deserialize '.project.json'", e)
+                })?,
+            )
         } else {
             None
         };
@@ -316,9 +334,11 @@ impl ProjectRead for LocalSrcProject {
         let meta_json_path = self.meta_path();
 
         let meta_json = if meta_json_path.exists() {
-            Some(serde_json::from_reader(std::fs::File::open(
-                meta_json_path,
-            )?)?)
+            Some(
+                serde_json::from_reader(wrapfs::File::open(&meta_json_path)?).map_err(|e| {
+                    ProjectDeserializationError::new("failed to deserialize '.meta.json'", e)
+                })?,
+            )
         } else {
             None
         };
@@ -334,7 +354,7 @@ impl ProjectRead for LocalSrcProject {
     ) -> Result<Self::SourceReader<'_>, LocalSrcError> {
         let source_path = self.get_source_path(path)?;
 
-        let f = std::fs::File::open(source_path)?;
+        let f = wrapfs::File::open(&source_path)?;
 
         Ok(f)
     }

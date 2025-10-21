@@ -5,9 +5,12 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-#[cfg(feature = "filesystem")]
-use crate::env::local_directory::{ENTRIES_PATH, LocalDirectoryEnvironment, LocalWriteError};
 use crate::env::memory::{MemoryStorageEnvironment, MemoryWriteError};
+#[cfg(feature = "filesystem")]
+use crate::{
+    env::local_directory::{ENTRIES_PATH, LocalDirectoryEnvironment, LocalWriteError},
+    project::utils::wrapfs,
+};
 
 use thiserror::Error;
 
@@ -22,9 +25,9 @@ pub use list::do_env_list;
 
 #[derive(Error, Debug)]
 pub enum EnvError<WriteError: std::error::Error> {
-    #[error("refusing to overwrite")]
+    #[error("refusing to overwrite '{0}'")]
     AlreadyExists(PathBuf),
-    #[error("environment write error")]
+    #[error("environment write error: {0}")]
     WriteError(#[from] WriteError),
 }
 
@@ -44,11 +47,10 @@ pub fn do_env_local_dir<P: AsRef<Path>>(
     let header = crate::style::get_style_config().header;
     log::info!("{header}{creating:>12}{header:#} env");
 
-    std::fs::create_dir(path.as_ref())
-        .map_err(|e| EnvError::WriteError(LocalWriteError::IOError(e)))?;
+    wrapfs::create_dir(path.as_ref()).map_err(LocalWriteError::from)?;
 
-    std::fs::File::create(path.as_ref().join(ENTRIES_PATH))
-        .map_err(|e| EnvError::WriteError(LocalWriteError::IOError(e)))?;
+    let fp = path.as_ref().join(ENTRIES_PATH);
+    wrapfs::File::create(&fp).map_err(LocalWriteError::from)?;
 
     Ok(LocalDirectoryEnvironment {
         environment_path: path.as_ref().to_path_buf(),

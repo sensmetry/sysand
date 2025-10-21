@@ -29,14 +29,14 @@ pub struct HTTPEnvironment {
 
 #[derive(Error, Debug)]
 pub enum HTTPEnvironmentError {
-    #[error("{0}")]
+    #[error(transparent)]
     URLError(#[from] url::ParseError),
-    #[error("{0}")]
+    #[error(transparent)]
     ReqwestError(#[from] reqwest::Error),
-    #[error("{0}")]
-    IOError(#[from] std::io::Error),
-    #[error("Unable to handle URL: {0}")]
+    #[error("unable to handle URL '{0}'")]
     InvalidURL(url::Url),
+    #[error("failed to read HTTP response: {0}")]
+    HttpIo(std::io::Error),
 }
 
 pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> std::vec::IntoIter<std::string::String> {
@@ -193,12 +193,13 @@ impl ReadEnvironment for HTTPEnvironment {
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
         let response = self.get_entries_request()?.send()?;
 
-        let inner: std::option::Option<HTTPLinesIter> = if response.status().is_success() {
-            Some(
-                BufReader::new(response)
-                    .lines()
-                    .map(|line| Ok(line?.trim().to_string())),
-            )
+        let inner: Option<HTTPLinesIter> = if response.status().is_success() {
+            Some(BufReader::new(response).lines().map(|line| {
+                Ok(line
+                    .map_err(HTTPEnvironmentError::HttpIo)?
+                    .trim()
+                    .to_string())
+            }))
         } else {
             None
         };
@@ -212,11 +213,12 @@ impl ReadEnvironment for HTTPEnvironment {
         let response = self.get_versions_request(uri)?.send()?;
 
         let inner: Option<HTTPLinesIter> = if response.status().is_success() {
-            Some(
-                BufReader::new(response)
-                    .lines()
-                    .map(|line| Ok(line?.trim().to_string())),
-            )
+            Some(BufReader::new(response).lines().map(|line| {
+                Ok(line
+                    .map_err(HTTPEnvironmentError::HttpIo)?
+                    .trim()
+                    .to_string())
+            }))
         } else {
             None
         };

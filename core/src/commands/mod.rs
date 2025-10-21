@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 pub mod add;
+#[cfg(feature = "filesystem")]
 pub mod build;
 pub mod env;
 pub mod exclude;

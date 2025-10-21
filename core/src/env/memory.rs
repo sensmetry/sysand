@@ -23,10 +23,8 @@ impl MemoryStorageEnvironment {
 
 #[derive(Error, Debug)]
 pub enum MemoryWriteError {
-    #[error("refusing to overwrite")]
+    #[error("refusing to overwrite '{0}'")]
     AlreadyExists(String),
-    #[error("io error: {0}")]
-    IOError(#[from] std::io::Error),
 }
 
 impl WriteEnvironment for MemoryStorageEnvironment {
@@ -84,8 +82,6 @@ pub enum MemoryReadError {
     MissingIRIError(String),
     #[error("missing version")]
     MissingVersionError(String),
-    #[error("io error: {0}")]
-    IOError(#[from] std::io::Error),
 }
 
 impl ReadEnvironment for MemoryStorageEnvironment {

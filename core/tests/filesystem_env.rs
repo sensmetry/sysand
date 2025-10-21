@@ -127,7 +127,8 @@ mod filesystem_tests {
         directory_environment.put_project("urn::sysand_test::1", "1.2.3", |p| {
             clone_project(&source_project, p, true).unwrap();
 
-            Ok::<(), Box<dyn std::error::Error>>(())
+            // We just need the error type to be convertible to function return error type.
+            Ok::<(), std::io::Error>(())
         })?;
 
         let target_project = directory_environment.get_project("urn::sysand_test::1", "1.2.3")?;

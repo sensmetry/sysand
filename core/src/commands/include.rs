@@ -5,7 +5,7 @@ use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
 use crate::{
-    project::{ProjectMut, ProjectOrIOError},
+    project::{ProjectMut, ProjectOrIOError, utils::FsIoError},
     symbols::{ExtractError, Language},
 };
 
@@ -14,18 +14,24 @@ pub enum IncludeError<ProjectError> {
     #[error(transparent)]
     Project(ProjectError),
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(Box<FsIoError>),
     #[error(transparent)]
     Extract(#[from] ExtractError),
     #[error("unknown file format {0}")]
     UnknownFormat(String),
 }
 
+impl<ProjectError> From<FsIoError> for IncludeError<ProjectError> {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
+}
+
 impl<ProjectError> From<ProjectOrIOError<ProjectError>> for IncludeError<ProjectError> {
     fn from(value: ProjectOrIOError<ProjectError>) -> Self {
         match value {
             ProjectOrIOError::ProjectError(error) => IncludeError::Project(error),
-            ProjectOrIOError::IOError(error) => IncludeError::Io(error),
+            ProjectOrIOError::Io(error) => IncludeError::Io(error),
         }
     }
 }

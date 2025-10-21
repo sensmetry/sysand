@@ -152,6 +152,7 @@ impl ProjectRead for ReqwestKparRangedProject {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused_imports)]
     use std::{
         io::{Read, Write as _},
         process::Command,

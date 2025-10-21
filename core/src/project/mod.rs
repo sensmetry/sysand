@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use std::io::{BufRead as _, BufReader, Read};
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
+use utils::FsIoError;
 
 // Implementations
 pub mod editable;
@@ -52,21 +53,21 @@ fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, std::io::Error> {
 
 #[derive(Error, Debug)]
 pub enum CanonicalisationError<ReadError> {
-    #[error("{0}")]
+    #[error(transparent)]
     ReadError(ReadError),
-    #[error("{0}")]
-    IOError(std::io::Error),
+    #[error("failed to read from file\n  '{0}':\n  {1}")]
+    FileRead(String, std::io::Error),
 }
 
 #[derive(Debug, Error)]
 pub enum IntoProjectError<ReadError, W: ProjectMut> {
-    #[error("{0}")]
+    #[error(transparent)]
     ReadError(ReadError),
-    #[error("{0}")]
+    #[error(transparent)]
     WriteError(W::Error),
-    #[error("missing project information")]
+    #[error("missing project information file '.project.json'")]
     MissingInfo,
-    #[error("missing project metadata")]
+    #[error("missing project metadata file '.meta.json'")]
     MissingMeta,
 }
 
@@ -167,7 +168,8 @@ pub trait ProjectRead {
                     .map_err(CanonicalisationError::ReadError)?;
                 checksum.value = format!(
                     "{:x}",
-                    hash_reader(&mut src).map_err(CanonicalisationError::IOError)?
+                    hash_reader(&mut src)
+                        .map_err(|e| CanonicalisationError::FileRead(path.clone(), e))?
                 );
             } else {
                 checksum.value = checksum.value.to_lowercase();
@@ -201,8 +203,14 @@ pub trait ProjectRead {
 pub enum ProjectOrIOError<ProjectError> {
     #[error("{0}")]
     ProjectError(ProjectError),
-    #[error("{0}")]
-    IOError(#[from] std::io::Error),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+}
+
+impl<ProjectError> From<FsIoError> for ProjectOrIOError<ProjectError> {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 #[derive(Debug)]
@@ -266,7 +274,8 @@ pub trait ProjectMut: ProjectRead {
                 .map_err(ProjectOrIOError::ProjectError)?;
 
             if compute_checksum {
-                let sha256_checksum = hash_reader(&mut reader)?;
+                let sha256_checksum = hash_reader(&mut reader)
+                    .map_err(|e| FsIoError::ReadFile(path.as_ref().to_string(), e))?;
 
                 meta.add_checksum(&path, "SHA256", format!("{:x}", sha256_checksum), overwrite);
             } else {

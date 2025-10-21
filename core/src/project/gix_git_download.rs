@@ -10,6 +10,8 @@ use crate::{
     },
 };
 
+use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, wrapfs};
+
 #[derive(Debug)]
 pub struct GixDownloadedProject {
     pub url: gix::Url,
@@ -25,17 +27,25 @@ pub enum GixDownloadedError {
     #[error(transparent)]
     UrlParse(#[from] gix::url::parse::Error),
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] Box<FsIoError>),
     #[error(transparent)]
     Path(#[from] PathError),
     #[error(transparent)]
-    Serde(#[from] serde_json::Error),
+    Deserialize(#[from] ProjectDeserializationError),
+    #[error(transparent)]
+    Serialize(#[from] ProjectSerializationError),
     #[error(transparent)]
     Fetch(#[from] Box<gix::clone::fetch::Error>),
     #[error(transparent)]
     Checkout(#[from] gix::clone::checkout::main_worktree::Error),
     #[error("{0}")]
     Other(String),
+}
+
+impl From<FsIoError> for GixDownloadedError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 impl From<gix::clone::Error> for GixDownloadedError {
@@ -53,24 +63,25 @@ impl From<gix::clone::fetch::Error> for GixDownloadedError {
 impl From<LocalSrcError> for GixDownloadedError {
     fn from(value: LocalSrcError) -> Self {
         match value {
-            LocalSrcError::Serde(error) => GixDownloadedError::Serde(error),
-            LocalSrcError::Io(error) => GixDownloadedError::Io(error),
-            LocalSrcError::Path(error) => GixDownloadedError::Path(error),
+            LocalSrcError::Deserialize(error) => Self::Deserialize(error),
+            LocalSrcError::Path(error) => Self::Path(error),
             LocalSrcError::AlreadyExists(msg) => {
                 GixDownloadedError::Other(format!("unexpected internal error: {}", msg))
             }
+            LocalSrcError::Io(e) => Self::Io(e),
+            LocalSrcError::Serialize(error) => Self::Serialize(error),
         }
     }
 }
 
 impl GixDownloadedProject {
     pub fn new<S: AsRef<str>>(url: S) -> Result<GixDownloadedProject, GixDownloadedError> {
-        let tmp_dir = tempfile::tempdir()?;
+        let tmp_dir = tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
 
         Ok(GixDownloadedProject {
             url: gix::url::parse(url.as_ref().into())?,
             inner: LocalSrcProject {
-                project_path: tmp_dir.path().canonicalize()?,
+                project_path: wrapfs::canonicalize(tmp_dir.path())?,
             },
             tmp_dir,
         })
@@ -130,6 +141,7 @@ impl ProjectRead for GixDownloadedProject {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused_imports)]
     use std::{io::Read, process::Command};
 
     use assert_cmd::prelude::*;

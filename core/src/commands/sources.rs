@@ -51,11 +51,11 @@ pub fn do_sources_project_no_deps<Pr: ProjectRead>(
 #[cfg(feature = "filesystem")]
 #[derive(Error, Debug)]
 pub enum LocalSourcesError {
-    #[error("{0}")]
+    #[error(transparent)]
     ProjectError(LocalSrcError),
-    #[error("{0}")]
+    #[error(transparent)]
     ValidationError(#[from] InterchangeProjectValidationError),
-    #[error("{0}")]
+    #[error(transparent)]
     PathError(#[from] PathError),
 }
 

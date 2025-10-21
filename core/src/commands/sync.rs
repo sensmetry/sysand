@@ -41,8 +41,9 @@ pub enum SyncError<UrlError> {
         provided: Vec<String>,
     },
     // TODO: less opaque read errors
-    #[error("read error")]
-    ReadError,
+    #[error("project read error: {0}")]
+    // #[error("read error")]
+    ReadError(String),
 }
 
 pub fn do_sync<
@@ -216,16 +217,22 @@ fn is_installed<E: ReadEnvironment, U>(
     checksum: &String,
     env: &E,
 ) -> Result<bool, SyncError<U>> {
-    if !env.has(uri).map_err(|_| SyncError::ReadError)? {
+    if !env
+        .has(uri)
+        .map_err(|e| SyncError::ReadError(e.to_string()))?
+    {
         return Ok(false);
     }
-    for version in env.versions(uri).map_err(|_| SyncError::ReadError)? {
-        let version: String = version.map_err(|_| SyncError::ReadError)?;
+    for version in env
+        .versions(uri)
+        .map_err(|e| SyncError::ReadError(e.to_string()))?
+    {
+        let version: String = version.map_err(|e| SyncError::ReadError(e.to_string()))?;
         let project_checksum = env
             .get_project(uri, version)
-            .map_err(|_| SyncError::ReadError)?
+            .map_err(|e| SyncError::ReadError(e.to_string()))?
             .checksum_noncanonical_hex()
-            .map_err(|_| SyncError::ReadError)?
+            .map_err(|e| SyncError::ReadError(e.to_string()))?
             .ok_or(SyncError::BadProject(uri.clone()))?;
         if checksum == &project_checksum {
             return Ok(true);
@@ -242,7 +249,7 @@ fn try_install<E: ReadEnvironment + WriteEnvironment, P: ProjectRead, U>(
 ) -> Result<(), SyncError<U>> {
     let project_checksum = storage
         .checksum_canonical_hex()
-        .map_err(|_| SyncError::ReadError)?
+        .map_err(|e| SyncError::ReadError(e.to_string()))?
         .ok_or(SyncError::BadProject(uri.clone()))?;
     if checksum == &project_checksum {
         // TODO: Need to decide how to handle existing installations and possible flags to modify behavior

@@ -83,9 +83,9 @@ impl ReqwestSrcProject {
 pub enum ReqwestSrcError {
     #[error("HTTP error: {0}")]
     Reqwest(#[from] reqwest::Error),
-    #[error("Malformed data: {0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("not found: {0}")]
+    #[error("HTTP request to\n  '{0}'\n  returned malformed data: {0}")]
+    Serde(String, serde_json::Error),
+    #[error("address '{0}' not found")]
     NotFound(String),
 }
 
@@ -103,15 +103,25 @@ impl ProjectRead for ReqwestSrcProject {
     > {
         let info_resp = self.get_info().send()?;
         let meta_resp = self.get_meta().send()?;
-
         let info: Option<InterchangeProjectInfoRaw> = if info_resp.status().is_success() {
-            Some(serde_json::from_str(&info_resp.text()?)?)
+            // FIXME: find a way to not clone this in all cases
+            // see https://github.com/seanmonstar/reqwest/issues/1542
+            let url = info_resp.url().to_string();
+            Some(
+                serde_json::from_str(&info_resp.text()?)
+                    .map_err(|e| ReqwestSrcError::Serde(url, e))?,
+            )
         } else {
             None
         };
 
         let meta: Option<InterchangeProjectMetadataRaw> = if meta_resp.status().is_success() {
-            Some(serde_json::from_str(&meta_resp.text()?)?)
+            // FIXME: find a way to not clone this in all cases
+            let url = meta_resp.url().to_string();
+            Some(
+                serde_json::from_str(&meta_resp.text()?)
+                    .map_err(|e| ReqwestSrcError::Serde(url, e))?,
+            )
         } else {
             None
         };

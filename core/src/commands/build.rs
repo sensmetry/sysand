@@ -1,113 +1,88 @@
-#[cfg(feature = "filesystem")]
 use std::path::Path;
 
-#[cfg(feature = "filesystem")]
 use thiserror::Error;
 
-#[cfg(feature = "filesystem")]
 use crate::{
+    env::utils::CloneError,
     model::InterchangeProjectValidationError,
     project::{ProjectRead, local_kpar::LocalKParProject},
+    project::{local_kpar::IntoKparError, local_src::LocalSrcError, utils::FsIoError},
 };
 
-#[cfg(feature = "filesystem")]
+use super::include::IncludeError;
+
 #[derive(Error, Debug)]
 pub enum KParBuildError<ProjectReadError> {
     #[error(transparent)]
     ProjectRead(ProjectReadError),
     #[error(transparent)]
-    LocalSrc(#[from] crate::project::local_src::LocalSrcError),
-    #[error("incomplete sources {0}")]
-    IncompleteSource(String),
+    LocalSrc(#[from] LocalSrcError),
+    #[error("incomplete sources: {0}")]
+    IncompleteSource(&'static str),
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] Box<FsIoError>),
     #[error(transparent)]
     Validation(#[from] InterchangeProjectValidationError),
     #[error(transparent)]
     Extract(#[from] crate::symbols::ExtractError),
     #[error("unknown format {0}")]
     UnknownFormat(String),
-    #[error("missing project info")]
+    #[error("missing project info file '.project.json'")]
     MissingInfo,
-    #[error("missing project metadata")]
+    #[error("missing project metadata file '.meta.json'")]
     MissingMeta,
-    #[error("{0}")]
+    #[error(transparent)]
     ZipWrite(#[from] zip::result::ZipError),
     #[error("path failure: {0}")]
     PathFailure(String),
-    #[error("invalid filename")]
-    InvalidFileName,
-    #[error(transparent)]
-    Serde(#[from] serde_json::Error),
+    #[error("{0}: {1}")]
+    Serialize(&'static str, serde_json::Error),
 }
 
-// impl<ProjectReadError> From<...> for KParBuildError<ProjectReadError> {
-// }
+impl<ProjectReadError> From<FsIoError> for KParBuildError<ProjectReadError> {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
+}
 
-#[cfg(feature = "filesystem")]
-impl<ProjectReadError>
-    From<crate::env::utils::CloneError<ProjectReadError, crate::project::local_src::LocalSrcError>>
+impl<ProjectReadError> From<CloneError<ProjectReadError, LocalSrcError>>
     for KParBuildError<ProjectReadError>
 {
-    fn from(
-        value: crate::env::utils::CloneError<
-            ProjectReadError,
-            crate::project::local_src::LocalSrcError,
-        >,
-    ) -> Self {
+    fn from(value: CloneError<ProjectReadError, LocalSrcError>) -> Self {
         match value {
-            crate::env::utils::CloneError::ReadError(error) => KParBuildError::ProjectRead(error),
-            crate::env::utils::CloneError::WriteError(error) => error.into(),
-            crate::env::utils::CloneError::IncompleteSourceError(error) => {
-                KParBuildError::IncompleteSource(error)
-            }
-            crate::env::utils::CloneError::IOError(error) => error.into(),
+            CloneError::ReadError(error) => Self::ProjectRead(error),
+            CloneError::WriteError(error) => error.into(),
+            CloneError::IncompleteSource(error) => Self::IncompleteSource(error),
+            CloneError::Io(error) => error.into(),
         }
     }
 }
 
-#[cfg(feature = "filesystem")]
-impl<ProjectReadError> From<super::include::IncludeError<crate::project::local_src::LocalSrcError>>
-    for KParBuildError<ProjectReadError>
-{
-    fn from(value: super::include::IncludeError<crate::project::local_src::LocalSrcError>) -> Self {
+impl<ProjectReadError> From<IncludeError<LocalSrcError>> for KParBuildError<ProjectReadError> {
+    fn from(value: IncludeError<LocalSrcError>) -> Self {
         match value {
-            super::include::IncludeError::Project(error) => error.into(),
-            super::include::IncludeError::Io(error) => error.into(),
-            super::include::IncludeError::Extract(extract_error) => extract_error.into(),
-            super::include::IncludeError::UnknownFormat(error) => {
-                KParBuildError::UnknownFormat(error)
-            }
+            IncludeError::Project(error) => error.into(),
+            IncludeError::Io(error) => error.into(),
+            IncludeError::Extract(extract_error) => extract_error.into(),
+            IncludeError::UnknownFormat(error) => KParBuildError::UnknownFormat(error),
         }
     }
 }
 
-#[cfg(feature = "filesystem")]
-impl<ProjectReadError>
-    From<crate::project::local_kpar::IntoKparError<crate::project::local_src::LocalSrcError>>
-    for KParBuildError<ProjectReadError>
-{
-    fn from(
-        value: crate::project::local_kpar::IntoKparError<crate::project::local_src::LocalSrcError>,
-    ) -> Self {
+impl<ProjectReadError> From<IntoKparError<LocalSrcError>> for KParBuildError<ProjectReadError> {
+    fn from(value: IntoKparError<LocalSrcError>) -> Self {
         match value {
-            crate::project::local_kpar::IntoKparError::MissingInfo => KParBuildError::MissingInfo,
-            crate::project::local_kpar::IntoKparError::MissingMeta => KParBuildError::MissingMeta,
-            crate::project::local_kpar::IntoKparError::ReadError(error) => error.into(),
-            crate::project::local_kpar::IntoKparError::ZipWriteError(zip_error) => zip_error.into(),
-            crate::project::local_kpar::IntoKparError::PathFailure(error) => {
-                KParBuildError::PathFailure(error)
-            }
-            crate::project::local_kpar::IntoKparError::IOError(error) => error.into(),
-            crate::project::local_kpar::IntoKparError::FileNameError => {
-                KParBuildError::InvalidFileName
-            }
-            crate::project::local_kpar::IntoKparError::SerdeError(error) => error.into(),
+            IntoKparError::MissingInfo => KParBuildError::MissingInfo,
+            IntoKparError::MissingMeta => KParBuildError::MissingMeta,
+            IntoKparError::ReadError(error) => error.into(),
+            IntoKparError::ZipWriteError(zip_error) => zip_error.into(),
+            IntoKparError::PathFailure(error) => KParBuildError::PathFailure(error),
+            IntoKparError::Io(error) => error.into(),
+            IntoKparError::Serialize(msg, e) => Self::Serialize(msg, e),
         }
     }
 }
 
-#[cfg(feature = "filesystem")]
 pub fn do_build_kpar<P: AsRef<Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,

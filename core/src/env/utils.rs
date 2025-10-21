@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::project::{ProjectMut, ProjectRead};
+use crate::project::{ProjectMut, ProjectRead, utils::FsIoError};
 
 use thiserror::Error;
 
@@ -9,12 +9,20 @@ use thiserror::Error;
 pub enum CloneError<ProjectReadError, EnvironmentWriteError> {
     #[error("project read error: {0}")]
     ReadError(ProjectReadError),
-    #[error("environment write error")]
+    #[error("environment write error: {0}")]
     WriteError(EnvironmentWriteError),
-    #[error("incomplete source")]
-    IncompleteSourceError(String),
-    #[error("{0}")]
-    IOError(#[from] std::io::Error),
+    #[error("incomplete source: {0}")]
+    IncompleteSource(&'static str),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+}
+
+impl<ProjectReadError, EnvironmentWriteError> From<FsIoError>
+    for CloneError<ProjectReadError, EnvironmentWriteError>
+{
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
@@ -24,19 +32,15 @@ pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
 ) -> Result<(), CloneError<P::Error, Q::Error>> {
     match from.get_project().map_err(CloneError::ReadError)? {
         (None, None) => {
-            return Err(CloneError::IncompleteSourceError(
-                "missing .project.json and .meta.json".to_string(),
+            return Err(CloneError::IncompleteSource(
+                "missing '.project.json' and '.meta.json'",
             ));
         }
         (None, _) => {
-            return Err(CloneError::IncompleteSourceError(
-                "missing .project.json".to_string(),
-            ));
+            return Err(CloneError::IncompleteSource("missing '.project.json'"));
         }
         (_, None) => {
-            return Err(CloneError::IncompleteSourceError(
-                "missing .meta.json".to_string(),
-            ));
+            return Err(CloneError::IncompleteSource("missing '.meta.json'"));
         }
         (Some(info), Some(meta)) => {
             to.put_project(&info, &meta, overwrite)

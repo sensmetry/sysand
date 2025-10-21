@@ -259,6 +259,7 @@ impl ResolveRead for HTTPResolver {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused_imports)]
 
     use std::{io::Write as _, process::Command, thread::sleep, time::Duration};
 
