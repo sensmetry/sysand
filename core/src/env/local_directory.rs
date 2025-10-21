@@ -122,7 +122,7 @@ fn copy_dir_recursive<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> io::Res
     Ok(())
 }
 
-// Renames/moves a file or directory from `src` to `dst`.
+// Rename/move a file or directory from `src` to `dst`.
 fn move_fs_item<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> io::Result<()> {
     match fs::rename(&src, &dst) {
         Ok(_) => Ok(()),
@@ -135,7 +135,6 @@ fn move_fs_item<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> io::Result<()
                 fs::copy(&src, &dst)?;
                 fs::remove_file(&src)?;
             }
-            fs::copy(&src, dst).and_then(|_| fs::remove_file(src))?;
             Ok(())
         }
         Err(e) => Err(e),
