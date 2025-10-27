@@ -74,12 +74,10 @@ impl WriteEnvironment for MemoryStorageEnvironment {
 
 #[derive(Error, Debug)]
 pub enum MemoryReadError {
-    #[error("project read error: {0}")]
-    ReadError(String),
-    #[error("missing IRI")]
-    MissingIRIError(String),
-    #[error("missing version")]
-    MissingVersionError(String),
+    #[error("missing project with IRI '{0}'")]
+    MissingProject(String),
+    #[error("missing project '{0}' version '{1}'")]
+    MissingVersion(String, String),
 }
 
 impl ReadEnvironment for MemoryStorageEnvironment {
@@ -100,7 +98,7 @@ impl ReadEnvironment for MemoryStorageEnvironment {
         let version_vec: Vec<Result<String, MemoryReadError>> = self
             .projects
             .get(uri.as_ref())
-            .ok_or_else(|| MemoryReadError::MissingIRIError(uri.as_ref().to_string()))?
+            .ok_or_else(|| MemoryReadError::MissingProject(uri.as_ref().to_string()))?
             .keys()
             .map(|x| Ok(x.to_owned()))
             .collect();
@@ -118,9 +116,14 @@ impl ReadEnvironment for MemoryStorageEnvironment {
         Ok(self
             .projects
             .get(uri.as_ref())
-            .ok_or_else(|| MemoryReadError::MissingIRIError(uri.as_ref().to_string()))?
+            .ok_or_else(|| MemoryReadError::MissingProject(uri.as_ref().to_string()))?
             .get(version.as_ref())
-            .ok_or_else(|| MemoryReadError::MissingVersionError(version.as_ref().to_string()))?
+            .ok_or_else(|| {
+                MemoryReadError::MissingVersion(
+                    uri.as_ref().to_string(),
+                    version.as_ref().to_string(),
+                )
+            })?
             .clone())
     }
 }
