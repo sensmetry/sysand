@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
 use std::io::{BufRead as _, BufReader, Read};
 use thiserror::Error;
-use typed_path::Utf8UnixPath;
+use typed_path::{Utf8Path, Utf8UnixEncoding, Utf8UnixPath};
 use utils::FsIoError;
 
 // Implementations
@@ -274,8 +274,13 @@ pub trait ProjectMut: ProjectRead {
                 .map_err(ProjectOrIOError::ProjectError)?;
 
             if compute_checksum {
-                let sha256_checksum = hash_reader(&mut reader)
-                    .map_err(|e| FsIoError::ReadFile(path.as_ref().to_string(), e))?;
+                let sha256_checksum = hash_reader(&mut reader).map_err(|e| {
+                    // Types: P -> Utf8UnixPath -> str -> PathBuf. Only the last conversion allocates.
+                    FsIoError::ReadFile(
+                        <Utf8Path<Utf8UnixEncoding> as AsRef<str>>::as_ref(path.as_ref()).into(),
+                        e,
+                    )
+                })?;
 
                 meta.add_checksum(&path, "SHA256", format!("{:x}", sha256_checksum), overwrite);
             } else {

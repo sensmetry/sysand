@@ -6,14 +6,19 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectMut, ProjectRead, utils::wrapfs},
 };
-use std::{collections::HashSet, fs::File, io::Read, path::PathBuf};
+use std::{
+    collections::HashSet,
+    fs::File,
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 use tempfile::tempdir;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use thiserror::Error;
 
-use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, ToDisplay};
+use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, ToPathBuf};
 
 /// Project stored in a local directory as an extracted kpar archive.
 /// Source file paths with (unix) segments segment1/.../segmentn are
@@ -26,7 +31,7 @@ pub struct LocalSrcProject {
 // Tries to canonicalise the (longest possible) prefix of a path.
 // Useful if you have /path/to/file/that/does/not/exist
 // but where some prefix, say, /path/to/file can be canonicalised.
-fn canonicalise_prefix<P: AsRef<std::path::Path>>(path: P) -> PathBuf {
+fn canonicalise_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
     let mut relative_part = PathBuf::new();
     let mut absolute_part = path.as_ref().to_path_buf();
 
@@ -50,10 +55,7 @@ fn canonicalise_prefix<P: AsRef<std::path::Path>>(path: P) -> PathBuf {
     absolute_part.join(relative_part)
 }
 
-fn relativise_path<P: AsRef<std::path::Path>, Q: AsRef<std::path::Path>>(
-    path: P,
-    relative_to: Q,
-) -> Option<std::path::PathBuf> {
+fn relativise_path<P: AsRef<Path>, Q: AsRef<Path>>(path: P, relative_to: Q) -> Option<PathBuf> {
     let mut path = path.as_ref().to_path_buf();
 
     if !path.is_absolute() {
@@ -87,14 +89,11 @@ impl LocalSrcProject {
         Ok(self.get_project()?.1)
     }
 
-    pub fn get_unix_path<P: AsRef<std::path::Path>>(
-        &self,
-        path: P,
-    ) -> Result<Utf8UnixPathBuf, UnixPathError> {
+    pub fn get_unix_path<P: AsRef<Path>>(&self, path: P) -> Result<Utf8UnixPathBuf, UnixPathError> {
         let project_path = self
             .root_path()
             .canonicalize()
-            .map_err(|e| UnixPathError::Canonicalize(self.root_path().to_display(), e))?;
+            .map_err(|e| UnixPathError::Canonicalize(self.root_path().into(), e))?;
 
         let path = relativise_path(&path, project_path).ok_or(
             UnixPathError::PathOutsideProject(path.as_ref().to_path_buf()),
@@ -106,7 +105,7 @@ impl LocalSrcProject {
                 component
                     .as_os_str()
                     .to_str()
-                    .ok_or_else(|| UnixPathError::Conversion(path.to_display()))?,
+                    .ok_or_else(|| UnixPathError::Conversion(path.to_path_buf()))?,
             );
         }
 
@@ -143,7 +142,7 @@ impl LocalSrcProject {
                         added_components -= 1;
                     } else {
                         return Err(PathError::UnsafePath(
-                            utf_path.to_string(),
+                            utf_path.into(),
                             typed_path::CheckedPathError::PathTraversalAttack,
                         ));
                     }
@@ -261,7 +260,7 @@ impl ProjectMut for LocalSrcProject {
         }
 
         std::io::copy(source, &mut wrapfs::File::create(&source_path)?)
-            .map_err(|e| FsIoError::WriteFile(source_path.to_display(), e))?;
+            .map_err(|e| FsIoError::WriteFile(source_path.into(), e))?;
 
         Ok(())
     }
@@ -292,17 +291,17 @@ impl From<FsIoError> for LocalSrcError {
 #[derive(Error, Debug)]
 pub enum UnixPathError {
     #[error("path '{0}'\n  is outside the project directory")]
-    PathOutsideProject(std::path::PathBuf),
+    PathOutsideProject(PathBuf),
     #[error("failed to canonicalize\n  '{0}':\n  {1}")]
-    Canonicalize(String, std::io::Error),
+    Canonicalize(PathBuf, std::io::Error),
     #[error("path '{0}' is not valid Unicode")]
-    Conversion(String),
+    Conversion(PathBuf),
 }
 
 #[derive(Error, Debug)]
 pub enum PathError {
     #[error("path '{0}' is unsafe: {1}")]
-    UnsafePath(String, typed_path::CheckedPathError),
+    UnsafePath(PathBuf, typed_path::CheckedPathError),
     #[error("path '{0}' is absolute")]
     AbsolutePath(typed_path::Utf8UnixPathBuf),
 }

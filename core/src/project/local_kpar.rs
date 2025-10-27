@@ -17,7 +17,7 @@ use typed_path::{Utf8Component, Utf8UnixPath};
 use thiserror::Error;
 use zip::ZipArchive;
 
-use super::utils::{FsIoError, ProjectDeserializationError, ToDisplay, wrapfs};
+use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
 
 /// Project stored in as a KPar (Zip) archive in the local filesystem.
 /// Source file paths are interpreted relative to `root`. Both `.project.json`
@@ -176,12 +176,12 @@ impl LocalKParProject {
         zip.start_file(".project.json", options)
             .map_err(IntoKparError::ZipWriteError)?;
         zip.write(info_content.as_bytes())
-            .map_err(|e| FsIoError::WriteFile(path.to_display(), e))?;
+            .map_err(|e| FsIoError::WriteFile(path.to_path_buf(), e))?;
 
         zip.start_file(".meta.json", options)
             .map_err(IntoKparError::ZipWriteError)?;
         zip.write(meta_content.as_bytes())
-            .map_err(|e| FsIoError::WriteFile(path.to_display(), e))?;
+            .map_err(|e| FsIoError::WriteFile(path.to_path_buf(), e))?;
 
         for source_path in meta.source_paths(true) {
             let mut reader = from
@@ -190,7 +190,7 @@ impl LocalKParProject {
             zip.start_file(&source_path, options)
                 .map_err(IntoKparError::ZipWriteError)?;
             std::io::copy(&mut reader, &mut zip)
-                .map_err(|e| FsIoError::CopyFile(source_path.to_display(), path.to_display(), e))?;
+                .map_err(|e| FsIoError::CopyFile(source_path.into(), path.to_path_buf(), e))?;
         }
 
         zip.finish().map_err(IntoKparError::ZipWriteError)?;
@@ -266,7 +266,7 @@ impl ProjectRead for LocalKParProject {
             .tmp_dir
             .path()
             .canonicalize()
-            .map_err(|e| FsIoError::Canonicalize(self.tmp_dir.path().to_display(), e))?
+            .map_err(|e| FsIoError::Canonicalize(self.tmp_dir.path().to_path_buf(), e))?
             .join(tmp_name);
 
         if !tmp_file_path.is_file() {
@@ -278,7 +278,7 @@ impl ProjectRead for LocalKParProject {
             let mut zip_file = archive.by_index(idx)?;
 
             std::io::copy(&mut zip_file, &mut tmp_file)
-                .map_err(|e| FsIoError::WriteFile(tmp_file_path.to_display(), e))?;
+                .map_err(|e| FsIoError::WriteFile(tmp_file_path.to_path_buf(), e))?;
         }
 
         Ok(super::utils::FileWithLifetime::new(wrapfs::File::open(

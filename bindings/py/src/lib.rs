@@ -3,20 +3,29 @@
 
 use std::path::{Path, PathBuf};
 
-use pyo3::prelude::*;
+use pyo3::{
+    exceptions::{PyFileExistsError, PyIOError, PyRuntimeError, PyValueError},
+    prelude::*,
+};
 use sysand_core::{
     add::do_add,
-    build::do_build_kpar,
-    commands::{env::do_env_local_dir, new::do_new_local_file},
+    build::{KParBuildError, do_build_kpar},
+    commands::{
+        env::{EnvError, do_env_local_dir},
+        new::do_new_local_file,
+    },
     env::{
         ReadEnvironment as _, WriteEnvironment,
-        local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment, LocalReadError},
+        local_directory::{
+            DEFAULT_ENV_NAME, LocalDirectoryEnvironment, LocalReadError, LocalWriteError,
+        },
         utils::clone_project,
     },
     exclude::do_exclude,
     include::do_include,
     info::{InfoError, do_info, do_info_project},
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    new::NewError,
     project::{
         ProjectRead as _,
         local_kpar::LocalKParProject,
@@ -35,21 +44,14 @@ use sysand_core::{
 )]
 fn do_new_py_local_file(name: String, version: String, path: String) -> PyResult<()> {
     do_new_local_file(name, version, std::path::Path::new(&path)).map_err(|err| match err {
-        sysand_core::new::NewError::AlreadyExists(msg) => {
-            pyo3::exceptions::PyFileExistsError::new_err(msg)
-        }
-        sysand_core::new::NewError::SemVerError(error) => {
-            pyo3::exceptions::PyValueError::new_err(error.to_string())
-        }
-        sysand_core::new::NewError::ProjectError(err) => match err {
-            LocalSrcError::AlreadyExists(msg) => pyo3::exceptions::PyFileExistsError::new_err(msg),
-            LocalSrcError::Serde(error) => {
-                pyo3::exceptions::PyValueError::new_err(error.to_string())
-            }
-            LocalSrcError::Io(error) => pyo3::exceptions::PyIOError::new_err(error.to_string()),
-            LocalSrcError::Path(path_error) => {
-                pyo3::exceptions::PyIOError::new_err(path_error.to_string())
-            }
+        NewError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
+        NewError::SemVerError(error) => PyValueError::new_err(error.to_string()),
+        NewError::ProjectError(err) => match err {
+            LocalSrcError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
+            LocalSrcError::Deserialize(error) => PyValueError::new_err(error.to_string()),
+            LocalSrcError::Io(error) => PyIOError::new_err(error.to_string()),
+            LocalSrcError::Path(error) => PyIOError::new_err(error.to_string()),
+            LocalSrcError::Serialize(error) => PyValueError::new_err(error.to_string()),
         },
     })?;
 
@@ -62,22 +64,17 @@ fn do_new_py_local_file(name: String, version: String, path: String) -> PyResult
 )]
 fn do_env_py_local_dir(path: String) -> PyResult<()> {
     do_env_local_dir(Path::new(&path)).map_err(|err| match err {
-        sysand_core::commands::env::EnvError::AlreadyExists(path_buf) => {
-            pyo3::exceptions::PyFileExistsError::new_err(format!("{}", path_buf.display()))
+        EnvError::AlreadyExists(path_buf) => {
+            PyFileExistsError::new_err(format!("{}", path_buf.display()))
         }
-        sysand_core::commands::env::EnvError::WriteError(werr) => match werr {
-            sysand_core::env::local_directory::LocalWriteError::IOError(error) => {
-                pyo3::exceptions::PyIOError::new_err(error.to_string())
-            }
-            sysand_core::env::local_directory::LocalWriteError::SerialisationError(error) => {
-                pyo3::exceptions::PyValueError::new_err(error.to_string())
-            }
-            sysand_core::env::local_directory::LocalWriteError::PathError(path_error) => {
-                pyo3::exceptions::PyValueError::new_err(path_error.to_string())
-            }
-            sysand_core::env::local_directory::LocalWriteError::AlreadyExists(error) => {
-                pyo3::exceptions::PyIOError::new_err(error.to_string())
-            }
+        EnvError::WriteError(werr) => match werr {
+            LocalWriteError::Io(error) => PyIOError::new_err(error.to_string()),
+            LocalWriteError::Deserialize(error) => PyValueError::new_err(error.to_string()),
+            LocalWriteError::PathError(error) => PyValueError::new_err(error.to_string()),
+            LocalWriteError::AlreadyExists(error) => PyFileExistsError::new_err(error.to_string()),
+            LocalWriteError::Serialize(error) => PyValueError::new_err(error.to_string()),
+            LocalWriteError::TryMoveError(error) => PyIOError::new_err(error.to_string()),
+            LocalWriteError::LocalReadError(error) => PyIOError::new_err(error.to_string()),
         },
     })?;
 
@@ -122,7 +119,7 @@ fn do_info_py(
                     .collect()
             })
             .transpose()
-            .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?;
+            .map_err(|err| PyValueError::new_err(err.to_string()))?;
 
         let combined_resolver = standard_resolver(
             Some(std::path::Path::new(&relative_file_root).to_path_buf()),
@@ -135,7 +132,7 @@ fn do_info_py(
             Ok(matches) => results.extend(matches),
             Err(InfoError::NoResolve(_)) => {}
             Err(InfoError::ResolutionError(err)) => {
-                return Err(pyo3::exceptions::PyRuntimeError::new_err(err.to_string()));
+                return Err(PyRuntimeError::new_err(err.to_string()));
             }
         };
 
@@ -158,45 +155,18 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
     do_build_kpar(&project, &output_path, true)
         .map(|_| ())
         .map_err(|err| match err {
-            sysand_core::build::KParBuildError::ProjectRead(_) => {
-                pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::LocalSrc(_) => {
-                pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::IncompleteSource(_) => {
-                pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::Io(_) => {
-                pyo3::exceptions::PyIOError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::Validation(_) => {
-                pyo3::exceptions::PyValueError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::Extract(_) => {
-                pyo3::exceptions::PyValueError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::UnknownFormat(_) => {
-                pyo3::exceptions::PyValueError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::MissingInfo => {
-                pyo3::exceptions::PyValueError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::MissingMeta => {
-                pyo3::exceptions::PyValueError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::ZipWrite(_) => {
-                pyo3::exceptions::PyIOError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::PathFailure(_) => {
-                pyo3::exceptions::PyIOError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::InvalidFileName => {
-                pyo3::exceptions::PyRuntimeError::new_err(err.to_string())
-            }
-            sysand_core::build::KParBuildError::Serde(_) => {
-                pyo3::exceptions::PyValueError::new_err(err.to_string())
-            }
+            KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
+            KParBuildError::LocalSrc(_) => PyRuntimeError::new_err(err.to_string()),
+            KParBuildError::IncompleteSource(_) => PyRuntimeError::new_err(err.to_string()),
+            KParBuildError::Io(_) => PyIOError::new_err(err.to_string()),
+            KParBuildError::Validation(_) => PyValueError::new_err(err.to_string()),
+            KParBuildError::Extract(_) => PyValueError::new_err(err.to_string()),
+            KParBuildError::UnknownFormat(_) => PyValueError::new_err(err.to_string()),
+            KParBuildError::MissingInfo => PyValueError::new_err(err.to_string()),
+            KParBuildError::MissingMeta => PyValueError::new_err(err.to_string()),
+            KParBuildError::ZipWrite(_) => PyIOError::new_err(err.to_string()),
+            KParBuildError::PathFailure(_) => PyIOError::new_err(err.to_string()),
+            KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
         })
 }
 
@@ -220,7 +190,7 @@ pub fn do_sources_env_py(
     let version = match version {
         Some(version) => Some(
             semver::VersionReq::parse(&version)
-                .map_err(|err| pyo3::exceptions::PyValueError::new_err(err.to_string()))?,
+                .map_err(|err| PyValueError::new_err(err.to_string()))?,
         ),
         None => None,
     };
@@ -233,9 +203,9 @@ pub fn do_sources_env_py(
 
     fn local_read_to_pyerr(e: LocalReadError) -> PyErr {
         match e {
-            sysand_core::env::local_directory::LocalReadError::IOError(error) => {
-                pyo3::exceptions::PyIOError::new_err(error.to_string())
-            }
+            LocalReadError::Io(error) => PyIOError::new_err(error.to_string()),
+            LocalReadError::ProjectListFileRead(_) => PyIOError::new_err(e.to_string()),
+            LocalReadError::ProjectVersionsFileRead(_) => PyIOError::new_err(e.to_string()),
         }
     }
 
@@ -250,7 +220,7 @@ pub fn do_sources_env_py(
             if let Some(candidate) = projects.next() {
                 if let Some(v) = candidate
                     .version()
-                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
                     .and_then(|x| semver::Version::parse(&x).ok())
                 {
                     if vr.matches(&v) {
@@ -264,13 +234,13 @@ pub fn do_sources_env_py(
     }) else {
         match version {
             Some(vr) => {
-                return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                return Err(PyRuntimeError::new_err(format!(
                     "unable to find project {} ({}) in local environment",
                     iri, vr
                 )));
             }
             None => {
-                return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                return Err(PyRuntimeError::new_err(format!(
                     "unable to find project {} in local environment",
                     iri
                 )));
@@ -279,14 +249,12 @@ pub fn do_sources_env_py(
     };
 
     for src_path in do_sources_local_src_project_no_deps(&project, true)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
     {
         result.push(
             src_path
                 .to_str()
-                .ok_or_else(|| {
-                    pyo3::exceptions::PyRuntimeError::new_err("invalid path".to_string())
-                })?
+                .ok_or_else(|| PyRuntimeError::new_err("invalid path".to_string()))?
                 .to_string(),
         );
     }
@@ -294,31 +262,29 @@ pub fn do_sources_env_py(
     if include_deps {
         let Some(info) = project
             .get_info()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
         else {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+            return Err(PyRuntimeError::new_err(
                 "project is missing project information",
             ));
         };
 
         for dep in find_project_dependencies(
             info.validate()
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
                 .usage,
             env,
             &provided_iris,
         )
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
         {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
             {
                 result.push(
                     src_path
                         .to_str()
-                        .ok_or_else(|| {
-                            pyo3::exceptions::PyRuntimeError::new_err("invalid path".to_string())
-                        })?
+                        .ok_or_else(|| PyRuntimeError::new_err("invalid path".to_string()))?
                         .to_string(),
                 );
             }
@@ -345,14 +311,12 @@ pub fn do_sources_project_py(
     };
 
     for src_path in do_sources_local_src_project_no_deps(&current_project, true)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
     {
         result.push(
             src_path
                 .to_str()
-                .ok_or_else(|| {
-                    pyo3::exceptions::PyRuntimeError::new_err("invalid path".to_string())
-                })?
+                .ok_or_else(|| PyRuntimeError::new_err("invalid path".to_string()))?
                 .to_string(),
         );
     }
@@ -361,15 +325,15 @@ pub fn do_sources_project_py(
         // TODO: Better bail early?
         let Some(info) = current_project
             .get_info()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
         else {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+            return Err(PyRuntimeError::new_err(
                 "project is missing project information",
             ));
         };
 
         let Some(env_path) = env_path else {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+            return Err(PyRuntimeError::new_err(
                 "Unable to identify local environment",
             ));
         };
@@ -386,22 +350,20 @@ pub fn do_sources_project_py(
 
         for dep in find_project_dependencies(
             info.validate()
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
                 .usage,
             env,
             &provided_iris,
         )
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
         {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
             {
                 result.push(
                     src_path
                         .to_str()
-                        .ok_or_else(|| {
-                            pyo3::exceptions::PyRuntimeError::new_err("invalid path".to_string())
-                        })?
+                        .ok_or_else(|| PyRuntimeError::new_err("invalid path".to_string()))?
                         .to_string(),
                 );
             }
@@ -420,8 +382,7 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
         project_path: Path::new(&path).to_path_buf(),
     };
 
-    do_add(&mut project, iri, version)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    do_add(&mut project, iri, version).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
 #[pyfunction(name = "do_remove_py")]
@@ -433,8 +394,7 @@ fn do_remove_py(path: String, iri: String) -> PyResult<()> {
         project_path: Path::new(&path).to_path_buf(),
     };
 
-    do_remove(&mut project, iri)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    do_remove(&mut project, iri).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
     Ok(())
 }
@@ -474,7 +434,7 @@ fn do_include_py(
         index_symbols,
         force_format,
     )
-    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
 #[pyfunction(name = "do_exclude_py")]
@@ -486,8 +446,7 @@ fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
         project_path: Path::new(&path).to_path_buf(),
     };
 
-    do_exclude(&mut project, src_path)
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    do_exclude(&mut project, src_path).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
     Ok(())
 }
@@ -504,37 +463,38 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
     };
 
     if project_path.is_file() {
-        let project = LocalKParProject::new_guess_root(project_path)?;
+        let project = LocalKParProject::new_guess_root(project_path)
+            .map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))?;
 
         let Some(version) = project
             .version()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
         else {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+            return Err(PyRuntimeError::new_err(format!(
                 "project at {} lacks project information",
                 location
             )));
         };
 
         env.put_project(iri, version, |to| clone_project(&project, to, true))
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     } else if project_path.is_dir() {
         let project = LocalSrcProject { project_path };
 
         let Some(version) = project
             .version()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
         else {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+            return Err(PyRuntimeError::new_err(format!(
                 "project at {} lacks project information",
                 location
             )));
         };
 
         env.put_project(iri, version, |to| clone_project(&project, to, true))
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     } else {
-        return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+        return Err(PyRuntimeError::new_err(format!(
             "unable to find project at {}",
             location
         )));

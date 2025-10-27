@@ -73,9 +73,11 @@ mod browser_tests {
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_basic_env() -> Result<(), Box<dyn Error>> {
-        do_env_js_local_storage("sysand_storage", "/").unwrap();
-
         let local_storage = web_sys::window().unwrap().local_storage().unwrap().unwrap();
+        // Local storage is not automatically cleared between tests.
+        local_storage.clear().unwrap();
+
+        do_env_js_local_storage("sysand_storage", "/").unwrap();
 
         assert_eq!(
             local_storage.key(0),

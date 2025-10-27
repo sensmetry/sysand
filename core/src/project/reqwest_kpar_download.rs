@@ -11,7 +11,7 @@ use crate::project::{
     local_kpar::{LocalKParError, LocalKParProject},
 };
 
-use super::utils::{FsIoError, ToDisplay, wrapfs};
+use super::utils::{FsIoError, ToPathBuf, wrapfs};
 
 /// Project stored at a remote URL such as https://www.example.com/project.kpar.
 /// The URL is expected to resolve to a kpar-archive (ZIP-file) (at least) if
@@ -54,9 +54,7 @@ impl ReqwestKparDownloadedProject {
         Ok(ReqwestKparDownloadedProject {
             url: reqwest::Url::parse(url.as_ref())?,
             inner: LocalKParProject {
-                archive_path: wrapfs::canonicalize(tmp_dir.path())?
-                    .join("project.kpar")
-                    .to_path_buf(),
+                archive_path: wrapfs::canonicalize(tmp_dir.path())?.join("project.kpar"),
                 tmp_dir,
                 root: None,
             },
@@ -80,10 +78,10 @@ impl ReqwestKparDownloadedProject {
         }
 
         file.write_all(&resp.bytes()?)
-            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_display(), e))?;
+            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_path_buf(), e))?;
 
         file.flush()
-            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_display(), e))?;
+            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_path_buf(), e))?;
 
         Ok(())
     }

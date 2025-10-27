@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{io::Write as _, process::Command};
+#[cfg(feature = "alltests")]
+use std::process::Command;
+
+use std::io::Write as _;
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;

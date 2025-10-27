@@ -13,7 +13,7 @@ use crate::{
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{
-            FsIoError, ProjectDeserializationError, ProjectSerializationError, ToDisplay, wrapfs,
+            FsIoError, ProjectDeserializationError, ProjectSerializationError, ToPathBuf, wrapfs,
         },
     },
 };
@@ -43,7 +43,7 @@ pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> PathBuf {
 pub fn remove_dir_if_empty<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
     match std::fs::remove_dir(&path) {
         Err(err) if err.kind() == io::ErrorKind::DirectoryNotEmpty => Ok(()),
-        r => r.map_err(|e| FsIoError::RmDir(path.to_display(), e)),
+        r => r.map_err(|e| FsIoError::RmDir(path.to_path_buf(), e)),
     }
 }
 
@@ -118,10 +118,10 @@ fn copy_dir_recursive<P: AsRef<Path>, Q: AsRef<Path>>(
     wrapfs::create_dir(&dst)?;
 
     for entry_result in wrapfs::read_dir(&src)? {
-        let entry = entry_result.map_err(|e| FsIoError::ReadDir(src.to_display(), e))?;
+        let entry = entry_result.map_err(|e| FsIoError::ReadDir(src.to_path_buf(), e))?;
         let file_type = entry
             .file_type()
-            .map_err(|e| FsIoError::ReadDir(src.to_display(), e))?;
+            .map_err(|e| FsIoError::ReadDir(src.to_path_buf(), e))?;
         let src_path = entry.path();
         let dst_path = dst.as_ref().join(entry.file_name());
 
@@ -150,7 +150,7 @@ fn move_fs_item<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Result<(), Bo
             }
             Ok(())
         }
-        Err(e) => Err(FsIoError::Move(src.to_display(), dst.to_display(), e))?,
+        Err(e) => Err(FsIoError::Move(src.to_path_buf(), dst.to_path_buf(), e))?,
     }
 }
 
@@ -424,16 +424,16 @@ fn add_line_temp<R: Read, S: AsRef<str>>(
     let mut line_added = false;
     for this_line in io::BufReader::new(reader).lines() {
         let this_line =
-            this_line.map_err(|e| FsIoError::ReadFile(temp_file.path().to_display(), e))?;
+            this_line.map_err(|e| FsIoError::ReadFile(temp_file.path().to_path_buf(), e))?;
 
         if !line_added && line.as_ref() < this_line.as_str() {
             writeln!(temp_file, "{}", line.as_ref())
-                .map_err(|e| FsIoError::WriteFile(temp_file.path().to_display(), e))?;
+                .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
             line_added = true;
         }
 
         writeln!(temp_file, "{}", this_line)
-            .map_err(|e| FsIoError::WriteFile(temp_file.path().to_display(), e))?;
+            .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
 
         if line.as_ref() == this_line {
             line_added = true;
@@ -442,7 +442,7 @@ fn add_line_temp<R: Read, S: AsRef<str>>(
 
     if !line_added {
         writeln!(temp_file, "{}", line.as_ref())
-            .map_err(|e| FsIoError::WriteFile(temp_file.path().to_display(), e))?;
+            .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
     }
 
     Ok(temp_file)
@@ -452,7 +452,7 @@ fn singleton_line_temp<S: AsRef<str>>(line: S) -> Result<NamedTempFile, LocalWri
     let mut temp_file = NamedTempFile::new().map_err(FsIoError::CreateTempFile)?;
 
     writeln!(temp_file, "{}", line.as_ref())
-        .map_err(|e| FsIoError::WriteFile(temp_file.path().to_display(), e))?;
+        .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
 
     Ok(temp_file)
 }
@@ -534,11 +534,12 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             let current_versions_f = io::BufReader::new(wrapfs::File::open(&versions_path)?);
             for version_line_ in current_versions_f.lines() {
                 let version_line = version_line_
-                    .map_err(|e| FsIoError::ReadFile(versions_path.to_display(), e))?;
+                    .map_err(|e| FsIoError::ReadFile(versions_path.to_path_buf(), e))?;
 
                 if version.as_ref() != version_line {
                     writeln!(versions_temp, "{}", version_line)
-                        .map_err(|e| FsIoError::WriteFile(versions_path.to_display(), e))?;
+                        .map_err(|e| FsIoError::WriteFile(versions_path.to_path_buf(), e))?;
+
                     empty = false;
                 } else {
                     found = true;
@@ -577,9 +578,8 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 let mut f = io::BufWriter::new(wrapfs::File::create(self.entries_path())?);
                 for existing_uri in current_uris {
                     if uri.as_ref() != existing_uri {
-                        writeln!(f, "{}", existing_uri).map_err(|e| {
-                            FsIoError::WriteFile(self.entries_path().to_display(), e)
-                        })?;
+                        writeln!(f, "{}", existing_uri)
+                            .map_err(|e| FsIoError::WriteFile(self.entries_path().into(), e))?;
                     }
                 }
                 wrapfs::remove_file(self.versions_path(&uri))?;
