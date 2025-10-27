@@ -575,11 +575,12 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             if empty {
                 let current_uris_: Result<Vec<String>, LocalReadError> = self.uris()?.collect();
                 let current_uris: Vec<String> = current_uris_?;
-                let mut f = io::BufWriter::new(wrapfs::File::create(self.entries_path())?);
+                let entries_path = self.entries_path();
+                let mut f = io::BufWriter::new(wrapfs::File::create(&entries_path)?);
                 for existing_uri in current_uris {
                     if uri.as_ref() != existing_uri {
                         writeln!(f, "{}", existing_uri)
-                            .map_err(|e| FsIoError::WriteFile(self.entries_path().into(), e))?;
+                            .map_err(|e| FsIoError::WriteFile(entries_path.clone(), e))?;
                     }
                 }
                 wrapfs::remove_file(self.versions_path(&uri))?;

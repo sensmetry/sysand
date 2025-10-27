@@ -110,58 +110,64 @@ pub mod wrapfs {
         use super::FsIoError;
         use super::ToPathBuf;
 
-        pub fn open<P: AsRef<Path>>(path: P) -> Result<fs::File, FsIoError> {
-            fs::File::open(&path).map_err(|e| FsIoError::OpenFile(path.to_path_buf(), e))
+        pub fn open<P: AsRef<Path>>(path: P) -> Result<fs::File, Box<FsIoError>> {
+            fs::File::open(&path).map_err(|e| Box::new(FsIoError::OpenFile(path.to_path_buf(), e)))
         }
 
-        pub fn create<P: AsRef<Path>>(path: P) -> Result<fs::File, FsIoError> {
-            fs::File::create(&path).map_err(|e| FsIoError::CreateFile(path.to_path_buf(), e))
+        pub fn create<P: AsRef<Path>>(path: P) -> Result<fs::File, Box<FsIoError>> {
+            fs::File::create(&path)
+                .map_err(|e| Box::new(FsIoError::CreateFile(path.to_path_buf(), e)))
         }
     }
 
-    pub fn create_dir<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
-        fs::create_dir(&path).map_err(|e| FsIoError::MkDir(path.to_path_buf(), e))
+    pub fn create_dir<P: AsRef<Path>>(path: P) -> Result<(), Box<FsIoError>> {
+        fs::create_dir(&path).map_err(|e| Box::new(FsIoError::MkDir(path.to_path_buf(), e)))
     }
 
-    pub fn create_dir_all<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
-        fs::create_dir_all(&path).map_err(|e| FsIoError::MkDir(path.to_path_buf(), e))
+    pub fn create_dir_all<P: AsRef<Path>>(path: P) -> Result<(), Box<FsIoError>> {
+        fs::create_dir_all(&path).map_err(|e| Box::new(FsIoError::MkDir(path.to_path_buf(), e)))
     }
 
-    pub fn read_dir<P: AsRef<Path>>(path: P) -> Result<fs::ReadDir, FsIoError> {
-        fs::read_dir(&path).map_err(|e| FsIoError::ReadDir(path.to_path_buf(), e))
+    pub fn read_dir<P: AsRef<Path>>(path: P) -> Result<fs::ReadDir, Box<FsIoError>> {
+        fs::read_dir(&path).map_err(|e| Box::new(FsIoError::ReadDir(path.to_path_buf(), e)))
     }
 
-    pub fn remove_dir_all<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
-        fs::remove_dir_all(&path).map_err(|e| FsIoError::RmDir(path.to_path_buf(), e))
+    pub fn remove_dir_all<P: AsRef<Path>>(path: P) -> Result<(), Box<FsIoError>> {
+        fs::remove_dir_all(&path).map_err(|e| Box::new(FsIoError::RmDir(path.to_path_buf(), e)))
     }
 
-    pub fn remove_dir<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
-        fs::remove_dir(&path).map_err(|e| FsIoError::RmDir(path.to_path_buf(), e))
+    pub fn remove_dir<P: AsRef<Path>>(path: P) -> Result<(), Box<FsIoError>> {
+        fs::remove_dir(&path).map_err(|e| Box::new(FsIoError::RmDir(path.to_path_buf(), e)))
     }
 
-    pub fn remove_file<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
-        fs::remove_file(&path).map_err(|e| FsIoError::RmFile(path.to_path_buf(), e))
+    pub fn remove_file<P: AsRef<Path>>(path: P) -> Result<(), Box<FsIoError>> {
+        fs::remove_file(&path).map_err(|e| Box::new(FsIoError::RmFile(path.to_path_buf(), e)))
     }
 
-    pub fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> Result<u64, FsIoError> {
+    pub fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> Result<u64, Box<FsIoError>> {
         fs::copy(&from, &to)
-            .map_err(|e| FsIoError::CopyFile(from.to_path_buf(), to.to_path_buf(), e))
+            .map_err(|e| Box::new(FsIoError::CopyFile(from.to_path_buf(), to.to_path_buf(), e)))
     }
 
-    pub fn read_to_string<P: AsRef<Path>>(path: P) -> Result<String, FsIoError> {
-        fs::read_to_string(&path).map_err(|e| FsIoError::ReadFile(path.to_path_buf(), e))
+    pub fn read_to_string<P: AsRef<Path>>(path: P) -> Result<String, Box<FsIoError>> {
+        fs::read_to_string(&path).map_err(|e| Box::new(FsIoError::ReadFile(path.to_path_buf(), e)))
     }
 
-    pub fn metadata<P: AsRef<Path>>(path: P) -> Result<fs::Metadata, FsIoError> {
-        fs::metadata(&path).map_err(|e| FsIoError::Metadata(path.to_path_buf(), e))
+    pub fn metadata<P: AsRef<Path>>(path: P) -> Result<fs::Metadata, Box<FsIoError>> {
+        fs::metadata(&path).map_err(|e| Box::new(FsIoError::Metadata(path.to_path_buf(), e)))
     }
 
-    pub fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> Result<(), FsIoError> {
-        fs::write(&path, contents).map_err(|e| FsIoError::WriteFile(path.to_path_buf(), e))
+    pub fn write<P: AsRef<Path>, C: AsRef<[u8]>>(
+        path: P,
+        contents: C,
+    ) -> Result<(), Box<FsIoError>> {
+        fs::write(&path, contents)
+            .map_err(|e| Box::new(FsIoError::WriteFile(path.to_path_buf(), e)))
     }
 
-    pub fn canonicalize<P: AsRef<Path>>(path: P) -> Result<path::PathBuf, FsIoError> {
-        fs::canonicalize(&path).map_err(|e| FsIoError::Canonicalize(path.to_path_buf(), e))
+    pub fn canonicalize<P: AsRef<Path>>(path: P) -> Result<path::PathBuf, Box<FsIoError>> {
+        fs::canonicalize(&path)
+            .map_err(|e| Box::new(FsIoError::Canonicalize(path.to_path_buf(), e)))
     }
 }
 

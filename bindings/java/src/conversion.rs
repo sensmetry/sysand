@@ -100,10 +100,8 @@ impl ToJObject for bool {
             .find_class("java/lang/Boolean")
             .expect("Failed to find Boolean class");
         let boolean_value: jni::sys::jboolean = if *self { 1 } else { 0 };
-        let boolean_object = env
-            .new_object(boolean_class, "(Z)V", &[JValue::from(boolean_value)])
-            .expect("Failed to create Boolean");
-        boolean_object
+        env.new_object(boolean_class, "(Z)V", &[JValue::from(boolean_value)])
+            .expect("Failed to create Boolean")
     }
 }
 

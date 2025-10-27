@@ -7,7 +7,10 @@ use std::{env::current_dir, fs, path::Path};
 use anyhow::{Result, bail};
 use pubgrub::Reporter as _;
 use reqwest::blocking::Client;
-use sysand_core::commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome};
+use sysand_core::commands;
+use sysand_core::commands::lock::{
+    DEFAULT_LOCKFILE_NAME, LockError, LockOutcome, LockProjectError,
+};
 
 use sysand_core::project::memory::InMemoryProject;
 use sysand_core::resolve::memory::{AcceptAll, MemoryResolver};
@@ -51,13 +54,11 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
     );
 
     let LockOutcome { lock, .. } =
-        match sysand_core::commands::lock::do_lock_local_editable(&path, wrapped_resolver) {
+        match commands::lock::do_lock_local_editable(&path, wrapped_resolver) {
             Ok(lock_outcome) => lock_outcome,
-            Err(sysand_core::commands::lock::LockProjectError::LockError(lock_error)) => {
-                if let sysand_core::commands::lock::LockError::SolverError(solver_error) =
-                    lock_error
-                {
-                    match solver_error.inner {
+            Err(LockProjectError::LockError(lock_error)) => {
+                if let LockError::SolverError(solver_error) = lock_error {
+                    match *solver_error.inner {
                         pubgrub::PubGrubError::NoSolution(mut derivation_tree) => {
                             derivation_tree.collapse_no_versions();
                             bail!(

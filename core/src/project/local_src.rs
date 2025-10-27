@@ -90,10 +90,10 @@ impl LocalSrcProject {
     }
 
     pub fn get_unix_path<P: AsRef<Path>>(&self, path: P) -> Result<Utf8UnixPathBuf, UnixPathError> {
-        let project_path = self
-            .root_path()
+        let root_path = self.root_path();
+        let project_path = root_path
             .canonicalize()
-            .map_err(|e| UnixPathError::Canonicalize(self.root_path().into(), e))?;
+            .map_err(|e| UnixPathError::Canonicalize(root_path, e))?;
 
         let path = relativise_path(&path, project_path).ok_or(
             UnixPathError::PathOutsideProject(path.as_ref().to_path_buf()),
@@ -260,7 +260,7 @@ impl ProjectMut for LocalSrcProject {
         }
 
         std::io::copy(source, &mut wrapfs::File::create(&source_path)?)
-            .map_err(|e| FsIoError::WriteFile(source_path.into(), e))?;
+            .map_err(|e| FsIoError::WriteFile(source_path, e))?;
 
         Ok(())
     }

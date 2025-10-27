@@ -25,7 +25,7 @@ pub enum GixDownloadedError {
     #[error(transparent)]
     Clone(Box<gix::clone::Error>),
     #[error(transparent)]
-    UrlParse(#[from] gix::url::parse::Error),
+    UrlParse(#[from] Box<gix::url::parse::Error>),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error(transparent)]
@@ -37,9 +37,21 @@ pub enum GixDownloadedError {
     #[error(transparent)]
     Fetch(#[from] Box<gix::clone::fetch::Error>),
     #[error(transparent)]
-    Checkout(#[from] gix::clone::checkout::main_worktree::Error),
+    Checkout(#[from] Box<gix::clone::checkout::main_worktree::Error>),
     #[error("{0}")]
     Other(String),
+}
+
+impl From<gix::url::parse::Error> for GixDownloadedError {
+    fn from(v: gix::url::parse::Error) -> Self {
+        Self::UrlParse(Box::new(v))
+    }
+}
+
+impl From<gix::clone::checkout::main_worktree::Error> for GixDownloadedError {
+    fn from(v: gix::clone::checkout::main_worktree::Error) -> Self {
+        Self::Checkout(Box::new(v))
+    }
 }
 
 impl From<FsIoError> for GixDownloadedError {

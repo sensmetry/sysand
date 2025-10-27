@@ -10,11 +10,11 @@ use thiserror::Error;
 pub const DEFAULT_LOCKFILE_NAME: &str = "SysandLock.toml";
 
 #[cfg(feature = "filesystem")]
-use crate::project::{editable::EditableProject, local_src::LocalSrcProject};
+use crate::project::{editable::EditableProject, local_src::LocalSrcProject, utils::ToPathBuf};
 use crate::{
     lock::{Lock, Project},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
-    project::{CanonicalisationError, ProjectRead},
+    project::{CanonicalisationError, ProjectRead, utils::FsIoError},
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
 };
@@ -25,9 +25,9 @@ pub enum LockProjectError<
     PD: ProjectRead,
     R: ResolveRead + std::fmt::Debug + 'static,
 > {
-    #[error("{0}")]
+    #[error(transparent)]
     InputProjectError(PI::Error),
-    #[error("{0}")]
+    #[error(transparent)]
     InputProjectCanonicalisationError(CanonicalisationError<PI::Error>),
     #[error(transparent)]
     LockError(#[from] LockError<PD, R>),
@@ -35,17 +35,17 @@ pub enum LockProjectError<
 
 #[derive(Error, Debug)]
 pub enum LockError<PD: ProjectRead, R: ResolveRead + std::fmt::Debug + 'static> {
-    #[error("{0}")]
+    #[error(transparent)]
     DependencyProjectError(PD::Error),
-    #[error("{0}")]
+    #[error(transparent)]
     DependencyProjectCanonicalisationError(CanonicalisationError<PD::Error>),
-    #[error("{0}")]
-    IOError(std::io::Error),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
     #[error("incomplete project {0}")]
     IncompleteInputProjectError(String),
-    #[error("{0}")]
+    #[error(transparent)]
     ValidationError(InterchangeProjectValidationError),
-    #[error("{0}")]
+    #[error(transparent)]
     SolverError(SolverError<R>),
 }
 
@@ -207,7 +207,9 @@ pub fn do_lock_local_editable<
                 "project path is not storable".to_string(),
             ))?,
         LocalSrcProject {
-            project_path: path.as_ref().canonicalize().map_err(LockError::IOError)?,
+            project_path: path.as_ref().canonicalize().map_err(|e| {
+                LockError::Io(Box::new(FsIoError::Canonicalize(path.to_path_buf(), e)))
+            })?,
         },
     );
 
