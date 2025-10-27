@@ -142,7 +142,7 @@ impl LocalSrcProject {
                         added_components -= 1;
                     } else {
                         return Err(PathError::UnsafePath(
-                            utf_path.into(),
+                            utf_path.as_str().into(),
                             typed_path::CheckedPathError::PathTraversalAttack,
                         ));
                     }
