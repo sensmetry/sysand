@@ -45,7 +45,7 @@ jobs:
       shell: bash
       run: python bindings/java/scripts/java-builder.py build
     - name: Upload JARs
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: jars-${{ matrix.os }}
         path: target/java/target/sysand*.jar
