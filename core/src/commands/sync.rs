@@ -42,7 +42,6 @@ pub enum SyncError<UrlError> {
     },
     // TODO: less opaque read errors
     #[error("project read error: {0}")]
-    // #[error("read error")]
     ReadError(String),
 }
 
