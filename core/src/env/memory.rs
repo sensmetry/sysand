@@ -21,11 +21,9 @@ impl MemoryStorageEnvironment {
     }
 }
 
+// Placeholder for now
 #[derive(Error, Debug)]
-pub enum MemoryWriteError {
-    #[error("refusing to overwrite '{0}'")]
-    AlreadyExists(String),
-}
+pub enum MemoryWriteError {}
 
 impl WriteEnvironment for MemoryStorageEnvironment {
     type WriteError = MemoryWriteError;
