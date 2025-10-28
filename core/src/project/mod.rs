@@ -56,7 +56,7 @@ pub enum CanonicalisationError<ReadError> {
     #[error(transparent)]
     ReadError(ReadError),
     #[error("failed to read from file\n  '{0}':\n  {1}")]
-    FileRead(String, std::io::Error),
+    FileRead(Box<str>, std::io::Error),
 }
 
 #[derive(Debug, Error)]
@@ -169,7 +169,7 @@ pub trait ProjectRead {
                 checksum.value = format!(
                     "{:x}",
                     hash_reader(&mut src)
-                        .map_err(|e| CanonicalisationError::FileRead(path.clone(), e))?
+                        .map_err(|e| CanonicalisationError::FileRead(path.as_str().into(), e))?
                 );
             } else {
                 checksum.value = checksum.value.to_lowercase();
