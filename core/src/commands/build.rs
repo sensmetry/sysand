@@ -25,7 +25,7 @@ pub enum KParBuildError<ProjectReadError> {
     Validation(#[from] InterchangeProjectValidationError),
     #[error("{0}")]
     Extract(String),
-    #[error("unknown file format: {0}")]
+    #[error("unknown file format {0}")]
     UnknownFormat(String),
     #[error("missing project info file '.project.json'")]
     MissingInfo,
