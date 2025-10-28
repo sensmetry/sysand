@@ -371,8 +371,8 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
 pub enum ExtractError {
     #[error("failed to read file to extract symbols: {0}")]
     ReadTopLevelSysml(std::io::Error),
-    #[error("syntax error at '{0}':\n{1}")]
-    SyntaxError(Box<str>, LexingError),
+    #[error("syntax error at line {0}, byte {1}:\n{2}")]
+    SyntaxError(u32, u32, LexingError),
     #[error(
         "missing body delimiter: brace '{{}}' nesting depth is {0} (should be 0) at the end of file"
     )]
@@ -448,8 +448,16 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
             Ok(token) => {
                 current.push((token, token_range));
             }
+            // One way to reach this is to have an unterminated string.
             Err(e) => {
-                return Err(ExtractError::SyntaxError(token_range, e));
+                let range = source[..lexer.span().start].as_bytes();
+                let line = range.iter().filter(|x| **x == b'\n').count() as u32 + 1;
+                // counts bytes, not chars or graphemes
+                let byte = match range.rsplit(|x| *x == b'\n').next() {
+                    Some(slice) => slice.len() as u32 + 1,
+                    None => range.len() as u32,
+                };
+                return Err(ExtractError::SyntaxError(line, byte, e));
             }
         }
     }
