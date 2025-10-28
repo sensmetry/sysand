@@ -125,10 +125,7 @@ mod filesystem_tests {
         source_project.write_source(source_path, &mut Cursor::new(source_code), true)?;
 
         directory_environment.put_project("urn::sysand_test::1", "1.2.3", |p| {
-            clone_project(&source_project, p, true).unwrap();
-
-            // We just need the error type to be convertible to function return error type.
-            Ok::<(), std::io::Error>(())
+            clone_project(&source_project, p, true).into()
         })?;
 
         let target_project = directory_environment.get_project("urn::sysand_test::1", "1.2.3")?;
