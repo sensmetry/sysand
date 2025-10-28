@@ -68,14 +68,15 @@ mod browser_tests {
         assert!(meta.index.is_empty());
         assert!(meta.metamodel.is_none());
 
+        // Local storage is not automatically cleared between tests.
+        local_storage.clear().unwrap();
+
         Ok(())
     }
 
     #[wasm_bindgen_test(unsupported = test)]
     fn test_basic_env() -> Result<(), Box<dyn Error>> {
         let local_storage = web_sys::window().unwrap().local_storage().unwrap().unwrap();
-        // Local storage is not automatically cleared between tests.
-        local_storage.clear().unwrap();
 
         do_env_js_local_storage("sysand_storage", "/").unwrap();
 
@@ -91,6 +92,9 @@ mod browser_tests {
                 .unwrap(),
             Some("".to_string())
         );
+
+        // Local storage is not automatically cleared between tests.
+        local_storage.clear().unwrap();
 
         Ok(())
     }

@@ -124,7 +124,7 @@ fn lex_symbol(lex: &mut Lexer<'_, Token>) -> Result<Token, LexingError> {
     // Ok(lex.slice())
 }
 
-#[derive(Logos, Debug, PartialEq)] // Ignore this regex pattern between tokens
+#[derive(Logos, Debug, PartialEq)]
 #[logos(error = LexingError)]
 pub enum Token {
     #[regex(r"\s+")]

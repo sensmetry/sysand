@@ -11,7 +11,7 @@ pub enum CloneError<ProjectReadError, EnvironmentWriteError> {
     ReadError(ProjectReadError),
     #[error("environment write error: {0}")]
     WriteError(EnvironmentWriteError),
-    #[error("incomplete source: {0}")]
+    #[error("incomplete project: {0}")]
     IncompleteSource(&'static str),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),

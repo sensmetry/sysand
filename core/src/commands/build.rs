@@ -17,7 +17,7 @@ pub enum KParBuildError<ProjectReadError> {
     ProjectRead(ProjectReadError),
     #[error(transparent)]
     LocalSrc(#[from] LocalSrcError),
-    #[error("incomplete sources: {0}")]
+    #[error("incomplete project: {0}")]
     IncompleteSource(&'static str),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
@@ -35,7 +35,7 @@ pub enum KParBuildError<ProjectReadError> {
     ZipWrite(#[from] zip::result::ZipError),
     #[error("path failure: {0}")]
     PathFailure(String),
-    #[error("{0}: {1}")]
+    #[error("project serialization error: {0}: {1}")]
     Serialize(&'static str, serde_json::Error),
 }
 
