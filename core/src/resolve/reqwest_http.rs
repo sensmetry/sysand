@@ -430,7 +430,6 @@ mod tests {
 
         let mut server = Command::new("uv")
             .arg("run")
-            .arg("--isolated")
             .arg("--with")
             .arg("rangehttpserver")
             .arg("-m")
@@ -438,7 +437,7 @@ mod tests {
             .arg(&free_port)
             .current_dir(cwd.path())
             .spawn()?;
-        sleep(Duration::from_millis(3000));
+        sleep(Duration::from_millis(1000));
 
         let client = reqwest::blocking::ClientBuilder::new().build().unwrap();
         let resolver = super::HTTPResolver {

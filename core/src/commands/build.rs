@@ -83,6 +83,7 @@ impl<ProjectReadError> From<IntoKparError<LocalSrcError>> for KParBuildError<Pro
     }
 }
 
+#[cfg(feature = "filesystem")]
 pub fn do_build_kpar<P: AsRef<Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,

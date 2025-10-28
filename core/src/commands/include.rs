@@ -62,7 +62,7 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
             }
             _ => {
                 return Err(IncludeError::UnknownFormat(format!(
-                    "cannot guess format for '{}', only sysml supported",
+                    "cannot guess format for '{}', only SysML supported",
                     path.as_ref()
                 )));
             }

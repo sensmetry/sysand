@@ -373,7 +373,9 @@ pub enum ExtractError {
     ReadTopLevelSysml(std::io::Error),
     #[error("syntax error at '{0}':\n{1}")]
     SyntaxError(Box<str>, LexingError),
-    #[error("missing body delimiter: final brace '{{}}' nesting depth is {0}")]
+    #[error(
+        "missing body delimiter: brace '{{}}' nesting depth is {0} (should be 0) at the end of file"
+    )]
     MissingBodyDelimiter(i32),
     #[error("unable to get token range")]
     TokenRangeError,
