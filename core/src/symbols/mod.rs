@@ -17,6 +17,8 @@ use thiserror::Error;
 use lex::Token;
 use typed_path::Utf8UnixPath;
 
+use crate::symbols::lex::LexingError;
+
 #[derive(Debug)]
 pub enum Language {
     SysML,
@@ -37,7 +39,7 @@ impl Language {
     }
 }
 
-fn parse_name<'a, I: Iterator<Item = &'a (Token, String)>>(
+fn parse_name<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
     token_iter: &mut Peekable<I>,
 ) -> Result<String, String> {
     match token_iter.next() {
@@ -51,7 +53,7 @@ fn parse_name<'a, I: Iterator<Item = &'a (Token, String)>>(
     }
 }
 
-fn parse_reference_or_chain<'a, I: Iterator<Item = &'a (Token, String)>>(
+fn parse_reference_or_chain<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
     token_iter: &mut Peekable<I>,
 ) -> Result<Vec<String>, String> {
     let mut result = vec![];
@@ -74,7 +76,7 @@ fn parse_reference_or_chain<'a, I: Iterator<Item = &'a (Token, String)>>(
     Ok(result)
 }
 
-fn skip_nested<'a, I: Iterator<Item = &'a (Token, String)>>(
+fn skip_nested<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
     token_iter: &mut Peekable<I>,
     open: Token,
     close: Token,
@@ -100,13 +102,13 @@ fn skip_nested<'a, I: Iterator<Item = &'a (Token, String)>>(
     Ok(())
 }
 
-fn skip_whitespace<'a, I: Iterator<Item = &'a (Token, String)>>(token_iter: &mut Peekable<I>) {
+fn skip_whitespace<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(token_iter: &mut Peekable<I>) {
     while let Some((Token::Space, _)) = token_iter.peek() {
         token_iter.next();
     }
 }
 
-fn maybe_skip_muliplicity<'a, I: Iterator<Item = &'a (Token, String)>>(
+fn maybe_skip_muliplicity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
     token_iter: &mut Peekable<I>,
 ) -> Result<(), String> {
     if let Some((Token::OpenSquare, _)) = token_iter.peek() {
@@ -116,7 +118,7 @@ fn maybe_skip_muliplicity<'a, I: Iterator<Item = &'a (Token, String)>>(
     Ok(())
 }
 
-fn skip_list_of_refs<'a, I: Iterator<Item = &'a (Token, String)>>(
+fn skip_list_of_refs<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
     token_iter: &mut Peekable<I>,
 ) -> Result<(), String> {
     loop {
@@ -143,7 +145,7 @@ enum KeywordType {
     SkipRest,
 }
 
-fn parse_entity<'a, I: Iterator<Item = &'a (Token, String)>>(
+fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
     token_iter: &'a mut Peekable<I>,
 ) -> Result<(Option<String>, Option<String>), String> {
     let keywords = HashMap::from([
@@ -250,7 +252,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, String)>>(
             Token::Semicolon => unreachable!(),
             Token::Comma => return Err("floating comma".to_string()),
             Token::OtherIdentifier | Token::Quoted => {
-                match keywords.get(original.as_str()) {
+                match keywords.get(&**original) {
                     Some(KeywordType::Simple) => {
                         token_iter.next();
                         continue;
@@ -287,11 +289,8 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, String)>>(
                             None => {
                                 long_name = Some(this_name.clone());
                             }
-                            Some(current_name) => {
-                                return Err(format!(
-                                    "Ambiguous name {} != {}",
-                                    this_name, current_name
-                                ));
+                            Some(_) => {
+                                return Err(format!("Unknown name '{}'", this_name));
                             }
                         };
                     }
@@ -316,8 +315,8 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, String)>>(
                     None => {
                         short_name = Some(this_name);
                     }
-                    Some(current_name) => {
-                        return Err(format!("Ambiguous name {} != {}", this_name, current_name));
+                    Some(_) => {
+                        return Err(format!("Unknown name {}", this_name));
                     }
                 };
                 match token_iter.next() {
@@ -336,7 +335,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, String)>>(
                 break;
             }
             Token::Period => return Err("Floating period".to_string()),
-            Token::OtherSymbol => match keywords.get(original.as_str()) {
+            Token::OtherSymbol => match keywords.get(&**original) {
                 Some(KeywordType::Simple) => {
                     token_iter.next();
                     continue;
@@ -359,7 +358,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, String)>>(
                     break;
                 }
                 None => {
-                    return Err(format!("Floating unknown symbol {}", original));
+                    return Err(format!("Floating unknown symbol '{}'", original));
                 }
             },
         };
@@ -370,15 +369,15 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, String)>>(
 
 #[derive(Debug, Error)]
 pub enum ExtractError {
-    #[error("failed to read SysML source file to extract symbols: {0}")]
+    #[error("failed to read file to extract symbols: {0}")]
     ReadTopLevelSysml(std::io::Error),
-    #[error("syntax error:\n{0}")]
-    SyntaxError(String),
-    #[error("missing body delimiter")]
-    MissingBodyDelimiter,
+    #[error("syntax error at '{0}':\n{1}")]
+    SyntaxError(Box<str>, LexingError),
+    #[error("missing body delimiter: final brace '{{}}' nesting depth is {0}")]
+    MissingBodyDelimiter(i32),
     #[error("unable to get token range")]
     TokenRangeError,
-    #[error("failed to parse {0}")]
+    #[error("failed to parse\n{0}")]
     ParseError(String),
 }
 
@@ -386,10 +385,13 @@ pub enum ExtractError {
 ///
 /// It is used for handling `index` field of `.meta.json` files.
 pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, ExtractError> {
-    let mut source = String::new();
-    reader
-        .read_to_string(&mut source)
-        .map_err(ExtractError::ReadTopLevelSysml)?;
+    let source = {
+        let mut source = String::new();
+        reader
+            .read_to_string(&mut source)
+            .map_err(ExtractError::ReadTopLevelSysml)?;
+        source
+    };
 
     let mut lexer = Token::lexer(&source);
 
@@ -398,10 +400,11 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
 
     let mut depth = 0;
     while let Some(token) = lexer.next() {
-        let token_range = source
-            .slice(lexer.span())
-            .ok_or(ExtractError::TokenRangeError)?
-            .to_string();
+        let token_range = Box::from(
+            source
+                .slice(lexer.span())
+                .ok_or(ExtractError::TokenRangeError)?,
+        );
         match token {
             Ok(Token::BraceOpen) => {
                 if depth == 0 {
@@ -443,14 +446,14 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
             Ok(token) => {
                 current.push((token, token_range));
             }
-            Err(_) => {
-                return Err(ExtractError::SyntaxError(token_range));
+            Err(e) => {
+                return Err(ExtractError::SyntaxError(token_range, e));
             }
         }
     }
 
     if depth != 0 {
-        return Err(ExtractError::MissingBodyDelimiter);
+        return Err(ExtractError::MissingBodyDelimiter(depth));
     }
 
     all.push(current);
@@ -466,7 +469,13 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
         }
 
         match parse_entity(&mut token_iter) {
-            Err(err) => return Err(ExtractError::ParseError(format!("{:?}: {}", tokens, err))),
+            Err(err) => {
+                return Err(ExtractError::ParseError(format!(
+                    "'{}': {}",
+                    format_token_list(&tokens[..]),
+                    err
+                )));
+            }
             Ok((None, None)) => {}
             Ok((None, Some(short_name))) => symbols.push(short_name),
             Ok((Some(long_name), None)) => symbols.push(long_name),
@@ -478,4 +487,12 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
     }
 
     Ok(symbols)
+}
+
+fn format_token_list(list: &[(Token, Box<str>)]) -> String {
+    let mut buf = String::new();
+    for (_, text) in list {
+        buf.push_str(text);
+    }
+    buf
 }

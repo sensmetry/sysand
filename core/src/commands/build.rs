@@ -23,9 +23,9 @@ pub enum KParBuildError<ProjectReadError> {
     Io(#[from] Box<FsIoError>),
     #[error(transparent)]
     Validation(#[from] InterchangeProjectValidationError),
-    #[error(transparent)]
-    Extract(#[from] crate::symbols::ExtractError),
-    #[error("unknown format {0}")]
+    #[error("{0}")]
+    Extract(String),
+    #[error("unknown file format: {0}")]
     UnknownFormat(String),
     #[error("missing project info file '.project.json'")]
     MissingInfo,
@@ -63,7 +63,7 @@ impl<ProjectReadError> From<IncludeError<LocalSrcError>> for KParBuildError<Proj
         match value {
             IncludeError::Project(error) => error.into(),
             IncludeError::Io(error) => error.into(),
-            IncludeError::Extract(extract_error) => extract_error.into(),
+            IncludeError::Extract(..) => Self::Extract(value.to_string()),
             IncludeError::UnknownFormat(error) => KParBuildError::UnknownFormat(error),
         }
     }
