@@ -551,7 +551,7 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
 
 // Returns: (line, byte), both 1-indexed
 fn line_byte(source: &str, span: logos::Span) -> (u32, u32) {
-    let range = source[..span.start].as_bytes();
+    let range = &source.as_bytes()[..span.start];
     let line = range.iter().filter(|x| **x == b'\n').count() as u32 + 1;
     // counts bytes, not chars or graphemes
     let byte = match range.rsplit(|x| *x == b'\n').next() {
@@ -563,7 +563,7 @@ fn line_byte(source: &str, span: logos::Span) -> (u32, u32) {
 
 // Concatenates the tokens and strips start and end whitespace, including newlines.
 // Returns (concatenated_string, start_line, start_byte)
-fn format_token_list<'a>(
+fn format_token_list(
     tokens: &[(Token, Box<str>, logos::Span)],
 
     source: &str,
