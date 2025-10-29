@@ -39,23 +39,29 @@ impl Language {
     }
 }
 
-fn parse_name<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
+fn parse_name<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
     token_iter: &mut Peekable<I>,
-) -> Result<String, String> {
+) -> Result<String, ParseError> {
     match token_iter.next() {
-        None => Err("Empty name".to_string()),
-        Some((Token::Quoted, original)) => Ok(original.trim_matches('\'').to_string()),
-        Some((Token::OtherIdentifier, original)) => Ok(original.to_string()),
-        Some((invalid_token, original)) => Err(format!(
-            "Invalid token of type {:?}, expected a name component: {}",
-            invalid_token, original
-        )),
+        None => Err(ParseError {
+            span: None,
+            msg: "empty name".to_string(),
+        }),
+        Some((Token::Quoted, original, _)) => Ok(original.trim_matches('\'').to_string()),
+        Some((Token::OtherIdentifier, original, _)) => Ok(original.to_string()),
+        Some((invalid_token, original, sp)) => Err(ParseError {
+            span: Some(sp.clone()),
+            msg: format!(
+                "invalid token of type {:?}, expected a name component: '{}'",
+                invalid_token, original
+            ),
+        }),
     }
 }
 
-fn parse_reference_or_chain<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
+fn parse_reference_or_chain<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
     token_iter: &mut Peekable<I>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, ParseError> {
     let mut result = vec![];
 
     loop {
@@ -64,7 +70,7 @@ fn parse_reference_or_chain<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
         result.push(name_component);
 
         match token_iter.peek() {
-            Some((Token::DoubleColon, _)) | Some((Token::Period, _)) => {
+            Some((Token::DoubleColon, ..)) | Some((Token::Period, ..)) => {
                 token_iter.next();
             }
             _ => {
@@ -76,16 +82,16 @@ fn parse_reference_or_chain<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
     Ok(result)
 }
 
-fn skip_nested<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
+fn skip_nested<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
     token_iter: &mut Peekable<I>,
     open: Token,
     close: Token,
-) -> Result<(), String> {
+) -> Result<(), ParseError> {
     let mut nesting = 0;
 
     loop {
         match token_iter.next() {
-            Some((token, _)) => {
+            Some((token, ..)) => {
                 if token == &open {
                     nesting += 1;
                 } else if token == &close {
@@ -95,39 +101,46 @@ fn skip_nested<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
                     }
                 }
             }
-            None => return Err(format!("Unmatched {:?}", open)),
+            None => {
+                return Err(ParseError {
+                    span: None,
+                    msg: format!("unmatched {:?}", open),
+                });
+            }
         }
     }
 
     Ok(())
 }
 
-fn skip_whitespace<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(token_iter: &mut Peekable<I>) {
-    while let Some((Token::Space, _)) = token_iter.peek() {
+fn skip_whitespace<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
+    token_iter: &mut Peekable<I>,
+) {
+    while let Some((Token::Space, ..)) = token_iter.peek() {
         token_iter.next();
     }
 }
 
-fn maybe_skip_muliplicity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
+fn maybe_skip_muliplicity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
     token_iter: &mut Peekable<I>,
-) -> Result<(), String> {
-    if let Some((Token::OpenSquare, _)) = token_iter.peek() {
+) -> Result<(), ParseError> {
+    if let Some((Token::OpenSquare, ..)) = token_iter.peek() {
         skip_nested(token_iter, Token::OpenSquare, Token::CloseSquare)?;
     };
 
     Ok(())
 }
 
-fn skip_list_of_refs<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
+fn skip_list_of_refs<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
     token_iter: &mut Peekable<I>,
-) -> Result<(), String> {
+) -> Result<(), ParseError> {
     loop {
         let _ = parse_reference_or_chain(token_iter)?;
 
         skip_whitespace(token_iter);
 
         match token_iter.peek() {
-            Some((Token::Comma, _)) => {
+            Some((Token::Comma, ..)) => {
                 token_iter.next();
                 skip_whitespace(token_iter);
             }
@@ -145,9 +158,14 @@ enum KeywordType {
     SkipRest,
 }
 
-fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
+struct ParseError {
+    span: Option<logos::Span>,
+    msg: String,
+}
+
+fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
     token_iter: &'a mut Peekable<I>,
-) -> Result<(Option<String>, Option<String>), String> {
+) -> Result<(Option<String>, Option<String>), ParseError> {
     let keywords = HashMap::from([
         // Simple
         ("abstract", KeywordType::Simple),
@@ -238,7 +256,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
     let mut long_name = None;
     let mut short_name = None;
 
-    while let Some((token, original)) = token_iter.peek() {
+    while let Some((token, original, sp)) = token_iter.peek() {
         match token {
             Token::Space => {
                 token_iter.next();
@@ -250,7 +268,12 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
             Token::BraceOpen => unreachable!(),
             Token::BraceClose => unreachable!(),
             Token::Semicolon => unreachable!(),
-            Token::Comma => return Err("floating comma".to_string()),
+            Token::Comma => {
+                return Err(ParseError {
+                    span: Some(sp.clone()),
+                    msg: "floating comma".to_string(),
+                });
+            }
             Token::OtherIdentifier | Token::Quoted => {
                 match keywords.get(&**original) {
                     Some(KeywordType::Simple) => {
@@ -281,7 +304,10 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
                         let this_name = match this_ref.as_slice() {
                             [name] => name,
                             names => {
-                                return Err(format!("Warn: Got a floating reference: {:?}", names));
+                                return Err(ParseError {
+                                    span: None,
+                                    msg: format!("warn: got a floating reference: {:?}", names),
+                                });
                             }
                         };
 
@@ -290,7 +316,10 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
                                 long_name = Some(this_name.clone());
                             }
                             Some(_) => {
-                                return Err(format!("Unknown name '{}'", this_name));
+                                return Err(ParseError {
+                                    span: Some(sp.clone()),
+                                    msg: format!("unknown name '{}'", this_name),
+                                });
                             }
                         };
                     }
@@ -304,10 +333,10 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
             }
             Token::String => panic!("floating string"),
             Token::OpenParen => skip_nested(token_iter, Token::OpenParen, Token::CloseParen)?,
-            Token::CloseParen => panic!("Floating closing paren"),
+            Token::CloseParen => panic!("floating closing paren"),
             Token::OpenSquare => skip_nested(token_iter, Token::OpenSquare, Token::CloseSquare)?,
-            Token::CloseSquare => panic!("Floating closing square bracket"),
-            Token::DoubleColon => panic!("Floating double colon"),
+            Token::CloseSquare => panic!("floating closing square bracket"),
+            Token::DoubleColon => panic!("floating double colon"),
             Token::LT => {
                 token_iter.next();
                 let this_name = parse_name(token_iter)?;
@@ -316,25 +345,46 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
                         short_name = Some(this_name);
                     }
                     Some(_) => {
-                        return Err(format!("Unknown name {}", this_name));
+                        return Err(ParseError {
+                            span: Some(sp.clone()),
+                            msg: format!("unknown name '{}'", this_name),
+                        });
                     }
                 };
                 match token_iter.next() {
-                    None => return Err("Unclosed short-name <".to_string()),
-                    Some((Token::GT, _)) => {}
-                    Some((invalid_token, original)) => {
-                        return Err(format!(
-                            "Expected < found {:?}: {}",
-                            invalid_token, original
-                        ));
+                    None => {
+                        return Err(ParseError {
+                            span: Some(sp.clone()),
+                            msg: "unclosed short-name '<'".to_string(),
+                        });
+                    }
+                    Some((Token::GT, ..)) => {}
+                    Some((invalid_token, original, span)) => {
+                        return Err(ParseError {
+                            span: Some(sp.start..span.end),
+                            msg: format!(
+                                "expected '<', found '{}' (token {:?})",
+                                original, invalid_token
+                            ),
+                        });
                     }
                 };
             }
-            Token::GT => return Err("Floating <".to_string()),
+            Token::GT => {
+                return Err(ParseError {
+                    span: Some(sp.clone()),
+                    msg: "floating '<'".to_string(),
+                });
+            }
             Token::Equals => {
                 break;
             }
-            Token::Period => return Err("Floating period".to_string()),
+            Token::Period => {
+                return Err(ParseError {
+                    span: Some(sp.clone()),
+                    msg: "floating period".to_string(),
+                });
+            }
             Token::OtherSymbol => match keywords.get(&**original) {
                 Some(KeywordType::Simple) => {
                     token_iter.next();
@@ -358,7 +408,10 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>)>>(
                     break;
                 }
                 None => {
-                    return Err(format!("Floating unknown symbol '{}'", original));
+                    return Err(ParseError {
+                        span: Some(sp.clone()),
+                        msg: format!("floating unknown symbol '{}'", original),
+                    });
                 }
             },
         };
@@ -379,8 +432,8 @@ pub enum ExtractError {
     MissingBodyDelimiter(i32),
     #[error("unable to get token range")]
     TokenRangeError,
-    #[error("failed to parse\n{0}")]
-    ParseError(String),
+    #[error("error at line {0}, byte {1}:\n'{2}': {3}")]
+    ParseError(u32, u32, String, String),
 }
 
 /// A lexer that extracts top-level symbols from a SysML file.
@@ -423,14 +476,14 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
                 current = vec![];
             }
             Ok(Token::BlockComment) => {
-                current.push((Token::BlockComment, token_range));
+                current.push((Token::BlockComment, token_range, lexer.span()));
                 if depth == 0 {
                     all.push(current);
                 }
                 current = vec![];
             }
             Ok(Token::LineComment) => {
-                current.push((Token::LineComment, token_range));
+                current.push((Token::LineComment, token_range, lexer.span()));
                 if depth == 0 {
                     all.push(current);
                 }
@@ -446,17 +499,11 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
                 depth -= 1;
             }
             Ok(token) => {
-                current.push((token, token_range));
+                current.push((token, token_range, lexer.span()));
             }
             // One way to reach this is to have an unterminated string.
             Err(e) => {
-                let range = source[..lexer.span().start].as_bytes();
-                let line = range.iter().filter(|x| **x == b'\n').count() as u32 + 1;
-                // counts bytes, not chars or graphemes
-                let byte = match range.rsplit(|x| *x == b'\n').next() {
-                    Some(slice) => slice.len() as u32 + 1,
-                    None => range.len() as u32,
-                };
+                let (line, byte) = line_byte(&source, lexer.span());
                 return Err(ExtractError::SyntaxError(line, byte, e));
             }
         }
@@ -480,11 +527,14 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
 
         match parse_entity(&mut token_iter) {
             Err(err) => {
-                return Err(ExtractError::ParseError(format!(
-                    "'{}': {}",
-                    format_token_list(&tokens[..]),
-                    err
-                )));
+                let (src, snippet_start_line, snippet_start_byte) =
+                    format_token_list(&tokens, &source);
+                let (line, byte) = match err.span {
+                    Some(sp) => line_byte(&source, sp),
+                    // At least indicate the approximate location.
+                    None => (snippet_start_line, snippet_start_byte),
+                };
+                return Err(ExtractError::ParseError(line, byte, src, err.msg));
             }
             Ok((None, None)) => {}
             Ok((None, Some(short_name))) => symbols.push(short_name),
@@ -499,10 +549,36 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
     Ok(symbols)
 }
 
-fn format_token_list(list: &[(Token, Box<str>)]) -> String {
+// Returns: (line, byte), both 1-indexed
+fn line_byte(source: &str, span: logos::Span) -> (u32, u32) {
+    let range = source[..span.start].as_bytes();
+    let line = range.iter().filter(|x| **x == b'\n').count() as u32 + 1;
+    // counts bytes, not chars or graphemes
+    let byte = match range.rsplit(|x| *x == b'\n').next() {
+        Some(slice) => slice.len() as u32 + 1,
+        None => range.len() as u32,
+    };
+    (line, byte)
+}
+
+// Concatenates the tokens and strips start and end whitespace, including newlines.
+// Returns (concatenated_string, start_line, start_byte)
+fn format_token_list<'a>(
+    tokens: &[(Token, Box<str>, logos::Span)],
+
+    source: &str,
+) -> (String, u32, u32) {
+    let mut iter = tokens.iter();
+    let Some((_, text, span)) = iter.next() else {
+        return (String::new(), 1, 1);
+    };
     let mut buf = String::new();
-    for (_, text) in list {
+    let trimmed = text.trim_start();
+    buf.push_str(trimmed);
+    let (line, byte) = line_byte(source, span.start + (trimmed.len() - text.len())..span.end);
+    for (_, text, _) in iter {
         buf.push_str(text);
     }
-    buf
+    buf.truncate(buf.trim_end().len());
+    (buf, line, byte)
 }

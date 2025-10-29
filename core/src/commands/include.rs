@@ -15,7 +15,7 @@ pub enum IncludeError<ProjectError> {
     Project(ProjectError),
     #[error(transparent)]
     Io(Box<FsIoError>),
-    #[error("failed to extract symbols from '{0}': {1}")]
+    #[error("failed to extract symbol names from '{0}': {1}")]
     Extract(Box<str>, ExtractError),
     #[error("unknown file format {0}")]
     UnknownFormat(String),
