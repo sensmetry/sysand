@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use gix::prepare_clone;
 use thiserror::Error;
 
@@ -10,6 +12,8 @@ use crate::{
     },
 };
 
+use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, wrapfs};
+
 #[derive(Debug)]
 pub struct GixDownloadedProject {
     pub url: gix::Url,
@@ -19,58 +23,55 @@ pub struct GixDownloadedProject {
 
 #[derive(Error, Debug)]
 pub enum GixDownloadedError {
-    // NOTE: Apparently gix::clone::Error is too large
+    #[error("git clone from '{0}' failed: {1}")]
+    Clone(String, Box<gix::clone::Error>),
+    #[error("failed to parse git URL '{0}': {1}")]
+    UrlParse(Box<str>, Box<gix::url::parse::Error>),
     #[error(transparent)]
-    Clone(Box<gix::clone::Error>),
-    #[error(transparent)]
-    UrlParse(#[from] gix::url::parse::Error),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(#[from] Box<FsIoError>),
     #[error(transparent)]
     Path(#[from] PathError),
     #[error(transparent)]
-    Serde(#[from] serde_json::Error),
+    Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
-    Fetch(#[from] Box<gix::clone::fetch::Error>),
-    #[error(transparent)]
-    Checkout(#[from] gix::clone::checkout::main_worktree::Error),
+    Serialize(#[from] ProjectSerializationError),
+    #[error("git fetch from '{0}' failed: {1}")]
+    Fetch(String, Box<gix::clone::fetch::Error>),
+    #[error("git checkout in temporary directory '{0}' failed: {1}")]
+    Checkout(PathBuf, Box<gix::clone::checkout::main_worktree::Error>),
     #[error("{0}")]
     Other(String),
 }
 
-impl From<gix::clone::Error> for GixDownloadedError {
-    fn from(value: gix::clone::Error) -> Self {
-        GixDownloadedError::Clone(Box::new(value))
-    }
-}
-
-impl From<gix::clone::fetch::Error> for GixDownloadedError {
-    fn from(value: gix::clone::fetch::Error) -> Self {
-        GixDownloadedError::Fetch(Box::new(value))
+impl From<FsIoError> for GixDownloadedError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
     }
 }
 
 impl From<LocalSrcError> for GixDownloadedError {
     fn from(value: LocalSrcError) -> Self {
         match value {
-            LocalSrcError::Serde(error) => GixDownloadedError::Serde(error),
-            LocalSrcError::Io(error) => GixDownloadedError::Io(error),
-            LocalSrcError::Path(error) => GixDownloadedError::Path(error),
+            LocalSrcError::Deserialize(error) => Self::Deserialize(error),
+            LocalSrcError::Path(error) => Self::Path(error),
             LocalSrcError::AlreadyExists(msg) => {
                 GixDownloadedError::Other(format!("unexpected internal error: {}", msg))
             }
+            LocalSrcError::Io(e) => Self::Io(e),
+            LocalSrcError::Serialize(error) => Self::Serialize(error),
         }
     }
 }
 
 impl GixDownloadedProject {
     pub fn new<S: AsRef<str>>(url: S) -> Result<GixDownloadedProject, GixDownloadedError> {
-        let tmp_dir = tempfile::tempdir()?;
+        let tmp_dir = tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
 
         Ok(GixDownloadedProject {
-            url: gix::url::parse(url.as_ref().into())?,
+            url: gix::url::parse(url.as_ref().into())
+                .map_err(|e| GixDownloadedError::UrlParse(Box::from(url.as_ref()), Box::new(e)))?,
             inner: LocalSrcProject {
-                project_path: tmp_dir.path().canonicalize()?,
+                project_path: wrapfs::canonicalize(tmp_dir.path())?,
             },
             tmp_dir,
         })
@@ -78,12 +79,17 @@ impl GixDownloadedProject {
 
     fn ensure_downloaded(&self) -> Result<(), GixDownloadedError> {
         if !self.tmp_dir.path().join(".git").is_dir() {
-            let mut prepared_clone = prepare_clone(self.url.clone(), self.tmp_dir.path())?;
+            let mut prepared_clone = prepare_clone(self.url.clone(), self.tmp_dir.path())
+                .map_err(|e| GixDownloadedError::Clone(self.url.to_string(), Box::new(e)))?;
 
             let (mut prepare_checkout, _) = prepared_clone
-                .fetch_then_checkout(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
+                .fetch_then_checkout(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
+                .map_err(|e| GixDownloadedError::Fetch(self.url.to_string(), Box::new(e)))?;
             let (_repo, _) = prepare_checkout
-                .main_worktree(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)?;
+                .main_worktree(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
+                .map_err(|e| {
+                    GixDownloadedError::Checkout(self.tmp_dir.path().to_owned(), Box::new(e))
+                })?;
         }
 
         Ok(())
@@ -130,6 +136,7 @@ impl ProjectRead for GixDownloadedProject {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused_imports)]
     use std::{io::Read, process::Command};
 
     use assert_cmd::prelude::*;

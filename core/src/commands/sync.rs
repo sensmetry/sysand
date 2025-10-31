@@ -13,36 +13,51 @@ use crate::{
 };
 
 #[derive(Error, Debug)]
-pub enum SyncError<UrlError> {
-    #[error("incorrect checksum for {0} in lockfile")]
+pub enum SyncError<UrlParseError> {
+    #[error("incorrect checksum for project with IRI '{0}' in lockfile")]
     BadChecksum(String),
-    #[error("project {0} missing .project.json or .meta.json")]
+    #[error("project with IRI '{0}' is missing '.project.json' or '.meta.json'")]
     BadProject(String),
-    #[error("no source given for {0} in lockfile")]
-    MissingSource(String),
-    #[error("no IRI given for {0} in lockfile")]
-    MissingIri(String),
-    #[error("cannot handle source with src_path")]
-    MissingSrcPathStorage,
-    #[error("cannot handle source with remote_src")]
-    MissingRemoteSrcStorage,
-    #[error("{0}")]
-    InvalidRemoteSource(UrlError),
-    #[error("no supported sources for {0}")]
-    UnsupportedSources(String),
-    #[error("failed to install project {uri}:\n{cause}")]
-    InstallFailure { uri: String, cause: String },
+    #[error("project with IRI(s) {0:?} has no known sources in lockfile")]
+    MissingSource(Box<[String]>),
+    #[error("no IRI given for project with src_path = '{0}' in lockfile")]
+    MissingIriSrcPath(Box<str>),
+    #[error("no IRI given for project with remote_src = '{0}' in lockfile")]
+    MissingIriRemoteSrc(Box<str>),
+    #[error("no IRI given for project with kpar_path = '{0}' in lockfile")]
+    MissingIriLocalKparPath(Box<str>),
+    #[error("no IRI given for project with remote_kpar = '{0}' in lockfile")]
+    MissingIriRemoteKparPath(Box<str>),
     #[error(
-        "tried to install a non-provided version (checksum {hash}) of {iri}, which is an IRI marked as being provided by your tooling"
+        "cannot handle project with IRI '{0}' residing in local file (type 'local_src') storage"
+    )]
+    MissingSrcPathStorage(Box<str>),
+    #[error("cannot handle project with IRI '{0}' residing in remote (type 'remote_src') storage")]
+    MissingRemoteSrcStorage(Box<str>),
+    #[error(
+        "cannot handle project with IRI '{0}' residing in local kpar (type 'local_kpar') storage"
+    )]
+    MissingLocalKparStorage(Box<str>),
+    #[error(
+        "cannot handle project with IRI '{0}' residing in remote kpar (type 'remote_kpar') storage"
+    )]
+    MissingRemoteKparStorage(Box<str>),
+    #[error("invalid remote source URL '{0}':\n{1}")]
+    InvalidRemoteSource(Box<str>, UrlParseError),
+    #[error("no supported sources for project with IRI '{0}'")]
+    UnsupportedSources(String),
+    #[error("failed to install project '{uri}':\n{cause}")]
+    InstallFail { uri: Box<str>, cause: String },
+    #[error(
+        "tried to install a non-provided version (checksum {hash}) of '{iri}', which is an IRI marked as being provided by your tooling"
     )]
     InvalidProvidedVersion {
-        iri: String,
-        hash: String,
+        iri: Box<str>,
+        hash: Box<str>,
         provided: Vec<String>,
     },
-    // TODO: less opaque read errors
-    #[error("read error")]
-    ReadError,
+    #[error("project read error: {0}")]
+    ProjectRead(String),
 }
 
 pub fn do_sync<
@@ -55,7 +70,7 @@ pub fn do_sync<
     KParPathStorage,
     CreateRemoteKParStorage,
     RemoteKParStorage,
-    UrlError,
+    UrlParseError,
 >(
     lockfile: Lock,
     env: &mut Environment,
@@ -64,16 +79,16 @@ pub fn do_sync<
     kpar_path_storage: Option<CreateKParPathStorage>,
     remote_kpar_storage: Option<CreateRemoteKParStorage>,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
-) -> Result<(), SyncError<UrlError>>
+) -> Result<(), SyncError<UrlParseError>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
     CreateSrcPathStorage: Fn(String) -> SrcPathStorage,
     SrcPathStorage: ProjectRead,
-    CreateRemoteSrcStorage: Fn(String) -> Result<RemoteSrcStorage, UrlError>,
+    CreateRemoteSrcStorage: Fn(String) -> Result<RemoteSrcStorage, UrlParseError>,
     RemoteSrcStorage: ProjectRead,
     CreateKParPathStorage: Fn(String) -> KParPathStorage,
     KParPathStorage: ProjectRead,
-    CreateRemoteKParStorage: Fn(String) -> Result<RemoteKParStorage, UrlError>,
+    CreateRemoteKParStorage: Fn(String) -> Result<RemoteKParStorage, UrlParseError>,
     RemoteKParStorage: ProjectRead,
 {
     let syncing = "Syncing";
@@ -101,7 +116,7 @@ where
                         project_version.checksum_canonical_hex().ok().flatten()
                     {
                         if checksum == &provided_checksum {
-                            log::debug!("{} is marked as provided, skipping installation", iri);
+                            log::debug!("'{}' is marked as provided, skipping installation", iri);
                             continue 'main_loop;
                         }
 
@@ -115,18 +130,15 @@ where
                 }
 
                 return Err(SyncError::InvalidProvidedVersion {
-                    iri: iri.clone(),
-                    hash: project.checksum.clone(),
+                    iri: iri.as_str().into(),
+                    hash: project.checksum.as_str().into(),
                     provided,
                 });
             }
         }
 
         if project.sources.is_empty() {
-            return Err(SyncError::MissingSource(format!(
-                "Project with IRI(s) {:?} has no known sources",
-                project.iris
-            )));
+            return Err(SyncError::MissingSource(Box::from(project.iris.as_slice())));
         }
 
         for uri in &project.iris {
@@ -146,33 +158,34 @@ where
                 Source::LocalSrc { src_path } => {
                     let uri = main_uri
                         .as_ref()
-                        .ok_or(SyncError::MissingIri(format!("src_path = {src_path}")))?;
+                        .ok_or_else(|| SyncError::MissingIriSrcPath(src_path.as_str().into()))?;
                     let src_path_storage = src_path_storage
                         .as_ref()
-                        .ok_or(SyncError::MissingSrcPathStorage)?;
+                        .ok_or_else(|| SyncError::MissingSrcPathStorage(uri.as_str().into()))?;
                     let storage = src_path_storage(src_path.clone());
-                    log::debug!("trying to install {uri} from src_path: {src_path}");
+                    log::debug!("trying to install '{uri}' from src_path '{src_path}'");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
                 Source::RemoteSrc { remote_src } => {
-                    let uri = main_uri
-                        .as_ref()
-                        .ok_or(SyncError::MissingIri(format!("remote_src = {remote_src}")))?;
+                    let uri = main_uri.as_ref().ok_or_else(|| {
+                        SyncError::MissingIriRemoteSrc(remote_src.as_str().into())
+                    })?;
                     let remote_src_storage = remote_src_storage
                         .as_ref()
-                        .ok_or(SyncError::MissingRemoteSrcStorage)?;
-                    let storage = remote_src_storage(remote_src.clone())
-                        .map_err(|e| SyncError::InvalidRemoteSource(e))?;
+                        .ok_or_else(|| SyncError::MissingRemoteSrcStorage(uri.as_str().into()))?;
+                    let storage = remote_src_storage(remote_src.clone()).map_err(|e| {
+                        SyncError::InvalidRemoteSource(remote_src.as_str().into(), e)
+                    })?;
                     log::debug!("trying to install {uri} from remote_src: {remote_src}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
                 Source::LocalKpar { kpar_path } => {
-                    let uri = main_uri
-                        .as_ref()
-                        .ok_or(SyncError::MissingIri(format!("kpar_path = {kpar_path}")))?;
-                    let kpar_path_storage = kpar_path_storage
-                        .as_ref()
-                        .ok_or(SyncError::MissingSrcPathStorage)?;
+                    let uri = main_uri.as_ref().ok_or_else(|| {
+                        SyncError::MissingIriLocalKparPath(kpar_path.as_str().into())
+                    })?;
+                    let kpar_path_storage = kpar_path_storage.as_ref().ok_or_else(|| {
+                        SyncError::MissingLocalKparStorage(kpar_path.as_str().into())
+                    })?;
                     let storage = kpar_path_storage(kpar_path.clone());
                     log::debug!("trying to install {uri} from kpar_path: {kpar_path}");
                     try_install(uri, &project.checksum, storage, env)?;
@@ -181,14 +194,15 @@ where
                     remote_kpar,
                     remote_kpar_size: _,
                 } => {
-                    let uri = main_uri.as_ref().ok_or(SyncError::MissingIri(format!(
-                        "remote_kpar = {remote_kpar}"
-                    )))?;
-                    let remote_kpar_storage = remote_kpar_storage
-                        .as_ref()
-                        .ok_or(SyncError::MissingRemoteSrcStorage)?;
-                    let storage = remote_kpar_storage(remote_kpar.clone())
-                        .map_err(|e| SyncError::InvalidRemoteSource(e))?;
+                    let uri = main_uri.as_ref().ok_or_else(|| {
+                        SyncError::MissingIriRemoteKparPath(remote_kpar.as_str().into())
+                    })?;
+                    let remote_kpar_storage = remote_kpar_storage.as_ref().ok_or_else(|| {
+                        SyncError::MissingRemoteKparStorage(remote_kpar.as_str().into())
+                    })?;
+                    let storage = remote_kpar_storage(remote_kpar.clone()).map_err(|e| {
+                        SyncError::InvalidRemoteSource(remote_kpar.as_str().into(), e)
+                    })?;
                     log::debug!("trying to install {uri} from remote_kpar: {remote_kpar}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
@@ -216,16 +230,22 @@ fn is_installed<E: ReadEnvironment, U>(
     checksum: &String,
     env: &E,
 ) -> Result<bool, SyncError<U>> {
-    if !env.has(uri).map_err(|_| SyncError::ReadError)? {
+    if !env
+        .has(uri)
+        .map_err(|e| SyncError::ProjectRead(e.to_string()))?
+    {
         return Ok(false);
     }
-    for version in env.versions(uri).map_err(|_| SyncError::ReadError)? {
-        let version: String = version.map_err(|_| SyncError::ReadError)?;
+    for version in env
+        .versions(uri)
+        .map_err(|e| SyncError::ProjectRead(e.to_string()))?
+    {
+        let version: String = version.map_err(|e| SyncError::ProjectRead(e.to_string()))?;
         let project_checksum = env
             .get_project(uri, version)
-            .map_err(|_| SyncError::ReadError)?
+            .map_err(|e| SyncError::ProjectRead(e.to_string()))?
             .checksum_noncanonical_hex()
-            .map_err(|_| SyncError::ReadError)?
+            .map_err(|e| SyncError::ProjectRead(e.to_string()))?
             .ok_or(SyncError::BadProject(uri.clone()))?;
         if checksum == &project_checksum {
             return Ok(true);
@@ -242,13 +262,13 @@ fn try_install<E: ReadEnvironment + WriteEnvironment, P: ProjectRead, U>(
 ) -> Result<(), SyncError<U>> {
     let project_checksum = storage
         .checksum_canonical_hex()
-        .map_err(|_| SyncError::ReadError)?
+        .map_err(|e| SyncError::ProjectRead(e.to_string()))?
         .ok_or(SyncError::BadProject(uri.clone()))?;
     if checksum == &project_checksum {
         // TODO: Need to decide how to handle existing installations and possible flags to modify behavior
         do_env_install_project(uri, &storage, env, true, true).map_err(|e| {
-            SyncError::InstallFailure {
-                uri: uri.to_string(),
+            SyncError::InstallFail {
+                uri: uri.as_str().into(),
                 cause: e.to_string(),
             }
         })?;

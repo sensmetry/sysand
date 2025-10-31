@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use std::io::{BufRead as _, BufReader, Read};
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
+use utils::FsIoError;
 
 // Implementations
 pub mod editable;
@@ -52,21 +53,21 @@ fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, std::io::Error> {
 
 #[derive(Error, Debug)]
 pub enum CanonicalisationError<ReadError> {
-    #[error("{0}")]
-    ReadError(ReadError),
-    #[error("{0}")]
-    IOError(std::io::Error),
+    #[error(transparent)]
+    ProjectRead(ReadError),
+    #[error("failed to read from file\n  '{0}':\n  {1}")]
+    FileRead(Box<str>, std::io::Error),
 }
 
 #[derive(Debug, Error)]
 pub enum IntoProjectError<ReadError, W: ProjectMut> {
-    #[error("{0}")]
-    ReadError(ReadError),
-    #[error("{0}")]
-    WriteError(W::Error),
-    #[error("missing project information")]
+    #[error(transparent)]
+    ProjectRead(ReadError),
+    #[error(transparent)]
+    ProjectWrite(W::Error),
+    #[error("missing project information file '.project.json'")]
     MissingInfo,
-    #[error("missing project metadata")]
+    #[error("missing project metadata file '.meta.json'")]
     MissingMeta,
 }
 
@@ -149,7 +150,10 @@ pub trait ProjectRead {
     fn canonical_meta(
         &self,
     ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>> {
-        let Some(mut meta) = self.get_meta().map_err(CanonicalisationError::ReadError)? else {
+        let Some(mut meta) = self
+            .get_meta()
+            .map_err(CanonicalisationError::ProjectRead)?
+        else {
             return Ok(None);
         };
 
@@ -164,10 +168,11 @@ pub trait ProjectRead {
 
                 let mut src = self
                     .read_source(path)
-                    .map_err(CanonicalisationError::ReadError)?;
+                    .map_err(CanonicalisationError::ProjectRead)?;
                 checksum.value = format!(
                     "{:x}",
-                    hash_reader(&mut src).map_err(CanonicalisationError::IOError)?
+                    hash_reader(&mut src)
+                        .map_err(|e| CanonicalisationError::FileRead(path.as_str().into(), e))?
                 );
             } else {
                 checksum.value = checksum.value.to_lowercase();
@@ -187,7 +192,9 @@ pub trait ProjectRead {
 
     /// Produces a project hash based on project information and the *canonicalised* metadata.
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalisationError<Self::Error>> {
-        let info = self.get_info().map_err(CanonicalisationError::ReadError)?;
+        let info = self
+            .get_info()
+            .map_err(CanonicalisationError::ProjectRead)?;
         let meta = self.canonical_meta()?;
 
         Ok(info
@@ -199,10 +206,16 @@ pub trait ProjectRead {
 // TODO: Eliminate the need for this?
 #[derive(Error, Debug)]
 pub enum ProjectOrIOError<ProjectError> {
-    #[error("{0}")]
-    ProjectError(ProjectError),
-    #[error("{0}")]
-    IOError(#[from] std::io::Error),
+    #[error(transparent)]
+    Project(ProjectError),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+}
+
+impl<ProjectError> From<FsIoError> for ProjectOrIOError<ProjectError> {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 #[derive(Debug)]
@@ -257,16 +270,15 @@ pub trait ProjectMut: ProjectRead {
     ) -> Result<(), ProjectOrIOError<Self::Error>> {
         let mut meta = self
             .get_meta()
-            .map_err(ProjectOrIOError::ProjectError)?
+            .map_err(ProjectOrIOError::Project)?
             .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
 
         {
-            let mut reader = self
-                .read_source(&path)
-                .map_err(ProjectOrIOError::ProjectError)?;
+            let mut reader = self.read_source(&path).map_err(ProjectOrIOError::Project)?;
 
             if compute_checksum {
-                let sha256_checksum = hash_reader(&mut reader)?;
+                let sha256_checksum = hash_reader(&mut reader)
+                    .map_err(|e| FsIoError::ReadFile(path.as_ref().as_str().into(), e))?;
 
                 meta.add_checksum(&path, "SHA256", format!("{:x}", sha256_checksum), overwrite);
             } else {
@@ -275,7 +287,7 @@ pub trait ProjectMut: ProjectRead {
         }
 
         self.put_meta(&meta, true)
-            .map_err(ProjectOrIOError::ProjectError)
+            .map_err(ProjectOrIOError::Project)
     }
 
     fn exclude_source<P: AsRef<Utf8UnixPath>>(
@@ -284,14 +296,14 @@ pub trait ProjectMut: ProjectRead {
     ) -> Result<SourceExclusionOutcome, ProjectOrIOError<Self::Error>> {
         let mut meta = self
             .get_meta()
-            .map_err(ProjectOrIOError::ProjectError)?
+            .map_err(ProjectOrIOError::Project)?
             .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
 
         let removed_checksum = meta.remove_checksum(&path);
         let removed_symbols = meta.remove_index(&path);
 
         self.put_meta(&meta, true)
-            .map_err(ProjectOrIOError::ProjectError)?;
+            .map_err(ProjectOrIOError::Project)?;
 
         Ok(SourceExclusionOutcome {
             removed_checksum,
@@ -306,7 +318,7 @@ pub trait ProjectMut: ProjectRead {
     ) -> Result<IndexMergeOutcome, ProjectOrIOError<Self::Error>> {
         let mut meta = self
             .get_meta()
-            .map_err(ProjectOrIOError::ProjectError)?
+            .map_err(ProjectOrIOError::Project)?
             .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
 
         let mut new = vec![];
@@ -332,7 +344,7 @@ pub trait ProjectMut: ProjectRead {
         }
 
         self.put_meta(&meta, true)
-            .map_err(ProjectOrIOError::ProjectError)?;
+            .map_err(ProjectOrIOError::Project)?;
 
         Ok(IndexMergeOutcome { new, existing })
     }

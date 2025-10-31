@@ -11,6 +11,8 @@ use crate::project::{
     local_kpar::{LocalKParError, LocalKParProject},
 };
 
+use super::utils::{FsIoError, ToPathBuf, wrapfs};
+
 /// Project stored at a remote URL such as https://www.example.com/project.kpar.
 /// The URL is expected to resolve to a kpar-archive (ZIP-file) (at least) if
 /// requested with CONTENT-TYPE(s) application/zip, application/x-zip-compressed.
@@ -27,34 +29,35 @@ pub struct ReqwestKparDownloadedProject {
 
 #[derive(Error, Debug)]
 pub enum ReqwestKparDownloadedError {
-    #[error("Not found {0}")]
-    UnableToAccess(reqwest::Url, reqwest::StatusCode),
-    #[error(transparent)]
-    Url(#[from] url::ParseError),
-    #[error(transparent)]
-    Reqwest(#[from] reqwest::Error),
+    #[error("HTTP request to '{0}' returned status {1}")]
+    BadHttpStatus(reqwest::Url, reqwest::StatusCode),
+    #[error("failed to parse URL '{0}': {1}")]
+    ParseUrl(Box<str>, url::ParseError),
+    #[error("HTTP request to '{0}' failed: {1}")]
+    Reqwest(Box<str>, reqwest::Error),
+    #[error("failed to decode data received from HTTP request '{0}': {1}")]
+    ResponseDecode(Box<str>, reqwest::Error),
     #[error(transparent)]
     KPar(#[from] LocalKParError),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
 }
 
-impl From<std::io::Error> for ReqwestKparDownloadedError {
-    fn from(value: std::io::Error) -> Self {
-        ReqwestKparDownloadedError::KPar(LocalKParError::Io(value))
+impl From<FsIoError> for ReqwestKparDownloadedError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
     }
 }
 
 impl ReqwestKparDownloadedProject {
     pub fn new_guess_root<S: AsRef<str>>(url: S) -> Result<Self, ReqwestKparDownloadedError> {
-        let tmp_dir = tempdir()?;
+        let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
 
         Ok(ReqwestKparDownloadedProject {
-            url: reqwest::Url::parse(url.as_ref())?,
+            url: reqwest::Url::parse(url.as_ref())
+                .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?,
             inner: LocalKParProject {
-                archive_path: tmp_dir
-                    .path()
-                    .canonicalize()?
-                    .join("project.kpar")
-                    .to_path_buf(),
+                archive_path: wrapfs::canonicalize(tmp_dir.path())?.join("project.kpar"),
                 tmp_dir,
                 root: None,
             },
@@ -66,20 +69,25 @@ impl ReqwestKparDownloadedProject {
             return Ok(());
         }
 
-        let mut file = std::fs::File::create(self.inner.archive_path.clone())?;
+        let mut file = wrapfs::File::create(&self.inner.archive_path)?;
 
-        let resp = reqwest::blocking::get(self.url.clone())?;
+        let resp = reqwest::blocking::get(self.url.clone())
+            .map_err(|e| ReqwestKparDownloadedError::Reqwest(self.url.as_str().into(), e))?;
 
         if !resp.status().is_success() {
-            return Err(ReqwestKparDownloadedError::UnableToAccess(
+            return Err(ReqwestKparDownloadedError::BadHttpStatus(
                 self.url.clone(),
                 resp.status(),
             ));
         }
 
-        file.write_all(&resp.bytes()?)?;
+        file.write_all(&resp.bytes().map_err(|e| {
+            ReqwestKparDownloadedError::ResponseDecode(self.url.as_str().into(), e)
+        })?)
+        .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_path_buf(), e))?;
 
-        file.flush()?;
+        file.flush()
+            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_path_buf(), e))?;
 
         Ok(())
     }

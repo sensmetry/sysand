@@ -21,9 +21,9 @@ impl<Higher, Lower> PriorityResolver<Higher, Lower> {
 #[derive(Error, Debug)]
 pub enum PriorityError<HigherError, LowerError> {
     #[error(transparent)]
-    HigherError(HigherError),
+    Higher(HigherError),
     #[error(transparent)]
-    LowerError(LowerError),
+    Lower(LowerError),
 }
 
 #[derive(Debug)]
@@ -69,11 +69,11 @@ impl<Higher: ResolveRead, Lower: ResolveRead> Iterator for PriorityIterator<High
         match self {
             PriorityIterator::HigherIterator(project) => project.next().map(|x| {
                 x.map(PriorityProject::HigherProject)
-                    .map_err(PriorityError::HigherError)
+                    .map_err(PriorityError::Higher)
             }),
             PriorityIterator::LowerIterator(project) => project.next().map(|x| {
                 x.map(PriorityProject::LowerProject)
-                    .map_err(PriorityError::LowerError)
+                    .map_err(PriorityError::Lower)
             }),
         }
     }
@@ -104,10 +104,10 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
     > {
         match self {
             PriorityProject::HigherProject(project) => {
-                project.get_project().map_err(PriorityError::HigherError)
+                project.get_project().map_err(PriorityError::Higher)
             }
             PriorityProject::LowerProject(project) => {
-                project.get_project().map_err(PriorityError::LowerError)
+                project.get_project().map_err(PriorityError::Lower)
             }
         }
     }
@@ -125,11 +125,11 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
             PriorityProject::HigherProject(project) => project
                 .read_source(path)
                 .map(PriorityReader::HigherReader)
-                .map_err(PriorityError::HigherError),
+                .map_err(PriorityError::Higher),
             PriorityProject::LowerProject(project) => project
                 .read_source(path)
                 .map(PriorityReader::LowerReader)
-                .map_err(PriorityError::LowerError),
+                .map_err(PriorityError::Lower),
         }
     }
 
@@ -162,7 +162,7 @@ impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<H
         if let super::ResolutionOutcome::Resolved(resolved) = self
             .higher
             .resolve_read(uri)
-            .map_err(PriorityError::HigherError)?
+            .map_err(PriorityError::Higher)?
         {
             return Ok(super::ResolutionOutcome::Resolved(
                 PriorityIterator::HigherIterator(resolved.into_iter()),
@@ -172,7 +172,7 @@ impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<H
         Ok(self
             .lower
             .resolve_read(uri)
-            .map_err(PriorityError::LowerError)?
+            .map_err(PriorityError::Lower)?
             .map(|resolved| PriorityIterator::LowerIterator(resolved.into_iter())))
     }
 }

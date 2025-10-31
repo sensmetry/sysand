@@ -22,8 +22,7 @@ pub fn command_add(
         no_index,
         include_std,
     } = dependency_opts;
-    let mut current_project =
-        current_project.ok_or(CliError::MissingProject("in current directory".to_string()))?;
+    let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path();
 
     do_add(&mut current_project, iri, versions_constraint)?;

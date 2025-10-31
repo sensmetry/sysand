@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.regex.Pattern;
+import java.nio.file.Files;
 
 public class BasicTest {
 
@@ -21,13 +22,16 @@ public class BasicTest {
             org.sysand.Sysand.init("test", "1.0.0", tempDir);
 
             // Add basic assertions to verify project creation
-            assertTrue(java.nio.file.Files.exists(tempDir.resolve(".project.json")), "Project file should exist");
-            assertTrue(java.nio.file.Files.exists(tempDir.resolve(".meta.json")), "Metadata file should exist");
+            assertTrue(Files.exists(tempDir.resolve(".project.json")), "Project file should exist");
+            assertTrue(Files.exists(tempDir.resolve(".meta.json")), "Metadata file should exist");
 
-            String projectJson = java.nio.file.Files.readString(tempDir.resolve(".project.json"));
+            // java.nio.file.Files.readString is available in Java 11+
+            // String projectJson = java.nio.file.Files.readString(tempDir.resolve(".project.json"));
+            String projectJson = new String(Files.readAllBytes(tempDir.resolve(".project.json")));
             assertEquals("{\n  \"name\": \"test\",\n  \"version\": \"1.0.0\",\n  \"usage\": []\n}", projectJson);
 
-            String metaJson = java.nio.file.Files.readString(tempDir.resolve(".meta.json"));
+            // String metaJson = Files.readString(tempDir.resolve(".meta.json"));
+            String metaJson = new String(Files.readAllBytes(tempDir.resolve(".meta.json")));
             Pattern regex = Pattern.compile(
                     "\\{\\s*\"index\":\\s*\\{\\},\\s*\"created\":\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{6,9}Z\"\\s*\\}",
                     Pattern.DOTALL);
@@ -42,12 +46,13 @@ public class BasicTest {
     @Test
     public void testBasicEnv() {
         try {
-            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-env");
+            java.nio.file.Path tempDir = Files.createTempDirectory("sysand-test-env");
             java.nio.file.Path envPath = tempDir.resolve(org.sysand.Sysand.defaultEnvName());
             org.sysand.Sysand.env(envPath);
 
-            assertTrue(java.nio.file.Files.exists(envPath.resolve("entries.txt")), "Entries file should exist");
-            String entries = java.nio.file.Files.readString(envPath.resolve("entries.txt"));
+            assertTrue(Files.exists(envPath.resolve("entries.txt")), "Entries file should exist");
+            // String entries = java.nio.file.Files.readString(envPath.resolve("entries.txt"));
+            String entries = new String(Files.readAllBytes(envPath.resolve("entries.txt")));
             assertEquals("", entries);
         } catch (java.io.IOException e) {
             fail("Failed during temporary directory operations or Sysand.env: " + e.getMessage());

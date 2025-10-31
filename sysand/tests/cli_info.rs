@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{io::Write as _, process::Command};
+#[cfg(feature = "alltests")]
+use std::process::Command;
+
+use std::io::Write as _;
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
@@ -429,7 +432,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "Unable to find interchange project at urn:kpar:other",
+        "unable to find interchange project 'urn:kpar:other'",
     ));
 
     Ok(())
@@ -568,7 +571,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "Unable to find interchange project at urn:kpar:other",
+        "unable to find interchange project 'urn:kpar:other'",
     ));
 
     Ok(())

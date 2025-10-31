@@ -21,7 +21,7 @@ fn add_and_remove() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("Adding usage: urn:kpar:test"));
+        .stderr(predicate::str::contains("Adding usage: 'urn:kpar:test'"));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
 
@@ -41,7 +41,7 @@ fn add_and_remove() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], None)?;
 
     out.assert().success().stderr(predicate::str::contains(
-        r#"Removing urn:kpar:test from usages
+        r#"Removing 'urn:kpar:test' from usages
              urn:kpar:test"#,
     ));
 
@@ -71,7 +71,7 @@ fn remove_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["remove", "urn:kpar:remove_nonexistent"], None)?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "could not find usage for urn:kpar:remove_nonexistent",
+        "could not find usage for 'urn:kpar:remove_nonexistent'",
     ));
 
     Ok(())

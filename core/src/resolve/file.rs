@@ -3,10 +3,16 @@
 
 // Resolver for file:// URLs
 
-use std::io::Read;
+use std::{io::Read, path::Path};
 
 use crate::{
-    project::{ProjectRead, local_kpar::LocalKParProject, local_src::LocalSrcProject},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{
+        self, ProjectRead,
+        local_kpar::{LocalKParError, LocalKParProject},
+        local_src::{LocalSrcError, LocalSrcProject},
+        utils::{FsIoError, ProjectDeserializationError, wrapfs},
+    },
     resolve::{ResolutionOutcome, ResolveRead},
 };
 
@@ -25,10 +31,16 @@ pub struct FileResolver {
 
 #[derive(Error, Debug)]
 pub enum FileResolverError {
-    #[error("invalid path error")]
+    #[error("invalid path '{0}'")]
     InvalidPath(String),
-    #[error("io error: {0}")]
-    IOError(#[from] std::io::Error),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+}
+
+impl From<FsIoError> for FileResolverError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
@@ -68,8 +80,8 @@ impl FileResolver {
             let mut found = false;
             let mut sandbox_roots_canonical = Vec::new();
             for sandbox_root in sandboxed_roots {
-                let sandbox_root_canonical = sandbox_root.canonicalize()?;
-                let project_path_canonical = project_path.canonicalize()?;
+                let sandbox_root_canonical = wrapfs::canonicalize(sandbox_root)?;
+                let project_path_canonical = wrapfs::canonicalize(&project_path)?;
 
                 if project_path_canonical.starts_with(&sandbox_root_canonical) {
                     found = true;
@@ -79,7 +91,7 @@ impl FileResolver {
             }
             if !found {
                 return Ok(ResolutionOutcome::Unresolvable(format!(
-                    "Refusing to resolve path {}, is not inside in any of the allowed directories {}",
+                    "Refusing to resolve path '{}', is not inside in any of the allowed directories\n{}",
                     project_path.display(),
                     sandbox_roots_canonical.join("; "),
                 )));
@@ -97,7 +109,7 @@ impl FileResolver {
             self.resolve_platform_path(file_path)
         } else {
             Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "Not a valid file URL: {}",
+                "not a valid file URL: {}",
                 &uri
             )))
         }
@@ -112,25 +124,31 @@ pub enum FileResolverProject {
 
 #[derive(Error, Debug)]
 pub enum FileResolverProjectError {
+    #[error(transparent)]
+    Zip(project::utils::ZipArchiveError),
+    #[error("path '{0}' not found")]
+    NotFound(Box<Path>),
+    #[error(transparent)]
+    Deserialize(ProjectDeserializationError),
+    #[error(transparent)]
+    LocalSrc(LocalSrcError),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+    #[error(transparent)]
+    Path(#[from] project::local_src::PathError),
     #[error("{0}")]
-    ZipError(#[from] zip::result::ZipError),
-    #[error("invalid name in archive: {0}")]
-    NameError(String),
-    #[error("not found: {0}")]
-    NotFound(String),
-    #[error("{0}")]
-    SerdeError(#[from] serde_json::Error),
-    #[error("{0}")]
-    IOError(#[from] std::io::Error),
-    #[error("path error")]
-    PathError(#[from] crate::project::local_src::PathError),
-    #[error("{0}")]
-    OtherError(String),
+    Other(String),
+}
+
+impl From<FsIoError> for FileResolverProjectError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 pub enum FileResolverProjectReader<'a> {
-    File(<crate::project::local_src::LocalSrcProject as ProjectRead>::SourceReader<'a>),
-    Archive(<crate::project::local_kpar::LocalKParProject as ProjectRead>::SourceReader<'a>),
+    File(<project::local_src::LocalSrcProject as ProjectRead>::SourceReader<'a>),
+    Archive(<project::local_kpar::LocalKParProject as ProjectRead>::SourceReader<'a>),
 }
 
 impl Read for FileResolverProjectReader<'_> {
@@ -142,43 +160,27 @@ impl Read for FileResolverProjectReader<'_> {
     }
 }
 
-impl From<crate::project::local_kpar::LocalKParError> for FileResolverProjectError {
-    fn from(value: crate::project::local_kpar::LocalKParError) -> Self {
+impl From<LocalKParError> for FileResolverProjectError {
+    fn from(value: LocalKParError) -> Self {
         match value {
-            crate::project::local_kpar::LocalKParError::Zip(zip_error) => {
-                FileResolverProjectError::ZipError(zip_error)
-            }
-            crate::project::local_kpar::LocalKParError::InvalidName(err) => {
-                FileResolverProjectError::NameError(err)
-            }
-            crate::project::local_kpar::LocalKParError::NotFound(err) => {
-                FileResolverProjectError::NotFound(err)
-            }
-            crate::project::local_kpar::LocalKParError::Serde(error) => {
-                FileResolverProjectError::SerdeError(error)
-            }
-            crate::project::local_kpar::LocalKParError::Io(error) => {
-                FileResolverProjectError::IOError(error)
-            }
+            LocalKParError::NotFound(err) => FileResolverProjectError::NotFound(err),
+            LocalKParError::Deserialize(error) => FileResolverProjectError::Deserialize(error),
+            LocalKParError::Io(error) => FileResolverProjectError::Io(error),
+            // It would be pointless to include the same variants with the same error messages here
+            LocalKParError::Zip(err) => FileResolverProjectError::Zip(err),
         }
     }
 }
 
-impl From<crate::project::local_src::LocalSrcError> for FileResolverProjectError {
-    fn from(value: crate::project::local_src::LocalSrcError) -> Self {
+impl From<LocalSrcError> for FileResolverProjectError {
+    fn from(value: LocalSrcError) -> Self {
         match value {
-            crate::project::local_src::LocalSrcError::Serde(error) => {
-                FileResolverProjectError::SerdeError(error)
+            LocalSrcError::Deserialize(error) => FileResolverProjectError::Deserialize(error),
+            LocalSrcError::Path(path_error) => FileResolverProjectError::Path(path_error),
+            LocalSrcError::AlreadyExists(msg) => {
+                FileResolverProjectError::Other(format!("unexpected internal error: {}", msg))
             }
-            crate::project::local_src::LocalSrcError::Io(error) => {
-                FileResolverProjectError::IOError(error)
-            }
-            crate::project::local_src::LocalSrcError::Path(path_error) => {
-                FileResolverProjectError::PathError(path_error)
-            }
-            crate::project::local_src::LocalSrcError::AlreadyExists(msg) => {
-                FileResolverProjectError::OtherError(format!("unexpected internal error: {}", msg))
-            }
+            e => FileResolverProjectError::LocalSrc(e),
         }
     }
 }
@@ -190,8 +192,8 @@ impl ProjectRead for FileResolverProject {
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {

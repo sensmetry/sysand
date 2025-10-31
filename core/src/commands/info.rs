@@ -11,10 +11,10 @@ use crate::{
 
 #[derive(Error, Debug)]
 pub enum InfoError<Error: std::error::Error> {
-    #[error("failed to resolve")]
+    #[error("failed to resolve {0}")]
     NoResolve(String),
-    #[error("failure during resolution")]
-    ResolutionError(#[from] Error),
+    #[error("failure during resolution: {0}")]
+    Resolution(#[from] Error),
 }
 
 pub fn do_info_project<P: ProjectRead>(
@@ -39,7 +39,7 @@ pub fn do_info_project<P: ProjectRead>(
         }
         Err(_) => {
             log::warn!(
-                "ignoring a invalid project",
+                "ignoring an invalid project",
                 //uri.as_ref()
             );
             None
@@ -66,11 +66,14 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
 
             Ok(result)
         }
-        ResolutionOutcome::UnsupportedIRIType(e) => {
-            Err(InfoError::NoResolve(format!("Unsupported IRI: {}", e)))
-        }
+        ResolutionOutcome::UnsupportedIRIType(e) => Err(InfoError::NoResolve(format!(
+            "unsupported IRI '{}': {}",
+            uri.as_ref(),
+            e
+        ))),
         ResolutionOutcome::Unresolvable(e) => Err(InfoError::NoResolve(format!(
-            "Failed to resolve IRI: {}",
+            "IRI '{}': {}",
+            uri.as_ref(),
             e
         ))),
     }

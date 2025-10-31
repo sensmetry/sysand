@@ -1,20 +1,28 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::project::{ProjectMut, ProjectRead};
+use crate::project::{ProjectMut, ProjectRead, utils::FsIoError};
 
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum CloneError<ProjectReadError, EnvironmentWriteError> {
     #[error("project read error: {0}")]
-    ReadError(ProjectReadError),
-    #[error("environment write error")]
-    WriteError(EnvironmentWriteError),
-    #[error("incomplete source")]
-    IncompleteSourceError(String),
-    #[error("{0}")]
-    IOError(#[from] std::io::Error),
+    ProjectRead(ProjectReadError),
+    #[error("environment write error: {0}")]
+    EnvWrite(EnvironmentWriteError),
+    #[error("incomplete project: {0}")]
+    IncompleteSource(&'static str),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+}
+
+impl<ProjectReadError, EnvironmentWriteError> From<FsIoError>
+    for CloneError<ProjectReadError, EnvironmentWriteError>
+{
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
@@ -22,32 +30,28 @@ pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
     to: &mut Q,
     overwrite: bool,
 ) -> Result<(), CloneError<P::Error, Q::Error>> {
-    match from.get_project().map_err(CloneError::ReadError)? {
+    match from.get_project().map_err(CloneError::ProjectRead)? {
         (None, None) => {
-            return Err(CloneError::IncompleteSourceError(
-                "missing .project.json and .meta.json".to_string(),
+            return Err(CloneError::IncompleteSource(
+                "missing '.project.json' and '.meta.json'",
             ));
         }
         (None, _) => {
-            return Err(CloneError::IncompleteSourceError(
-                "missing .project.json".to_string(),
-            ));
+            return Err(CloneError::IncompleteSource("missing '.project.json'"));
         }
         (_, None) => {
-            return Err(CloneError::IncompleteSourceError(
-                "missing .meta.json".to_string(),
-            ));
+            return Err(CloneError::IncompleteSource("missing '.meta.json'"));
         }
         (Some(info), Some(meta)) => {
             to.put_project(&info, &meta, overwrite)
-                .map_err(CloneError::WriteError)?;
+                .map_err(CloneError::EnvWrite)?;
 
             for source_path in &meta.source_paths(true) {
                 let mut source = from
                     .read_source(source_path)
-                    .map_err(CloneError::ReadError)?;
+                    .map_err(CloneError::ProjectRead)?;
                 to.write_source(source_path, &mut source, overwrite)
-                    .map_err(CloneError::WriteError)?;
+                    .map_err(CloneError::EnvWrite)?;
             }
         }
     }

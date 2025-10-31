@@ -29,14 +29,14 @@ pub struct HTTPEnvironment {
 
 #[derive(Error, Debug)]
 pub enum HTTPEnvironmentError {
-    #[error("{0}")]
-    URLError(#[from] url::ParseError),
-    #[error("{0}")]
-    ReqwestError(#[from] reqwest::Error),
-    #[error("{0}")]
-    IOError(#[from] std::io::Error),
-    #[error("Unable to handle URL: {0}")]
-    InvalidURL(url::Url),
+    #[error("failed to extend URL '{0}' with path '{1}': {2}")]
+    JoinURL(Box<str>, String, url::ParseError),
+    #[error("error making an HTTP request to '{0}':\n{1}")]
+    HTTPRequest(Box<str>, reqwest::Error),
+    #[error("failed to get project '{0}', version '{1}' in source or kpar format")]
+    InvalidURL(Box<str>, Box<str>),
+    #[error("failed to read HTTP response: {0}")]
+    HttpIo(std::io::Error),
 }
 
 pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> std::vec::IntoIter<std::string::String> {
@@ -56,8 +56,13 @@ impl HTTPEnvironment {
         }
     }
 
+    pub fn url_join(url: &url::Url, join: &str) -> Result<url::Url, HTTPEnvironmentError> {
+        url.join(join)
+            .map_err(|e| HTTPEnvironmentError::JoinURL(url.as_str().into(), join.into(), e))
+    }
+
     pub fn entries_url(&self) -> Result<url::Url, HTTPEnvironmentError> {
-        Ok(self.root_url().join(ENTRIES_PATH)?)
+        Self::url_join(&self.root_url(), ENTRIES_PATH)
     }
 
     pub fn get_entries_request(
@@ -71,21 +76,30 @@ impl HTTPEnvironment {
 
         for mut component in path_encode_uri(iri) {
             component.push('/');
-            result = result.join(&component)?;
+            result = Self::url_join(&result, &component)?;
         }
 
         Ok(result)
     }
 
+    pub fn iri_url_join<S: AsRef<str>>(
+        &self,
+        iri: S,
+        join: &str,
+    ) -> Result<url::Url, HTTPEnvironmentError> {
+        let result = self.iri_url(iri)?;
+        Self::url_join(&result, join)
+    }
+
     pub fn versions_url<S: AsRef<str>>(&self, iri: S) -> Result<url::Url, HTTPEnvironmentError> {
-        Ok(self.iri_url(iri)?.join(VERSIONS_PATH)?)
+        self.iri_url_join(iri, VERSIONS_PATH)
     }
 
     pub fn get_versions_request<S: AsRef<str>>(
         &self,
         iri: S,
     ) -> Result<reqwest::blocking::RequestBuilder, HTTPEnvironmentError> {
-        Ok(self.client.get(self.iri_url(iri)?.join(VERSIONS_PATH)?))
+        Ok(self.client.get(self.versions_url(iri)?))
     }
 
     pub fn project_kpar_url<S: AsRef<str>, T: AsRef<str>>(
@@ -93,9 +107,8 @@ impl HTTPEnvironment {
         iri: S,
         version: T,
     ) -> Result<url::Url, HTTPEnvironmentError> {
-        Ok(self
-            .iri_url(iri)?
-            .join(&format!("{}.kpar", version.as_ref()))?)
+        let join = format!("{}.kpar", version.as_ref());
+        self.iri_url_join(iri, &join)
     }
 
     pub fn project_src_url<S: AsRef<str>, T: AsRef<str>>(
@@ -103,9 +116,8 @@ impl HTTPEnvironment {
         iri: S,
         version: T,
     ) -> Result<url::Url, HTTPEnvironmentError> {
-        Ok(self
-            .iri_url(iri)?
-            .join(&format!("{}.kpar/", version.as_ref()))?)
+        let join = format!("{}.kpar/", version.as_ref());
+        self.iri_url_join(iri, &join)
     }
 
     fn try_get_project_src<S: AsRef<str>, T: AsRef<str>>(
@@ -113,13 +125,15 @@ impl HTTPEnvironment {
         uri: S,
         version: T,
     ) -> Result<Option<HTTPProject>, HTTPEnvironmentError> {
-        let src_project_url = self.project_src_url(uri, version)?.join(".project.json")?;
+        let project_url = self.project_src_url(uri, version)?;
+        let src_project_url = Self::url_join(&project_url, ".project.json")?;
 
         if !self
             .client
             .head(src_project_url.clone())
             .header("ACCEPT", "application/json, text/plain")
-            .send()?
+            .send()
+            .map_err(|e| HTTPEnvironmentError::HTTPRequest(src_project_url.as_str().into(), e))?
             .status()
             .is_success()
         {
@@ -143,7 +157,8 @@ impl HTTPEnvironment {
             .client
             .head(kpar_project_url.clone())
             .header("ACCEPT", "application/zip, application/octet-stream")
-            .send()?
+            .send()
+            .map_err(|e| HTTPEnvironmentError::HTTPRequest(kpar_project_url.as_str().into(), e))?
             .status()
             .is_success()
         {
@@ -191,14 +206,17 @@ impl ReadEnvironment for HTTPEnvironment {
     type UriIter = OptionalIter<HTTPLinesIter>;
 
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-        let response = self.get_entries_request()?.send()?;
+        let response = self.get_entries_request()?.send().map_err(|e| {
+            HTTPEnvironmentError::HTTPRequest(self.entries_url().unwrap().as_str().into(), e)
+        })?;
 
-        let inner: std::option::Option<HTTPLinesIter> = if response.status().is_success() {
-            Some(
-                BufReader::new(response)
-                    .lines()
-                    .map(|line| Ok(line?.trim().to_string())),
-            )
+        let inner: Option<HTTPLinesIter> = if response.status().is_success() {
+            Some(BufReader::new(response).lines().map(|line| {
+                Ok(line
+                    .map_err(HTTPEnvironmentError::HttpIo)?
+                    .trim()
+                    .to_string())
+            }))
         } else {
             None
         };
@@ -209,14 +227,17 @@ impl ReadEnvironment for HTTPEnvironment {
     type VersionIter = OptionalIter<HTTPLinesIter>;
 
     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
-        let response = self.get_versions_request(uri)?.send()?;
+        let response = self.get_versions_request(&uri)?.send().map_err(|e| {
+            HTTPEnvironmentError::HTTPRequest(self.versions_url(uri).unwrap().as_str().into(), e)
+        })?;
 
         let inner: Option<HTTPLinesIter> = if response.status().is_success() {
-            Some(
-                BufReader::new(response)
-                    .lines()
-                    .map(|line| Ok(line?.trim().to_string())),
-            )
+            Some(BufReader::new(response).lines().map(|line| {
+                Ok(line
+                    .map_err(HTTPEnvironmentError::HttpIo)?
+                    .trim()
+                    .to_string())
+            }))
         } else {
             None
         };
@@ -233,23 +254,23 @@ impl ReadEnvironment for HTTPEnvironment {
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
         if self.prefer_src {
             if let Some(proj) = self.try_get_project_src(&uri, &version)? {
-                return Ok(proj);
+                Ok(proj)
             } else if let Some(proj) = self.try_get_project_kpar(&uri, &version)? {
-                return Ok(proj);
+                Ok(proj)
             } else {
-                return Err(HTTPEnvironmentError::InvalidURL(
-                    self.project_kpar_url(&uri, &version)?,
-                ));
+                Err(HTTPEnvironmentError::InvalidURL(
+                    uri.as_ref().into(),
+                    version.as_ref().into(),
+                ))
             }
-        }
-
-        if let Some(proj) = self.try_get_project_kpar(&uri, &version)? {
+        } else if let Some(proj) = self.try_get_project_kpar(&uri, &version)? {
             Ok(proj)
         } else if let Some(proj) = self.try_get_project_src(&uri, &version)? {
             Ok(proj)
         } else {
             Err(HTTPEnvironmentError::InvalidURL(
-                self.project_kpar_url(&uri, &version)?,
+                uri.as_ref().into(),
+                version.as_ref().into(),
             ))
         }
     }

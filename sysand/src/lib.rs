@@ -253,10 +253,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 debug_assert!(path.is_none());
                 debug_assert!(auto_location.is_none());
 
-                Location::Iri(
-                    fluent_uri::Iri::parse(iri)
-                        .map_err(|e| CliError::NoResolve(format!("Invalid URI: {}", e)))?,
-                )
+                Location::Iri(fluent_uri::Iri::parse(iri).map_err(|e| {
+                    CliError::NoResolve(format!("invalid URI '{}': {}", e.clone().into_input(), e))
+                })?)
             } else {
                 Location::WorkDir
             };
@@ -336,8 +335,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         } => command_include(paths, add_checksum, !no_index_symbols, current_project),
         cli::Command::Exclude { paths } => command_exclude(paths, current_project),
         cli::Command::Build { path } => {
-            let current_project = current_project
-                .ok_or(CliError::MissingProject("in current directory".to_string()))?;
+            let current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
 
             let path = if let Some(path) = path {
                 path

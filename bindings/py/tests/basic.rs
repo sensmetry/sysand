@@ -13,8 +13,8 @@ fn test_basic_new() -> Result<(), Box<dyn std::error::Error>> {
     let proj_dir_path = proj_dir.path();
 
     pyo3::append_to_inittab!(sysand_py);
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
         let do_new_py_local_file_fn = py
             .import("_sysand_core")
             .expect("Failed to import _sysand_core")

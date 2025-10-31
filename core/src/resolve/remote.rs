@@ -25,10 +25,10 @@ pub const NO_RESOLVER: Option<NullResolver> = None;
 
 #[derive(Error, Debug)]
 pub enum RemoteResolverError<HTTPError, GitError> {
-    #[error("{0}")]
-    HTTPResolverError(HTTPError),
-    #[error("{0}")]
-    GitResolverError(GitError),
+    #[error(transparent)]
+    HTTPResolver(HTTPError),
+    #[error(transparent)]
+    GitResolver(GitError),
 }
 
 #[derive(Debug)]
@@ -39,10 +39,10 @@ pub enum RemoteProject<HTTPProject, GitProject> {
 
 #[derive(Error, Debug)]
 pub enum RemoteProjectError<HTTPError, GitError> {
-    #[error("{0}")]
-    HTTPReadError(HTTPError),
-    #[error("{0}")]
-    GitReadError(GitError),
+    #[error(transparent)]
+    HTTPRead(HTTPError),
+    #[error(transparent)]
+    GitRead(GitError),
 }
 
 #[derive(Debug)]
@@ -75,12 +75,12 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
         Self::Error,
     > {
         match self {
-            RemoteProject::HTTPProject(project) => project
-                .get_project()
-                .map_err(RemoteProjectError::HTTPReadError),
-            RemoteProject::GitProject(project) => project
-                .get_project()
-                .map_err(RemoteProjectError::GitReadError),
+            RemoteProject::HTTPProject(project) => {
+                project.get_project().map_err(RemoteProjectError::HTTPRead)
+            }
+            RemoteProject::GitProject(project) => {
+                project.get_project().map_err(RemoteProjectError::GitRead)
+            }
         }
     }
 
@@ -97,11 +97,11 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
             RemoteProject::HTTPProject(project) => project
                 .read_source(path)
                 .map(RemoteSourceReader::HTTPReader)
-                .map_err(RemoteProjectError::HTTPReadError),
+                .map_err(RemoteProjectError::HTTPRead),
             RemoteProject::GitProject(project) => project
                 .read_source(path)
                 .map(RemoteSourceReader::GitReader)
-                .map_err(RemoteProjectError::GitReadError),
+                .map_err(RemoteProjectError::GitRead),
         }
     }
 
@@ -141,7 +141,7 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> Iterator
                     if let Some(next_primary) = primary_resolver.next() {
                         let next = next_primary
                             .map(RemoteProject::GitProject)
-                            .map_err(RemoteResolverError::GitResolverError);
+                            .map_err(RemoteResolverError::GitResolver);
 
                         return Some(next);
                     } else {
@@ -153,7 +153,7 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> Iterator
                     if let Some(next_secondary) = secondary_resolver.next() {
                         let next = next_secondary
                             .map(RemoteProject::HTTPProject)
-                            .map_err(RemoteResolverError::HTTPResolverError);
+                            .map_err(RemoteResolverError::HTTPResolver);
 
                         return Some(next);
                     } else {
@@ -168,7 +168,7 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> Iterator
                     if let Some(next_primary) = primary_resolver.next() {
                         let next = next_primary
                             .map(RemoteProject::HTTPProject)
-                            .map_err(RemoteResolverError::HTTPResolverError);
+                            .map_err(RemoteResolverError::HTTPResolver);
 
                         return Some(next);
                     } else {
@@ -180,7 +180,7 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> Iterator
                     if let Some(next_secondary) = secondary_resolver.next() {
                         let next = next_secondary
                             .map(RemoteProject::GitProject)
-                            .map_err(RemoteResolverError::GitResolverError);
+                            .map_err(RemoteResolverError::GitResolver);
 
                         return Some(next);
                     } else {
@@ -210,7 +210,7 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> ResolveRead
         let resolved_http = if let Some(http_resolver) = &self.http_resolver {
             if let super::ResolutionOutcome::Resolved(resolved) = http_resolver
                 .resolve_read(uri)
-                .map_err(RemoteResolverError::HTTPResolverError)?
+                .map_err(RemoteResolverError::HTTPResolver)?
             {
                 Some(resolved.into_iter())
             } else {
@@ -223,7 +223,7 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> ResolveRead
         let resolved_git = if let Some(git_resolver) = &self.git_resolver {
             if let super::ResolutionOutcome::Resolved(resolved) = git_resolver
                 .resolve_read(uri)
-                .map_err(RemoteResolverError::GitResolverError)?
+                .map_err(RemoteResolverError::GitResolver)?
             {
                 Some(resolved.into_iter())
             } else {

@@ -7,6 +7,7 @@ use fluent_uri::component::Scheme;
 use thiserror::Error;
 
 use crate::{
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectRead, reqwest_kpar_download::ReqwestKparDownloadedProject,
         reqwest_kpar_ranged::ReqwestKparRangedProject, reqwest_src::ReqwestSrcProject,
@@ -34,12 +35,12 @@ pub enum HTTPProject {
 
 #[derive(Error, Debug)]
 pub enum HTTPProjectError {
-    #[error("{0}")]
-    SrcProjectError(<ReqwestSrcProject as ProjectRead>::Error),
-    #[error("{0}")]
-    KParRangedError(<ReqwestKparRangedProject as ProjectRead>::Error),
-    #[error("{0}")]
-    KparDownloadedError(<ReqwestKparDownloadedProject as ProjectRead>::Error),
+    #[error(transparent)]
+    SrcProject(<ReqwestSrcProject as ProjectRead>::Error),
+    #[error(transparent)]
+    KParRanged(<ReqwestKparRangedProject as ProjectRead>::Error),
+    #[error(transparent)]
+    KparDownloaded(<ReqwestKparDownloadedProject as ProjectRead>::Error),
 }
 
 pub enum HTTPProjectReader<'a> {
@@ -65,21 +66,21 @@ impl ProjectRead for HTTPProject {
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
         match self {
-            HTTPProject::HTTPSrcProject(proj) => proj
-                .get_project()
-                .map_err(HTTPProjectError::SrcProjectError),
-            HTTPProject::HTTPKParProjectRanged(proj) => proj
-                .get_project()
-                .map_err(HTTPProjectError::KParRangedError),
-            HTTPProject::HTTPKParProjectDownloaded(proj) => proj
-                .get_project()
-                .map_err(HTTPProjectError::KparDownloadedError),
+            HTTPProject::HTTPSrcProject(proj) => {
+                proj.get_project().map_err(HTTPProjectError::SrcProject)
+            }
+            HTTPProject::HTTPKParProjectRanged(proj) => {
+                proj.get_project().map_err(HTTPProjectError::KParRanged)
+            }
+            HTTPProject::HTTPKParProjectDownloaded(proj) => {
+                proj.get_project().map_err(HTTPProjectError::KparDownloaded)
+            }
         }
     }
 
@@ -95,15 +96,15 @@ impl ProjectRead for HTTPProject {
         match self {
             HTTPProject::HTTPSrcProject(proj) => proj
                 .read_source(path)
-                .map_err(HTTPProjectError::SrcProjectError)
+                .map_err(HTTPProjectError::SrcProject)
                 .map(HTTPProjectReader::SrcProjectReader),
             HTTPProject::HTTPKParProjectRanged(proj) => proj
                 .read_source(path)
-                .map_err(HTTPProjectError::KParRangedError)
+                .map_err(HTTPProjectError::KParRanged)
                 .map(HTTPProjectReader::KParRangedReader),
             HTTPProject::HTTPKParProjectDownloaded(proj) => proj
                 .read_source(path)
-                .map_err(HTTPProjectError::KparDownloadedError)
+                .map_err(HTTPProjectError::KparDownloaded)
                 .map(HTTPProjectReader::KparDownloadedReader),
         }
     }
@@ -259,6 +260,7 @@ impl ResolveRead for HTTPResolver {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused_imports)]
 
     use std::{io::Write as _, process::Command, thread::sleep, time::Duration};
 
@@ -429,7 +431,6 @@ mod tests {
 
         let mut server = Command::new("uv")
             .arg("run")
-            .arg("--isolated")
             .arg("--with")
             .arg("rangehttpserver")
             .arg("-m")
@@ -437,7 +438,7 @@ mod tests {
             .arg(&free_port)
             .current_dir(cwd.path())
             .spawn()?;
-        sleep(Duration::from_millis(3000));
+        sleep(Duration::from_millis(1000));
 
         let client = reqwest::blocking::ClientBuilder::new().build().unwrap();
         let resolver = super::HTTPResolver {

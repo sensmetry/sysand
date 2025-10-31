@@ -5,7 +5,7 @@ use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
 use crate::{
-    project::{ProjectMut, ProjectOrIOError},
+    project::{ProjectMut, ProjectOrIOError, utils::FsIoError},
     symbols::{ExtractError, Language},
 };
 
@@ -14,18 +14,24 @@ pub enum IncludeError<ProjectError> {
     #[error(transparent)]
     Project(ProjectError),
     #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error(transparent)]
-    Extract(#[from] ExtractError),
-    #[error("unknown file format {0}")]
-    UnknownFormat(String),
+    Io(Box<FsIoError>),
+    #[error("failed to extract symbol names from '{0}': {1}")]
+    Extract(Box<str>, ExtractError),
+    #[error("unknown file format of '{0}', only SysML (.sysml) files are supported")]
+    UnknownFormat(Box<str>),
+}
+
+impl<ProjectError> From<FsIoError> for IncludeError<ProjectError> {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 impl<ProjectError> From<ProjectOrIOError<ProjectError>> for IncludeError<ProjectError> {
     fn from(value: ProjectOrIOError<ProjectError>) -> Self {
         match value {
-            ProjectOrIOError::ProjectError(error) => IncludeError::Project(error),
-            ProjectOrIOError::IOError(error) => IncludeError::Io(error),
+            ProjectOrIOError::Project(error) => IncludeError::Project(error),
+            ProjectOrIOError::Io(error) => IncludeError::Io(error),
         }
     }
 }
@@ -49,15 +55,13 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
             Some(Language::SysML) => {
                 let new_symbols = crate::symbols::top_level_sysml(
                     project.read_source(&path).map_err(IncludeError::Project)?,
-                )?;
+                )
+                .map_err(|e| IncludeError::Extract(Box::from(path.as_ref().as_str()), e))?;
 
                 project.merge_index(new_symbols.into_iter().map(|x| (x, path.as_ref())), true)?;
             }
             _ => {
-                return Err(IncludeError::UnknownFormat(format!(
-                    "cannot guess format for {}, only sysml supported",
-                    path.as_ref()
-                )));
+                return Err(IncludeError::UnknownFormat(path.as_ref().as_str().into()));
             }
         }
     }

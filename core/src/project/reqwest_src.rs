@@ -81,12 +81,14 @@ impl ReqwestSrcProject {
 
 #[derive(Error, Debug)]
 pub enum ReqwestSrcError {
-    #[error("HTTP error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("Malformed data: {0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("not found: {0}")]
-    NotFound(String),
+    #[error("HTTP request to '{0}' failed: {1}")]
+    Reqwest(String, reqwest::Error),
+    #[error("failed to decode response body from HTTP request to '{0}': {1}")]
+    ResponseDecode(String, reqwest::Error),
+    #[error("HTTP request to\n  '{0}'\n  returned malformed data: {1}")]
+    Deserialize(String, serde_json::Error),
+    #[error("HTTP request to '{0}' returned unexpected status code {1}")]
+    BadStatus(Box<str>, reqwest::StatusCode),
 }
 
 impl ProjectRead for ReqwestSrcProject {
@@ -101,17 +103,37 @@ impl ProjectRead for ReqwestSrcProject {
         ),
         Self::Error,
     > {
-        let info_resp = self.get_info().send()?;
-        let meta_resp = self.get_meta().send()?;
+        let info_resp = self
+            .get_info()
+            .send()
+            .map_err(|e| ReqwestSrcError::Reqwest(self.info_url().into(), e))?;
+        let meta_resp = self
+            .get_meta()
+            .send()
+            .map_err(|e| ReqwestSrcError::Reqwest(self.meta_url().into(), e))?;
 
         let info: Option<InterchangeProjectInfoRaw> = if info_resp.status().is_success() {
-            Some(serde_json::from_str(&info_resp.text()?)?)
+            Some(
+                serde_json::from_str(
+                    &info_resp
+                        .text()
+                        .map_err(|e| ReqwestSrcError::ResponseDecode(self.info_url().into(), e))?,
+                )
+                .map_err(|e| ReqwestSrcError::Deserialize(self.info_url().into(), e))?,
+            )
         } else {
             None
         };
 
         let meta: Option<InterchangeProjectMetadataRaw> = if meta_resp.status().is_success() {
-            Some(serde_json::from_str(&meta_resp.text()?)?)
+            Some(
+                serde_json::from_str(
+                    &meta_resp
+                        .text()
+                        .map_err(|e| ReqwestSrcError::ResponseDecode(self.meta_url().into(), e))?,
+                )
+                .map_err(|e| ReqwestSrcError::Deserialize(self.meta_url().into(), e))?,
+            )
         } else {
             None
         };
@@ -128,15 +150,18 @@ impl ProjectRead for ReqwestSrcProject {
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        let resp = self.reqwest_src(&path).send()?;
+        let resp = self
+            .reqwest_src(&path)
+            .send()
+            .map_err(|e| ReqwestSrcError::Reqwest(self.src_url(&path).into(), e))?;
 
         if resp.status().is_success() {
             Ok(resp)
         } else {
-            Err(ReqwestSrcError::NotFound(format!(
-                "path {} not found",
-                path.as_ref()
-            )))
+            Err(ReqwestSrcError::BadStatus(
+                resp.url().as_str().into(),
+                resp.status(),
+            ))
         }
     }
 
@@ -227,7 +252,7 @@ mod tests {
 
         assert_eq!(src, src_buf);
 
-        let Err(super::ReqwestSrcError::NotFound(_)) =
+        let Err(super::ReqwestSrcError::BadStatus(..)) =
             project.read_source(Utf8UnixPath::new("Mekanik/Kommandoh.sysml").to_path_buf())
         else {
             panic!();
