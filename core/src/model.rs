@@ -3,6 +3,7 @@
 
 use std::{collections::HashSet, hash::Hash};
 
+#[allow(deprecated)] // will change when `digest` 0.11 is released
 use digest::{generic_array::GenericArray, typenum};
 use indexmap::IndexMap;
 #[cfg(feature = "python")]
@@ -428,6 +429,7 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime> InterchangeProjectMetadataG<Iri, Pa
     }
 }
 
+#[allow(deprecated)] // will change when `digest` 0.11 is released
 pub type ProjectHash = GenericArray<u8, typenum::U32>;
 
 pub fn project_hash_str<S: AsRef<str>, T: AsRef<str>>(info: S, meta: T) -> ProjectHash {
