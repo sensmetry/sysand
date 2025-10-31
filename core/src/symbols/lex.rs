@@ -11,8 +11,8 @@ pub enum LexingError {
     #[error("{0}")]
     Unexpected(&'static str),
     #[default]
-    #[error("unknown error")]
-    UnknownError,
+    #[error("unknown parsing error")]
+    Unknown,
 }
 
 // Block comments, strings, and quoted names are easier to handle manually, as

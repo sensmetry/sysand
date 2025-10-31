@@ -17,8 +17,8 @@ pub enum IncludeError<ProjectError> {
     Io(Box<FsIoError>),
     #[error("failed to extract symbol names from '{0}': {1}")]
     Extract(Box<str>, ExtractError),
-    #[error("unknown file format {0}")]
-    UnknownFormat(String),
+    #[error("unknown file format of '{0}', only SysML (.sysml) files are supported")]
+    UnknownFormat(Box<str>),
 }
 
 impl<ProjectError> From<FsIoError> for IncludeError<ProjectError> {
@@ -30,7 +30,7 @@ impl<ProjectError> From<FsIoError> for IncludeError<ProjectError> {
 impl<ProjectError> From<ProjectOrIOError<ProjectError>> for IncludeError<ProjectError> {
     fn from(value: ProjectOrIOError<ProjectError>) -> Self {
         match value {
-            ProjectOrIOError::ProjectError(error) => IncludeError::Project(error),
+            ProjectOrIOError::Project(error) => IncludeError::Project(error),
             ProjectOrIOError::Io(error) => IncludeError::Io(error),
         }
     }
@@ -61,10 +61,7 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
                 project.merge_index(new_symbols.into_iter().map(|x| (x, path.as_ref())), true)?;
             }
             _ => {
-                return Err(IncludeError::UnknownFormat(format!(
-                    "of '{}', only SysML (.sysml) files are supported",
-                    path.as_ref()
-                )));
+                return Err(IncludeError::UnknownFormat(path.as_ref().as_str().into()));
             }
         }
     }

@@ -17,12 +17,10 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum NewError<ProjectError: std::error::Error> {
-    #[error("refusing to overwrite: {0}")]
-    AlreadyExists(String),
-    #[error("{0}")]
-    SemVerError(semver::Error),
-    #[error("{0}")]
-    ProjectError(#[from] ProjectError),
+    #[error("failed to parse '{0}' as a Semantic Version: {1}")]
+    SemVerParse(Box<str>, semver::Error),
+    #[error(transparent)]
+    Project(#[from] ProjectError),
 }
 
 pub fn do_new<S: ProjectMut>(
@@ -30,7 +28,8 @@ pub fn do_new<S: ProjectMut>(
     version: String,
     storage: &mut S,
 ) -> Result<(), NewError<S::Error>> {
-    let version = Version::parse(&version).map_err(NewError::SemVerError)?;
+    let version =
+        Version::parse(&version).map_err(|e| NewError::SemVerParse(version.as_str().into(), e))?;
 
     let creating = "Creating";
     let header = crate::style::get_style_config().header;

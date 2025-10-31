@@ -206,7 +206,7 @@ fn resolve_candidates<R: ResolveRead>(
 
             match resolver
                 .resolve_read(uri)
-                .map_err(InternalSolverError::ResolutionError)?
+                .map_err(InternalSolverError::Resolution)?
             {
                 crate::resolve::ResolutionOutcome::UnsupportedIRIType(_) => {
                     return Err(InternalSolverError::NotResolvable(uri.clone()));
@@ -303,10 +303,10 @@ impl<R: ResolveRead + std::fmt::Debug + 'static> From<pubgrub::PubGrubError<Proj
 
 #[derive(Error, Debug)]
 pub enum InternalSolverError<R: ResolveRead> {
-    #[error("{0}")]
-    ResolutionError(R::Error),
-    #[error("invalid project requested")]
-    InvalidProject,
+    #[error(transparent)]
+    Resolution(R::Error),
+    // #[error("invalid project requested")]
+    // InvalidProject,
     #[error("not resolvable: {0}")]
     NotResolvable(fluent_uri::Iri<String>),
 }

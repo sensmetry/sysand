@@ -12,14 +12,14 @@ pub enum ExcludeError<ProjectError> {
     Project(ProjectError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("could not find {0} in project metadata")]
-    SourceNotFound(String),
+    #[error("could not find file '{0}' in project metadata")]
+    SourceNotFound(Box<str>),
 }
 
 impl<ProjectError> From<ProjectOrIOError<ProjectError>> for ExcludeError<ProjectError> {
     fn from(value: ProjectOrIOError<ProjectError>) -> Self {
         match value {
-            ProjectOrIOError::ProjectError(error) => ExcludeError::Project(error),
+            ProjectOrIOError::Project(error) => ExcludeError::Project(error),
             ProjectOrIOError::Io(error) => ExcludeError::from(error),
         }
     }
@@ -38,7 +38,7 @@ pub fn do_exclude<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
     if outcome.removed_checksum.is_some() {
         Ok(outcome)
     } else {
-        Err(ExcludeError::SourceNotFound(path.as_ref().to_string()))
+        Err(ExcludeError::SourceNotFound(path.as_ref().as_str().into()))
     }
 
     // Ok(project.exclude_source(path)?)

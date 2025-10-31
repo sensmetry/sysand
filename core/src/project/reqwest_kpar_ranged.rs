@@ -9,7 +9,10 @@ use tempfile::{TempDir, tempdir};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
-use crate::project::ProjectRead;
+use crate::project::{
+    ProjectRead,
+    utils::{FsIoError, wrapfs},
+};
 
 /// Project stored at a remote URL such as https://www.example.com/project.kpar.
 /// The URL is expected to resolve to a kpar-archive (ZIP-file) (at least) if
@@ -33,26 +36,42 @@ pub struct ReqwestKparRangedProject {
     /// implementation is tentative anyway, as it may require reworking
     /// for async.
     pub tmp_dir: TempDir,
-    ///.Root dir of project inside archive
+    /// Root dir of project inside archive
     pub root: Utf8UnixPathBuf,
 }
 
 #[derive(Error, Debug)]
 pub enum ReqwestKparRangedError {
+    #[error("failed to start reading remote zip archive at '{0}': {1}")]
+    ZipInit(Box<str>, partialzip::PartialZipError),
+    #[error(
+        "failed to download file '{path_in_zip}' from remote zip archive at\n'{url}' and write it to\n'{local_path}': {err}"
+    )]
+    ZipDownload {
+        path_in_zip: Utf8UnixPathBuf,
+        local_path: Box<std::path::Path>,
+        url: String,
+        err: partialzip::PartialZipError,
+    },
     #[error(transparent)]
-    Zip(#[from] partialzip::PartialZipError),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error(transparent)]
-    Serde(#[from] serde_json::Error),
+    Io(#[from] Box<FsIoError>),
+    #[error("failed to deserialize JSON file '{0}': {1}")]
+    Deserialize(PathBuf, serde_json::Error),
+}
+
+impl From<FsIoError> for ReqwestKparRangedError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 impl ReqwestKparRangedProject {
     /// Identifies the location of the project inside the archive by locating
-    /// the .project.json-file (assuming it is present).
+    /// the `.project.json` file (assuming it is present).
     pub fn new_guess_root<S: AsRef<str>>(url: S) -> Result<Self, ReqwestKparRangedError> {
-        let archive = partialzip::PartialZip::new_check_range(&url.as_ref(), true)?;
-        let tmp_dir = tempdir()?;
+        let archive = partialzip::PartialZip::new_check_range(&url.as_ref(), true)
+            .map_err(|e| ReqwestKparRangedError::ZipInit(url.as_ref().into(), e))?;
+        let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
 
         let mut maybe_root = None;
 
@@ -86,10 +105,16 @@ impl ReqwestKparRangedProject {
 
         let name = format!("{:X}", sha2::Sha256::digest(&real_path));
         let file_path = self.tmp_dir.path().join(name);
-        let mut file = std::fs::File::create(&file_path)?;
+        let mut file = wrapfs::File::create(&file_path)?;
 
         self.archive
-            .download_to_write(real_path.as_str(), &mut file)?;
+            .download_to_write(real_path.as_str(), &mut file)
+            .map_err(|e| ReqwestKparRangedError::ZipDownload {
+                path_in_zip: real_path,
+                local_path: file_path.as_path().into(),
+                url: self.archive.url(),
+                err: e,
+            })?;
 
         Ok(file_path)
     }
@@ -110,16 +135,28 @@ impl ProjectRead for ReqwestKparRangedProject {
         Self::Error,
     > {
         let info = match self.read_path(".project.json") {
-            Ok(info_file) => Some(serde_json::from_reader(std::fs::File::open(info_file)?)?),
-            Err(ReqwestKparRangedError::Zip(partialzip::PartialZipError::FileNotFound)) => None,
+            Ok(info_file) => Some(
+                serde_json::from_reader(wrapfs::File::open(&info_file)?)
+                    .map_err(|e| ReqwestKparRangedError::Deserialize(info_file, e))?,
+            ),
+            Err(ReqwestKparRangedError::ZipDownload {
+                err: partialzip::PartialZipError::FileNotFound,
+                ..
+            }) => None,
             Err(err) => {
                 return Err(err);
             }
         };
 
         let meta = match self.read_path(".meta.json") {
-            Ok(meta_file) => Some(serde_json::from_reader(std::fs::File::open(meta_file)?)?),
-            Err(ReqwestKparRangedError::Zip(partialzip::PartialZipError::FileNotFound)) => None,
+            Ok(meta_file) => Some(
+                serde_json::from_reader(wrapfs::File::open(&meta_file)?)
+                    .map_err(|e| ReqwestKparRangedError::Deserialize(meta_file, e))?,
+            ),
+            Err(ReqwestKparRangedError::ZipDownload {
+                err: partialzip::PartialZipError::FileNotFound,
+                ..
+            }) => None,
             Err(err) => {
                 return Err(err);
             }
@@ -137,7 +174,7 @@ impl ProjectRead for ReqwestKparRangedProject {
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        Ok(super::utils::FileWithLifetime::new(std::fs::File::open(
+        Ok(super::utils::FileWithLifetime::new(wrapfs::File::open(
             self.read_path(path)?,
         )?))
     }

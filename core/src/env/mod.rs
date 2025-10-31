@@ -85,9 +85,9 @@ pub trait ReadEnvironment {
 #[derive(Error, Debug)]
 pub enum PutProjectError<WE, CE> {
     #[error(transparent)]
-    WriteError(#[from] WE),
+    Write(#[from] WE),
     #[error(transparent)]
-    CallbackError(CE),
+    Callback(CE),
 }
 
 pub trait WriteEnvironment {

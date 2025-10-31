@@ -44,9 +44,8 @@ use sysand_core::{
 )]
 fn do_new_py_local_file(name: String, version: String, path: String) -> PyResult<()> {
     do_new_local_file(name, version, std::path::Path::new(&path)).map_err(|err| match err {
-        NewError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
-        NewError::SemVerError(error) => PyValueError::new_err(error.to_string()),
-        NewError::ProjectError(err) => match err {
+        NewError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
+        NewError::Project(err) => match err {
             LocalSrcError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
             LocalSrcError::Deserialize(error) => PyValueError::new_err(error.to_string()),
             LocalSrcError::Io(error) => PyIOError::new_err(error.to_string()),
@@ -67,14 +66,14 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
         EnvError::AlreadyExists(path_buf) => {
             PyFileExistsError::new_err(format!("{}", path_buf.display()))
         }
-        EnvError::WriteError(werr) => match werr {
+        EnvError::Write(werr) => match werr {
             LocalWriteError::Io(error) => PyIOError::new_err(error.to_string()),
             LocalWriteError::Deserialize(error) => PyValueError::new_err(error.to_string()),
-            LocalWriteError::PathError(error) => PyValueError::new_err(error.to_string()),
+            LocalWriteError::Path(error) => PyValueError::new_err(error.to_string()),
             LocalWriteError::AlreadyExists(error) => PyFileExistsError::new_err(error.to_string()),
             LocalWriteError::Serialize(error) => PyValueError::new_err(error.to_string()),
-            LocalWriteError::TryMoveError(error) => PyIOError::new_err(error.to_string()),
-            LocalWriteError::LocalReadError(error) => PyIOError::new_err(error.to_string()),
+            LocalWriteError::TryMove(error) => PyIOError::new_err(error.to_string()),
+            LocalWriteError::LocalRead(error) => PyIOError::new_err(error.to_string()),
         },
     })?;
 
@@ -131,8 +130,8 @@ fn do_info_py(
         match do_info(&uri, &combined_resolver) {
             Ok(matches) => results.extend(matches),
             Err(InfoError::NoResolve(_)) => {}
-            Err(InfoError::ResolutionError(err)) => {
-                return Err(PyRuntimeError::new_err(err.to_string()));
+            Err(e @ InfoError::Resolution(_)) => {
+                return Err(PyRuntimeError::new_err(e.to_string()));
             }
         };
 
@@ -164,8 +163,7 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
             KParBuildError::UnknownFormat(_) => PyValueError::new_err(err.to_string()),
             KParBuildError::MissingInfo => PyValueError::new_err(err.to_string()),
             KParBuildError::MissingMeta => PyValueError::new_err(err.to_string()),
-            KParBuildError::ZipWrite(_) => PyIOError::new_err(err.to_string()),
-            KParBuildError::PathFailure(_) => PyIOError::new_err(err.to_string()),
+            KParBuildError::Zip(_) => PyIOError::new_err(err.to_string()),
             KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
         })
 }

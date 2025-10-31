@@ -3,7 +3,7 @@
 
 // Resolver for file:// URLs
 
-use std::io::Read;
+use std::{io::Read, path::Path};
 
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
@@ -91,7 +91,7 @@ impl FileResolver {
             }
             if !found {
                 return Ok(ResolutionOutcome::Unresolvable(format!(
-                    "Refusing to resolve path {}, is not inside in any of the allowed directories {}",
+                    "Refusing to resolve path '{}', is not inside in any of the allowed directories\n{}",
                     project_path.display(),
                     sandbox_roots_canonical.join("; "),
                 )));
@@ -109,7 +109,7 @@ impl FileResolver {
             self.resolve_platform_path(file_path)
         } else {
             Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "Not a valid file URL: {}",
+                "not a valid file URL: {}",
                 &uri
             )))
         }
@@ -125,21 +125,19 @@ pub enum FileResolverProject {
 #[derive(Error, Debug)]
 pub enum FileResolverProjectError {
     #[error(transparent)]
-    ZipError(#[from] zip::result::ZipError),
-    // #[error("invalid name in archive: {0}")]
-    // NameError(String),
-    #[error("not found: {0}")]
-    NotFound(String),
+    Zip(project::utils::ZipArchiveError),
+    #[error("path '{0}' not found")]
+    NotFound(Box<Path>),
     #[error(transparent)]
     Deserialize(ProjectDeserializationError),
     #[error(transparent)]
-    LocalSrcError(LocalSrcError),
+    LocalSrc(LocalSrcError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("path error")]
-    PathError(#[from] project::local_src::PathError),
+    #[error(transparent)]
+    Path(#[from] project::local_src::PathError),
     #[error("{0}")]
-    OtherError(String),
+    Other(String),
 }
 
 impl From<FsIoError> for FileResolverProjectError {
@@ -165,11 +163,11 @@ impl Read for FileResolverProjectReader<'_> {
 impl From<LocalKParError> for FileResolverProjectError {
     fn from(value: LocalKParError) -> Self {
         match value {
-            LocalKParError::Zip(zip_error) => FileResolverProjectError::ZipError(zip_error),
-            // LocalKParError::InvalidName(err) => FileResolverProjectError::NameError(err),
             LocalKParError::NotFound(err) => FileResolverProjectError::NotFound(err),
             LocalKParError::Deserialize(error) => FileResolverProjectError::Deserialize(error),
             LocalKParError::Io(error) => FileResolverProjectError::Io(error),
+            // It would be pointless to include the same variants with the same error messages here
+            LocalKParError::Zip(err) => FileResolverProjectError::Zip(err),
         }
     }
 }
@@ -178,11 +176,11 @@ impl From<LocalSrcError> for FileResolverProjectError {
     fn from(value: LocalSrcError) -> Self {
         match value {
             LocalSrcError::Deserialize(error) => FileResolverProjectError::Deserialize(error),
-            LocalSrcError::Path(path_error) => FileResolverProjectError::PathError(path_error),
+            LocalSrcError::Path(path_error) => FileResolverProjectError::Path(path_error),
             LocalSrcError::AlreadyExists(msg) => {
-                FileResolverProjectError::OtherError(format!("unexpected internal error: {}", msg))
+                FileResolverProjectError::Other(format!("unexpected internal error: {}", msg))
             }
-            e => FileResolverProjectError::LocalSrcError(e),
+            e => FileResolverProjectError::LocalSrc(e),
         }
     }
 }

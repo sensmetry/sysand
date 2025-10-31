@@ -250,7 +250,7 @@ impl ProjectMut for LocalSrcProject {
 
         if !overwrite && source_path.exists() {
             return Err(LocalSrcError::AlreadyExists(format!(
-                "{} already exists",
+                "'{}' already exists",
                 source_path.display()
             )));
         }
@@ -268,8 +268,6 @@ impl ProjectMut for LocalSrcProject {
 
 #[derive(Error, Debug)]
 pub enum LocalSrcError {
-    // Inner string is already an error message, no additional
-    // formatting is needed.
     #[error("{0}")]
     AlreadyExists(String),
     #[error(transparent)]

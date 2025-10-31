@@ -27,9 +27,9 @@ impl Default for Lock {
 
 #[derive(Error, Debug)]
 pub enum LockResolutionEror<EnvironmentError> {
-    #[error("{0}")]
-    EnvironmentError(EnvironmentError),
-    #[error("missing projects: {0:?}")]
+    #[error(transparent)]
+    Environment(EnvironmentError),
+    #[error("missing projects:\n{0:?}")]
     MissingProjects(Vec<Project>),
 }
 
@@ -52,7 +52,7 @@ impl Lock {
             'outer: for iri in &project.iris {
                 for candidate_project in env
                     .candidate_projects(iri)
-                    .map_err(LockResolutionEror::EnvironmentError)?
+                    .map_err(LockResolutionEror::Environment)?
                 {
                     if let Ok(Some(candidate_checksum)) = candidate_project.checksum_canonical_hex()
                     {

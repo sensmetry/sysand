@@ -11,7 +11,7 @@ use std::{
 use crate::{
     env::{PutProjectError, ReadEnvironment, WriteEnvironment, segment_uri_generic},
     project::{
-        local_src::{LocalSrcError, LocalSrcProject},
+        local_src::{LocalSrcError, LocalSrcProject, PathError},
         utils::{
             FsIoError, ProjectDeserializationError, ProjectSerializationError, ToPathBuf, wrapfs,
         },
@@ -66,12 +66,12 @@ pub fn remove_empty_dirs<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
 
 #[derive(Error, Debug)]
 pub enum TryMoveError {
-    #[error("failed but recovered: {0}")]
-    RecoveredIOError(Box<FsIoError>),
+    #[error("recovered from failure: {0}")]
+    RecoveredIO(Box<FsIoError>),
     #[error(
-        "failed and may have left directory in inconsistent state:\n{err}\ncaused by:\n{cause}"
+        "failed and may have left the directory in inconsistent state:\n{err}\ncaused by:\n{cause}"
     )]
-    CatastrophicIOError {
+    CatastrophicIO {
         err: Box<FsIoError>,
         cause: Box<FsIoError>,
     },
@@ -79,7 +79,7 @@ pub enum TryMoveError {
 
 fn try_remove_files<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> Result<(), TryMoveError> {
     let tempdir = tempfile::TempDir::new()
-        .map_err(|e| TryMoveError::RecoveredIOError(FsIoError::CreateTempFile(e).into()))?;
+        .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
     let mut moved: Vec<PathBuf> = vec![];
 
     for (i, path) in paths.enumerate() {
@@ -98,9 +98,9 @@ fn try_remove_files<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> Result<(
                 }
 
                 if let Some(err) = catastrophic_error {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 } else {
-                    return Err(TryMoveError::RecoveredIOError(cause));
+                    return Err(TryMoveError::RecoveredIO(cause));
                 }
             }
         }
@@ -156,7 +156,7 @@ fn move_fs_item<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Result<(), Bo
 
 fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
     let tempdir = tempfile::TempDir::new()
-        .map_err(|e| TryMoveError::RecoveredIOError(FsIoError::CreateTempFile(e).into()))?;
+        .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
 
     let mut last_err = None;
 
@@ -176,12 +176,12 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
 
             if src_path.exists() {
                 if let Err(err) = move_fs_item(src_path, path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
 
-        return Err(TryMoveError::RecoveredIOError(cause));
+        return Err(TryMoveError::RecoveredIO(cause));
     }
 
     let mut last_err = None;
@@ -204,7 +204,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
 
             if trg_path.exists() {
                 if let Err(err) = move_fs_item(trg_path, path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
@@ -214,12 +214,12 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
 
             if src_path.exists() {
                 if let Err(err) = move_fs_item(src_path, path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
 
-        return Err(TryMoveError::RecoveredIOError(cause));
+        return Err(TryMoveError::RecoveredIO(cause));
     }
 
     let mut last_err = None;
@@ -241,7 +241,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
 
             if path.exists() {
                 if let Err(err) = move_fs_item(path, src_path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
@@ -251,7 +251,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
 
             if trg_path.exists() {
                 if let Err(err) = move_fs_item(trg_path, path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
@@ -261,12 +261,12 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
 
             if src_path.exists() {
                 if let Err(err) = move_fs_item(src_path, path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
 
-        return Err(TryMoveError::RecoveredIOError(cause));
+        return Err(TryMoveError::RecoveredIO(cause));
     }
 
     Ok(())
@@ -376,15 +376,15 @@ pub enum LocalWriteError {
     #[error(transparent)]
     Serialize(#[from] ProjectSerializationError),
     #[error("path error: {0}")]
-    PathError(#[from] crate::project::local_src::PathError),
+    Path(#[from] PathError),
     #[error("already exists: {0}")]
     AlreadyExists(String),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error(transparent)]
-    TryMoveError(#[from] TryMoveError),
+    TryMove(#[from] TryMoveError),
     #[error(transparent)]
-    LocalReadError(LocalReadError),
+    LocalRead(LocalReadError),
 }
 
 impl From<FsIoError> for LocalWriteError {
@@ -398,7 +398,7 @@ impl From<LocalReadError> for LocalWriteError {
         match value {
             LocalReadError::Io(error) => Self::Io(error),
             e @ (LocalReadError::ProjectListFileRead(_)
-            | LocalReadError::ProjectVersionsFileRead(_)) => Self::LocalReadError(e),
+            | LocalReadError::ProjectVersionsFileRead(_)) => Self::LocalRead(e),
         }
     }
 }
@@ -407,7 +407,7 @@ impl From<LocalSrcError> for LocalWriteError {
     fn from(value: LocalSrcError) -> Self {
         match value {
             LocalSrcError::Deserialize(error) => LocalWriteError::Deserialize(error),
-            LocalSrcError::Path(path_error) => LocalWriteError::PathError(path_error),
+            LocalSrcError::Path(path_error) => LocalWriteError::Path(path_error),
             LocalSrcError::AlreadyExists(msg) => LocalWriteError::AlreadyExists(msg),
             LocalSrcError::Io(e) => LocalWriteError::Io(e),
             LocalSrcError::Serialize(error) => Self::Serialize(error),
@@ -494,7 +494,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             project_path: project_temp.path().to_path_buf(),
         };
 
-        write_project(&mut tentative_project).map_err(PutProjectError::CallbackError)?;
+        write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
 
         // Project write was successful
 
@@ -558,14 +558,14 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 project.root_path().join(".meta.json"),
             ])) {
                 match err {
-                    TryMoveError::CatastrophicIOError { .. } => {
+                    TryMoveError::CatastrophicIO { .. } => {
                         // Censor the version if a partial delete happened, better pretend
                         // like it does not exist than to pretend like a broken
                         // package is properly installed
                         wrapfs::copy(versions_temp.path(), &versions_path)?;
                         return Err(err.into());
                     }
-                    TryMoveError::RecoveredIOError(_) => return Err(LocalWriteError::from(err)),
+                    TryMoveError::RecoveredIO(_) => return Err(LocalWriteError::from(err)),
                 }
             }
 

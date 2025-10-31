@@ -16,6 +16,7 @@ use sysand_core::project::memory::InMemoryProject;
 use sysand_core::resolve::memory::{AcceptAll, MemoryResolver};
 use sysand_core::resolve::priority::PriorityResolver;
 use sysand_core::resolve::standard::standard_resolver;
+use sysand_core::solve::pubgrub::{DependencyIdentifier, InternalSolverError};
 
 pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
     path: P,
@@ -57,7 +58,7 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
         match commands::lock::do_lock_local_editable(&path, wrapped_resolver) {
             Ok(lock_outcome) => lock_outcome,
             Err(LockProjectError::LockError(lock_error)) => {
-                if let LockError::SolverError(solver_error) = lock_error {
+                if let LockError::Solver(solver_error) = lock_error {
                     match *solver_error.inner {
                         pubgrub::PubGrubError::NoSolution(mut derivation_tree) => {
                             derivation_tree.collapse_no_versions();
@@ -71,36 +72,32 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
                             source,
                             ..
                         } => match package {
-                            sysand_core::solve::pubgrub::DependencyIdentifier::Requested(_) => {
+                            DependencyIdentifier::Requested(_) => {
                                 bail!("Unexpected internal error: {:?}", source)
                             }
-                            sysand_core::solve::pubgrub::DependencyIdentifier::Remote(iri) => {
+                            DependencyIdentifier::Remote(iri) => {
                                 bail!("Failed to retrieve (transitive) usages of usage {}", iri)
                             }
                         },
                         pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => {
                             match package {
-                                sysand_core::solve::pubgrub::DependencyIdentifier::Requested(_) => {
+                                DependencyIdentifier::Requested(_) => {
                                     bail!("Unxpected internal error: {:?}", source)
                                 }
-                                sysand_core::solve::pubgrub::DependencyIdentifier::Remote(iri) => {
+                                DependencyIdentifier::Remote(iri) => {
                                     bail!("Unable to select version of usage {}", iri)
                                 }
                             }
                         }
                         pubgrub::PubGrubError::ErrorInShouldCancel(err) => match err {
-                            sysand_core::solve::pubgrub::InternalSolverError::ResolutionError(
-                                err,
-                            ) => {
-                                bail! {"Resolution error {:?}", err}
+                            InternalSolverError::Resolution(err) => {
+                                bail! {"Resolution error: {:?}", err}
                             }
-                            sysand_core::solve::pubgrub::InternalSolverError::InvalidProject => {
-                                bail!("Found invalid project during usage resolution")
-                            }
-                            sysand_core::solve::pubgrub::InternalSolverError::NotResolvable(
-                                iri,
-                            ) => {
-                                bail!("Unable to resolve usage {}", iri)
+                            // InternalSolverError::InvalidProject => {
+                            //     bail!("Found invalid project during usage resolution")
+                            // }
+                            InternalSolverError::NotResolvable(iri) => {
+                                bail!("Unable to resolve usage '{}'", iri)
                             }
                         },
                     }

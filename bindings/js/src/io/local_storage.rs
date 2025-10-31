@@ -5,7 +5,7 @@ use std::io::Cursor;
 
 use sysand_core::{
     model::InterchangeProjectMetadataRaw,
-    project::{ProjectMut, ProjectRead},
+    project::{ProjectMut, ProjectRead, utils::FsIoError},
 };
 
 use thiserror::Error;
@@ -31,31 +31,39 @@ pub fn open_project_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("refusing to overwrite")]
-    AlreadyExists(String),
-    #[error("failed to get window")]
-    NoWindow(),
-    #[error("failed to get local storage")]
-    NoLocalStorage(),
-    #[error("JS error")]
-    JSError(wasm_bindgen::JsValue),
-    #[error("io error: {0}")]
-    IOError(#[from] std::io::Error),
-    #[error("de/serialisation error")]
-    SerialisationError(#[from] serde_json::Error),
-    #[error("key not found")]
-    KeyNotFoundError(),
+    #[error("refusing to overwrite already existing '{0}'")]
+    AlreadyExists(Box<str>),
+    #[error("failed to get 'window' object")]
+    NoWindow,
+    #[error("failed to get 'window.localStorage' object")]
+    NoLocalStorage,
+    #[error("JS error: {0:?}")]
+    Js(wasm_bindgen::JsValue),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+    #[error("failed to serialize information to write it to '{0}': {1}")]
+    Serialize(&'static str, serde_json::Error),
+    #[error("failed to serialize: {0}")]
+    SerializeHandle(#[from] serde_json::Error),
+    #[error("key '{0}' not found in local storage")]
+    KeyNotFound(String),
+}
+
+impl From<FsIoError> for Error {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 impl From<LocalStorageError> for Error {
     fn from(value: LocalStorageError) -> Self {
         match value {
-            LocalStorageError::NoWindow() => Error::NoWindow(),
-            LocalStorageError::NoLocalStorage() => Error::NoLocalStorage(),
-            LocalStorageError::JSError(js_value) => Error::JSError(js_value),
-            LocalStorageError::IOError(error) => Error::IOError(error),
-            LocalStorageError::SerialisationError(error) => Error::SerialisationError(error),
-            LocalStorageError::KeyNotFoundError() => Error::KeyNotFoundError(),
+            LocalStorageError::NoWindow => Error::NoWindow,
+            LocalStorageError::NoLocalStorage => Error::NoLocalStorage,
+            LocalStorageError::Js(js_value) => Error::Js(js_value),
+            LocalStorageError::Io(error) => Error::Io(error),
+            LocalStorageError::Serialize(error) => Error::SerializeHandle(error),
+            LocalStorageError::KeyNotFound(key) => Error::KeyNotFound(key),
         }
     }
 }
@@ -75,8 +83,10 @@ impl ProjectRead for ProjectLocalBrowserStorage {
         let info_path = self.root_path.join(".project.json");
 
         let info = match self.vfs.read_string(info_path) {
-            Ok(str) => Some(serde_json::from_str(&str)?),
-            Err(LocalStorageError::KeyNotFoundError()) => None,
+            Ok(str) => {
+                Some(serde_json::from_str(&str).map_err(|e| Error::Serialize(".project.json", e))?)
+            }
+            Err(LocalStorageError::KeyNotFound(_)) => None,
             Err(err) => {
                 return Err(err.into());
             }
@@ -85,8 +95,10 @@ impl ProjectRead for ProjectLocalBrowserStorage {
         let meta_path = self.root_path.join(".meta.json");
 
         let meta = match self.vfs.read_string(meta_path) {
-            Ok(str) => Some(serde_json::from_str(&str)?),
-            Err(LocalStorageError::KeyNotFoundError()) => None,
+            Ok(str) => {
+                Some(serde_json::from_str(&str).map_err(|e| Error::Serialize(".meta.json", e))?)
+            }
+            Err(LocalStorageError::KeyNotFound(_)) => None,
             Err(err) => {
                 return Err(err.into());
             }
@@ -121,9 +133,7 @@ impl ProjectMut for ProjectLocalBrowserStorage {
     ) -> Result<(), Self::Error> {
         let info_path = self.root_path.join(".project.json");
         if !overwrite && self.vfs.exists(&info_path)? {
-            return Err(Error::AlreadyExists(
-                ".project.json already exists".to_string(),
-            ));
+            return Err(Error::AlreadyExists(".project.json".into()));
         }
 
         self.vfs.write_serialisable(&info_path, info)?;
@@ -138,9 +148,7 @@ impl ProjectMut for ProjectLocalBrowserStorage {
     ) -> Result<(), Self::Error> {
         let meta_path = self.root_path.join(".meta.json");
         if !overwrite && self.vfs.exists(&meta_path)? {
-            return Err(Error::AlreadyExists(
-                ".meta.json already exists".to_string(),
-            ));
+            return Err(Error::AlreadyExists(".meta.json".into()));
         }
 
         self.vfs.write_serialisable(
@@ -160,10 +168,7 @@ impl ProjectMut for ProjectLocalBrowserStorage {
         let file_path = self.root_path.join(&path);
 
         if !overwrite && self.vfs.exists(&file_path)? {
-            return Err(Error::AlreadyExists(format!(
-                "{} already exists",
-                file_path
-            )));
+            return Err(Error::AlreadyExists(file_path.as_str().into()));
         }
 
         self.vfs.write_reader(&file_path, source)?;

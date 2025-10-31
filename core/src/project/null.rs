@@ -13,7 +13,7 @@ pub struct NullProject {}
 #[derive(Error, Debug)]
 pub enum NotARealProjectError {
     #[error("null project error")]
-    NotARealProjectError,
+    NotARealProject,
 }
 
 pub struct ImpossibleReader {
@@ -38,7 +38,7 @@ impl ProjectRead for NullProject {
         ),
         Self::Error,
     > {
-        Err(NotARealProjectError::NotARealProjectError)
+        Err(NotARealProjectError::NotARealProject)
     }
 
     type SourceReader<'a>
@@ -50,7 +50,7 @@ impl ProjectRead for NullProject {
         &self,
         _path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        Err(NotARealProjectError::NotARealProjectError)
+        Err(NotARealProjectError::NotARealProject)
     }
 
     fn sources(&self) -> Vec<crate::lock::Source> {

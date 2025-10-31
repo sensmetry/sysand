@@ -425,15 +425,15 @@ pub enum ExtractError {
     #[error("failed to read file to extract symbols: {0}")]
     ReadTopLevelSysml(std::io::Error),
     #[error("syntax error at line {0}, byte {1}:\n{2}")]
-    SyntaxError(u32, u32, LexingError),
+    Syntax(u32, u32, LexingError),
     #[error(
         "missing body delimiter: brace '{{}}' nesting depth is {0} (should be 0) at the end of file"
     )]
     MissingBodyDelimiter(i32),
     #[error("unable to get token range")]
-    TokenRangeError,
+    TokenRange,
     #[error("error at line {0}, byte {1}:\n'{2}': {3}")]
-    ParseError(u32, u32, String, String),
+    Parse(u32, u32, String, String),
 }
 
 /// A lexer that extracts top-level symbols from a SysML file.
@@ -455,11 +455,7 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
 
     let mut depth = 0;
     while let Some(token) = lexer.next() {
-        let token_range = Box::from(
-            source
-                .slice(lexer.span())
-                .ok_or(ExtractError::TokenRangeError)?,
-        );
+        let token_range = Box::from(source.slice(lexer.span()).ok_or(ExtractError::TokenRange)?);
         match token {
             Ok(Token::BraceOpen) => {
                 if depth == 0 {
@@ -504,7 +500,7 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
             // One way to reach this is to have an unterminated string.
             Err(e) => {
                 let (line, byte) = line_byte(&source, lexer.span());
-                return Err(ExtractError::SyntaxError(line, byte, e));
+                return Err(ExtractError::Syntax(line, byte, e));
             }
         }
     }
@@ -534,7 +530,7 @@ pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, E
                     // At least indicate the approximate location.
                     None => (snippet_start_line, snippet_start_byte),
                 };
-                return Err(ExtractError::ParseError(line, byte, src, err.msg));
+                return Err(ExtractError::Parse(line, byte, src, err.msg));
             }
             Ok((None, None)) => {}
             Ok((None, Some(short_name))) => symbols.push(short_name),

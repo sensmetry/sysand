@@ -23,10 +23,10 @@ use crate::{
 
 #[derive(Error, Debug)]
 pub enum SourcesError<ProjectError> {
-    #[error("{0}")]
-    ProjectError(ProjectError),
-    #[error("{0}")]
-    ValidationError(#[from] InterchangeProjectValidationError),
+    #[error(transparent)]
+    Project(ProjectError),
+    #[error(transparent)]
+    Validation(#[from] InterchangeProjectValidationError),
 }
 
 /// Enumerates source files in a project (as Unix-paths relative to the project root).
@@ -36,7 +36,7 @@ pub fn do_sources_project_no_deps<Pr: ProjectRead>(
     project: &Pr,
     include_index: bool,
 ) -> Result<Vec<Utf8UnixPathBuf>, SourcesError<Pr::Error>> {
-    let Some(meta) = project.get_meta().map_err(SourcesError::ProjectError)? else {
+    let Some(meta) = project.get_meta().map_err(SourcesError::Project)? else {
         return Ok(vec![]);
     };
 
@@ -52,19 +52,19 @@ pub fn do_sources_project_no_deps<Pr: ProjectRead>(
 #[derive(Error, Debug)]
 pub enum LocalSourcesError {
     #[error(transparent)]
-    ProjectError(LocalSrcError),
+    Project(LocalSrcError),
     #[error(transparent)]
-    ValidationError(#[from] InterchangeProjectValidationError),
+    Validation(#[from] InterchangeProjectValidationError),
     #[error(transparent)]
-    PathError(#[from] PathError),
+    Path(#[from] PathError),
 }
 
 #[cfg(feature = "filesystem")]
 impl From<SourcesError<LocalSrcError>> for LocalSourcesError {
     fn from(value: SourcesError<LocalSrcError>) -> Self {
         match value {
-            SourcesError::ProjectError(error) => LocalSourcesError::ProjectError(error),
-            SourcesError::ValidationError(error) => LocalSourcesError::ValidationError(error),
+            SourcesError::Project(error) => LocalSourcesError::Project(error),
+            SourcesError::Validation(error) => LocalSourcesError::Validation(error),
         }
     }
 }

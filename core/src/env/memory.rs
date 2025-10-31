@@ -41,7 +41,7 @@ impl WriteEnvironment for MemoryStorageEnvironment {
     {
         let mut tentative_project = InMemoryProject::default();
 
-        write_project(&mut tentative_project).map_err(PutProjectError::CallbackError)?;
+        write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
 
         self.projects
             .entry(uri.as_ref().to_string())

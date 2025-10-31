@@ -41,8 +41,8 @@ pub fn open_environment_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
     };
 
     if !result.vfs.exists(result.entries_path())? {
-        return Err(Error::InvalidEnvironmentError(
-            "Missing entries.txt".to_string(),
+        return Err(Error::InvalidEnvironment(
+            "missing 'entries.txt'".to_string(),
         ));
     }
 
@@ -82,22 +82,10 @@ impl LocalBrowserStorageEnvironment {
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("invalid environment")]
-    InvalidEnvironmentError(String),
-    //     #[error("refusing to overwrite")]
-    //     AlreadyExists(String),
-    //     #[error("failed to get window")]
-    //     NoWindow(),
-    //     #[error("failed to get local storage")]
-    //     NoLocalStorage(),
-    //     #[error("JS error")]
-    //     JSError(wasm_bindgen::JsValue),
-    //     #[error("io error: {0}")]
-    //     IOError(#[from] std::io::Error),
-    //     #[error("de/serialisation error")]
-    //     SerialisationError(#[from] serde_json::Error),
-    #[error("local storage error")]
-    LocalStorageError(#[from] local_storage_utils::LocalStorageError),
+    #[error("invalid environment: {0}")]
+    InvalidEnvironment(String),
+    #[error(transparent)]
+    LocalStorage(#[from] local_storage_utils::LocalStorageError),
 }
 
 impl ReadEnvironment for LocalBrowserStorageEnvironment {
@@ -153,13 +141,13 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
         };
 
         // TODO: For production JS-version this should be made more robust
-        write_project(&mut project).map_err(sysand_core::env::PutProjectError::CallbackError)?;
+        write_project(&mut project).map_err(sysand_core::env::PutProjectError::Callback)?;
 
         let mut current_versions = self
             .vfs
             .read_string(self.versions_path(&uri))
-            .map_err(Error::LocalStorageError)
-            .map_err(PutProjectError::WriteError)?;
+            .map_err(Error::LocalStorage)
+            .map_err(PutProjectError::Write)?;
 
         let mut found = false;
         for current_version in current_versions.lines() {
@@ -174,8 +162,8 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
 
         self.vfs
             .write_string(self.versions_path(&uri), current_versions)
-            .map_err(Error::LocalStorageError)
-            .map_err(PutProjectError::WriteError)?;
+            .map_err(Error::LocalStorage)
+            .map_err(PutProjectError::Write)?;
 
         Ok(project)
     }
@@ -188,7 +176,7 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
         let current_versions = self
             .vfs
             .read_string(self.versions_path(&uri))
-            .map_err(Error::LocalStorageError)?;
+            .map_err(Error::LocalStorage)?;
 
         let mut kept_versions = "".to_string();
 
@@ -206,7 +194,7 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
 
             self.vfs
                 .write_string(self.versions_path(&uri), kept_versions)
-                .map_err(Error::LocalStorageError)?;
+                .map_err(Error::LocalStorage)?;
         }
 
         Ok(())

@@ -432,7 +432,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "Unable to find interchange project at urn:kpar:other",
+        "unable to find interchange project 'urn:kpar:other'",
     ));
 
     Ok(())
@@ -571,7 +571,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "Unable to find interchange project at urn:kpar:other",
+        "unable to find interchange project 'urn:kpar:other'",
     ));
 
     Ok(())

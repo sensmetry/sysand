@@ -8,9 +8,9 @@ use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum CloneError<ProjectReadError, EnvironmentWriteError> {
     #[error("project read error: {0}")]
-    ReadError(ProjectReadError),
+    ProjectRead(ProjectReadError),
     #[error("environment write error: {0}")]
-    WriteError(EnvironmentWriteError),
+    EnvWrite(EnvironmentWriteError),
     #[error("incomplete project: {0}")]
     IncompleteSource(&'static str),
     #[error(transparent)]
@@ -30,7 +30,7 @@ pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
     to: &mut Q,
     overwrite: bool,
 ) -> Result<(), CloneError<P::Error, Q::Error>> {
-    match from.get_project().map_err(CloneError::ReadError)? {
+    match from.get_project().map_err(CloneError::ProjectRead)? {
         (None, None) => {
             return Err(CloneError::IncompleteSource(
                 "missing '.project.json' and '.meta.json'",
@@ -44,14 +44,14 @@ pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
         }
         (Some(info), Some(meta)) => {
             to.put_project(&info, &meta, overwrite)
-                .map_err(CloneError::WriteError)?;
+                .map_err(CloneError::EnvWrite)?;
 
             for source_path in &meta.source_paths(true) {
                 let mut source = from
                     .read_source(source_path)
-                    .map_err(CloneError::ReadError)?;
+                    .map_err(CloneError::ProjectRead)?;
                 to.write_source(source_path, &mut source, overwrite)
-                    .map_err(CloneError::WriteError)?;
+                    .map_err(CloneError::EnvWrite)?;
             }
         }
     }

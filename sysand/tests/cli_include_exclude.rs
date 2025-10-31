@@ -485,7 +485,7 @@ fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["exclude", "test.sysml"], None)?;
 
     out.assert().failure().stderr(predicates::str::contains(
-        "could not find test.sysml in project metadata",
+        "could not find file 'test.sysml' in project metadata",
     ));
 
     let meta: InterchangeProjectMetadataRaw =

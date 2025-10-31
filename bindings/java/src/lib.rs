@@ -43,13 +43,10 @@ pub extern "system" fn Java_org_sysand_Sysand_init__Ljava_lang_String_2Ljava_lan
     match command_result {
         Ok(_) => {}
         Err(error) => match error {
-            NewError::AlreadyExists(msg) => {
-                env.throw_exception(ExceptionKind::ProjectAlreadyExists, msg)
+            NewError::SemVerParse(..) => {
+                env.throw_exception(ExceptionKind::InvalidSemanticVersion, error.to_string())
             }
-            NewError::SemVerError(suberror) => {
-                env.throw_exception(ExceptionKind::InvalidSemanticVersion, suberror.to_string())
-            }
-            NewError::ProjectError(suberror) => match suberror {
+            NewError::Project(suberror) => match suberror {
                 LocalSrcError::AlreadyExists(msg) => {
                     env.throw_exception(ExceptionKind::ProjectAlreadyExists, msg)
                 }
@@ -94,14 +91,14 @@ pub extern "system" fn Java_org_sysand_Sysand_env__Ljava_lang_String_2<'local>(
                 ExceptionKind::PathError,
                 format!("Path already exists: {}", msg.display()),
             ),
-            commands::env::EnvError::WriteError(suberror) => match suberror {
+            commands::env::EnvError::Write(suberror) => match suberror {
                 LocalWriteError::Io(subsuberror) => {
                     env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
                 }
                 LocalWriteError::Deserialize(subsuberror) => {
                     env.throw_exception(ExceptionKind::InvalidValue, subsuberror.to_string())
                 }
-                LocalWriteError::PathError(subsuberror) => {
+                LocalWriteError::Path(subsuberror) => {
                     env.throw_exception(ExceptionKind::PathError, subsuberror.to_string())
                 }
                 LocalWriteError::AlreadyExists(msg) => {
@@ -110,10 +107,10 @@ pub extern "system" fn Java_org_sysand_Sysand_env__Ljava_lang_String_2<'local>(
                 LocalWriteError::Serialize(subsuberror) => {
                     env.throw_exception(ExceptionKind::SerializationError, subsuberror.to_string())
                 }
-                LocalWriteError::TryMoveError(subsuberror) => {
+                LocalWriteError::TryMove(subsuberror) => {
                     env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
                 }
-                LocalWriteError::LocalReadError(subsuberror) => {
+                LocalWriteError::LocalRead(subsuberror) => {
                     env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
                 }
             },
@@ -190,8 +187,8 @@ pub extern "system" fn Java_org_sysand_Sysand_info<'local>(
     let results = match commands::info::do_info(&uri, &combined_resolver) {
         Ok(matches) => matches,
         Err(InfoError::NoResolve(_)) => Vec::new(),
-        Err(InfoError::ResolutionError(error)) => {
-            env.throw_exception(ExceptionKind::ResolutionError, error.to_string());
+        Err(e @ InfoError::Resolution(_)) => {
+            env.throw_exception(ExceptionKind::ResolutionError, e.to_string());
             return JObjectArray::default();
         }
     };

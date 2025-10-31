@@ -10,12 +10,16 @@ use crate::{
 
 #[derive(Error, Debug)]
 enum CheckInstallError<EnvReadError, ProjectReadError> {
-    #[error("{0} already installed")]
-    AlreadyInstalled(String),
-    #[error("env read error")]
-    EnvReadError(EnvReadError),
+    #[error("project with IRI '{0}' is already installed")]
+    AlreadyInstalled(Box<str>),
+    #[error("project with IRI '{0}' already has version '{1}' installed")]
+    AlreadyInstalledVersion(Box<str>, String),
+    #[error("unknown version of project with IRI '{0}' is already installed")]
+    AlreadyInstalledUnknownVersion(Box<str>),
+    #[error("env read error: {0}")]
+    EnvRead(EnvReadError),
     #[error("project read error: {0}")]
-    ProjectReadError(ProjectReadError),
+    ProjectRead(ProjectReadError),
 }
 
 fn check_install<S: AsRef<str>, P: ProjectRead, E: ReadEnvironment>(
@@ -30,35 +34,28 @@ fn check_install<S: AsRef<str>, P: ProjectRead, E: ReadEnvironment>(
     }
 
     if !allow_overwrite && !allow_multiple {
-        if env.has(&uri).map_err(CheckInstallError::EnvReadError)? {
-            return Err(CheckInstallError::AlreadyInstalled(
-                uri.as_ref().to_string(),
-            ));
+        if env.has(&uri).map_err(CheckInstallError::EnvRead)? {
+            return Err(CheckInstallError::AlreadyInstalled(uri.as_ref().into()));
         }
         return Ok(());
     }
 
-    if let Some(version) = storage
-        .version()
-        .map_err(CheckInstallError::ProjectReadError)?
-    {
-        if env.has(&uri).map_err(CheckInstallError::EnvReadError)? {
+    if let Some(version) = storage.version().map_err(CheckInstallError::ProjectRead)? {
+        if env.has(&uri).map_err(CheckInstallError::EnvRead)? {
             let version_present = env
                 .has_version(&uri, &version)
-                .map_err(CheckInstallError::EnvReadError)?;
+                .map_err(CheckInstallError::EnvRead)?;
 
             if !allow_overwrite && version_present {
-                return Err(CheckInstallError::AlreadyInstalled(format!(
-                    "{} {}",
-                    uri.as_ref(),
-                    version
-                )));
+                return Err(CheckInstallError::AlreadyInstalledVersion(
+                    uri.as_ref().into(),
+                    version,
+                ));
             }
             if !allow_multiple && !version_present {
-                return Err(CheckInstallError::AlreadyInstalled(format!(
-                    "other version of {}",
-                    uri.as_ref(),
-                )));
+                return Err(CheckInstallError::AlreadyInstalledUnknownVersion(
+                    uri.as_ref().into(),
+                ));
             }
         }
     }
@@ -68,16 +65,20 @@ fn check_install<S: AsRef<str>, P: ProjectRead, E: ReadEnvironment>(
 
 #[derive(Error, Debug)]
 pub enum EnvInstallError<EnvReadError, ProjectReadError, InstallationError> {
-    #[error("{0} already installed: {0}")]
-    AlreadyInstalled(String),
+    #[error("project with IRI '{0}' is already installed")]
+    AlreadyInstalled(Box<str>),
+    #[error("project with IRI '{0}' already has version '{1}' installed")]
+    AlreadyInstalledVersion(Box<str>, String),
+    #[error("unknown version of project with IRI '{0}' is already installed")]
+    AlreadyInstalledUnknownVersion(Box<str>),
     #[error("env read error: {0}")]
-    EnvReadError(EnvReadError),
+    EnvRead(EnvReadError),
     #[error("project read error: {0}")]
-    ProjectReadError(ProjectReadError),
+    ProjectRead(ProjectReadError),
     #[error("missing spec error")]
     MissingSpec,
-    #[error("installation error: {0}")]
-    InstallationError(InstallationError),
+    #[error("project installation error: {0}")]
+    Installation(InstallationError),
 }
 
 type InstallationError<EnvWriteError, ProjectReadError, ProjectWriteError> =
@@ -92,8 +93,14 @@ impl<EnvReadError, ProjectReadError, I> From<CheckInstallError<EnvReadError, Pro
     fn from(value: CheckInstallError<EnvReadError, ProjectReadError>) -> Self {
         match value {
             CheckInstallError::AlreadyInstalled(s) => EnvInstallError::AlreadyInstalled(s),
-            CheckInstallError::EnvReadError(e) => EnvInstallError::EnvReadError(e),
-            CheckInstallError::ProjectReadError(e) => EnvInstallError::ProjectReadError(e),
+            CheckInstallError::EnvRead(e) => EnvInstallError::EnvRead(e),
+            CheckInstallError::ProjectRead(e) => EnvInstallError::ProjectRead(e),
+            CheckInstallError::AlreadyInstalledVersion(iri, version) => {
+                Self::AlreadyInstalledVersion(iri, version)
+            }
+            CheckInstallError::AlreadyInstalledUnknownVersion(iri) => {
+                Self::AlreadyInstalledUnknownVersion(iri)
+            }
         }
     }
 }
@@ -125,7 +132,7 @@ pub fn do_env_install_project<
 
     let version = storage
         .version()
-        .map_err(EnvInstallError::ProjectReadError)?
+        .map_err(EnvInstallError::ProjectRead)?
         .ok_or(EnvInstallError::MissingSpec)?;
 
     let installing = "Installing";
@@ -136,7 +143,7 @@ pub fn do_env_install_project<
     );
 
     env.put_project(uri, version, |p| clone_project(storage, p, true))
-        .map_err(EnvInstallError::InstallationError)?;
+        .map_err(EnvInstallError::Installation)?;
 
     Ok(())
 }

@@ -3,7 +3,7 @@
 
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::ProjectRead,
+    project::{self, ProjectRead, utils::ZipArchiveError},
 };
 use std::{
     io::Write as _,
@@ -42,11 +42,9 @@ pub struct LocalKParProject {
 #[derive(Error, Debug)]
 pub enum LocalKParError {
     #[error(transparent)]
-    Zip(#[from] zip::result::ZipError),
-    // #[error("invalid name in archive: {0}")]
-    // InvalidName(String),
+    Zip(#[from] project::utils::ZipArchiveError),
     #[error("path '{0}' not found")]
-    NotFound(String),
+    NotFound(Box<Path>),
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
@@ -62,16 +60,15 @@ impl From<FsIoError> for LocalKParError {
 fn guess_root(archive: &mut ZipArchive<std::fs::File>) -> Result<PathBuf, LocalKParError> {
     let mut maybe_root = None;
     for i in 0..archive.len() {
-        let file = archive.by_index(i)?;
+        let file = archive.by_index(i).map_err(ZipArchiveError::FileMeta)?;
 
         if let Some(p) = file.enclosed_name() {
             if p.file_name() == Some(std::ffi::OsStr::new(".project.json")) {
-                let err_msg = format!(
-                    "internal path handling error: path {} is not contained in a directory",
-                    p.display()
+                maybe_root = Some(
+                    p.parent()
+                        .ok_or_else(|| ZipArchiveError::InvalidPath(Box::from(p.as_path())))?
+                        .to_path_buf(),
                 );
-
-                maybe_root = Some(p.parent().expect(&err_msg).to_path_buf());
                 break;
             }
         }
@@ -80,7 +77,7 @@ fn guess_root(archive: &mut ZipArchive<std::fs::File>) -> Result<PathBuf, LocalK
     if let Some(root) = maybe_root {
         Ok(root)
     } else {
-        Err(LocalKParError::NotFound(".project.json".to_string()))
+        Err(LocalKParError::NotFound(Path::new(".project.json").into()))
     }
 }
 
@@ -103,9 +100,9 @@ fn path_index<P: AsRef<Utf8UnixPath>>(
         native_path.push(component.as_str());
     }
 
-    let idx = archive.index_for_path(&native_path).ok_or_else(|| {
-        LocalKParError::NotFound(native_path.as_os_str().to_string_lossy().to_string())
-    })?;
+    let idx = archive
+        .index_for_path(&native_path)
+        .ok_or_else(|| LocalKParError::NotFound(native_path.as_path().into()))?;
 
     Ok(idx)
 }
@@ -117,11 +114,9 @@ pub enum IntoKparError<ReadError> {
     #[error("missing project metadata file '.meta.json'")]
     MissingMeta,
     #[error(transparent)]
-    ReadError(ReadError),
-    #[error("failed to write zip file: {0}")]
-    ZipWriteError(zip::result::ZipError),
-    #[error("failed to use path '{0}'")]
-    PathFailure(String),
+    ProjectRead(ReadError),
+    #[error(transparent)]
+    Zip(#[from] ZipArchiveError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("project serialization error: {0}: {1}")]
@@ -161,7 +156,7 @@ impl LocalKParProject {
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored);
 
-        let (info, meta) = from.get_project().map_err(IntoKparError::ReadError)?;
+        let (info, meta) = from.get_project().map_err(IntoKparError::ProjectRead)?;
         let info = info.ok_or(IntoKparError::MissingInfo)?;
         let meta = meta.ok_or(IntoKparError::MissingMeta)?;
         let info_content = serde_json::to_string(&info)
@@ -174,26 +169,27 @@ impl LocalKParProject {
         // named .meta.json.”
 
         zip.start_file(".project.json", options)
-            .map_err(IntoKparError::ZipWriteError)?;
+            .map_err(|e| ZipArchiveError::Write(Path::new(".project.json").into(), e))?;
         zip.write(info_content.as_bytes())
             .map_err(|e| FsIoError::WriteFile(path.to_path_buf(), e))?;
 
         zip.start_file(".meta.json", options)
-            .map_err(IntoKparError::ZipWriteError)?;
+            .map_err(|e| ZipArchiveError::Write(Path::new(".meta.json").into(), e))?;
         zip.write(meta_content.as_bytes())
             .map_err(|e| FsIoError::WriteFile(path.to_path_buf(), e))?;
 
         for source_path in meta.source_paths(true) {
             let mut reader = from
                 .read_source(&source_path)
-                .map_err(IntoKparError::ReadError)?;
+                .map_err(IntoKparError::ProjectRead)?;
             zip.start_file(&source_path, options)
-                .map_err(IntoKparError::ZipWriteError)?;
+                .map_err(|e| ZipArchiveError::Write(Path::new(&source_path).into(), e))?;
             std::io::copy(&mut reader, &mut zip)
                 .map_err(|e| FsIoError::CopyFile(source_path.into(), path.to_path_buf(), e))?;
         }
 
-        zip.finish().map_err(IntoKparError::ZipWriteError)?;
+        zip.finish()
+            .map_err(|e| ZipArchiveError::Finish(path.as_ref().into(), e))?;
 
         LocalKParProject::new(&path, ".").map_err(IntoKparError::Io)
     }
@@ -203,7 +199,8 @@ impl LocalKParProject {
     }
 
     fn new_archive(&self) -> Result<ZipArchive<std::fs::File>, LocalKParError> {
-        Ok(zip::ZipArchive::new(self.new_file()?)?)
+        Ok(zip::ZipArchive::new(self.new_file()?)
+            .map_err(|e| ZipArchiveError::ReadArchive(Box::from(self.archive_path.as_path()), e))?)
     }
 
     pub fn file_size(&self) -> Result<u64, LocalKParError> {
@@ -234,7 +231,12 @@ impl ProjectRead for LocalKParProject {
         let mut archive = self.new_archive()?;
 
         let info = match path_index(self.root.as_deref(), &mut archive, ".project.json") {
-            Ok(idx) => serde_json::from_reader(archive.by_index(idx)?).map_err(|e| {
+            Ok(idx) => serde_json::from_reader(
+                archive
+                    .by_index(idx)
+                    .map_err(|e| ZipArchiveError::NamedFileMeta(".project.json".into(), e))?,
+            )
+            .map_err(|e| {
                 ProjectDeserializationError::new("failed to deserialize '.project.json'", e)
             })?,
             Err(LocalKParError::NotFound(_)) => None,
@@ -242,7 +244,12 @@ impl ProjectRead for LocalKParProject {
         };
 
         let meta = match path_index(self.root.as_deref(), &mut archive, ".meta.json") {
-            Ok(idx) => serde_json::from_reader(archive.by_index(idx)?).map_err(|e| {
+            Ok(idx) => serde_json::from_reader(
+                archive
+                    .by_index(idx)
+                    .map_err(|e| ZipArchiveError::NamedFileMeta(".meta.json".into(), e))?,
+            )
+            .map_err(|e| {
                 ProjectDeserializationError::new("failed to deserialize '.meta.json'", e)
             })?,
             Err(LocalKParError::NotFound(_)) => None,
@@ -273,9 +280,11 @@ impl ProjectRead for LocalKParProject {
             let mut tmp_file = wrapfs::File::create(&tmp_file_path)?;
 
             let mut archive = self.new_archive()?;
-            let idx = path_index(self.root.as_deref(), &mut archive, path)?;
+            let idx = path_index(self.root.as_deref(), &mut archive, &path)?;
 
-            let mut zip_file = archive.by_index(idx)?;
+            let mut zip_file = archive.by_index(idx).map_err(|e| {
+                ZipArchiveError::NamedFileMeta(Box::from(path.as_ref().as_str()), e)
+            })?;
 
             std::io::copy(&mut zip_file, &mut tmp_file)
                 .map_err(|e| FsIoError::WriteFile(tmp_file_path.to_path_buf(), e))?;

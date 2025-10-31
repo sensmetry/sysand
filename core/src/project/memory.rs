@@ -64,7 +64,7 @@ impl ProjectMut for InMemoryProject {
     ) -> Result<(), InMemoryError> {
         if !overwrite && self.info.is_some() {
             return Err(InMemoryError::AlreadyExists(
-                "project already has a information file".to_string(),
+                "project already has an information file".to_string(),
             ));
         }
 
@@ -118,10 +118,10 @@ impl ProjectMut for InMemoryProject {
 pub enum InMemoryError {
     #[error("{0}")]
     AlreadyExists(String),
-    #[error("project read error: {0}")]
-    Read(String),
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("project read error: file '{0}' not found")]
+    FileNotFound(Box<str>),
+    #[error("failed to read from reader: {0}")]
+    IoRead(#[from] std::io::Error),
 }
 
 impl ProjectRead for InMemoryProject {
@@ -148,7 +148,7 @@ impl ProjectRead for InMemoryProject {
         let contents = self
             .files
             .get(&path.as_ref().to_path_buf())
-            .ok_or_else(|| InMemoryError::Read(format!("No such file: {}", path.as_ref())))?;
+            .ok_or_else(|| InMemoryError::FileNotFound(path.as_ref().as_str().into()))?;
 
         Ok(contents.as_bytes())
     }

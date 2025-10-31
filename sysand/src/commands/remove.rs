@@ -7,8 +7,7 @@ use sysand_core::{project::local_src::LocalSrcProject, remove::do_remove};
 use crate::CliError;
 
 pub fn command_remove(iri: String, current_project: Option<LocalSrcProject>) -> Result<()> {
-    let mut current_project =
-        current_project.ok_or(CliError::MissingProject("in current directory".to_string()))?;
+    let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
 
     let usages = do_remove(&mut current_project, &iri)?;
 

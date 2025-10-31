@@ -6,12 +6,12 @@ use crate::{model::InterchangeProjectValidationError, project::ProjectMut};
 
 #[derive(Error, Debug)]
 pub enum AddError<ProjectError> {
-    #[error("{0}")]
-    ProjectError(ProjectError),
-    #[error("{0}")]
-    ValidationError(#[from] InterchangeProjectValidationError),
+    #[error(transparent)]
+    Project(ProjectError),
+    #[error(transparent)]
+    Validation(#[from] InterchangeProjectValidationError),
     #[error("missing project information: {0}")]
-    MissingInfo(String),
+    MissingInfo(&'static str),
 }
 
 pub fn do_add<P: ProjectMut>(
@@ -30,7 +30,7 @@ pub fn do_add<P: ProjectMut>(
     let adding = "Adding";
     let header = crate::style::get_style_config().header;
     log::info!(
-        "{header}{adding:>12}{header:#} usage: {} {}",
+        "{header}{adding:>12}{header:#} usage: '{}' {}",
         &iri,
         versions_constraint
             .as_ref()
@@ -38,21 +38,19 @@ pub fn do_add<P: ProjectMut>(
             .unwrap_or("".to_string()),
     );
 
-    if let Some(info) = project.get_info().map_err(AddError::ProjectError)?.as_mut() {
+    if let Some(info) = project.get_info().map_err(AddError::Project)?.as_mut() {
         // TODO: Would ideally try to merge version constraint
         //       rather than having multiple usages
         if !info.usage.contains(&usage) {
             info.usage.push(usage);
         }
 
-        project
-            .put_info(info, true)
-            .map_err(AddError::ProjectError)?;
+        project.put_info(info, true).map_err(AddError::Project)?;
 
         Ok(())
     } else {
         Err(AddError::MissingInfo(
-            "project is missing the interchange project information".to_string(),
+            "project is missing the interchange project information",
         ))
     }
 }

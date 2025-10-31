@@ -5,8 +5,12 @@ use thiserror::Error;
 use crate::{
     env::utils::CloneError,
     model::InterchangeProjectValidationError,
-    project::{ProjectRead, local_kpar::LocalKParProject},
-    project::{local_kpar::IntoKparError, local_src::LocalSrcError, utils::FsIoError},
+    project::{
+        ProjectRead,
+        local_kpar::{IntoKparError, LocalKParProject},
+        local_src::LocalSrcError,
+        utils::{FsIoError, ZipArchiveError},
+    },
 };
 
 use super::include::IncludeError;
@@ -25,16 +29,14 @@ pub enum KParBuildError<ProjectReadError> {
     Validation(#[from] InterchangeProjectValidationError),
     #[error("{0}")]
     Extract(String),
-    #[error("unknown file format {0}")]
-    UnknownFormat(String),
+    #[error("unknown file format of '{0}', only SysML (.sysml) files are supported")]
+    UnknownFormat(Box<str>),
     #[error("missing project info file '.project.json'")]
     MissingInfo,
     #[error("missing project metadata file '.meta.json'")]
     MissingMeta,
     #[error(transparent)]
-    ZipWrite(#[from] zip::result::ZipError),
-    #[error("path failure: {0}")]
-    PathFailure(String),
+    Zip(#[from] ZipArchiveError),
     #[error("project serialization error: {0}: {1}")]
     Serialize(&'static str, serde_json::Error),
 }
@@ -50,8 +52,8 @@ impl<ProjectReadError> From<CloneError<ProjectReadError, LocalSrcError>>
 {
     fn from(value: CloneError<ProjectReadError, LocalSrcError>) -> Self {
         match value {
-            CloneError::ReadError(error) => Self::ProjectRead(error),
-            CloneError::WriteError(error) => error.into(),
+            CloneError::ProjectRead(error) => Self::ProjectRead(error),
+            CloneError::EnvWrite(error) => error.into(),
             CloneError::IncompleteSource(error) => Self::IncompleteSource(error),
             CloneError::Io(error) => error.into(),
         }
@@ -74,9 +76,8 @@ impl<ProjectReadError> From<IntoKparError<LocalSrcError>> for KParBuildError<Pro
         match value {
             IntoKparError::MissingInfo => KParBuildError::MissingInfo,
             IntoKparError::MissingMeta => KParBuildError::MissingMeta,
-            IntoKparError::ReadError(error) => error.into(),
-            IntoKparError::ZipWriteError(zip_error) => zip_error.into(),
-            IntoKparError::PathFailure(error) => KParBuildError::PathFailure(error),
+            IntoKparError::ProjectRead(error) => error.into(),
+            IntoKparError::Zip(zip_error) => zip_error.into(),
             IntoKparError::Io(error) => error.into(),
             IntoKparError::Serialize(msg, e) => Self::Serialize(msg, e),
         }

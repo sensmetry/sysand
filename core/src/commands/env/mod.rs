@@ -28,7 +28,7 @@ pub enum EnvError<WriteError: std::error::Error> {
     #[error("refusing to overwrite '{0}'")]
     AlreadyExists(PathBuf),
     #[error("environment write error: {0}")]
-    WriteError(#[from] WriteError),
+    Write(#[from] WriteError),
 }
 
 pub fn do_env_memory() -> Result<MemoryStorageEnvironment, EnvError<MemoryWriteError>> {

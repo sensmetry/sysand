@@ -71,7 +71,7 @@ fn interpret_project_path<P: AsRef<Path>>(path: P) -> Result<FileResolverProject
         })
     } else {
         bail!(CliError::NoResolve(format!(
-            "Unable to find interchange project at {}",
+            "unable to find interchange project at '{}'",
             path.as_ref().display()
         )));
     })
@@ -87,7 +87,7 @@ pub fn command_info_path<P: AsRef<Path>>(path: P, excluded_iris: &HashSet<String
             Ok(())
         }
         None => bail!(CliError::NoResolve(format!(
-            "Unable to find interchange project at {}",
+            "unable to find interchange project at '{}'",
             path.as_ref().display()
         ))),
     }
@@ -132,8 +132,8 @@ pub fn command_info_uri<S: AsRef<str>>(
         // interchange project was not found without any hints that the provided
         // URI is invalid.
         bail!(CliError::NoResolve(format!(
-            "Unable to find interchange project at {}",
-            uri.as_str()
+            "unable to find interchange project '{}'",
+            uri
         )));
     }
 

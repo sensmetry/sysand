@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use thiserror::Error;
+#[cfg(feature = "filesystem")]
+use zip;
 
 use std::{
     io::{self, Read},
@@ -63,8 +65,7 @@ pub enum FsIoError {
     OpenFile(PathBuf, io::Error),
     #[error("failed to get metadata for\n  '{0}':\n  {1}")]
     Metadata(PathBuf, io::Error),
-    /// Failed to get metadata from file handle and path is unknown
-    /// at call location.
+    /// Same as `Self::Metadata`, but path is unknown when using file handle
     #[error("failed to get metadata for file: {0}")]
     MetadataHandle(io::Error),
     #[error("failed to create a temporary file: {0}")]
@@ -77,7 +78,7 @@ pub enum FsIoError {
     ReadDir(PathBuf, io::Error),
     #[error("failed to read file\n  '{0}':\n  {1}")]
     ReadFile(PathBuf, io::Error),
-    /// Path is unknown when reading a file from handle.
+    /// Same as `Self::ReadFile`, but path is unknown when using file handle.
     #[error("failed to read file: {0}")]
     ReadFileHandle(io::Error),
     #[error("failed to move\n  '{0}' to\n  '{1}':\n  {2}")]
@@ -195,4 +196,24 @@ impl ProjectSerializationError {
     pub fn new(msg: &'static str, err: serde_json::Error) -> Self {
         Self { msg, err }
     }
+}
+
+/// All zip errors we use
+#[cfg(feature = "filesystem")]
+#[derive(Debug, Error)]
+pub enum ZipArchiveError {
+    #[error("failed to parse zip archive '{0}': {1}")]
+    ReadArchive(Box<Path>, zip::result::ZipError),
+    #[error("failed to retrieve file from zip archive: {0}")]
+    FileMeta(zip::result::ZipError),
+    #[error("failed to retrieve file from zip archive: {0}")]
+    NamedFileMeta(Box<str>, zip::result::ZipError),
+    #[error(
+        "zip archive path handling error: file '{0}' in a zip archive is not contained in a directory"
+    )]
+    InvalidPath(Box<Path>),
+    #[error("failed to write file '{0}' to zip archive: {1}")]
+    Write(Box<Path>, zip::result::ZipError),
+    #[error("failed to finish creating zip archive at '{0}': {1}")]
+    Finish(Box<Path>, zip::result::ZipError),
 }

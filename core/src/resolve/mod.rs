@@ -52,7 +52,7 @@ pub trait ResolveRead {
         match fluent_uri::Iri::parse(uri.as_ref().to_string()) {
             Ok(uri) => self.resolve_read(&uri),
             Err(err) => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "Unable to parse IRI {}: {}",
+                "unable to parse IRI '{}': {}",
                 uri.as_ref(),
                 err
             ))),

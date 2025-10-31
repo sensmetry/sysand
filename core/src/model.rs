@@ -30,12 +30,21 @@ pub type InterchangeProjectUsage =
 impl InterchangeProjectUsageRaw {
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
         Ok(InterchangeProjectUsage {
-            resource: fluent_uri::Iri::parse(self.resource.clone())?,
+            resource: fluent_uri::Iri::parse(self.resource.clone()).map_err(|e| {
+                InterchangeProjectValidationError::IriParse(self.resource.to_string(), e)
+            })?,
+
             version_constraint: self
                 .version_constraint
                 .as_ref()
                 .map(|c| semver::VersionReq::parse(c))
-                .transpose()?,
+                .transpose()
+                .map_err(|e| {
+                    InterchangeProjectValidationError::SemverConstraintParse(
+                        self.version_constraint.clone().unwrap(),
+                        e,
+                    )
+                })?,
         })
     }
 }
@@ -162,14 +171,20 @@ impl InterchangeProjectInfoRaw {
         Ok(InterchangeProjectInfo {
             name: self.name.clone(),
             description: self.description.clone(),
-            version: semver::Version::parse(&self.version)?,
+            version: semver::Version::parse(&self.version).map_err(|e| {
+                InterchangeProjectValidationError::SemverParse(self.version.as_str().into(), e)
+            })?,
             license: self.license.clone(),
             maintainer: self.maintainer.clone(),
             website: self
                 .website
                 .clone()
                 .map(fluent_uri::Iri::parse)
-                .transpose()?,
+                .transpose()
+                .map_err(|e| {
+                    InterchangeProjectValidationError::IriParse(self.website.clone().unwrap(), e)
+                })?,
+
             topic: self.topic.clone(),
             usage,
         })
@@ -249,12 +264,14 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
 
 #[derive(Error, Debug)]
 pub enum InterchangeProjectValidationError {
-    #[error("IRI parse error: {0}")]
-    IriParseError(#[from] fluent_uri::error::ParseError<String>),
-    #[error("SemVer parse error: {0}")]
-    SemverParseError(#[from] semver::Error),
-    #[error("datetime parse error: {0}")]
-    DatetimeParseError(#[from] chrono::ParseError),
+    #[error("failed to parse '{0}' as IRI: {1}")]
+    IriParse(String, fluent_uri::error::ParseError<String>),
+    #[error("failed to parse '{0}' as a Semantic Version: {1}")]
+    SemverParse(Box<str>, semver::Error),
+    #[error("failed to parse '{0}' as a Semantic Version constraint: {1}")]
+    SemverConstraintParse(String, semver::Error),
+    #[error("failed to parse '{0}' as RFC3339 datetime: {1}")]
+    DatetimeParse(Box<str>, chrono::ParseError),
 }
 
 impl InterchangeProjectMetadataRaw {
@@ -278,12 +295,22 @@ impl InterchangeProjectMetadataRaw {
                 .iter()
                 .map(|(k, v)| (k.to_owned(), Utf8UnixPath::new(v).to_path_buf()))
                 .collect(),
-            created: chrono::DateTime::parse_from_rfc3339(&self.created)?.into(),
+            created: chrono::DateTime::parse_from_rfc3339(&self.created)
+                .map_err(|e| {
+                    InterchangeProjectValidationError::DatetimeParse(
+                        self.created.as_str().into(),
+                        e,
+                    )
+                })?
+                .into(),
             metamodel: self
                 .metamodel
                 .clone()
                 .map(fluent_uri::Iri::parse)
-                .transpose()?,
+                .transpose()
+                .map_err(|e| {
+                    InterchangeProjectValidationError::IriParse(self.metamodel.clone().unwrap(), e)
+                })?,
             includes_derived: self.includes_derived,
             includes_implied: self.includes_implied,
             checksum: self.checksum.clone().map(|m| {
