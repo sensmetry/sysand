@@ -208,7 +208,7 @@ pub fn do_lock_local_editable<
             ))?,
         LocalSrcProject {
             project_path: path.as_ref().canonicalize().map_err(|e| {
-                LockError::Io(Box::new(FsIoError::Canonicalize(path.to_path_buf(), e)))
+                LockError::Io(FsIoError::Canonicalize(path.to_path_buf(), e).into())
             })?,
         },
     );
