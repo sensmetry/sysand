@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use assert_cmd::prelude::CommandCargoExt;
 #[cfg(not(target_os = "windows"))]
 use rexpect::session::{PtySession, spawn_command};
 #[cfg(not(target_os = "windows"))]
@@ -31,7 +30,7 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
     ]
     .concat();
     // NOTE had trouble getting test-temp-dir crate working, but would be better
-    let mut cmd = Command::cargo_bin("sysand")?;
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("sysand"));
 
     cmd.env("NO_COLOR", "1");
 
