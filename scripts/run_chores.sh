@@ -1,17 +1,17 @@
 #!/bin/bash
 
-set -e
+set -eu
 
 # Compute the root directory based on the location of this script.
-SCRIPT_DIR=$(dirname $(realpath $0))
-ROOT_DIR=$(dirname $SCRIPT_DIR)
+SCRIPT_DIR=$(dirname "$(realpath "$0")")
+ROOT_DIR=$(dirname "$SCRIPT_DIR")
 
-$ROOT_DIR/core/scripts/run_chores.sh
+"$ROOT_DIR"/core/scripts/run_chores.sh
 
-$ROOT_DIR/sysand/scripts/run_chores.sh
+"$ROOT_DIR"/sysand/scripts/run_chores.sh
 
-$ROOT_DIR/bindings/py/scripts/run_chores.sh
+"$ROOT_DIR"/bindings/py/scripts/run_chores.sh
 
-$ROOT_DIR/bindings/js/scripts/run_chores.sh
+"$ROOT_DIR"/bindings/js/scripts/run_chores.sh
 
-$ROOT_DIR/bindings/java/scripts/run_chores.sh
+"$ROOT_DIR"/bindings/java/scripts/run_chores.sh

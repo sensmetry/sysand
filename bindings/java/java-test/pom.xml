@@ -17,6 +17,19 @@ SPDX-License-Identifier: MIT OR Apache-2.0
     <maven.compiler.target>1.8</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
+  <profiles>
+    <!-- maven.compiler.release is only available in Java 9+, but it is required
+    to disallow usage of Java >8 APIs when building with Java >8 -->
+    <profile>
+      <id>java-8-api</id>
+      <activation>
+        <jdk>[9,)</jdk>
+      </activation>
+      <properties>
+        <maven.compiler.release>8</maven.compiler.release>
+      </properties>
+    </profile>
+  </profiles>
   <repositories>
     <repository>
       <!-- local repository (autoupdated) -->
@@ -30,14 +43,14 @@ SPDX-License-Identifier: MIT OR Apache-2.0
     <dependency>
       <groupId>org.sysand</groupId>
       <artifactId>sysand</artifactId>
-      <version>0.0.1</version>
+      <version>SYSAND_VERSION</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-engine</artifactId>
-      <version>5.10.3</version>
+      <version>6.0.1</version>
       <scope>test</scope>
     </dependency>
 
@@ -45,12 +58,12 @@ SPDX-License-Identifier: MIT OR Apache-2.0
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-api</artifactId>
-      <version>2.0.13</version>
+      <version>2.0.17</version>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-reload4j</artifactId>
-      <version>2.0.13</version>
+      <version>2.0.17</version>
     </dependency>
     <!-- logger  -->
 
@@ -60,7 +73,10 @@ SPDX-License-Identifier: MIT OR Apache-2.0
       <plugin>
         <!-- test runner -->
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.3.1</version>
+        <version>3.5.4</version>
+        <configuration>
+          <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+        </configuration>
       </plugin>
     </plugins>
   </build>

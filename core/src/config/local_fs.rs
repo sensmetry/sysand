@@ -6,22 +6,32 @@ use std::path::Path;
 use thiserror::Error;
 
 use super::Config;
+use crate::project::utils::{FsIoError, wrapfs};
 
 pub const CONFIG_DIR: &str = "sysand";
 pub const CONFIG_FILE: &str = "sysand.toml";
 
 #[derive(Error, Debug)]
 pub enum ConfigReadError {
-    #[error("toml deserialization error")]
-    TomlError(#[from] toml::de::Error),
-    #[error("io error: {0}")]
-    IOError(#[from] std::io::Error),
+    #[error("failed to deserialize TOML file '{0}': {1}")]
+    Toml(Box<Path>, toml::de::Error),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+}
+
+impl From<FsIoError> for ConfigReadError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 pub fn get_config<P: AsRef<Path>>(path: P) -> Result<Config, ConfigReadError> {
     if path.as_ref().is_file() {
-        let contents = std::fs::read_to_string(path.as_ref())?;
-        Ok(toml::from_str(&contents)?)
+        let contents = wrapfs::read_to_string(&path)?;
+        Ok(
+            toml::from_str(&contents)
+                .map_err(|e| ConfigReadError::Toml(path.as_ref().into(), e))?,
+        )
     } else {
         Ok(Config::default())
     }
@@ -41,9 +51,8 @@ pub fn load_configs<P: AsRef<Path>>(working_dir: P) -> Result<Config, ConfigRead
 mod tests {
     use std::io::Write;
 
-    use tempfile::tempdir;
-
     use crate::config::{Config, Index, local_fs};
+    use tempfile::tempdir;
 
     #[test]
     fn load_configs() {

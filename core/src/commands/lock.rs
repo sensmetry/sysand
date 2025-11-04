@@ -10,11 +10,11 @@ use thiserror::Error;
 pub const DEFAULT_LOCKFILE_NAME: &str = "SysandLock.toml";
 
 #[cfg(feature = "filesystem")]
-use crate::project::{editable::EditableProject, local_src::LocalSrcProject};
+use crate::project::{editable::EditableProject, local_src::LocalSrcProject, utils::ToPathBuf};
 use crate::{
     lock::{Lock, Project},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
-    project::{CanonicalisationError, ProjectRead},
+    project::{CanonicalisationError, ProjectRead, utils::FsIoError},
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
 };
@@ -25,9 +25,9 @@ pub enum LockProjectError<
     PD: ProjectRead,
     R: ResolveRead + std::fmt::Debug + 'static,
 > {
-    #[error("{0}")]
+    #[error(transparent)]
     InputProjectError(PI::Error),
-    #[error("{0}")]
+    #[error(transparent)]
     InputProjectCanonicalisationError(CanonicalisationError<PI::Error>),
     #[error(transparent)]
     LockError(#[from] LockError<PD, R>),
@@ -35,18 +35,18 @@ pub enum LockProjectError<
 
 #[derive(Error, Debug)]
 pub enum LockError<PD: ProjectRead, R: ResolveRead + std::fmt::Debug + 'static> {
-    #[error("{0}")]
-    DependencyProjectError(PD::Error),
-    #[error("{0}")]
-    DependencyProjectCanonicalisationError(CanonicalisationError<PD::Error>),
-    #[error("{0}")]
-    IOError(std::io::Error),
-    #[error("incomplete project {0}")]
-    IncompleteInputProjectError(String),
-    #[error("{0}")]
-    ValidationError(InterchangeProjectValidationError),
-    #[error("{0}")]
-    SolverError(SolverError<R>),
+    #[error(transparent)]
+    DependencyProject(PD::Error),
+    #[error(transparent)]
+    DependencyProjectCanonicalisation(CanonicalisationError<PD::Error>),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+    #[error("incomplete project{0}")]
+    IncompleteInputProject(String),
+    #[error(transparent)]
+    Validation(InterchangeProjectValidationError),
+    #[error(transparent)]
+    Solver(SolverError<R>),
 }
 
 pub struct LockOutcome<PI, PD> {
@@ -83,16 +83,16 @@ pub fn do_lock_projects<
         let info = project
             .get_info()
             .map_err(LockProjectError::InputProjectError)?
-            .ok_or(LockError::IncompleteInputProjectError(format!(
-                "{:?}",
+            .ok_or(LockError::IncompleteInputProject(format!(
+                "\n{:?}",
                 project
             )))?;
 
         let canonical_hash = project
             .checksum_canonical_hex()
             .map_err(LockProjectError::InputProjectCanonicalisationError)?
-            .ok_or(LockError::IncompleteInputProjectError(format!(
-                "{:?}",
+            .ok_or(LockError::IncompleteInputProject(format!(
+                "\n{:?}",
                 project
             )))?;
 
@@ -113,7 +113,7 @@ pub fn do_lock_projects<
 
         let usages: Result<Vec<InterchangeProjectUsage>, InterchangeProjectValidationError> =
             info.usage.iter().map(|p| p.validate()).collect();
-        let usages = usages.map_err(LockError::ValidationError)?;
+        let usages = usages.map_err(LockError::Validation)?;
 
         inputs.push(project);
 
@@ -148,7 +148,7 @@ pub fn do_lock_extend<
 ) -> Result<LockOutcome<InterchangeProjectUsage, PD>, LockError<PD, R>> {
     let inputs: Vec<_> = usages.into_iter().collect();
     let mut dependencies = vec![];
-    let solution = solve(inputs.to_vec(), resolver).map_err(LockError::SolverError)?;
+    let solution = solve(inputs.to_vec(), resolver).map_err(LockError::Solver)?;
 
     for (iri, (info, _meta, project)) in solution {
         let info_json = json!({
@@ -159,9 +159,9 @@ pub fn do_lock_extend<
 
         let canonical_hash = project
             .checksum_canonical_hex()
-            .map_err(LockError::DependencyProjectCanonicalisationError)?
-            .ok_or(LockError::IncompleteInputProjectError(format!(
-                "{:?}",
+            .map_err(LockError::DependencyProjectCanonicalisation)?
+            .ok_or(LockError::IncompleteInputProject(format!(
+                "\n{:?}",
                 project
             )))?;
 
@@ -203,11 +203,13 @@ pub fn do_lock_local_editable<
     let project = EditableProject::new(
         path.as_ref()
             .to_str()
-            .ok_or(LockError::IncompleteInputProjectError(
-                "project path is not storable".to_string(),
+            .ok_or(LockError::IncompleteInputProject(
+                ": project path contains invalid Unicode, and so cannot be stored".to_string(),
             ))?,
         LocalSrcProject {
-            project_path: path.as_ref().canonicalize().map_err(LockError::IOError)?,
+            project_path: path.as_ref().canonicalize().map_err(|e| {
+                LockError::Io(Box::new(FsIoError::Canonicalize(path.to_path_buf(), e)))
+            })?,
         },
     );
 

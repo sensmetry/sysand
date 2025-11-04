@@ -3,13 +3,19 @@
 
 use sha2::Sha256;
 use std::{
-    io::{BufRead, Read, Write},
+    fs,
+    io::{self, BufRead, Read, Write},
     path::{Path, PathBuf},
 };
 
 use crate::{
     env::{PutProjectError, ReadEnvironment, WriteEnvironment, segment_uri_generic},
-    project::local_src::LocalSrcProject,
+    project::{
+        local_src::{LocalSrcError, LocalSrcProject, PathError},
+        utils::{
+            FsIoError, ProjectDeserializationError, ProjectSerializationError, ToPathBuf, wrapfs,
+        },
+    },
 };
 
 use tempfile::{NamedTempFile, TempDir};
@@ -34,14 +40,14 @@ pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> PathBuf {
     result
 }
 
-pub fn remove_dir_if_empty<P: AsRef<Path>>(path: P) -> Result<(), std::io::Error> {
-    match std::fs::remove_dir(path) {
-        Err(err) if err.kind() == std::io::ErrorKind::DirectoryNotEmpty => Ok(()),
-        r => r,
+pub fn remove_dir_if_empty<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
+    match std::fs::remove_dir(&path) {
+        Err(err) if err.kind() == io::ErrorKind::DirectoryNotEmpty => Ok(()),
+        r => r.map_err(|e| FsIoError::RmDir(path.to_path_buf(), e)),
     }
 }
 
-pub fn remove_empty_dirs<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
+pub fn remove_empty_dirs<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
     let mut dirs: Vec<_> = walkdir::WalkDir::new(&path)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -60,21 +66,24 @@ pub fn remove_empty_dirs<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
 
 #[derive(Error, Debug)]
 pub enum TryMoveError {
-    #[error("failed but recovered")]
-    RecoveredIOError(std::io::Error),
-    #[error("failed and may have left directory in inconsistent state")]
-    CatastrophicIOError {
-        err: std::io::Error,
-        cause: std::io::Error,
+    #[error("recovered from failure: {0}")]
+    RecoveredIO(Box<FsIoError>),
+    #[error(
+        "failed and may have left the directory in inconsistent state:\n{err}\ncaused by:\n{cause}"
+    )]
+    CatastrophicIO {
+        err: Box<FsIoError>,
+        cause: Box<FsIoError>,
     },
 }
 
 fn try_remove_files<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> Result<(), TryMoveError> {
-    let tempdir = tempfile::TempDir::new().map_err(TryMoveError::RecoveredIOError)?;
+    let tempdir = tempfile::TempDir::new()
+        .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
     let mut moved: Vec<PathBuf> = vec![];
 
     for (i, path) in paths.enumerate() {
-        match std::fs::rename(&path, tempdir.path().join(i.to_string())) {
+        match move_fs_item(&path, tempdir.path().join(i.to_string())) {
             Ok(_) => {
                 moved.push(path.as_ref().to_path_buf());
             }
@@ -82,16 +91,16 @@ fn try_remove_files<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> Result<(
                 // NOTE: This dance is to bypass the fact that std::io::error is not Clone-eable...
                 let mut catastrophic_error = None;
                 for (j, recover) in moved.iter().enumerate() {
-                    if let Err(err) = std::fs::rename(tempdir.path().join(j.to_string()), recover) {
+                    if let Err(err) = move_fs_item(tempdir.path().join(j.to_string()), recover) {
                         catastrophic_error = Some(err);
                         break;
                     }
                 }
 
                 if let Some(err) = catastrophic_error {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 } else {
-                    return Err(TryMoveError::RecoveredIOError(cause));
+                    return Err(TryMoveError::RecoveredIO(cause));
                 }
             }
         }
@@ -100,15 +109,61 @@ fn try_remove_files<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> Result<(
     Ok(())
 }
 
+// Recursively copy a directory from `src` to `dst`.
+// Assumes that all parents of `dst` exist.
+fn copy_dir_recursive<P: AsRef<Path>, Q: AsRef<Path>>(
+    src: P,
+    dst: Q,
+) -> Result<(), Box<FsIoError>> {
+    wrapfs::create_dir(&dst)?;
+
+    for entry_result in wrapfs::read_dir(&src)? {
+        let entry = entry_result.map_err(|e| FsIoError::ReadDir(src.to_path_buf(), e))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| FsIoError::ReadDir(src.to_path_buf(), e))?;
+        let src_path = entry.path();
+        let dst_path = dst.as_ref().join(entry.file_name());
+
+        if file_type.is_dir() {
+            copy_dir_recursive(src_path, dst_path)?;
+        } else {
+            wrapfs::copy(&src_path, &dst_path)?;
+        }
+    }
+
+    Ok(())
+}
+
+// Rename/move a file or directory from `src` to `dst`.
+fn move_fs_item<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Result<(), Box<FsIoError>> {
+    match fs::rename(&src, &dst) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
+            let metadata = wrapfs::metadata(&src)?;
+            if metadata.is_dir() {
+                copy_dir_recursive(&src, &dst)?;
+                wrapfs::remove_dir_all(&src)?;
+            } else {
+                wrapfs::copy(&src, &dst)?;
+                wrapfs::remove_file(&src)?;
+            }
+            Ok(())
+        }
+        Err(e) => Err(FsIoError::Move(src.to_path_buf(), dst.to_path_buf(), e))?,
+    }
+}
+
 fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
-    let tempdir = tempfile::TempDir::new().map_err(TryMoveError::RecoveredIOError)?;
+    let tempdir = tempfile::TempDir::new()
+        .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
 
     let mut last_err = None;
 
     // move source files out of the way
     for (i, (path, _)) in paths.iter().enumerate() {
         let src_path = tempdir.path().join(format!("src_{}", i));
-        if let Err(e) = std::fs::rename(path, src_path) {
+        if let Err(e) = move_fs_item(path, src_path) {
             last_err = Some(e);
             break;
         }
@@ -120,13 +175,13 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if src_path.exists() {
-                if let Err(err) = std::fs::rename(&src_path, path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                if let Err(err) = move_fs_item(src_path, path) {
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
 
-        return Err(TryMoveError::RecoveredIOError(cause));
+        return Err(TryMoveError::RecoveredIO(cause));
     }
 
     let mut last_err = None;
@@ -135,7 +190,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
     for (i, (_, path)) in paths.iter().enumerate() {
         if path.exists() {
             let trg_path = tempdir.path().join(format!("trg_{}", i));
-            if let Err(e) = std::fs::rename(path, trg_path) {
+            if let Err(e) = move_fs_item(path, trg_path) {
                 last_err = Some(e);
                 break;
             }
@@ -148,8 +203,8 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let trg_path = tempdir.path().join(format!("trg_{}", i));
 
             if trg_path.exists() {
-                if let Err(err) = std::fs::rename(&trg_path, path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                if let Err(err) = move_fs_item(trg_path, path) {
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
@@ -158,13 +213,13 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if src_path.exists() {
-                if let Err(err) = std::fs::rename(&src_path, path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                if let Err(err) = move_fs_item(src_path, path) {
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
 
-        return Err(TryMoveError::RecoveredIOError(cause));
+        return Err(TryMoveError::RecoveredIO(cause));
     }
 
     let mut last_err = None;
@@ -173,7 +228,7 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
     for (i, (_, target)) in paths.iter().enumerate() {
         let src_path = tempdir.path().join(format!("src_{}", i));
 
-        if let Err(e) = std::fs::rename(src_path, target) {
+        if let Err(e) = move_fs_item(src_path, target) {
             last_err = Some(e);
             break;
         }
@@ -185,8 +240,8 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if path.exists() {
-                if let Err(err) = std::fs::rename(path, &src_path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                if let Err(err) = move_fs_item(path, src_path) {
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
@@ -195,8 +250,8 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let trg_path = tempdir.path().join(format!("trg_{}", i));
 
             if trg_path.exists() {
-                if let Err(err) = std::fs::rename(&trg_path, path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                if let Err(err) = move_fs_item(trg_path, path) {
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
@@ -205,13 +260,13 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if src_path.exists() {
-                if let Err(err) = std::fs::rename(&src_path, path) {
-                    return Err(TryMoveError::CatastrophicIOError { err, cause });
+                if let Err(err) = move_fs_item(src_path, path) {
+                    return Err(TryMoveError::CatastrophicIO { err, cause });
                 }
             }
         }
 
-        return Err(TryMoveError::RecoveredIOError(cause));
+        return Err(TryMoveError::RecoveredIO(cause));
     }
 
     Ok(())
@@ -242,38 +297,40 @@ impl LocalDirectoryEnvironment {
 
 #[derive(Error, Debug)]
 pub enum LocalReadError {
-    //#[error("failed to read interchange project")]
-    //FileReadError(#[from] crate::io::local_file::LocalReadError),
-    #[error("io error: {0}")]
-    IOError(#[from] std::io::Error),
-    // #[error("semver parse error")]
-    // VersionParseError(#[from] semver::Error),
-    // #[error("uri parse error")]
-    // UriParseError(#[from] fluent_uri::error::ParseError<String>),
+    #[error("failed to read project list file 'entries.txt': {0}")]
+    ProjectListFileRead(io::Error),
+    #[error("failed to read project versions file 'versions.txt': {0}")]
+    ProjectVersionsFileRead(io::Error),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+}
+
+impl From<FsIoError> for LocalReadError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 impl ReadEnvironment for LocalDirectoryEnvironment {
     type ReadError = LocalReadError;
 
     type UriIter = std::iter::Map<
-        std::io::Lines<std::io::BufReader<std::fs::File>>,
-        fn(Result<String, std::io::Error>) -> Result<String, LocalReadError>,
+        io::Lines<io::BufReader<std::fs::File>>,
+        fn(Result<String, io::Error>) -> Result<String, LocalReadError>,
     >;
 
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-        Ok(
-            std::io::BufReader::new(std::fs::File::open(self.entries_path())?)
-                .lines()
-                .map(|x| match x {
-                    Ok(line) => Ok(line),
-                    Err(err) => Err(LocalReadError::IOError(err)),
-                }),
-        )
+        Ok(io::BufReader::new(wrapfs::File::open(self.entries_path())?)
+            .lines()
+            .map(|x| match x {
+                Ok(line) => Ok(line),
+                Err(err) => Err(LocalReadError::ProjectListFileRead(err)),
+            }))
     }
 
     type VersionIter = std::iter::Map<
-        std::io::Lines<std::io::BufReader<std::fs::File>>,
-        fn(Result<String, std::io::Error>) -> Result<String, LocalReadError>,
+        io::Lines<io::BufReader<std::fs::File>>,
+        fn(Result<String, io::Error>) -> Result<String, LocalReadError>,
     >;
 
     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
@@ -284,17 +341,17 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
         if !vp.exists() {
             if let Some(vpp) = vp.parent() {
                 if !vpp.exists() {
-                    std::fs::create_dir(vpp)?;
+                    wrapfs::create_dir(vpp)?;
                 }
             }
-            std::fs::File::create(&vp)?;
+            wrapfs::File::create(&vp)?;
         }
 
-        Ok(std::io::BufReader::new(std::fs::File::open(vp)?)
+        Ok(io::BufReader::new(wrapfs::File::open(&vp)?)
             .lines()
             .map(|x| match x {
                 Ok(line) => Ok(line),
-                Err(err) => Err(LocalReadError::IOError(err)),
+                Err(err) => Err(LocalReadError::ProjectVersionsFileRead(err)),
             }))
     }
 
@@ -305,7 +362,8 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
         uri: S,
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
-        let project_path = self.project_path(uri, version).canonicalize()?;
+        let path = self.project_path(uri, version);
+        let project_path = wrapfs::canonicalize(path)?;
 
         Ok(LocalSrcProject { project_path })
     }
@@ -313,46 +371,46 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
 
 #[derive(Error, Debug)]
 pub enum LocalWriteError {
-    #[error("io error: {0}")]
-    IOError(#[from] std::io::Error),
-    #[error("project deserialisation error")]
-    SerialisationError(#[from] serde_json::Error),
-    #[error("path error")]
-    PathError(#[from] crate::project::local_src::PathError),
+    #[error(transparent)]
+    Deserialize(#[from] ProjectDeserializationError),
+    #[error(transparent)]
+    Serialize(#[from] ProjectSerializationError),
+    #[error("path error: {0}")]
+    Path(#[from] PathError),
     #[error("already exists: {0}")]
     AlreadyExists(String),
-    //#[error("semver parse error")]
-    // VersionParseError(#[from] semver::Error),
-    // #[error("uri parse error")]
-    // UriParseError(#[from] fluent_uri::error::ParseError<String>),
-    // NOTE: Just treat as a general IOError
-    //#[error{"project not found"}]
-    //ProjectNotFound,
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+    #[error(transparent)]
+    TryMove(#[from] TryMoveError),
+    #[error(transparent)]
+    LocalRead(LocalReadError),
+}
+
+impl From<FsIoError> for LocalWriteError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 impl From<LocalReadError> for LocalWriteError {
     fn from(value: LocalReadError) -> Self {
         match value {
-            LocalReadError::IOError(error) => LocalWriteError::IOError(error),
-            //LocalReadError::VersionParseError(error) => LocalWriteError::VersionParseError(error),
-            //LocalReadError::UriParseError(parse_error) => LocalWriteError::UriParseError(parse_error),
+            LocalReadError::Io(error) => Self::Io(error),
+            e @ (LocalReadError::ProjectListFileRead(_)
+            | LocalReadError::ProjectVersionsFileRead(_)) => Self::LocalRead(e),
         }
     }
 }
 
-impl From<crate::project::local_src::LocalSrcError> for LocalWriteError {
-    fn from(value: crate::project::local_src::LocalSrcError) -> Self {
+impl From<LocalSrcError> for LocalWriteError {
+    fn from(value: LocalSrcError) -> Self {
         match value {
-            crate::project::local_src::LocalSrcError::Serde(error) => {
-                LocalWriteError::SerialisationError(error)
-            }
-            crate::project::local_src::LocalSrcError::Io(error) => LocalWriteError::IOError(error),
-            crate::project::local_src::LocalSrcError::Path(path_error) => {
-                LocalWriteError::PathError(path_error)
-            }
-            crate::project::local_src::LocalSrcError::AlreadyExists(msg) => {
-                LocalWriteError::AlreadyExists(msg)
-            }
+            LocalSrcError::Deserialize(error) => LocalWriteError::Deserialize(error),
+            LocalSrcError::Path(path_error) => LocalWriteError::Path(path_error),
+            LocalSrcError::AlreadyExists(msg) => LocalWriteError::AlreadyExists(msg),
+            LocalSrcError::Io(e) => LocalWriteError::Io(e),
+            LocalSrcError::Serialize(error) => Self::Serialize(error),
         }
     }
 }
@@ -360,19 +418,22 @@ impl From<crate::project::local_src::LocalSrcError> for LocalWriteError {
 fn add_line_temp<R: Read, S: AsRef<str>>(
     reader: R,
     line: S,
-) -> Result<NamedTempFile, std::io::Error> {
-    let mut temp_file = NamedTempFile::new()?;
+) -> Result<NamedTempFile, LocalWriteError> {
+    let mut temp_file = NamedTempFile::new().map_err(FsIoError::CreateTempFile)?;
 
     let mut line_added = false;
-    for this_line in std::io::BufReader::new(reader).lines() {
-        let this_line = this_line?;
+    for this_line in io::BufReader::new(reader).lines() {
+        let this_line =
+            this_line.map_err(|e| FsIoError::ReadFile(temp_file.path().to_path_buf(), e))?;
 
         if !line_added && line.as_ref() < this_line.as_str() {
-            writeln!(temp_file, "{}", line.as_ref())?;
+            writeln!(temp_file, "{}", line.as_ref())
+                .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
             line_added = true;
         }
 
-        writeln!(temp_file, "{}", this_line)?;
+        writeln!(temp_file, "{}", this_line)
+            .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
 
         if line.as_ref() == this_line {
             line_added = true;
@@ -380,16 +441,18 @@ fn add_line_temp<R: Read, S: AsRef<str>>(
     }
 
     if !line_added {
-        writeln!(temp_file, "{}", line.as_ref())?;
+        writeln!(temp_file, "{}", line.as_ref())
+            .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
     }
 
     Ok(temp_file)
 }
 
-fn singleton_line_temp<S: AsRef<str>>(line: S) -> Result<NamedTempFile, std::io::Error> {
-    let mut temp_file = NamedTempFile::new()?;
+fn singleton_line_temp<S: AsRef<str>>(line: S) -> Result<NamedTempFile, LocalWriteError> {
+    let mut temp_file = NamedTempFile::new().map_err(FsIoError::CreateTempFile)?;
 
-    writeln!(temp_file, "{}", line.as_ref())?;
+    writeln!(temp_file, "{}", line.as_ref())
+        .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
 
     Ok(temp_file)
 }
@@ -412,34 +475,31 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         let versions_path = self.versions_path(&uri);
 
         let entries_temp = add_line_temp(
-            std::fs::File::open(self.entries_path())
-                .map_err(|e| PutProjectError::WriteError(LocalWriteError::IOError(e)))?,
+            wrapfs::File::open(self.entries_path()).map_err(LocalWriteError::from)?,
             &uri,
-        )
-        .map_err(|e| PutProjectError::WriteError(LocalWriteError::IOError(e)))?;
+        )?;
 
         let versions_temp = if !versions_path.exists() {
             singleton_line_temp(version.as_ref())
         } else {
-            let current_versions_f = std::fs::File::open(&versions_path)
-                .map_err(|e| PutProjectError::WriteError(LocalWriteError::IOError(e)))?;
+            let current_versions_f =
+                wrapfs::File::open(&versions_path).map_err(LocalWriteError::from)?;
             add_line_temp(current_versions_f, version.as_ref())
-        }
-        .map_err(|e| PutProjectError::WriteError(LocalWriteError::IOError(e)))?;
+        }?;
 
-        let project_temp =
-            TempDir::new().map_err(|e| PutProjectError::WriteError(LocalWriteError::IOError(e)))?;
+        let project_temp: TempDir =
+            TempDir::new().map_err(|e| LocalWriteError::from(FsIoError::MkTempDir(e)))?;
 
         let mut tentative_project = LocalSrcProject {
             project_path: project_temp.path().to_path_buf(),
         };
 
-        write_project(&mut tentative_project).map_err(PutProjectError::CallbackError)?;
+        write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
 
         // Project write was successful
 
         if !uri_path.exists() {
-            std::fs::create_dir(&uri_path).map_err(|x| PutProjectError::WriteError(x.into()))?;
+            wrapfs::create_dir(&uri_path).map_err(LocalWriteError::from)?;
         }
 
         // Move existing stuff out of the way
@@ -451,14 +511,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             (versions_temp.path(), &versions_path),
             (entries_temp.path(), &self.entries_path()),
         ])
-        .map_err(|e| match e {
-            TryMoveError::RecoveredIOError(err) => {
-                PutProjectError::WriteError(LocalWriteError::IOError(err))
-            }
-            TryMoveError::CatastrophicIOError { err, cause: _ } => {
-                PutProjectError::WriteError(LocalWriteError::IOError(err))
-            }
-        })?;
+        .map_err(LocalWriteError::from)?;
 
         Ok(LocalSrcProject { project_path })
     }
@@ -468,7 +521,8 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         uri: S,
         version: T,
     ) -> Result<(), Self::WriteError> {
-        let mut versions_temp = NamedTempFile::with_suffix("versions.txt")?;
+        let mut versions_temp =
+            NamedTempFile::with_suffix("versions.txt").map_err(FsIoError::CreateTempFile)?;
 
         let versions_path = self.versions_path(&uri);
         let mut found = false;
@@ -477,12 +531,15 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         // I think this may be needed on Windows in order to drop the
         // file handle before overwriting
         {
-            let current_versions_f = std::io::BufReader::new(std::fs::File::open(&versions_path)?);
+            let current_versions_f = io::BufReader::new(wrapfs::File::open(&versions_path)?);
             for version_line_ in current_versions_f.lines() {
-                let version_line = version_line_?;
+                let version_line = version_line_
+                    .map_err(|e| FsIoError::ReadFile(versions_path.to_path_buf(), e))?;
 
                 if version.as_ref() != version_line {
-                    writeln!(versions_temp, "{}", version_line)?;
+                    writeln!(versions_temp, "{}", version_line)
+                        .map_err(|e| FsIoError::WriteFile(versions_path.to_path_buf(), e))?;
+
                     empty = false;
                 } else {
                     found = true;
@@ -491,7 +548,9 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         }
 
         if found {
-            let project = self.get_project(&uri, version)?;
+            let project: LocalSrcProject = self
+                .get_project(&uri, version)
+                .map_err(LocalWriteError::from)?;
 
             // TODO: Add better error messages for catastrophic errors
             if let Err(err) = try_remove_files(project.get_source_paths()?.into_iter().chain(vec![
@@ -499,37 +558,33 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 project.root_path().join(".meta.json"),
             ])) {
                 match err {
-                    TryMoveError::RecoveredIOError(error) => {
-                        return Err(LocalWriteError::IOError(error));
-                    }
-                    TryMoveError::CatastrophicIOError {
-                        err: error,
-                        cause: _,
-                    } => {
+                    TryMoveError::CatastrophicIO { .. } => {
                         // Censor the version if a partial delete happened, better pretend
                         // like it does not exist than to pretend like a broken
                         // package is properly installed
-                        std::fs::copy(versions_temp.path(), &versions_path)?;
-                        return Err(LocalWriteError::IOError(error));
+                        wrapfs::copy(versions_temp.path(), &versions_path)?;
+                        return Err(err.into());
                     }
+                    TryMoveError::RecoveredIO(_) => return Err(LocalWriteError::from(err)),
                 }
             }
 
-            std::fs::copy(versions_temp.path(), &versions_path)?;
+            wrapfs::copy(versions_temp.path(), &versions_path)?;
 
             remove_empty_dirs(project.root_path())?;
-
             if empty {
                 let current_uris_: Result<Vec<String>, LocalReadError> = self.uris()?.collect();
                 let current_uris: Vec<String> = current_uris_?;
-                let mut f = std::io::BufWriter::new(std::fs::File::create(self.entries_path())?);
+                let entries_path = self.entries_path();
+                let mut f = io::BufWriter::new(wrapfs::File::create(&entries_path)?);
                 for existing_uri in current_uris {
                     if uri.as_ref() != existing_uri {
-                        writeln!(f, "{}", existing_uri)?;
+                        writeln!(f, "{}", existing_uri)
+                            .map_err(|e| FsIoError::WriteFile(entries_path.clone(), e))?;
                     }
                 }
-                std::fs::remove_file(self.versions_path(&uri))?;
-                remove_dir_if_empty(self.uri_path(uri))?;
+                wrapfs::remove_file(self.versions_path(&uri))?;
+                remove_dir_if_empty(self.uri_path(&uri))?;
             }
         }
 

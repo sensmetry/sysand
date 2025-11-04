@@ -2,13 +2,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use logos::{Lexer, Logos};
+use thiserror::Error;
 
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq, Error)]
 pub enum LexingError {
+    #[error("unterminated '{0}'")]
     Unterminated(&'static str),
-    Unexpected(String),
+    #[error("{0}")]
+    Unexpected(&'static str),
     #[default]
-    UnknownError,
+    #[error("unknown parsing error")]
+    Unknown,
 }
 
 // Block comments, strings, and quoted names are easier to handle manually, as
@@ -80,7 +84,8 @@ fn lex_symbol(lex: &mut Lexer<'_, Token>) -> Result<Token, LexingError> {
                 || c == ']'
         })
         .ok_or(LexingError::Unexpected(
-            "expected block of symbols".to_string(),
+            // TODO: improve wording
+            "expected a block of symbols, found none",
         ))?;
 
     if let Some(line_comment_start_pos) = rem[..symbol_block_close_pos].find("//") {
@@ -119,7 +124,7 @@ fn lex_symbol(lex: &mut Lexer<'_, Token>) -> Result<Token, LexingError> {
     // Ok(lex.slice())
 }
 
-#[derive(Logos, Debug, PartialEq)] // Ignore this regex pattern between tokens
+#[derive(Logos, Debug, PartialEq)]
 #[logos(error = LexingError)]
 pub enum Token {
     #[regex(r"\s+")]

@@ -1,15 +1,16 @@
 #!/bin/bash
 
-set -e
+set -eu
 
 # Compute the root directory based on the location of this script.
-SCRIPT_DIR=$(dirname $(realpath $0))
-PACKAGE_DIR=$(dirname $SCRIPT_DIR)
+SCRIPT_DIR=$(dirname "$(realpath "$0")")
+PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 
-cd $PACKAGE_DIR
+cd "$PACKAGE_DIR"
 
 cargo fmt
 cargo clippy --all-targets -- --deny warnings
-uv tool run ruff format python tests
-uv tool run ruff check python
-uv tool run mypy --strict python
+uv sync --group linters
+uv run ruff format python tests
+uv run ruff check python
+uv run mypy --strict python

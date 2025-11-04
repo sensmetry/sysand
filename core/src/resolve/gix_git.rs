@@ -15,8 +15,8 @@ pub struct GitResolver {}
 
 #[derive(Error, Debug)]
 pub enum GitResolverError {
-    #[error("{0}")]
-    GitProjectError(#[from] GixDownloadedError),
+    #[error(transparent)]
+    GitProject(#[from] GixDownloadedError),
 }
 
 pub const SCHEME_SSH: &Scheme = Scheme::new_or_panic("ssh");

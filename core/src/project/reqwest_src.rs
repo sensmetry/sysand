@@ -1,17 +1,17 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use futures::{TryStreamExt, join};
+use thiserror::Error;
 /// This module implements accessing interchanged projects stored remotely over HTTP.
 /// It is currently written using the blocking Reqwest client. Once sysand functionality
 /// has stabilised it will be refactored to use the async interface and allow reqwest_middleware.
 /// This will enable middleware (such as caching) as well as using reqwest also in WASM.
 use typed_path::Utf8UnixPath;
 
-use thiserror::Error;
-
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::ProjectRead,
+    project::ProjectReadAsync,
 };
 
 /// Project stored at a remote base-URL such as https://www.example.com/project/
@@ -25,14 +25,14 @@ use crate::{
 /// is accessed by
 /// GET https://www.example.com/project/M%C3%ABkan%C3%AFk/K%C3%B6mmand%C3%B6h.sysml
 #[derive(Clone, Debug)]
-pub struct ReqwestSrcProject {
+pub struct ReqwestSrcProjectAsync {
     /// (reqwest) HTTP client to use for GET requests
-    pub client: reqwest::blocking::Client, // Internally an Arc
+    pub client: reqwest_middleware::ClientWithMiddleware, // Internally an Arc
     /// Base-url of the project
     pub url: reqwest::Url,
 }
 
-impl ReqwestSrcProject {
+impl ReqwestSrcProjectAsync {
     pub fn info_url(&self) -> reqwest::Url {
         self.url.join(".project.json").expect("internal URL error")
     }
@@ -47,25 +47,25 @@ impl ReqwestSrcProject {
             .expect("internal URL error")
     }
 
-    pub fn head_info(&self) -> reqwest::blocking::RequestBuilder {
+    pub fn head_info(&self) -> reqwest_middleware::RequestBuilder {
         self.client
             .head(self.info_url())
             .header(reqwest::header::ACCEPT, "application/json")
     }
 
-    pub fn head_meta(&self) -> reqwest::blocking::RequestBuilder {
+    pub fn head_meta(&self) -> reqwest_middleware::RequestBuilder {
         self.client
             .head(self.meta_url())
             .header(reqwest::header::ACCEPT, "application/json")
     }
 
-    pub fn get_info(&self) -> reqwest::blocking::RequestBuilder {
+    pub fn get_info(&self) -> reqwest_middleware::RequestBuilder {
         self.client
             .get(self.info_url())
             .header(reqwest::header::ACCEPT, "application/json")
     }
 
-    pub fn get_meta(&self) -> reqwest::blocking::RequestBuilder {
+    pub fn get_meta(&self) -> reqwest_middleware::RequestBuilder {
         self.client
             .get(self.meta_url())
             .header(reqwest::header::ACCEPT, "application/json")
@@ -74,25 +74,27 @@ impl ReqwestSrcProject {
     pub fn reqwest_src<P: AsRef<Utf8UnixPath>>(
         &self,
         path: P,
-    ) -> reqwest::blocking::RequestBuilder {
+    ) -> reqwest_middleware::RequestBuilder {
         self.client.get(self.src_url(path))
     }
 }
 
 #[derive(Error, Debug)]
 pub enum ReqwestSrcError {
-    #[error("HTTP error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("Malformed data: {0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("not found: {0}")]
-    NotFound(String),
+    #[error("HTTP request to '{0}' failed: {1}")]
+    Reqwest(String, reqwest_middleware::Error),
+    #[error("failed to decode response body from HTTP request to '{0}': {1}")]
+    ResponseDecode(String, reqwest::Error),
+    #[error("HTTP request to\n  '{0}'\n  returned malformed data: {1}")]
+    Deserialize(String, serde_json::Error),
+    #[error("HTTP request to '{0}' returned unexpected status code {1}")]
+    BadStatus(Box<str>, reqwest::StatusCode),
 }
 
-impl ProjectRead for ReqwestSrcProject {
+impl ProjectReadAsync for ReqwestSrcProjectAsync {
     type Error = ReqwestSrcError;
 
-    fn get_project(
+    async fn get_project_async(
         &self,
     ) -> Result<
         (
@@ -101,47 +103,87 @@ impl ProjectRead for ReqwestSrcProject {
         ),
         Self::Error,
     > {
-        let info_resp = self.get_info().send()?;
-        let meta_resp = self.get_meta().send()?;
+        let (info, meta) = join!(self.get_info_async(), self.get_meta_async());
 
-        let info: Option<InterchangeProjectInfoRaw> = if info_resp.status().is_success() {
-            Some(serde_json::from_str(&info_resp.text()?)?)
+        Ok((info?, meta?))
+    }
+
+    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        let info_resp = self
+            .get_info()
+            .send()
+            .await
+            .map_err(|e| ReqwestSrcError::Reqwest(self.info_url().into(), e))?;
+
+        Ok(if info_resp.status().is_success() {
+            let rep = info_resp
+                .text()
+                .await
+                .map_err(|e| ReqwestSrcError::Reqwest(self.info_url().into(), e.into()))?;
+            Some(serde_json::from_str(&rep).map_err(|e| ReqwestSrcError::Deserialize(rep, e))?)
         } else {
             None
-        };
+        })
+    }
 
-        let meta: Option<InterchangeProjectMetadataRaw> = if meta_resp.status().is_success() {
-            Some(serde_json::from_str(&meta_resp.text()?)?)
+    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        let meta_resp = self
+            .get_meta()
+            .send()
+            .await
+            .map_err(|e| ReqwestSrcError::Reqwest(self.meta_url().into(), e))?;
+
+        Ok(if meta_resp.status().is_success() {
+            let rep = meta_resp
+                .text()
+                .await
+                .map_err(|e| ReqwestSrcError::Reqwest(self.meta_url().into(), e.into()))?;
+            Some(serde_json::from_str(&rep).map_err(|e| ReqwestSrcError::Deserialize(rep, e))?)
         } else {
             None
-        };
-
-        Ok((info, meta))
+        })
     }
 
     type SourceReader<'a>
-        = reqwest::blocking::Response
+        = futures::stream::IntoAsyncRead<
+        std::pin::Pin<
+            Box<
+                dyn futures::Stream<Item = Result<bytes::Bytes, std::io::Error>>
+                    + std::marker::Send,
+            >,
+        >,
+    >
     where
         Self: 'a;
 
-    fn read_source<P: AsRef<Utf8UnixPath>>(
+    async fn read_source_async<P: AsRef<Utf8UnixPath>>(
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        let resp = self.reqwest_src(&path).send()?;
+        use futures::StreamExt as _;
+
+        let resp = self
+            .reqwest_src(&path)
+            .send()
+            .await
+            .map_err(|e| ReqwestSrcError::Reqwest(self.src_url(&path).into(), e))?;
 
         if resp.status().is_success() {
-            Ok(resp)
+            Ok(resp
+                .bytes_stream()
+                .map_err(std::io::Error::other)
+                .boxed()
+                .into_async_read())
         } else {
-            Err(ReqwestSrcError::NotFound(format!(
-                "path {} not found",
-                path.as_ref()
-            )))
+            Err(ReqwestSrcError::BadStatus(
+                resp.url().as_str().into(),
+                resp.status(),
+            ))
         }
     }
 
-    fn is_definitely_invalid(&self) -> bool {
-        match (self.head_info().send(), self.head_meta().send()) {
+    async fn is_definitely_invalid_async(&self) -> bool {
+        match join!(self.head_info().send(), self.head_meta().send()) {
             (Ok(info_head), Ok(meta_head)) => {
                 !info_head.status().is_success() || !meta_head.status().is_success()
             }
@@ -149,7 +191,7 @@ impl ProjectRead for ReqwestSrcProject {
         }
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    async fn sources_async(&self) -> Vec<crate::lock::Source> {
         vec![crate::lock::Source::RemoteSrc {
             remote_src: self.url.to_string(),
         }]
@@ -158,11 +200,11 @@ impl ProjectRead for ReqwestSrcProject {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
+    use std::{io::Read, sync::Arc};
 
     use typed_path::Utf8UnixPath;
 
-    use crate::project::{ProjectRead, reqwest_src::ReqwestSrcProject};
+    use crate::project::{ProjectRead, ProjectReadAsync, reqwest_src::ReqwestSrcProjectAsync};
 
     #[test]
     fn empty_remote_definitely_invalid_http_src() -> Result<(), Box<dyn std::error::Error>> {
@@ -170,9 +212,15 @@ mod tests {
 
         let url = reqwest::Url::parse(&server.url()).unwrap();
 
-        let client = reqwest::blocking::ClientBuilder::new().build().unwrap();
+        let client =
+            reqwest_middleware::ClientBuilder::new(reqwest::ClientBuilder::new().build().unwrap())
+                .build();
 
-        let project = ReqwestSrcProject { client, url };
+        let project = ReqwestSrcProjectAsync { client, url }.to_tokio_sync(Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?,
+        ));
 
         assert!(project.is_definitely_invalid());
 
@@ -209,9 +257,15 @@ mod tests {
             .with_body(src)
             .create();
 
-        let client = reqwest::blocking::ClientBuilder::new().build().unwrap();
+        let client =
+            reqwest_middleware::ClientBuilder::new(reqwest::ClientBuilder::new().build().unwrap())
+                .build();
 
-        let project = ReqwestSrcProject { client, url };
+        let project = ReqwestSrcProjectAsync { client, url }.to_tokio_sync(Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?,
+        ));
 
         let (Some(info), Some(meta)) = project.get_project()? else {
             panic!()
@@ -227,7 +281,7 @@ mod tests {
 
         assert_eq!(src, src_buf);
 
-        let Err(super::ReqwestSrcError::NotFound(_)) =
+        let Err(super::ReqwestSrcError::BadStatus(..)) =
             project.read_source(Utf8UnixPath::new("Mekanik/Kommandoh.sysml").to_path_buf())
         else {
             panic!();

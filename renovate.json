@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "schedule:earlyMondays"
+  ],
+  "packageRules": [
+    {
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch",
+      "matchPackageNames": [
+        "*"
+      ],
+      "matchUpdateTypes": ["minor", "patch"],
+      "matchCurrentVersion": "!/^0/"
+    },
+    {
+      "groupName": "all pyo3 packages",
+      "groupSlug": "all-pyo3",
+      "matchDatasources": ["crate"],
+      "matchPackageNames": ["pyo3*"]
+    },
+    {
+      "matchPackageNames": ["org.sysand:sysand"],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": ["python"],
+      "enabled": false
+    }
+  ]
+}

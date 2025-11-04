@@ -9,10 +9,10 @@ use crate::{model::InterchangeProjectUsageRaw, project::ProjectMut};
 pub enum RemoveError<ProjectError> {
     #[error(transparent)]
     Project(ProjectError),
-    #[error("could not find usage for {0}")]
-    UsageNotFound(String),
-    #[error("could not find project information for {0}")]
-    MissingInfo(String),
+    #[error("could not find usage for '{0}'")]
+    UsageNotFound(Box<str>),
+    #[error("could not find project information for '{0}'")]
+    MissingInfo(Box<str>),
 }
 
 pub fn do_remove<P: ProjectMut, S: AsRef<str>>(
@@ -22,7 +22,7 @@ pub fn do_remove<P: ProjectMut, S: AsRef<str>>(
     let removing = "Removing";
     let header = crate::style::get_style_config().header;
     log::info!(
-        "{header}{removing:>12}{header:#} {} from usages",
+        "{header}{removing:>12}{header:#} '{}' from usages",
         iri.as_ref()
     );
 
@@ -30,7 +30,7 @@ pub fn do_remove<P: ProjectMut, S: AsRef<str>>(
         let popped = info.pop_usage(&iri.as_ref().to_string());
 
         if popped.is_empty() {
-            Err(RemoveError::UsageNotFound(iri.as_ref().to_string()))
+            Err(RemoveError::UsageNotFound(iri.as_ref().into()))
         } else {
             project
                 .put_info(&info, true)
@@ -38,6 +38,6 @@ pub fn do_remove<P: ProjectMut, S: AsRef<str>>(
             Ok(popped)
         }
     } else {
-        Err(RemoveError::MissingInfo(iri.as_ref().to_string()))
+        Err(RemoveError::MissingInfo(iri.as_ref().into()))
     }
 }

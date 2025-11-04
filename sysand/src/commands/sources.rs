@@ -80,8 +80,7 @@ pub fn command_sources_project(
     env: Option<LocalDirectoryEnvironment>,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
-    let current_project =
-        current_project.ok_or(CliError::MissingProject("in current directory".to_string()))?;
+    let current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
 
     for src_path in do_sources_local_src_project_no_deps(&current_project, true)? {
         println!("{}", src_path.display());

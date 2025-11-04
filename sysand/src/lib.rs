@@ -4,7 +4,7 @@
 #[cfg(not(feature = "std"))]
 compile_error!("`std` feature is currently required to build `sysand`");
 
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use anyhow::{Result, bail};
 
@@ -70,15 +70,27 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         .or_else(|| std::env::current_dir().ok())
         .and_then(|p| crate::get_env(&p));
 
-    let client = reqwest::blocking::ClientBuilder::new().build()?;
+    let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+
+    let runtime = Arc::new(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .unwrap(),
+    );
+
+    let _runtime_keepalive = runtime.clone();
 
     match args.command {
         cli::Command::Init { name, version } => {
             command_new(name, version, std::env::current_dir()?)
         }
-        cli::Command::New { dir, name, version } => {
-            command_new(name, version, std::path::Path::new(&dir))
-        }
+        cli::Command::New {
+            path,
+            name,
+            version,
+        } => command_new(name, version, std::path::Path::new(&path)),
         cli::Command::Env { command } => match command {
             None => {
                 command_env(
@@ -96,6 +108,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 install_opts,
                 dependency_opts,
             }) => {
+                let provided_iris = if !dependency_opts.include_std {
+                    known_std_libs()
+                } else {
+                    std::collections::HashMap::default()
+                };
+
                 if let Some(path) = path {
                     command_env_install_path(
                         iri,
@@ -105,6 +123,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         dependency_opts,
                         project_root,
                         client,
+                        runtime,
+                        &provided_iris,
                     )
                 } else {
                     command_env_install(
@@ -114,6 +134,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         dependency_opts,
                         project_root,
                         client,
+                        runtime,
+                        &provided_iris,
                     )
                 }
             }
@@ -158,7 +180,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             };
 
             if let Some(path) = project_root {
-                crate::commands::lock::command_lock(path, client, index_base_urls, &provided_iris)
+                crate::commands::lock::command_lock(
+                    path,
+                    client,
+                    index_base_urls,
+                    &provided_iris,
+                    runtime,
+                )
             } else {
                 bail!("Not inside a project")
             }
@@ -193,6 +221,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     client.clone(),
                     index_base_urls,
                     &provided_iris,
+                    runtime.clone(),
                 )?;
             }
             let lock: Lock = toml::from_str(&std::fs::read_to_string(
@@ -204,6 +233,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &mut local_environment,
                 client,
                 &provided_iris,
+                runtime,
             )
         }
         cli::Command::PrintRoot => command_print_root(std::env::current_dir()?),
@@ -251,10 +281,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 debug_assert!(path.is_none());
                 debug_assert!(auto_location.is_none());
 
-                Location::Iri(
-                    fluent_uri::Iri::parse(iri)
-                        .map_err(|e| CliError::NoResolve(format!("Invalid URI: {}", e)))?,
-                )
+                Location::Iri(fluent_uri::Iri::parse(iri).map_err(|e| {
+                    CliError::NoResolve(format!("invalid URI '{}': {}", e.clone().into_input(), e))
+                })?)
             } else {
                 Location::WorkDir
             };
@@ -285,6 +314,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     client,
                     index_base_urls,
                     &excluded_iris,
+                    runtime,
                 ),
                 (Location::Iri(iri), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
@@ -295,6 +325,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         numbered,
                         client,
                         index_base_urls,
+                        runtime,
                     )
                 }
                 (Location::Path(path), None) => {
@@ -325,6 +356,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             dependency_opts,
             current_project,
             client,
+            runtime,
         ),
         cli::Command::Remove { iri } => command_remove(iri, current_project),
         cli::Command::Include {
@@ -334,8 +366,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         } => command_include(paths, add_checksum, !no_index_symbols, current_project),
         cli::Command::Exclude { paths } => command_exclude(paths, current_project),
         cli::Command::Build { path } => {
-            let current_project = current_project
-                .ok_or(CliError::MissingProject("in current directory".to_string()))?;
+            let current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
 
             let path = if let Some(path) = path {
                 path

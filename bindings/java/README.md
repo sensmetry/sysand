@@ -25,3 +25,27 @@ There are currently multiple ways to wrap a Rust library for Java:
 
 We have decided to use the first approach because it should be the easiest to
 integrate for our end-users.
+
+## Building and testing
+
+Requirements:
+
+- Rust 1.85 or later
+- Java 8 or later
+- maven
+- Python 3 (executable named `python3`)
+
+Build and run tests:
+```bash
+./scripts/run_tests.sh
+```
+
+Only build:
+```bash
+./scripts/java-builder.py build
+```
+
+Only run tests:
+```bash
+./scripts/java-builder.py test
+```

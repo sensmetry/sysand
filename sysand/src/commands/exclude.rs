@@ -9,8 +9,7 @@ use sysand_core::{exclude::do_exclude, project::local_src::LocalSrcProject};
 use crate::CliError;
 
 pub fn command_exclude(paths: Vec<String>, current_project: Option<LocalSrcProject>) -> Result<()> {
-    let mut current_project =
-        current_project.ok_or(CliError::MissingProject("in current directory".to_string()))?;
+    let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
 
     for path in paths {
         let path = PathBuf::from(path);

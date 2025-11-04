@@ -2,19 +2,24 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::sync::Arc;
+
 use jni::{
     JNIEnv,
     objects::{JClass, JObject, JObjectArray, JString},
 };
 use sysand_core::{
+    commands,
+    env::local_directory::LocalWriteError,
     info::InfoError,
+    new::NewError,
     project::local_src::{LocalSrcError, LocalSrcProject},
     resolve::standard::standard_resolver,
 };
 
 use crate::{
     conversion::{ToJObject, ToJObjectArray},
-    exceptions::throw_exception,
+    exceptions::{ExceptionKind, Throw},
 };
 
 mod conversion;
@@ -36,28 +41,28 @@ pub extern "system" fn Java_org_sysand_Sysand_init__Ljava_lang_String_2Ljava_lan
         .expect("Failed to get version")
         .into();
     let path: String = env.get_string(&path).expect("Failed to get path").into();
-    let command_result = sysand_core::commands::new::do_new_local_file(name, version, path);
+    let command_result = commands::new::do_new_local_file(name, version, path);
     match command_result {
         Ok(_) => {}
         Err(error) => match error {
-            sysand_core::new::NewError::AlreadyExists(msg) => {
-                throw_exception(&mut env, "ProjectAlreadyExists", msg)
+            NewError::SemVerParse(..) => {
+                env.throw_exception(ExceptionKind::InvalidSemanticVersion, error.to_string())
             }
-            sysand_core::new::NewError::SemVerError(suberror) => {
-                throw_exception(&mut env, "InvalidSemanticVersion", suberror.to_string())
-            }
-            sysand_core::new::NewError::ProjectError(suberror) => match suberror {
+            NewError::Project(suberror) => match suberror {
                 LocalSrcError::AlreadyExists(msg) => {
-                    throw_exception(&mut env, "ProjectAlreadyExists", msg)
+                    env.throw_exception(ExceptionKind::ProjectAlreadyExists, msg)
                 }
-                LocalSrcError::Serde(subsuberror) => {
-                    throw_exception(&mut env, "InvalidValue", subsuberror.to_string())
+                LocalSrcError::Deserialize(subsuberror) => {
+                    env.throw_exception(ExceptionKind::InvalidValue, subsuberror.to_string())
                 }
                 LocalSrcError::Io(subsuberror) => {
-                    throw_exception(&mut env, "IOError", subsuberror.to_string())
+                    env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
                 }
                 LocalSrcError::Path(subsuberror) => {
-                    throw_exception(&mut env, "PathError", subsuberror.to_string())
+                    env.throw_exception(ExceptionKind::PathError, subsuberror.to_string())
+                }
+                LocalSrcError::Serialize(subsuberror) => {
+                    env.throw_exception(ExceptionKind::SerializationError, subsuberror.to_string())
                 }
             },
         },
@@ -80,27 +85,35 @@ pub extern "system" fn Java_org_sysand_Sysand_env__Ljava_lang_String_2<'local>(
     path: JString<'local>,
 ) {
     let path: String = env.get_string(&path).expect("Failed to get path").into();
-    let command_result = sysand_core::commands::env::do_env_local_dir(path);
+    let command_result = commands::env::do_env_local_dir(path);
     match command_result {
         Ok(_) => {}
         Err(error) => match error {
-            sysand_core::commands::env::EnvError::AlreadyExists(msg) => throw_exception(
-                &mut env,
-                "EnvironmentAlreadyExists",
+            commands::env::EnvError::AlreadyExists(msg) => env.throw_exception(
+                ExceptionKind::PathError,
                 format!("Path already exists: {}", msg.display()),
             ),
-            sysand_core::commands::env::EnvError::WriteError(suberror) => match suberror {
-                sysand_core::env::local_directory::LocalWriteError::IOError(subsuberror) => {
-                    throw_exception(&mut env, "IOError", subsuberror.to_string())
+            commands::env::EnvError::Write(suberror) => match suberror {
+                LocalWriteError::Io(subsuberror) => {
+                    env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
                 }
-                sysand_core::env::local_directory::LocalWriteError::SerialisationError(
-                    subsuberror,
-                ) => throw_exception(&mut env, "SerialisationError", subsuberror.to_string()),
-                sysand_core::env::local_directory::LocalWriteError::PathError(subsuberror) => {
-                    throw_exception(&mut env, "PathError", subsuberror.to_string())
+                LocalWriteError::Deserialize(subsuberror) => {
+                    env.throw_exception(ExceptionKind::InvalidValue, subsuberror.to_string())
                 }
-                sysand_core::env::local_directory::LocalWriteError::AlreadyExists(msg) => {
-                    throw_exception(&mut env, "IOError", msg)
+                LocalWriteError::Path(subsuberror) => {
+                    env.throw_exception(ExceptionKind::PathError, subsuberror.to_string())
+                }
+                LocalWriteError::AlreadyExists(msg) => {
+                    env.throw_exception(ExceptionKind::IOError, msg)
+                }
+                LocalWriteError::Serialize(subsuberror) => {
+                    env.throw_exception(ExceptionKind::SerializationError, subsuberror.to_string())
+                }
+                LocalWriteError::TryMove(subsuberror) => {
+                    env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
+                }
+                LocalWriteError::LocalRead(subsuberror) => {
+                    env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
                 }
             },
         },
@@ -118,7 +131,7 @@ pub extern "system" fn Java_org_sysand_Sysand_info_1path__Ljava_lang_String_2<'l
         project_path: std::path::PathBuf::from(&path),
     };
 
-    let command_result = sysand_core::commands::info::do_info_project(&project);
+    let command_result = commands::info::do_info_project(&project);
     match command_result {
         Some(info_metadata) => info_metadata.to_jobject(&mut env),
         None => JObject::null(),
@@ -134,9 +147,13 @@ pub extern "system" fn Java_org_sysand_Sysand_info<'local>(
     index_url: JString<'local>,
 ) -> JObjectArray<'local> {
     let uri: String = env.get_string(&uri).expect("Failed to get uri").into();
-    let client = reqwest::blocking::ClientBuilder::new()
-        .build()
-        .expect("internal HTTP error");
+    let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+
+    let runtime = Arc::new(
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("failed to initialise async runtime"),
+    );
 
     let relative_file_root: String = env
         .get_string(&relative_file_root)
@@ -171,13 +188,14 @@ pub extern "system" fn Java_org_sysand_Sysand_info<'local>(
         None,
         Some(client),
         index_base_url.map(|x| vec![x]),
+        runtime,
     );
 
-    let results = match sysand_core::commands::info::do_info(&uri, &combined_resolver) {
+    let results = match commands::info::do_info(&uri, &combined_resolver) {
         Ok(matches) => matches,
         Err(InfoError::NoResolve(_)) => Vec::new(),
-        Err(InfoError::ResolutionError(error)) => {
-            throw_exception(&mut env, "ResolutionError", error.to_string());
+        Err(e @ InfoError::Resolution(_)) => {
+            env.throw_exception(ExceptionKind::ResolutionError, e.to_string());
             return JObjectArray::default();
         }
     };

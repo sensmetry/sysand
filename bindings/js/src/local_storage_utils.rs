@@ -3,6 +3,7 @@
 
 use serde::{/* Deserialize, */ Serialize};
 
+use sysand_core::project::utils::FsIoError;
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
@@ -14,20 +15,24 @@ pub struct LocalStorageVFS {
 
 #[derive(Error, Debug)]
 pub enum LocalStorageError {
-    // #[error("refusing to overwrite")]
-    // AlreadyExists(String),
-    #[error("failed to get window")]
-    NoWindow(),
-    #[error("failed to get local storage")]
-    NoLocalStorage(),
-    #[error("JS error")]
-    JSError(wasm_bindgen::JsValue),
-    #[error("io error: {0}")]
-    IOError(#[from] std::io::Error),
-    #[error("de/serialisation error")]
-    SerialisationError(#[from] serde_json::Error),
-    #[error("de/serialisation error")]
-    KeyNotFoundError(),
+    #[error("failed to get 'window' object")]
+    NoWindow,
+    #[error("failed to get 'window.localStorage' object")]
+    NoLocalStorage,
+    #[error("JS error: {0:?}")]
+    Js(wasm_bindgen::JsValue),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+    #[error("failed to serialize: {0}")]
+    Serialize(#[from] serde_json::Error),
+    #[error("key '{0}' not found in local storage")]
+    KeyNotFound(String),
+}
+
+impl From<FsIoError> for LocalStorageError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
+    }
 }
 
 pub fn get_local_browser_storage<S: AsRef<str>>(
@@ -36,10 +41,10 @@ pub fn get_local_browser_storage<S: AsRef<str>>(
     Ok(LocalStorageVFS {
         prefix: prefix.as_ref().to_string(),
         local_storage: web_sys::window()
-            .ok_or(LocalStorageError::NoWindow())?
+            .ok_or(LocalStorageError::NoWindow)?
             .local_storage()
-            .map_err(LocalStorageError::JSError)?
-            .ok_or(LocalStorageError::NoLocalStorage())?,
+            .map_err(LocalStorageError::Js)?
+            .ok_or(LocalStorageError::NoLocalStorage)?,
     })
 }
 
@@ -52,7 +57,7 @@ impl LocalStorageVFS {
         Ok(self
             .local_storage
             .get_item(&self.to_key(path))
-            .map_err(LocalStorageError::JSError)?
+            .map_err(LocalStorageError::Js)?
             .is_some())
     }
 
@@ -72,7 +77,7 @@ impl LocalStorageVFS {
         let key = self.to_key(path);
         self.local_storage
             .set_item(&key, value.as_ref())
-            .map_err(LocalStorageError::JSError)
+            .map_err(LocalStorageError::Js)
     }
 
     pub fn read_string<P: AsRef<Utf8UnixPath>>(
@@ -83,8 +88,8 @@ impl LocalStorageVFS {
 
         self.local_storage
             .get_item(&key)
-            .map_err(LocalStorageError::JSError)?
-            .ok_or(LocalStorageError::KeyNotFoundError())
+            .map_err(LocalStorageError::Js)?
+            .ok_or(LocalStorageError::KeyNotFound(key))
     }
 
     pub fn write_reader<P: AsRef<Utf8UnixPath>, R: std::io::Read>(
@@ -93,7 +98,9 @@ impl LocalStorageVFS {
         source: &mut R,
     ) -> Result<(), LocalStorageError> {
         let mut value = String::new();
-        source.read_to_string(&mut value)?;
+        source
+            .read_to_string(&mut value)
+            .map_err(FsIoError::ReadFileHandle)?;
         self.write_string(path, value)
     }
 
@@ -101,6 +108,6 @@ impl LocalStorageVFS {
         let key = self.to_key(path);
         self.local_storage
             .remove_item(&key)
-            .map_err(LocalStorageError::JSError)
+            .map_err(LocalStorageError::Js)
     }
 }

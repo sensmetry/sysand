@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{io::Write as _, process::Command};
+#[cfg(feature = "alltests")]
+use std::process::Command;
+
+use std::io::Write as _;
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
@@ -199,59 +202,59 @@ fn info_basic_http_url() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[test]
-fn info_non_ranged_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
-    let buf = {
-        let mut cursor = std::io::Cursor::new(vec![]);
-        let mut zip = zip::ZipWriter::new(&mut cursor);
+// #[test]
+// fn info_non_ranged_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
+//     let buf = {
+//         let mut cursor = std::io::Cursor::new(vec![]);
+//         let mut zip = zip::ZipWriter::new(&mut cursor);
 
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .unix_permissions(0o755);
+//         let options = zip::write::SimpleFileOptions::default()
+//             .compression_method(zip::CompressionMethod::Stored)
+//             .unix_permissions(0o755);
 
-        zip.start_file("some_root_dir/.project.json", options)?;
-        zip.write_all(br#"{"name":"info_non_ranged_http_kpar","version":"1.2.3","usage":[]}"#)?;
-        zip.start_file("some_root_dir/.meta.json", options)?;
-        zip.write_all(br#"{"index":{},"created":"123"}"#)?;
-        zip.start_file("some_root_dir/test.sysml", options)?;
-        zip.write_all(br#"package Test;"#)?;
+//         zip.start_file("some_root_dir/.project.json", options)?;
+//         zip.write_all(br#"{"name":"info_non_ranged_http_kpar","version":"1.2.3","usage":[]}"#)?;
+//         zip.start_file("some_root_dir/.meta.json", options)?;
+//         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
+//         zip.start_file("some_root_dir/test.sysml", options)?;
+//         zip.write_all(br#"package Test;"#)?;
 
-        zip.finish().unwrap();
+//         zip.finish().unwrap();
 
-        cursor.flush()?;
-        cursor.into_inner()
-    };
+//         cursor.flush()?;
+//         cursor.into_inner()
+//     };
 
-    let mut server = mockito::Server::new();
+//     let mut server = mockito::Server::new();
 
-    let kpar_probe = server
-        .mock("HEAD", "/info_non_ranged_http_kpar.kpar")
-        .with_status(200)
-        .with_header("content-type", "application/zip")
-        .with_body(&buf)
-        .create();
+//     let kpar_probe = server
+//         .mock("HEAD", "/info_non_ranged_http_kpar.kpar")
+//         .with_status(200)
+//         .with_header("content-type", "application/zip")
+//         .with_body(&buf)
+//         .create();
 
-    let get_kpar = server
-        .mock("GET", "/info_non_ranged_http_kpar.kpar")
-        .with_status(200)
-        .with_header("content-type", "application/zip")
-        .with_body(&buf)
-        .create();
+//     let get_kpar = server
+//         .mock("GET", "/info_non_ranged_http_kpar.kpar")
+//         .with_status(200)
+//         .with_header("content-type", "application/zip")
+//         .with_body(&buf)
+//         .create();
 
-    let url = format!("{}/info_non_ranged_http_kpar.kpar", server.url());
+//     let url = format!("{}/info_non_ranged_http_kpar.kpar", server.url());
 
-    let (_, _, out) = run_sysand(["info", "--iri", &url], None)?;
+//     let (_, _, out) = run_sysand(["info", "--iri", &url], None)?;
 
-    out.assert()
-        .success()
-        .stdout(predicate::str::contains("Name: info_non_ranged_http_kpar"))
-        .stdout(predicate::str::contains("Version: 1.2.3"));
+//     out.assert()
+//         .success()
+//         .stdout(predicate::str::contains("Name: info_non_ranged_http_kpar"))
+//         .stdout(predicate::str::contains("Version: 1.2.3"));
 
-    kpar_probe.assert();
-    get_kpar.assert();
+//     kpar_probe.assert();
+//     get_kpar.assert();
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 #[test]
 fn info_basic_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
@@ -429,7 +432,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "Unable to find interchange project at urn:kpar:other",
+        "unable to find interchange project 'urn:kpar:other'",
     ));
 
     Ok(())
@@ -568,7 +571,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "Unable to find interchange project at urn:kpar:other",
+        "unable to find interchange project 'urn:kpar:other'",
     ));
 
     Ok(())

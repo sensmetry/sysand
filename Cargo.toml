@@ -3,8 +3,11 @@ resolver = "3"
 members = ["sysand", "core", "bindings/py", "bindings/js", "bindings/java"]
 
 [workspace.package]
-version = "0.0.2"
+version = "0.0.4"
 edition = "2024"
+rust-version = "1.85"
 publish = false
 authors = ["Sensmetry <opensource@sensmetry.com>"]
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/sensmetry/sysand"
+description = "A package manager for SysML v2 and KerML"

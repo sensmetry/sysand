@@ -5,20 +5,26 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 
 use anyhow::{Result, anyhow, bail};
-use reqwest::blocking::Client;
 
 use sysand_core::{
     commands::{env::do_env_local_dir, lock::LockOutcome},
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     model::InterchangeProjectUsage,
-    project::{ProjectRead, editable::EditableProject, local_src::LocalSrcProject},
+    project::{
+        ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
+        local_src::LocalSrcProject, memory::InMemoryProject,
+    },
     resolve::{
         ResolutionOutcome, ResolveRead,
-        standard::{StandardResolver, standard_resolver},
+        file::FileResolverProject,
+        memory::{AcceptAll, MemoryResolver},
+        priority::PriorityResolver,
+        standard::standard_resolver,
     },
 };
 
@@ -32,13 +38,17 @@ pub fn command_env<P: AsRef<Path>>(path: P) -> Result<LocalDirectoryEnvironment>
     Ok(do_env_local_dir(path)?)
 }
 
+// TODO: Factor out provided_iris logic
+#[allow(clippy::too_many_arguments)]
 pub fn command_env_install<S: AsRef<str>>(
     iri: S,
     version: Option<String>,
     install_opts: InstallOptions,
     dependency_opts: DependencyOptions,
     project_root: Option<PathBuf>,
-    client: Client,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(std::env::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
@@ -61,8 +71,27 @@ pub fn command_env_install<S: AsRef<str>>(
             .collect();
         Some(use_index?)
     };
-    let resolver: StandardResolver =
-        standard_resolver(None, None, Some(client.clone()), index_base_url);
+
+    let mut memory_projects = HashMap::default();
+
+    for (k, v) in provided_iris {
+        memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
+    }
+    // TODO: Move out the runtime
+    let resolver = PriorityResolver::new(
+        MemoryResolver {
+            iri_predicate: AcceptAll {},
+            projects: memory_projects,
+        },
+        standard_resolver(
+            None,
+            None,
+            Some(client.clone()),
+            index_base_url,
+            runtime.clone(),
+        ),
+    );
+
     if no_deps {
         let outcome = resolver.resolve_read(&fluent_uri::Iri::from_str(iri.as_ref())?)?;
         // let outcome = resolver.resolve_read(&iri)?;
@@ -82,7 +111,7 @@ pub fn command_env_install<S: AsRef<str>>(
                 .ok_or(anyhow!(CliError::MissingProject(iri.as_ref().to_string())))?;
             sysand_core::commands::env::do_env_install_project(
                 &iri,
-                storage,
+                &storage,
                 &mut env,
                 allow_overwrite,
                 allow_multiple,
@@ -103,14 +132,27 @@ pub fn command_env_install<S: AsRef<str>>(
             HashMap::default()
         };
 
-        let LockOutcome { lock, .. } =
-            sysand_core::commands::lock::do_lock_extend(Lock::default(), usages, resolver)?;
-        command_sync(lock, project_root, &mut env, client, &provided_iris)?;
+        // NOTE: _deps needs to be kept alive here for temporary directory not to get cleared
+        let LockOutcome {
+            lock,
+            dependencies: _deps,
+            inputs: _,
+        } = sysand_core::commands::lock::do_lock_extend(Lock::default(), usages, resolver)?;
+        command_sync(
+            lock,
+            project_root,
+            &mut env,
+            client,
+            &provided_iris,
+            runtime,
+        )?;
     }
 
     Ok(())
 }
 
+// TODO: Collect common arguments
+#[allow(clippy::too_many_arguments)]
 pub fn command_env_install_path<S: AsRef<str>>(
     iri: S,
     version: Option<String>,
@@ -118,7 +160,9 @@ pub fn command_env_install_path<S: AsRef<str>>(
     install_opts: InstallOptions,
     dependency_opts: DependencyOptions,
     project_root: Option<PathBuf>,
-    client: Client,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(std::env::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
@@ -130,7 +174,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
     let DependencyOptions {
         use_index,
         no_index,
-        include_std,
+        include_std: _,
     } = dependency_opts;
     let index_base_url = if no_index {
         None
@@ -141,8 +185,14 @@ pub fn command_env_install_path<S: AsRef<str>>(
             .collect();
         Some(use_index?)
     };
-    let project = LocalSrcProject {
-        project_path: Path::new(&path).to_path_buf(),
+
+    let project_path = PathBuf::from(&path);
+    let project = if project_path.is_dir() {
+        FileResolverProject::LocalSrcProject(LocalSrcProject { project_path })
+    } else if project_path.is_file() {
+        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(project_path)?)
+    } else {
+        bail!("{} does not exist", project_path.display())
     };
 
     if let Some(version) = version {
@@ -159,7 +209,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
     if no_deps {
         sysand_core::commands::env::do_env_install_project(
             iri,
-            project,
+            &project,
             &mut env,
             allow_overwrite,
             allow_multiple,
@@ -169,26 +219,35 @@ pub fn command_env_install_path<S: AsRef<str>>(
         // avoid errors when syncing. Lockfile generation should be configurable.
         sysand_core::commands::env::do_env_install_project(
             iri,
-            project.clone(),
+            &project,
             &mut env,
             allow_overwrite,
             allow_multiple,
         )?;
         let project = EditableProject::new(&path, project);
-        let provided_iris = if !include_std {
-            crate::known_std_libs()
-        } else {
-            HashMap::default()
-        };
-        let resolver: StandardResolver = standard_resolver(
-            Some(PathBuf::from(path)),
-            None,
-            Some(client.clone()),
-            index_base_url,
+
+        let mut memory_projects = HashMap::default();
+
+        for (k, v) in provided_iris.iter() {
+            memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
+        }
+        // TODO: Move out the runtime
+        let resolver = PriorityResolver::new(
+            MemoryResolver {
+                iri_predicate: AcceptAll {},
+                projects: memory_projects,
+            },
+            standard_resolver(
+                Some(PathBuf::from(path)),
+                None,
+                Some(client.clone()),
+                index_base_url,
+                runtime.clone(),
+            ),
         );
         let LockOutcome { lock, .. } =
             sysand_core::commands::lock::do_lock_projects(vec![project], resolver)?;
-        command_sync(lock, project_root, &mut env, client, &provided_iris)?;
+        command_sync(lock, project_root, &mut env, client, provided_iris, runtime)?;
     }
 
     Ok(())

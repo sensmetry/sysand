@@ -13,8 +13,7 @@ pub fn command_include(
     index_symbols: bool,
     current_project: Option<LocalSrcProject>,
 ) -> Result<()> {
-    let mut current_project =
-        current_project.ok_or(CliError::MissingProject("in current directory".to_string()))?;
+    let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
 
     for file in files {
         let unix_path = current_project.get_unix_path(file)?;

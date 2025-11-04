@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use assert_cmd::prelude::*;
+use mockito::Server;
 use predicates::prelude::*;
 use sysand_core::env::local_directory::DEFAULT_ENV_NAME;
 
@@ -128,6 +129,69 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(entries[0].file_name(), "entries.txt");
 
     assert_eq!(std::fs::read_to_string(entries[0].path())?, "");
+
+    Ok(())
+}
+
+#[test]
+fn env_install_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
+
+    let test_path = fixture_path("test_lib.kpar");
+
+    let env_path = Path::new(DEFAULT_ENV_NAME);
+
+    let mut server = Server::new();
+
+    let test_body = std::fs::read(test_path)?;
+
+    let _git_mock = server
+        .mock("GET", "/test_lib.kpar/info/refs?service=git-upload-pack")
+        .with_status(404)
+        .expect_at_least(0)
+        .create();
+
+    let _project_mock = server
+        .mock("HEAD", "/test_lib.kpar/.project.json")
+        .with_status(404)
+        .expect_at_least(0)
+        .create();
+
+    let _meta_mock = server
+        .mock("HEAD", "/test_lib.kpar/.meta.json")
+        .with_status(404)
+        .expect_at_least(0)
+        .create();
+
+    let head_mock = server
+        .mock("HEAD", "/test_lib.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/octet-stream")
+        .with_body(&test_body)
+        .expect_at_least(0)
+        .create();
+
+    let get_mock = server
+        .mock("GET", "/test_lib.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/octet-stream")
+        .with_body(&test_body)
+        .expect_at_least(1)
+        .create();
+
+    let project_url = format!("{}/test_lib.kpar", server.url());
+
+    let out = run_sysand_in(&cwd, ["env", "install", &project_url], None)?;
+
+    head_mock.assert();
+    get_mock.assert();
+
+    out.assert().success();
+
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(env_path).join("entries.txt"))?,
+        format!("{}\n", &project_url)
+    );
 
     Ok(())
 }

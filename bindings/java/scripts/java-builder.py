@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# 
 # SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
@@ -112,13 +114,22 @@ def build(release: bool, version: str) -> None:
 
 
 def test(version: str) -> None:
-    print("Testing the Java library...")
+    print("Looking for Java library...")
     jar_path = BUILD_DIR / "target" / f"sysand-{version}.jar"
     if not jar_path.exists():
         raise FileNotFoundError(f"JAR file not found: {jar_path}")
+
     print("Copying the test code to the target directory...")
     shutil.rmtree(TEST_DIR, ignore_errors=True)
     shutil.copytree(ROOT_DIR / "bindings" / "java" / "java-test", TEST_DIR)
+
+    print("Replacing org.sysand.sysand dependency version in test pom.xml")
+    pom_path = ROOT_DIR / "bindings" / "java" / "java-test" / "pom.xml"
+    pom_data = pom_path.read_text()
+    target_pom_path = TEST_DIR / "pom.xml"
+    target_pom_data = pom_data.replace("SYSAND_VERSION", version)
+    target_pom_path.write_text(target_pom_data)
+
     print("Testing the Java library...")
     execute([mvn_executable(), "test"], cwd=TEST_DIR)
 

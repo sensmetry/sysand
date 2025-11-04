@@ -68,7 +68,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
 
     assert!(matches!(
         second_result,
-        Err(sysand_core::commands::new::NewError::ProjectError(
+        Err(sysand_core::commands::new::NewError::Project(
             sysand_core::project::memory::InMemoryError::AlreadyExists(_)
         ))
     ));

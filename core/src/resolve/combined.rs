@@ -57,26 +57,26 @@ pub const NO_RESOLVER: Option<NullResolver> = None;
 
 #[derive(Error, Debug)]
 pub enum CombinedResolverError<FileError, LocalError, RemoteError, RegistryError> {
-    #[error("{0}")]
-    FileError(FileError),
-    #[error("{0}")]
-    LocalError(LocalError),
-    #[error("{0}")]
-    RemoteError(RemoteError),
-    #[error("{0}")]
-    RegistryError(RegistryError),
+    #[error(transparent)]
+    File(FileError),
+    #[error(transparent)]
+    Local(LocalError),
+    #[error(transparent)]
+    Remote(RemoteError),
+    #[error(transparent)]
+    Registry(RegistryError),
 }
 
 #[derive(Error, Debug)]
 pub enum CombinedReadError<FileError, LocalError, RemoteError, RegistryError> {
-    #[error("{0}")]
-    FileError(FileError),
-    #[error("{0}")]
-    LocalError(LocalError),
-    #[error("{0}")]
-    RemoteError(RemoteError),
-    #[error("{0}")]
-    RegistryError(RegistryError),
+    #[error(transparent)]
+    File(FileError),
+    #[error(transparent)]
+    Local(LocalError),
+    #[error(transparent)]
+    Remote(RemoteError),
+    #[error(transparent)]
+    Registry(RegistryError),
 }
 
 /// Outcome of a standard resolution remembers the (resolver) source of the project.
@@ -147,22 +147,22 @@ impl<
     > {
         match self {
             CombinedProjectStorage::FileProject(project) => {
-                project.get_project().map_err(CombinedReadError::FileError)
+                project.get_project().map_err(CombinedReadError::File)
             }
-            CombinedProjectStorage::RemoteProject(project) => project
-                .get_project()
-                .map_err(CombinedReadError::RemoteError),
-            CombinedProjectStorage::RegistryProject(project) => project
-                .get_project()
-                .map_err(CombinedReadError::RegistryError),
+            CombinedProjectStorage::RemoteProject(project) => {
+                project.get_project().map_err(CombinedReadError::Remote)
+            }
+            CombinedProjectStorage::RegistryProject(project) => {
+                project.get_project().map_err(CombinedReadError::Registry)
+            }
             CombinedProjectStorage::CachedRemoteProject(project, _) => {
-                project.get_project().map_err(CombinedReadError::LocalError)
+                project.get_project().map_err(CombinedReadError::Local)
             }
             CombinedProjectStorage::CachedRegistryProject(project, _) => {
-                project.get_project().map_err(CombinedReadError::LocalError)
+                project.get_project().map_err(CombinedReadError::Local)
             }
             CombinedProjectStorage::DanglingLocalProject(project) => {
-                project.get_project().map_err(CombinedReadError::LocalError)
+                project.get_project().map_err(CombinedReadError::Local)
             }
         }
     }
@@ -184,27 +184,27 @@ impl<
         match self {
             CombinedProjectStorage::FileProject(project) => project
                 .read_source(path)
-                .map_err(CombinedReadError::FileError)
+                .map_err(CombinedReadError::File)
                 .map(CombinedSourceReader::FileProject),
             CombinedProjectStorage::RemoteProject(project) => project
                 .read_source(path)
-                .map_err(CombinedReadError::RemoteError)
+                .map_err(CombinedReadError::Remote)
                 .map(CombinedSourceReader::RemoteProject),
             CombinedProjectStorage::RegistryProject(project) => project
                 .read_source(path)
-                .map_err(CombinedReadError::RegistryError)
+                .map_err(CombinedReadError::Registry)
                 .map(CombinedSourceReader::RegistryProject),
             CombinedProjectStorage::CachedRemoteProject(project, _) => project
                 .read_source(path)
-                .map_err(CombinedReadError::LocalError)
+                .map_err(CombinedReadError::Local)
                 .map(CombinedSourceReader::LocalProject),
             CombinedProjectStorage::CachedRegistryProject(project, _) => project
                 .read_source(path)
-                .map_err(CombinedReadError::LocalError)
+                .map_err(CombinedReadError::Local)
                 .map(CombinedSourceReader::LocalProject),
             CombinedProjectStorage::DanglingLocalProject(project) => project
                 .read_source(path)
-                .map_err(CombinedReadError::LocalError)
+                .map_err(CombinedReadError::Local)
                 .map(CombinedSourceReader::LocalProject),
         }
     }
@@ -287,58 +287,49 @@ impl<
         match &mut self.state {
             CombinedIteratorState::ResolvedFile(iter) => iter.next().map(|r| {
                 r.map(CombinedProjectStorage::FileProject)
-                    .map_err(CombinedResolverError::FileError)
+                    .map_err(CombinedResolverError::File)
             }),
             CombinedIteratorState::Done => self
                 .locals
                 .pop()
                 .map(|v| Ok(CombinedProjectStorage::DanglingLocalProject(v.1))),
             CombinedIteratorState::ResolvedRemote(iter) => match iter.next() {
-                Some(r) => Some(
-                    r.map_err(CombinedResolverError::RemoteError)
-                        .map(|project| {
-                            let cached = project
-                                .get_project()
-                                .ok()
-                                .and_then(|(spec, meta)| spec.zip(meta))
-                                .and_then(|(spec, meta)| {
-                                    self.locals.shift_remove(&project_hash_raw(&spec, &meta))
-                                });
+                Some(r) => Some(r.map_err(CombinedResolverError::Remote).map(|project| {
+                    let cached = project
+                        .get_project()
+                        .ok()
+                        .and_then(|(spec, meta)| spec.zip(meta))
+                        .and_then(|(spec, meta)| {
+                            self.locals.shift_remove(&project_hash_raw(&spec, &meta))
+                        });
 
-                            if let Some(local_project) = cached {
-                                CombinedProjectStorage::CachedRemoteProject(local_project, project)
-                            } else {
-                                CombinedProjectStorage::RemoteProject(project)
-                            }
-                        }),
-                ),
+                    if let Some(local_project) = cached {
+                        CombinedProjectStorage::CachedRemoteProject(local_project, project)
+                    } else {
+                        CombinedProjectStorage::RemoteProject(project)
+                    }
+                })),
                 None => {
                     self.state = CombinedIteratorState::Done;
                     self.next()
                 }
             },
             CombinedIteratorState::ResolvedRegistry(iter) => match iter.next() {
-                Some(r) => Some(
-                    r.map_err(CombinedResolverError::RegistryError)
-                        .map(|project| {
-                            let cached = project
-                                .get_project()
-                                .ok()
-                                .and_then(|(spec, meta)| spec.zip(meta))
-                                .and_then(|(spec, meta)| {
-                                    self.locals.shift_remove(&project_hash_raw(&spec, &meta))
-                                });
+                Some(r) => Some(r.map_err(CombinedResolverError::Registry).map(|project| {
+                    let cached = project
+                        .get_project()
+                        .ok()
+                        .and_then(|(spec, meta)| spec.zip(meta))
+                        .and_then(|(spec, meta)| {
+                            self.locals.shift_remove(&project_hash_raw(&spec, &meta))
+                        });
 
-                            if let Some(local_project) = cached {
-                                CombinedProjectStorage::CachedRegistryProject(
-                                    local_project,
-                                    project,
-                                )
-                            } else {
-                                CombinedProjectStorage::RegistryProject(project)
-                            }
-                        }),
-                ),
+                    if let Some(local_project) = cached {
+                        CombinedProjectStorage::CachedRegistryProject(local_project, project)
+                    } else {
+                        CombinedProjectStorage::RegistryProject(project)
+                    }
+                })),
                 None => {
                     self.state = CombinedIteratorState::Done;
                     self.next()
@@ -385,10 +376,10 @@ impl<
             let mut rejected = vec![];
             match file_resolver
                 .resolve_read(uri)
-                .map_err(CombinedResolverError::FileError)?
+                .map_err(CombinedResolverError::File)?
             {
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("File resolver rejects IRI {} due to: {}", uri, msg);
+                    log::debug!("File resolver rejects IRI '{}' due to: {}", uri, msg);
                 } // Just continue
                 ResolutionOutcome::Resolved(r) => {
                     //at_least_one_supports = true;
@@ -416,7 +407,7 @@ impl<
         if let Some(local_resolver) = &self.local_resolver {
             match local_resolver
                 .resolve_read(uri)
-                .map_err(CombinedResolverError::LocalError)?
+                .map_err(CombinedResolverError::Local)?
             {
                 ResolutionOutcome::Resolved(projects) => {
                     at_least_one_supports = true;
@@ -471,7 +462,7 @@ impl<
             // Skip over remote resolution if unresolvable or if only invalid projects are produced.
             match remote_resolver
                 .resolve_read(uri)
-                .map_err(CombinedResolverError::RemoteError)?
+                .map_err(CombinedResolverError::Remote)?
             {
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
                     log::debug!("Remote resolver rejects IRI {} due to: {}", uri, msg);
@@ -549,7 +540,7 @@ impl<
         if let Some(index_resolver) = &self.index_resolver {
             match index_resolver
                 .resolve_read(uri)
-                .map_err(CombinedResolverError::RegistryError)?
+                .map_err(CombinedResolverError::Registry)?
             {
                 ResolutionOutcome::Resolved(x) => {
                     return Ok(ResolutionOutcome::Resolved(CombinedIterator {

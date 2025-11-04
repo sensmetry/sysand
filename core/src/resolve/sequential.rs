@@ -1,24 +1,24 @@
+use crate::resolve::{ResolveRead, ResolveReadAsync};
+use futures::StreamExt as _;
 use std::iter::Flatten;
-
-use crate::resolve::ResolveRead;
 
 /// Takes a sequence of similar resolvers, and tries them in sequence.
 /// First resolves all versions in the first environment, then all
 /// in the second, ...
 #[derive(Debug)]
-pub struct SequentialResolve<R: ResolveRead> {
+pub struct SequentialResolver<R> {
     inner: Vec<R>,
 }
 
-impl<R: ResolveRead> SequentialResolve<R> {
+impl<R> SequentialResolver<R> {
     pub fn new<I: IntoIterator<Item = R>>(resolvers: I) -> Self {
-        SequentialResolve {
+        SequentialResolver {
             inner: resolvers.into_iter().collect(),
         }
     }
 }
 
-impl<R: ResolveRead> ResolveRead for SequentialResolve<R> {
+impl<R: ResolveRead> ResolveRead for SequentialResolver<R> {
     type Error = R::Error;
 
     type ProjectStorage = R::ProjectStorage;
@@ -66,6 +66,63 @@ impl<R: ResolveRead> ResolveRead for SequentialResolve<R> {
     }
 }
 
+impl<R: ResolveReadAsync> ResolveReadAsync for SequentialResolver<R> {
+    type Error = R::Error;
+
+    type ProjectStorage = R::ProjectStorage;
+
+    type ResolvedStorages = futures::stream::Flatten<
+        futures::stream::Iter<std::vec::IntoIter<<R as ResolveReadAsync>::ResolvedStorages>>,
+    >;
+
+    async fn resolve_read_async(
+        &self,
+        uri: &fluent_uri::Iri<String>,
+    ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+        let outcomes = futures::future::join_all(
+            self.inner
+                .iter()
+                .map(|resolver| resolver.resolve_read_async(uri)),
+        )
+        .await;
+
+        let mut streams = vec![];
+        let mut any_supported = false;
+        let mut msgs = vec![];
+
+        for outcome in outcomes {
+            match outcome? {
+                crate::resolve::ResolutionOutcome::Resolved(storages) => {
+                    any_supported = true;
+                    streams.push(storages)
+                }
+                crate::resolve::ResolutionOutcome::UnsupportedIRIType(msg) => {
+                    msgs.push(msg);
+                }
+                crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
+                    any_supported = true;
+                    msgs.push(msg);
+                }
+            }
+        }
+
+        if !streams.is_empty() {
+            Ok(crate::resolve::ResolutionOutcome::Resolved(
+                futures::stream::iter(streams).flatten(),
+            ))
+        } else if any_supported {
+            Ok(crate::resolve::ResolutionOutcome::Unresolvable(format!(
+                "Unresolvable: {:?}",
+                msgs
+            )))
+        } else {
+            Ok(crate::resolve::ResolutionOutcome::UnsupportedIRIType(
+                format!("Unsupported IRI: {:?}", msgs),
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -78,7 +135,7 @@ mod tests {
         resolve::{
             ResolutionOutcome, ResolveRead,
             memory::{AcceptAll, MemoryResolver},
-            sequential::SequentialResolve,
+            sequential::SequentialResolver,
         },
     };
 
@@ -151,7 +208,7 @@ mod tests {
             mock_project("urn::kpar::baz", "baz", "3.2.1"),
         ]);
 
-        let resolver = SequentialResolve::new([resolver_1, resolver_2]);
+        let resolver = SequentialResolver::new([resolver_1, resolver_2]);
 
         let foos = expect_to_resolve(&resolver, "urn::kpar::foo");
 

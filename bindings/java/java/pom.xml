@@ -14,8 +14,6 @@ SPDX-License-Identifier: MIT OR Apache-2.0
   <version>VERSION</version>
   <name>sysand</name>
   <properties>
-    <maven.compiler.source>1.8</maven.compiler.source>
-    <maven.compiler.target>1.8</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
   </properties>
   <dependencies>
@@ -40,8 +38,9 @@ SPDX-License-Identifier: MIT OR Apache-2.0
       <!--   Produce headers   -->
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.7.0</version>
+        <version>3.14.1</version>
         <configuration>
+          <release>8</release>
           <compilerArgs>
             <arg>-h</arg>
             <arg>target/headers</arg>

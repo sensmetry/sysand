@@ -68,6 +68,9 @@ mod browser_tests {
         assert!(meta.index.is_empty());
         assert!(meta.metamodel.is_none());
 
+        // Local storage is not automatically cleared between tests.
+        local_storage.clear().unwrap();
+
         Ok(())
     }
 
@@ -89,6 +92,9 @@ mod browser_tests {
                 .unwrap(),
             Some("".to_string())
         );
+
+        // Local storage is not automatically cleared between tests.
+        local_storage.clear().unwrap();
 
         Ok(())
     }

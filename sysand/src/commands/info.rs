@@ -16,8 +16,7 @@ use sysand_core::{
 
 use anyhow::{Result, bail};
 use fluent_uri::Iri;
-use reqwest::blocking::Client;
-use std::{collections::HashSet, env::current_dir, path::Path};
+use std::{collections::HashSet, env::current_dir, path::Path, sync::Arc};
 use sysand_core::{
     info::{do_info, do_info_project},
     project::{local_kpar::LocalKParProject, local_src::LocalSrcProject},
@@ -71,7 +70,7 @@ fn interpret_project_path<P: AsRef<Path>>(path: P) -> Result<FileResolverProject
         })
     } else {
         bail!(CliError::NoResolve(format!(
-            "Unable to find interchange project at {}",
+            "unable to find interchange project at '{}'",
             path.as_ref().display()
         )));
     })
@@ -87,7 +86,7 @@ pub fn command_info_path<P: AsRef<Path>>(path: P, excluded_iris: &HashSet<String
             Ok(())
         }
         None => bail!(CliError::NoResolve(format!(
-            "Unable to find interchange project at {}",
+            "unable to find interchange project at '{}'",
             path.as_ref().display()
         ))),
     }
@@ -96,9 +95,10 @@ pub fn command_info_path<P: AsRef<Path>>(path: P, excluded_iris: &HashSet<String
 pub fn command_info_uri<S: AsRef<str>>(
     uri: Iri<String>,
     _normalise: bool,
-    client: Client,
+    client: reqwest_middleware::ClientWithMiddleware,
     index_base_urls: Option<Vec<S>>,
     excluded_iris: &HashSet<String>,
+    runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     let cwd = current_dir().ok();
 
@@ -116,6 +116,7 @@ pub fn command_info_uri<S: AsRef<str>>(
         index_base_urls
             .map(|xs| xs.iter().map(|x| url::Url::parse(x.as_ref())).collect())
             .transpose()?,
+        runtime,
     );
 
     let mut found = false;
@@ -132,8 +133,8 @@ pub fn command_info_uri<S: AsRef<str>>(
         // interchange project was not found without any hints that the provided
         // URI is invalid.
         bail!(CliError::NoResolve(format!(
-            "Unable to find interchange project at {}",
-            uri.as_str()
+            "unable to find interchange project '{}'",
+            uri
         )));
     }
 
@@ -185,8 +186,9 @@ pub fn command_info_verb_uri<S: AsRef<str>>(
     uri: Iri<String>,
     verb: InfoCommandVerb,
     numbered: bool,
-    client: Client,
+    client: reqwest_middleware::ClientWithMiddleware,
     index_base_urls: Option<Vec<S>>,
+    runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     match verb {
         InfoCommandVerb::Get(get_verb) => {
@@ -206,6 +208,7 @@ pub fn command_info_verb_uri<S: AsRef<str>>(
                 index_base_urls
                     .map(|xs| xs.iter().map(|x| url::Url::parse(x.as_ref())).collect())
                     .transpose()?,
+                runtime,
             );
 
             let mut found = false;
@@ -259,7 +262,7 @@ fn get_info_or_bail<Project: ProjectRead>(project: &Project) -> Result<Interchan
         Ok(Some(info)) => Ok(info),
         Ok(None) => bail!("project does not appear to have a valid .project.json"),
         Err(err) => {
-            bail!("failed to read .project.json: {}", err.to_string())
+            bail!("failed to read .project.json: {}", err)
         }
     }
 }
@@ -271,7 +274,7 @@ fn get_meta_or_bail<Project: ProjectRead>(
         Ok(Some(meta)) => Ok(meta),
         Ok(None) => bail!("project does not appear to have a valid .meta.json"),
         Err(err) => {
-            bail!("failed to read .project.json: {}", err.to_string())
+            bail!("failed to read .project.json: {}", err)
         }
     }
 }
@@ -281,7 +284,7 @@ fn set_info_or_bail<Project: ProjectMut>(
     info: &InterchangeProjectInfoRaw,
 ) -> Result<()> {
     if let Err(err) = project.put_info(info, true) {
-        bail!("failed to write .project.json: {}", err.to_string());
+        bail!("failed to write .project.json: {}", err);
     }
 
     Ok(())
@@ -292,7 +295,7 @@ fn set_meta_or_bail<Project: ProjectMut>(
     meta: &InterchangeProjectMetadataRaw,
 ) -> Result<()> {
     if let Err(err) = project.put_meta(meta, true) {
-        bail!("failed to write .meta.json: {}", err.to_string());
+        bail!("failed to write .meta.json: {}", err);
     }
 
     Ok(())

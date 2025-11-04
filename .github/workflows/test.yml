@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Cache
       uses: actions/cache@v4
       with:
@@ -34,6 +34,8 @@ jobs:
     - uses: taiki-e/install-action@cargo-hack
     - name: Clippy
       run: cargo hack clippy --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
+    - name: Clippy for tests
+      run: cargo clippy --all-targets --all-features -- --deny warnings
     - name: Format
       run: cargo fmt --check
     - name: Set up git user
@@ -53,7 +55,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     needs: [test]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Cache
       uses: actions/cache@v4
       with:
@@ -73,7 +75,7 @@ jobs:
       if: matrix.os != 'windows-latest' && matrix.os != 'windows-11-arm'
       run: cp target/release/sysand dist/sysand-${{ matrix.os }}
     - name: Upload binaries
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: sysand-cli-${{ matrix.os }}
         path: dist/*
@@ -91,12 +93,12 @@ jobs:
       # Used to generate artifact attestation
       attestations: write
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           path: artifacts
           merge-multiple: true
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: 'artifacts/*'
       - name: Rename artifacts
@@ -134,12 +136,12 @@ jobs:
       # Used to generate artifact attestation
       attestations: write
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           path: artifacts
           merge-multiple: true
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: 'artifacts/*'
       - name: Rename artifacts

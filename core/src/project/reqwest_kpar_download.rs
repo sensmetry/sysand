@@ -3,13 +3,16 @@
 
 use std::io::Write as _;
 
+use futures::AsyncRead;
 use tempfile::tempdir;
 use thiserror::Error;
 
 use crate::project::{
-    ProjectRead,
+    ProjectRead, ProjectReadAsync,
     local_kpar::{LocalKParError, LocalKParProject},
 };
+
+use super::utils::{FsIoError, ToPathBuf, wrapfs};
 
 /// Project stored at a remote URL such as https://www.example.com/project.kpar.
 /// The URL is expected to resolve to a kpar-archive (ZIP-file) (at least) if
@@ -22,73 +25,111 @@ use crate::project::{
 #[derive(Debug)]
 pub struct ReqwestKparDownloadedProject {
     pub url: reqwest::Url,
+    pub client: reqwest_middleware::ClientWithMiddleware,
     pub inner: LocalKParProject,
 }
 
 #[derive(Error, Debug)]
 pub enum ReqwestKparDownloadedError {
-    #[error("Not found {0}")]
-    UnableToAccess(reqwest::Url, reqwest::StatusCode),
+    #[error("HTTP request to '{0}' returned status {1}")]
+    BadHttpStatus(reqwest::Url, reqwest::StatusCode),
+    #[error("failed to parse URL '{0}': {1}")]
+    ParseUrl(Box<str>, url::ParseError),
+    #[error("HTTP request to '{0}' failed: {1}")]
+    Reqwest(Box<str>, reqwest_middleware::Error),
+    #[error("failed to decode data received from HTTP request '{0}': {1}")]
+    ResponseDecode(Box<str>, reqwest_middleware::Error),
     #[error(transparent)]
-    Url(#[from] url::ParseError),
-    #[error(transparent)]
-    Reqwest(#[from] reqwest::Error),
+    ReqwestMiddleware(#[from] reqwest_middleware::Error),
     #[error(transparent)]
     KPar(#[from] LocalKParError),
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
 }
 
-impl From<std::io::Error> for ReqwestKparDownloadedError {
-    fn from(value: std::io::Error) -> Self {
-        ReqwestKparDownloadedError::KPar(LocalKParError::Io(value))
+impl From<FsIoError> for ReqwestKparDownloadedError {
+    fn from(v: FsIoError) -> Self {
+        Self::Io(Box::new(v))
     }
 }
 
 impl ReqwestKparDownloadedProject {
-    pub fn new_guess_root<S: AsRef<str>>(url: S) -> Result<Self, ReqwestKparDownloadedError> {
-        let tmp_dir = tempdir()?;
+    pub fn new_guess_root<S: AsRef<str>>(
+        url: S,
+        client: reqwest_middleware::ClientWithMiddleware,
+    ) -> Result<Self, ReqwestKparDownloadedError> {
+        let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
 
         Ok(ReqwestKparDownloadedProject {
-            url: reqwest::Url::parse(url.as_ref())?,
+            url: reqwest::Url::parse(url.as_ref())
+                .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?,
             inner: LocalKParProject {
-                archive_path: tmp_dir
-                    .path()
-                    .canonicalize()?
-                    .join("project.kpar")
-                    .to_path_buf(),
+                archive_path: wrapfs::canonicalize(tmp_dir.path())?.join("project.kpar"),
                 tmp_dir,
                 root: None,
             },
+            client,
         })
     }
 
-    pub fn ensure_downloaded(&self) -> Result<(), ReqwestKparDownloadedError> {
+    pub async fn ensure_downloaded(&self) -> Result<(), ReqwestKparDownloadedError> {
         if self.inner.archive_path.is_file() {
             return Ok(());
         }
 
-        let mut file = std::fs::File::create(self.inner.archive_path.clone())?;
+        let mut file = wrapfs::File::create(&self.inner.archive_path)?;
 
-        let resp = reqwest::blocking::get(self.url.clone())?;
+        let resp = self
+            .client
+            .get(self.url.clone())
+            .send()
+            .await
+            .map_err(|e| ReqwestKparDownloadedError::Reqwest(self.url.as_str().into(), e))?;
 
         if !resp.status().is_success() {
-            return Err(ReqwestKparDownloadedError::UnableToAccess(
+            return Err(ReqwestKparDownloadedError::BadHttpStatus(
                 self.url.clone(),
                 resp.status(),
             ));
         }
+        let mut bytes_stream = resp.bytes_stream();
 
-        file.write_all(&resp.bytes()?)?;
+        use futures::StreamExt as _;
 
-        file.flush()?;
+        while let Some(bytes) = bytes_stream.next().await {
+            let bytes = bytes.map_err(|e| {
+                ReqwestKparDownloadedError::Reqwest(self.url.as_str().to_string().into(), e.into())
+            })?;
+            file.write_all(&bytes)
+                .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_path_buf(), e))?;
+        }
+
+        file.flush()
+            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_path_buf(), e))?;
 
         Ok(())
     }
 }
 
-impl ProjectRead for ReqwestKparDownloadedProject {
+#[derive(Debug)]
+pub struct AsAsyncRead<T> {
+    pub inner: T,
+}
+
+impl<T: std::io::Read + std::marker::Unpin> AsyncRead for AsAsyncRead<T> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::task::Poll::Ready(self.get_mut().inner.read(buf))
+    }
+}
+
+impl ProjectReadAsync for ReqwestKparDownloadedProject {
     type Error = ReqwestKparDownloadedError;
 
-    fn get_project(
+    async fn get_project_async(
         &self,
     ) -> Result<
         (
@@ -97,26 +138,28 @@ impl ProjectRead for ReqwestKparDownloadedProject {
         ),
         Self::Error,
     > {
-        self.ensure_downloaded()?;
+        self.ensure_downloaded().await?;
 
         Ok(self.inner.get_project()?)
     }
 
     type SourceReader<'a>
-        = <LocalKParProject as ProjectRead>::SourceReader<'a>
+        = AsAsyncRead<<LocalKParProject as ProjectRead>::SourceReader<'a>>
     where
         Self: 'a;
 
-    fn read_source<P: AsRef<typed_path::Utf8UnixPath>>(
+    async fn read_source_async<P: AsRef<typed_path::Utf8UnixPath>>(
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        self.ensure_downloaded()?;
+        self.ensure_downloaded().await?;
 
-        Ok(self.inner.read_source(path)?)
+        Ok(AsAsyncRead {
+            inner: self.inner.read_source(path)?,
+        })
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    async fn sources_async(&self) -> Vec<crate::lock::Source> {
         vec![crate::lock::Source::RemoteKpar {
             remote_kpar: self.url.to_string(),
             remote_kpar_size: self.inner.file_size().ok(),
@@ -128,7 +171,7 @@ impl ProjectRead for ReqwestKparDownloadedProject {
 mod tests {
     use std::io::{Read, Write as _};
 
-    use crate::project::ProjectRead;
+    use crate::project::{ProjectRead, ProjectReadAsync};
 
     #[test]
     fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
@@ -167,10 +210,16 @@ mod tests {
             .with_body(&buf)
             .create();
 
-        let project = super::ReqwestKparDownloadedProject::new_guess_root(format!(
-            "{}test_basic_download_request.kpar",
-            url,
-        ))?;
+        let project = super::ReqwestKparDownloadedProject::new_guess_root(
+            format!("{}test_basic_download_request.kpar", url,),
+            reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+        )?
+        .to_tokio_sync(std::sync::Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+        ));
 
         let (Some(info), Some(meta)) = project.get_project()? else {
             panic!()
