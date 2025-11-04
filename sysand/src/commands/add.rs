@@ -25,16 +25,22 @@ pub fn command_add(
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path();
 
-    do_add(&mut current_project, iri, versions_constraint)?;
-
-    let index_base_urls = if no_index { None } else { Some(use_index) };
-    if !no_lock {
-        let provided_iris = if !include_std {
-            crate::known_std_libs()
+    let provided_iris = if !include_std {
+        let sysml_std = crate::known_std_libs();
+        if sysml_std.contains_key(&iri) {
+            crate::logger::warn_std(&iri);
+            return Ok(());
         } else {
-            std::collections::HashMap::default()
-        };
+            do_add(&mut current_project, iri, versions_constraint)?;
+        }
+        sysml_std
+    } else {
+        do_add(&mut current_project, iri, versions_constraint)?;
+        std::collections::HashMap::default()
+    };
 
+    if !no_lock {
+        let index_base_urls = if no_index { None } else { Some(use_index) };
         crate::commands::lock::command_lock(
             &project_root,
             client.clone(),

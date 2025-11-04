@@ -21,6 +21,7 @@ pub fn command_sources_env(
     include_deps: bool,
     env: Option<LocalDirectoryEnvironment>,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    include_std: bool,
 ) -> Result<()> {
     let Some(env) = env else {
         bail!("Unable to identify local environment");
@@ -64,6 +65,9 @@ pub fn command_sources_env(
             bail!("project is missing project information")
         };
 
+        if !include_std {
+            crate::logger::warn_std_deps();
+        }
         for dep in find_project_dependencies(info.validate()?.usage, env, provided_iris)? {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
                 println!("{}", src_path.display());

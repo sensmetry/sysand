@@ -4,7 +4,7 @@
 #[cfg(not(feature = "std"))]
 compile_error!("`std` feature is currently required to build `sysand`");
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 
@@ -142,7 +142,14 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     std::collections::HashMap::default()
                 };
 
-                command_sources_env(iri, version, !no_deps, current_environment, &provided_iris)
+                command_sources_env(
+                    iri,
+                    version,
+                    !no_deps,
+                    current_environment,
+                    &provided_iris,
+                    include_std,
+                )
             }
         },
         cli::Command::Lock { dependency_opts } => {
@@ -182,9 +189,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             };
 
             let provided_iris = if !include_std {
+                crate::logger::warn_std_deps();
                 known_std_libs()
             } else {
-                std::collections::HashMap::default()
+                HashMap::default()
             };
             let project_root = project_root.unwrap_or(std::env::current_dir()?);
             let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
@@ -224,6 +232,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } = dependency_opts;
             let index_base_urls = if no_index { None } else { Some(use_index) };
             let excluded_iris: HashSet<_> = if !include_std {
+                crate::logger::warn_std_deps();
                 known_std_libs().keys().cloned().collect()
             } else {
                 std::collections::HashSet::default()
@@ -356,9 +365,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 include_std,
             } = sources_opts;
             let provided_iris = if !include_std {
+                crate::logger::warn_std_omit();
                 known_std_libs()
             } else {
-                std::collections::HashMap::default()
+                HashMap::default()
             };
 
             command_sources_project(

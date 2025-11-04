@@ -1,6 +1,6 @@
 # `sysand sync`
 
-Sync `sysand_env` to lockfile, creating a lockfile and `sysand_env if needed
+Sync `sysand_env` to lockfile, creating a lockfile and `sysand_env` if needed
 
 ## Usage
 

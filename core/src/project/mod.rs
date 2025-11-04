@@ -122,7 +122,7 @@ pub trait ProjectRead {
         Ok(self.get_info()?.map(|info| info.name))
     }
 
-    /// `is_definitely_invalid` will return `true`` only if get_project() would definitely
+    /// `is_definitely_invalid` will return `true` only if get_project() would definitely
     /// produce an error or return `Some((info, meta))` where either `info` or `meta`
     /// are `None`. If it returns `false` nothing definite can be said.
     ///
