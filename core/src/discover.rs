@@ -3,12 +3,13 @@
 
 use std::{
     env::current_dir,
+    io,
     path::{Path, PathBuf},
 };
 
 use crate::project::local_src::LocalSrcProject;
 
-pub fn current_project() -> Result<Option<LocalSrcProject>, std::io::Error> {
+pub fn current_project() -> Result<Option<LocalSrcProject>, io::Error> {
     Ok(discover_project(current_dir()?))
 }
 

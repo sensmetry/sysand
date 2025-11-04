@@ -3,7 +3,10 @@
 
 // Resolver for file:// URLs
 
-use std::{io::Read, path::Path};
+use std::{
+    io::{self, Read},
+    path::{Path, PathBuf},
+};
 
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
@@ -23,10 +26,10 @@ use thiserror::Error;
 #[derive(Debug)]
 pub struct FileResolver {
     /// Relative URIs are resolved with respect to this root.
-    pub relative_path_root: Option<std::path::PathBuf>,
+    pub relative_path_root: Option<PathBuf>,
     /// This field enables sandboxing the resolved path. If field is not `None`,
     /// the resolved path must be inside at least one of these directories.
-    pub sandbox_roots: Option<Vec<std::path::PathBuf>>,
+    pub sandbox_roots: Option<Vec<PathBuf>>,
 }
 
 #[derive(Error, Debug)]
@@ -45,7 +48,7 @@ impl From<FsIoError> for FileResolverError {
 
 pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
 
-fn try_file_uri_to_path(uri: fluent_uri::Iri<String>) -> Option<std::path::PathBuf> {
+fn try_file_uri_to_path(uri: fluent_uri::Iri<String>) -> Option<PathBuf> {
     if uri.scheme() != SCHEME_FILE {
         return None;
     }
@@ -58,12 +61,12 @@ fn try_file_uri_to_path(uri: fluent_uri::Iri<String>) -> Option<std::path::PathB
 impl FileResolver {
     fn resolve_platform_path(
         &self,
-        path: std::path::PathBuf,
-    ) -> Result<ResolutionOutcome<std::path::PathBuf>, FileResolverError> {
+        path: PathBuf,
+    ) -> Result<ResolutionOutcome<PathBuf>, FileResolverError> {
         // Try to resolve relative paths
-        let project_path: std::path::PathBuf = if path.is_relative() {
+        let project_path: PathBuf = if path.is_relative() {
             if let Some(root_part) = &self.relative_path_root {
-                let root_part: std::path::PathBuf = root_part.into();
+                let root_part: PathBuf = root_part.into();
                 root_part.join(&path)
             } else {
                 return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
@@ -104,7 +107,7 @@ impl FileResolver {
     fn resolve_general(
         &self,
         uri: &fluent_uri::Iri<String>,
-    ) -> Result<ResolutionOutcome<std::path::PathBuf>, FileResolverError> {
+    ) -> Result<ResolutionOutcome<PathBuf>, FileResolverError> {
         if let Some(file_path) = try_file_uri_to_path(uri.clone()) {
             self.resolve_platform_path(file_path)
         } else {
@@ -152,7 +155,7 @@ pub enum FileResolverProjectReader<'a> {
 }
 
 impl Read for FileResolverProjectReader<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             FileResolverProjectReader::File(file) => file.read(buf),
             FileResolverProjectReader::Archive(zip_index_reader) => zip_index_reader.read(buf),

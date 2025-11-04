@@ -29,7 +29,7 @@ impl FileWithLifetime<'_> {
 }
 
 impl Read for FileWithLifetime<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.internal.read(buf)
     }
 }
@@ -38,7 +38,7 @@ pub trait ToPathBuf {
     fn to_path_buf(&self) -> PathBuf;
 }
 
-impl ToPathBuf for std::path::Path {
+impl ToPathBuf for Path {
     fn to_path_buf(&self) -> PathBuf {
         self.into()
     }

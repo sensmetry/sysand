@@ -1,7 +1,11 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::io::Write as _;
+use std::{
+    io::{self, Write as _},
+    marker::Unpin,
+    pin::Pin,
+};
 
 use futures::AsyncRead;
 use tempfile::tempdir;
@@ -116,12 +120,12 @@ pub struct AsAsyncRead<T> {
     pub inner: T,
 }
 
-impl<T: std::io::Read + std::marker::Unpin> AsyncRead for AsAsyncRead<T> {
+impl<T: io::Read + Unpin> AsyncRead for AsAsyncRead<T> {
     fn poll_read(
-        self: std::pin::Pin<&mut Self>,
+        self: Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+    ) -> std::task::Poll<io::Result<usize>> {
         std::task::Poll::Ready(self.get_mut().inner.read(buf))
     }
 }
@@ -169,7 +173,10 @@ impl ProjectReadAsync for ReqwestKparDownloadedProject {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write as _};
+    use std::{
+        io::{Read, Write as _},
+        sync::Arc,
+    };
 
     use crate::project::{ProjectRead, ProjectReadAsync};
 
@@ -214,7 +221,7 @@ mod tests {
             format!("{}test_basic_download_request.kpar", url,),
             reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
         )?
-        .to_tokio_sync(std::sync::Arc::new(
+        .to_tokio_sync(Arc::new(
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()

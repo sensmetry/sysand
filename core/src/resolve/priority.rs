@@ -1,4 +1,7 @@
-use std::io::Read;
+use std::{
+    fmt::{self, Debug},
+    io::{self, Read},
+};
 
 use thiserror::Error;
 
@@ -43,10 +46,10 @@ pub enum PriorityIterator<Higher: ResolveRead, Lower: ResolveRead> {
     LowerIterator(<<Lower as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter),
 }
 
-impl<Higher: ResolveRead + std::fmt::Debug, Lower: ResolveRead + std::fmt::Debug> std::fmt::Debug
+impl<Higher: ResolveRead + Debug, Lower: ResolveRead + Debug> Debug
     for PriorityIterator<Higher, Lower>
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::HigherIterator(_arg0) => f
                 .debug_tuple("HigherIterator")
@@ -80,7 +83,7 @@ impl<Higher: ResolveRead, Lower: ResolveRead> Iterator for PriorityIterator<High
 }
 
 impl<HigherReader: Read, LowerReader: Read> Read for PriorityReader<HigherReader, LowerReader> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             PriorityReader::HigherReader(reader) => reader.read(buf),
             PriorityReader::LowerReader(reader) => reader.read(buf),

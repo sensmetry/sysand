@@ -87,10 +87,10 @@ const SEMANTIC_LIBRARY_META_20230201: &str =
 // TODO: These should not be hard-coded, this is just a stop-gap solution
 // even if we keep some of these hard-coded it might be neater if we can
 // embed the .project.json and .meta.json files separately
-pub fn known_std_libs() -> std::collections::HashMap<String, Vec<InMemoryProject>> {
+pub fn known_std_libs() -> HashMap<String, Vec<InMemoryProject>> {
     fn entries(
         xs: impl IntoIterator<Item = (&'static str, &'static str, &'static str)>,
-    ) -> std::collections::HashMap<String, Vec<InMemoryProject>> {
+    ) -> HashMap<String, Vec<InMemoryProject>> {
         let mut result = HashMap::default();
 
         for (iri, info, meta) in xs {

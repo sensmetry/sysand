@@ -9,7 +9,9 @@ use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
 use std::{
-    io::{BufRead as _, BufReader, Read},
+    fmt::Debug,
+    io::{self, BufRead as _, BufReader, Read},
+    marker::Unpin,
     sync::Arc,
 };
 use thiserror::Error;
@@ -36,7 +38,7 @@ pub mod reqwest_src;
 
 pub mod utils;
 
-fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, std::io::Error> {
+fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, io::Error> {
     let mut hasher = Sha256::new();
     let mut buffered = BufReader::new(reader);
 
@@ -56,9 +58,7 @@ fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, std::io::Error> {
     Ok(hasher.finalize())
 }
 
-async fn hash_reader_async<R: AsyncRead + std::marker::Unpin>(
-    reader: &mut R,
-) -> Result<ProjectHash, std::io::Error> {
+async fn hash_reader_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<ProjectHash, io::Error> {
     let mut hasher = Sha256::new();
     let mut buffered = futures::io::BufReader::new(reader);
 
@@ -83,7 +83,7 @@ pub enum CanonicalisationError<ReadError> {
     #[error(transparent)]
     ProjectRead(ReadError),
     #[error("failed to read from file\n  '{0}':\n  {1}")]
-    FileRead(Box<str>, std::io::Error),
+    FileRead(Box<str>, io::Error),
 }
 
 #[derive(Debug, Error)]
@@ -103,7 +103,7 @@ pub enum IntoProjectError<ReadError, W: ProjectMut> {
 pub trait ProjectRead {
     // Mandatory
 
-    type Error: std::error::Error + std::fmt::Debug;
+    type Error: std::error::Error + Debug;
 
     /// Fetch project information and metadata (if they exist).
     fn get_project(
@@ -116,7 +116,7 @@ pub trait ProjectRead {
         Self::Error,
     >;
 
-    type SourceReader<'a>: std::io::Read
+    type SourceReader<'a>: Read
     where
         Self: 'a;
 
@@ -242,7 +242,7 @@ pub trait ProjectRead {
 pub trait ProjectReadAsync {
     // Mandatory
 
-    type Error: std::error::Error + std::fmt::Debug;
+    type Error: std::error::Error + Debug;
 
     /// Fetch project information and metadata (if they exist).
     fn get_project_async(
@@ -257,7 +257,7 @@ pub trait ProjectReadAsync {
         >,
     >;
 
-    type SourceReader<'a>: AsyncRead + std::marker::Unpin
+    type SourceReader<'a>: AsyncRead + Unpin
     where
         Self: 'a;
 
@@ -572,12 +572,12 @@ pub struct AsAsyncReader<T> {
     inner: T,
 }
 
-impl<T: Read + std::marker::Unpin> AsyncRead for AsAsyncReader<T> {
+impl<T: Read + Unpin> AsyncRead for AsAsyncReader<T> {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+    ) -> std::task::Poll<io::Result<usize>> {
         std::task::Poll::Ready(self.get_mut().inner.read(buf))
     }
 }
@@ -633,8 +633,8 @@ pub struct AsSyncReaderTokio<T> {
     inner: T,
 }
 
-impl<T: AsyncRead + std::marker::Unpin> Read for AsSyncReaderTokio<T> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+impl<T: AsyncRead + Unpin> Read for AsSyncReaderTokio<T> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         use futures::AsyncReadExt as _;
         self.runtime.block_on(async { self.inner.read(buf).await })
     }

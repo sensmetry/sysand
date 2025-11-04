@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::collections::HashMap;
+#[cfg(feature = "filesystem")]
+use std::path::PathBuf;
+use std::{collections::HashMap, fmt::Debug};
 
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
@@ -76,7 +78,7 @@ impl From<SourcesError<LocalSrcError>> for LocalSourcesError {
 pub fn do_sources_local_src_project_no_deps(
     project: &LocalSrcProject,
     include_index: bool,
-) -> Result<Vec<std::path::PathBuf>, LocalSourcesError> {
+) -> Result<Vec<PathBuf>, LocalSourcesError> {
     let unix_srcs = do_sources_project_no_deps(project, include_index)?;
 
     let srcs: Result<Vec<_>, _> = unix_srcs
@@ -92,7 +94,7 @@ pub fn do_sources_local_src_project_no_deps(
 ///
 /// `provided_iris` are assumed to have been satisfied (including their dependencies)
 /// but have to match .
-pub fn find_project_dependencies<Env: ReadEnvironment + std::fmt::Debug + 'static>(
+pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,

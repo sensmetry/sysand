@@ -102,8 +102,7 @@ pub fn command_info_uri<S: AsRef<str>>(
 ) -> Result<()> {
     let cwd = current_dir().ok();
 
-    let local_env_path =
-        std::path::Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+    let local_env_path = Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
 
     let combined_resolver = standard_resolver(
         cwd,
@@ -195,7 +194,7 @@ pub fn command_info_verb_uri<S: AsRef<str>>(
             let cwd = current_dir().ok();
 
             let local_env_path =
-                std::path::Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+                Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
 
             let combined_resolver = standard_resolver(
                 cwd,

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use jni::{
     JNIEnv,
@@ -10,7 +10,7 @@ use jni::{
 };
 use sysand_core::{
     commands,
-    env::local_directory::LocalWriteError,
+    env::local_directory::{self, LocalWriteError},
     info::InfoError,
     new::NewError,
     project::local_src::{LocalSrcError, LocalSrcProject},
@@ -74,7 +74,7 @@ pub extern "system" fn Java_org_sysand_Sysand_defaultEnvName<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> JString<'local> {
-    env.new_string(sysand_core::env::local_directory::DEFAULT_ENV_NAME)
+    env.new_string(local_directory::DEFAULT_ENV_NAME)
         .expect("Failed to create String")
 }
 
@@ -128,7 +128,7 @@ pub extern "system" fn Java_org_sysand_Sysand_info_1path__Ljava_lang_String_2<'l
 ) -> JObject<'local> {
     let path: String = env.get_string(&path).expect("Failed to get path").into();
     let project = LocalSrcProject {
-        project_path: std::path::PathBuf::from(&path),
+        project_path: PathBuf::from(&path),
     };
 
     let command_result = commands::info::do_info_project(&project);
@@ -184,7 +184,7 @@ pub extern "system" fn Java_org_sysand_Sysand_info<'local>(
     };
 
     let combined_resolver = standard_resolver(
-        Some(std::path::PathBuf::from(&relative_file_root)),
+        Some(PathBuf::from(&relative_file_root)),
         None,
         Some(client),
         index_base_url.map(|x| vec![x]),

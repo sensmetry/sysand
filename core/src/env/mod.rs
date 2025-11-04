@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::sync::Arc;
+use std::{fmt::Debug, marker::Unpin, sync::Arc};
 
 use futures::{Stream, StreamExt};
 use sha2::Digest;
@@ -35,7 +35,7 @@ where
 }
 
 pub trait ReadEnvironment {
-    type ReadError: std::error::Error + std::fmt::Debug;
+    type ReadError: std::error::Error + Debug;
 
     type UriIter: IntoIterator<Item = Result<String, Self::ReadError>>;
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError>;
@@ -43,7 +43,7 @@ pub trait ReadEnvironment {
     type VersionIter: IntoIterator<Item = Result<String, Self::ReadError>>;
     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError>;
 
-    type InterchangeProjectRead: ProjectRead + std::fmt::Debug;
+    type InterchangeProjectRead: ProjectRead + Debug;
     fn get_project<S: AsRef<str>, T: AsRef<str>>(
         &self,
         uri: S,
@@ -96,7 +96,7 @@ pub trait ReadEnvironment {
 }
 
 pub trait ReadEnvironmentAsync {
-    type ReadError: std::error::Error + std::fmt::Debug;
+    type ReadError: std::error::Error + Debug;
 
     type UriStream: futures::Stream<Item = Result<String, Self::ReadError>>;
     fn uris_async(&self) -> impl Future<Output = Result<Self::UriStream, Self::ReadError>>;
@@ -107,7 +107,7 @@ pub trait ReadEnvironmentAsync {
         uri: S,
     ) -> impl Future<Output = Result<Self::VersionStream, Self::ReadError>>;
 
-    type InterchangeProjectRead: ProjectReadAsync + std::fmt::Debug;
+    type InterchangeProjectRead: ProjectReadAsync + Debug;
     fn get_project_async<S: AsRef<str>, T: AsRef<str>>(
         &self,
         uri: S,
@@ -239,7 +239,7 @@ pub struct SyncStreamIter<S> {
     pub inner: S,
 }
 
-impl<S: Stream + std::marker::Unpin> Iterator for SyncStreamIter<S> {
+impl<S: Stream + Unpin> Iterator for SyncStreamIter<S> {
     type Item = <S as Stream>::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -302,7 +302,7 @@ pub enum PutProjectError<WE, CE> {
 }
 
 pub trait WriteEnvironment {
-    type WriteError: std::error::Error + std::fmt::Debug;
+    type WriteError: std::error::Error + Debug;
 
     type InterchangeProjectMut: ProjectMut;
 

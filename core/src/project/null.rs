@@ -1,7 +1,11 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{convert::Infallible, io::Read};
+use std::{
+    convert::Infallible,
+    io::{self, Read},
+    pin::Pin,
+};
 
 use crate::project::{ProjectRead, ProjectReadAsync};
 
@@ -24,17 +28,17 @@ pub struct ImpossibleReader {
 }
 
 impl Read for ImpossibleReader {
-    fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
         match self.nothing {}
     }
 }
 
 impl AsyncRead for ImpossibleReader {
     fn poll_read(
-        self: std::pin::Pin<&mut Self>,
+        self: Pin<&mut Self>,
         _cx: &mut std::task::Context<'_>,
         _buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+    ) -> std::task::Poll<io::Result<usize>> {
         match self.nothing {}
     }
 }

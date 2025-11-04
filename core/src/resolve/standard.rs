@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{path::PathBuf, sync::Arc};
+use std::{fmt, path::PathBuf, result::Result, sync::Arc};
 
 use crate::{
     env::{local_directory::LocalDirectoryEnvironment, reqwest_http::HTTPEnvironmentAsync},
@@ -31,8 +31,8 @@ type StandardResolverInner = CombinedResolver<
 
 pub struct StandardResolver(StandardResolverInner);
 
-impl std::fmt::Debug for StandardResolver {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for StandardResolver {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("CliResolver").field(&self.0).finish()
     }
 }
@@ -47,8 +47,7 @@ impl ResolveRead for StandardResolver {
     fn resolve_read(
         &self,
         uri: &fluent_uri::Iri<String>,
-    ) -> std::result::Result<crate::resolve::ResolutionOutcome<Self::ResolvedStorages>, Self::Error>
-    {
+    ) -> Result<crate::resolve::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         self.0.resolve_read(uri)
     }
 }

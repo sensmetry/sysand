@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
-use std::{env::current_dir, fs, path::Path};
+use std::{env::current_dir, fs};
 
 use anyhow::{Result, bail};
 use pubgrub::Reporter as _;
@@ -27,8 +28,8 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
 ) -> Result<()> {
     let cwd = current_dir().ok();
 
-    let local_env_path = std::path::Path::new(path.as_ref())
-        .join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+    let local_env_path =
+        Path::new(path.as_ref()).join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
 
     let mut memory_projects = HashMap::default();
 
@@ -110,7 +111,7 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
         };
 
     fs::write(
-        std::path::Path::new(path.as_ref()).join(DEFAULT_LOCKFILE_NAME),
+        Path::new(path.as_ref()).join(DEFAULT_LOCKFILE_NAME),
         toml::to_string_pretty(&lock)?,
     )?;
 

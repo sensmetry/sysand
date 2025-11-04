@@ -1,4 +1,7 @@
-use std::iter::{Empty, empty};
+use std::{
+    fmt::Debug,
+    iter::{Empty, empty},
+};
 
 use thiserror::Error;
 
@@ -29,7 +32,7 @@ impl<Pr> NullEnvironment<Pr> {
     }
 }
 
-impl<Pr: ProjectRead + std::fmt::Debug> ReadEnvironment for NullEnvironment<Pr> {
+impl<Pr: ProjectRead + Debug> ReadEnvironment for NullEnvironment<Pr> {
     type ReadError = EmptyEnvironmentError;
 
     type UriIter = Empty<Result<String, EmptyEnvironmentError>>;

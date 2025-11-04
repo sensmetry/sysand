@@ -4,7 +4,11 @@
 #[cfg(not(feature = "std"))]
 compile_error!("`std` feature is currently required to build `sysand`");
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::Arc,
+};
 
 use anyhow::{Result, bail};
 
@@ -49,9 +53,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
     let config = match (&args.global_opts.config_file, &args.global_opts.no_config) {
-        (None, false) => Some(load_configs(std::path::Path::new("."))?),
+        (None, false) => Some(load_configs(Path::new("."))?),
         (None, true) => None,
-        (Some(config_path), _) => Some(get_config(std::path::Path::new(config_path))?),
+        (Some(config_path), _) => Some(get_config(Path::new(config_path))?),
     };
 
     let (verbose, quiet) = if args.global_opts.sets_log_level() {
@@ -90,7 +94,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             path,
             name,
             version,
-        } => command_new(name, version, std::path::Path::new(&path)),
+        } => command_new(name, version, Path::new(&path)),
         cli::Command::Env { command } => match command {
             None => {
                 command_env(
@@ -111,7 +115,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let provided_iris = if !dependency_opts.include_std {
                     known_std_libs()
                 } else {
-                    std::collections::HashMap::default()
+                    HashMap::default()
                 };
 
                 if let Some(path) = path {
@@ -159,7 +163,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let provided_iris = if !include_std {
                     known_std_libs()
                 } else {
-                    std::collections::HashMap::default()
+                    HashMap::default()
                 };
 
                 command_sources_env(iri, version, !no_deps, current_environment, &provided_iris)
@@ -176,7 +180,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             let provided_iris = if !include_std {
                 known_std_libs()
             } else {
-                std::collections::HashMap::default()
+                HashMap::default()
             };
 
             if let Some(path) = project_root {
@@ -210,7 +214,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             let provided_iris = if !include_std {
                 known_std_libs()
             } else {
-                std::collections::HashMap::default()
+                HashMap::default()
             };
             let project_root = project_root.unwrap_or(std::env::current_dir()?);
             let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
@@ -254,7 +258,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             let excluded_iris: HashSet<_> = if !include_std {
                 known_std_libs().keys().cloned().collect()
             } else {
-                std::collections::HashSet::default()
+                HashSet::default()
             };
 
             enum Location {
@@ -328,17 +332,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         runtime,
                     )
                 }
-                (Location::Path(path), None) => {
-                    command_info_path(std::path::Path::new(&path), &excluded_iris)
-                }
+                (Location::Path(path), None) => command_info_path(Path::new(&path), &excluded_iris),
                 (Location::Path(path), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
 
-                    command_info_verb_path(
-                        std::path::Path::new(&path),
-                        subcommand.as_verb(),
-                        numbered,
-                    )
+                    command_info_verb_path(Path::new(&path), subcommand.as_verb(), numbered)
                 }
             }
         }
@@ -389,7 +387,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             let provided_iris = if !include_std {
                 known_std_libs()
             } else {
-                std::collections::HashMap::default()
+                HashMap::default()
             };
 
             command_sources_project(
@@ -402,7 +400,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     }
 }
 
-pub fn get_env(project_root: &std::path::Path) -> Option<LocalDirectoryEnvironment> {
+pub fn get_env(project_root: &Path) -> Option<LocalDirectoryEnvironment> {
     let environment_path = project_root.join(DEFAULT_ENV_NAME);
     if !environment_path.is_dir() {
         None
@@ -411,7 +409,7 @@ pub fn get_env(project_root: &std::path::Path) -> Option<LocalDirectoryEnvironme
     }
 }
 
-pub fn get_or_create_env(project_root: &std::path::Path) -> Result<LocalDirectoryEnvironment> {
+pub fn get_or_create_env(project_root: &Path) -> Result<LocalDirectoryEnvironment> {
     match get_env(project_root) {
         Some(env) => Ok(env),
         None => command_env(project_root.join(DEFAULT_ENV_NAME)),

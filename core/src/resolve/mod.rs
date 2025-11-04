@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use crate::{
     env::SyncStreamIter,
@@ -47,7 +47,7 @@ impl<T> ResolutionOutcome<T> {
 }
 
 pub trait ResolveRead {
-    type Error: std::error::Error + std::fmt::Debug;
+    type Error: std::error::Error + Debug;
 
     type ProjectStorage: ProjectRead;
     type ResolvedStorages: IntoIterator<Item = Result<Self::ProjectStorage, Self::Error>>;
@@ -88,7 +88,7 @@ pub trait ResolveRead {
 }
 
 pub trait ResolveReadAsync {
-    type Error: std::error::Error + std::fmt::Debug;
+    type Error: std::error::Error + Debug;
 
     type ProjectStorage: ProjectReadAsync;
     type ResolvedStorages: futures::Stream<Item = Result<Self::ProjectStorage, Self::Error>>;

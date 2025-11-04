@@ -1,6 +1,13 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::{
+    io,
+    marker::{Send, Unpin},
+    pin::Pin,
+    string::String,
+};
+
 use futures::{Stream, TryStreamExt};
 use sha2::Sha256;
 use thiserror::Error;
@@ -39,10 +46,10 @@ pub enum HTTPEnvironmentError {
     #[error("failed to get project '{0}', version '{1}' in source or kpar format")]
     InvalidURL(Box<str>, Box<str>),
     #[error("failed to read HTTP response: {0}")]
-    HttpIo(std::io::Error),
+    HttpIo(io::Error),
 }
 
-pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> std::vec::IntoIter<std::string::String> {
+pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> std::vec::IntoIter<String> {
     segment_uri_generic::<S, Sha256>(uri)
 }
 
@@ -199,11 +206,11 @@ impl<I: Iterator> Iterator for Optionally<I> {
     }
 }
 
-impl<I: Stream + std::marker::Unpin> Stream for Optionally<I> {
+impl<I: Stream + Unpin> Stream for Optionally<I> {
     type Item = I::Item;
 
     fn poll_next(
-        self: std::pin::Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         use futures::StreamExt as _;
@@ -216,81 +223,6 @@ impl<I: Stream + std::marker::Unpin> Stream for Optionally<I> {
     }
 }
 
-// type HTTPLinesIter = std::iter::Map<
-//     std::io::Lines<BufReader<reqwest::blocking::Response>>,
-//     fn(Result<String, std::io::Error>) -> Result<String, HTTPEnvironmentError>,
-// >;
-
-// impl ReadEnvironment for HTTPEnvironment {
-//     type ReadError = HTTPEnvironmentError;
-
-//     type UriIter = OptionalIter<HTTPLinesIter>;
-
-//     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-//         let response = self.get_entries_request()?.send()?;
-
-//         let inner: std::option::Option<HTTPLinesIter> = if response.status().is_success() {
-//             Some(
-//                 BufReader::new(response)
-//                     .lines()
-//                     .map(|line| Ok(line?.trim().to_string())),
-//             )
-//         } else {
-//             None
-//         };
-
-//         Ok(OptionalIter { inner })
-//     }
-
-//     type VersionIter = OptionalIter<HTTPLinesIter>;
-
-//     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
-//         let response = self.get_versions_request(uri)?.send()?;
-
-//         let inner: Option<HTTPLinesIter> = if response.status().is_success() {
-//             Some(
-//                 BufReader::new(response)
-//                     .lines()
-//                     .map(|line| Ok(line?.trim().to_string())),
-//             )
-//         } else {
-//             None
-//         };
-
-//         Ok(OptionalIter { inner })
-//     }
-
-//     type InterchangeProjectRead = HTTPProject;
-
-//     fn get_project<S: AsRef<str>, T: AsRef<str>>(
-//         &self,
-//         uri: S,
-//         version: T,
-//     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
-//         if self.prefer_src {
-//             if let Some(proj) = self.try_get_project_src(&uri, &version)? {
-//                 return Ok(proj);
-//             } else if let Some(proj) = self.try_get_project_kpar(&uri, &version)? {
-//                 return Ok(proj);
-//             } else {
-//                 return Err(HTTPEnvironmentError::InvalidURL(
-//                     self.project_kpar_url(&uri, &version)?,
-//                 ));
-//             }
-//         }
-
-//         if let Some(proj) = self.try_get_project_kpar(&uri, &version)? {
-//             Ok(proj)
-//         } else if let Some(proj) = self.try_get_project_src(&uri, &version)? {
-//             Ok(proj)
-//         } else {
-//             Err(HTTPEnvironmentError::InvalidURL(
-//                 self.project_kpar_url(&uri, &version)?,
-//             ))
-//         }
-//     }
-// }
-
 fn trim_line<E>(line: Result<String, E>) -> Result<String, E> {
     Ok(line?.trim().to_string())
 }
@@ -300,12 +232,7 @@ impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
 
     // This can be made more concrete, but the type is humongous
     type UriStream = Optionally<
-        std::pin::Pin<
-            Box<
-                dyn futures::Stream<Item = Result<std::string::String, HTTPEnvironmentError>>
-                    + std::marker::Send,
-            >,
-        >,
+        Pin<Box<dyn futures::Stream<Item = Result<String, HTTPEnvironmentError>> + Send>>,
     >;
 
     async fn uris_async(&self) -> Result<Self::UriStream, Self::ReadError> {
@@ -317,7 +244,7 @@ impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
             Some(
                 response
                     .bytes_stream()
-                    .map_err(std::io::Error::other)
+                    .map_err(io::Error::other)
                     .into_async_read()
                     .lines()
                     .map(trim_line)
@@ -332,12 +259,7 @@ impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
     }
 
     type VersionStream = Optionally<
-        std::pin::Pin<
-            Box<
-                dyn futures::Stream<Item = Result<std::string::String, HTTPEnvironmentError>>
-                    + std::marker::Send,
-            >,
-        >,
+        Pin<Box<dyn futures::Stream<Item = Result<String, HTTPEnvironmentError>> + Send>>,
     >;
 
     async fn versions_async<S: AsRef<str>>(
@@ -352,7 +274,7 @@ impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
             Some(
                 response
                     .bytes_stream()
-                    .map_err(std::io::Error::other)
+                    .map_err(io::Error::other)
                     .into_async_read()
                     .lines()
                     .map(trim_line)

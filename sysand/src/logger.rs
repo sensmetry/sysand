@@ -3,7 +3,7 @@
 
 use env_logger::{Builder, Target, fmt::Formatter};
 use log::{LevelFilter, Record};
-use std::io::Write;
+use std::io::{self, Write};
 
 // use crate::cli;
 use crate::style;
@@ -17,7 +17,7 @@ pub fn init(level: LevelFilter) {
         .init();
 }
 
-fn format(buf: &mut Formatter, record: &Record<'_>) -> Result<(), std::io::Error> {
+fn format(buf: &mut Formatter, record: &Record<'_>) -> Result<(), io::Error> {
     match record.level() {
         log::Level::Error => {
             let style = style::ERROR;

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 
@@ -36,7 +36,7 @@ pub fn command_add(
         let provided_iris = if !include_std {
             crate::known_std_libs()
         } else {
-            std::collections::HashMap::default()
+            HashMap::default()
         };
 
         crate::commands::lock::command_lock(

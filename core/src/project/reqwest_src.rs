@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::{io, marker::Send, pin::Pin};
+
 use futures::{TryStreamExt, join};
 use thiserror::Error;
 /// This module implements accessing interchanged projects stored remotely over HTTP.
@@ -146,12 +148,7 @@ impl ProjectReadAsync for ReqwestSrcProjectAsync {
 
     type SourceReader<'a>
         = futures::stream::IntoAsyncRead<
-        std::pin::Pin<
-            Box<
-                dyn futures::Stream<Item = Result<bytes::Bytes, std::io::Error>>
-                    + std::marker::Send,
-            >,
-        >,
+        Pin<Box<dyn futures::Stream<Item = Result<bytes::Bytes, io::Error>> + Send>>,
     >
     where
         Self: 'a;
@@ -171,7 +168,7 @@ impl ProjectReadAsync for ReqwestSrcProjectAsync {
         if resp.status().is_success() {
             Ok(resp
                 .bytes_stream()
-                .map_err(std::io::Error::other)
+                .map_err(io::Error::other)
                 .boxed()
                 .into_async_read())
         } else {

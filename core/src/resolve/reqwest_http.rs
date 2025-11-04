@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::convert::Infallible;
+use std::{convert::Infallible, io, pin::Pin};
 
 use fluent_uri::component::Scheme;
 use futures::AsyncRead;
@@ -44,22 +44,6 @@ pub enum HTTPProjectError {
     KparDownloaded(<ReqwestKparDownloadedProject as ProjectReadAsync>::Error),
 }
 
-// pub enum HTTPProjectReader<'a> {
-//     SrcProjectReader(<ReqwestSrcProject as ProjectRead>::SourceReader<'a>),
-//     KParRangedReader(<ReqwestKparRangedProject as ProjectRead>::SourceReader<'a>),
-//     KparDownloadedReader(<ReqwestKparDownloadedProject as ProjectRead>::SourceReader<'a>),
-// }
-
-// impl Read for HTTPProjectReader<'_> {
-//     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-//         match self {
-//             HTTPProjectReader::SrcProjectReader(proj) => proj.read(buf),
-//             HTTPProjectReader::KParRangedReader(proj) => proj.read(buf),
-//             HTTPProjectReader::KparDownloadedReader(proj) => proj.read(buf),
-//         }
-//     }
-// }
-
 pub enum HTTPProjectAsyncReader<'a> {
     SrcProjectReader(<ReqwestSrcProjectAsync as ProjectReadAsync>::SourceReader<'a>),
     //KParRangedReader(<ReqwestKparRangedProject as ProjectRead>::SourceReader<'a>),
@@ -68,27 +52,16 @@ pub enum HTTPProjectAsyncReader<'a> {
 
 impl AsyncRead for HTTPProjectAsyncReader<'_> {
     fn poll_read(
-        self: std::pin::Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
         buf: &mut [u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
+    ) -> std::task::Poll<io::Result<usize>> {
         match self.get_mut() {
-            HTTPProjectAsyncReader::SrcProjectReader(proj) => {
-                std::pin::Pin::new(proj).poll_read(cx, buf)
-            }
+            HTTPProjectAsyncReader::SrcProjectReader(proj) => Pin::new(proj).poll_read(cx, buf),
             //HTTPProjectAsyncReader::KParRangedReader(proj) => todo!(),
-            HTTPProjectAsyncReader::KparDownloadedReader(proj) => {
-                std::pin::Pin::new(proj).poll_read(cx, buf)
-            }
+            HTTPProjectAsyncReader::KparDownloadedReader(proj) => Pin::new(proj).poll_read(cx, buf),
         }
     }
-    // fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-    //     match self {
-    //         HTTPProjectAsyncReader::SrcProjectReader(proj) => proj.read(buf),
-    //         HTTPProjectAsyncReader::KParRangedReader(proj) => proj.read(buf),
-    //         HTTPProjectAsyncReader::KparDownloadedReader(proj) => proj.read(buf),
-    //     }
-    // }
 }
 
 impl ProjectReadAsync for HTTPProjectAsync {

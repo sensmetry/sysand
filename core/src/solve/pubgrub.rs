@@ -6,8 +6,8 @@ use pubgrub::{DependencyProvider, VersionSet};
 
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
-    fmt::Display,
+    collections::{HashMap, HashSet, hash_map::Entry},
+    fmt::{self, Display},
 };
 
 use thiserror::Error;
@@ -25,7 +25,7 @@ pub enum DependencyIdentifier {
 }
 
 impl Display for DependencyIdentifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DependencyIdentifier::Requested(_requested) => {
                 write!(f, "requested project(s)")
@@ -71,7 +71,7 @@ pub enum DiscreteHashSet {
 }
 
 impl Display for DiscreteHashSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let elts = match self {
             DiscreteHashSet::Finite(hash_set) => {
                 let elts: Vec<usize> = hash_set.iter().cloned().collect();
@@ -196,12 +196,12 @@ fn resolve_candidates<R: ResolveRead>(
     let entry = cache.entry(uri.clone());
 
     match entry {
-        std::collections::hash_map::Entry::Occupied(occupied_entry) => Ok(occupied_entry
+        Entry::Occupied(occupied_entry) => Ok(occupied_entry
             .get()
             .iter()
             .map(|(info, meta, _)| (info.clone(), meta.clone()))
             .collect()),
-        std::collections::hash_map::Entry::Vacant(vacant_entry) => {
+        Entry::Vacant(vacant_entry) => {
             let mut found = vec![];
 
             match resolver
@@ -286,12 +286,12 @@ fn compute_deps<R: ResolveRead>(
 
 #[derive(Error, Debug)]
 #[error("{inner}")]
-pub struct SolverError<R: ResolveRead + std::fmt::Debug + 'static> {
+pub struct SolverError<R: ResolveRead + fmt::Debug + 'static> {
     #[from]
     pub inner: Box<pubgrub::PubGrubError<ProjectSolver<R>>>,
 }
 
-impl<R: ResolveRead + std::fmt::Debug + 'static> From<pubgrub::PubGrubError<ProjectSolver<R>>>
+impl<R: ResolveRead + fmt::Debug + 'static> From<pubgrub::PubGrubError<ProjectSolver<R>>>
     for SolverError<R>
 {
     fn from(value: pubgrub::PubGrubError<ProjectSolver<R>>) -> Self {
@@ -323,7 +323,7 @@ impl<R: ResolveRead> ProjectSolver<R> {
     //let mut map: RefMut<'_, _> = self.resolved_candidates.borrow_mut();
 }
 
-impl<R: ResolveRead + std::fmt::Debug + 'static> DependencyProvider for ProjectSolver<R> {
+impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver<R> {
     type P = DependencyIdentifier;
 
     type V = ProjectIndex;
@@ -439,7 +439,7 @@ type Solution<ProjectStorage> = HashMap<
     ),
 >;
 
-pub fn solve<R: ResolveRead + std::fmt::Debug + 'static>(
+pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     resolver: R,
 ) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
