@@ -61,7 +61,7 @@ pub enum ValidationError {
     #[error("unsatisfied usage '{0}' (found version {1})")]
     UnsatisfiedUsageVersion(String, String),
     #[error("invalid SHA256 checksum '{0}'")]
-    InvalidChecksum(String),
+    InvalidChecksumFormat(String),
 }
 
 impl Lock {
@@ -127,7 +127,7 @@ impl Lock {
         self.validate_lock_version()?;
         self.check_name_collision()?;
         self.validate_usages()?;
-        self.validate_checksums()?;
+        self.validate_checksum_format()?;
         Ok(self)
     }
 
@@ -202,14 +202,14 @@ impl Lock {
         Ok(())
     }
 
-    fn validate_checksums(&self) -> Result<(), ValidationError> {
+    fn validate_checksum_format(&self) -> Result<(), ValidationError> {
         let fail = self
             .projects
             .iter()
             .map(|p| p.checksum.clone())
             .find(|cs| cs.len() != 64 || !cs.chars().all(|c| c.is_ascii_hexdigit()));
         if let Some(checksum) = fail {
-            Err(ValidationError::InvalidChecksum(checksum))
+            Err(ValidationError::InvalidChecksumFormat(checksum))
         } else {
             Ok(())
         }
@@ -1116,7 +1116,7 @@ checksum = "{CHECKSUM}"
         .validate() else {
             panic!()
         };
-        let ValidationError::InvalidChecksum(s) = err else {
+        let ValidationError::InvalidChecksumFormat(s) = err else {
             panic!()
         };
         assert_eq!(s, invalid_checksum);
