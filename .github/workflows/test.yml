@@ -34,6 +34,8 @@ jobs:
     - uses: taiki-e/install-action@cargo-hack
     - name: Clippy
       run: cargo hack clippy --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
+    - name: Clippy for tests
+      run: cargo clippy --all-targets --all-features -- --deny warnings
     - name: Format
       run: cargo fmt --check
     - name: Set up git user
