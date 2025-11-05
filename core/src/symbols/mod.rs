@@ -9,7 +9,7 @@
 
 mod lex;
 
-use std::{collections::HashMap, iter::Peekable};
+use std::{collections::HashMap, io, iter::Peekable};
 
 use logos::{Logos, Source};
 use thiserror::Error;
@@ -423,7 +423,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
 #[derive(Debug, Error)]
 pub enum ExtractError {
     #[error("failed to read file to extract symbols: {0}")]
-    ReadTopLevelSysml(std::io::Error),
+    ReadTopLevelSysml(io::Error),
     #[error("syntax error at line {0}, byte {1}:\n{2}")]
     Syntax(u32, u32, LexingError),
     #[error(
@@ -439,7 +439,7 @@ pub enum ExtractError {
 /// A lexer that extracts top-level symbols from a SysML file.
 ///
 /// It is used for handling `index` field of `.meta.json` files.
-pub fn top_level_sysml<R: std::io::Read>(mut reader: R) -> Result<Vec<String>, ExtractError> {
+pub fn top_level_sysml<R: io::Read>(mut reader: R) -> Result<Vec<String>, ExtractError> {
     let source = {
         let mut source = String::new();
         reader

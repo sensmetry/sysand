@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{io::Read, iter::Peekable};
+use std::{
+    io::{self, Read},
+    iter::Peekable,
+};
 
 use indexmap::IndexMap;
 use thiserror::Error;
@@ -106,7 +109,7 @@ pub enum CombinedSourceReader<FileReader, LocalReader, RemoteReader, RegistryRea
 impl<FileReader: Read, LocalReader: Read, RemoteReader: Read, RegistryReader: Read> Read
     for CombinedSourceReader<FileReader, LocalReader, RemoteReader, RegistryReader>
 {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             CombinedSourceReader::FileProject(reader) => reader.read(buf),
             CombinedSourceReader::LocalProject(reader) => reader.read(buf),

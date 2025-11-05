@@ -16,8 +16,7 @@ use sysand_core::{
 
 use anyhow::{Result, bail};
 use fluent_uri::Iri;
-use reqwest::blocking::Client;
-use std::{collections::HashSet, env::current_dir, path::Path};
+use std::{collections::HashSet, env::current_dir, path::Path, sync::Arc};
 use sysand_core::{
     info::{do_info, do_info_project},
     project::{local_kpar::LocalKParProject, local_src::LocalSrcProject},
@@ -96,14 +95,14 @@ pub fn command_info_path<P: AsRef<Path>>(path: P, excluded_iris: &HashSet<String
 pub fn command_info_uri<S: AsRef<str>>(
     uri: Iri<String>,
     _normalise: bool,
-    client: Client,
+    client: reqwest_middleware::ClientWithMiddleware,
     index_base_urls: Option<Vec<S>>,
     excluded_iris: &HashSet<String>,
+    runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     let cwd = current_dir().ok();
 
-    let local_env_path =
-        std::path::Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+    let local_env_path = Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
 
     let combined_resolver = standard_resolver(
         cwd,
@@ -116,6 +115,7 @@ pub fn command_info_uri<S: AsRef<str>>(
         index_base_urls
             .map(|xs| xs.iter().map(|x| url::Url::parse(x.as_ref())).collect())
             .transpose()?,
+        runtime,
     );
 
     let mut found = false;
@@ -185,15 +185,16 @@ pub fn command_info_verb_uri<S: AsRef<str>>(
     uri: Iri<String>,
     verb: InfoCommandVerb,
     numbered: bool,
-    client: Client,
+    client: reqwest_middleware::ClientWithMiddleware,
     index_base_urls: Option<Vec<S>>,
+    runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     match verb {
         InfoCommandVerb::Get(get_verb) => {
             let cwd = current_dir().ok();
 
             let local_env_path =
-                std::path::Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+                Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
 
             let combined_resolver = standard_resolver(
                 cwd,
@@ -206,6 +207,7 @@ pub fn command_info_verb_uri<S: AsRef<str>>(
                 index_base_urls
                     .map(|xs| xs.iter().map(|x| url::Url::parse(x.as_ref())).collect())
                     .transpose()?,
+                runtime,
             );
 
             let mut found = false;

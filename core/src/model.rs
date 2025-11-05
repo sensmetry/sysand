@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashSet, hash::Hash};
+use std::{clone::Clone, collections::HashSet, hash::Hash};
 
 #[allow(deprecated)] // will change when `digest` 0.11 is released
 use digest::{generic_array::GenericArray, typenum};
@@ -118,7 +118,7 @@ impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     }
 }
 
-impl<Iri: PartialEq + std::clone::Clone, Version, VersionReq: std::clone::Clone>
+impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
     InterchangeProjectInfoG<Iri, Version, VersionReq>
 {
     pub fn minimal(name: String, version: Version) -> Self {

@@ -4,7 +4,7 @@
 use sha2::Sha256;
 use std::{
     fs,
-    io::{self, BufRead, Read, Write},
+    io::{self, BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -315,12 +315,12 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
     type ReadError = LocalReadError;
 
     type UriIter = std::iter::Map<
-        io::Lines<io::BufReader<std::fs::File>>,
+        io::Lines<BufReader<std::fs::File>>,
         fn(Result<String, io::Error>) -> Result<String, LocalReadError>,
     >;
 
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-        Ok(io::BufReader::new(wrapfs::File::open(self.entries_path())?)
+        Ok(BufReader::new(wrapfs::File::open(self.entries_path())?)
             .lines()
             .map(|x| match x {
                 Ok(line) => Ok(line),
@@ -329,7 +329,7 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
     }
 
     type VersionIter = std::iter::Map<
-        io::Lines<io::BufReader<std::fs::File>>,
+        io::Lines<BufReader<std::fs::File>>,
         fn(Result<String, io::Error>) -> Result<String, LocalReadError>,
     >;
 
@@ -347,7 +347,7 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
             wrapfs::File::create(&vp)?;
         }
 
-        Ok(io::BufReader::new(wrapfs::File::open(&vp)?)
+        Ok(BufReader::new(wrapfs::File::open(&vp)?)
             .lines()
             .map(|x| match x {
                 Ok(line) => Ok(line),
@@ -422,7 +422,7 @@ fn add_line_temp<R: Read, S: AsRef<str>>(
     let mut temp_file = NamedTempFile::new().map_err(FsIoError::CreateTempFile)?;
 
     let mut line_added = false;
-    for this_line in io::BufReader::new(reader).lines() {
+    for this_line in BufReader::new(reader).lines() {
         let this_line =
             this_line.map_err(|e| FsIoError::ReadFile(temp_file.path().to_path_buf(), e))?;
 
@@ -531,7 +531,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         // I think this may be needed on Windows in order to drop the
         // file handle before overwriting
         {
-            let current_versions_f = io::BufReader::new(wrapfs::File::open(&versions_path)?);
+            let current_versions_f = BufReader::new(wrapfs::File::open(&versions_path)?);
             for version_line_ in current_versions_f.lines() {
                 let version_line = version_line_
                     .map_err(|e| FsIoError::ReadFile(versions_path.to_path_buf(), e))?;

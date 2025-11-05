@@ -47,7 +47,7 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
 /// the expected files and CLI typically prints the canonicalised version of the
 /// path.
 pub fn new_temp_cwd() -> Result<(TempDir, std::path::PathBuf), Box<dyn std::error::Error>> {
-    let temp_dir = TempDir::new()?;
+    let temp_dir = TempDir::with_prefix("sysand_test_")?;
     let temp_dir_path = temp_dir.path().canonicalize()?;
 
     Ok((temp_dir, temp_dir_path))

@@ -1,12 +1,17 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use pyo3::{
     exceptions::{PyFileExistsError, PyIOError, PyRuntimeError, PyValueError},
     prelude::*,
 };
+use semver::{Version, VersionReq};
 use sysand_core::{
     add::do_add,
     build::{KParBuildError, do_build_kpar},
@@ -43,7 +48,7 @@ use sysand_core::{
     signature = (name, version, path),
 )]
 fn do_new_py_local_file(name: String, version: String, path: String) -> PyResult<()> {
-    do_new_local_file(name, version, std::path::Path::new(&path)).map_err(|err| match err {
+    do_new_local_file(name, version, Path::new(&path)).map_err(|err| match err {
         NewError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
         NewError::Project(err) => match err {
             LocalSrcError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
@@ -106,9 +111,13 @@ fn do_info_py(
 ) -> PyResult<Vec<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>> {
     py.detach(|| {
         let mut results = vec![];
-        let client = reqwest::blocking::ClientBuilder::new()
-            .build()
-            .expect("internal HTTP error");
+        let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?,
+        );
 
         let index_url = index_urls
             .map(|url_strs| {
@@ -121,10 +130,11 @@ fn do_info_py(
             .map_err(|err| PyValueError::new_err(err.to_string()))?;
 
         let combined_resolver = standard_resolver(
-            Some(std::path::Path::new(&relative_file_root).to_path_buf()),
+            Some(Path::new(&relative_file_root).to_path_buf()),
             None,
             Some(client),
             index_url,
+            runtime,
         );
 
         match do_info(&uri, &combined_resolver) {
@@ -182,13 +192,12 @@ pub fn do_sources_env_py(
     let provided_iris = if !include_std {
         known_std_libs()
     } else {
-        std::collections::HashMap::default()
+        HashMap::default()
     };
 
     let version = match version {
         Some(version) => Some(
-            semver::VersionReq::parse(&version)
-                .map_err(|err| PyValueError::new_err(err.to_string()))?,
+            VersionReq::parse(&version).map_err(|err| PyValueError::new_err(err.to_string()))?,
         ),
         None => None,
     };
@@ -219,7 +228,7 @@ pub fn do_sources_env_py(
                 if let Some(v) = candidate
                     .version()
                     .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
-                    .and_then(|x| semver::Version::parse(&x).ok())
+                    .and_then(|x| Version::parse(&x).ok())
                 {
                     if vr.matches(&v) {
                         break Some(candidate);
@@ -339,7 +348,7 @@ pub fn do_sources_project_py(
         let provided_iris = if !include_std {
             known_std_libs()
         } else {
-            std::collections::HashMap::default()
+            HashMap::default()
         };
 
         let env = LocalDirectoryEnvironment {

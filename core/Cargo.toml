@@ -11,7 +11,7 @@ repository.workspace = true
 
 [features]
 default = ["std"]
-std = ["log/std", "wasm-bindgen/std", "thiserror/std", "typed-path/std", "url/std"]
+std = ["log/std", "wasm-bindgen/std", "thiserror/std", "typed-path/std", "url/std", "futures/std"]
 # Whether we should be more lenient when validating data in cases where the
 # KerML specification is vague.
 lenient_checks = []
@@ -36,7 +36,7 @@ log = { version = "0.4.27", default-features = false }
 pubgrub = { version = "0.3.0", default-features = false }
 partialzip = { version = "5.0.0", default-features = false, optional = true }
 pyo3 = { version = "0.27.0", default-features = false, features = ["macros", "chrono", "indexmap"], optional = true }
-reqwest = { version = "0.12.23", optional = true, features = ["blocking"] }
+reqwest = { version = "0.12.23", optional = true, features = ["stream"] }
 semver = { version = "1.0.26", features = ["serde"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = { version = "1.0.140", default-features = false, features = ["preserve_order"] }
@@ -52,6 +52,10 @@ zip = { version = "6.0.0", default-features = false, optional = true }
 url = { version = "2.5.7", default-features = false }
 gix = { version = "0.74.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation"] }
 logos = "0.15.1"
+futures = { version = "0.3.31", default-features = false, features = ["alloc", "async-await"] }
+tokio = { version = "1.47.1", default-features = false, features = ["rt", "io-util"] }
+reqwest-middleware = { version = "0.4.2", default-features = false }
+bytes = { version = "1.10.1", default-features = false }
 
 [dev-dependencies]
 assert_cmd = "2.1.1"

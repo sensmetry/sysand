@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{self, Read};
 
 use thiserror::Error;
 
@@ -52,7 +52,7 @@ pub enum RemoteSourceReader<HTTPReader, GitReader> {
 }
 
 impl<HTTPReader: Read, GitReader: Read> Read for RemoteSourceReader<HTTPReader, GitReader> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             RemoteSourceReader::HTTPReader(reader) => reader.read(buf),
             RemoteSourceReader::GitReader(reader) => reader.read(buf),

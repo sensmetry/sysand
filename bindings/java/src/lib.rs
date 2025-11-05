@@ -2,13 +2,15 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::{path::PathBuf, sync::Arc};
+
 use jni::{
     JNIEnv,
     objects::{JClass, JObject, JObjectArray, JString},
 };
 use sysand_core::{
     commands,
-    env::local_directory::LocalWriteError,
+    env::local_directory::{self, LocalWriteError},
     info::InfoError,
     new::NewError,
     project::local_src::{LocalSrcError, LocalSrcProject},
@@ -72,7 +74,7 @@ pub extern "system" fn Java_org_sysand_Sysand_defaultEnvName<'local>(
     env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> JString<'local> {
-    env.new_string(sysand_core::env::local_directory::DEFAULT_ENV_NAME)
+    env.new_string(local_directory::DEFAULT_ENV_NAME)
         .expect("Failed to create String")
 }
 
@@ -126,7 +128,7 @@ pub extern "system" fn Java_org_sysand_Sysand_info_1path__Ljava_lang_String_2<'l
 ) -> JObject<'local> {
     let path: String = env.get_string(&path).expect("Failed to get path").into();
     let project = LocalSrcProject {
-        project_path: std::path::PathBuf::from(&path),
+        project_path: PathBuf::from(&path),
     };
 
     let command_result = commands::info::do_info_project(&project);
@@ -145,9 +147,13 @@ pub extern "system" fn Java_org_sysand_Sysand_info<'local>(
     index_url: JString<'local>,
 ) -> JObjectArray<'local> {
     let uri: String = env.get_string(&uri).expect("Failed to get uri").into();
-    let client = reqwest::blocking::ClientBuilder::new()
-        .build()
-        .expect("internal HTTP error");
+    let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+
+    let runtime = Arc::new(
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("failed to initialise async runtime"),
+    );
 
     let relative_file_root: String = env
         .get_string(&relative_file_root)
@@ -178,10 +184,11 @@ pub extern "system" fn Java_org_sysand_Sysand_info<'local>(
     };
 
     let combined_resolver = standard_resolver(
-        Some(std::path::PathBuf::from(&relative_file_root)),
+        Some(PathBuf::from(&relative_file_root)),
         None,
         Some(client),
         index_base_url.map(|x| vec![x]),
+        runtime,
     );
 
     let results = match commands::info::do_info(&uri, &combined_resolver) {

@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::io::Read;
+
 use serde::{/* Deserialize, */ Serialize};
 
 use sysand_core::project::utils::FsIoError;
@@ -92,7 +94,7 @@ impl LocalStorageVFS {
             .ok_or(LocalStorageError::KeyNotFound(key))
     }
 
-    pub fn write_reader<P: AsRef<Utf8UnixPath>, R: std::io::Read>(
+    pub fn write_reader<P: AsRef<Utf8UnixPath>, R: Read>(
         &self,
         path: P,
         source: &mut R,

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{convert::Infallible, fmt::Write};
+use std::{convert::Infallible, fmt::Write, path::PathBuf};
 
 use clap::builder::StyledStr;
 use semver::VersionReq;
@@ -90,7 +90,7 @@ pub enum Command {
         /// Path giving where to put the finished KPAR.
         /// Defaults to `output/<project name>.kpar` or
         /// `output/project.kpar` if no name is found
-        path: Option<std::path::PathBuf>,
+        path: Option<PathBuf>,
     },
     /// Create or update lockfile
     Lock {

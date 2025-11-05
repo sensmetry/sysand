@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::fmt::Debug;
 #[cfg(feature = "filesystem")]
 use std::path::Path;
 
@@ -20,11 +21,7 @@ use crate::{
 };
 
 #[derive(Error, Debug)]
-pub enum LockProjectError<
-    PI: ProjectRead,
-    PD: ProjectRead,
-    R: ResolveRead + std::fmt::Debug + 'static,
-> {
+pub enum LockProjectError<PI: ProjectRead, PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     InputProjectError(PI::Error),
     #[error(transparent)]
@@ -34,7 +31,7 @@ pub enum LockProjectError<
 }
 
 #[derive(Error, Debug)]
-pub enum LockError<PD: ProjectRead, R: ResolveRead + std::fmt::Debug + 'static> {
+pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     DependencyProject(PD::Error),
     #[error(transparent)]
@@ -66,10 +63,10 @@ pub struct LockOutcome<PI, PD> {
 /// Returns a lockfile, as well as a list of dependency projects to install (in addition to)
 /// `projects`.
 pub fn do_lock_projects<
-    PI: ProjectRead + std::fmt::Debug,
-    PD: ProjectRead + std::fmt::Debug,
+    PI: ProjectRead + Debug,
+    PD: ProjectRead + Debug,
     I: IntoIterator<Item = PI>,
-    R: ResolveRead<ProjectStorage = PD> + std::fmt::Debug,
+    R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     projects: I, // TODO: Should this be an iterable over Q?
     resolver: R,
@@ -138,9 +135,9 @@ pub fn do_lock_projects<
 /// Note: The content of the lockfile is not taken into account when solving.
 // TODO: Fix this or find a better way.
 pub fn do_lock_extend<
-    PD: ProjectRead + std::fmt::Debug,
+    PD: ProjectRead + Debug,
     I: IntoIterator<Item = InterchangeProjectUsage>,
-    R: ResolveRead<ProjectStorage = PD> + std::fmt::Debug,
+    R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     mut lock: Lock,
     usages: I,
@@ -191,8 +188,8 @@ pub type EditableLocalSrcProject = EditableProject<LocalSrcProject>;
 #[cfg(feature = "filesystem")]
 pub fn do_lock_local_editable<
     P: AsRef<Path>,
-    PD: ProjectRead + std::fmt::Debug,
-    R: ResolveRead<ProjectStorage = PD> + std::fmt::Debug,
+    PD: ProjectRead + Debug,
+    R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     path: P,
     resolver: R,

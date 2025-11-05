@@ -4,7 +4,11 @@
 #[cfg(not(feature = "std"))]
 compile_error!("`std` feature is currently required to build `sysand`");
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::Arc,
+};
 
 use anyhow::{Result, bail};
 
@@ -49,9 +53,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
     let config = match (&args.global_opts.config_file, &args.global_opts.no_config) {
-        (None, false) => Some(load_configs(std::path::Path::new("."))?),
+        (None, false) => Some(load_configs(Path::new("."))?),
         (None, true) => None,
-        (Some(config_path), _) => Some(get_config(std::path::Path::new(config_path))?),
+        (Some(config_path), _) => Some(get_config(Path::new(config_path))?),
     };
 
     let (verbose, quiet) = if args.global_opts.sets_log_level() {
@@ -70,7 +74,17 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         .or_else(|| std::env::current_dir().ok())
         .and_then(|p| crate::get_env(&p));
 
-    let client = reqwest::blocking::ClientBuilder::new().build()?;
+    let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+
+    let runtime = Arc::new(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .unwrap(),
+    );
+
+    let _runtime_keepalive = runtime.clone();
 
     match args.command {
         cli::Command::Init { name, version } => {
@@ -80,7 +94,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             path,
             name,
             version,
-        } => command_new(name, version, std::path::Path::new(&path)),
+        } => command_new(name, version, Path::new(&path)),
         cli::Command::Env { command } => match command {
             None => {
                 command_env(
@@ -107,6 +121,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         dependency_opts,
                         project_root,
                         client,
+                        runtime,
                     )
                 } else {
                     command_env_install(
@@ -116,6 +131,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         dependency_opts,
                         project_root,
                         client,
+                        runtime,
                     )
                 }
             }
@@ -139,7 +155,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let provided_iris = if !include_std {
                     known_std_libs()
                 } else {
-                    std::collections::HashMap::default()
+                    HashMap::default()
                 };
 
                 command_sources_env(
@@ -163,11 +179,17 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             let provided_iris = if !include_std {
                 known_std_libs()
             } else {
-                std::collections::HashMap::default()
+                HashMap::default()
             };
 
             if let Some(path) = project_root {
-                crate::commands::lock::command_lock(path, client, index_base_urls, &provided_iris)
+                crate::commands::lock::command_lock(
+                    path,
+                    client,
+                    index_base_urls,
+                    &provided_iris,
+                    runtime,
+                )
             } else {
                 bail!("Not inside a project")
             }
@@ -203,6 +225,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     client.clone(),
                     index_base_urls,
                     &provided_iris,
+                    runtime.clone(),
                 )?;
             }
             let lock: Lock = toml::from_str(&std::fs::read_to_string(
@@ -214,6 +237,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &mut local_environment,
                 client,
                 &provided_iris,
+                runtime,
             )
         }
         cli::Command::PrintRoot => command_print_root(std::env::current_dir()?),
@@ -235,7 +259,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 crate::logger::warn_std_deps();
                 known_std_libs().keys().cloned().collect()
             } else {
-                std::collections::HashSet::default()
+                HashSet::default()
             };
 
             enum Location {
@@ -295,6 +319,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     client,
                     index_base_urls,
                     &excluded_iris,
+                    runtime,
                 ),
                 (Location::Iri(iri), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
@@ -305,19 +330,14 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         numbered,
                         client,
                         index_base_urls,
+                        runtime,
                     )
                 }
-                (Location::Path(path), None) => {
-                    command_info_path(std::path::Path::new(&path), &excluded_iris)
-                }
+                (Location::Path(path), None) => command_info_path(Path::new(&path), &excluded_iris),
                 (Location::Path(path), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
 
-                    command_info_verb_path(
-                        std::path::Path::new(&path),
-                        subcommand.as_verb(),
-                        numbered,
-                    )
+                    command_info_verb_path(Path::new(&path), subcommand.as_verb(), numbered)
                 }
             }
         }
@@ -335,6 +355,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             dependency_opts,
             current_project,
             client,
+            runtime,
         ),
         cli::Command::Remove { iri } => command_remove(iri, current_project),
         cli::Command::Include {
@@ -381,7 +402,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     }
 }
 
-pub fn get_env(project_root: &std::path::Path) -> Option<LocalDirectoryEnvironment> {
+pub fn get_env(project_root: &Path) -> Option<LocalDirectoryEnvironment> {
     let environment_path = project_root.join(DEFAULT_ENV_NAME);
     if !environment_path.is_dir() {
         None
@@ -390,7 +411,7 @@ pub fn get_env(project_root: &std::path::Path) -> Option<LocalDirectoryEnvironme
     }
 }
 
-pub fn get_or_create_env(project_root: &std::path::Path) -> Result<LocalDirectoryEnvironment> {
+pub fn get_or_create_env(project_root: &Path) -> Result<LocalDirectoryEnvironment> {
     match get_env(project_root) {
         Some(env) => Ok(env),
         None => command_env(project_root.join(DEFAULT_ENV_NAME)),

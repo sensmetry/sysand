@@ -1,10 +1,11 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 
 use sysand_core::{
-    model::InterchangeProjectMetadataRaw,
+    lock,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectMut, ProjectRead, utils::FsIoError},
 };
 
@@ -75,8 +76,8 @@ impl ProjectRead for ProjectLocalBrowserStorage {
         &self,
     ) -> Result<
         (
-            Option<sysand_core::model::InterchangeProjectInfoRaw>,
-            Option<sysand_core::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
@@ -118,7 +119,7 @@ impl ProjectRead for ProjectLocalBrowserStorage {
         ))
     }
 
-    fn sources(&self) -> Vec<sysand_core::lock::Source> {
+    fn sources(&self) -> Vec<lock::Source> {
         vec![sysand_core::lock::Source::LocalSrc {
             src_path: self.root_path.to_string(),
         }]
@@ -128,7 +129,7 @@ impl ProjectRead for ProjectLocalBrowserStorage {
 impl ProjectMut for ProjectLocalBrowserStorage {
     fn put_info(
         &mut self,
-        info: &sysand_core::model::InterchangeProjectInfoRaw,
+        info: &InterchangeProjectInfoRaw,
         overwrite: bool,
     ) -> Result<(), Self::Error> {
         let info_path = self.root_path.join(".project.json");
@@ -159,7 +160,7 @@ impl ProjectMut for ProjectLocalBrowserStorage {
         Ok(())
     }
 
-    fn write_source<P: AsRef<Utf8UnixPath>, R: std::io::Read>(
+    fn write_source<P: AsRef<Utf8UnixPath>, R: Read>(
         &mut self,
         path: P,
         source: &mut R,
