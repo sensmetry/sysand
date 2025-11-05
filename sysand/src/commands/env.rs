@@ -139,8 +139,11 @@ pub fn command_env_install<S: AsRef<str>>(
                 .transpose()?,
         }];
 
-        let LockOutcome { lock, dependencies: _dependencies, inputs: _inputs } =
-            sysand_core::commands::lock::do_lock_extend(Lock::default(), usages, resolver)?;
+        let LockOutcome {
+            lock,
+            dependencies: _dependencies,
+            inputs: _inputs,
+        } = sysand_core::commands::lock::do_lock_extend(Lock::default(), usages, resolver)?;
         // Find if we added any std lib dependencies. This relies on `Lock::default()`
         // and `do_lock_extend()` to not read the existing lockfile, i.e. `lock` contains
         // only `iri` and `iri`'s dependencies.
@@ -270,8 +273,11 @@ pub fn command_env_install_path<S: AsRef<str>>(
                 runtime.clone(),
             ),
         );
-        let LockOutcome { lock, dependencies: _dependencies, inputs: _inputs } =
-            sysand_core::commands::lock::do_lock_projects(vec![project], resolver)?;
+        let LockOutcome {
+            lock,
+            dependencies: _dependencies,
+            inputs: _inputs,
+        } = sysand_core::commands::lock::do_lock_projects(vec![project], resolver)?;
         command_sync(
             lock,
             project_root,
