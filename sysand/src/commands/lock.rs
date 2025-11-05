@@ -57,7 +57,7 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
         ),
     );
 
-    let LockOutcome { lock, .. } =
+    let LockOutcome { lock, dependencies: _dependencies, inputs: _inputs } =
         match commands::lock::do_lock_local_editable(&path, wrapped_resolver) {
             Ok(lock_outcome) => lock_outcome,
             Err(LockProjectError::LockError(lock_error)) => {
