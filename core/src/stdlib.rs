@@ -87,6 +87,8 @@ const SEMANTIC_LIBRARY_META_20230201: &str =
 // TODO: These should not be hard-coded, this is just a stop-gap solution
 // even if we keep some of these hard-coded it might be neater if we can
 // embed the .project.json and .meta.json files separately
+// TODO: use std::cell::Lazy (or similar), since this does not need
+// to be recreated on each call
 pub fn known_std_libs() -> HashMap<String, Vec<InMemoryProject>> {
     fn entries(
         xs: impl IntoIterator<Item = (&'static str, &'static str, &'static str)>,

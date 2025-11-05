@@ -9,4 +9,5 @@ PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 cd "$PACKAGE_DIR"
 
 WASM_BINDGEN_USE_BROWSER=1 wasm-pack test --headless --firefox
+npm install
 npm run test:browser

@@ -112,12 +112,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 install_opts,
                 dependency_opts,
             }) => {
-                let provided_iris = if !dependency_opts.include_std {
-                    known_std_libs()
-                } else {
-                    HashMap::default()
-                };
-
                 if let Some(path) = path {
                     command_env_install_path(
                         iri,
@@ -128,7 +122,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         project_root,
                         client,
                         runtime,
-                        &provided_iris,
                     )
                 } else {
                     command_env_install(
@@ -139,7 +132,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         project_root,
                         client,
                         runtime,
-                        &provided_iris,
                     )
                 }
             }
@@ -166,7 +158,14 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     HashMap::default()
                 };
 
-                command_sources_env(iri, version, !no_deps, current_environment, &provided_iris)
+                command_sources_env(
+                    iri,
+                    version,
+                    !no_deps,
+                    current_environment,
+                    &provided_iris,
+                    include_std,
+                )
             }
         },
         cli::Command::Lock { dependency_opts } => {
@@ -212,6 +211,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             };
 
             let provided_iris = if !include_std {
+                crate::logger::warn_std_deps();
                 known_std_libs()
             } else {
                 HashMap::default()
@@ -256,6 +256,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } = dependency_opts;
             let index_base_urls = if no_index { None } else { Some(use_index) };
             let excluded_iris: HashSet<_> = if !include_std {
+                crate::logger::warn_std_deps();
                 known_std_libs().keys().cloned().collect()
             } else {
                 HashSet::default()
@@ -385,6 +386,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 include_std,
             } = sources_opts;
             let provided_iris = if !include_std {
+                crate::logger::warn_std_omit();
                 known_std_libs()
             } else {
                 HashMap::default()

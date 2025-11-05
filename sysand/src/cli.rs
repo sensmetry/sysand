@@ -102,7 +102,7 @@ pub enum Command {
         #[command(subcommand)]
         command: Option<EnvCommand>,
     },
-    /// Sync `sysand_env` to lockfile, creating a lockfile and `sysand_env if needed
+    /// Sync `sysand_env` to lockfile, creating a lockfile and `sysand_env` if needed
     Sync {
         #[command(flatten)]
         dependency_opts: DependencyOptions,
@@ -995,7 +995,7 @@ impl InfoCommand {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum EnvCommand {
-    /// Install project in `sysand_env
+    /// Install project in `sysand_env`
     Install {
         /// IRI identifying the project to be installed
         iri: String,

@@ -17,7 +17,7 @@ use sysand_core::{
     model::InterchangeProjectUsage,
     project::{
         ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
-        local_src::LocalSrcProject, memory::InMemoryProject,
+        local_src::LocalSrcProject,
     },
     resolve::{
         ResolutionOutcome, ResolveRead,
@@ -48,7 +48,6 @@ pub fn command_env_install<S: AsRef<str>>(
     project_root: Option<PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(std::env::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
@@ -62,6 +61,19 @@ pub fn command_env_install<S: AsRef<str>>(
         no_index,
         include_std,
     } = dependency_opts;
+
+    // TODO: should probably first check that current project exists
+    let provided_iris = if !include_std {
+        let sysml_std = crate::known_std_libs();
+        if sysml_std.contains_key(iri.as_ref()) {
+            crate::logger::warn_std(iri.as_ref());
+            return Ok(());
+        }
+        sysml_std
+    } else {
+        HashMap::default()
+    };
+
     let index_base_url = if no_index {
         None
     } else {
@@ -74,7 +86,7 @@ pub fn command_env_install<S: AsRef<str>>(
 
     let mut memory_projects = HashMap::default();
 
-    for (k, v) in provided_iris {
+    for (k, v) in &provided_iris {
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
     }
     // TODO: Move out the runtime
@@ -126,18 +138,20 @@ pub fn command_env_install<S: AsRef<str>>(
                 .map(|v| semver::VersionReq::from_str(format!("^{}", v).as_str()))
                 .transpose()?,
         }];
-        let provided_iris = if !include_std {
-            crate::known_std_libs()
-        } else {
-            HashMap::default()
-        };
 
-        // NOTE: _deps needs to be kept alive here for temporary directory not to get cleared
-        let LockOutcome {
-            lock,
-            dependencies: _deps,
-            inputs: _,
-        } = sysand_core::commands::lock::do_lock_extend(Lock::default(), usages, resolver)?;
+        let LockOutcome { lock, .. } =
+            sysand_core::commands::lock::do_lock_extend(Lock::default(), usages, resolver)?;
+        // Find if we added any std lib dependencies. This relies on `Lock::default()`
+        // and `do_lock_extend()` to not read the existing lockfile, i.e. `lock` contains
+        // only `iri` and `iri`'s dependencies.
+        if !provided_iris.is_empty()
+            && lock
+                .project
+                .iter()
+                .any(|x| x.iris.iter().any(|y| provided_iris.contains_key(y)))
+        {
+            crate::logger::warn_std_deps();
+        }
         command_sync(
             lock,
             project_root,
@@ -162,7 +176,6 @@ pub fn command_env_install_path<S: AsRef<str>>(
     project_root: Option<PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(std::env::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
@@ -174,17 +187,8 @@ pub fn command_env_install_path<S: AsRef<str>>(
     let DependencyOptions {
         use_index,
         no_index,
-        include_std: _,
+        include_std,
     } = dependency_opts;
-    let index_base_url = if no_index {
-        None
-    } else {
-        let use_index: Result<Vec<_>, _> = use_index
-            .iter()
-            .map(|u| url::Url::parse(u.as_str()))
-            .collect();
-        Some(use_index?)
-    };
 
     let project_path = PathBuf::from(&path);
     let project = if project_path.is_dir() {
@@ -193,6 +197,27 @@ pub fn command_env_install_path<S: AsRef<str>>(
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(project_path)?)
     } else {
         bail!("{} does not exist", project_path.display())
+    };
+
+    let provided_iris = if !include_std {
+        let sysml_std = crate::known_std_libs();
+        if sysml_std.contains_key(iri.as_ref()) {
+            crate::logger::warn_std(iri.as_ref());
+            return Ok(());
+        }
+        sysml_std
+    } else {
+        HashMap::default()
+    };
+
+    let index_base_url = if no_index {
+        None
+    } else {
+        let use_index: Result<Vec<_>, _> = use_index
+            .iter()
+            .map(|u| url::Url::parse(u.as_str()))
+            .collect();
+        Some(use_index?)
     };
 
     if let Some(version) = version {
@@ -247,7 +272,14 @@ pub fn command_env_install_path<S: AsRef<str>>(
         );
         let LockOutcome { lock, .. } =
             sysand_core::commands::lock::do_lock_projects(vec![project], resolver)?;
-        command_sync(lock, project_root, &mut env, client, provided_iris, runtime)?;
+        command_sync(
+            lock,
+            project_root,
+            &mut env,
+            client,
+            &provided_iris,
+            runtime,
+        )?;
     }
 
     Ok(())
