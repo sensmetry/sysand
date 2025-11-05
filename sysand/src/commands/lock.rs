@@ -57,58 +57,59 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
         ),
     );
 
-    let LockOutcome { lock, .. } =
-        match commands::lock::do_lock_local_editable(&path, wrapped_resolver) {
-            Ok(lock_outcome) => lock_outcome,
-            Err(LockProjectError::LockError(lock_error)) => {
-                if let LockError::Solver(solver_error) = lock_error {
-                    match *solver_error.inner {
-                        pubgrub::PubGrubError::NoSolution(mut derivation_tree) => {
-                            derivation_tree.collapse_no_versions();
-                            bail!(
-                                "Failed to satisfy usage constraints:\n{}",
-                                pubgrub::DefaultStringReporter::report(&derivation_tree)
-                            );
+    let LockOutcome {
+        lock,
+        dependencies: _dependencies,
+        inputs: _inputs,
+    } = match commands::lock::do_lock_local_editable(&path, wrapped_resolver) {
+        Ok(lock_outcome) => lock_outcome,
+        Err(LockProjectError::LockError(lock_error)) => {
+            if let LockError::Solver(solver_error) = lock_error {
+                match *solver_error.inner {
+                    pubgrub::PubGrubError::NoSolution(mut derivation_tree) => {
+                        derivation_tree.collapse_no_versions();
+                        bail!(
+                            "Failed to satisfy usage constraints:\n{}",
+                            pubgrub::DefaultStringReporter::report(&derivation_tree)
+                        );
+                    }
+                    pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                        package, source, ..
+                    } => match package {
+                        DependencyIdentifier::Requested(_) => {
+                            bail!("Unexpected internal error: {:?}", source)
                         }
-                        pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                            package,
-                            source,
-                            ..
-                        } => match package {
+                        DependencyIdentifier::Remote(iri) => {
+                            bail!("Failed to retrieve (transitive) usages of usage {}", iri)
+                        }
+                    },
+                    pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => {
+                        match package {
                             DependencyIdentifier::Requested(_) => {
-                                bail!("Unexpected internal error: {:?}", source)
+                                bail!("Unxpected internal error: {:?}", source)
                             }
                             DependencyIdentifier::Remote(iri) => {
-                                bail!("Failed to retrieve (transitive) usages of usage {}", iri)
-                            }
-                        },
-                        pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => {
-                            match package {
-                                DependencyIdentifier::Requested(_) => {
-                                    bail!("Unxpected internal error: {:?}", source)
-                                }
-                                DependencyIdentifier::Remote(iri) => {
-                                    bail!("Unable to select version of usage {}", iri)
-                                }
+                                bail!("Unable to select version of usage {}", iri)
                             }
                         }
-                        pubgrub::PubGrubError::ErrorInShouldCancel(err) => match err {
-                            InternalSolverError::Resolution(err) => {
-                                bail! {"Resolution error: {:?}", err}
-                            }
-                            // InternalSolverError::InvalidProject => {
-                            //     bail!("Found invalid project during usage resolution")
-                            // }
-                            InternalSolverError::NotResolvable(iri) => {
-                                bail!("Unable to resolve usage '{}'", iri)
-                            }
-                        },
                     }
+                    pubgrub::PubGrubError::ErrorInShouldCancel(err) => match err {
+                        InternalSolverError::Resolution(err) => {
+                            bail! {"Resolution error: {:?}", err}
+                        }
+                        // InternalSolverError::InvalidProject => {
+                        //     bail!("Found invalid project during usage resolution")
+                        // }
+                        InternalSolverError::NotResolvable(iri) => {
+                            bail!("Unable to resolve usage '{}'", iri)
+                        }
+                    },
                 }
-                Err(lock_error)?
             }
-            Err(err) => Err(err)?,
-        };
+            Err(lock_error)?
+        }
+        Err(err) => Err(err)?,
+    };
 
     fs::write(
         Path::new(path.as_ref()).join(DEFAULT_LOCKFILE_NAME),
