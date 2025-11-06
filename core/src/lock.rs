@@ -40,7 +40,29 @@ impl Default for Lock {
 }
 
 #[derive(Debug, Error)]
-pub enum ParseLockError {
+pub enum VersionError {
+    #[error("lockfile version \"{0}\" is not supported")]
+    Unsupported(String),
+    #[error("lockfile version is missing")]
+    Missing,
+}
+
+fn check_lock_version(document: &DocumentMut) -> Result<(), VersionError> {
+    if let Some(Item::Value(Value::String(lock_version))) = document.get("lock_version") {
+        let version = lock_version.value();
+        if !SUPPORTED_LOCK_VERSIONS.contains(&version.as_str()) {
+            return Err(VersionError::Unsupported(version.clone()));
+        }
+    } else {
+        return Err(VersionError::Missing);
+    }
+    Ok(())
+}
+
+#[derive(Debug, Error)]
+pub enum ParseError {
+    #[error(transparent)]
+    Version(#[from] VersionError),
     #[error(transparent)]
     Toml(#[from] toml::de::Error),
     #[error(transparent)]
@@ -50,12 +72,11 @@ pub enum ParseLockError {
 }
 
 impl FromStr for Lock {
-    type Err = ParseLockError;
+    type Err = ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let lock: Lock = toml::from_str(s)?;
-        lock.validate()?;
-
         let document = DocumentMut::from_str(s)?;
+        check_lock_version(&document)?;
+
         for (field, _) in document.iter() {
             if !LOCKFILE_ENTRIES.contains(&field) {
                 log::warn!("unknown field '{}' in lockfile", field);
@@ -98,7 +119,8 @@ impl FromStr for Lock {
             }
         }
 
-        Ok(lock)
+        let lock: Lock = toml::from_str(s)?;
+        Ok(lock.validate()?)
     }
 }
 
@@ -209,12 +231,12 @@ impl Lock {
         doc
     }
 
-    pub fn validate(&self) -> Result<(), ValidationError> {
+    pub fn validate(self) -> Result<Self, ValidationError> {
         self.validate_lock_version()?;
         self.check_name_collision()?;
         self.validate_usages()?;
         self.validate_checksum_format()?;
-        Ok(())
+        Ok(self)
     }
 
     fn validate_lock_version(&self) -> Result<(), ValidationError> {
@@ -533,14 +555,47 @@ fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Display;
+    use std::{fmt::Display, str::FromStr};
+
+    use toml_edit::DocumentMut;
 
     use crate::lock::{
         CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
-        project_with,
+        VersionError, check_lock_version, project_with,
     };
 
     const CHECKSUM: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    #[test]
+    fn check_current_lock_version() {
+        let version = CURRENT_LOCK_VERSION.to_string();
+        let document =
+            DocumentMut::from_str(format!("lock_version = \"{}\"", version).as_str()).unwrap();
+        check_lock_version(&document).unwrap();
+    }
+
+    #[test]
+    fn check_unsupported_lock_version() {
+        let version = "X".to_string();
+        let document =
+            DocumentMut::from_str(format!("lock_version = \"{}\"", version).as_str()).unwrap();
+        let Err(err) = check_lock_version(&document) else {
+            panic!()
+        };
+        let VersionError::Unsupported(s) = err else {
+            panic!()
+        };
+        assert_eq!(s, version);
+    }
+
+    #[test]
+    fn check_missing_lock_version() {
+        let document = DocumentMut::from_str("").unwrap();
+        let Err(err) = check_lock_version(&document) else {
+            panic!()
+        };
+        let VersionError::Missing = err else { panic!() };
+    }
 
     fn test_to_toml<D: Display>(projects: Vec<Project>, toml: D) {
         let lock = Lock {
