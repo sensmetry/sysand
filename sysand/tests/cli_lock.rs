@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use assert_cmd::prelude::*;
 use mockito::{Server, ServerGuard};
@@ -47,7 +47,7 @@ fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
         panic!();
     };
 
-    assert_eq!(cwd.canonicalize()?, Path::new(editable).canonicalize()?);
+    assert_eq!(PathBuf::from("."), PathBuf::from(editable));
 
     Ok(())
 }

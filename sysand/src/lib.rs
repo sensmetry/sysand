@@ -6,7 +6,7 @@ compile_error!("`std` feature is currently required to build `sysand`");
 
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -182,9 +182,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashMap::default()
             };
 
-            if let Some(path) = project_root {
+            if project_root.is_some() {
                 crate::commands::lock::command_lock(
-                    path,
+                    PathBuf::from("."),
                     client,
                     index_base_urls,
                     &provided_iris,
@@ -221,7 +221,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             if !lockfile.is_file() {
                 let index_base_urls = if no_index { None } else { Some(use_index) };
                 command_lock(
-                    &project_root,
+                    PathBuf::from("."),
                     client.clone(),
                     index_base_urls,
                     &provided_iris,

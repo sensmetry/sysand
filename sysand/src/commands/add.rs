@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 
@@ -46,7 +46,7 @@ pub fn command_add(
     if !no_lock {
         let index_base_urls = if no_index { None } else { Some(use_index) };
         crate::commands::lock::command_lock(
-            &project_root,
+            PathBuf::from("."),
             client.clone(),
             index_base_urls,
             &provided_iris,
