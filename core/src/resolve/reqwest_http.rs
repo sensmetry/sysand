@@ -130,7 +130,7 @@ impl ProjectReadAsync for HTTPProjectAsync {
         match self {
             HTTPProjectAsync::HTTPSrcProject(proj) => proj.sources_async().await,
             //HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj.sources(),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj.inner.sources(),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj.sources_async().await,
         }
     }
 }
