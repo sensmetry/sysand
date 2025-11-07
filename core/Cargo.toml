@@ -56,6 +56,7 @@ futures = { version = "0.3.31", default-features = false, features = ["alloc", "
 tokio = { version = "1.47.1", default-features = false, features = ["rt", "io-util"] }
 reqwest-middleware = { version = "0.4.2", default-features = false }
 bytes = { version = "1.10.1", default-features = false }
+toml_edit = { version = "0.23.2", features = ["serde"] }
 
 [dev-dependencies]
 assert_cmd = "2.1.1"

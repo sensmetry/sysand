@@ -7,6 +7,7 @@ compile_error!("`std` feature is currently required to build `sysand`");
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    str::FromStr,
     sync::Arc,
 };
 
@@ -228,7 +229,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     runtime.clone(),
                 )?;
             }
-            let lock: Lock = toml::from_str(&std::fs::read_to_string(
+            let lock = Lock::from_str(&std::fs::read_to_string(
                 project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
             )?)?;
             command_sync(

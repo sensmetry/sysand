@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, str::FromStr, sync::Arc};
 
 use anyhow::Result;
 
@@ -55,7 +55,7 @@ pub fn command_add(
 
         if !no_sync {
             let mut env = crate::get_or_create_env(project_root.as_path())?;
-            let lock: Lock = toml::from_str(&std::fs::read_to_string(
+            let lock = Lock::from_str(&std::fs::read_to_string(
                 project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
             )?)?;
             command_sync(

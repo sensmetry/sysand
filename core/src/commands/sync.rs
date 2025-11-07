@@ -96,11 +96,11 @@ where
     log::info!("{header}{syncing:>12}{header:#} env");
 
     let mut updated = false;
-    'main_loop: for project in lockfile.project {
+    'main_loop: for project in lockfile.projects {
         // TODO: We need a proper way to treat multiple IRIs here
-        let main_uri = project.iris.first().cloned();
+        let main_uri = project.identifiers.first().cloned();
 
-        for iri in &project.iris {
+        for iri in &project.identifiers {
             let excluded_versions = if let Ok(parsed_iri) = fluent_uri::Iri::parse(iri.clone()) {
                 provided_iris.get(parsed_iri.normalize().as_str())
             } else {
@@ -138,10 +138,12 @@ where
         }
 
         if project.sources.is_empty() {
-            return Err(SyncError::MissingSource(Box::from(project.iris.as_slice())));
+            return Err(SyncError::MissingSource(Box::from(
+                project.identifiers.as_slice(),
+            )));
         }
 
-        for uri in &project.iris {
+        for uri in &project.identifiers {
             if is_installed(uri, &project.checksum, env)? {
                 log::debug!("{} found in sysand_env", &uri);
                 continue 'main_loop;

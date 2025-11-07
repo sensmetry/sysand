@@ -35,7 +35,7 @@ fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
 
     let lock_file: Lock =
         toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
-    let projects = lock_file.project;
+    let projects = lock_file.projects;
 
     assert_eq!(projects.len(), 1);
 
@@ -184,13 +184,14 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
 
     let lock_file: Lock =
         toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
-    let projects = lock_file.project;
+    let projects = lock_file.projects;
 
     assert_eq!(projects.len(), 4);
 
     let project_names: Vec<_> = projects
         .iter()
-        .filter_map(|project| project.name())
+        .cloned()
+        .filter_map(|project| project.name)
         .collect();
 
     assert!(project_names.contains(&"lock_basic_http_deps".to_string()));
