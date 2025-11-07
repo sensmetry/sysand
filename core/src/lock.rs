@@ -50,25 +50,26 @@ pub enum VersionError {
 fn check_lock_version(document: &DocumentMut) -> Result<(), VersionError> {
     if let Some(Item::Value(Value::String(lock_version))) = document.get("lock_version") {
         let version = lock_version.value();
-        if !SUPPORTED_LOCK_VERSIONS.contains(&version.as_str()) {
-            return Err(VersionError::Unsupported(version.clone()));
+        if SUPPORTED_LOCK_VERSIONS.contains(&version.as_str()) {
+            Ok(())
+        } else {
+            Err(VersionError::Unsupported(version.clone()))
         }
     } else {
-        return Err(VersionError::Missing);
+        Err(VersionError::Missing)
     }
-    Ok(())
 }
 
 #[derive(Debug, Error)]
 pub enum ParseError {
-    #[error(transparent)]
-    Version(#[from] VersionError),
-    #[error(transparent)]
+    #[error("failed to parse lockfile")]
     Toml(#[from] toml::de::Error),
-    #[error(transparent)]
+    #[error("failed to parse lockfile")]
     TomlEdit(#[from] toml_edit::TomlError),
     #[error(transparent)]
     Validation(#[from] ValidationError),
+    #[error(transparent)]
+    Version(#[from] VersionError),
 }
 
 impl FromStr for Lock {
@@ -119,6 +120,7 @@ impl FromStr for Lock {
             }
         }
 
+        // TODO: find a way to not reparse
         let lock: Lock = toml::from_str(s)?;
         Ok(lock.validate()?)
     }
