@@ -175,6 +175,8 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
             KParBuildError::MissingMeta => PyValueError::new_err(err.to_string()),
             KParBuildError::Zip(_) => PyIOError::new_err(err.to_string()),
             KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
+            KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
+            KParBuildError::InternalError(_) => PyRuntimeError::new_err(err.to_string()),
         })
 }
 
