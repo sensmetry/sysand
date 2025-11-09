@@ -11,7 +11,10 @@ use crate::{
         local_src::LocalSrcError,
         utils::{FsIoError, ZipArchiveError},
     },
+    workspace::WorkspaceReadError,
 };
+#[cfg(feature = "filesystem")]
+use crate::{project::local_src::LocalSrcProject, workspace::Workspace};
 
 use super::include::IncludeError;
 
@@ -19,6 +22,8 @@ use super::include::IncludeError;
 pub enum KParBuildError<ProjectReadError> {
     #[error(transparent)]
     ProjectRead(ProjectReadError),
+    #[error(transparent)]
+    WorkspaceRead(#[from] WorkspaceReadError),
     #[error(transparent)]
     LocalSrc(#[from] LocalSrcError),
     #[error("incomplete project: {0}")]
@@ -39,6 +44,8 @@ pub enum KParBuildError<ProjectReadError> {
     Zip(#[from] ZipArchiveError),
     #[error("project serialization error: {0}: {1}")]
     Serialize(&'static str, serde_json::Error),
+    #[error("Internal error: {0}")]
+    InternalError(&'static str),
 }
 
 impl<ProjectReadError> From<FsIoError> for KParBuildError<ProjectReadError> {
@@ -85,6 +92,24 @@ impl<ProjectReadError> From<IntoKparError<LocalSrcError>> for KParBuildError<Pro
 }
 
 #[cfg(feature = "filesystem")]
+pub fn default_kpar_file_name<Pr: ProjectRead>(
+    project: &Pr,
+) -> Result<String, KParBuildError<Pr::Error>> {
+    let Some(project_info) = project.get_info().map_err(KParBuildError::ProjectRead)? else {
+        return Err(KParBuildError::MissingInfo);
+    };
+    Ok(format!(
+        "{}-{}.kpar",
+        project_info
+            .name
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '_' })
+            .collect::<String>(),
+        project_info.version
+    ))
+}
+
+#[cfg(feature = "filesystem")]
 pub fn do_build_kpar<P: AsRef<Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
@@ -115,4 +140,28 @@ pub fn do_build_kpar<P: AsRef<Path>, Pr: ProjectRead>(
     }
 
     Ok(LocalKParProject::from_project(&local_project, path)?)
+}
+
+#[cfg(feature = "filesystem")]
+pub fn do_build_workspace_kpars<P: AsRef<Path>>(
+    workspace: &Workspace,
+    path: P,
+    canonicalise: bool,
+) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
+    let mut result = Vec::new();
+    let Some(projects) = workspace.get_projects()? else {
+        // The caller should have already checked that the .workspace.json file
+        // exists.
+        return Err(KParBuildError::InternalError("missing .workspace.json."));
+    };
+    for project in projects {
+        let project = LocalSrcProject {
+            project_path: workspace.workspace_path.join(project.path),
+        };
+        let file_name = default_kpar_file_name(&project)?;
+        let output_path = path.as_ref().join(file_name);
+        let kpar_project = do_build_kpar(&project, &output_path, canonicalise)?;
+        result.push(kpar_project);
+    }
+    Ok(result)
 }

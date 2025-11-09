@@ -17,6 +17,9 @@ pub mod style;
 pub mod symbols;
 
 #[cfg(feature = "filesystem")]
+pub mod workspace;
+
+#[cfg(feature = "filesystem")]
 pub mod discover;
 
 #[cfg(not(feature = "std"))]

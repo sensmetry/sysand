@@ -20,13 +20,12 @@ use sysand_core::{
     },
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     lock::Lock,
-    project::ProjectRead,
     stdlib::known_std_libs,
 };
 
 use crate::commands::{
     add::command_add,
-    build::command_build,
+    build::{command_build_for_project, command_build_for_workspace},
     env::{
         command_env, command_env_install, command_env_install_path, command_env_list,
         command_env_uninstall,
@@ -66,6 +65,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     };
     logger::init(get_log_level(verbose, quiet)?);
 
+    let current_workspace = sysand_core::discover::current_workspace()?;
     let current_project = sysand_core::discover::current_project()?;
 
     let project_root = current_project.clone().map(|p| p.root_path()).clone();
@@ -366,20 +366,36 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         } => command_include(paths, add_checksum, !no_index_symbols, current_project),
         cli::Command::Exclude { paths } => command_exclude(paths, current_project),
         cli::Command::Build { path } => {
-            let current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
-
-            let path = if let Some(path) = path {
-                path
+            if let Some(current_project) = current_project {
+                // Even if we are in a workspace, the project takes precedence.
+                let path = if let Some(path) = path {
+                    path
+                } else {
+                    let output_dir = current_workspace
+                        .as_ref()
+                        .map(|workspace| &workspace.workspace_path)
+                        .unwrap_or_else(|| &current_project.project_path)
+                        .join("output");
+                    let name = sysand_core::build::default_kpar_file_name(&current_project)?;
+                    if !output_dir.is_dir() {
+                        std::fs::create_dir(&output_dir)?;
+                    }
+                    output_dir.join(name)
+                };
+                command_build_for_project(path, current_project)
             } else {
-                let output_dir = current_project.project_path.join("output");
+                // If the workspace is also missing, report an error about
+                // missing project because that is what the user is more likely
+                // to be looking for.
+                let current_workspace =
+                    current_workspace.ok_or(CliError::MissingProjectCurrentDir)?;
+                let output_dir =
+                    path.unwrap_or_else(|| current_workspace.workspace_path.join("output"));
                 if !output_dir.is_dir() {
                     std::fs::create_dir(&output_dir)?;
                 }
-                let name = current_project.name()?.unwrap_or("project".to_string());
-                output_dir.join(format!("{}.kpar", name))
-            };
-
-            command_build(path, current_project)
+                command_build_for_workspace(output_dir, current_workspace)
+            }
         }
         cli::Command::Sources { sources_opts } => {
             let cli::SourcesOptions {
