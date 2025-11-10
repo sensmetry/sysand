@@ -29,7 +29,7 @@ borrow-or-share = { version = "0.2.2", default-features = false }
 chrono = { version = "0.4.41", features = ["now", "serde"] }
 digest = { version = "0.10.7", default-features = false }
 dirs = { version = "6.0.0", optional = true}
-fluent-uri = { version = "0.3.2", features = ["serde"] }
+fluent-uri = { version = "0.4.0", features = ["serde"] }
 indexmap = { version = "2.10.0", default-features = false, features = ["serde"] }
 # icu_normalizer = { version = "2.0.0", default-features = false, features = ["compiled_data"] }
 log = { version = "0.4.27", default-features = false }
