@@ -165,94 +165,8 @@ struct ParseError {
 
 fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
     token_iter: &'a mut Peekable<I>,
+    keywords: &HashMap<&str, KeywordType>,
 ) -> Result<(Option<String>, Option<String>), ParseError> {
-    let keywords = HashMap::from([
-        // Simple
-        ("abstract", KeywordType::Simple),
-        ("public", KeywordType::Simple),
-        ("protected", KeywordType::Simple),
-        ("private", KeywordType::Simple),
-        ("in", KeywordType::Simple),
-        ("out", KeywordType::Simple),
-        ("inout", KeywordType::Simple),
-        ("ref", KeywordType::Simple),
-        ("readonly", KeywordType::Simple),
-        ("do", KeywordType::Simple),
-        ("entry", KeywordType::Simple),
-        ("exit", KeywordType::Simple),
-        ("enum", KeywordType::Simple),
-        ("standard", KeywordType::Simple),
-        ("nonunique", KeywordType::Simple),
-        ("ordered", KeywordType::Simple),
-        ("library", KeywordType::Simple),
-        ("package", KeywordType::Simple),
-        ("doc", KeywordType::Simple),
-        ("attribute", KeywordType::Simple),
-        ("alias", KeywordType::Simple),
-        ("def", KeywordType::Simple),
-        ("metadata", KeywordType::Simple),
-        ("item", KeywordType::Simple),
-        ("part", KeywordType::Simple),
-        ("port", KeywordType::Simple),
-        ("calc", KeywordType::Simple),
-        ("occurrence", KeywordType::Simple),
-        ("event", KeywordType::Simple),
-        ("requirement", KeywordType::Simple),
-        ("action", KeywordType::Simple),
-        ("return", KeywordType::Simple),
-        ("enum", KeywordType::Simple),
-        ("constraint", KeywordType::Simple),
-        ("assert", KeywordType::Simple),
-        ("flow", KeywordType::Simple),
-        ("subject", KeywordType::Simple),
-        ("derived", KeywordType::Simple),
-        ("view", KeywordType::Simple),
-        ("viewpoint", KeywordType::Simple),
-        ("concern", KeywordType::Simple),
-        ("verification", KeywordType::Simple),
-        ("objective", KeywordType::Simple),
-        ("analysis", KeywordType::Simple),
-        ("allocation", KeywordType::Simple),
-        ("use", KeywordType::Simple),
-        ("case", KeywordType::Simple),
-        ("connection", KeywordType::Simple),
-        ("state", KeywordType::Simple),
-        ("rendering", KeywordType::Simple),
-        ("interface", KeywordType::Simple),
-        ("succession", KeywordType::Simple),
-        ("transition", KeywordType::Simple),
-        ("message", KeywordType::Simple),
-        ("binding", KeywordType::Simple),
-        ("result", KeywordType::Simple),
-        ("require", KeywordType::Simple),
-        ("defined", KeywordType::Simple),
-        // Skip a comma separated sequence of names, references, and/or feature chains
-        // Sometimes an initial multiplicity is allowed
-        (":", KeywordType::MultiReferences),
-        ("by", KeywordType::MultiReferences),
-        (":>", KeywordType::MultiReferences),
-        ("subsets", KeywordType::MultiReferences),
-        ("specializes", KeywordType::MultiReferences),
-        (":>>", KeywordType::MultiReferences),
-        ("redefines", KeywordType::MultiReferences),
-        ("end", KeywordType::MultiReferences),
-        ("accept", KeywordType::MultiReferences),
-        ("via", KeywordType::MultiReferences),
-        ("connect", KeywordType::MultiReferencesWithMultiplicity),
-        ("to", KeywordType::MultiReferencesWithMultiplicity),
-        ("first", KeywordType::MultiReferencesWithMultiplicity),
-        ("then", KeywordType::MultiReferencesWithMultiplicity),
-        ("satisfy", KeywordType::MultiReferencesWithMultiplicity),
-        // Skip the rest of the line
-        ("import", KeywordType::SkipRest),
-        ("for", KeywordType::SkipRest),
-        ("default", KeywordType::SkipRest),
-        (":=", KeywordType::SkipRest),
-        ("bind", KeywordType::SkipRest),
-        ("assign", KeywordType::SkipRest),
-        ("then", KeywordType::SkipRest),
-    ]);
-
     let mut long_name = None;
     let mut short_name = None;
 
@@ -424,6 +338,8 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
 pub enum ExtractError {
     #[error("failed to read file to extract symbols: {0}")]
     ReadTopLevelSysml(io::Error),
+    #[error("failed to read file to extract symbols: {0}")]
+    ReadTopLevelKerml(io::Error),
     #[error("syntax error at line {0}, byte {1}:\n{2}")]
     Syntax(u32, u32, LexingError),
     #[error(
@@ -436,19 +352,22 @@ pub enum ExtractError {
     Parse(u32, u32, String, String),
 }
 
-/// A lexer that extracts top-level symbols from a SysML file.
-///
-/// It is used for handling `index` field of `.meta.json` files.
-pub fn top_level_sysml<R: io::Read>(mut reader: R) -> Result<Vec<String>, ExtractError> {
-    let source = {
-        let mut source = String::new();
-        reader
-            .read_to_string(&mut source)
-            .map_err(ExtractError::ReadTopLevelSysml)?;
-        source
-    };
+fn read_source<R: io::Read>(
+    mut reader: R,
+    error_constructor: impl FnOnce(io::Error) -> ExtractError,
+) -> Result<String, ExtractError> {
+    let mut source = String::new();
+    reader
+        .read_to_string(&mut source)
+        .map_err(error_constructor)?;
+    Ok(source)
+}
 
-    let mut lexer = Token::lexer(&source);
+type TokenInfo = (Token, Box<str>, logos::Span);
+type TokenList = Vec<TokenInfo>;
+
+fn lex_source(source: &str) -> Result<Vec<TokenList>, ExtractError> {
+    let mut lexer = Token::lexer(source);
 
     let mut current = vec![];
     let mut all = vec![];
@@ -499,7 +418,7 @@ pub fn top_level_sysml<R: io::Read>(mut reader: R) -> Result<Vec<String>, Extrac
             }
             // One way to reach this is to have an unterminated string.
             Err(e) => {
-                let (line, byte) = line_byte(&source, lexer.span());
+                let (line, byte) = line_byte(source, lexer.span());
                 return Err(ExtractError::Syntax(line, byte, e));
             }
         }
@@ -511,6 +430,14 @@ pub fn top_level_sysml<R: io::Read>(mut reader: R) -> Result<Vec<String>, Extrac
 
     all.push(current);
 
+    Ok(all)
+}
+
+fn collect_symbols(
+    source: &str,
+    all: Vec<Vec<(Token, Box<str>, logos::Span)>>,
+    keywords: &HashMap<&str, KeywordType>,
+) -> Result<Vec<String>, ExtractError> {
     let mut symbols = vec![];
 
     for tokens in all {
@@ -521,12 +448,12 @@ pub fn top_level_sysml<R: io::Read>(mut reader: R) -> Result<Vec<String>, Extrac
             continue;
         }
 
-        match parse_entity(&mut token_iter) {
+        match parse_entity(&mut token_iter, keywords) {
             Err(err) => {
                 let (src, snippet_start_line, snippet_start_byte) =
-                    format_token_list(&tokens, &source);
+                    format_token_list(&tokens, source);
                 let (line, byte) = match err.span {
-                    Some(sp) => line_byte(&source, sp),
+                    Some(sp) => line_byte(source, sp),
                     // At least indicate the approximate location.
                     None => (snippet_start_line, snippet_start_byte),
                 };
@@ -545,6 +472,121 @@ pub fn top_level_sysml<R: io::Read>(mut reader: R) -> Result<Vec<String>, Extrac
     Ok(symbols)
 }
 
+/// A lexer that extracts top-level symbols from a SysML file.
+///
+/// It is used for handling `index` field of `.meta.json` files.
+pub fn top_level_sysml<R: io::Read>(reader: R) -> Result<Vec<String>, ExtractError> {
+    let source = read_source(reader, ExtractError::ReadTopLevelSysml)?;
+
+    let all = lex_source(&source)?;
+
+    let keywords = HashMap::from([
+        // Simple
+        ("abstract", KeywordType::Simple),
+        ("public", KeywordType::Simple),
+        ("protected", KeywordType::Simple),
+        ("private", KeywordType::Simple),
+        ("in", KeywordType::Simple),
+        ("out", KeywordType::Simple),
+        ("inout", KeywordType::Simple),
+        ("ref", KeywordType::Simple),
+        ("readonly", KeywordType::Simple),
+        ("do", KeywordType::Simple),
+        ("entry", KeywordType::Simple),
+        ("exit", KeywordType::Simple),
+        ("enum", KeywordType::Simple),
+        ("standard", KeywordType::Simple),
+        ("nonunique", KeywordType::Simple),
+        ("ordered", KeywordType::Simple),
+        ("library", KeywordType::Simple),
+        ("package", KeywordType::Simple),
+        ("doc", KeywordType::Simple),
+        ("attribute", KeywordType::Simple),
+        ("alias", KeywordType::Simple),
+        ("def", KeywordType::Simple),
+        ("metadata", KeywordType::Simple),
+        ("item", KeywordType::Simple),
+        ("part", KeywordType::Simple),
+        ("port", KeywordType::Simple),
+        ("calc", KeywordType::Simple),
+        ("occurrence", KeywordType::Simple),
+        ("event", KeywordType::Simple),
+        ("requirement", KeywordType::Simple),
+        ("action", KeywordType::Simple),
+        ("return", KeywordType::Simple),
+        ("enum", KeywordType::Simple),
+        ("constraint", KeywordType::Simple),
+        ("assert", KeywordType::Simple),
+        ("flow", KeywordType::Simple),
+        ("subject", KeywordType::Simple),
+        ("derived", KeywordType::Simple),
+        ("view", KeywordType::Simple),
+        ("viewpoint", KeywordType::Simple),
+        ("concern", KeywordType::Simple),
+        ("verification", KeywordType::Simple),
+        ("objective", KeywordType::Simple),
+        ("analysis", KeywordType::Simple),
+        ("allocation", KeywordType::Simple),
+        ("use", KeywordType::Simple),
+        ("case", KeywordType::Simple),
+        ("connection", KeywordType::Simple),
+        ("state", KeywordType::Simple),
+        ("rendering", KeywordType::Simple),
+        ("interface", KeywordType::Simple),
+        ("succession", KeywordType::Simple),
+        ("transition", KeywordType::Simple),
+        ("message", KeywordType::Simple),
+        ("binding", KeywordType::Simple),
+        ("result", KeywordType::Simple),
+        ("require", KeywordType::Simple),
+        ("defined", KeywordType::Simple),
+        // Skip a comma separated sequence of names, references, and/or feature chains
+        // Sometimes an initial multiplicity is allowed
+        (":", KeywordType::MultiReferences),
+        ("by", KeywordType::MultiReferences),
+        (":>", KeywordType::MultiReferences),
+        ("subsets", KeywordType::MultiReferences),
+        ("specializes", KeywordType::MultiReferences),
+        (":>>", KeywordType::MultiReferences),
+        ("redefines", KeywordType::MultiReferences),
+        ("end", KeywordType::MultiReferences),
+        ("accept", KeywordType::MultiReferences),
+        ("via", KeywordType::MultiReferences),
+        ("connect", KeywordType::MultiReferencesWithMultiplicity),
+        ("to", KeywordType::MultiReferencesWithMultiplicity),
+        ("first", KeywordType::MultiReferencesWithMultiplicity),
+        ("then", KeywordType::MultiReferencesWithMultiplicity),
+        ("satisfy", KeywordType::MultiReferencesWithMultiplicity),
+        // Skip the rest of the line
+        ("import", KeywordType::SkipRest),
+        ("for", KeywordType::SkipRest),
+        ("default", KeywordType::SkipRest),
+        (":=", KeywordType::SkipRest),
+        ("bind", KeywordType::SkipRest),
+        ("assign", KeywordType::SkipRest),
+        ("then", KeywordType::SkipRest),
+    ]);
+
+    collect_symbols(&source, all, &keywords)
+}
+
+pub fn top_level_kerml<R: io::Read>(reader: R) -> Result<Vec<String>, ExtractError> {
+    let source = read_source(reader, ExtractError::ReadTopLevelKerml)?;
+
+    let all = lex_source(&source)?;
+
+    let keywords = HashMap::from([
+        ("public", KeywordType::Simple),
+        ("protected", KeywordType::Simple),
+        ("private", KeywordType::Simple),
+        ("standard", KeywordType::Simple),
+        ("library", KeywordType::Simple),
+        ("package", KeywordType::Simple),
+    ]);
+
+    collect_symbols(&source, all, &keywords)
+}
+
 // Returns: (line, byte), both 1-indexed
 fn line_byte(source: &str, span: logos::Span) -> (u32, u32) {
     let range = &source.as_bytes()[..span.start];
@@ -561,7 +603,6 @@ fn line_byte(source: &str, span: logos::Span) -> (u32, u32) {
 // Returns (concatenated_string, start_line, start_byte)
 fn format_token_list(
     tokens: &[(Token, Box<str>, logos::Span)],
-
     source: &str,
 ) -> (String, u32, u32) {
     let mut iter = tokens.iter();
@@ -571,7 +612,9 @@ fn format_token_list(
     let mut buf = String::new();
     let trimmed = text.trim_start();
     buf.push_str(trimmed);
-    let (line, byte) = line_byte(source, span.start + (trimmed.len() - text.len())..span.end);
+    let offset = trimmed.len().saturating_sub(text.len());
+    let span_start_with_offset = span.start.saturating_add(offset);
+    let (line, byte) = line_byte(source, span_start_with_offset..span.end);
     for (_, text, _) in iter {
         buf.push_str(text);
     }
