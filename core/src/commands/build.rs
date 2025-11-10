@@ -34,7 +34,9 @@ pub enum KParBuildError<ProjectReadError> {
     Validation(#[from] InterchangeProjectValidationError),
     #[error("{0}")]
     Extract(String),
-    #[error("unknown file format of '{0}', only SysML (.sysml) files are supported")]
+    #[error(
+        "unknown file format of '{0}', only SysML (.sysml) and KerML (.kerml) files are supported"
+    )]
     UnknownFormat(Box<str>),
     #[error("missing project info file '.project.json'")]
     MissingInfo,
