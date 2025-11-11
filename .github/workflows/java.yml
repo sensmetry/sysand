@@ -18,8 +18,8 @@ jobs:
 
     strategy:
       matrix:
-        # macos-13 is x86, macos-latest is arm64
-        os: [ubuntu-22.04, windows-latest, macos-13, macos-latest]
+        # macos-15-intel is x86, macos-latest is arm64
+        os: [ubuntu-22.04, windows-latest, macos-15-intel, macos-latest]
       fail-fast: false
 
     runs-on: ${{ matrix.os }}
