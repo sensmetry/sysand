@@ -17,8 +17,8 @@ jobs:
   test:
     strategy:
       matrix:
-        # macos-13 is x86, macos-latest is arm64
-        os: [ubuntu-22.04, windows-latest, macos-13, macos-latest]
+        # macos-15-intel is x86, macos-latest is arm64
+        os: [ubuntu-22.04, windows-latest, macos-15-intel, macos-latest]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -50,8 +50,8 @@ jobs:
   build:
     strategy:
       matrix:
-        # macos-13 is x86, macos-latest is arm64
-        os: [ubuntu-22.04, ubuntu-24.04-arm, windows-latest, windows-11-arm, macos-13, macos-latest]
+        # macos-15-intel is x86, macos-latest is arm64
+        os: [ubuntu-22.04, ubuntu-24.04-arm, windows-latest, windows-11-arm, macos-15-intel, macos-latest]
     runs-on: ${{ matrix.os }}
     needs: [test]
     steps:
@@ -108,7 +108,7 @@ jobs:
           mv artifacts/sysand-ubuntu-24.04-arm artifacts/sysand-linux-arm64
           mv artifacts/sysand-windows-latest.exe artifacts/sysand-windows-x86_64.exe
           mv artifacts/sysand-windows-11-arm.exe artifacts/sysand-windows-arm64.exe
-          mv artifacts/sysand-macos-13 artifacts/sysand-macos-x86_64
+          mv artifacts/sysand-macos-15-intel artifacts/sysand-macos-x86_64
           mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
       - name: Create release tag
         shell: bash
@@ -151,7 +151,7 @@ jobs:
           mv artifacts/sysand-ubuntu-24.04-arm artifacts/sysand-linux-arm64
           mv artifacts/sysand-windows-latest.exe artifacts/sysand-windows-x86_64.exe
           mv artifacts/sysand-windows-11-arm.exe artifacts/sysand-windows-arm64.exe
-          mv artifacts/sysand-macos-13 artifacts/sysand-macos-x86_64
+          mv artifacts/sysand-macos-15-intel artifacts/sysand-macos-x86_64
           mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
       - name: Create a release
         uses: softprops/action-gh-release@v2
