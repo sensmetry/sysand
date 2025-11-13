@@ -6,6 +6,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import platform
 import shutil
@@ -57,13 +58,8 @@ def parse_args() -> argparse.Namespace:
     _test_deployed_parser = subparsers.add_parser(
         "test-deployed", help="Test the deployed Java library."
     )
-    create_version_file_parser = subparsers.add_parser(
+    _create_version_file_parser = subparsers.add_parser(
         "create-version-file", help="Create the version file."
-    )
-    create_version_file_parser.add_argument(
-        "--release-jar-version",
-        action="store_true",
-        help="Produce a non-snapshot version of the JAR.",
     )
     return parser.parse_args()
 
@@ -351,6 +347,15 @@ def test(version: str, release_jar_version: bool) -> None:
 
 def main() -> None:
     args = parse_args()
+    release_jar_version = args.release_jar_version
+    # Check environment variable for release-jar-version flag
+    if os.getenv("JAVA_BUILDER_RELEASE_JAR_VERSION", "").lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        release_jar_version = True
     print("ROOT_DIR:", ROOT_DIR)
     print("BUILD_DIR:", BUILD_DIR)
     print("TEST_DIR:", TEST_DIR)
@@ -364,11 +369,11 @@ def main() -> None:
             version,
         )
     elif args.command == "build-plugin":
-        build_plugin(version, args.release_jar_version)
+        build_plugin(version, release_jar_version)
     elif args.command == "test":
-        test(version, args.release_jar_version)
+        test(version, release_jar_version)
     elif args.command == "test-deployed":
-        test_deployed(version, args.release_jar_version)
+        test_deployed(version, release_jar_version)
     elif args.command == "deploy":
         deploy()
     elif args.command == "create-version-file":
