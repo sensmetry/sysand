@@ -349,12 +349,8 @@ def main() -> None:
     args = parse_args()
     release_jar_version = args.release_jar_version
     # Check environment variable for release-jar-version flag
-    if os.getenv("JAVA_BUILDER_RELEASE_JAR_VERSION", "").lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    ):
+    TRUE_CONSTANTS = ("1", "true", "yes", "on")
+    if os.getenv("JAVA_BUILDER_RELEASE_JAR_VERSION", "").lower() in TRUE_CONSTANTS:
         release_jar_version = True
     print("ROOT_DIR:", ROOT_DIR)
     print("BUILD_DIR:", BUILD_DIR)
