@@ -45,6 +45,7 @@ pub const DEFAULT_INDEX_URL: &str = "https://beta.sysand.org";
 
 pub mod cli;
 pub mod commands;
+pub mod env_vars;
 pub mod logger;
 pub mod style;
 
