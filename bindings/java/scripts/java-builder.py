@@ -57,8 +57,13 @@ def parse_args() -> argparse.Namespace:
     _test_deployed_parser = subparsers.add_parser(
         "test-deployed", help="Test the deployed Java library."
     )
-    _create_version_file_parser = subparsers.add_parser(
+    create_version_file_parser = subparsers.add_parser(
         "create-version-file", help="Create the version file."
+    )
+    create_version_file_parser.add_argument(
+        "--release-jar-version",
+        action="store_true",
+        help="Produce a non-snapshot version of the JAR.",
     )
     return parser.parse_args()
 

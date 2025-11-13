@@ -44,7 +44,12 @@ jobs:
     - name: Create version.txt
       shell: bash
       if: ${{ matrix.os == 'ubuntu-22.04' }}
-      run: python bindings/java/scripts/java-builder.py create-version-file
+      run: |
+        if [[ "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
+          python bindings/java/scripts/java-builder.py create-version-file --release-jar-version
+        else
+          python bindings/java/scripts/java-builder.py create-version-file
+        fi
     - name: Upload native bindings
       uses: actions/upload-artifact@v5
       with:
