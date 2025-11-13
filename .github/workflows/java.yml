@@ -2,9 +2,9 @@ name: Java
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches: [ "feat/add-java-release-job" ]
+  # pull_request:
+  #   branches: [ "main" ]
 
 permissions:
   contents: read
