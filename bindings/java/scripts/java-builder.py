@@ -274,6 +274,28 @@ def build_plugin(version: str, release_jar_version: bool) -> None:
     target_pom_data = pom_data.replace("VERSION", full_version)
     target_pom_path.write_text(target_pom_data)
 
+    # # Ensure the sysand artifact is installed in the local Maven repository
+    # # before building the plugin, so Maven can resolve the dependency
+    # print("Ensuring sysand artifact is installed in local Maven repository...")
+    # jar_path = BUILD_DIR / "target" / f"sysand-{full_version}.jar"
+    # pom_file_path = BUILD_DIR / "pom.xml"
+    # if jar_path.exists() and pom_file_path.exists():
+    #     print(f"Installing sysand artifact from {jar_path}...")
+    #     execute(
+    #         [
+    #             mvn_executable(),
+    #             "install:install-file",
+    #             f"-Dfile={jar_path}",
+    #             f"-DpomFile={pom_file_path}",
+    #         ],
+    #         cwd=BUILD_DIR,
+    #     )
+    # else:
+    #     print(
+    #         f"Warning: sysand JAR not found at {jar_path}. "
+    #         "Make sure to run 'build' command first, or the plugin build may fail."
+    #     )
+
     print("Building the sysand Maven plugin...")
     execute([mvn_executable(), "-B", "-DskipTests=false", "verify"], cwd=PLUGIN_DIR)
 
