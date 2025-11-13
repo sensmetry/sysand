@@ -41,6 +41,8 @@ use crate::commands::{
     sync::command_sync,
 };
 
+pub const DEFAULT_INDEX_URL: &str = "https://beta.sysand.org";
+
 pub mod cli;
 pub mod commands;
 pub mod logger;
@@ -53,15 +55,15 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
     let config = match (&args.global_opts.config_file, &args.global_opts.no_config) {
-        (None, false) => Some(load_configs(Path::new("."))?),
-        (None, true) => None,
-        (Some(config_path), _) => Some(get_config(Path::new(config_path))?),
+        (Some(config_path), _) => get_config(Path::new(config_path))?,
+        (None, false) => load_configs(Path::new("."))?,
+        (None, true) => Config::default(),
     };
 
     let (verbose, quiet) = if args.global_opts.sets_log_level() {
         (args.global_opts.verbose, args.global_opts.quiet)
     } else {
-        get_config_verbose_quiet(config)
+        get_config_verbose_quiet(&config)
     };
     logger::init(get_log_level(verbose, quiet)?);
 
@@ -120,6 +122,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         path,
                         install_opts,
                         dependency_opts,
+                        &config,
                         project_root,
                         client,
                         runtime,
@@ -130,6 +133,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         version,
                         install_opts,
                         dependency_opts,
+                        &config,
                         project_root,
                         client,
                         runtime,
@@ -170,25 +174,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         },
         cli::Command::Lock { dependency_opts } => {
-            let cli::DependencyOptions {
-                use_index,
-                no_index,
-                include_std,
-            } = dependency_opts;
-            let index_base_urls = if no_index { None } else { Some(use_index) };
-
-            let provided_iris = if !include_std {
-                known_std_libs()
-            } else {
-                HashMap::default()
-            };
-
             if project_root.is_some() {
                 crate::commands::lock::command_lock(
                     PathBuf::from("."),
+                    dependency_opts,
+                    &config,
                     client,
-                    index_base_urls,
-                    &provided_iris,
                     runtime,
                 )
             } else {
@@ -196,11 +187,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         cli::Command::Sync { dependency_opts } => {
-            let cli::DependencyOptions {
-                use_index,
-                no_index,
-                include_std,
-            } = dependency_opts;
+            let cli::DependencyOptions { include_std, .. } = dependency_opts.clone();
             let mut local_environment = match current_environment {
                 Some(env) => env,
                 None => command_env(
@@ -220,12 +207,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             let project_root = project_root.unwrap_or(std::env::current_dir()?);
             let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
             if !lockfile.is_file() {
-                let index_base_urls = if no_index { None } else { Some(use_index) };
                 command_lock(
                     PathBuf::from("."),
+                    dependency_opts,
+                    &config,
                     client.clone(),
-                    index_base_urls,
-                    &provided_iris,
                     runtime.clone(),
                 )?;
             }
@@ -251,11 +237,20 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             subcommand,
         } => {
             let cli::DependencyOptions {
-                use_index,
+                index,
+                default_index,
                 no_index,
                 include_std,
             } = dependency_opts;
-            let index_base_urls = if no_index { None } else { Some(use_index) };
+            let index_urls = if no_index {
+                None
+            } else {
+                Some(config.index_urls(
+                    index,
+                    vec![DEFAULT_INDEX_URL.to_string()],
+                    default_index,
+                )?)
+            };
             let excluded_iris: HashSet<_> = if !include_std {
                 crate::logger::warn_std_deps();
                 known_std_libs().keys().cloned().collect()
@@ -318,7 +313,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     iri,
                     !no_normalise,
                     client,
-                    index_base_urls,
+                    index_urls,
                     &excluded_iris,
                     runtime,
                 ),
@@ -330,7 +325,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         subcommand.as_verb(),
                         numbered,
                         client,
-                        index_base_urls,
+                        index_urls,
                         runtime,
                     )
                 }
@@ -354,6 +349,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_lock,
             no_sync,
             dependency_opts,
+            &config,
             current_project,
             client,
             runtime,
@@ -435,15 +431,11 @@ pub fn get_or_create_env(project_root: &Path) -> Result<LocalDirectoryEnvironmen
     }
 }
 
-fn get_config_verbose_quiet(config: Option<Config>) -> (bool, bool) {
-    config
-        .map(|config| {
-            (
-                config.verbose.unwrap_or_default(),
-                config.quiet.unwrap_or_default(),
-            )
-        })
-        .unwrap_or((false, false))
+fn get_config_verbose_quiet(config: &Config) -> (bool, bool) {
+    (
+        config.verbose.unwrap_or_default(),
+        config.quiet.unwrap_or_default(),
+    )
 }
 
 fn get_log_level(verbose: bool, quiet: bool) -> Result<log::LevelFilter> {
