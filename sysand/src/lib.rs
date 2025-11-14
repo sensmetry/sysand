@@ -55,19 +55,6 @@ pub use error::CliError;
 pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
-    let config = match (&args.global_opts.config_file, &args.global_opts.no_config) {
-        (Some(config_path), _) => get_config(Path::new(config_path))?,
-        (None, false) => load_configs(Path::new("."))?,
-        (None, true) => Config::default(),
-    };
-
-    let (verbose, quiet) = if args.global_opts.sets_log_level() {
-        (args.global_opts.verbose, args.global_opts.quiet)
-    } else {
-        get_config_verbose_quiet(&config)
-    };
-    logger::init(get_log_level(verbose, quiet)?);
-
     let current_workspace = sysand_core::discover::current_workspace()?;
     let current_project = sysand_core::discover::current_project()?;
 
@@ -77,6 +64,27 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         .clone()
         .or_else(|| std::env::current_dir().ok())
         .and_then(|p| crate::get_env(&p));
+
+    let auto_config = if args.global_opts.no_config {
+        Config::default()
+    } else {
+        load_configs(project_root.clone().unwrap_or(PathBuf::from(".")))?
+    };
+
+    let mut config = if let Some(config_file) = &args.global_opts.config_file {
+        get_config(config_file)?
+    } else {
+        Config::default()
+    };
+
+    config.merge(auto_config);
+
+    let (verbose, quiet) = if args.global_opts.sets_log_level() {
+        (args.global_opts.verbose, args.global_opts.quiet)
+    } else {
+        get_config_verbose_quiet(&config)
+    };
+    logger::init(get_log_level(verbose, quiet)?);
 
     let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
 

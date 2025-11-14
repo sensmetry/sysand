@@ -135,12 +135,12 @@ $ sysand add https://www.omg.org/spec/KerML/20250201/Function-Library.kpar
 
 Adding a dependency may take a few seconds to run, as it will find and install
 the project (and any transitive usages) into a new local environment. Once
-finished, this will have created a file called `SysandLock.toml` and a directory
+finished, this will have created a file called `sysand-lock.toml` and a directory
 `sysand_env`. The former records the precise versions installed, so that the
 same installation can be reproduced later. The latter directory will contain a
 local installation of the added project, as well as any of its (transitive)
-usages. `SysandLock.toml` is sufficient to reproduce `sysand_env`; therefore, we
-recommend checking in `SysandLock.toml` into your version control system and
+usages. `sysand-lock.toml` is sufficient to reproduce `sysand_env`; therefore, we
+recommend checking in `sysand-lock.toml` into your version control system and
 adding `sysand_env` to `.gitignore`.
 
 We can confirm that the usage was successfully added by running the `info`
@@ -184,7 +184,7 @@ https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar 1.0.0
 ```
 
 If you want to recreate the environment on a new machine, make sure you have not
-only your project files, but also `SysandLock.toml` and execute the following
+only your project files, but also `sysand-lock.toml` and execute the following
 command:
 
 ```bash
@@ -211,7 +211,7 @@ different project using `sysand`.
 ## Hosting a project index
 
 > [!important]
-> The structure of indices and `sysand_env` environments is still expected to
+> The structure of indexes and `sysand_env` environments is still expected to
 > change, and may currently not be compatible between sysand releases.
 
 The easiest way to host a project index from which to install packages is to
@@ -219,7 +219,8 @@ expose a `sysand_env` over HTTP.
 
 If you have an existing `sysand_env`, and you have a working Python 3 environment
 you can test this with
-```
+
+```sh
 $ python3 -m http.server -d sysand_env 8080
 Serving HTTP on 0.0.0.0 port 8080 (http://0.0.0.0:8080/) ...
 ```
@@ -227,26 +228,31 @@ Serving HTTP on 0.0.0.0 port 8080 (http://0.0.0.0:8080/) ...
 > [!important]
 > Python's built-in `http.server` module is *not* intended for production use.
 
-Any project in the above `sysand_env` can now be used in `sysand add`, `sysand sync`, 
-`sysand env install`, etc., as long as the flag `--use-index http://localhost:8080` is
-added (or soon by specifying it in `sysand.toml`!).
+Any project in the above `sysand_env` can now be used in `sysand add`, `sysand sync`,
+`sysand env install`, etc., as long as the flag `--use-index http://localhost:8080`
+is added (or soon by specifying it in `sysand.toml`!).
 
-For example, to create an index to publish the above `my_project` project we can create
-a fresh `sysand_env`.
-```
+For example, to create an index to publish the above `my_project` project we can
+create a fresh `sysand_env`.
+
+```sh
 $ mkdir my_index
 $ cd my_index
 $ sysand env 
     Creating env
 ```
-Now we install `my_project`, specifying the IRI/URL that you want to use to refer to it:
-```
+
+Now we install `my_project`, specifying the IRI/URL that you want to use to refer
+to it:
+
+```sh
 $ sysand env install urn:kpar:my_project --path /path/to/my_project/
   Installing urn:kpar:my_project 0.0.1
      Syncing env
 ```
-By default, this will also install any usages (dependencies) of `my_project`, you can use
-`--no-deps` to install only the project itself.
+
+By default, this will also install any usages (dependencies) of `my_project`, you
+can use `--no-deps` to install only the project itself.
 
 ## Documentation
 

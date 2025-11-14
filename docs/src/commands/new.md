@@ -21,3 +21,5 @@ and `.meta.json`.
 
 - `--name <NAME>`: Set the project name. Defaults to the directory name.
 - `--version <VERSION>`: Set the version. Defaults to `0.0.1`.
+
+{{#include ./partials/global_opts.md}}

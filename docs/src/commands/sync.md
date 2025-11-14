@@ -10,7 +10,7 @@ sysand sync [OPTIONS]
 
 ## Description
 
-Installs all projects in the current projects lockfile `SysandLock.toml` from
+Installs all projects in the current projects lockfile `sysand-lock.toml` from
 the sources listed, into the local `sysand_env` environment.
 
 If a lockfile is not found, a new lockfile will be generated from the usages in
@@ -22,8 +22,6 @@ as [sysand env](env.md).
 Current project is determined as in [sysand print-root](root.md) and
 if none is found uses the current directory instead.
 
-## Dependency options
+{{#include ./partials/dependency_opts.md}}
 
-- `--use-index [<USE_INDEX>...]`: Use an index when resolving this usage
-- `--no-index`: Do not use any index when resolving this usage
-- `--include`: Include usages of KerML/SysML standard libraries if present
+{{#include ./partials/global_opts.md}}

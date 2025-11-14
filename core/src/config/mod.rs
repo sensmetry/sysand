@@ -39,11 +39,11 @@ impl Config {
         index_urls: Vec<String>,
         default_urls: Vec<String>,
     ) -> Result<Vec<Url>, url::ParseError> {
-        let mut indices: Vec<_> = self.index.iter().flat_map(|v| v.iter()).collect();
+        let mut indexes: Vec<_> = self.index.iter().flat_map(|v| v.iter()).collect();
 
-        indices.sort_by_key(|i| i.default.unwrap_or(false));
+        indexes.sort_by_key(|i| i.default.unwrap_or(false));
 
-        let has_default = indices
+        let has_default = indexes
             .last()
             .and_then(|index| index.default)
             .unwrap_or(false);
@@ -57,7 +57,7 @@ impl Config {
         index_urls
             .iter()
             .map(|url| url.as_str())
-            .chain(indices.iter().map(|i| i.url.as_str()))
+            .chain(indexes.iter().map(|i| i.url.as_str()))
             .chain(end.iter().map(|url| url.as_str()))
             .map(Url::parse)
             .collect()

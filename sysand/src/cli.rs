@@ -1053,7 +1053,7 @@ pub struct InstallOptions {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct DependencyOptions {
-    /// URL:s for indexes to use when resolving dependencies, in addition to the default indexes.
+    /// URLs for indexes to use when resolving dependencies, in addition to the default indexes.
     #[arg(long, num_args=0.., help_heading = "Dependency options", env = env_vars::SYSAND_INDEX, value_delimiter = ',')]
     pub index: Vec<String>,
     /// Set and override URL:s of the default indexes (by default 'https://beta.sysand.org')
