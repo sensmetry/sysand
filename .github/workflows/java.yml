@@ -45,6 +45,8 @@ jobs:
       shell: bash
       if: ${{ matrix.os == 'ubuntu-22.04' }}
       run: python bindings/java/scripts/java-builder.py create-version-file
+      env:
+        MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
     - name: Upload native bindings
       uses: actions/upload-artifact@v5
       with:
@@ -76,6 +78,8 @@ jobs:
       with:
         distribution: 'temurin'
         java-version: '21'
+        gpg-private-key: ${{ secrets.MAVEN_CENTRAL_GPG_PRIVATE_KEY }}
+        gpg-passphrase: MAVEN_GPG_PASSPHRASE
     - name: Download version.txt
       uses: actions/download-artifact@v6
       with:
@@ -90,9 +94,13 @@ jobs:
     - name: Build JAR
       shell: bash
       run: python bindings/java/scripts/java-builder.py build --use-existing-native-libs native-bindings --use-release-build
+      env:
+        MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
     - name: Build Sysand Maven plugin and run integration tests
       shell: bash
       run: python bindings/java/scripts/java-builder.py build-plugin
+      env:
+        MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
     - name: Upload JARs
       uses: actions/upload-artifact@v5
       with:
@@ -144,9 +152,13 @@ jobs:
       with:
         distribution: 'temurin'
         java-version: '21'
+        gpg-private-key: ${{ secrets.MAVEN_CENTRAL_GPG_PRIVATE_KEY }}
+        gpg-passphrase: MAVEN_GPG_PASSPHRASE
     - name: Test Java JAR
       shell: bash
       run: python bindings/java/scripts/java-builder.py test
+      env:
+        MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
 
   nightly-release:
     name: Nightly Release
@@ -195,9 +207,12 @@ jobs:
         server-id: central
         server-username: MAVEN_USERNAME
         server-password: MAVEN_PASSWORD
+        gpg-private-key: ${{ secrets.MAVEN_CENTRAL_GPG_PRIVATE_KEY }}
+        gpg-passphrase: MAVEN_GPG_PASSPHRASE
     - name: Deploy Java bindings
       shell: bash
       run: python bindings/java/scripts/java-builder.py deploy
       env:
         MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_TOKEN_USERNAME }}
         MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN_PASSWORD }}
+        MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}

@@ -13,7 +13,31 @@ SPDX-License-Identifier: MIT OR Apache-2.0
   <version>VERSION</version>
   <packaging>maven-plugin</packaging>
   <name>${project.groupId}:${project.artifactId}</name>
-  <description>Maven plugin to invoke Sysand.info_path at package phase</description>
+  <description>Maven plugin for using Sysand.</description>
+  <url>https://sysand.org/</url>
+  <licenses>
+    <license>
+      <name>The Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/license/mit</url>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <name>Sensmetry</name>
+      <email>opensource@sensmetry.com</email>
+      <organization>Sensmetry</organization>
+      <organizationUrl>https://sensmetry.com/</organizationUrl>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/sensmetry/sysand</connection>
+    <developerConnection>scm:git:ssh://git@github.com/sensmetry/sysand.git</developerConnection>
+    <url>https://github.com/sensmetry/sysand/tree/main</url>
+  </scm>
   <properties>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
@@ -115,6 +139,54 @@ SPDX-License-Identifier: MIT OR Apache-2.0
             <goals>
               <goal>install</goal>
             </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- Attach -sources.jar -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- Attach -javadoc.jar -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.8.0</version>
+        <executions>
+          <execution>
+            <id>attach-javadoc</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <!-- Sign with gpg -->
+      <plugin>
+        <artifactId>maven-gpg-plugin</artifactId>
+        <version>3.2.4</version>
+        <executions>
+          <execution>
+            <id>sign-artifacts</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>sign</goal>
+            </goals>
+            <configuration>
+              <gpgArguments>
+                <arg>--pinentry-mode</arg>
+                <arg>loopback</arg>
+              </gpgArguments>
+            </configuration>
           </execution>
         </executions>
       </plugin>
