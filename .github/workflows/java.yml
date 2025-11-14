@@ -2,9 +2,9 @@ name: Java
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches: [ "feat/add-java-release-job" ]
+  # pull_request:
+  #   branches: [ "main" ]
 
 permissions:
   contents: read
@@ -47,6 +47,8 @@ jobs:
       run: python bindings/java/scripts/java-builder.py create-version-file
       env:
         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
+        # JAVA_BUILDER_RELEASE_JAR_VERSION: ${{ startsWith(github.ref, 'refs/tags/') }}
+        JAVA_BUILDER_RELEASE_JAR_VERSION: true
     - name: Upload native bindings
       uses: actions/upload-artifact@v5
       with:
@@ -96,11 +98,15 @@ jobs:
       run: python bindings/java/scripts/java-builder.py build --use-existing-native-libs native-bindings --use-release-build
       env:
         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
+        # JAVA_BUILDER_RELEASE_JAR_VERSION: ${{ startsWith(github.ref, 'refs/tags/') }}
+        JAVA_BUILDER_RELEASE_JAR_VERSION: true
     - name: Build Sysand Maven plugin and run integration tests
       shell: bash
       run: python bindings/java/scripts/java-builder.py build-plugin
       env:
         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
+        # JAVA_BUILDER_RELEASE_JAR_VERSION: ${{ startsWith(github.ref, 'refs/tags/') }}
+        JAVA_BUILDER_RELEASE_JAR_VERSION: true
     - name: Upload JARs
       uses: actions/upload-artifact@v5
       with:
@@ -159,6 +165,8 @@ jobs:
       run: python bindings/java/scripts/java-builder.py test
       env:
         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
+        # JAVA_BUILDER_RELEASE_JAR_VERSION: ${{ startsWith(github.ref, 'refs/tags/') }}
+        JAVA_BUILDER_RELEASE_JAR_VERSION: true
 
   nightly-release:
     name: Nightly Release
@@ -216,3 +224,62 @@ jobs:
         MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_TOKEN_USERNAME }}
         MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN_PASSWORD }}
         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [build-jar, test-jar]
+    # if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    permissions:
+      # Use to sign the release artifacts
+      id-token: write
+      # Used to upload release artifacts
+      contents: write
+      # Used to generate artifact attestation
+      attestations: write
+    steps:
+    - uses: actions/checkout@v5
+    - name: Download native bindings
+      uses: actions/download-artifact@v6
+      with:
+        name: jars
+        path: target/java
+    - name: Download Maven plugin JAR
+      uses: actions/download-artifact@v6
+      with:
+        name: maven-plugin-jar
+        path: target/java-plugin
+    - name: Download version.txt
+      uses: actions/download-artifact@v6
+      with:
+        name: version
+    - name: Debugging
+      shell: bash
+      run: |
+        find . -iname "*.jar"
+        find target/java-plugin/target/it/
+    - name: Generate artifact attestation
+      uses: actions/attest-build-provenance@v3
+      with:
+        subject-path: 'target/java/target/*.jar'
+    - uses: actions/setup-python@v6
+      with:
+        python-version: 3.12
+    - uses: actions/setup-java@v5
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+        server-id: central
+        server-username: MAVEN_USERNAME
+        server-password: MAVEN_PASSWORD
+        gpg-private-key: ${{ secrets.MAVEN_CENTRAL_GPG_PRIVATE_KEY }}
+        gpg-passphrase: MAVEN_GPG_PASSPHRASE
+    - name: Deploy Java bindings
+      shell: bash
+      run: python bindings/java/scripts/java-builder.py deploy
+      env:
+        MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_TOKEN_USERNAME }}
+        MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_TOKEN_PASSWORD }}
+        MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
+        # JAVA_BUILDER_RELEASE_JAR_VERSION: ${{ startsWith(github.ref, 'refs/tags/') }}
+        JAVA_BUILDER_RELEASE_JAR_VERSION: true
