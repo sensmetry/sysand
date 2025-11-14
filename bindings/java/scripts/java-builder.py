@@ -6,6 +6,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import platform
 import shutil
@@ -346,6 +347,11 @@ def test(version: str, release_jar_version: bool) -> None:
 
 def main() -> None:
     args = parse_args()
+    release_jar_version = args.release_jar_version
+    # Check environment variable for release-jar-version flag
+    TRUE_CONSTANTS = ("1", "true")
+    if os.getenv("JAVA_BUILDER_RELEASE_JAR_VERSION", "").lower() in TRUE_CONSTANTS:
+        release_jar_version = True
     print("ROOT_DIR:", ROOT_DIR)
     print("BUILD_DIR:", BUILD_DIR)
     print("TEST_DIR:", TEST_DIR)
@@ -355,15 +361,15 @@ def main() -> None:
         build(
             args.use_release_build,
             args.use_existing_native_libs,
-            args.release_jar_version,
+            release_jar_version,
             version,
         )
     elif args.command == "build-plugin":
-        build_plugin(version, args.release_jar_version)
+        build_plugin(version, release_jar_version)
     elif args.command == "test":
-        test(version, args.release_jar_version)
+        test(version, release_jar_version)
     elif args.command == "test-deployed":
-        test_deployed(version, args.release_jar_version)
+        test_deployed(version, release_jar_version)
     elif args.command == "deploy":
         deploy()
     elif args.command == "create-version-file":
