@@ -578,6 +578,131 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn info_multi_index_url_config() -> Result<(), Box<dyn std::error::Error>> {
+    let mut server = mockito::Server::new();
+    let mut server_alt = mockito::Server::new();
+
+    let versions_mock = server
+        .mock(
+            "GET",
+            "/1206faf209922d2c3c3ce220d5b78b6001b1ec42ab1304d65590d1749453c5b5/versions.txt",
+        )
+        .with_status(200)
+        .with_header("content-type", "text/plain")
+        .with_body("1.2.3\n")
+        .expect_at_most(2)
+        .create();
+
+    let project_mock_head = server
+        .mock("HEAD", "/1206faf209922d2c3c3ce220d5b78b6001b1ec42ab1304d65590d1749453c5b5/1.2.3.kpar/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url_config","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(2)
+        .create();
+
+    let project_mock = server
+        .mock("GET", "/1206faf209922d2c3c3ce220d5b78b6001b1ec42ab1304d65590d1749453c5b5/1.2.3.kpar/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url_config","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .create();
+
+    let meta_mock = server
+        .mock("GET", "/1206faf209922d2c3c3ce220d5b78b6001b1ec42ab1304d65590d1749453c5b5/1.2.3.kpar/.meta.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .create();
+
+    let versions_alt_mock = server_alt
+        .mock(
+            "GET",
+            "/bf1998eaeb56282e6dd62686b1ea51dfeffded6964aa53cc89cf70a9a2627c97/versions.txt",
+        )
+        .with_status(200)
+        .with_header("content-type", "text/plain")
+        .with_body("1.2.3\n")
+        .expect_at_most(1)
+        .create();
+
+    let project_alt_mock_head = server_alt
+        .mock("HEAD", "/bf1998eaeb56282e6dd62686b1ea51dfeffded6964aa53cc89cf70a9a2627c97/1.2.3.kpar/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url_config_alt","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(1)
+        .create();
+
+    let project_alt_mock = server_alt
+        .mock("GET", "/bf1998eaeb56282e6dd62686b1ea51dfeffded6964aa53cc89cf70a9a2627c97/1.2.3.kpar/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url_config_alt","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .create();
+
+    let meta_alt_mock = server_alt
+        .mock("GET", "/bf1998eaeb56282e6dd62686b1ea51dfeffded6964aa53cc89cf70a9a2627c97/1.2.3.kpar/.meta.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .create();
+
+    let cfg = format!(
+        r#"
+    [[index]]
+    url = "{}"
+
+    [[index]]
+    url = "{}"
+    default = true
+    "#,
+        &server.url(),
+        &server_alt.url()
+    );
+
+    let (_, _, out) = run_sysand(
+        ["info", "--iri", "urn:kpar:info_multi_index_url_config"],
+        Some(cfg.as_str()),
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Name: info_multi_index_url_config",
+        ))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    let (_, _, out) = run_sysand(
+        ["info", "--iri", "urn:kpar:info_multi_index_url_config_alt"],
+        Some(cfg.as_str()),
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Name: info_multi_index_url_config_alt",
+        ))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    versions_mock.assert();
+    project_mock_head.assert();
+    project_mock.assert();
+    meta_mock.assert();
+
+    versions_alt_mock.assert();
+    project_alt_mock_head.assert();
+    project_alt_mock.assert();
+    meta_alt_mock.assert();
+
+    Ok(())
+}
+
+#[test]
 fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
     let (_tmp, cwd, out) = run_sysand(["new", "info_detailed_verbs", "--version", "1.2.3"], None)?;
     out.assert().success();
