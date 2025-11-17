@@ -43,6 +43,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Path to the directory containing the native libraries. If not provided, the native libraries will be built using cargo.",
     )
+    build_parser.add_argument(
+        "--sign-artifacts",
+        action="store_true",
+        help="Sign the artifacts with the GPG key.",
+    )
     build_plugin_parser = subparsers.add_parser(
         "build-plugin", help="Build the sysand Maven plugin."
     )
@@ -50,6 +55,11 @@ def parse_args() -> argparse.Namespace:
         "--release-jar-version",
         action="store_true",
         help="Produce a non-snapshot version of the JAR.",
+    )
+    build_plugin_parser.add_argument(
+        "--sign-artifacts",
+        action="store_true",
+        help="Sign the artifacts with the GPG key.",
     )
     _test_parser = subparsers.add_parser("test", help="Test the Java library.")
     _deploy_parser = subparsers.add_parser(
@@ -122,6 +132,7 @@ def compute_full_version(version: str, release_jar_version: bool) -> str:
 def build(
     use_release_build: bool,
     use_existing_native_libs: Path | None,
+    sign_artifacts: bool,
     release_jar_version: bool,
     version: str,
 ) -> None:
@@ -246,13 +257,20 @@ def build(
     target_pom_path.write_text(target_pom_data)
 
     print("Building the JAR...")
-    execute(
-        [mvn_executable(), "clean", "install", "compile", "assembly:single", "-U"],
-        cwd=BUILD_DIR,
-    )
+    mvn_args = [
+        mvn_executable(),
+        "clean",
+        "install",
+        "compile",
+        "assembly:single",
+        "-U",
+    ]
+    if not sign_artifacts:
+        mvn_args.append("-Dgpg.skip=true")
+    execute(mvn_args, cwd=BUILD_DIR)
 
 
-def build_plugin(version: str, release_jar_version: bool) -> None:
+def build_plugin(sign_artifacts: bool, version: str, release_jar_version: bool) -> None:
     print("Cleaning the target directory for the sysand Maven plugin...")
     shutil.rmtree(PLUGIN_DIR, ignore_errors=True)
     PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
@@ -275,7 +293,11 @@ def build_plugin(version: str, release_jar_version: bool) -> None:
     target_pom_path.write_text(target_pom_data)
 
     print("Building the sysand Maven plugin...")
-    execute([mvn_executable(), "-B", "-DskipTests=false", "verify"], cwd=PLUGIN_DIR)
+    mvn_args = [mvn_executable(), "-B", "-DskipTests=false"]
+    if not sign_artifacts:
+        mvn_args.append("-Dgpg.skip=true")
+    mvn_args.append("verify")
+    execute(mvn_args, cwd=PLUGIN_DIR)
 
 
 def deploy() -> None:
@@ -361,11 +383,12 @@ def main() -> None:
         build(
             args.use_release_build,
             args.use_existing_native_libs,
+            args.sign_artifacts,
             release_jar_version,
             version,
         )
     elif args.command == "build-plugin":
-        build_plugin(version, release_jar_version)
+        build_plugin(args.sign_artifacts, version, release_jar_version)
     elif args.command == "test":
         test(version, release_jar_version)
     elif args.command == "test-deployed":

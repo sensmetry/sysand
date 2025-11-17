@@ -93,12 +93,12 @@ jobs:
       run: ls -la native-bindings/*
     - name: Build JAR
       shell: bash
-      run: python bindings/java/scripts/java-builder.py build --use-existing-native-libs native-bindings --use-release-build
+      run: python bindings/java/scripts/java-builder.py build --use-existing-native-libs native-bindings --use-release-build --sign-artifacts
       env:
         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
     - name: Build Sysand Maven plugin and run integration tests
       shell: bash
-      run: python bindings/java/scripts/java-builder.py build-plugin
+      run: python bindings/java/scripts/java-builder.py build-plugin --sign-artifacts
       env:
         MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
     - name: Upload JARs
