@@ -21,6 +21,8 @@ use thiserror::Error;
 use typed_path::Utf8UnixPath;
 use utils::FsIoError;
 
+pub use sysand_macros::ProjectRead;
+
 // Implementations
 pub mod editable;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
