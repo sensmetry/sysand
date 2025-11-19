@@ -42,6 +42,9 @@ pub mod reqwest_kpar_download;
 #[cfg(feature = "networking")]
 pub mod reqwest_src;
 
+// Generic implementations
+pub mod cached;
+
 pub mod utils;
 
 fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, io::Error> {
