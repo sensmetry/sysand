@@ -47,11 +47,11 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                 // error_variants
                 quote! {
                     #[error(transparent)]
-                    #variant_ident(<#variant_type as ProjectRead>::Error)
+                    #variant_ident(<#variant_type as ::sysand_core::project::ProjectRead>::Error)
                 },
                 // source_reader_variants
                 quote! {
-                    #variant_ident(<#variant_type as ProjectRead>::SourceReader<'a>)
+                    #variant_ident(<#variant_type as ::sysand_core::project::ProjectRead>::SourceReader<'a>)
                 },
                 // source_reader_match
                 quote! {
@@ -96,7 +96,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         variant_parts.iter().cloned().multiunzip();
 
     let expanded = quote! {
-        #[derive(Debug, thiserror::Error)]
+        #[derive(::std::fmt::Debug, ::thiserror::Error)]
         pub enum #error_ident {
             #( #error_variants ),*
         }
@@ -108,23 +108,23 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             #( #source_reader_variants ),*
         }
 
-        impl std::io::Read for #source_reader_ident<'_> {
-            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        impl ::std::io::Read for #source_reader_ident<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> ::std::io::Result<usize> {
                 match self {
                     #( #source_reader_match ),*
                 }
             }
         }
 
-        impl ProjectRead for #enum_ident {
+        impl ::sysand_core::project::ProjectRead for #enum_ident {
             type Error = #error_ident;
 
             fn get_project(
                 &self,
-            ) -> Result<
+            ) -> ::std::result::Result<
                 (
-                    Option<InterchangeProjectInfoRaw>,
-                    Option<InterchangeProjectMetadataRaw>,
+                    ::std::option::Option<::sysand_core::model::InterchangeProjectInfoRaw>,
+                    ::std::option::Option<::sysand_core::model::InterchangeProjectMetadataRaw>,
                 ),
                 Self::Error,
             > {
@@ -138,18 +138,126 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             where
                 Self: 'a;
 
-            fn read_source<P: AsRef<typed_path::Utf8UnixPath>>(
+            fn read_source<P: AsRef<::sysand_core::project::Utf8UnixPath>>(
                 &self,
                 path: P,
-            ) -> Result<Self::SourceReader<'_>, Self::Error> {
+            ) -> ::std::result::Result<Self::SourceReader<'_>, Self::Error> {
                 match self {
                     #( #read_source_match ),*
                 }
             }
 
-            fn sources(&self) -> Vec<Source> {
+            fn sources(&self) -> ::std::vec::Vec<::sysand_core::lock::Source> {
                 match &self {
                     #( #sources_match ),*
+                }
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_derive(ProjectMut)]
+pub fn project_mut_derive(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+
+    // This derive only works on an enum
+    let Data::Enum(DataEnum { variants, .. }) = &ast.data else {
+        return syn::Error::new_spanned(&ast.ident, "ProjectMut can only be derived on an enum")
+            .to_compile_error()
+            .into();
+    };
+
+    let enum_ident = &ast.ident;
+    let error_ident = syn::Ident::new(format!("{}Error", enum_ident).as_str(), enum_ident.span());
+
+    let variant_parts: Result<Vec<_>, _> = variants
+        .iter()
+        .map(|variant| {
+            let variant_ident = variant.ident.clone();
+            match &variant.fields {
+                syn::Fields::Unnamed(fields) if fields.unnamed.len() != 1 => {
+                    return Err(syn::Error::new_spanned(
+                        &variant.ident,
+                        "each variant must contain exactly one field",
+                    ));
+                }
+                syn::Fields::Unnamed(_) => {},
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        &variant.ident,
+                        "only tuple variants supported",
+                    ));
+                }
+            };
+            Ok((
+                // put_info_match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .put_info(info, overwrite)
+                        .map_err(#error_ident::#variant_ident)
+                },
+                // put_meta_match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .put_meta(meta, overwrite)
+                        .map_err(#error_ident::#variant_ident)
+                },
+                // write_source_match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .write_source(path, source, overwrite)
+                        .map_err(#error_ident::#variant_ident)
+                },
+            ))
+        })
+        .collect();
+
+    let variant_parts = match variant_parts {
+        Ok(var) => var,
+        Err(err) => {
+            return err.to_compile_error().into();
+        }
+    };
+
+    let (
+        put_info_match,
+        put_meta_match,
+        write_source_match,
+    ): (Vec<_>, Vec<_>, Vec<_>) =
+        variant_parts.iter().cloned().multiunzip();
+
+    let expanded = quote! {
+        impl ::sysand_core::project::ProjectMut for #enum_ident {
+            fn put_info(
+                &mut self,
+                info: &::sysand_core::model::InterchangeProjectInfoRaw,
+                overwrite: bool,
+            ) -> ::std::result::Result<(), Self::Error> {
+                match self {
+                    #( #put_info_match ),*
+                }
+            }
+
+            fn put_meta(
+                &mut self,
+                meta: &::sysand_core::model::InterchangeProjectMetadataRaw,
+                overwrite: bool,
+            ) -> ::std::result::Result<(), Self::Error> {
+                match self {
+                    #( #put_meta_match ),*
+                }
+            }
+
+            fn write_source<P: AsRef<::sysand_core::project::Utf8UnixPath>, R: Read>(
+                &mut self,
+                path: P,
+                source: &mut R,
+                overwrite: bool,
+            ) -> ::std::result::Result<(), Self::Error> {
+                match self {
+                    #( #write_source_match ),*
                 }
             }
         }
