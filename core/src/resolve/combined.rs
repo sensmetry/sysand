@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{
+    fmt::Debug,
     io::{self, Read},
     iter::Peekable,
 };
@@ -11,7 +12,7 @@ use thiserror::Error;
 
 use crate::{
     model::{ProjectHash, project_hash_raw},
-    project::ProjectRead,
+    project::{ProjectRead, cached::CachedProject},
     resolve::{ResolutionOutcome, ResolveRead, null::NullResolver},
 };
 
@@ -86,16 +87,16 @@ pub enum CombinedReadError<FileError, LocalError, RemoteError, RegistryError> {
 /// Can either be taken apart or used directly as a project storage.
 #[derive(Debug)]
 pub enum CombinedProjectStorage<
-    FileProjectStorage,
-    LocalProjectStorage,
-    RemoteProjectStorage,
-    RegistryProjectStorage,
+    FileProjectStorage: ProjectRead,
+    LocalProjectStorage: ProjectRead,
+    RemoteProjectStorage: ProjectRead,
+    RegistryProjectStorage: ProjectRead,
 > {
     FileProject(FileProjectStorage),
     RemoteProject(RemoteProjectStorage),
     RegistryProject(RegistryProjectStorage),
-    CachedRemoteProject(LocalProjectStorage, RemoteProjectStorage),
-    CachedRegistryProject(LocalProjectStorage, RegistryProjectStorage),
+    CachedRemoteProject(CachedProject<LocalProjectStorage, RemoteProjectStorage>),
+    CachedRegistryProject(CachedProject<LocalProjectStorage, RegistryProjectStorage>),
     DanglingLocalProject(LocalProjectStorage),
 }
 
@@ -158,10 +159,10 @@ impl<
             CombinedProjectStorage::RegistryProject(project) => {
                 project.get_project().map_err(CombinedReadError::Registry)
             }
-            CombinedProjectStorage::CachedRemoteProject(project, _) => {
+            CombinedProjectStorage::CachedRemoteProject(project) => {
                 project.get_project().map_err(CombinedReadError::Local)
             }
-            CombinedProjectStorage::CachedRegistryProject(project, _) => {
+            CombinedProjectStorage::CachedRegistryProject(project) => {
                 project.get_project().map_err(CombinedReadError::Local)
             }
             CombinedProjectStorage::DanglingLocalProject(project) => {
@@ -197,11 +198,11 @@ impl<
                 .read_source(path)
                 .map_err(CombinedReadError::Registry)
                 .map(CombinedSourceReader::RegistryProject),
-            CombinedProjectStorage::CachedRemoteProject(project, _) => project
+            CombinedProjectStorage::CachedRemoteProject(project) => project
                 .read_source(path)
                 .map_err(CombinedReadError::Local)
                 .map(CombinedSourceReader::LocalProject),
-            CombinedProjectStorage::CachedRegistryProject(project, _) => project
+            CombinedProjectStorage::CachedRegistryProject(project) => project
                 .read_source(path)
                 .map_err(CombinedReadError::Local)
                 .map(CombinedSourceReader::LocalProject),
@@ -217,8 +218,8 @@ impl<
             CombinedProjectStorage::FileProject(proj) => proj.is_definitely_invalid(),
             CombinedProjectStorage::RemoteProject(proj) => proj.is_definitely_invalid(),
             CombinedProjectStorage::RegistryProject(proj) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::CachedRemoteProject(proj, _) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::CachedRegistryProject(proj, _) => proj.is_definitely_invalid(),
+            CombinedProjectStorage::CachedRemoteProject(proj) => proj.is_definitely_invalid(),
+            CombinedProjectStorage::CachedRegistryProject(proj) => proj.is_definitely_invalid(),
             CombinedProjectStorage::DanglingLocalProject(proj) => proj.is_definitely_invalid(),
         }
     }
@@ -228,8 +229,8 @@ impl<
             CombinedProjectStorage::FileProject(proj) => proj.sources(),
             CombinedProjectStorage::RemoteProject(proj) => proj.sources(),
             CombinedProjectStorage::RegistryProject(proj) => proj.sources(),
-            CombinedProjectStorage::CachedRemoteProject(_, proj) => proj.sources(),
-            CombinedProjectStorage::CachedRegistryProject(_, proj) => proj.sources(),
+            CombinedProjectStorage::CachedRemoteProject(proj) => proj.sources(),
+            CombinedProjectStorage::CachedRegistryProject(proj) => proj.sources(),
             CombinedProjectStorage::DanglingLocalProject(proj) => proj.sources(),
         }
     }
@@ -307,7 +308,10 @@ impl<
                         });
 
                     if let Some(local_project) = cached {
-                        CombinedProjectStorage::CachedRemoteProject(local_project, project)
+                        CombinedProjectStorage::CachedRemoteProject(CachedProject::new(
+                            local_project,
+                            project,
+                        ))
                     } else {
                         CombinedProjectStorage::RemoteProject(project)
                     }
@@ -328,7 +332,10 @@ impl<
                         });
 
                     if let Some(local_project) = cached {
-                        CombinedProjectStorage::CachedRegistryProject(local_project, project)
+                        CombinedProjectStorage::CachedRegistryProject(CachedProject::new(
+                            local_project,
+                            project,
+                        ))
                     } else {
                         CombinedProjectStorage::RegistryProject(project)
                     }
