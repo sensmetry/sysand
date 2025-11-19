@@ -47,11 +47,11 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                 // error_variants
                 quote! {
                     #[error(transparent)]
-                    #variant_ident(<#variant_type as ::sysand_core::project::ProjectRead>::Error)
+                    #variant_ident(<#variant_type as ProjectRead>::Error)
                 },
                 // source_reader_variants
                 quote! {
-                    #variant_ident(<#variant_type as ::sysand_core::project::ProjectRead>::SourceReader<'a>)
+                    #variant_ident(<#variant_type as ProjectRead>::SourceReader<'a>)
                 },
                 // source_reader_match
                 quote! {
@@ -116,15 +116,15 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl ::sysand_core::project::ProjectRead for #enum_ident {
+        impl ProjectRead for #enum_ident {
             type Error = #error_ident;
 
             fn get_project(
                 &self,
             ) -> ::std::result::Result<
                 (
-                    ::std::option::Option<::sysand_core::model::InterchangeProjectInfoRaw>,
-                    ::std::option::Option<::sysand_core::model::InterchangeProjectMetadataRaw>,
+                    ::std::option::Option<InterchangeProjectInfoRaw>,
+                    ::std::option::Option<InterchangeProjectMetadataRaw>,
                 ),
                 Self::Error,
             > {
@@ -138,7 +138,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             where
                 Self: 'a;
 
-            fn read_source<P: AsRef<::sysand_core::project::Utf8UnixPath>>(
+            fn read_source<P: AsRef<Utf8UnixPath>>(
                 &self,
                 path: P,
             ) -> ::std::result::Result<Self::SourceReader<'_>, Self::Error> {
@@ -147,7 +147,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn sources(&self) -> ::std::vec::Vec<::sysand_core::lock::Source> {
+            fn sources(&self) -> ::std::vec::Vec<Source> {
                 match &self {
                     #( #sources_match ),*
                 }
@@ -229,10 +229,10 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
         variant_parts.iter().cloned().multiunzip();
 
     let expanded = quote! {
-        impl ::sysand_core::project::ProjectMut for #enum_ident {
+        impl ProjectMut for #enum_ident {
             fn put_info(
                 &mut self,
-                info: &::sysand_core::model::InterchangeProjectInfoRaw,
+                info: &InterchangeProjectInfoRaw,
                 overwrite: bool,
             ) -> ::std::result::Result<(), Self::Error> {
                 match self {
@@ -242,7 +242,7 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
 
             fn put_meta(
                 &mut self,
-                meta: &::sysand_core::model::InterchangeProjectMetadataRaw,
+                meta: &InterchangeProjectMetadataRaw,
                 overwrite: bool,
             ) -> ::std::result::Result<(), Self::Error> {
                 match self {
@@ -250,7 +250,7 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn write_source<P: AsRef<::sysand_core::project::Utf8UnixPath>, R: Read>(
+            fn write_source<P: AsRef<Utf8UnixPath>, R: Read>(
                 &mut self,
                 path: P,
                 source: &mut R,
