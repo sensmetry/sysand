@@ -11,6 +11,11 @@ use sysand_core::{
     project::{ProjectMut, ProjectRead, memory::InMemoryProject},
 };
 
+// Have to have these in scope for ProjectRead
+// TODO: Find a better solution (that works both inside and outside sysand_core)
+use sysand_core::lock::Source;
+use typed_path::Utf8UnixPath;
+
 #[derive(ProjectRead)]
 enum OneVariantProjectRead {
     Variant(InMemoryProject),
