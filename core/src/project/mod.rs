@@ -18,10 +18,11 @@ use std::{
     sync::Arc,
 };
 use thiserror::Error;
-use typed_path::Utf8UnixPath;
 use utils::FsIoError;
 
+pub use sysand_macros::ProjectMut;
 pub use sysand_macros::ProjectRead;
+pub use typed_path::Utf8UnixPath;
 
 // Implementations
 pub mod editable;
