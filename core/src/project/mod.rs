@@ -1096,6 +1096,37 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
 }
 
 #[cfg(test)]
+mod macro_tests {
+    use crate::project::{ProjectRead, memory::InMemoryProject};
+
+    // Have to have these in scope for ProjectRead
+    // TODO: Find a better solution (that works both inside and outside sysand_core)
+    use crate::lock::Source;
+    use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
+    use typed_path::Utf8UnixPath;
+
+    #[derive(ProjectRead)]
+    enum Project {
+        Variant(InMemoryProject),
+    }
+
+    // #[derive(ProjectRead)]
+    // enum ProjectGeneric<Project: ProjectRead> {
+    //     Variant(Project)
+    // }
+
+    #[test]
+    fn test_macro() {
+        let _project = Project::Variant(InMemoryProject::new());
+    }
+
+    // #[test]
+    // fn test_macro_generic() {
+    //     let _project = ProjectGeneric::<InMemoryProject>::Variant(InMemoryProject::new());
+    // }
+}
+
+#[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
