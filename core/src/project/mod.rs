@@ -1096,37 +1096,6 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
 }
 
 #[cfg(test)]
-mod macro_tests {
-    use crate::project::{ProjectRead, memory::InMemoryProject};
-
-    // Have to have these in scope for ProjectRead
-    // TODO: Find a better solution (that works both inside and outside sysand_core)
-    use crate::lock::Source;
-    use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
-    use typed_path::Utf8UnixPath;
-
-    #[derive(ProjectRead)]
-    enum Project {
-        Variant(InMemoryProject),
-    }
-
-    // #[derive(ProjectRead)]
-    // enum ProjectGeneric<Project: ProjectRead> {
-    //     Variant(Project)
-    // }
-
-    #[test]
-    fn test_macro() {
-        let _project = Project::Variant(InMemoryProject::new());
-    }
-
-    // #[test]
-    // fn test_macro_generic() {
-    //     let _project = ProjectGeneric::<InMemoryProject>::Variant(InMemoryProject::new());
-    // }
-}
-
-#[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
@@ -1207,5 +1176,56 @@ mod tests {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod macro_tests {
+    use crate::project::{ProjectMut, ProjectRead, memory::InMemoryProject};
+
+    // Have to have these in scope for ProjectRead
+    // TODO: Find a better solution (that works both inside and outside sysand_core)
+    use crate::lock::Source;
+    use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
+    use typed_path::Utf8UnixPath;
+
+    #[derive(ProjectRead)]
+    enum NonGenericProjectRead {
+        Variant(InMemoryProject),
+    }
+
+    #[test]
+    fn test_macro_read() {
+        let _project = NonGenericProjectRead::Variant(InMemoryProject::new());
+    }
+
+    #[derive(ProjectRead, ProjectMut)]
+    enum NonGenericProjectMut {
+        Variant(InMemoryProject),
+    }
+
+    #[test]
+    fn test_macro_mut() {
+        let _project = NonGenericProjectMut::Variant(InMemoryProject::new());
+    }
+
+    #[derive(ProjectRead)]
+    enum GenericProjectRead<SomeProject: ProjectRead> {
+        Variant(SomeProject),
+    }
+
+    #[test]
+    fn test_macro_generic_read() {
+        let _project = GenericProjectRead::<InMemoryProject>::Variant(InMemoryProject::new());
+    }
+
+    #[derive(ProjectRead, ProjectMut)]
+    enum GenericProjectMut<SomeProject: ProjectRead + ProjectMut> {
+        Variant(SomeProject),
+    }
+
+    #[test]
+    fn test_macro_generic_mut() {
+        let _project = GenericProjectMut::<InMemoryProject>::Variant(InMemoryProject::new());
     }
 }
