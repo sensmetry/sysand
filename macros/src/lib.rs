@@ -10,13 +10,13 @@ use syn::{Data, DataEnum, DeriveInput, parse_macro_input};
 pub fn project_read_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
 
-    // This derive only works on an enum
     let Data::Enum(DataEnum { variants, .. }) = &ast.data else {
         return syn::Error::new_spanned(&ast.ident, "ProjectRead can only be derived on an enum")
             .to_compile_error()
             .into();
     };
 
+    let (impl_generics, type_generics, where_clause) = ast.generics.split_for_impl();
     let enum_ident = &ast.ident;
     let error_ident = syn::Ident::new(format!("{}Error", enum_ident).as_str(), enum_ident.span());
     let source_reader_ident = syn::Ident::new(
@@ -44,18 +44,34 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                 }
             };
             Ok((
+                // variant_list
+                quote! {
+                    #variant_ident
+                },
                 // error_variants
                 quote! {
                     #[error(transparent)]
-                    #variant_ident(<#variant_type as ProjectRead>::Error)
+                    #variant_ident(#variant_ident)
+                },
+                // error_args
+                quote! {
+                    <#variant_type as ProjectRead>::Error
                 },
                 // source_reader_variants
                 quote! {
-                    #variant_ident(<#variant_type as ProjectRead>::SourceReader<'a>)
+                    #variant_ident(#variant_ident)
+                },
+                // variants_read
+                quote! {
+                    #variant_ident: ::std::io::Read
                 },
                 // source_reader_match
                 quote! {
                     #source_reader_ident::#variant_ident(reader) => reader.read(buf)
+                },
+                // source_reader_args
+                quote! {
+                    <#variant_type as ProjectRead>::SourceReader<'a>
                 },
                 // get_project_match
                 quote! {
@@ -86,29 +102,49 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
     };
 
     let (
+        variant_list,
         error_variants,
+        error_args,
         source_reader_variants,
+        variants_read,
         source_reader_match,
+        source_reader_args,
         get_project_match,
         read_source_match,
         sources_match,
-    ): (Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>, Vec<_>) =
-        variant_parts.iter().cloned().multiunzip();
+    ): (
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+        Vec<_>,
+    ) = variant_parts.iter().cloned().multiunzip();
 
     let expanded = quote! {
         #[derive(::std::fmt::Debug, ::thiserror::Error)]
-        pub enum #error_ident {
+        enum #error_ident<
+            #( #variant_list ),*
+        > {
             #( #error_variants ),*
         }
 
-        pub enum #source_reader_ident<'a>
-        where
-            Self: 'a,
-        {
+        enum #source_reader_ident<
+            #( #variant_list ),*
+        > {
             #( #source_reader_variants ),*
         }
 
-        impl ::std::io::Read for #source_reader_ident<'_> {
+        impl<
+            #( #variants_read ),*
+        > ::std::io::Read
+        for #source_reader_ident<
+            #( #variant_list ),*
+        > {
             fn read(&mut self, buf: &mut [u8]) -> ::std::io::Result<usize> {
                 match self {
                     #( #source_reader_match ),*
@@ -116,8 +152,10 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl ProjectRead for #enum_ident {
-            type Error = #error_ident;
+        impl #impl_generics ProjectRead for #enum_ident #type_generics #where_clause {
+            type Error = #error_ident<
+                #( #error_args ),*
+            >;
 
             fn get_project(
                 &self,
@@ -134,11 +172,13 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             }
 
             type SourceReader<'a>
-                = #source_reader_ident<'a>
+                = #source_reader_ident<
+                    #( #source_reader_args ),*
+                >
             where
                 Self: 'a;
 
-            fn read_source<P: AsRef<Utf8UnixPath>>(
+            fn read_source<P: ::std::convert::AsRef<Utf8UnixPath>>(
                 &self,
                 path: P,
             ) -> ::std::result::Result<Self::SourceReader<'_>, Self::Error> {
@@ -162,13 +202,13 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
 pub fn project_mut_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
 
-    // This derive only works on an enum
     let Data::Enum(DataEnum { variants, .. }) = &ast.data else {
         return syn::Error::new_spanned(&ast.ident, "ProjectMut can only be derived on an enum")
             .to_compile_error()
             .into();
     };
 
+    let (impl_generics, type_generics, where_clause) = ast.generics.split_for_impl();
     let enum_ident = &ast.ident;
     let error_ident = syn::Ident::new(format!("{}Error", enum_ident).as_str(), enum_ident.span());
 
@@ -183,7 +223,7 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
                         "each variant must contain exactly one field",
                     ));
                 }
-                syn::Fields::Unnamed(_) => {},
+                syn::Fields::Unnamed(_) => {}
                 _ => {
                     return Err(syn::Error::new_spanned(
                         &variant.ident,
@@ -221,15 +261,11 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (
-        put_info_match,
-        put_meta_match,
-        write_source_match,
-    ): (Vec<_>, Vec<_>, Vec<_>) =
+    let (put_info_match, put_meta_match, write_source_match): (Vec<_>, Vec<_>, Vec<_>) =
         variant_parts.iter().cloned().multiunzip();
 
     let expanded = quote! {
-        impl ProjectMut for #enum_ident {
+        impl #impl_generics ProjectMut for #enum_ident #type_generics #where_clause {
             fn put_info(
                 &mut self,
                 info: &InterchangeProjectInfoRaw,
@@ -250,7 +286,7 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn write_source<P: AsRef<Utf8UnixPath>, R: Read>(
+            fn write_source<P: ::std::convert::AsRef<Utf8UnixPath>, R: ::std::io::Read>(
                 &mut self,
                 path: P,
                 source: &mut R,
