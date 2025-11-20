@@ -45,4 +45,8 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
     fn sources(&self) -> Vec<crate::lock::Source> {
         self.remote.sources()
     }
+
+    fn is_definitely_invalid(&self) -> bool {
+        self.local.is_definitely_invalid()
+    }
 }
