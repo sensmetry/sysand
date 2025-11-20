@@ -127,13 +127,13 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         #[derive(::std::fmt::Debug, ::thiserror::Error)]
-        enum #error_ident<
+        pub enum #error_ident<
             #( #variant_list ),*
         > {
             #( #error_variants ),*
         }
 
-        enum #source_reader_ident<
+        pub enum #source_reader_ident<
             #( #variant_list ),*
         > {
             #( #source_reader_variants ),*
