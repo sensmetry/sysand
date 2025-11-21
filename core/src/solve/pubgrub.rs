@@ -546,7 +546,7 @@ mod tests {
 
     fn simple_resolver_environment(
         structure: &[(&str, &[InMemoryProject])],
-    ) -> EnvResolver<MemoryStorageEnvironment> {
+    ) -> EnvResolver<MemoryStorageEnvironment<InMemoryProject>> {
         EnvResolver {
             env: MemoryStorageEnvironment {
                 projects: structure
