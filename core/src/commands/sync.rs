@@ -346,7 +346,12 @@ mod tests {
         let checksum = "00";
         let env = MemoryStorageEnvironment::new();
 
-        assert!(!is_installed::<MemoryStorageEnvironment, u32, _, _>(uri, checksum, &env).unwrap());
+        assert!(
+            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, u32, _, _>(
+                uri, checksum, &env
+            )
+            .unwrap()
+        );
     }
 
     #[test]
@@ -359,12 +364,23 @@ mod tests {
         env.put_project(uri, "1,2,3", |p| clone_project(&storage, p, true))
             .unwrap();
 
-        assert!(is_installed::<MemoryStorageEnvironment, E, _, _>(uri, &checksum, &env).unwrap());
-
-        assert!(!is_installed::<MemoryStorageEnvironment, E, _, _>(uri, "00", &env).unwrap());
+        assert!(
+            is_installed::<MemoryStorageEnvironment<InMemoryProject>, E, _, _>(
+                uri, &checksum, &env
+            )
+            .unwrap()
+        );
 
         assert!(
-            !is_installed::<MemoryStorageEnvironment, E, _, _>("not_uri", &checksum, &env).unwrap()
+            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, E, _, _>(uri, "00", &env)
+                .unwrap()
+        );
+
+        assert!(
+            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, E, _, _>(
+                "not_uri", &checksum, &env
+            )
+            .unwrap()
         );
     }
 
@@ -376,7 +392,7 @@ mod tests {
         let checksum = storage.checksum_noncanonical_hex().unwrap().unwrap();
         let mut env = MemoryStorageEnvironment::new();
 
-        try_install::<MemoryStorageEnvironment, InMemoryProject, E, _, _>(
+        try_install::<MemoryStorageEnvironment<InMemoryProject>, InMemoryProject, E, _, _>(
             uri, &checksum, storage, &mut env,
         )
         .unwrap();
@@ -401,7 +417,7 @@ mod tests {
         let mut env = MemoryStorageEnvironment::new();
 
         let SyncError::BadChecksum(msg) =
-            try_install::<MemoryStorageEnvironment, InMemoryProject, E, _, _>(
+            try_install::<MemoryStorageEnvironment<InMemoryProject>, InMemoryProject, E, _, _>(
                 &uri, &checksum, storage, &mut env,
             )
             .unwrap_err()

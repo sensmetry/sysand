@@ -5,11 +5,14 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::env::memory::{MemoryStorageEnvironment, MemoryWriteError};
 #[cfg(feature = "filesystem")]
 use crate::{
     env::local_directory::{ENTRIES_PATH, LocalDirectoryEnvironment, LocalWriteError},
     project::utils::wrapfs,
+};
+use crate::{
+    env::memory::{MemoryStorageEnvironment, MemoryWriteError},
+    project::memory::InMemoryProject,
 };
 
 use thiserror::Error;
@@ -31,7 +34,8 @@ pub enum EnvError<WriteError: std::error::Error> {
     Write(#[from] WriteError),
 }
 
-pub fn do_env_memory() -> Result<MemoryStorageEnvironment, EnvError<MemoryWriteError>> {
+pub fn do_env_memory()
+-> Result<MemoryStorageEnvironment<InMemoryProject>, EnvError<MemoryWriteError>> {
     Ok(MemoryStorageEnvironment::default())
 }
 
