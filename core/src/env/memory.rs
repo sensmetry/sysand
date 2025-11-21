@@ -3,21 +3,31 @@
 
 use crate::{
     env::{PutProjectError, ReadEnvironment, WriteEnvironment},
-    project::memory::InMemoryProject,
+    project::{ProjectMut, ProjectRead},
 };
-use std::collections::{HashMap, hash_map::Entry};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    fmt::Debug,
+};
 
 use thiserror::Error;
 
-/// Project stored in a local directory
-#[derive(Clone, Default, Debug)]
-pub struct MemoryStorageEnvironment {
-    pub projects: HashMap<String, HashMap<String, InMemoryProject>>,
+#[derive(Clone, Debug)]
+pub struct MemoryStorageEnvironment<Project: Clone> {
+    pub projects: HashMap<String, HashMap<String, Project>>,
 }
 
-impl MemoryStorageEnvironment {
+impl<Project: Clone> Default for MemoryStorageEnvironment<Project> {
+    fn default() -> Self {
+        Self {
+            projects: HashMap::default(),
+        }
+    }
+}
+
+impl<Project: Clone> MemoryStorageEnvironment<Project> {
     pub fn new() -> Self {
-        Self::default()
+        Default::default()
     }
 }
 
@@ -25,10 +35,10 @@ impl MemoryStorageEnvironment {
 #[derive(Error, Debug)]
 pub enum MemoryWriteError {}
 
-impl WriteEnvironment for MemoryStorageEnvironment {
+impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEnvironment<Project> {
     type WriteError = MemoryWriteError;
 
-    type InterchangeProjectMut = InMemoryProject;
+    type InterchangeProjectMut = Project;
 
     fn put_project<S: AsRef<str>, T: AsRef<str>, F, E>(
         &mut self,
@@ -39,7 +49,7 @@ impl WriteEnvironment for MemoryStorageEnvironment {
     where
         F: FnOnce(&mut Self::InterchangeProjectMut) -> Result<(), E>,
     {
-        let mut tentative_project = InMemoryProject::default();
+        let mut tentative_project = Project::default();
 
         write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
 
@@ -80,7 +90,7 @@ pub enum MemoryReadError {
     MissingVersion(String, String),
 }
 
-impl ReadEnvironment for MemoryStorageEnvironment {
+impl<Project: ProjectRead + Clone + Debug> ReadEnvironment for MemoryStorageEnvironment<Project> {
     type ReadError = MemoryReadError;
 
     type UriIter = Vec<Result<String, MemoryReadError>>;
@@ -106,7 +116,7 @@ impl ReadEnvironment for MemoryStorageEnvironment {
         Ok(version_vec)
     }
 
-    type InterchangeProjectRead = InMemoryProject;
+    type InterchangeProjectRead = Project;
 
     fn get_project<S: AsRef<str>, T: AsRef<str>>(
         &self,

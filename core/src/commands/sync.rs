@@ -347,8 +347,10 @@ mod tests {
         let env = MemoryStorageEnvironment::new();
 
         assert!(
-            !is_installed::<MemoryStorageEnvironment, Infallible, _, _>(uri, checksum, &env)
-                .unwrap()
+            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, _, _>(
+                uri, checksum, &env
+            )
+            .unwrap()
         );
     }
 
@@ -365,17 +367,24 @@ mod tests {
         .unwrap();
 
         assert!(
-            is_installed::<MemoryStorageEnvironment, Infallible, _, _>(uri, &checksum, &env)
-                .unwrap()
+            is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, _, _>(
+                uri, &checksum, &env
+            )
+            .unwrap()
         );
 
         assert!(
-            !is_installed::<MemoryStorageEnvironment, Infallible, _, _>(uri, "00", &env).unwrap()
+            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, _, _>(
+                uri, "00", &env
+            )
+            .unwrap()
         );
 
         assert!(
-            !is_installed::<MemoryStorageEnvironment, Infallible, _, _>("not_uri", &checksum, &env)
-                .unwrap()
+            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, _, _>(
+                "not_uri", &checksum, &env
+            )
+            .unwrap()
         );
     }
 
@@ -387,7 +396,7 @@ mod tests {
         let checksum = storage.checksum_noncanonical_hex().unwrap().unwrap();
         let mut env = MemoryStorageEnvironment::new();
 
-        try_install::<MemoryStorageEnvironment, InMemoryProject, Infallible, _, _>(
+        try_install::<MemoryStorageEnvironment<InMemoryProject>, InMemoryProject, Infallible, _, _>(
             uri, &checksum, storage, &mut env,
         )
         .unwrap();
@@ -411,12 +420,14 @@ mod tests {
         let checksum = "00";
         let mut env = MemoryStorageEnvironment::new();
 
-        let SyncError::BadChecksum(msg) =
-            try_install::<MemoryStorageEnvironment, InMemoryProject, Infallible, _, _>(
-                &uri, &checksum, storage, &mut env,
-            )
-            .unwrap_err()
-        else {
+        let SyncError::BadChecksum(msg) = try_install::<
+            MemoryStorageEnvironment<InMemoryProject>,
+            InMemoryProject,
+            Infallible,
+            _,
+            _,
+        >(&uri, &checksum, storage, &mut env)
+        .unwrap_err() else {
             panic!()
         };
 
