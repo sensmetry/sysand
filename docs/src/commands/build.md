@@ -19,3 +19,5 @@ if none is found uses the current directory instead.
 
 - `[PATH]`: Path giving where to put the finished KPAR. Defaults to
   `output/<project name>.kpar` or `output/project.kpar` if no name is found
+
+{{#include ./partials/global_opts.md}}

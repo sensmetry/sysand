@@ -87,13 +87,13 @@ pub fn standard_local_resolver(local_env_path: PathBuf) -> LocalEnvResolver {
 
 pub fn standard_index_resolver(
     client: ClientWithMiddleware,
-    base_urls: Vec<url::Url>,
+    urls: Vec<url::Url>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> AsSyncResolveTokio<RemoteIndexResolver> {
-    SequentialResolver::new(base_urls.into_iter().map(|base_url| EnvResolver {
+    SequentialResolver::new(urls.into_iter().map(|url| EnvResolver {
         env: HTTPEnvironmentAsync {
             client: client.clone(),
-            base_url: base_url.clone(),
+            base_url: url.clone(),
             prefer_src: true,
             //try_ranged: true,
         },
@@ -106,7 +106,7 @@ pub fn standard_resolver(
     cwd: Option<PathBuf>,
     local_env_path: Option<PathBuf>,
     client: Option<ClientWithMiddleware>,
-    index_base_url: Option<Vec<url::Url>>,
+    index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> StandardResolver {
     let file_resolver = standard_file_resolver(cwd);
@@ -115,8 +115,8 @@ pub fn standard_resolver(
         .map(|x| standard_remote_resolver(x, runtime.clone()));
     let local_resolver = local_env_path.map(standard_local_resolver);
     let index_resolver = client
-        .zip(index_base_url)
-        .map(|(client, base_url)| standard_index_resolver(client, base_url, runtime.clone()));
+        .zip(index_urls)
+        .map(|(client, urls)| standard_index_resolver(client, urls, runtime.clone()));
 
     StandardResolver(CombinedResolver {
         file_resolver: Some(file_resolver),

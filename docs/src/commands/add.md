@@ -24,8 +24,6 @@ and sync the local environment (creating one if not already present).
 - `--no-lock`: Do not automatically resolve usages (and generate lockfile)
 - `--no-sync`: Do not automatically install dependencies
 
-## Dependency options
+{{#include ./partials/dependency_opts.md}}
 
-- `--use-index [<USE_INDEX>...]`: Use an index when resolving this usage
-- `--no-index`: Do not use any index when resolving this usage
-- `--include`: Include usages of KerML/SysML standard libraries if present
+{{#include ./partials/global_opts.md}}

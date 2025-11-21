@@ -42,7 +42,7 @@ A model interchange project is a collection of SysML or KerML files with
 additional metadata such as project name, versions, and the list of projects on
 which it depends. To create a new project called `my_project` run:
 
-```bash
+```console
 $ sysand new my_project
     Creating interchange project `my_project`
 ```
@@ -52,7 +52,7 @@ interchange project, consisting of two files `.project.json` and `.meta.json`.
 
 Inside the directory, we can ask for a basic overview of the project.
 
-```bash
+```console
 $ cd my_project
 $ sysand info
 Name: my_project
@@ -65,7 +65,7 @@ No usages.
 The project we created in the previous subsection contains no source files as
 can be seen by running the following command:
 
-```bash
+```console
 $ sysand sources
 <NO OUTPUT>
 ```
@@ -80,7 +80,7 @@ package MyProject;
 Now, we can add `MyProject.sysml` to our project by running the following
 command:
 
-```bash
+```console
 $ sysand include MyProject.sysml
    Including files: ["MyProject.sysml"]
 ```
@@ -88,7 +88,7 @@ $ sysand include MyProject.sysml
 The file will now be listed by `sysand sources`, which can serve as the input
 to a SysML v2 processing environment.
 
-```bash
+```console
 $ sysand sources
 /path/to/my_project/MyProject.sysml
 ```
@@ -110,10 +110,10 @@ install from the [Sysand Package Index](https://sysand.org). You can find the
 IRI (and the full install command) in the card of the package on the index
 website. For example, to install the standard Function Library, run:
 
-```bash
+```console
 $ sysand add urn:kpar:function-library
       Adding usage: urn:kpar:function-library
-     Creating env
+    Creating env
      Syncing env
   Installing urn:kpar:semantic-library 1.0.0
   Installing urn:kpar:data-type-library 1.0.0
@@ -123,7 +123,7 @@ $ sysand add urn:kpar:function-library
 It is also possible to install packages from the URL that points to the `.kpar`
 file as shown in the following snippet:
 
-```bash
+```console
 $ sysand add https://www.omg.org/spec/KerML/20250201/Function-Library.kpar
       Adding usage: https://www.omg.org/spec/KerML/20250201/Function-Library.kpar
     Creating env
@@ -135,19 +135,19 @@ $ sysand add https://www.omg.org/spec/KerML/20250201/Function-Library.kpar
 
 Adding a dependency may take a few seconds to run, as it will find and install
 the project (and any transitive usages) into a new local environment. Once
-finished, this will have created a file called `SysandLock.toml` and a directory
+finished, this will have created a file called `sysand-lock.toml` and a directory
 `sysand_env`. The former records the precise versions installed, so that the
 same installation can be reproduced later. The latter directory will contain a
 local installation of the added project, as well as any of its (transitive)
-usages. `SysandLock.toml` is sufficient to reproduce `sysand_env`; therefore, we
-recommend checking in `SysandLock.toml` into your version control system and
+usages. `sysand-lock.toml` is sufficient to reproduce `sysand_env`; therefore, we
+recommend checking in `sysand-lock.toml` into your version control system and
 adding `sysand_env` to `.gitignore`.
 
 We can confirm that the usage was successfully added by running the `info`
 command again:
 
-```bash
-> sysand info
+```console
+$ sysand info
 Name: my_project
 Version: 0.0.1
     Usage: https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar
@@ -156,7 +156,7 @@ Version: 0.0.1
 If we run `sysand source` again, it will now include all source files of the
 set of (transitive) dependencies.
 
-```bash
+```console
 $ sysand sources
 /Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Metaobjects.kerml
 /Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Performances.kerml
@@ -176,7 +176,7 @@ dependencies needed for a specific project.
 We can see everything installed in the local environment using `sysand env
 list`:
 
-```bash
+```console
 $ sysand env list
 https://www.omg.org/spec/KerML/20250201/Data-Type-Library.kpar 1.0.0
 https://www.omg.org/spec/KerML/20250201/Function-Library.kpar 1.0.0
@@ -184,10 +184,10 @@ https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar 1.0.0
 ```
 
 If you want to recreate the environment on a new machine, make sure you have not
-only your project files, but also `SysandLock.toml` and execute the following
+only your project files, but also `sysand-lock.toml` and execute the following
 command:
 
-```bash
+```console
 $ sysand sync
     Creating env
      Syncing env
@@ -200,7 +200,7 @@ $ sysand sync
 
 To package your project for distribution, run `sysand build`:
 
-```bash
+```console
 $ sysand build
     Building kpar: /path/to/my_project/output/my_project.kpar
 ```
@@ -211,7 +211,7 @@ different project using `sysand`.
 ## Hosting a project index
 
 > [!important]
-> The structure of indices and `sysand_env` environments is still expected to
+> The structure of indexes and `sysand_env` environments is still expected to
 > change, and may currently not be compatible between sysand releases.
 
 The easiest way to host a project index from which to install packages is to
@@ -219,7 +219,8 @@ expose a `sysand_env` over HTTP.
 
 If you have an existing `sysand_env`, and you have a working Python 3 environment
 you can test this with
-```
+
+```console
 $ python3 -m http.server -d sysand_env 8080
 Serving HTTP on 0.0.0.0 port 8080 (http://0.0.0.0:8080/) ...
 ```
@@ -227,26 +228,31 @@ Serving HTTP on 0.0.0.0 port 8080 (http://0.0.0.0:8080/) ...
 > [!important]
 > Python's built-in `http.server` module is *not* intended for production use.
 
-Any project in the above `sysand_env` can now be used in `sysand add`, `sysand sync`, 
-`sysand env install`, etc., as long as the flag `--use-index http://localhost:8080` is
-added (or soon by specifying it in `sysand.toml`!).
+Any project in the above `sysand_env` can now be used in `sysand add`, `sysand sync`,
+`sysand env install`, etc., as long as the flag `--use-index http://localhost:8080`
+is added (or soon by specifying it in `sysand.toml`!).
 
-For example, to create an index to publish the above `my_project` project we can create
-a fresh `sysand_env`.
-```
+For example, to create an index to publish the above `my_project` project we can
+create a fresh `sysand_env`.
+
+```console
 $ mkdir my_index
 $ cd my_index
 $ sysand env 
     Creating env
 ```
-Now we install `my_project`, specifying the IRI/URL that you want to use to refer to it:
-```
+
+Now we install `my_project`, specifying the IRI/URL that you want to use to refer
+to it:
+
+```console
 $ sysand env install urn:kpar:my_project --path /path/to/my_project/
   Installing urn:kpar:my_project 0.0.1
      Syncing env
 ```
-By default, this will also install any usages (dependencies) of `my_project`, you can use
-`--no-deps` to install only the project itself.
+
+By default, this will also install any usages (dependencies) of `my_project`, you
+can use `--no-deps` to install only the project itself.
 
 ## Documentation
 

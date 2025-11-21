@@ -15,3 +15,5 @@ iteratively going up the parent directories until a project directory is found.
 
 A project directory is considered to be any directory containing either a
 `.project.json` or a `.meta.json file`.
+
+{{#include ./partials/global_opts.md}}

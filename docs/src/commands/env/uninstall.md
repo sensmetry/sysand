@@ -16,3 +16,5 @@ sysand env uninstall [OPTIONS] <IRI> [VERSION]
 
 - `<IRI>`: IRI identifying the project to be uninstalled
 - `[VERSION]`: Version to be uninstalled
+
+{{#include ../partials/global_opts.md}}

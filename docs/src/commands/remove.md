@@ -17,3 +17,5 @@ environment (creating one if not already present).
 ## Arguments
 
 - `<IRI>`: IRI identifying the project usage to be removed
+
+{{#include ./partials/global_opts.md}}

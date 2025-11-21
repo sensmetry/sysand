@@ -34,11 +34,8 @@ fn cfg_set_quiet() -> Result<(), Box<dyn std::error::Error>> {
         index: None,
     })?;
 
-    let cfg_path = cwd.join(sysand_core::config::local_fs::CONFIG_FILE);
-
-    std::fs::write(&cfg_path, quiet_cfg.clone())?;
-
-    let out_quiet_local_config = run_sysand_in(&cwd, ["new", "cfg_set_quiet"], cfg_path.to_str())?;
+    let out_quiet_local_config =
+        run_sysand_in(&cwd, ["new", "cfg_set_quiet"], Some(quiet_cfg.as_str()))?;
 
     out_quiet_local_config
         .assert()

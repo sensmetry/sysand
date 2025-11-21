@@ -19,3 +19,5 @@ if none is found uses the current directory instead.
 ## Arguments
 
 - `[PATHS]...`: File(s) to exclude from the project
+
+{{#include ./partials/global_opts.md}}

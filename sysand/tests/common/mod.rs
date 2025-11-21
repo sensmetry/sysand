@@ -6,6 +6,7 @@ use rexpect::session::{PtySession, spawn_command};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::process::ExitStatusExt;
 use std::{
+    io::Write,
     path::PathBuf,
     process::{Command, Output},
 };
@@ -23,10 +24,21 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
 ) -> Result<Command, Box<dyn std::error::Error>> {
+    let cfg_args = if let Some(config) = cfg {
+        let config_path = cwd.join("sysand.toml");
+        let mut config_file = std::fs::File::create_new(&config_path)?;
+        config_file.write_all(config.as_bytes())?;
+        vec![
+            "--config-file".to_string(),
+            config_path.display().to_string(),
+        ]
+    } else {
+        vec![]
+    };
     let args = [
         args.into_iter().map(|s| s.to_string()).collect(),
-        cfg.map(|config| vec!["--config-file".to_string(), config.to_string()])
-            .unwrap_or(vec!["--no-config".to_string()]),
+        vec!["--no-config".to_string()],
+        cfg_args,
     ]
     .concat();
     // NOTE had trouble getting test-temp-dir crate working, but would be better

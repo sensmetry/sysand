@@ -30,8 +30,6 @@ as [sysand env](../env.md).
 - `--allow-multiple`: Install even if another version is already installed
 - `--no-deps`: Don't install any dependencies
 
-## Dependency options
+{{#include ../partials/dependency_opts.md}}
 
-- `--use-index [<USE_INDEX>...]`: Use an index when resolving this usage
-- `--no-index`: Do not use any index when resolving this usage
-- `--include`: Include usages of KerML/SysML standard libraries if present
+{{#include ../partials/global_opts.md}}

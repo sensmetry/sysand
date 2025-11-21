@@ -8,28 +8,53 @@ use std::{env::current_dir, fs};
 
 use anyhow::{Result, bail};
 use pubgrub::Reporter as _;
-use sysand_core::commands;
-use sysand_core::commands::lock::{
-    DEFAULT_LOCKFILE_NAME, LockError, LockOutcome, LockProjectError,
+
+use sysand_core::{
+    commands::lock::{
+        DEFAULT_LOCKFILE_NAME, LockError, LockOutcome, LockProjectError, do_lock_local_editable,
+    },
+    config::Config,
+    resolve::{
+        memory::{AcceptAll, MemoryResolver},
+        priority::PriorityResolver,
+        standard::standard_resolver,
+    },
+    solve::pubgrub::{DependencyIdentifier, InternalSolverError},
+    stdlib::known_std_libs,
 };
 
-use sysand_core::project::memory::InMemoryProject;
-use sysand_core::resolve::memory::{AcceptAll, MemoryResolver};
-use sysand_core::resolve::priority::PriorityResolver;
-use sysand_core::resolve::standard::standard_resolver;
-use sysand_core::solve::pubgrub::{DependencyIdentifier, InternalSolverError};
+use crate::{DEFAULT_INDEX_URL, cli::DependencyOptions};
 
-pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
+pub fn command_lock<P: AsRef<Path>>(
     path: P,
+    dependency_opts: DependencyOptions,
+    config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
-    index_base_urls: Option<Vec<S>>,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
+    let DependencyOptions {
+        index,
+        default_index,
+        no_index,
+        include_std,
+    } = dependency_opts;
+
     let cwd = current_dir().ok();
 
     let local_env_path =
         Path::new(path.as_ref()).join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+
+    let index_urls = if no_index {
+        None
+    } else {
+        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
+    };
+
+    let provided_iris = if !include_std {
+        known_std_libs()
+    } else {
+        HashMap::default()
+    };
 
     let mut memory_projects = HashMap::default();
 
@@ -50,9 +75,7 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
                 None
             },
             Some(client),
-            index_base_urls
-                .map(|xs| xs.iter().map(|x| url::Url::parse(x.as_ref())).collect())
-                .transpose()?,
+            index_urls,
             runtime,
         ),
     );
@@ -61,7 +84,7 @@ pub fn command_lock<P: AsRef<Path>, S: AsRef<str>>(
         lock,
         dependencies: _dependencies,
         inputs: _inputs,
-    } = match commands::lock::do_lock_local_editable(&path, wrapped_resolver) {
+    } = match do_lock_local_editable(&path, wrapped_resolver) {
         Ok(lock_outcome) => lock_outcome,
         Err(LockProjectError::LockError(lock_error)) => {
             if let LockError::Solver(solver_error) = lock_error {

@@ -12,6 +12,7 @@ use anyhow::{Result, anyhow, bail};
 
 use sysand_core::{
     commands::{env::do_env_local_dir, lock::LockOutcome},
+    config::Config,
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     model::InterchangeProjectUsage,
@@ -29,7 +30,7 @@ use sysand_core::{
 };
 
 use crate::{
-    CliError,
+    CliError, DEFAULT_INDEX_URL,
     cli::{DependencyOptions, InstallOptions},
     commands::sync::command_sync,
 };
@@ -45,6 +46,7 @@ pub fn command_env_install<S: AsRef<str>>(
     version: Option<String>,
     install_opts: InstallOptions,
     dependency_opts: DependencyOptions,
+    config: &Config,
     project_root: Option<PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -57,7 +59,8 @@ pub fn command_env_install<S: AsRef<str>>(
         no_deps,
     } = install_opts;
     let DependencyOptions {
-        use_index,
+        index,
+        default_index,
         no_index,
         include_std,
     } = dependency_opts;
@@ -74,14 +77,10 @@ pub fn command_env_install<S: AsRef<str>>(
         HashMap::default()
     };
 
-    let index_base_url = if no_index {
+    let index_urls = if no_index {
         None
     } else {
-        let use_index: Result<Vec<_>, _> = use_index
-            .iter()
-            .map(|u| url::Url::parse(u.as_str()))
-            .collect();
-        Some(use_index?)
+        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
     let mut memory_projects = HashMap::default();
@@ -99,7 +98,7 @@ pub fn command_env_install<S: AsRef<str>>(
             None,
             None,
             Some(client.clone()),
-            index_base_url,
+            index_urls,
             runtime.clone(),
         ),
     );
@@ -176,6 +175,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
     path: String,
     install_opts: InstallOptions,
     dependency_opts: DependencyOptions,
+    config: &Config,
     project_root: Option<PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -188,7 +188,8 @@ pub fn command_env_install_path<S: AsRef<str>>(
         no_deps,
     } = install_opts;
     let DependencyOptions {
-        use_index,
+        index,
+        default_index,
         no_index,
         include_std,
     } = dependency_opts;
@@ -213,14 +214,10 @@ pub fn command_env_install_path<S: AsRef<str>>(
         HashMap::default()
     };
 
-    let index_base_url = if no_index {
+    let index_urls = if no_index {
         None
     } else {
-        let use_index: Result<Vec<_>, _> = use_index
-            .iter()
-            .map(|u| url::Url::parse(u.as_str()))
-            .collect();
-        Some(use_index?)
+        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
     if let Some(version) = version {
@@ -269,7 +266,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
                 Some(PathBuf::from(path)),
                 None,
                 Some(client.clone()),
-                index_base_url,
+                index_urls,
                 runtime.clone(),
             ),
         );

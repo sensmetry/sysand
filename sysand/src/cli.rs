@@ -6,7 +6,7 @@ use std::{convert::Infallible, fmt::Write, path::PathBuf};
 use clap::builder::StyledStr;
 use semver::VersionReq;
 
-const DEFAULT_INDEX_URL: &str = "https://beta.sysand.org";
+use crate::env_vars;
 
 /// A project manager for KerML and SysML
 #[derive(clap::Parser, Debug)]
@@ -1053,14 +1053,18 @@ pub struct InstallOptions {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct DependencyOptions {
-    /// Use an index when resolving this usage
-    #[arg(long, default_values = vec![DEFAULT_INDEX_URL], num_args=0.., help_heading = "Dependency options")]
-    pub use_index: Vec<String>,
+    /// URLs for indexes to use when resolving dependencies, in addition to the default indexes.
+    #[arg(long, num_args=0.., help_heading = "Dependency options", env = env_vars::SYSAND_INDEX, value_delimiter = ',')]
+    pub index: Vec<String>,
+    /// Set and override URL:s of the default indexes (by default 'https://beta.sysand.org')
+    #[arg(long, num_args=0.., help_heading = "Dependency options", env = env_vars::SYSAND_DEFAULT_INDEX, value_delimiter = ',')]
+    pub default_index: Vec<String>,
     /// Do not use any index when resolving this usage
     #[arg(
         long,
         default_value = "false",
-        conflicts_with = "use_index",
+        conflicts_with = "index",
+        conflicts_with = "default_index",
         help_heading = "Dependency options"
     )]
     pub no_index: bool,
@@ -1100,10 +1104,10 @@ pub struct GlobalOptions {
     )]
     pub quiet: bool,
     /// Disable discovery of configuration files
-    #[arg(long, global = true, help_heading = "Global options")]
+    #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_NO_CONFIG)]
     pub no_config: bool,
     /// Give path to 'sysand.toml' to use for configuration
-    #[arg(long, global = true, help_heading = "Global options")]
+    #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_CONFIG_FILE)]
     pub config_file: Option<String>,
     /// Print help
     #[arg(long, short, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
