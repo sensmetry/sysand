@@ -99,12 +99,12 @@ $ sysand add https://www.omg.org/spec/KerML/20250201/Function-Library.kpar
 
 Adding a dependency may take a few seconds to run, as it will find and install
 the project (and any transitive usages) into a new local environment. Once
-finished, this will have created a file called `SysandLock.toml` and a directory
+finished, this will have created a file called `sysand-lock.toml` and a directory
 `sysand_env`. The former records the precise versions installed, so that the
 same installation can be reproduced later. The latter directory will contain a
 local installation of the added project, as well as any of its (transitive)
-usages. `SysandLock.toml` is sufficient to reproduce `sysand_env`; therefore, we
-recommend checking in `SysandLock.toml` into your version control system and
+usages. `sysand-lock.toml` is sufficient to reproduce `sysand_env`; therefore, we
+recommend checking in `sysand-lock.toml` into your version control system and
 adding `sysand_env` to `.gitignore`.
 
 We can confirm that the usage was successfully added by running the `info`
@@ -122,11 +122,11 @@ set of (transitive) dependencies.
 
 ```bash
 $ sysand sources
-/Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Metaobjects.kerml
-/Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Performances.kerml
-/Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Links.kerml
-/Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/SpatialFrames.kerml
-/Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Clocks.kerml
+/path/to/my_project/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Metaobjects.kerml
+/path/to/my_project/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Performances.kerml
+/path/to/my_project/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Links.kerml
+/path/to/my_project/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/SpatialFrames.kerml
+/path/to/my_project/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Clocks.kerml
 ...
 ```
 
@@ -148,7 +148,7 @@ https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar 1.0.0
 ```
 
 If you want to recreate the environment on a new machine, make sure you have not
-only your project files, but also `SysandLock.toml` and execute the following
+only your project files, but also `sysand-lock.toml` and execute the following
 command:
 
 ```bash
