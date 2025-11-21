@@ -122,11 +122,11 @@ set of (transitive) dependencies.
 
 ```bash
 $ sysand sources
-/Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Metaobjects.kerml
-/Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Performances.kerml
-/Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Links.kerml
-/Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/SpatialFrames.kerml
-/Users/vakaras2/projects/tmp/sysand/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Clocks.kerml
+/path/to/my_project/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Metaobjects.kerml
+/path/to/my_project/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Performances.kerml
+/path/to/my_project/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Links.kerml
+/path/to/my_project/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/SpatialFrames.kerml
+/path/to/my_project/sysand_env/7afe310696b522f251dc21ed6086ac4b50a663969fd1a49aa0aa2103d2a674ad/1.0.0.kpar/Clocks.kerml
 ...
 ```
 
