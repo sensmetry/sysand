@@ -321,7 +321,7 @@ fn apply_get_info(
         GetInfoVerb::GetName => print_output(Some(vec![info.name]), numbered),
         GetInfoVerb::GetDescription => print_output(info.description.map(|x| vec![x]), numbered),
         GetInfoVerb::GetVersion => print_output(Some(vec![info.version]), numbered),
-        GetInfoVerb::GetLicence => print_output(info.license.map(|x| vec![x]), numbered),
+        GetInfoVerb::GetLicense => print_output(info.license.map(|x| vec![x]), numbered),
         GetInfoVerb::GetMaintainer => print_output(Some(info.maintainer), numbered),
         GetInfoVerb::GetWebsite => print_output(info.website.map(|x| vec![x]), numbered),
         GetInfoVerb::GetTopic => print_output(Some(info.topic), numbered),
@@ -419,7 +419,7 @@ fn set_info(
         SetInfoVerb::SetVersion(value) => {
             result.version = value.clone();
         }
-        SetInfoVerb::SetLicence(value) => {
+        SetInfoVerb::SetLicense(value) => {
             result.license = Some(value.clone());
         }
         SetInfoVerb::SetMaintainer(value) => {
@@ -485,7 +485,7 @@ fn clear_info(
         ClearInfoVerb::ClearDescription => {
             result.description = None;
         }
-        ClearInfoVerb::ClearLicence => {
+        ClearInfoVerb::ClearLicense => {
             result.license = None;
         }
         ClearInfoVerb::ClearMaintainer => {

@@ -710,9 +710,9 @@ dependencies = [
 
 [[package]]
 name = "fluent-uri"
-version = "0.3.2"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1918b65d96df47d3591bed19c5cca17e3fa5d0707318e4b5ef2eae01764df7e5"
+checksum = "bc74ac4d8359ae70623506d512209619e5cf8f347124910440dbc221714b328e"
 dependencies = [
  "borrow-or-share",
  "ref-cast",
@@ -3221,6 +3221,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "spdx"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41cf87c0efffc158b9dde4d6e0567a43e4383adc4c949e687a2039732db2f23a"
+dependencies = [
+ "smallvec",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3279,6 +3288,7 @@ dependencies = [
 name = "sysand"
 version = "0.0.6"
 dependencies = [
+ "anstream",
  "anyhow",
  "assert_cmd",
  "clap",
@@ -3295,6 +3305,7 @@ dependencies = [
  "rexpect",
  "semver",
  "serde_json",
+ "spdx",
  "sysand-core",
  "tempfile",
  "thiserror 2.0.17",
@@ -3334,6 +3345,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "spdx",
  "tempfile",
  "thiserror 2.0.17",
  "tokio",

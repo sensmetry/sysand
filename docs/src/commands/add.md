@@ -5,7 +5,7 @@ Add usage to project information
 ## Usage
 
 ```sh
-sysand add [OPTIONS] <IRI> [VERSIONS_CONSTRAINT]
+sysand add [OPTIONS] <IRI> [VERSION_CONSTRAINT]
 ```
 
 ## Description
@@ -17,7 +17,9 @@ and sync the local environment (creating one if not already present).
 ## Arguments
 
 - `<IRI>`: IRI identifying the project to be used
-- `[VERSIONS_CONSTRAINT]`: A constraint on the allowable versions of a used project
+- `[VERSION_CONSTRAINT]`: A constraint on the allowable versions of a used project
+                          Assumes that the project uses Semantic Versioning
+                          See [`versionConstraint` docs](../metadata.md#versionconstraint) for details
 
 ## Options
 

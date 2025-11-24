@@ -15,10 +15,11 @@ public class Sysand {
      * already exist.
      *
      * @param name    The name of the project.
-     * @param version The version of the project.
+     * @param version The version of the project in SemVer 2.0.0 format.
+     * @param license The license of the project given as an SPDX license identifier. May be {@code null}.
      * @param path    The path to the directory in which to initialize the project.
      */
-    public static native void init(String name, String version, String path)
+    public static native void init(String name, String version, String license, String path)
             throws com.sensmetry.sysand.exceptions.SysandException;
 
     /**
@@ -26,19 +27,20 @@ public class Sysand {
      * already exist.
      *
      * @param name    The name of the project.
-     * @param version The version of the project.
+     * @param version The version of the project in SemVer 2.0.0 format.
+     * @param license The license of the project given as an SPDX license identifier. May be {@code null}.
      * @param path    The path to the directory in which to initialize the project.
      */
-    public static void init(String name, String version, java.nio.file.Path path)
+    public static void init(String name, String version, String license, java.nio.file.Path path)
             throws com.sensmetry.sysand.exceptions.SysandException {
-        init(name, version, path.toString());
+        init(name, version, license, path.toString());
     }
 
     /**
-     * Get the value of the constant DEFAULT_ENV_NAME, which is the default name
+     * Get the value of the constant {@code DEFAULT_ENV_NAME}, which is the default name
      * of the environment directory.
      *
-     * @return The value of the constant DEFAULT_ENV_NAME.
+     * @return The value of the constant {@code DEFAULT_ENV_NAME}.
      */
     public static native String defaultEnvName();
 

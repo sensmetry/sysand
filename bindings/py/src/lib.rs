@@ -45,11 +45,17 @@ use sysand_core::{
 
 #[pyfunction(name = "do_new_py_local_file")]
 #[pyo3(
-    signature = (name, version, path),
+    signature = (name, version, path, license=None),
 )]
-fn do_new_py_local_file(name: String, version: String, path: String) -> PyResult<()> {
-    do_new_local_file(name, version, Path::new(&path)).map_err(|err| match err {
+fn do_new_py_local_file(
+    name: String,
+    version: String,
+    path: String,
+    license: Option<String>,
+) -> PyResult<()> {
+    do_new_local_file(name, version, license, Path::new(&path)).map_err(|err| match err {
         NewError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
+        NewError::SPDXLicenseParse(..) => PyValueError::new_err(err.to_string()),
         NewError::Project(err) => match err {
             LocalSrcError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
             LocalSrcError::Deserialize(error) => PyValueError::new_err(error.to_string()),
@@ -244,13 +250,13 @@ pub fn do_sources_env_py(
         match version {
             Some(vr) => {
                 return Err(PyRuntimeError::new_err(format!(
-                    "unable to find project {} ({}) in local environment",
+                    "unable to find project `{}` ({}) in local environment",
                     iri, vr
                 )));
             }
             None => {
                 return Err(PyRuntimeError::new_err(format!(
-                    "unable to find project {} in local environment",
+                    "unable to find project `{}` in local environment",
                     iri
                 )));
             }
@@ -343,7 +349,7 @@ pub fn do_sources_project_py(
 
         let Some(env_path) = env_path else {
             return Err(PyRuntimeError::new_err(
-                "Unable to identify local environment",
+                "unable to identify local environment",
             ));
         };
 
@@ -504,7 +510,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     } else {
         return Err(PyRuntimeError::new_err(format!(
-            "unable to find project at {}",
+            "unable to find project at `{}`",
             location
         )));
     }

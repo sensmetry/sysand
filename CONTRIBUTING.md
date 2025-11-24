@@ -5,9 +5,9 @@ everyone. This text intends to document the practicalities of doing so.
 
 ## Developer's Certificate of Origin (DCO)
 
-Sysand is distributed under free software licences (MIT and Apache-2.0).
+Sysand is distributed under free software licenses (MIT and Apache-2.0).
 As such, it must be ensured that the Sysand code-base only contains
-source code that can be distributed under these licences. To ensure
+source code that can be distributed under these licenses. To ensure
 this is the case, all commits intended for release must be [signed
 (`-s`)](https://git-scm.com/docs/git-commit.html#Documentation/git-commit.txt--s
 ), indicating that the contributor certifies they have the rights to contribute

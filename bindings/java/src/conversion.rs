@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use crate::exceptions::JniExt;
 use indexmap::IndexMap;
 use jni::{
     JNIEnv,
@@ -28,184 +29,223 @@ pub(crate) const INTERCHANGE_PROJECT_CHECKSUM_CLASS_CONSTRUCTOR: &str =
     "(Ljava/lang/String;Ljava/lang/String;)V";
 
 pub(crate) trait ToJObject {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local>;
+    /// `None` return = exception thrown. Parent must return
+    /// ASAP to not eat the exception. If another exception is
+    /// thrown before returning to JVM, current one will be lost
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>>;
 }
 
 pub(crate) trait ToJObjectArray {
-    fn to_jobject_array<'local>(&self, env: &mut JNIEnv<'local>) -> JObjectArray<'local>;
+    /// `None` return = exception thrown. Parent must return
+    /// ASAP to not eat the exception. If another exception is
+    /// thrown before returning to JVM, current one will be lost
+    fn to_jobject_array<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObjectArray<'local>>;
 }
 
 impl<T: ToJObject> ToJObject for &T {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
         ToJObject::to_jobject(*self, env)
     }
 }
 
 impl ToJObject for String {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        env.new_string(self)
-            .expect("Failed to create String")
-            .into()
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
+        self.as_str().to_jobject(env)
     }
 }
 
 impl ToJObject for str {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        env.new_string(self)
-            .expect("Failed to create String")
-            .into()
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
+        match env.new_string(self) {
+            Ok(s) => Some(s.into()),
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to create String: {e}"));
+                None
+            }
+        }
     }
 }
 
 impl<T: ToJObject> ToJObject for Option<T> {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        self.as_ref()
-            .map(|value| value.to_jobject(env))
-            .unwrap_or_default()
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
+        match self {
+            Some(v) => v.to_jobject(env),
+            // `None` specifically indicates that exception was thrown
+            // because of a failure. In general, having `Option<T>::None`
+            // is not a failure, so return `null` instead
+            None => Some(JObject::null()),
+        }
     }
 }
 
 impl ToJObjectArray for [String] {
-    fn to_jobject_array<'local>(&self, env: &mut JNIEnv<'local>) -> JObjectArray<'local> {
-        let string_class = env
-            .find_class("java/lang/String")
-            .expect("Failed to find String class");
-        let mut array = env
-            .new_object_array(
-                self.len()
-                    .try_into()
-                    .expect("Failed to convert length to i32"),
-                string_class,
-                JObject::null(),
-            )
-            .expect("Failed to create ObjectArray");
+    fn to_jobject_array<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObjectArray<'local>> {
+        let mut array = match env.new_object_array(
+            self.len()
+                .try_into()
+                .expect("Failed to convert length to i32"),
+            "java/lang/String",
+            JObject::null(),
+        ) {
+            Ok(a) => a,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to create String[]: {e}"));
+                return None;
+            }
+        };
         for (i, value) in self.iter().enumerate() {
             let index: i32 = i.try_into().expect("Failed to convert index to i32");
-            let value_object = value.to_jobject(env);
-            env.set_object_array_element(&mut array, index, value_object)
-                .expect("Failed to set array element");
+            let value_object = value.to_jobject(env)?;
+            match env.set_object_array_element(&mut array, index, value_object) {
+                Ok(_) => (),
+                Err(e) => {
+                    env.throw_runtime_exception(format!("Failed to set String[] element: {e}"));
+                    return None;
+                }
+            };
         }
-        array
+        Some(array)
     }
 }
 
 impl ToJObject for [String] {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        self.to_jobject_array(env).into()
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
+        Some(self.to_jobject_array(env)?.into())
     }
 }
 
 impl ToJObject for bool {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        let boolean_class = env
-            .find_class("java/lang/Boolean")
-            .expect("Failed to find Boolean class");
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
         let boolean_value: jni::sys::jboolean = if *self { 1 } else { 0 };
-        env.new_object(boolean_class, "(Z)V", &[JValue::from(boolean_value)])
-            .expect("Failed to create Boolean")
+        match env.new_object("java/lang/Boolean", "(Z)V", &[JValue::from(boolean_value)]) {
+            Ok(b) => Some(b),
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to create Boolean: {e}"));
+                None
+            }
+        }
     }
 }
 
 impl<K: ToJObject, V: ToJObject> ToJObject for IndexMap<K, V> {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        let index_class = env
-            .find_class("java/util/LinkedHashMap")
-            .expect("Failed to find LinkedHashMap class");
-        let mut map = env
-            .new_object(index_class, "()V", &[])
-            .expect("Failed to create LinkedHashMap");
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
+        let mut map = match env.new_object("java/util/LinkedHashMap", "()V", &[]) {
+            Ok(l) => l,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to create LinkedHashMap: {e}"));
+                return None;
+            }
+        };
         for (key, value) in self.iter() {
-            let key_object = key.to_jobject(env);
-            let value_object = value.to_jobject(env);
-            env.call_method(
+            let key_object = key.to_jobject(env)?;
+            let value_object = value.to_jobject(env)?;
+            match env.call_method(
                 &mut map,
                 "put",
                 "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
                 &[JValue::from(&key_object), JValue::from(&value_object)],
-            )
-            .expect("Failed to call put");
+            ) {
+                Ok(_) => (),
+                Err(e) => {
+                    env.throw_runtime_exception(format!(
+                        "Failed to call LinkedHashMap::put(): {e}"
+                    ));
+                    return None;
+                }
+            }
         }
-        map
+        Some(map)
     }
 }
 
 impl ToJObject for InterchangeProjectChecksum {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        let checksum_class = env
-            .find_class(INTERCHANGE_PROJECT_CHECKSUM_CLASS)
-            .expect("Failed to find InterchangeProjectChecksum class");
-        let value = self.value.to_jobject(env);
-        let algorithm = self.algorithm.to_jobject(env);
-        env.new_object(
-            checksum_class,
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
+        let value = self.value.to_jobject(env)?;
+        let algorithm = self.algorithm.to_jobject(env)?;
+        match env.new_object(
+            INTERCHANGE_PROJECT_CHECKSUM_CLASS,
             INTERCHANGE_PROJECT_CHECKSUM_CLASS_CONSTRUCTOR,
             &[JValue::from(&value), JValue::from(&algorithm)],
-        )
-        .expect("Failed to create InterchangeProjectChecksum")
+        ) {
+            Ok(o) => Some(o),
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to create LinkedHashMap: {e}"));
+                None
+            }
+        }
     }
 }
 
 impl ToJObject for InterchangeProjectUsageRaw {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        let usage_class = env
-            .find_class(INTERCHANGE_PROJECT_USAGE_CLASS)
-            .expect("Failed to find InterchangeProjectUsage class");
-        let resource = self.resource.to_jobject(env);
-        let version_constraint = self.version_constraint.to_jobject(env);
-        env.new_object(
-            usage_class,
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
+        let resource = self.resource.to_jobject(env)?;
+        let version_constraint = self.version_constraint.to_jobject(env)?;
+        match env.new_object(
+            INTERCHANGE_PROJECT_USAGE_CLASS,
             "()V",
             &[JValue::from(&resource), JValue::from(&version_constraint)],
-        )
-        .expect("Failed to create InterchangeProjectUsage")
+        ) {
+            Ok(o) => Some(o),
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to create LinkedHashMap: {e}"));
+                None
+            }
+        }
     }
 }
 
 impl ToJObjectArray for Vec<InterchangeProjectUsageRaw> {
-    fn to_jobject_array<'local>(&self, env: &mut JNIEnv<'local>) -> JObjectArray<'local> {
-        let usage_class = env
-            .find_class(INTERCHANGE_PROJECT_USAGE_CLASS)
-            .expect("Failed to find InterchangeProjectUsage class");
-        let mut array = env
-            .new_object_array(
-                self.len()
-                    .try_into()
-                    .expect("Failed to convert length to i32"),
-                usage_class,
-                JObject::null(),
-            )
-            .expect("Failed to create ObjectArray");
+    fn to_jobject_array<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObjectArray<'local>> {
+        let mut array = match env.new_object_array(
+            self.len()
+                .try_into()
+                .expect("Failed to convert length to i32"),
+            INTERCHANGE_PROJECT_USAGE_CLASS,
+            JObject::null(),
+        ) {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!(
+                    "Failed to create InterchangeProjectUsage[]: {e}"
+                ));
+                return None;
+            }
+        };
         for (i, value) in self.iter().enumerate() {
             let index: i32 = i.try_into().expect("Failed to convert index to i32");
-            let value_object = value.to_jobject(env);
-            env.set_object_array_element(&mut array, index, value_object)
-                .expect("Failed to set array element");
+            let value_object = value.to_jobject(env)?;
+            match env.set_object_array_element(&mut array, index, value_object) {
+                Ok(o) => o,
+                Err(e) => {
+                    env.throw_runtime_exception(format!(
+                        "Failed to set InterchangeProjectUsage[] element: {e}"
+                    ));
+                    return None;
+                }
+            }
         }
-        array
+        Some(array)
     }
 }
 
 impl ToJObject for Vec<InterchangeProjectUsageRaw> {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        self.to_jobject_array(env).into()
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
+        self.to_jobject_array(env).map(|v| v.into())
     }
 }
 
 impl ToJObject for InterchangeProjectInfoRaw {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        let info_class = env
-            .find_class(INTERCHANGE_PROJECT_INFO_CLASS)
-            .expect("Failed to find InterchangeProjectInfo class");
-        let name = self.name.to_jobject(env);
-        let description = self.description.to_jobject(env);
-        let version = self.version.to_jobject(env);
-        let license = self.license.to_jobject(env);
-        let maintainer = self.maintainer.to_jobject(env);
-        let website = self.website.to_jobject(env);
-        let topic = self.topic.to_jobject(env);
-        let usage = self.usage.to_jobject(env);
-        env.new_object(
-            info_class,
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
+        let name = self.name.to_jobject(env)?;
+        let description = self.description.to_jobject(env)?;
+        let version = self.version.to_jobject(env)?;
+        let license = self.license.to_jobject(env)?;
+        let maintainer = self.maintainer.to_jobject(env)?;
+        let website = self.website.to_jobject(env)?;
+        let topic = self.topic.to_jobject(env)?;
+        let usage = self.usage.to_jobject(env)?;
+        match env.new_object(
+            INTERCHANGE_PROJECT_INFO_CLASS,
             INTERCHANGE_PROJECT_INFO_CLASS_CONSTRUCTOR,
             &[
                 JValue::from(&name),
@@ -217,24 +257,28 @@ impl ToJObject for InterchangeProjectInfoRaw {
                 JValue::from(&topic),
                 JValue::from(&usage),
             ],
-        )
-        .expect("Failed to create InterchangeProjectInfo")
+        ) {
+            Ok(o) => Some(o),
+            Err(e) => {
+                env.throw_runtime_exception(format!(
+                    "Failed to create InterchangeProjectInfo: {e}"
+                ));
+                None
+            }
+        }
     }
 }
 
 impl ToJObject for InterchangeProjectMetadataRaw {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
-        let metadata_class = env
-            .find_class(INTERCHANGE_PROJECT_METADATA_CLASS)
-            .expect("Failed to find InterchangeProjectMetadata class");
-        let index = self.index.to_jobject(env);
-        let created = self.created.to_jobject(env);
-        let metamodel = self.metamodel.to_jobject(env);
-        let includes_derived = self.includes_derived.to_jobject(env);
-        let includes_implied = self.includes_implied.to_jobject(env);
-        let checksum = self.checksum.to_jobject(env);
-        env.new_object(
-            metadata_class,
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
+        let index = self.index.to_jobject(env)?;
+        let created = self.created.to_jobject(env)?;
+        let metamodel = self.metamodel.to_jobject(env)?;
+        let includes_derived = self.includes_derived.to_jobject(env)?;
+        let includes_implied = self.includes_implied.to_jobject(env)?;
+        let checksum = self.checksum.to_jobject(env)?;
+        match env.new_object(
+            INTERCHANGE_PROJECT_METADATA_CLASS,
             INTERCHANGE_PROJECT_METADATA_CLASS_CONSTRUCTOR,
             &[
                 JValue::from(&index),
@@ -244,48 +288,65 @@ impl ToJObject for InterchangeProjectMetadataRaw {
                 JValue::from(&includes_implied),
                 JValue::from(&checksum),
             ],
-        )
-        .expect("Failed to create InterchangeProjectMetadata")
+        ) {
+            Ok(o) => Some(o),
+            Err(e) => {
+                env.throw_runtime_exception(format!(
+                    "Failed to create InterchangeProjectMetadata: {e}"
+                ));
+                None
+            }
+        }
     }
 }
 
 impl ToJObject for (InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw) {
-    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
         let (info, metadata) = self;
-        let info_object = info.to_jobject(env);
-        let metadata_object = metadata.to_jobject(env);
-        let project_class = env
-            .find_class(INTERCHANGE_PROJECT_CLASS)
-            .expect("Failed to find InterchangeProject class");
-        env.new_object(
-            project_class,
+        let info_object = info.to_jobject(env)?;
+        let metadata_object = metadata.to_jobject(env)?;
+        match env.new_object(
+            INTERCHANGE_PROJECT_CLASS,
             INTERCHANGE_PROJECT_CLASS_CONSTRUCTOR,
             &[JValue::from(&info_object), JValue::from(&metadata_object)],
-        )
-        .expect("Failed to create InterchangeProject")
+        ) {
+            Ok(o) => Some(o),
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to create InterchangeProject: {e}"));
+                None
+            }
+        }
     }
 }
 
 impl ToJObjectArray for Vec<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
-    fn to_jobject_array<'local>(&self, env: &mut JNIEnv<'local>) -> JObjectArray<'local> {
-        let project_class = env
-            .find_class(INTERCHANGE_PROJECT_CLASS)
-            .expect("Failed to find InterchangeProject class");
-        let mut array = env
-            .new_object_array(
-                self.len()
-                    .try_into()
-                    .expect("Failed to convert length to i32"),
-                project_class,
-                JObject::null(),
-            )
-            .expect("Failed to create ObjectArray");
+    fn to_jobject_array<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObjectArray<'local>> {
+        let mut array = match env.new_object_array(
+            self.len()
+                .try_into()
+                .expect("Failed to convert length to i32"),
+            INTERCHANGE_PROJECT_CLASS,
+            JObject::null(),
+        ) {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to create InterchangeProject[]: {e}"));
+                return None;
+            }
+        };
         for (i, value) in self.iter().enumerate() {
             let index: i32 = i.try_into().expect("Failed to convert index to i32");
-            let value_object = value.to_jobject(env);
-            env.set_object_array_element(&mut array, index, value_object)
-                .expect("Failed to set array element");
+            let value_object = value.to_jobject(env)?;
+            match env.set_object_array_element(&mut array, index, value_object) {
+                Ok(o) => o,
+                Err(e) => {
+                    env.throw_runtime_exception(format!(
+                        "Failed to set InterchangeProject[] element: {e}"
+                    ));
+                    return None;
+                }
+            }
         }
-        array
+        Some(array)
     }
 }
