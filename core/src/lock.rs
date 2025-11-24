@@ -557,7 +557,7 @@ fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
 
 #[cfg(test)]
 mod tests {
-    use std::{fmt::Display, str::FromStr};
+    use std::{fmt::Display, slice, str::FromStr};
 
     use toml_edit::DocumentMut;
 
@@ -803,7 +803,7 @@ checksum = "{CHECKSUM}"
     }
 
     #[test]
-    fn ome_source_to_toml() {
+    fn one_source_to_toml() {
         test_to_toml(
             vec![Project {
                 name: Some("One source".to_string()),
@@ -1232,7 +1232,13 @@ checksum = "{CHECKSUM}"
         };
         let Err(err) = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
-            projects: vec![make_project(None, "0.0.1", &[], &[], &[usage_in.clone()])],
+            projects: vec![make_project(
+                None,
+                "0.0.1",
+                &[],
+                &[],
+                slice::from_ref(&usage_in),
+            )],
         }
         .validate() else {
             panic!()
@@ -1259,7 +1265,7 @@ checksum = "{CHECKSUM}"
         let Err(err) = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![
-                make_project(None, "0.0.1", &[], &[], &[usage_in.clone()]),
+                make_project(None, "0.0.1", &[], &[], slice::from_ref(&usage_in)),
                 make_project(None, version_in, &[], &[iri], &[]),
             ],
         }

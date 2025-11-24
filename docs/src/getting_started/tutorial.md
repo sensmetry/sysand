@@ -114,7 +114,8 @@ command again:
 $ sysand info
 Name: my_project
 Version: 0.0.1
-    Usage: https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar
+Usages:
+    https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar
 ```
 
 If we run `sysand source` again, it will now include all source files of the

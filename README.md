@@ -29,7 +29,7 @@ Sysand is written in Rust programming language. To build it, [install
 Rust](https://www.rust-lang.org/tools/install) and run the following command in
 the terminal:
 
-```bash
+```sh
 cargo install sysand --git=https://github.com/sensmetry/sysand.git
 ```
 
@@ -150,7 +150,8 @@ command again:
 $ sysand info
 Name: my_project
 Version: 0.0.1
-    Usage: https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar
+Usages:
+    https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar
 ```
 
 If we run `sysand source` again, it will now include all source files of the
@@ -259,13 +260,13 @@ can use `--no-deps` to install only the project itself.
 The "Sysand User Guide" is currently a work in progress. To preview make sure
 you have `mdbook` installed (`cargo install mdbook`), then either run
 
-```bash
+```sh
 mdbook build docs/
 ```
 
 and open `docs/book/index.html`, or run
 
-```bash
+```sh
 mdbook serve docs/
 ```
 

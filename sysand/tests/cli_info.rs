@@ -820,12 +820,12 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
     try_add("description", "description_1", false)?;
     try_remove("description", "1", false)?;
     get_field("licence", Some("".to_string()))?;
-    try_set("licence", "BSD4", true)?;
+    try_set("licence", "BSD-4-Clause", true)?;
     try_clear("licence", true)?;
     try_add("licence", "licence_1", false)?;
     try_remove("licence", "1", false)?;
     get_field("license", Some("".to_string()))?;
-    try_set("license", "BSD4", true)?;
+    try_set("license", "BSD-4-Clause", true)?;
     try_clear("license", true)?;
     try_add("license", "license_1", false)?;
     try_remove("license", "1", false)?;

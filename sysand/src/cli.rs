@@ -31,27 +31,54 @@ pub enum Command {
         /// Set the project name. Defaults to the directory name
         #[arg(long)]
         name: Option<String>,
-        /// Set the version. Defaults to `0.0.1`
+        /// Set the version in SemVer 2.0.0 format. Defaults to `0.0.1`
         #[arg(long)]
         version: Option<String>,
+        /// Don't require version to conform to SemVer
+        #[arg(long, requires = "version")]
+        no_semver: bool,
+        /// Set the license in the form of an SPDX license identifier.
+        /// Defaults to omitting the license field
+        #[clap(verbatim_doc_comment)]
+        #[arg(long, alias = "licence")]
+        license: Option<String>,
+        /// Don't require license to be an SPDX expression
+        #[arg(long, requires = "license")]
+        no_spdx: bool,
     },
     /// Create new project in given directory
     New {
         /// Path to the new project
         path: String,
-        #[arg(long)]
         /// Set the project name. Defaults to the directory name
-        name: Option<String>,
         #[arg(long)]
-        /// Set the version. Defaults to `0.0.1`
+        name: Option<String>,
+        /// Set the version in SemVer 2.0.0 format. Defaults to `0.0.1`
+        #[arg(long)]
         version: Option<String>,
+        /// Don't require version to conform to Semantic Versioning
+        #[arg(long, requires = "version")]
+        no_semver: bool,
+        /// Set the license in the form of an SPDX license identifier.
+        /// Defaults to omitting the license field
+        #[clap(verbatim_doc_comment)]
+        #[arg(long, alias = "licence")]
+        license: Option<String>,
+        /// Don't require license to be an SPDX expression
+        #[arg(long, requires = "license")]
+        no_spdx: bool,
     },
     /// Add usage to project information
     Add {
         /// IRI identifying the project to be used
         iri: String,
-        /// A constraint on the allowable versions of a used project
-        versions_constraint: Option<String>,
+        /// A constraint on the allowed versions of a used project.
+        /// Assumes that the project being added uses Semantic Versioning.
+        /// Version constraints use same syntax as Rust's Cargo.
+        /// Examples: `1.2.3`, `<2`, `>=3`.
+        /// For details, see the user guide's Project Metadata section
+        #[clap(verbatim_doc_comment)]
+        version_constraint: Option<String>,
         /// Do not automatically resolve usages (and generate lockfile)
         #[arg(long, default_value = "false")]
         no_lock: bool,
@@ -63,6 +90,7 @@ pub enum Command {
         dependency_opts: DependencyOptions,
     },
     /// Remove usage from project information
+    #[clap(alias = "rm")]
     Remove {
         /// IRI identifying the project usage to be removed
         iri: String,
@@ -85,8 +113,9 @@ pub enum Command {
         #[arg(num_args = 1..)]
         paths: Vec<String>,
     },
-    /// Build a KerML Project Archive (KPAR). If executed in a workspace outside
-    /// of a project, builds all projects in the workspace.
+    /// Build a KerML Project Archive (KPAR). If executed in a workspace
+    /// outside of a project, builds all projects in the workspace.
+    #[clap(verbatim_doc_comment)]
     Build {
         /// Path giving where to put the finished KPAR or KPARs. When building a
         /// workspace, it is a path to the folder to write the KPARs to
@@ -95,6 +124,7 @@ pub enum Command {
         /// `<current-workspace>/output/<project name>-<version>.kpar` or
         /// `<current-project>/output/<project name>-<version>.kpar` depending
         /// on whether the current project belongs to a workspace or not).
+        #[clap(verbatim_doc_comment)]
         path: Option<PathBuf>,
     },
     /// Create or update lockfile
@@ -128,6 +158,7 @@ pub enum Command {
         iri: Option<String>,
         /// Use the project with the given location, trying to parse it
         /// as an IRI/URI/URL and otherwise falling back to a local path
+        #[clap(verbatim_doc_comment)]
         #[arg(short = 'a', long, group = "location")]
         auto_location: Option<String>,
         /// Do not try to normalise the IRI/URI when resolving
@@ -204,15 +235,15 @@ pub enum InfoCommand {
         set: Option<String>,
         // Only for better error messages
         #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=
-            invalid_command("'name' cannot be unset"))]
+            invalid_command("`name` cannot be unset"))]
         clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=
-            invalid_command("'name' is not a list, consider using 'sysand info name --set'?"))]
+            invalid_command("`name` is not a list, consider using `sysand info name --set`?"))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=
-            invalid_command("'name' is not a list, and cannot be unset"))]
+            invalid_command("`name` is not a list, and cannot be unset"))]
         remove: Option<Infallible>,
     },
     /// Get or set the description of the project
@@ -224,20 +255,24 @@ pub enum InfoCommand {
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'description' is not a list, consider using 'sysand info description --set'?"
+          "`description` is not a list, consider using `sysand info description --set`?"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'description' is not a list, consider using 'sysand info description --clear'?"
+          "`description` is not a list, consider using `sysand info description --clear`?"
         ))]
         remove: Option<Infallible>,
     },
     /// Get or set the version of the project
     #[group(required = false, multiple = false)]
     Version {
+        /// Set the version in SemVer 2.0.0 format
         #[arg(long, default_value=None)]
         set: Option<String>,
+        /// Don't require version to conform to Semantic Versioning
+        #[arg(long, requires = "set")]
+        no_semver: bool,
         // Only for better error messages
         #[arg(
             hide = true,
@@ -245,36 +280,41 @@ pub enum InfoCommand {
             num_args=0,
             default_missing_value="None",
             default_value = None,
-            value_parser=invalid_command("'version' cannot be unset")
+            value_parser=invalid_command("`version` cannot be unset")
         )]
         clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'version' is not a list, consider using 'sysand info version --set'?"
+          "`version` is not a list, consider using `sysand info version --set`?"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'version' is not a list, and cannot be unset"
+          "`version` is not a list, and cannot be unset"
         ))]
         remove: Option<Infallible>,
     },
-    /// Get or set the licence of the project
-    #[command(visible_alias = "license")]
+    /// Get or set the license of the project
+    #[command(visible_alias = "licence")]
     #[group(required = false, multiple = false)]
-    Licence {
+    License {
+        /// Set the license in the form of an SPDX license identifier
         #[arg(long, default_value=None)]
         set: Option<String>,
+        /// Don't require license to be an SPDX expression
+        #[arg(long, requires = "set")]
+        no_spdx: bool,
+        /// Remove the project's license
         #[arg(long, default_value = None)]
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'licence' is not a list, consider using 'sysand info licence --set'?"
+          "`license` is not a list, consider using `sysand info license --set`?"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'licence' is not a list, consider using 'sysand info licence --clear'?"
+          "`license` is not a list, consider using `sysand info license --clear`?"
         ))]
         remove: Option<Infallible>,
     },
@@ -302,12 +342,12 @@ pub enum InfoCommand {
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'website' is not a list, consider using 'sysand info website --set'?"
+          "`website` is not a list, consider using `sysand info website --set`?"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'website' is not a list, consider using 'sysand info website --clear'?"
+          "`website` is not a list, consider using `sysand info website --clear`?"
         ))]
         remove: Option<Infallible>,
     },
@@ -331,7 +371,7 @@ pub enum InfoCommand {
     Usage {
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'usage' cannot be set directly, please use 'sysand add' and 'sysand remove'"
+          "`usage` cannot be set directly, please use `sysand add` and `sysand remove`"
         ))]
         set: Option<Infallible>,
         // Only for better error messages
@@ -341,18 +381,18 @@ pub enum InfoCommand {
             num_args=0,
             default_missing_value="None",
             value_parser=invalid_command(
-              "'usage' cannot be cleared directly, please use 'sysand remove'"
+              "`usage` cannot be cleared directly, please use `sysand remove`"
             )
         )]
         clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'usage' cannot be added to directly, please use 'sysand add'"
+          "`usage` cannot be added to directly, please use `sysand add`"
         ))]
         add: Option<Infallible>,
         // Only for Infallible error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'usage' cannot be removed from directly, please use 'sysand remove'"
+          "`usage` cannot be removed from directly, please use `sysand remove`"
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
@@ -364,7 +404,7 @@ pub enum InfoCommand {
     Index {
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'index' cannot be set directly, please use 'sysand include' and 'sysand exclude'"
+          "`index` cannot be set directly, please use `sysand include` and `sysand exclude`"
         ))]
         set: Option<Infallible>,
         // Only for better error messages
@@ -374,18 +414,18 @@ pub enum InfoCommand {
             num_args=0,
             default_missing_value="None",
             value_parser=invalid_command(
-              "'index' cannot be cleared directly, please use 'sysand exclude'"
+              "`index` cannot be cleared directly, please use `sysand exclude`"
             )
         )]
         clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'index' cannot be added to directly, please use 'sysand include' and 'sysand exclude'"
+          "`index` cannot be added to directly, please use `sysand include` and `sysand exclude`"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'index' cannot be removed from directly, please use 'sysand exclude'"
+          "`index` cannot be removed from directly, please use `sysand exclude`"
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
@@ -397,7 +437,7 @@ pub enum InfoCommand {
     Created {
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'created' cannot be set directly, it is automatically updated"
+          "`created` cannot be set directly, it is automatically updated"
         ))]
         set: Option<Infallible>,
         // Only for better error messages
@@ -407,18 +447,18 @@ pub enum InfoCommand {
             num_args=0,
             default_missing_value="None",
             value_parser=invalid_command(
-              "'created' cannot be cleared, it is automatically updated"
+              "`created` cannot be cleared, it is automatically updated"
             )
         )]
         clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'created' cannot be added to, it is automatically updated"
+          "`created` cannot be added to, it is automatically updated"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'created' cannot be removed from, it is automatically updated"
+          "`created` cannot be removed from, it is automatically updated"
         ))]
         remove: Option<Infallible>,
     },
@@ -431,12 +471,12 @@ pub enum InfoCommand {
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'metamodel' is not a list, consider using 'sysand info metamodel --set'?"
+          "`metamodel` is not a list, consider using `sysand info metamodel --set`?"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'metamodel' is not a list, consider using 'sysand info metamodel --clear'?"
+          "`metamodel` is not a list, consider using `sysand info metamodel --clear`?"
         ))]
         remove: Option<Infallible>,
     },
@@ -453,7 +493,7 @@ pub enum InfoCommand {
             long,
             default_value=None,
             value_parser=invalid_command(
-            "'include_derived' is not a list, consider using 'sysand info include_derived --set'?"
+            "`include_derived` is not a list, consider using `sysand info include_derived --set`?"
             )
         )]
         add: Option<Infallible>,
@@ -462,7 +502,7 @@ pub enum InfoCommand {
           long,
           default_value=None,
           value_parser=invalid_command(
-          "'include_derived' is not a list, consider using 'sysand info include_derived --clear'?"
+          "`include_derived` is not a list, consider using `sysand info include_derived --clear`?"
           )
         )]
         remove: Option<Infallible>,
@@ -476,12 +516,12 @@ pub enum InfoCommand {
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'include_implied' is not a list, consider using 'sysand info include_implied --set'?"
+          "`include_implied` is not a list, consider using `sysand info include_implied --set`?"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "'include_implied' is not a list, consider using 'sysand info include_implied --clear'?"
+          "`include_implied` is not a list, consider using `sysand info include_implied --clear`?"
         ))]
         remove: Option<Infallible>,
     },
@@ -490,7 +530,7 @@ pub enum InfoCommand {
     Checksum {
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "checksum cannot be set directly, please use 'sysand include' and 'sysand exclude'"
+          "`checksum` cannot be set directly, please use `sysand include` and `sysand exclude`"
         ))]
         set: Option<Infallible>,
         // Only for better error messages
@@ -500,18 +540,18 @@ pub enum InfoCommand {
             num_args=0,
             default_missing_value="None",
             value_parser=invalid_command(
-              "checksum cannot be cleared directly, please use 'sysand exclude'"
+              "`checksum` cannot be cleared directly, please use `sysand exclude`"
             )
         )]
         clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "checksum cannot be added to directly, please use 'sysand include'"
+          "`checksum` cannot be added to directly, please use `sysand include`"
         ))]
         add: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
-          "checksum cannot be removed from directly, please use 'sysand exclude'"
+          "`checksum` cannot be removed from directly, please use `sysand exclude`"
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
@@ -564,7 +604,7 @@ pub enum GetInfoVerb {
     GetName,
     GetDescription,
     GetVersion,
-    GetLicence,
+    GetLicense,
     GetMaintainer,
     GetWebsite,
     GetTopic,
@@ -576,7 +616,7 @@ pub enum SetInfoVerb {
     SetName(String),
     SetDescription(String),
     SetVersion(String),
-    SetLicence(String),
+    SetLicense(String),
     SetMaintainer(Vec<String>),
     SetWebsite(String),
     SetTopic(Vec<String>),
@@ -585,7 +625,7 @@ pub enum SetInfoVerb {
 #[derive(Debug, Clone)]
 pub enum ClearInfoVerb {
     ClearDescription,
-    ClearLicence,
+    ClearLicense,
     ClearMaintainer,
     ClearWebsite,
     ClearTopic,
@@ -726,6 +766,7 @@ impl InfoCommand {
                 clear,
                 add,
                 remove,
+                no_semver: _,
             } => pack_info(
                 GetInfoVerb::GetVersion,
                 set.map(SetInfoVerb::SetVersion),
@@ -733,16 +774,17 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Licence {
+            InfoCommand::License {
                 set,
                 clear,
                 add,
                 remove,
+                no_spdx: _,
             } => pack_info(
-                GetInfoVerb::GetLicence,
-                set.map(SetInfoVerb::SetLicence),
+                GetInfoVerb::GetLicense,
+                set.map(SetInfoVerb::SetLicense),
                 if clear {
-                    Some(ClearInfoVerb::ClearLicence)
+                    Some(ClearInfoVerb::ClearLicense)
                 } else {
                     None
                 },
@@ -919,12 +961,14 @@ impl InfoCommand {
             } => false,
             InfoCommand::Version {
                 set: _,
+                no_semver: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::Licence {
+            InfoCommand::License {
                 set: _,
+                no_spdx: _,
                 clear: _,
                 add: _,
                 remove: _,
@@ -1026,9 +1070,11 @@ pub enum EnvCommand {
     List,
     /// List source files for an installed project and
     /// (optionally) its dependencies
+    #[clap(verbatim_doc_comment)]
     Sources {
         /// IRI of the (already installed) project for which
         /// to enumerate source files
+        #[clap(verbatim_doc_comment)]
         iri: String,
         /// Version of project to list sources for
         version: Option<VersionReq>,
@@ -1054,7 +1100,7 @@ pub struct InstallOptions {
 #[derive(clap::Args, Debug, Clone)]
 pub struct DependencyOptions {
     /// URLs for indexes to use when resolving dependencies, in addition to the default indexes.
-    #[arg(long, num_args=0.., help_heading = "Dependency options", env = env_vars::SYSAND_INDEX, value_delimiter = ',')]
+    #[arg(long, value_name = "INDEX", num_args = 0.., help_heading = "Dependency options", env = env_vars::SYSAND_INDEX, value_delimiter = ',')]
     pub index: Vec<String>,
     /// Set and override URL:s of the default indexes (by default 'https://beta.sysand.org')
     #[arg(long, num_args=0.., help_heading = "Dependency options", env = env_vars::SYSAND_DEFAULT_INDEX, value_delimiter = ',')]

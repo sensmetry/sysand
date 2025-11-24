@@ -16,10 +16,10 @@ crate-type = ["cdylib"]
 [dependencies]
 jni = "0.21.1"
 sysand-core = { path = "../../core", features = ["std", "filesystem", "networking"] }
-indexmap = { version = "2.10.0", default-features = false, features = ["serde"] }
-reqwest = { version = "0.12.23", default-features = false }
+indexmap = { version = "2.12.1", default-features = false, features = ["serde"] }
+reqwest = { version = "0.12.24", default-features = false }
 url = { version = "2.5.7", default-features = false }
 tokio = { version = "1.48.0", default-features = false, features = ["rt"] }
 reqwest-middleware = { version = "0.4.2", default-features = false }
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = { version = "1.0.140", default-features = false, features = ["preserve_order"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.145", default-features = false, features = ["preserve_order"] }

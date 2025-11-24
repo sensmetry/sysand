@@ -58,10 +58,9 @@ pub trait ResolveRead {
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         match fluent_uri::Iri::parse(uri.as_ref().to_string()) {
             Ok(uri) => self.resolve_read(&uri),
-            Err(err) => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "unable to parse IRI '{}': {}",
-                uri.as_ref(),
-                err
+            Err((err, val)) => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+                "unable to parse IRI `{}`: {}",
+                val, err
             ))),
         }
     }
@@ -100,10 +99,9 @@ pub trait ResolveReadAsync {
         async move {
             match fluent_uri::Iri::parse(uri.as_ref().to_string()) {
                 Ok(uri) => self.resolve_read_async(&uri).await,
-                Err(err) => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                    "Unable to parse IRI {}: {}",
-                    uri.as_ref(),
-                    err
+                Err((err, val)) => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+                    "unable to parse IRI `{}`: {}",
+                    val, err
                 ))),
             }
         }
