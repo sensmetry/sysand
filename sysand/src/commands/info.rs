@@ -112,6 +112,7 @@ pub fn command_info_uri(
         } else {
             None
         },
+        vec![],
         Some(client),
         index_urls,
         runtime,
@@ -202,6 +203,7 @@ pub fn command_info_verb_uri(
                 } else {
                     None
                 },
+                vec![],
                 Some(client),
                 index_urls,
                 runtime,

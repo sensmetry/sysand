@@ -74,6 +74,7 @@ pub fn command_lock<P: AsRef<Path>>(
             } else {
                 None
             },
+            vec![],
             Some(client),
             index_urls,
             runtime,

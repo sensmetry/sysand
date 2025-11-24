@@ -41,6 +41,7 @@ pub mod reqwest_src;
 
 // Generic implementations
 pub mod cached;
+pub mod reference;
 
 pub mod utils;
 
