@@ -11,3 +11,5 @@ sysand env list [OPTIONS]
 ## Description
 
 List projects installed in `sysand_env` by IRI and version.
+
+{{#include ../partials/global_opts.md}}

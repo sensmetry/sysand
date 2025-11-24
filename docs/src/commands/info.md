@@ -27,8 +27,6 @@ if none is found uses the current directory instead.
   to parse it as an IRI/URI/URL and otherwise falling back to a local path
 - `--no-normalise`: Do not try to normalise the IRI/URI when resolving
 
-## Dependency options
+{{#include ./partials/dependency_opts.md}}
 
-- `--use-index [<USE_INDEX>...]`: Use an index when resolving this usage
-- `--no-index`: Do not use any index when resolving this usage
-- `--include`: Include usages of KerML/SysML standard libraries if present
+{{#include ./partials/global_opts.md}}

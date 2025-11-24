@@ -25,3 +25,5 @@ if none is found uses the current directory instead.
 
 - `--compute-checksum`: Compute and add file (current) SHA256 checksum
 - `--no-index-symbol`: Do not detect and add top level symbols to index
+
+{{#include ./partials/global_opts.md}}

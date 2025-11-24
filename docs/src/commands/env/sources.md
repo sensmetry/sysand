@@ -21,7 +21,6 @@ typically shipped with your language implementation.
 - `<IRI>`: IRI of the (already installed) project for which to enumerate source files
 - `[VERSION]`: Version of project to list sources for
 
-## Options
+{{#include ../partials/source_opts.md}}
 
-- `--no-deps`: Do not include sources for dependencies
-- `--include-std`: Include (installed) KerML/SysML standard libraries
+{{#include ../partials/global_opts.md}}
