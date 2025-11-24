@@ -95,6 +95,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         standard_resolver(
             None,
             None,
+            vec![],
             Some(client.clone()),
             index_urls,
             runtime.clone(),
@@ -241,6 +242,7 @@ pub fn command_env_install_path<S: AsRef<str>, Policy: HTTPAuthentication>(
             standard_resolver(
                 Some(path),
                 None,
+                vec![],
                 Some(client.clone()),
                 index_urls,
                 runtime.clone(),
