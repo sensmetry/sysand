@@ -30,7 +30,7 @@ pub fn do_add<P: ProjectMut>(
     let adding = "Adding";
     let header = crate::style::get_style_config().header;
     log::info!(
-        "{header}{adding:>12}{header:#} usage: '{}' {}",
+        "{header}{adding:>12}{header:#} usage: `{}` {}",
         &iri,
         versions_constraint
             .as_ref()

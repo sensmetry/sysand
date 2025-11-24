@@ -43,7 +43,7 @@ pub struct LocalKParProject {
 pub enum LocalKParError {
     #[error(transparent)]
     Zip(#[from] project::utils::ZipArchiveError),
-    #[error("path '{0}' not found")]
+    #[error("path `{0}` not found")]
     NotFound(Box<Path>),
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
@@ -109,9 +109,9 @@ fn path_index<P: AsRef<Utf8UnixPath>>(
 
 #[derive(Debug, Error)]
 pub enum IntoKparError<ReadError> {
-    #[error("missing project information file '.project.json'")]
+    #[error("missing project information file `.project.json`")]
     MissingInfo,
-    #[error("missing project metadata file '.meta.json'")]
+    #[error("missing project metadata file `.meta.json`")]
     MissingMeta,
     #[error(transparent)]
     ProjectRead(ReadError),
@@ -237,7 +237,7 @@ impl ProjectRead for LocalKParProject {
                     .map_err(|e| ZipArchiveError::NamedFileMeta(".project.json".into(), e))?,
             )
             .map_err(|e| {
-                ProjectDeserializationError::new("failed to deserialize '.project.json'", e)
+                ProjectDeserializationError::new("failed to deserialize `.project.json`", e)
             })?,
             Err(LocalKParError::NotFound(_)) => None,
             Err(err) => return Err(err),
@@ -250,7 +250,7 @@ impl ProjectRead for LocalKParProject {
                     .map_err(|e| ZipArchiveError::NamedFileMeta(".meta.json".into(), e))?,
             )
             .map_err(|e| {
-                ProjectDeserializationError::new("failed to deserialize '.meta.json'", e)
+                ProjectDeserializationError::new("failed to deserialize `.meta.json`", e)
             })?,
             Err(LocalKParError::NotFound(_)) => None,
             Err(err) => return Err(err),

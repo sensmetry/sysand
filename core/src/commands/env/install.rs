@@ -10,13 +10,13 @@ use crate::{
 
 #[derive(Error, Debug)]
 enum CheckInstallError<EnvReadError, ProjectReadError> {
-    #[error("project with IRI '{0}' is already installed")]
+    #[error("project with IRI `{0}` is already installed")]
     AlreadyInstalled(Box<str>),
-    #[error("project with IRI '{0}' already has version '{1}' installed")]
+    #[error("project with IRI `{0}` already has version `{1}` installed")]
     AlreadyInstalledVersion(Box<str>, String),
-    #[error("unknown version of project with IRI '{0}' is already installed")]
+    #[error("unknown version of project with IRI `{0}` is already installed")]
     AlreadyInstalledUnknownVersion(Box<str>),
-    #[error("env read error: {0}")]
+    #[error("environment read error: {0}")]
     EnvRead(EnvReadError),
     #[error("project read error: {0}")]
     ProjectRead(ProjectReadError),
@@ -65,13 +65,13 @@ fn check_install<S: AsRef<str>, P: ProjectRead, E: ReadEnvironment>(
 
 #[derive(Error, Debug)]
 pub enum EnvInstallError<EnvReadError, ProjectReadError, InstallationError> {
-    #[error("project with IRI '{0}' is already installed")]
+    #[error("project with IRI `{0}` is already installed")]
     AlreadyInstalled(Box<str>),
-    #[error("project with IRI '{0}' already has version '{1}' installed")]
+    #[error("project with IRI `{0}` already has version `{1}` installed")]
     AlreadyInstalledVersion(Box<str>, String),
-    #[error("unknown version of project with IRI '{0}' is already installed")]
+    #[error("unknown version of project with IRI `{0}` is already installed")]
     AlreadyInstalledUnknownVersion(Box<str>),
-    #[error("env read error: {0}")]
+    #[error("environment read error: {0}")]
     EnvRead(EnvReadError),
     #[error("project read error: {0}")]
     ProjectRead(ProjectReadError),

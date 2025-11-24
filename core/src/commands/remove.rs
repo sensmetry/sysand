@@ -9,9 +9,9 @@ use crate::{model::InterchangeProjectUsageRaw, project::ProjectMut};
 pub enum RemoveError<ProjectError> {
     #[error(transparent)]
     Project(ProjectError),
-    #[error("could not find usage for '{0}'")]
+    #[error("could not find usage for `{0}`")]
     UsageNotFound(Box<str>),
-    #[error("could not find project information for '{0}'")]
+    #[error("could not find project information for `{0}`")]
     MissingInfo(Box<str>),
 }
 
@@ -22,7 +22,7 @@ pub fn do_remove<P: ProjectMut, S: AsRef<str>>(
     let removing = "Removing";
     let header = crate::style::get_style_config().header;
     log::info!(
-        "{header}{removing:>12}{header:#} '{}' from usages",
+        "{header}{removing:>12}{header:#} `{}` from usages",
         iri.as_ref()
     );
 
