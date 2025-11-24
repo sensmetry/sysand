@@ -61,9 +61,9 @@ impl<Predicate: IRIPredicate, ProjectStorage: ProjectRead + Clone> ResolveRead
         uri: &fluent_uri::Iri<String>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         if !self.iri_predicate.accept_iri(uri) {
-            return Ok(ResolutionOutcome::UnsupportedIRIType(
-                "Invalid IRI for this memory resolver".to_string(),
-            ));
+            return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+                "invalid IRI `{uri}` for this memory resolver"
+            )));
         }
 
         Ok(match self.projects.get(uri) {

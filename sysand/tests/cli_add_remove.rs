@@ -21,7 +21,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("Adding usage: 'urn:kpar:test'"));
+        .stderr(predicate::str::contains("Adding usage: `urn:kpar:test`"));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
 
@@ -35,14 +35,15 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
       "resource": "urn:kpar:test"
     }
   ]
-}"#
+}
+"#
     );
 
     let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], None)?;
 
     out.assert().success().stderr(predicate::str::contains(
-        r#"Removing 'urn:kpar:test' from usages
-             urn:kpar:test"#,
+        r#"Removing `urn:kpar:test` from usages
+     Removed `urn:kpar:test`"#,
     ));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -53,7 +54,8 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
   "name": "add_and_remove",
   "version": "1.2.3",
   "usage": []
-}"#
+}
+"#
     );
 
     Ok(())
@@ -124,7 +126,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
     .assert()
     .success()
     .stderr(predicate::str::contains(
-        "Adding usage: 'urn:kpar:add_and_remove_with_lock_preinstall_dep'",
+        "Adding usage: `urn:kpar:add_and_remove_with_lock_preinstall_dep`",
     ));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -139,7 +141,8 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
       "resource": "urn:kpar:add_and_remove_with_lock_preinstall_dep"
     }
   ]
-}"#
+}
+"#
     );
 
     run_sysand_in(
@@ -158,7 +161,8 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
   "name": "add_and_remove_with_lock_preinstall",
   "version": "1.2.3",
   "usage": []
-}"#
+}
+"#
     );
 
     Ok(())
@@ -176,7 +180,7 @@ fn remove_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["remove", "urn:kpar:remove_nonexistent"], None)?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "could not find usage for 'urn:kpar:remove_nonexistent'",
+        "could not find usage for `urn:kpar:remove_nonexistent`",
     ));
 
     Ok(())

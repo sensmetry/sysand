@@ -12,7 +12,7 @@ pub enum ExcludeError<ProjectError> {
     Project(ProjectError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("could not find file '{0}' in project metadata")]
+    #[error("could not find file `{0}` in project metadata")]
     SourceNotFound(Box<str>),
 }
 

@@ -40,7 +40,11 @@ impl ResolveRead for GitResolver {
             || scheme == SCHEME_SSH)
         {
             return Ok(crate::resolve::ResolutionOutcome::UnsupportedIRIType(
-                format!("not a known git-compatible url scheme {}", uri.as_str()),
+                format!(
+                    "url scheme `{}` of IRI `{}` is not known to be git-compatible",
+                    scheme,
+                    uri.as_str()
+                ),
             ));
         }
 

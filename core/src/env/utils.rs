@@ -33,14 +33,14 @@ pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
     match from.get_project().map_err(CloneError::ProjectRead)? {
         (None, None) => {
             return Err(CloneError::IncompleteSource(
-                "missing '.project.json' and '.meta.json'",
+                "missing `.project.json` and `.meta.json`",
             ));
         }
         (None, _) => {
-            return Err(CloneError::IncompleteSource("missing '.project.json'"));
+            return Err(CloneError::IncompleteSource("missing `.project.json`"));
         }
         (_, None) => {
-            return Err(CloneError::IncompleteSource("missing '.meta.json'"));
+            return Err(CloneError::IncompleteSource("missing `.meta.json`"));
         }
         (Some(info), Some(meta)) => {
             to.put_project(&info, &meta, overwrite)

@@ -34,7 +34,7 @@ pub struct FileResolver {
 
 #[derive(Error, Debug)]
 pub enum FileResolverError {
-    #[error("invalid path '{0}'")]
+    #[error("invalid path `{0}`")]
     InvalidPath(String),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
@@ -70,7 +70,7 @@ impl FileResolver {
                 root_part.join(&path)
             } else {
                 return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                    "Cannot resolve relative file without a specified root directory: {}",
+                    "cannot resolve relative file without a specified root directory: {}",
                     path.display()
                 )));
             }
@@ -94,7 +94,7 @@ impl FileResolver {
             }
             if !found {
                 return Ok(ResolutionOutcome::Unresolvable(format!(
-                    "Refusing to resolve path '{}', is not inside in any of the allowed directories\n{}",
+                    "refusing to resolve path `{}`, is not inside in any of the allowed directories\n{}",
                     project_path.display(),
                     sandbox_roots_canonical.join("; "),
                 )));
@@ -112,7 +112,7 @@ impl FileResolver {
             self.resolve_platform_path(file_path)
         } else {
             Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "not a valid file URL: {}",
+                "`{}` is not a valid file URL",
                 &uri
             )))
         }
@@ -129,7 +129,7 @@ pub enum FileResolverProject {
 pub enum FileResolverProjectError {
     #[error(transparent)]
     Zip(project::utils::ZipArchiveError),
-    #[error("path '{0}' not found")]
+    #[error("path `{0}` not found")]
     NotFound(Box<Path>),
     #[error(transparent)]
     Deserialize(ProjectDeserializationError),

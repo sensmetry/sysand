@@ -51,18 +51,18 @@ Requirements:
 
 Build and run tests:
 
-```bash
+```sh
 ./scripts/run_tests.sh
 ```
 
 Only build:
 
-```bash
+```sh
 ./scripts/java-builder.py build
 ```
 
 Only run tests:
 
-```bash
+```sh
 ./scripts/java-builder.py test
 ```

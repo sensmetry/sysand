@@ -6,8 +6,9 @@ use rexpect::session::{PtySession, spawn_command};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::process::ExitStatusExt;
 use std::{
+    error::Error,
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Output},
 };
 use tempfile::TempDir;
@@ -20,10 +21,10 @@ pub fn fixture_path(name: &str) -> PathBuf {
 }
 
 pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
-    cwd: &std::path::Path,
+    cwd: &Path,
     args: I,
     cfg: Option<&str>,
-) -> Result<Command, Box<dyn std::error::Error>> {
+) -> Result<Command, Box<dyn Error>> {
     let cfg_args = if let Some(config) = cfg {
         let config_path = cwd.join("sysand.toml");
         let mut config_file = std::fs::File::create_new(&config_path)?;
@@ -58,7 +59,7 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
 /// the path because tests check the output of CLI to see whether it operated on
 /// the expected files and CLI typically prints the canonicalised version of the
 /// path.
-pub fn new_temp_cwd() -> Result<(TempDir, std::path::PathBuf), Box<dyn std::error::Error>> {
+pub fn new_temp_cwd() -> Result<(TempDir, PathBuf), Box<dyn Error>> {
     let temp_dir = TempDir::with_prefix("sysand_test_")?;
     let temp_dir_path = temp_dir.path().canonicalize()?;
 
@@ -68,7 +69,7 @@ pub fn new_temp_cwd() -> Result<(TempDir, std::path::PathBuf), Box<dyn std::erro
 pub fn sysand_cmd<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
-) -> Result<(TempDir, PathBuf, Command), Box<dyn std::error::Error>> {
+) -> Result<(TempDir, PathBuf, Command), Box<dyn Error>> {
     // NOTE had trouble getting test-temp-dir crate working, but would be better
     let (temp_dir, cwd) = new_temp_cwd()?;
     let cmd = sysand_cmd_in(&cwd, args /*, stdin*/, cfg)?;
@@ -77,17 +78,17 @@ pub fn sysand_cmd<'a, I: IntoIterator<Item = &'a str>>(
 }
 
 pub fn run_sysand_in<'a, I: IntoIterator<Item = &'a str>>(
-    cwd: &std::path::Path,
+    cwd: &Path,
     args: I,
     cfg: Option<&str>,
-) -> Result<Output, Box<dyn std::error::Error>> {
+) -> Result<Output, Box<dyn Error>> {
     Ok(sysand_cmd_in(cwd, args, cfg)?.output()?)
 }
 
 pub fn run_sysand<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
-) -> Result<(TempDir, std::path::PathBuf, Output), Box<dyn std::error::Error>> {
+) -> Result<(TempDir, PathBuf, Output), Box<dyn Error>> {
     let (temp_dir, cwd, mut cmd) = sysand_cmd(args /*, stdin*/, cfg)?;
 
     Ok((temp_dir, cwd, cmd.output()?))
@@ -96,11 +97,11 @@ pub fn run_sysand<'a, I: IntoIterator<Item = &'a str>>(
 // TODO: Figure out how to do interactive tests on Windows.
 #[cfg(not(target_os = "windows"))]
 pub fn run_sysand_interactive_in<'a, I: IntoIterator<Item = &'a str>>(
-    cwd: &std::path::Path,
+    cwd: &Path,
     args: I,
     timeout_ms: Option<u64>,
     cfg: Option<&str>,
-) -> Result<PtySession, Box<dyn std::error::Error>> {
+) -> Result<PtySession, Box<dyn Error>> {
     let cmd = sysand_cmd_in(cwd, args, cfg)?;
 
     Ok(spawn_command(cmd, timeout_ms)?)
@@ -112,7 +113,7 @@ pub fn run_sysand_interactive<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     timeout_ms: Option<u64>,
     cfg: Option<&str>,
-) -> Result<(TempDir, std::path::PathBuf, PtySession), Box<dyn std::error::Error>> {
+) -> Result<(TempDir, PathBuf, PtySession), Box<dyn Error>> {
     let (temp_dir, cwd, cmd) = sysand_cmd(args, cfg)?;
 
     Ok((temp_dir, cwd, spawn_command(cmd, timeout_ms)?))
@@ -120,7 +121,7 @@ pub fn run_sysand_interactive<'a, I: IntoIterator<Item = &'a str>>(
 
 // TODO: Figure out how to do interactive tests on Windows.
 #[cfg(not(target_os = "windows"))]
-pub fn await_exit(p: PtySession) -> Result<std::process::ExitStatus, Box<dyn std::error::Error>> {
+pub fn await_exit(p: PtySession) -> Result<std::process::ExitStatus, Box<dyn Error>> {
     let status = p.process.wait()?;
     if let rexpect::process::wait::WaitStatus::Exited(_, code) = status {
         Ok(std::process::ExitStatus::from_raw(code))

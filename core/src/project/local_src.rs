@@ -9,7 +9,7 @@ use crate::{
 use std::{
     collections::HashSet,
     fs::File,
-    io::Read,
+    io::{Read, Write as _},
     path::{Path, PathBuf},
 };
 
@@ -121,7 +121,7 @@ impl LocalSrcProject {
             // at root /.
             path.as_ref()
                 .strip_prefix("/")
-                .expect("Internal Path processing error")
+                .expect("internal path processing error")
         } else {
             path.as_ref()
         };
@@ -211,13 +211,22 @@ impl ProjectMut for LocalSrcProject {
 
         if !overwrite && project_json_path.exists() {
             return Err(LocalSrcError::AlreadyExists(
-                "'.project.json' already exists".to_string(),
+                "`.project.json` already exists".to_string(),
             ));
         }
 
-        serde_json::to_writer_pretty(wrapfs::File::create(&project_json_path)?, info).map_err(
-            |e| ProjectSerializationError::new("failed to serialize '.project.json'", e),
-        )?;
+        let mut file = wrapfs::File::create(&project_json_path)?;
+        serde_json::to_writer_pretty(&mut file, info).map_err(|e| {
+            ProjectSerializationError::new(
+                format!(
+                    "failed to serialize and write project info to `{}`",
+                    project_json_path.display()
+                ),
+                e,
+            )
+        })?;
+        file.write(b"\n")
+            .map_err(|e| FsIoError::WriteFile(project_json_path, e))?;
 
         Ok(())
     }
@@ -234,8 +243,18 @@ impl ProjectMut for LocalSrcProject {
             ));
         }
 
-        serde_json::to_writer_pretty(wrapfs::File::create(&meta_json_path)?, meta)
-            .map_err(|e| ProjectSerializationError::new("failed to serialize '.meta.json'", e))?;
+        let mut file = wrapfs::File::create(&meta_json_path)?;
+        serde_json::to_writer_pretty(&mut file, meta).map_err(|e| {
+            ProjectSerializationError::new(
+                format!(
+                    "failed to serialize and write project metadata to `{}`",
+                    meta_json_path.display()
+                ),
+                e,
+            )
+        })?;
+        file.write(b"\n")
+            .map_err(|e| FsIoError::WriteFile(meta_json_path, e))?;
 
         Ok(())
     }
@@ -250,7 +269,7 @@ impl ProjectMut for LocalSrcProject {
 
         if !overwrite && source_path.exists() {
             return Err(LocalSrcError::AlreadyExists(format!(
-                "'{}' already exists",
+                "`{}` already exists",
                 source_path.display()
             )));
         }
@@ -288,19 +307,19 @@ impl From<FsIoError> for LocalSrcError {
 
 #[derive(Error, Debug)]
 pub enum UnixPathError {
-    #[error("path '{0}'\n  is outside the project directory")]
+    #[error("path `{0}`\n  is outside the project directory")]
     PathOutsideProject(PathBuf),
-    #[error("failed to canonicalize\n  '{0}':\n  {1}")]
+    #[error("failed to canonicalize\n  `{0}`:\n  {1}")]
     Canonicalize(PathBuf, std::io::Error),
-    #[error("path '{0}' is not valid Unicode")]
+    #[error("path `{0}` is not valid Unicode")]
     Conversion(PathBuf),
 }
 
 #[derive(Error, Debug)]
 pub enum PathError {
-    #[error("path '{0}' is unsafe: {1}")]
+    #[error("path `{0}` is unsafe: {1}")]
     UnsafePath(PathBuf, typed_path::CheckedPathError),
-    #[error("path '{0}' is absolute")]
+    #[error("path `{0}` is absolute")]
     AbsolutePath(typed_path::Utf8UnixPathBuf),
 }
 
@@ -321,7 +340,7 @@ impl ProjectRead for LocalSrcProject {
         let info_json = if info_json_path.exists() {
             Some(
                 serde_json::from_reader(wrapfs::File::open(&info_json_path)?).map_err(|e| {
-                    ProjectDeserializationError::new("failed to deserialize '.project.json'", e)
+                    ProjectDeserializationError::new("failed to deserialize `.project.json`", e)
                 })?,
             )
         } else {
@@ -333,7 +352,7 @@ impl ProjectRead for LocalSrcProject {
         let meta_json = if meta_json_path.exists() {
             Some(
                 serde_json::from_reader(wrapfs::File::open(&meta_json_path)?).map_err(|e| {
-                    ProjectDeserializationError::new("failed to deserialize '.meta.json'", e)
+                    ProjectDeserializationError::new("failed to deserialize `.meta.json`", e)
                 })?,
             )
         } else {

@@ -82,7 +82,7 @@ async fn hash_reader_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Proje
 pub enum CanonicalisationError<ReadError> {
     #[error(transparent)]
     ProjectRead(ReadError),
-    #[error("failed to read from file\n  '{0}':\n  {1}")]
+    #[error("failed to read from file\n  `{0}`:\n  {1}")]
     FileRead(Box<str>, io::Error),
 }
 
@@ -92,9 +92,9 @@ pub enum IntoProjectError<ReadError, W: ProjectMut> {
     ProjectRead(ReadError),
     #[error(transparent)]
     ProjectWrite(W::Error),
-    #[error("missing project information file '.project.json'")]
+    #[error("missing project information file `.project.json`")]
     MissingInfo,
-    #[error("missing project metadata file '.meta.json'")]
+    #[error("missing project metadata file `.meta.json`")]
     MissingMeta,
 }
 

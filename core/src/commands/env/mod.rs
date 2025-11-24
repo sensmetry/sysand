@@ -25,7 +25,7 @@ pub use list::do_env_list;
 
 #[derive(Error, Debug)]
 pub enum EnvError<WriteError: std::error::Error> {
-    #[error("refusing to overwrite '{0}'")]
+    #[error("refusing to overwrite `{0}`")]
     AlreadyExists(PathBuf),
     #[error("environment write error: {0}")]
     Write(#[from] WriteError),

@@ -55,12 +55,12 @@ impl<R: ResolveRead> ResolveRead for SequentialResolver<R> {
             ))
         } else if any_supported {
             Ok(crate::resolve::ResolutionOutcome::Unresolvable(format!(
-                "Unresolvable: {:?}",
+                "unresolvable: {:?}",
                 msgs
             )))
         } else {
             Ok(crate::resolve::ResolutionOutcome::UnsupportedIRIType(
-                format!("Unsupported IRI: {:?}", msgs),
+                format!("unsupported IRI: {:?}", msgs),
             ))
         }
     }
@@ -112,12 +112,12 @@ impl<R: ResolveReadAsync> ResolveReadAsync for SequentialResolver<R> {
             ))
         } else if any_supported {
             Ok(crate::resolve::ResolutionOutcome::Unresolvable(format!(
-                "Unresolvable: {:?}",
+                "unresolvable: {:?}",
                 msgs
             )))
         } else {
             Ok(crate::resolve::ResolutionOutcome::UnsupportedIRIType(
-                format!("Unsupported IRI: {:?}", msgs),
+                format!("unsupported IRI: {:?}", msgs),
             ))
         }
     }
@@ -199,29 +199,29 @@ mod tests {
     #[test]
     fn test_resolution_preference() -> Result<(), Box<dyn std::error::Error>> {
         let resolver_1 = mock_resolver([
-            mock_project("urn::kpar::foo", "foo", "1.2.3"),
-            mock_project("urn::kpar::bar", "bar", "1.2.3"),
+            mock_project("urn:kpar:foo", "foo", "1.2.3"),
+            mock_project("urn:kpar:bar", "bar", "1.2.3"),
         ]);
 
         let resolver_2 = mock_resolver([
-            mock_project("urn::kpar::bar", "bar", "3.2.1"),
-            mock_project("urn::kpar::baz", "baz", "3.2.1"),
+            mock_project("urn:kpar:bar", "bar", "3.2.1"),
+            mock_project("urn:kpar:baz", "baz", "3.2.1"),
         ]);
 
         let resolver = SequentialResolver::new([resolver_1, resolver_2]);
 
-        let foos = expect_to_resolve(&resolver, "urn::kpar::foo");
+        let foos = expect_to_resolve(&resolver, "urn:kpar:foo");
 
         assert_eq!(foos.len(), 1);
         assert_eq!(foos[0].version().unwrap(), Some("1.2.3".to_string()));
 
-        let bars = expect_to_resolve(&resolver, "urn::kpar::bar");
+        let bars = expect_to_resolve(&resolver, "urn:kpar:bar");
 
         assert_eq!(bars.len(), 2);
         assert_eq!(bars[0].version().unwrap(), Some("1.2.3".to_string()));
         assert_eq!(bars[1].version().unwrap(), Some("3.2.1".to_string()));
 
-        let bazs = expect_to_resolve(&resolver, "urn::kpar::baz");
+        let bazs = expect_to_resolve(&resolver, "urn:kpar:baz");
 
         assert_eq!(bazs.len(), 1);
         assert_eq!(bazs[0].version().unwrap(), Some("3.2.1".to_string()));

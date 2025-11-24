@@ -57,13 +57,13 @@ where
 /// The variants defined here include relevant context where possible.
 #[derive(Error, Debug)]
 pub enum FsIoError {
-    #[error("failed to canonicalize path\n  '{0}':\n  {1}")]
+    #[error("failed to canonicalize path\n  `{0}`:\n  {1}")]
     Canonicalize(PathBuf, io::Error),
-    #[error("failed to create directory\n  '{0}':\n  {1}")]
+    #[error("failed to create directory\n  `{0}`:\n  {1}")]
     MkDir(PathBuf, io::Error),
-    #[error("failed to open file\n  '{0}':\n  {1}")]
+    #[error("failed to open file\n  `{0}`:\n  {1}")]
     OpenFile(PathBuf, io::Error),
-    #[error("failed to get metadata for\n  '{0}':\n  {1}")]
+    #[error("failed to get metadata for\n  `{0}`:\n  {1}")]
     Metadata(PathBuf, io::Error),
     /// Same as `Self::Metadata`, but path is unknown when using file handle
     #[error("failed to get metadata for file: {0}")]
@@ -72,24 +72,24 @@ pub enum FsIoError {
     CreateTempFile(io::Error),
     #[error("failed to create a temporary directory: {0}")]
     MkTempDir(io::Error),
-    #[error("failed to write file\n  '{0}':\n  {1}")]
+    #[error("failed to write file\n  `{0}`:\n  {1}")]
     WriteFile(PathBuf, io::Error),
-    #[error("failed to read directory\n  '{0}':\n  {1}")]
+    #[error("failed to read directory\n  `{0}`:\n  {1}")]
     ReadDir(PathBuf, io::Error),
-    #[error("failed to read file\n  '{0}':\n  {1}")]
+    #[error("failed to read file\n  `{0}`:\n  {1}")]
     ReadFile(PathBuf, io::Error),
     /// Same as `Self::ReadFile`, but path is unknown when using file handle.
     #[error("failed to read file: {0}")]
     ReadFileHandle(io::Error),
-    #[error("failed to move\n  '{0}' to\n  '{1}':\n  {2}")]
+    #[error("failed to move\n  `{0}` to\n  `{1}`:\n  {2}")]
     Move(PathBuf, PathBuf, io::Error),
-    #[error("failed to create file\n  '{0}':\n  {1}")]
+    #[error("failed to create file\n  `{0}`:\n  {1}")]
     CreateFile(PathBuf, io::Error),
-    #[error("failed to copy file from\n  '{0}' to\n  '{1}':\n  {2}")]
+    #[error("failed to copy file from\n  `{0}` to\n  `{1}`:\n  {2}")]
     CopyFile(PathBuf, PathBuf, io::Error),
-    #[error("failed to remove file\n  '{0}':\n  {1}")]
+    #[error("failed to remove file\n  `{0}`:\n  {1}")]
     RmFile(PathBuf, io::Error),
-    #[error("failed to remove directory\n  '{0}':\n  {1}")]
+    #[error("failed to remove directory\n  `{0}`:\n  {1}")]
     RmDir(PathBuf, io::Error),
     #[error("failed to get path to current directory:\n  {0}")]
     CurrentDir(io::Error),
@@ -194,12 +194,12 @@ impl ProjectDeserializationError {
 #[derive(Debug, Error)]
 #[error("project serialization error: {msg}: {err}")]
 pub struct ProjectSerializationError {
-    msg: &'static str,
+    msg: String,
     err: serde_json::Error,
 }
 
 impl ProjectSerializationError {
-    pub fn new(msg: &'static str, err: serde_json::Error) -> Self {
+    pub fn new(msg: String, err: serde_json::Error) -> Self {
         Self { msg, err }
     }
 }
@@ -208,18 +208,18 @@ impl ProjectSerializationError {
 #[cfg(feature = "filesystem")]
 #[derive(Debug, Error)]
 pub enum ZipArchiveError {
-    #[error("failed to parse zip archive '{0}': {1}")]
+    #[error("failed to parse zip archive `{0}`: {1}")]
     ReadArchive(Box<Path>, zip::result::ZipError),
     #[error("failed to retrieve file from zip archive: {0}")]
     FileMeta(zip::result::ZipError),
     #[error("failed to retrieve file from zip archive: {0}")]
     NamedFileMeta(Box<str>, zip::result::ZipError),
     #[error(
-        "zip archive path handling error: file '{0}' in a zip archive is not contained in a directory"
+        "zip archive path handling error: file `{0}` in a zip archive is not contained in a directory"
     )]
     InvalidPath(Box<Path>),
-    #[error("failed to write file '{0}' to zip archive: {1}")]
+    #[error("failed to write file `{0}` to zip archive: {1}")]
     Write(Box<Path>, zip::result::ZipError),
-    #[error("failed to finish creating zip archive at '{0}': {1}")]
+    #[error("failed to finish creating zip archive at `{0}`: {1}")]
     Finish(Box<Path>, zip::result::ZipError),
 }

@@ -118,7 +118,7 @@ impl ProjectMut for InMemoryProject {
 pub enum InMemoryError {
     #[error("{0}")]
     AlreadyExists(String),
-    #[error("project read error: file '{0}' not found")]
+    #[error("project read error: file `{0}` not found")]
     FileNotFound(Box<str>),
     #[error("failed to read from reader: {0}")]
     IoRead(#[from] std::io::Error),

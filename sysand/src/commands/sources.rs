@@ -5,14 +5,15 @@ use std::collections::HashMap;
 
 use crate::CliError;
 
+use anstream::println;
 use anyhow::{Result, bail};
+use semver::VersionReq;
 use sysand_core::{
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
     project::{ProjectRead, memory::InMemoryProject},
     sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
 };
 
-use semver::VersionReq;
 use sysand_core::env::ReadEnvironment;
 
 pub fn command_sources_env(
@@ -24,7 +25,7 @@ pub fn command_sources_env(
     include_std: bool,
 ) -> Result<()> {
     let Some(env) = env else {
-        bail!("Unable to identify local environment");
+        bail!("unable to identify local environment");
     };
 
     let mut projects = env.candidate_projects(&iri)?.into_iter();
@@ -48,11 +49,11 @@ pub fn command_sources_env(
     }) else {
         match version {
             Some(vr) => bail!(
-                "unable to find project {} ({}) in local environment",
+                "unable to find project `{}` ({}) in local environment",
                 iri,
                 vr
             ),
-            None => bail!("unable to find project {} in local environment", iri),
+            None => bail!("unable to find project `{}` in local environment", iri),
         }
     };
 

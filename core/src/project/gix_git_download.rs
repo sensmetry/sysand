@@ -23,9 +23,9 @@ pub struct GixDownloadedProject {
 
 #[derive(Error, Debug)]
 pub enum GixDownloadedError {
-    #[error("git clone from '{0}' failed: {1}")]
+    #[error("git clone from `{0}` failed: {1}")]
     Clone(String, Box<gix::clone::Error>),
-    #[error("failed to parse git URL '{0}': {1}")]
+    #[error("failed to parse git URL `{0}`: {1}")]
     UrlParse(Box<str>, Box<gix::url::parse::Error>),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
@@ -35,9 +35,9 @@ pub enum GixDownloadedError {
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
     Serialize(#[from] ProjectSerializationError),
-    #[error("git fetch from '{0}' failed: {1}")]
+    #[error("git fetch from `{0}` failed: {1}")]
     Fetch(String, Box<gix::clone::fetch::Error>),
-    #[error("git checkout in temporary directory '{0}' failed: {1}")]
+    #[error("git checkout in temporary directory `{0}` failed: {1}")]
     Checkout(PathBuf, Box<gix::clone::checkout::main_worktree::Error>),
     #[error("{0}")]
     Other(String),
