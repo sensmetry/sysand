@@ -135,7 +135,10 @@ impl ToJObject for InterchangeProjectChecksum {
             .find_class(INTERCHANGE_PROJECT_CHECKSUM_CLASS)
             .expect("Failed to find InterchangeProjectChecksum class");
         let value = self.value.to_jobject(env);
-        let algorithm = self.algorithm.to_jobject(env);
+        let algorithm = {
+            let s: &str = self.algorithm.into();
+            s.to_jobject(env)
+        };
         env.new_object(
             checksum_class,
             INTERCHANGE_PROJECT_CHECKSUM_CLASS_CONSTRUCTOR,
