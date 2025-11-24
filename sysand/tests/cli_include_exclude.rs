@@ -5,7 +5,9 @@ use std::io::Write;
 
 use assert_cmd::prelude::*;
 use indexmap::IndexMap;
-use sysand_core::model::{InterchangeProjectChecksum, InterchangeProjectMetadataRaw};
+use sysand_core::model::{
+    InterchangeProjectChecksum, InterchangeProjectMetadataRaw, KerMlChecksumAlg,
+};
 // use predicates::prelude::*;
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -51,7 +53,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
             InterchangeProjectChecksum {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                     .to_string(),
-                algorithm: "SHA256".to_string(),
+                algorithm: KerMlChecksumAlg::Sha256,
             }
         ),])
     );
@@ -109,7 +111,7 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
             "test.sysml".to_string(),
             InterchangeProjectChecksum {
                 value: "".to_string(),
-                algorithm: "NONE".to_string(),
+                algorithm: KerMlChecksumAlg::None,
             }
         ),])
     );
@@ -162,7 +164,7 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
             InterchangeProjectChecksum {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                     .to_string(),
-                algorithm: "SHA256".to_string(),
+                algorithm: KerMlChecksumAlg::Sha256,
             }
         ),])
     );
@@ -205,7 +207,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
             InterchangeProjectChecksum {
                 value: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                     .to_string(),
-                algorithm: "SHA256".to_string(),
+                algorithm: KerMlChecksumAlg::Sha256,
             }
         ),])
     );
@@ -232,7 +234,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
             InterchangeProjectChecksum {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                     .to_string(),
-                algorithm: "SHA256".to_string(),
+                algorithm: KerMlChecksumAlg::Sha256,
             }
         ),])
     );
@@ -299,7 +301,7 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
                 InterchangeProjectChecksum {
                     value: "d9c23ead98b668976f69c19b0500b89ba1acd0da4d78789f97195781ee02e6fc"
                         .to_string(),
-                    algorithm: "SHA256".to_string(),
+                    algorithm: KerMlChecksumAlg::Sha256,
                 }
             ),
             (
@@ -307,7 +309,7 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
                 InterchangeProjectChecksum {
                     value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                         .to_string(),
-                    algorithm: "SHA256".to_string(),
+                    algorithm: KerMlChecksumAlg::Sha256,
                 }
             ),
         ])
@@ -387,7 +389,7 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
                 InterchangeProjectChecksum {
                     value: "d9c23ead98b668976f69c19b0500b89ba1acd0da4d78789f97195781ee02e6fc"
                         .to_string(),
-                    algorithm: "SHA256".to_string(),
+                    algorithm: KerMlChecksumAlg::Sha256,
                 }
             ),
             (
@@ -395,7 +397,7 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
                 InterchangeProjectChecksum {
                     value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                         .to_string(),
-                    algorithm: "SHA256".to_string(),
+                    algorithm: KerMlChecksumAlg::Sha256,
                 }
             ),
         ])
@@ -422,7 +424,7 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
             InterchangeProjectChecksum {
                 value: "d9c23ead98b668976f69c19b0500b89ba1acd0da4d78789f97195781ee02e6fc"
                     .to_string(),
-                algorithm: "SHA256".to_string(),
+                algorithm: KerMlChecksumAlg::Sha256,
             }
         ),])
     );
@@ -485,7 +487,7 @@ fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["exclude", "test.sysml"], None)?;
 
     out.assert().failure().stderr(predicates::str::contains(
-        "could not find file 'test.sysml' in project metadata",
+        "could not find file `test.sysml` in project metadata",
     ));
 
     let meta: InterchangeProjectMetadataRaw =

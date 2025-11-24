@@ -3,7 +3,7 @@
 
 use crate::model::{
     InterchangeProjectChecksum, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-    InterchangeProjectUsageRaw, ProjectHash, project_hash_raw,
+    InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
 };
 use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
@@ -190,8 +190,8 @@ pub trait ProjectRead {
             .into_iter()
             .flat_map(|index| index.iter_mut())
         {
-            if checksum.algorithm != "SHA256" {
-                checksum.algorithm = "SHA256".to_string();
+            if checksum.algorithm != KerMlChecksumAlg::Sha256 {
+                checksum.algorithm = KerMlChecksumAlg::Sha256;
 
                 let mut src = self
                     .read_source(path)
@@ -338,8 +338,8 @@ pub trait ProjectReadAsync {
 
             if let Some(mut checksums) = meta.checksum {
                 let future_checksums = checksums.drain(..).map(|(path, mut checksum)| async move {
-                    if checksum.algorithm != "SHA256" {
-                        checksum.algorithm = "SHA256".to_string();
+                    if checksum.algorithm != KerMlChecksumAlg::Sha256 {
+                        checksum.algorithm = KerMlChecksumAlg::Sha256;
 
                         let mut src = self
                             .read_source_async(&path)
@@ -490,9 +490,14 @@ pub trait ProjectMut: ProjectRead {
                 let sha256_checksum = hash_reader(&mut reader)
                     .map_err(|e| FsIoError::ReadFile(path.as_ref().as_str().into(), e))?;
 
-                meta.add_checksum(&path, "SHA256", format!("{:x}", sha256_checksum), overwrite);
+                meta.add_checksum(
+                    &path,
+                    KerMlChecksumAlg::Sha256,
+                    format!("{:x}", sha256_checksum),
+                    overwrite,
+                );
             } else {
-                meta.add_checksum(&path, "NONE", "", overwrite);
+                meta.add_checksum(&path, KerMlChecksumAlg::None, "", overwrite);
             }
         }
 
@@ -694,6 +699,7 @@ mod tests {
     use crate::{
         model::{
             InterchangeProjectChecksum, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+            KerMlChecksumAlg,
         },
         project::{ProjectRead, hash_reader, memory::InMemoryProject},
     };
@@ -733,7 +739,7 @@ mod tests {
                 checksum: Some(IndexMap::from([(
                     "MyFile.txt".to_string(),
                     InterchangeProjectChecksum {
-                        algorithm: "None".to_string(),
+                        algorithm: KerMlChecksumAlg::None,
                         value: "".to_string(),
                     },
                 )])),
@@ -759,7 +765,7 @@ mod tests {
             Some(&InterchangeProjectChecksum {
                 value: "4da8b89a905445e96dd0ab6c9be9a72c8b0ffc686a57a3cc6808a8952a3560ed"
                     .to_string(),
-                algorithm: "SHA256".to_string()
+                algorithm: KerMlChecksumAlg::Sha256
             })
         );
 
