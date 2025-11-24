@@ -208,8 +208,11 @@ impl TryFrom<InterchangeProjectInfoRaw> for InterchangeProjectInfo {
 #[serde(try_from = "String", into = "&str")]
 #[cfg_attr(feature = "python", pyclass(eq, eq_int))]
 pub enum KerMlChecksumAlg {
-    /// No checksum. Non-standard,
-    /// must not be used in real projects
+    /// No checksum. Non-standard, must not be used in published
+    /// versions of a project.
+    /// Intended to be used in development to note that a file is
+    /// included in the project without needing to recalculate
+    /// checksum on every change.
     None,
     Sha1,
     Sha224,

@@ -42,7 +42,7 @@ fn discover<P: AsRef<Path>, F: Fn(&Path) -> bool>(
 ) -> Option<PathBuf> {
     let mut current: PathBuf = working_directory.as_ref().to_path_buf();
 
-    log::debug!("Trying to discover project in {}", current.display());
+    log::debug!("trying to discover project in `{}`", current.display());
 
     while !predicate(&current) {
         match current.parent() {
@@ -53,19 +53,19 @@ fn discover<P: AsRef<Path>, F: Fn(&Path) -> bool>(
                         Some(parent_canonical) => current = parent_canonical.to_path_buf(),
                         None => {
                             log::debug!(
-                                "canonicalised path {} has no parent either",
+                                "canonicalised path `{}` has no parent either",
                                 current_canonical.display()
                             );
                             return None;
                         }
                     },
                     Err(_) => {
-                        log::debug!("unable to canonicalise path {}", current.display());
+                        log::debug!("unable to canonicalise path `{}`", current.display());
                     }
                 }
             }
             Some(parent) => {
-                log::debug!("Checking for project in parent {}", current.display());
+                log::debug!("checking for project in parent of `{}`", current.display());
                 current = parent.to_path_buf();
             }
             None => {

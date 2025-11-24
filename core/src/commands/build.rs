@@ -38,15 +38,15 @@ pub enum KParBuildError<ProjectReadError> {
         "unknown file format of '{0}', only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
-    #[error("missing project info file '.project.json'")]
+    #[error("missing project info file `.project.json`")]
     MissingInfo,
-    #[error("missing project metadata file '.meta.json'")]
+    #[error("missing project metadata file `.meta.json`")]
     MissingMeta,
     #[error(transparent)]
     Zip(#[from] ZipArchiveError),
     #[error("project serialization error: {0}: {1}")]
     Serialize(&'static str, serde_json::Error),
-    #[error("Internal error: {0}")]
+    #[error("internal error: {0}")]
     InternalError(&'static str),
 }
 

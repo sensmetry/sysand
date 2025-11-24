@@ -21,8 +21,9 @@ pub fn command_build_for_project<P: AsRef<Path>>(
 
 pub fn command_build_for_workspace<P: AsRef<Path>>(path: P, workspace: Workspace) -> Result<()> {
     log::warn!(
-        "Workspaces are an experimental feature and their behavior may change even with minor \
-        releases. For the status of this feature, see \
+        "Workspaces are an experimental feature\n\
+        and their behavior may change even with minor\n\
+        releases. For the status of this feature, see\n\
         https://github.com/sensmetry/sysand/issues/101."
     );
     do_build_workspace_kpars(&workspace, &path, true)?;

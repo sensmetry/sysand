@@ -28,12 +28,12 @@ public class BasicTest {
             // java.nio.file.Files.readString is available in Java 11+
             // String projectJson = java.nio.file.Files.readString(tempDir.resolve(".project.json"));
             String projectJson = new String(Files.readAllBytes(tempDir.resolve(".project.json")));
-            assertEquals("{\n  \"name\": \"test\",\n  \"version\": \"1.0.0\",\n  \"usage\": []\n}", projectJson);
+            assertEquals("{\n  \"name\": \"test\",\n  \"version\": \"1.0.0\",\n  \"usage\": []\n}\n", projectJson);
 
             // String metaJson = Files.readString(tempDir.resolve(".meta.json"));
             String metaJson = new String(Files.readAllBytes(tempDir.resolve(".meta.json")));
             Pattern regex = Pattern.compile(
-                    "\\{\\s*\"index\":\\s*\\{\\},\\s*\"created\":\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{6,9}Z\"\\s*\\}",
+                    "\\{\\s*\"index\":\\s*\\{\\},\\s*\"created\":\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{6,9}Z\"\\s*\\}\n",
                     Pattern.DOTALL);
             assertTrue(regex.matcher(metaJson).matches(), "Metadata file content should match expected pattern");
         } catch (java.io.IOException e) {

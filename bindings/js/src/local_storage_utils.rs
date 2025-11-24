@@ -3,7 +3,7 @@
 
 use std::io::Read;
 
-use serde::{/* Deserialize, */ Serialize};
+use serde::Serialize;
 
 use sysand_core::project::utils::FsIoError;
 use thiserror::Error;
@@ -17,9 +17,9 @@ pub struct LocalStorageVFS {
 
 #[derive(Error, Debug)]
 pub enum LocalStorageError {
-    #[error("failed to get 'window' object")]
+    #[error("failed to get `window` object")]
     NoWindow,
-    #[error("failed to get 'window.localStorage' object")]
+    #[error("failed to get `window.localStorage` object")]
     NoLocalStorage,
     #[error("JS error: {0:?}")]
     Js(wasm_bindgen::JsValue),
@@ -27,7 +27,7 @@ pub enum LocalStorageError {
     Io(#[from] Box<FsIoError>),
     #[error("failed to serialize: {0}")]
     Serialize(#[from] serde_json::Error),
-    #[error("key '{0}' not found in local storage")]
+    #[error("key `{0}` not found in local storage")]
     KeyNotFound(String),
 }
 

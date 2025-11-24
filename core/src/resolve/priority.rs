@@ -255,28 +255,28 @@ mod tests {
     #[test]
     fn resolution_priority() -> Result<(), Box<dyn std::error::Error>> {
         let higher = mock_resolver([
-            mock_project("urn::kpar::foo", "foo", "1.2.3"),
-            mock_project("urn::kpar::bar", "bar", "1.2.3"),
+            mock_project("urn:kpar:foo", "foo", "1.2.3"),
+            mock_project("urn:kpar:bar", "bar", "1.2.3"),
         ]);
 
         let lower = mock_resolver([
-            mock_project("urn::kpar::bar", "bar", "3.2.1"),
-            mock_project("urn::kpar::baz", "baz", "3.2.1"),
+            mock_project("urn:kpar:bar", "bar", "3.2.1"),
+            mock_project("urn:kpar:baz", "baz", "3.2.1"),
         ]);
 
         let resolver = super::PriorityResolver::new(higher, lower);
 
-        let foos = expect_to_resolve(&resolver, "urn::kpar::foo");
+        let foos = expect_to_resolve(&resolver, "urn:kpar:foo");
 
         assert_eq!(foos.len(), 1);
         assert_eq!(foos[0].version().unwrap(), Some("1.2.3".to_string()));
 
-        let bars = expect_to_resolve(&resolver, "urn::kpar::bar");
+        let bars = expect_to_resolve(&resolver, "urn:kpar:bar");
 
         assert_eq!(bars.len(), 1);
         assert_eq!(bars[0].version().unwrap(), Some("1.2.3".to_string()));
 
-        let bazs = expect_to_resolve(&resolver, "urn::kpar::baz");
+        let bazs = expect_to_resolve(&resolver, "urn:kpar:baz");
 
         assert_eq!(bazs.len(), 1);
         assert_eq!(bazs[0].version().unwrap(), Some("3.2.1".to_string()));

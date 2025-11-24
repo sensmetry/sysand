@@ -124,7 +124,7 @@ pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
         .collect())
 }
 
-/// Finds all (locked) projects from a `Lock` (typically loaded from a lock file)
+/// Finds all (locked) projects from a `Lock` (typically loaded from lockfile)
 /// in an provided environment.
 pub fn enumerate_projects_lock<Env: ReadEnvironment>(
     lock: &Lock,

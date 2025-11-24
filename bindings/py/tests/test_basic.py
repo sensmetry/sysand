@@ -29,11 +29,11 @@ def test_basic_new(caplog: pytest.LogCaptureFixture) -> None:
         with open(Path(tmpdirname) / ".project.json", "r") as f:
             assert (
                 f.read()
-                == '{\n  "name": "test_basic_new",\n  "version": "1.2.3",\n  "usage": []\n}'
+                == '{\n  "name": "test_basic_new",\n  "version": "1.2.3",\n  "usage": []\n}\n'
             )
         with open(Path(tmpdirname) / ".meta.json", "r") as f:
             assert re.match(
-                r'\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}',
+                r'\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}\n',
                 f.read(),
             )
 

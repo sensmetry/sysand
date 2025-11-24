@@ -74,9 +74,9 @@ impl WriteEnvironment for MemoryStorageEnvironment {
 
 #[derive(Error, Debug)]
 pub enum MemoryReadError {
-    #[error("missing project with IRI '{0}'")]
+    #[error("missing project with IRI `{0}`")]
     MissingProject(String),
-    #[error("missing project with IRI '{0}' version '{1}'")]
+    #[error("missing project with IRI `{0}` version `{1}`")]
     MissingVersion(String, String),
 }
 

@@ -14,42 +14,42 @@ use crate::{
 
 #[derive(Error, Debug)]
 pub enum SyncError<UrlParseError> {
-    #[error("incorrect checksum for project with IRI '{0}' in lockfile")]
+    #[error("incorrect checksum for project with IRI `{0}` in lockfile")]
     BadChecksum(String),
-    #[error("project with IRI '{0}' is missing '.project.json' or '.meta.json'")]
+    #[error("project with IRI `{0}` is missing `.project.json` or `.meta.json`")]
     BadProject(String),
     #[error("project with IRI(s) {0:?} has no known sources in lockfile")]
     MissingSource(Box<[String]>),
-    #[error("no IRI given for project with src_path = '{0}' in lockfile")]
+    #[error("no IRI given for project with src_path = `{0}` in lockfile")]
     MissingIriSrcPath(Box<str>),
-    #[error("no IRI given for project with remote_src = '{0}' in lockfile")]
+    #[error("no IRI given for project with remote_src = `{0}` in lockfile")]
     MissingIriRemoteSrc(Box<str>),
-    #[error("no IRI given for project with kpar_path = '{0}' in lockfile")]
+    #[error("no IRI given for project with kpar_path = `{0}` in lockfile")]
     MissingIriLocalKparPath(Box<str>),
-    #[error("no IRI given for project with remote_kpar = '{0}' in lockfile")]
+    #[error("no IRI given for project with remote_kpar = `{0}` in lockfile")]
     MissingIriRemoteKparPath(Box<str>),
     #[error(
-        "cannot handle project with IRI '{0}' residing in local file (type 'local_src') storage"
+        "cannot handle project with IRI `{0}` residing in local file (type `local_src`) storage"
     )]
     MissingSrcPathStorage(Box<str>),
-    #[error("cannot handle project with IRI '{0}' residing in remote (type 'remote_src') storage")]
+    #[error("cannot handle project with IRI `{0}` residing in remote (type `remote_src`) storage")]
     MissingRemoteSrcStorage(Box<str>),
     #[error(
-        "cannot handle project with IRI '{0}' residing in local kpar (type 'local_kpar') storage"
+        "cannot handle project with IRI `{0}` residing in local kpar (type `local_kpar`) storage"
     )]
     MissingLocalKparStorage(Box<str>),
     #[error(
-        "cannot handle project with IRI '{0}' residing in remote kpar (type 'remote_kpar') storage"
+        "cannot handle project with IRI `{0}` residing in remote kpar (type `remote_kpar`) storage"
     )]
     MissingRemoteKparStorage(Box<str>),
-    #[error("invalid remote source URL '{0}':\n{1}")]
+    #[error("invalid remote source URL `{0}`:\n{1}")]
     InvalidRemoteSource(Box<str>, UrlParseError),
-    #[error("no supported sources for project with IRI '{0}'")]
+    #[error("no supported sources for project with IRI `{0}`")]
     UnsupportedSources(String),
-    #[error("failed to install project '{uri}':\n{cause}")]
+    #[error("failed to install project `{uri}`:\n{cause}")]
     InstallFail { uri: Box<str>, cause: String },
     #[error(
-        "tried to install a non-provided version (checksum {hash}) of '{iri}', which is an IRI marked as being provided by your tooling"
+        "tried to install a non-provided version (checksum {hash}) of `{iri}`, which is an IRI marked as being provided by your tooling"
     )]
     InvalidProvidedVersion {
         iri: Box<str>,
@@ -116,14 +116,14 @@ where
                         project_version.checksum_canonical_hex().ok().flatten()
                     {
                         if checksum == &provided_checksum {
-                            log::debug!("'{}' is marked as provided, skipping installation", iri);
+                            log::debug!("`{}` is marked as provided, skipping installation", iri);
                             continue 'main_loop;
                         }
 
                         provided.push(provided_checksum);
                     } else {
                         log::debug!(
-                            "Failed to get checksum for provided project: {:?}",
+                            "failed to get checksum for provided project: {:?}",
                             project_version
                         );
                     }
@@ -165,7 +165,7 @@ where
                         .as_ref()
                         .ok_or_else(|| SyncError::MissingSrcPathStorage(uri.as_str().into()))?;
                     let storage = src_path_storage(src_path.clone());
-                    log::debug!("trying to install '{uri}' from src_path '{src_path}'");
+                    log::debug!("trying to install `{uri}` from src_path `{src_path}`");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
                 Source::RemoteSrc { remote_src } => {
@@ -178,7 +178,7 @@ where
                     let storage = remote_src_storage(remote_src.clone()).map_err(|e| {
                         SyncError::InvalidRemoteSource(remote_src.as_str().into(), e)
                     })?;
-                    log::debug!("trying to install {uri} from remote_src: {remote_src}");
+                    log::debug!("trying to install `{uri}` from remote_src: {remote_src}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
                 Source::LocalKpar { kpar_path } => {
@@ -189,7 +189,7 @@ where
                         SyncError::MissingLocalKparStorage(kpar_path.as_str().into())
                     })?;
                     let storage = kpar_path_storage(kpar_path.clone());
-                    log::debug!("trying to install {uri} from kpar_path: {kpar_path}");
+                    log::debug!("trying to install `{uri}` from kpar_path: {kpar_path}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
                 Source::RemoteKpar {
@@ -205,7 +205,7 @@ where
                     let storage = remote_kpar_storage(remote_kpar.clone()).map_err(|e| {
                         SyncError::InvalidRemoteSource(remote_kpar.as_str().into(), e)
                     })?;
-                    log::debug!("trying to install {uri} from remote_kpar: {remote_kpar}");
+                    log::debug!("trying to install `{uri}` from remote_kpar: {remote_kpar}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
                 _ => supported = false,
@@ -222,7 +222,7 @@ where
         updated = true;
     }
     if !updated {
-        log::info!("env is up to date");
+        log::info!("{:>12} nothing to do: env is already up to date", ' ');
     }
     Ok(())
 }
@@ -281,10 +281,10 @@ fn try_install<
             }
         })?;
     } else {
-        log::debug!("Incorrect checksum for {} in lockfile", uri.as_ref());
-        log::debug!("Lockfile checksum = {}", checksum.as_ref());
-        log::debug!("Project checksum = {}", project_checksum);
-        return Err(SyncError::BadChecksum(uri.as_ref().to_owned()));
+        log::debug!("incorrect checksum for `{}` in lockfile", uri.as_ref());
+        log::debug!("lockfile checksum = `{}`", checksum.as_ref());
+        log::debug!("project checksum = `{}`", project_checksum);
+        return Err(SyncError::BadChecksum(uri.clone()));
     }
     Ok(())
 }
