@@ -97,6 +97,7 @@ pub fn command_env_install(
         standard_resolver(
             None,
             None,
+            vec![],
             Some(client.clone()),
             index_urls,
             runtime.clone(),
@@ -240,6 +241,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
             standard_resolver(
                 Some(PathBuf::from(path)),
                 None,
+                vec![],
                 Some(client.clone()),
                 index_urls,
                 runtime.clone(),
