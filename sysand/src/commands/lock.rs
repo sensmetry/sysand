@@ -79,6 +79,7 @@ pub fn command_lock<P: AsRef<Utf8Path>>(
             } else {
                 None
             },
+            vec![],
             Some(client),
             index_urls,
             runtime,

@@ -3,8 +3,21 @@
 
 use std::{fmt, result::Result, sync::Arc};
 
+use camino::Utf8PathBuf;
+use reqwest_middleware::ClientWithMiddleware;
+use typed_path::Utf8UnixPath;
+
 use crate::{
-    env::{local_directory::LocalDirectoryEnvironment, reqwest_http::HTTPEnvironmentAsync},
+    env::{
+        local_directory::LocalDirectoryEnvironment, memory::MemoryStorageEnvironment,
+        reqwest_http::HTTPEnvironmentAsync,
+    },
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{
+        ProjectRead, local_kpar::LocalKParProject, local_src::LocalSrcProject,
+        reference::ProjectReference,
+    },
     resolve::{
         AsSyncResolveTokio, ResolveRead, ResolveReadAsync,
         combined::CombinedResolver,
@@ -16,8 +29,22 @@ use crate::{
         sequential::SequentialResolver,
     },
 };
-use camino::Utf8PathBuf;
-use reqwest_middleware::ClientWithMiddleware;
+
+#[derive(Debug, ProjectRead)]
+pub enum AnyProject {
+    LocalSrc(LocalSrcProject),
+    LocalKpar(LocalKParProject),
+    // RemoteSrc(ReqwestSrcProjectAsync),
+    // RemoteKpar(ReqwestKparDownloadedProject),
+}
+
+pub type OverrideProject = ProjectReference<AnyProject>;
+
+pub type OverrideEnvironment = MemoryStorageEnvironment<OverrideProject>;
+
+pub type OverrideResolver = EnvResolver<OverrideEnvironment>;
+
+// pub type OverrideResolver = NullResolver;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
@@ -26,6 +53,7 @@ pub type RemoteIndexResolver = SequentialResolver<EnvResolver<HTTPEnvironmentAsy
 type StandardResolverInner = CombinedResolver<
     FileResolver,
     LocalEnvResolver,
+    OverrideResolver,
     RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync>, GitResolver>,
     AsSyncResolveTokio<RemoteIndexResolver>,
 >;
@@ -106,6 +134,7 @@ pub fn standard_index_resolver(
 pub fn standard_resolver(
     cwd: Option<Utf8PathBuf>,
     local_env_path: Option<Utf8PathBuf>,
+    overrides: Vec<(String, String, OverrideProject)>,
     client: Option<ClientWithMiddleware>,
     index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -122,6 +151,10 @@ pub fn standard_resolver(
     StandardResolver(CombinedResolver {
         file_resolver: Some(file_resolver),
         local_resolver,
+        // override_resolver: NO_RESOLVER,
+        override_resolver: Some(EnvResolver {
+            env: MemoryStorageEnvironment::from(overrides),
+        }),
         remote_resolver,
         index_resolver,
     })
