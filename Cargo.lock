@@ -3506,7 +3506,7 @@ dependencies = [
 
 [[package]]
 name = "sysand-macros"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "itertools",
  "proc-macro2",

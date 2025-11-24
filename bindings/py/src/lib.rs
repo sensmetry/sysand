@@ -154,6 +154,7 @@ fn do_info_py(
         let combined_resolver = standard_resolver(
             Some(relative_file_root.into()),
             None,
+            vec![],
             Some(client),
             index_url,
             runtime,

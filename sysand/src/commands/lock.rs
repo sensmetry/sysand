@@ -81,6 +81,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             } else {
                 None
             },
+            vec![],
             Some(client),
             index_urls,
             runtime,

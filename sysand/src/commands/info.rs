@@ -119,6 +119,7 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
         } else {
             None
         },
+        vec![],
         Some(client),
         index_urls,
         runtime,
@@ -210,6 +211,7 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
                 } else {
                     None
                 },
+                vec![],
                 Some(client),
                 index_urls,
                 runtime,
