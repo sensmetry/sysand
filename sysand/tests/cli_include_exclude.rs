@@ -6,7 +6,7 @@ use std::io::Write;
 use assert_cmd::prelude::*;
 use indexmap::IndexMap;
 use sysand_core::model::{
-    InterchangeProjectChecksum, InterchangeProjectMetadataRaw, KerMlChecksumAlg,
+    InterchangeProjectChecksumRaw, InterchangeProjectMetadataRaw, KerMlChecksumAlg,
 };
 // use predicates::prelude::*;
 
@@ -50,10 +50,10 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
         meta.checksum.unwrap(),
         IndexMap::from([(
             "test.sysml".to_string(),
-            InterchangeProjectChecksum {
+            InterchangeProjectChecksumRaw {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                     .to_string(),
-                algorithm: KerMlChecksumAlg::Sha256,
+                algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         ),])
     );
@@ -109,9 +109,9 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
         meta.checksum.unwrap(),
         IndexMap::from([(
             "test.sysml".to_string(),
-            InterchangeProjectChecksum {
+            InterchangeProjectChecksumRaw {
                 value: "".to_string(),
-                algorithm: KerMlChecksumAlg::None,
+                algorithm: KerMlChecksumAlg::None.into(),
             }
         ),])
     );
@@ -161,10 +161,10 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
         meta.checksum.unwrap(),
         IndexMap::from([(
             "test.sysml".to_string(),
-            InterchangeProjectChecksum {
+            InterchangeProjectChecksumRaw {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                     .to_string(),
-                algorithm: KerMlChecksumAlg::Sha256,
+                algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         ),])
     );
@@ -204,10 +204,10 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
         meta.checksum.unwrap(),
         IndexMap::from([(
             "test.sysml".to_string(),
-            InterchangeProjectChecksum {
+            InterchangeProjectChecksumRaw {
                 value: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
                     .to_string(),
-                algorithm: KerMlChecksumAlg::Sha256,
+                algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         ),])
     );
@@ -231,10 +231,10 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
         meta.checksum.unwrap(),
         IndexMap::from([(
             "test.sysml".to_string(),
-            InterchangeProjectChecksum {
+            InterchangeProjectChecksumRaw {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                     .to_string(),
-                algorithm: KerMlChecksumAlg::Sha256,
+                algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         ),])
     );
@@ -298,18 +298,18 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
         IndexMap::from([
             (
                 "extra/test.sysml".to_string(),
-                InterchangeProjectChecksum {
+                InterchangeProjectChecksumRaw {
                     value: "d9c23ead98b668976f69c19b0500b89ba1acd0da4d78789f97195781ee02e6fc"
                         .to_string(),
-                    algorithm: KerMlChecksumAlg::Sha256,
+                    algorithm: KerMlChecksumAlg::Sha256.into(),
                 }
             ),
             (
                 "test.sysml".to_string(),
-                InterchangeProjectChecksum {
+                InterchangeProjectChecksumRaw {
                     value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                         .to_string(),
-                    algorithm: KerMlChecksumAlg::Sha256,
+                    algorithm: KerMlChecksumAlg::Sha256.into(),
                 }
             ),
         ])
@@ -386,18 +386,18 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
         IndexMap::from([
             (
                 "extra/test.sysml".to_string(),
-                InterchangeProjectChecksum {
+                InterchangeProjectChecksumRaw {
                     value: "d9c23ead98b668976f69c19b0500b89ba1acd0da4d78789f97195781ee02e6fc"
                         .to_string(),
-                    algorithm: KerMlChecksumAlg::Sha256,
+                    algorithm: KerMlChecksumAlg::Sha256.into(),
                 }
             ),
             (
                 "test.sysml".to_string(),
-                InterchangeProjectChecksum {
+                InterchangeProjectChecksumRaw {
                     value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                         .to_string(),
-                    algorithm: KerMlChecksumAlg::Sha256,
+                    algorithm: KerMlChecksumAlg::Sha256.into(),
                 }
             ),
         ])
@@ -421,10 +421,10 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
         meta.checksum.unwrap(),
         IndexMap::from([(
             "extra/test.sysml".to_string(),
-            InterchangeProjectChecksum {
+            InterchangeProjectChecksumRaw {
                 value: "d9c23ead98b668976f69c19b0500b89ba1acd0da4d78789f97195781ee02e6fc"
                     .to_string(),
-                algorithm: KerMlChecksumAlg::Sha256,
+                algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         ),])
     );

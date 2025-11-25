@@ -16,6 +16,15 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 // pub struct ParsedIri(fluent_uri::Iri<String>);
 // pub struct NormalisedIri(fluent_uri::Iri<String>);
 
+pub const KNOWN_METAMODELS: [&str; 6] = [
+    "https://www.omg.org/spec/SysML/20250201",
+    "https://www.omg.org/spec/SysML/20240201",
+    "https://www.omg.org/spec/SysML/20230201",
+    "https://www.omg.org/spec/KerML/20250201",
+    "https://www.omg.org/spec/KerML/20240201",
+    "https://www.omg.org/spec/KerML/20230201",
+];
+
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
@@ -323,6 +332,28 @@ impl Display for KerMlChecksumAlg {
     }
 }
 
+impl KerMlChecksumAlg {
+    /// How long the hex-encoded checksum is for a given algorithm
+    /// Formula: `checksum_len_bits / 4`, since each hex char is 4 bits
+    pub fn expected_hex_len(&self) -> u8 {
+        use KerMlChecksumAlg::*;
+        match self {
+            None => 0,
+            Sha1 => 40,
+            Sha224 => 56,
+            Sha256 | Sha3_256 | Blake2b256 | Blake3 => 64,
+            Sha384 | Sha3_384 | Blake2b384 => 96,
+            Sha3_512 | Blake2b512 => 128,
+            Md2 | Md4 | Md5 => 32,
+            // MD6 is variable length. TODO(spec): the
+            // digest length must be somehow specified
+            // Maybe specify as default MD6-256
+            Md6 => todo!("MD6 is variable length"),
+            Adler32 => 8,
+        }
+    }
+}
+
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
@@ -334,7 +365,15 @@ pub struct InterchangeProjectChecksum {
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
-pub struct InterchangeProjectMetadataG<Iri, Path: Eq + Hash, DateTime> {
+pub struct InterchangeProjectChecksumRaw {
+    pub value: String,
+    pub algorithm: String,
+}
+
+#[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[serde(rename_all = "camelCase")]
+pub struct InterchangeProjectMetadataG<Iri, Path: Eq + Hash, DateTime, IPC> {
     pub index: IndexMap<String, Path>,
 
     pub created: DateTime,
@@ -349,14 +388,16 @@ pub struct InterchangeProjectMetadataG<Iri, Path: Eq + Hash, DateTime> {
     pub includes_implied: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub checksum: Option<IndexMap<Path, InterchangeProjectChecksum>>,
+    pub checksum: Option<IndexMap<Path, IPC>>,
 }
 
-pub type InterchangeProjectMetadataRaw = InterchangeProjectMetadataG<String, String, String>;
+pub type InterchangeProjectMetadataRaw =
+    InterchangeProjectMetadataG<String, String, String, InterchangeProjectChecksumRaw>;
 pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
     fluent_uri::Iri<String>,
     Utf8UnixPathBuf,
     chrono::DateTime<chrono::Utc>,
+    InterchangeProjectChecksum,
 >;
 
 impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
@@ -375,7 +416,15 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
             includes_implied: value.includes_implied,
             checksum: value.checksum.map(|m| {
                 m.iter()
-                    .map(|(k, v)| (k.to_string(), v.to_owned()))
+                    .map(|(k, v)| {
+                        (
+                            k.to_string(),
+                            InterchangeProjectChecksumRaw {
+                                value: v.value.clone(),
+                                algorithm: v.algorithm.to_string(),
+                            },
+                        )
+                    })
                     .collect()
             }),
         }
@@ -392,6 +441,21 @@ pub enum InterchangeProjectValidationError {
     SemVerConstraintParse(String, semver::Error),
     #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
     DatetimeParse(Box<str>, chrono::ParseError),
+    #[error(
+        "invalid file checksum algorithm `{0}`, expected one of:\n\
+        SHA1, SHA224, SHA256, SHA-384, SHA3-256, SHA3-384, SHA3-512\n\
+        BLAKE2b-256, BLAKE2b-384, BLAKE2b-512, BLAKE3\n\
+        MD2, MD4, MD5, MD6, ADLER32"
+    )]
+    ChecksumAlg(Box<str>),
+    #[error(
+        "invalid hex checksum length for {algorithm}: expected {expected} char(s), got {got} char(s)"
+    )]
+    ChecksumLen {
+        algorithm: KerMlChecksumAlg,
+        expected: u8,
+        got: usize,
+    },
 }
 
 impl InterchangeProjectMetadataRaw {
@@ -409,6 +473,31 @@ impl InterchangeProjectMetadataRaw {
     pub fn validate(
         &self,
     ) -> Result<InterchangeProjectMetadata, InterchangeProjectValidationError> {
+        let checksum = if let Some(checksum) = &self.checksum {
+            let mut res = IndexMap::with_capacity(checksum.len());
+            for (k, v) in checksum {
+                let k = Utf8UnixPath::new(k).to_path_buf();
+                let algorithm: KerMlChecksumAlg =
+                    v.algorithm.as_str().try_into().map_err(|_| {
+                        InterchangeProjectValidationError::ChecksumAlg(v.algorithm.as_str().into())
+                    })?;
+                let value = {
+                    let expected_len = algorithm.expected_hex_len();
+                    if v.value.len() != expected_len as usize {
+                        return Err(InterchangeProjectValidationError::ChecksumLen {
+                            algorithm,
+                            expected: expected_len,
+                            got: v.value.len(),
+                        });
+                    }
+                    v.value.clone()
+                };
+                res.insert(k, InterchangeProjectChecksum { value, algorithm });
+            }
+            Some(res)
+        } else {
+            None
+        };
         Ok(InterchangeProjectMetadata {
             index: self
                 .index
@@ -426,16 +515,17 @@ impl InterchangeProjectMetadataRaw {
             metamodel: self
                 .metamodel
                 .clone()
-                .map(fluent_uri::Iri::parse)
+                .map(|m| {
+                    if !KNOWN_METAMODELS.contains(&m.as_str()) {
+                        log::warn!("project uses an unknown metamodel `{}`", m);
+                    }
+                    fluent_uri::Iri::parse(m)
+                })
                 .transpose()
                 .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
             includes_derived: self.includes_derived,
             includes_implied: self.includes_implied,
-            checksum: self.checksum.clone().map(|m| {
-                m.iter()
-                    .map(|(k, v)| (Utf8UnixPath::new(k).to_path_buf(), v.to_owned()))
-                    .collect()
-            }),
+            checksum,
         })
     }
 
@@ -451,7 +541,7 @@ impl InterchangeProjectMetadataRaw {
         algorithm: KerMlChecksumAlg,
         value: T,
         overwrite: bool,
-    ) -> Option<InterchangeProjectChecksum> {
+    ) -> Option<InterchangeProjectChecksumRaw> {
         let checksum = if let Some(checksum) = self.checksum.as_mut() {
             checksum
         } else {
@@ -461,17 +551,17 @@ impl InterchangeProjectMetadataRaw {
 
         match checksum.entry(path.as_ref().to_string()) {
             indexmap::map::Entry::Occupied(mut occupied_entry) => Some(if overwrite {
-                occupied_entry.insert(InterchangeProjectChecksum {
+                occupied_entry.insert(InterchangeProjectChecksumRaw {
                     value: value.as_ref().to_string(),
-                    algorithm,
+                    algorithm: algorithm.to_string(),
                 })
             } else {
                 occupied_entry.get().clone()
             }),
             indexmap::map::Entry::Vacant(vacant_entry) => {
-                vacant_entry.insert(InterchangeProjectChecksum {
+                vacant_entry.insert(InterchangeProjectChecksumRaw {
                     value: value.as_ref().to_string(),
-                    algorithm,
+                    algorithm: algorithm.to_string(),
                 });
 
                 None
@@ -482,7 +572,7 @@ impl InterchangeProjectMetadataRaw {
     pub fn remove_checksum<P: AsRef<Utf8UnixPath>>(
         &mut self,
         path: &P,
-    ) -> Option<InterchangeProjectChecksum> {
+    ) -> Option<InterchangeProjectChecksumRaw> {
         if let Some(checksum) = self.checksum.as_mut() {
             checksum.shift_remove(path.as_ref().as_str())
         } else {
@@ -514,7 +604,9 @@ impl TryFrom<InterchangeProjectMetadataRaw> for InterchangeProjectMetadata {
     }
 }
 
-impl<Iri, Path: Eq + Hash + Clone, DateTime> InterchangeProjectMetadataG<Iri, Path, DateTime> {
+impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
+    InterchangeProjectMetadataG<Iri, Path, DateTime, IPC>
+{
     pub fn minimal(created: DateTime) -> Self {
         InterchangeProjectMetadataG {
             index: IndexMap::default(),
