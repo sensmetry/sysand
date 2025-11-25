@@ -6,7 +6,7 @@ use std::io::Write;
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use sysand_core::{
-    model::{InterchangeProjectChecksum, KerMlChecksumAlg},
+    model::{InterchangeProjectChecksumRaw, KerMlChecksumAlg},
     project::{ProjectRead, local_kpar::LocalKParProject},
 };
 
@@ -60,9 +60,9 @@ fn test_project_build() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
     assert_eq!(
         meta.checksum.as_ref().unwrap().get("test.sysml").unwrap(),
-        &InterchangeProjectChecksum {
+        &InterchangeProjectChecksumRaw {
             value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8".to_string(),
-            algorithm: KerMlChecksumAlg::Sha256,
+            algorithm: KerMlChecksumAlg::Sha256.into()
         }
     );
 
@@ -147,10 +147,10 @@ fn test_workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
         assert_eq!(
             meta.checksum.as_ref().unwrap().get("test.sysml").unwrap(),
-            &InterchangeProjectChecksum {
+            &InterchangeProjectChecksumRaw {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                     .to_string(),
-                algorithm: KerMlChecksumAlg::Sha256,
+                algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         );
 

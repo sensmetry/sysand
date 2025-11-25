@@ -1,16 +1,25 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{convert::Infallible, fmt::Write, path::PathBuf};
+use std::{convert::Infallible, ffi::OsStr, fmt::Write, path::PathBuf};
 
-use clap::builder::StyledStr;
+use clap::{ValueEnum, builder::StyledStr};
 use semver::VersionReq;
 
 use crate::env_vars;
 
-/// A project manager for KerML and SysML
+/// A project and package manager for SysML v2 and KerML
+///
+/// Documentation:
+/// <https://docs.sysand.org/>
+/// Package index and more information:
+/// <https://beta.sysand.org/>
 #[derive(clap::Parser, Debug)]
-#[command(author, version, about, long_about = None, arg_required_else_help = true, disable_help_flag = true, disable_version_flag = true)]
+#[command(version)]
+#[command(long_about, verbatim_doc_comment)]
+#[command(arg_required_else_help = true)]
+#[command(disable_help_flag = true)]
+#[command(disable_version_flag = true)]
 #[command(styles=crate::style::STYLING)]
 pub struct Args {
     #[command(flatten)]
@@ -168,7 +177,7 @@ impl clap::builder::TypedValueParser for InvalidCommand {
         &self,
         cmd: &clap::Command,
         arg: Option<&clap::Arg>,
-        value: &std::ffi::OsStr,
+        value: &OsStr,
     ) -> Result<Self::Value, clap::Error> {
         let mut err = clap::Error::new(clap::error::ErrorKind::UnknownArgument).with_cmd(cmd);
         if let Some(arg) = arg {
@@ -200,7 +209,7 @@ pub enum InfoCommand {
     /// Get or set the name of the project
     #[group(required = false, multiple = false)]
     Name {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "NAME", default_value=None)]
         set: Option<String>,
         // Only for better error messages
         #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=
@@ -218,7 +227,7 @@ pub enum InfoCommand {
     /// Get or set the description of the project
     #[group(required = false, multiple = false)]
     Description {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "DESCRIPTION", default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
         clear: bool,
@@ -236,7 +245,7 @@ pub enum InfoCommand {
     /// Get or set the version of the project
     #[group(required = false, multiple = false)]
     Version {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "VERSION", default_value=None)]
         set: Option<String>,
         // Only for better error messages
         #[arg(
@@ -263,7 +272,7 @@ pub enum InfoCommand {
     #[command(visible_alias = "license")]
     #[group(required = false, multiple = false)]
     Licence {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "LICENSE", default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
         clear: bool,
@@ -281,7 +290,7 @@ pub enum InfoCommand {
     /// Get or manipulate the list of maintainers of the project
     #[group(required = false, multiple = false)]
     Maintainer {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "MAINTAINER", default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
         clear: bool,
@@ -296,7 +305,7 @@ pub enum InfoCommand {
     /// Get or set the website of the project
     #[group(required = false, multiple = false)]
     Website {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "WEBSITE", default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
         clear: bool,
@@ -314,11 +323,11 @@ pub enum InfoCommand {
     /// Get or manipulate the list of topics of the project
     #[group(required = false, multiple = false)]
     Topic {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "TOPIC", default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
         clear: bool,
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "TOPIC", default_value=None)]
         add: Option<String>,
         #[arg(long, default_value=None)]
         remove: Option<usize>,
@@ -423,11 +432,17 @@ pub enum InfoCommand {
         remove: Option<Infallible>,
     },
     /// Get or set the metamodel of the project
-    #[group(required = false, multiple = false)]
+    #[group(required = false)]
+    // TODO: do not print warning about std libs
     Metamodel {
-        #[arg(long, default_value=None)]
-        set: Option<String>,
-        #[arg(long, num_args=0, default_missing_value="true", default_value = None)]
+        // It would be nicer to have Option<Metamodel> here,
+        // but that would introduce an additional level of
+        // nesting, as clap does not support flatten with Option
+        #[arg(long, value_name = "KIND", value_enum, default_value=None)]
+        set: Option<MetamodelKind>,
+        #[arg(long, requires = "set", value_enum, default_value=MetamodelVersion::RELEASE)]
+        version: MetamodelVersion,
+        #[arg(long, num_args=0, default_missing_value="true", default_value = None, conflicts_with = "set")]
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
@@ -443,7 +458,7 @@ pub enum InfoCommand {
     /// Get or set whether the project includes derived properties
     #[group(required = false, multiple = false)]
     IncludesDerived {
-        #[arg(long, num_args=1, default_value=None)]
+        #[arg(long, value_name = "INCLUDES_DERIVED", num_args=1, default_value=None)]
         set: Option<bool>,
         #[arg(long, default_value = None)]
         clear: bool,
@@ -470,7 +485,7 @@ pub enum InfoCommand {
     /// Get or set whether the project includes implied properties
     #[group(required = false, multiple = false)]
     IncludesImplied {
-        #[arg(long, num_args=1, default_value=None)]
+        #[arg(long, value_name = "INCLUDES_IMPLIED", num_args=1, default_value=None)]
         set: Option<bool>,
         #[arg(long, default_value = None)]
         clear: bool,
@@ -615,7 +630,7 @@ pub enum GetMetaVerb {
 
 #[derive(Debug, Clone)]
 pub enum SetMetaVerb {
-    SetMetamodel(String),
+    SetMetamodel(Metamodel),
     SetIncludesDerived(bool),
     SetIncludesImplied(bool),
 }
@@ -839,12 +854,13 @@ impl InfoCommand {
             ),
             InfoCommand::Metamodel {
                 set,
+                version,
                 clear,
                 add,
                 remove,
             } => pack_meta(
                 GetMetaVerb::GetMetamodel,
-                set.map(SetMetaVerb::SetMetamodel),
+                set.map(|k| SetMetaVerb::SetMetamodel(Metamodel(k, version))),
                 if clear {
                     Some(ClearMetaVerb::ClearMetamodel)
                 } else {
@@ -971,6 +987,7 @@ impl InfoCommand {
             } => false,
             InfoCommand::Metamodel {
                 set: _,
+                version: _,
                 clear: _,
                 add: _,
                 remove: _,
@@ -1106,7 +1123,7 @@ pub struct GlobalOptions {
     /// Disable discovery of configuration files
     #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_NO_CONFIG)]
     pub no_config: bool,
-    /// Give path to 'sysand.toml' to use for configuration
+    /// Give path to `sysand.toml` to use for configuration
     #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_CONFIG_FILE)]
     pub config_file: Option<String>,
     /// Print help
@@ -1117,5 +1134,113 @@ pub struct GlobalOptions {
 impl GlobalOptions {
     pub fn sets_log_level(&self) -> bool {
         self.verbose || self.quiet
+    }
+}
+
+// Default metamodel for .kpar archives is KerML according to spec.
+// But for non-packaged projects there is no default.
+// Therefore, we don't provide a default here.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[clap(rename_all = "lowercase")]
+pub enum MetamodelKind {
+    /// SysML v2 metamodel. Identifier: `https://www.omg.org/spec/SysML/<version>`
+    SysML,
+    /// KerML metamodel. Identifier: `https://www.omg.org/spec/KerML/<version>`
+    KerML,
+}
+
+impl MetamodelKind {
+    pub const SYSML: &str = "https://www.omg.org/spec/SysML/";
+    pub const KERML: &str = "https://www.omg.org/spec/KerML/";
+}
+
+impl From<&MetamodelKind> for &'static str {
+    fn from(value: &MetamodelKind) -> Self {
+        match value {
+            MetamodelKind::SysML => MetamodelKind::SYSML,
+            MetamodelKind::KerML => MetamodelKind::KERML,
+        }
+    }
+}
+
+impl From<MetamodelKind> for &'static str {
+    fn from(value: MetamodelKind) -> Self {
+        Self::from(&value)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Metamodel(MetamodelKind, MetamodelVersion);
+
+impl From<&Metamodel> for String {
+    fn from(value: &Metamodel) -> Self {
+        let mut s = String::new();
+        s.push_str(value.0.into());
+        s.push_str(value.1.into());
+        s
+    }
+}
+
+impl From<Metamodel> for String {
+    fn from(value: Metamodel) -> Self {
+        Self::from(&value)
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetamodelVersion {
+    Beta1_20230201 = 20230201,
+    Beta2_20240201 = 20240201,
+    #[default]
+    Release_20250201 = 20250201,
+}
+
+impl From<&MetamodelVersion> for &'static str {
+    fn from(value: &MetamodelVersion) -> Self {
+        match value {
+            MetamodelVersion::Beta1_20230201 => MetamodelVersion::BETA1,
+            MetamodelVersion::Beta2_20240201 => MetamodelVersion::BETA2,
+            MetamodelVersion::Release_20250201 => MetamodelVersion::RELEASE,
+        }
+    }
+}
+
+impl From<MetamodelVersion> for &'static str {
+    fn from(value: MetamodelVersion) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl MetamodelVersion {
+    pub const BETA1: &str = "20230201";
+    pub const BETA2: &str = "20240201";
+    pub const RELEASE: &str = "20250201";
+}
+
+impl ValueEnum for MetamodelVersion {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[
+            Self::Release_20250201,
+            Self::Beta2_20240201,
+            Self::Beta1_20230201,
+        ]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        use clap::builder::PossibleValue;
+        Some(match self {
+            MetamodelVersion::Release_20250201 => {
+                PossibleValue::new(MetamodelVersion::RELEASE).help("SysMLv2/KerML Release or Beta4")
+            }
+            MetamodelVersion::Beta2_20240201 => {
+                PossibleValue::new(MetamodelVersion::BETA2).help("SysMLv2/KerML Beta2")
+            }
+            MetamodelVersion::Beta1_20230201 => {
+                // `\n` is needed here, because clap prints default value at the end
+                // of last item help string
+                PossibleValue::new(MetamodelVersion::BETA1).help("SysMLv2/KerML Beta1\n")
+            }
+        })
     }
 }
