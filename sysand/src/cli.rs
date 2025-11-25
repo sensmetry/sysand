@@ -459,10 +459,15 @@ pub enum InfoCommand {
         // It would be nicer to have Option<Metamodel> here,
         // but that would introduce an additional level of
         // nesting, as clap does not support flatten with Option
+        /// Set a SysML v2 or KerML metamodel. To set a custom metamodel, use `--set-custom`
         #[arg(long, value_name = "KIND", value_enum, default_value=None)]
         set: Option<MetamodelKind>,
-        #[arg(long, requires = "set", value_enum, default_value=MetamodelVersion::RELEASE)]
-        version: MetamodelVersion,
+        /// Choose the release of the SysML v2 or KerML metamodel
+        #[arg(long, value_name = "YYYYMMDD", requires = "set", value_enum, default_value=MetamodelVersion::RELEASE)]
+        release: MetamodelVersion,
+        /// Set a custom metamodel. To set a SysML v2 or KerML metamodel, use `--set`
+        #[arg(long, value_name = "METAMODEL", conflicts_with = "set", default_value=None)]
+        set_custom: Option<String>,
         #[arg(long, num_args=0, default_missing_value="true", default_value = None, conflicts_with = "set")]
         clear: bool,
         // Only for better error messages
@@ -651,7 +656,7 @@ pub enum GetMetaVerb {
 
 #[derive(Debug, Clone)]
 pub enum SetMetaVerb {
-    SetMetamodel(Metamodel),
+    SetMetamodel(String),
     SetIncludesDerived(bool),
     SetIncludesImplied(bool),
 }
@@ -877,21 +882,25 @@ impl InfoCommand {
             ),
             InfoCommand::Metamodel {
                 set,
-                version,
+                release: version,
+                set_custom,
                 clear,
                 add,
                 remove,
-            } => pack_meta(
-                GetMetaVerb::GetMetamodel,
-                set.map(|k| SetMetaVerb::SetMetamodel(Metamodel(k, version))),
-                if clear {
-                    Some(ClearMetaVerb::ClearMetamodel)
-                } else {
-                    None
-                },
-                impossible(add),
-                impossible(remove),
-            ),
+            } => {
+                let metamodel = set.map(|mk| Metamodel(mk, version).into()).or(set_custom);
+                pack_meta(
+                    GetMetaVerb::GetMetamodel,
+                    metamodel.map(SetMetaVerb::SetMetamodel),
+                    if clear {
+                        Some(ClearMetaVerb::ClearMetamodel)
+                    } else {
+                        None
+                    },
+                    impossible(add),
+                    impossible(remove),
+                )
+            }
             InfoCommand::IncludesDerived {
                 set,
                 clear,
@@ -1012,7 +1021,8 @@ impl InfoCommand {
             } => false,
             InfoCommand::Metamodel {
                 set: _,
-                version: _,
+                release: _,
+                set_custom: _,
                 clear: _,
                 add: _,
                 remove: _,
@@ -1204,9 +1214,9 @@ fn parse_https_iri(s: &str) -> Result<fluent_uri::Iri<String>, fluent_uri::Parse
 #[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 #[clap(rename_all = "lowercase")]
 pub enum MetamodelKind {
-    /// SysML v2 metamodel. Identifier: `https://www.omg.org/spec/SysML/<version>`
+    /// SysML v2 metamodel. Identifier: `https://www.omg.org/spec/SysML/<release>`
     SysML,
-    /// KerML metamodel. Identifier: `https://www.omg.org/spec/KerML/<version>`
+    /// KerML metamodel. Identifier: `https://www.omg.org/spec/KerML/<release>`
     KerML,
 }
 
@@ -1298,9 +1308,7 @@ impl ValueEnum for MetamodelVersion {
                 PossibleValue::new(MetamodelVersion::BETA2).help("SysMLv2/KerML Beta2")
             }
             MetamodelVersion::Beta1_20230201 => {
-                // `\n` is needed here, because clap prints default value at the end
-                // of last item help string
-                PossibleValue::new(MetamodelVersion::BETA1).help("SysMLv2/KerML Beta1\n")
+                PossibleValue::new(MetamodelVersion::BETA1).help("SysMLv2/KerML Beta1")
             }
         })
     }
