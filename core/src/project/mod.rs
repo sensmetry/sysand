@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::model::{
-    InterchangeProjectChecksum, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+    InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
 };
 use futures::io::{AsyncBufReadExt as _, AsyncRead};
@@ -169,7 +169,7 @@ pub trait ProjectRead {
 
     fn checksum(
         &self,
-    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksum>>, Self::Error> {
+    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error> {
         Ok(self.get_meta()?.and_then(|meta| meta.checksum))
     }
 
@@ -190,8 +190,9 @@ pub trait ProjectRead {
             .into_iter()
             .flat_map(|index| index.iter_mut())
         {
-            if checksum.algorithm != KerMlChecksumAlg::Sha256 {
-                checksum.algorithm = KerMlChecksumAlg::Sha256;
+            let sha256: &str = KerMlChecksumAlg::Sha256.into();
+            if checksum.algorithm != sha256 {
+                checksum.algorithm = sha256.to_owned();
 
                 let mut src = self
                     .read_source(path)
@@ -316,7 +317,7 @@ pub trait ProjectReadAsync {
 
     fn checksum_async(
         &self,
-    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksum>>, Self::Error>>
+    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error>>
     {
         async { Ok(self.get_meta_async().await?.and_then(|meta| meta.checksum)) }
     }
@@ -338,8 +339,9 @@ pub trait ProjectReadAsync {
 
             if let Some(mut checksums) = meta.checksum {
                 let future_checksums = checksums.drain(..).map(|(path, mut checksum)| async move {
-                    if checksum.algorithm != KerMlChecksumAlg::Sha256 {
-                        checksum.algorithm = KerMlChecksumAlg::Sha256;
+                    let sha256: &str = KerMlChecksumAlg::Sha256.into();
+                    if checksum.algorithm != sha256 {
+                        checksum.algorithm = sha256.to_owned();
 
                         let mut src = self
                             .read_source_async(&path)
@@ -358,7 +360,7 @@ pub trait ProjectReadAsync {
                     Ok((path, checksum))
                 });
 
-                let collected_checksums: Result<Vec<(String, InterchangeProjectChecksum)>, _> =
+                let collected_checksums: Result<Vec<(String, InterchangeProjectChecksumRaw)>, _> =
                     futures::future::join_all(future_checksums.into_iter())
                         .await
                         .into_iter()
@@ -436,7 +438,7 @@ pub struct IndexMergeOutcome {
 
 #[derive(Debug)]
 pub struct SourceExclusionOutcome {
-    pub removed_checksum: Option<InterchangeProjectChecksum>,
+    pub removed_checksum: Option<InterchangeProjectChecksumRaw>,
     pub removed_symbols: Vec<String>,
 }
 
@@ -698,8 +700,8 @@ mod tests {
 
     use crate::{
         model::{
-            InterchangeProjectChecksum, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-            KerMlChecksumAlg,
+            InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
+            InterchangeProjectMetadataRaw, KerMlChecksumAlg,
         },
         project::{ProjectRead, hash_reader, memory::InMemoryProject},
     };
@@ -738,8 +740,8 @@ mod tests {
                 includes_implied: None,
                 checksum: Some(IndexMap::from([(
                     "MyFile.txt".to_string(),
-                    InterchangeProjectChecksum {
-                        algorithm: KerMlChecksumAlg::None,
+                    InterchangeProjectChecksumRaw {
+                        algorithm: KerMlChecksumAlg::None.to_string(),
                         value: "".to_string(),
                     },
                 )])),
@@ -762,10 +764,10 @@ mod tests {
         assert_eq!(checksums.len(), 1);
         assert_eq!(
             checksums.get("MyFile.txt"),
-            Some(&InterchangeProjectChecksum {
+            Some(&InterchangeProjectChecksumRaw {
                 value: "4da8b89a905445e96dd0ab6c9be9a72c8b0ffc686a57a3cc6808a8952a3560ed"
                     .to_string(),
-                algorithm: KerMlChecksumAlg::Sha256
+                algorithm: KerMlChecksumAlg::Sha256.to_string()
             })
         );
 

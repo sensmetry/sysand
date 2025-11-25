@@ -9,7 +9,9 @@ use crate::{
     },
 };
 use sysand_core::{
-    model::{InterchangeProjectChecksum, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{
+        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+    },
     project::{ProjectMut, ProjectRead},
     resolve::{file::FileResolverProject, standard::standard_resolver},
 };
@@ -374,9 +376,11 @@ fn apply_get_meta(
         GetMetaVerb::GetChecksum => print_output(
             meta.checksum.map(|xs| {
                 xs.into_iter()
-                    .map(|(path, InterchangeProjectChecksum { value, algorithm })| {
-                        format!("{}({}) = {}", algorithm, path, value)
-                    })
+                    .map(
+                        |(path, InterchangeProjectChecksumRaw { value, algorithm })| {
+                            format!("{}({}) = {}", algorithm, path, value)
+                        },
+                    )
                     .collect()
             }),
             numbered,
@@ -445,7 +449,7 @@ fn set_meta(
 
     match set_meta_verb {
         SetMetaVerb::SetMetamodel(value) => {
-            result.metamodel = Some(value.clone());
+            result.metamodel = Some(value.into());
         }
         SetMetaVerb::SetIncludesDerived(value) => {
             result.includes_derived = Some(*value);
