@@ -1,4 +1,4 @@
-# Project metadata
+# Project information and metadata
 
 Contents of interchange project information (`.project.json`)
 and metadata (`.meta.json`) files are specified in [KerML
