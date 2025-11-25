@@ -1100,22 +1100,41 @@ pub struct InstallOptions {
 #[derive(clap::Args, Debug, Clone)]
 pub struct DependencyOptions {
     /// URLs for indexes to use when resolving dependencies, in addition to the default indexes.
-    #[arg(long, value_name = "INDEX", num_args = 0.., help_heading = "Dependency options", env = env_vars::SYSAND_INDEX, value_delimiter = ',')]
+    #[arg(
+        long,
+        num_args = 0..,
+        global = true,
+        help_heading = "Dependency options",
+        env = env_vars::SYSAND_INDEX,
+        value_delimiter = ','
+    )]
     pub index: Vec<String>,
     /// Set and override URL:s of the default indexes (by default 'https://beta.sysand.org')
-    #[arg(long, num_args=0.., help_heading = "Dependency options", env = env_vars::SYSAND_DEFAULT_INDEX, value_delimiter = ',')]
+    #[arg(
+        long,
+        num_args = 0..,
+        global = true,
+        help_heading = "Dependency options",
+        env = env_vars::SYSAND_DEFAULT_INDEX,
+        value_delimiter = ','
+    )]
     pub default_index: Vec<String>,
     /// Do not use any index when resolving this usage
     #[arg(
         long,
         default_value = "false",
-        conflicts_with = "index",
-        conflicts_with = "default_index",
+        conflicts_with_all = ["index", "default_index"],
+        global = true,
         help_heading = "Dependency options"
     )]
     pub no_index: bool,
     /// Include usages of KerML/SysML standard libraries if present
-    #[arg(long, default_value = "false", help_heading = "Dependency options")]
+    #[arg(
+        long,
+        default_value = "false",
+        global = true,
+        help_heading = "Dependency options"
+    )]
     pub include_std: bool,
 }
 
@@ -1125,7 +1144,7 @@ pub struct SourcesOptions {
     #[arg(long, default_value = "false", conflicts_with = "include_std")]
     pub no_deps: bool,
     /// Include (installed) KerML/SysML standard libraries
-    #[arg(long, default_value = "false", conflicts_with = "no_deps")]
+    #[arg(long, default_value = "false")]
     pub include_std: bool,
 }
 
