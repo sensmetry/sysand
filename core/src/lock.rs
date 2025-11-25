@@ -557,7 +557,7 @@ fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
 
 #[cfg(test)]
 mod tests {
-    use std::{fmt::Display, slice, str::FromStr};
+    use std::{convert::Infallible, fmt::Display, slice, str::FromStr};
 
     use toml_edit::DocumentMut;
 
@@ -578,7 +578,7 @@ mod tests {
 
     #[test]
     fn check_unsupported_lock_version() {
-        let version = "X".to_string();
+        let version = "X";
         let document =
             DocumentMut::from_str(format!("lock_version = \"{}\"", version).as_str()).unwrap();
         let Err(err) = check_lock_version(&document) else {
@@ -1150,9 +1150,9 @@ checksum = "{CHECKSUM}"
 
     #[test]
     fn validate_unsupported_lock_version() {
-        let version = "X".to_string();
+        let version = "X";
         let Err(err) = Lock {
-            lock_version: version.clone(),
+            lock_version: version.to_owned(),
             projects: vec![],
         }
         .validate() else {
@@ -1282,13 +1282,12 @@ checksum = "{CHECKSUM}"
         };
         assert_eq!(usage, usage_in.to_toml().to_string());
         assert_eq!(version, version_in.to_string());
-        assert_eq!(project_with_name, project_with::<String>(None));
+        assert_eq!(project_with_name, project_with::<Infallible>(None));
     }
 
     #[test]
     fn validate_checksum() {
-        let invalid_checksum =
-            "dA8747a6f27A32f10Ba393113bCE29fX88181037a71f093f90e0ad5829D2b780".to_string();
+        let invalid_checksum = "dA8747a6f27A32f10Ba393113bCE29fX88181037a71f093f90e0ad5829D2b780";
         let Err(err) = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![Project {
@@ -1298,7 +1297,7 @@ checksum = "{CHECKSUM}"
                 identifiers: vec![],
                 usages: vec![],
                 sources: vec![],
-                checksum: invalid_checksum.clone(),
+                checksum: invalid_checksum.to_owned(),
             }],
         }
         .validate() else {
@@ -1312,7 +1311,7 @@ checksum = "{CHECKSUM}"
             panic!()
         };
         assert_eq!(checksum, invalid_checksum);
-        assert_eq!(project_with_name, project_with::<String>(None));
+        assert_eq!(project_with_name, project_with::<Infallible>(None));
     }
 
     #[test]
@@ -1480,7 +1479,7 @@ checksum = "{CHECKSUM}"
         };
         assert_eq!(
             project.checksum,
-            "da8747a6f27a32f10ba393113bce29f788181037a71f093f90e0ad5829d2b780".to_string()
+            "da8747a6f27a32f10ba393113bce29f788181037a71f093f90e0ad5829d2b780"
         );
     }
 }

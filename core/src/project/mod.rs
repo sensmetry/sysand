@@ -700,7 +700,7 @@ mod tests {
 
     #[test]
     fn test_sanity_check_hasher() -> Result<(), Box<dyn std::error::Error>> {
-        let input = "FooBarBaz".to_string();
+        let input = "FooBarBaz";
 
         // echo -n "FooBarBaz" | sha256sum
         assert_eq!(

@@ -227,58 +227,64 @@ where
     Ok(())
 }
 
-fn is_installed<E: ReadEnvironment, U>(
-    uri: &String,
-    checksum: &String,
+fn is_installed<E: ReadEnvironment, U, Str1: AsRef<str>, Str2: AsRef<str>>(
+    uri: Str1,
+    checksum: Str2,
     env: &E,
 ) -> Result<bool, SyncError<U>> {
     if !env
-        .has(uri)
+        .has(&uri)
         .map_err(|e| SyncError::ProjectRead(e.to_string()))?
     {
         return Ok(false);
     }
     for version in env
-        .versions(uri)
+        .versions(&uri)
         .map_err(|e| SyncError::ProjectRead(e.to_string()))?
     {
         let version: String = version.map_err(|e| SyncError::ProjectRead(e.to_string()))?;
         let project_checksum = env
-            .get_project(uri, version)
+            .get_project(&uri, version)
             .map_err(|e| SyncError::ProjectRead(e.to_string()))?
             .checksum_noncanonical_hex()
             .map_err(|e| SyncError::ProjectRead(e.to_string()))?
-            .ok_or(SyncError::BadProject(uri.clone()))?;
-        if checksum == &project_checksum {
+            .ok_or(SyncError::BadProject(uri.as_ref().to_owned()))?;
+        if checksum.as_ref() == project_checksum {
             return Ok(true);
         }
     }
     Ok(false)
 }
 
-fn try_install<E: ReadEnvironment + WriteEnvironment, P: ProjectRead, U>(
-    uri: &String,
-    checksum: &String,
+fn try_install<
+    E: ReadEnvironment + WriteEnvironment,
+    P: ProjectRead,
+    U,
+    Str1: AsRef<str>,
+    Str2: AsRef<str>,
+>(
+    uri: Str1,
+    checksum: Str2,
     storage: P,
     env: &mut E,
 ) -> Result<(), SyncError<U>> {
     let project_checksum = storage
         .checksum_canonical_hex()
         .map_err(|e| SyncError::ProjectRead(e.to_string()))?
-        .ok_or(SyncError::BadProject(uri.clone()))?;
-    if checksum == &project_checksum {
+        .ok_or(SyncError::BadProject(uri.as_ref().to_owned()))?;
+    if checksum.as_ref() == project_checksum {
         // TODO: Need to decide how to handle existing installations and possible flags to modify behavior
-        do_env_install_project(uri, &storage, env, true, true).map_err(|e| {
+        do_env_install_project(&uri, &storage, env, true, true).map_err(|e| {
             SyncError::InstallFail {
-                uri: uri.as_str().into(),
+                uri: uri.as_ref().into(),
                 cause: e.to_string(),
             }
         })?;
     } else {
-        log::debug!("Incorrect checksum for {} in lockfile", &uri);
-        log::debug!("Lockfile checksum = {}", checksum);
+        log::debug!("Incorrect checksum for {} in lockfile", uri.as_ref());
+        log::debug!("Lockfile checksum = {}", checksum.as_ref());
         log::debug!("Project checksum = {}", project_checksum);
-        return Err(SyncError::BadChecksum(uri.clone()));
+        return Err(SyncError::BadChecksum(uri.as_ref().to_owned()));
     }
     Ok(())
 }
@@ -336,32 +342,29 @@ mod tests {
 
     #[test]
     fn test_is_not_installed() {
-        let uri = "urn:kpar:install_test".to_string();
-        let checksum = "00".to_string();
+        let uri = "urn:kpar:install_test";
+        let checksum = "00";
         let env = MemoryStorageEnvironment::new();
 
-        assert!(!is_installed::<MemoryStorageEnvironment, u32>(&uri, &checksum, &env).unwrap());
+        assert!(!is_installed::<MemoryStorageEnvironment, u32, _, _>(uri, checksum, &env).unwrap());
     }
 
     #[test]
     fn test_is_installed() {
         let storage = storage_example();
 
-        let uri = "urn:kpar:install_test".to_string();
+        let uri = "urn:kpar:install_test";
         let checksum = storage.checksum_noncanonical_hex().unwrap().unwrap();
         let mut env = MemoryStorageEnvironment::new();
-        env.put_project(&uri, "1,2,3", |p| clone_project(&storage, p, true))
+        env.put_project(uri, "1,2,3", |p| clone_project(&storage, p, true))
             .unwrap();
 
-        assert!(is_installed::<MemoryStorageEnvironment, E>(&uri, &checksum, &env).unwrap());
+        assert!(is_installed::<MemoryStorageEnvironment, E, _, _>(uri, &checksum, &env).unwrap());
+
+        assert!(!is_installed::<MemoryStorageEnvironment, E, _, _>(uri, "00", &env).unwrap());
 
         assert!(
-            !is_installed::<MemoryStorageEnvironment, E>(&uri, &"00".to_string(), &env).unwrap()
-        );
-
-        assert!(
-            !is_installed::<MemoryStorageEnvironment, E>(&"not_uri".to_string(), &checksum, &env)
-                .unwrap()
+            !is_installed::<MemoryStorageEnvironment, E, _, _>("not_uri", &checksum, &env).unwrap()
         );
     }
 
@@ -369,39 +372,36 @@ mod tests {
     fn test_try_install() {
         let storage = storage_example();
 
-        let uri = "urn:kpar:install_test".to_string();
+        let uri = "urn:kpar:install_test";
         let checksum = storage.checksum_noncanonical_hex().unwrap().unwrap();
         let mut env = MemoryStorageEnvironment::new();
 
-        try_install::<MemoryStorageEnvironment, InMemoryProject, E>(
-            &uri, &checksum, storage, &mut env,
+        try_install::<MemoryStorageEnvironment, InMemoryProject, E, _, _>(
+            uri, &checksum, storage, &mut env,
         )
         .unwrap();
 
         let uris = env.uris().unwrap();
 
         assert_eq!(uris.len(), 1);
-        assert_eq!(uris.first().unwrap().as_ref().unwrap(), &uri);
+        assert_eq!(uris.first().unwrap().as_ref().unwrap(), uri);
 
         let versions = env.versions(uri).unwrap();
 
         assert_eq!(versions.len(), 1);
-        assert_eq!(
-            versions.first().unwrap().as_ref().unwrap(),
-            &"1.2.3".to_string()
-        );
+        assert_eq!(versions.first().unwrap().as_ref().unwrap(), "1.2.3");
     }
 
     #[test]
     fn test_try_install_bad_checksum() {
         let storage = storage_example();
 
-        let uri = "urn:kpar:install_test".to_string();
-        let checksum = "00".to_string();
+        let uri = "urn:kpar:install_test";
+        let checksum = "00";
         let mut env = MemoryStorageEnvironment::new();
 
         let SyncError::BadChecksum(msg) =
-            try_install::<MemoryStorageEnvironment, InMemoryProject, E>(
+            try_install::<MemoryStorageEnvironment, InMemoryProject, E, _, _>(
                 &uri, &checksum, storage, &mut env,
             )
             .unwrap_err()
