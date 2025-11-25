@@ -97,7 +97,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
     let resolver = MemoryResolver {
         iri_predicate: AcceptAll {},
         projects: HashMap::from([(
-            fluent_uri::Iri::parse("urn:sysand_test:1".to_string()).unwrap(),
+            fluent_uri::Iri::parse("urn:sysand_test:1")?.into(),
             vec![source_project.clone()],
         )]),
     };

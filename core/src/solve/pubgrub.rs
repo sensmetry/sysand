@@ -570,8 +570,7 @@ mod tests {
 
         let solution = super::solve(
             vec![InterchangeProjectUsage {
-                resource: fluent_uri::Iri::parse("urn:kpar:test_version_selection".to_string())
-                    .unwrap(),
+                resource: fluent_uri::Iri::parse("urn:kpar:test_version_selection")?.into(),
                 version_constraint: Some(semver::VersionReq::parse(">=2.0.0")?),
             }],
             resolver,
@@ -580,7 +579,7 @@ mod tests {
         assert_eq!(solution.len(), 1);
 
         let (install_info, _, _) = solution
-            .get(&Iri::parse("urn:kpar:test_version_selection".to_string()).unwrap())
+            .get(Iri::parse("urn:kpar:test_version_selection")?.into())
             .unwrap();
 
         assert_eq!(install_info.version, semver::Version::new(2, 0, 1));
@@ -629,17 +628,11 @@ mod tests {
         let solution = super::solve(
             vec![
                 InterchangeProjectUsage {
-                    resource: fluent_uri::Iri::parse(
-                        "urn:kpar:test_diamond_selection_a".to_string(),
-                    )
-                    .unwrap(),
+                    resource: fluent_uri::Iri::parse("urn:kpar:test_diamond_selection_a")?.into(),
                     version_constraint: Some(semver::VersionReq::parse(">=0.1.0")?),
                 },
                 InterchangeProjectUsage {
-                    resource: fluent_uri::Iri::parse(
-                        "urn:kpar:test_diamond_selection_b".to_string(),
-                    )
-                    .unwrap(),
+                    resource: fluent_uri::Iri::parse("urn:kpar:test_diamond_selection_b")?.into(),
                     version_constraint: None,
                 },
             ],
@@ -649,17 +642,17 @@ mod tests {
         assert_eq!(solution.len(), 3);
 
         let (install_info_a, _, _) = solution
-            .get(&Iri::parse("urn:kpar:test_diamond_selection_a".to_string()).unwrap())
+            .get(Iri::parse("urn:kpar:test_diamond_selection_a")?.into())
             .unwrap();
         assert_eq!(install_info_a.version, semver::Version::new(1, 0, 1));
 
         let (install_info_b, _, _) = solution
-            .get(&Iri::parse("urn:kpar:test_diamond_selection_b".to_string()).unwrap())
+            .get(Iri::parse("urn:kpar:test_diamond_selection_b")?.into())
             .unwrap();
         assert_eq!(install_info_b.version, semver::Version::new(1, 0, 2));
 
         let (install_info_a, _, _) = solution
-            .get(&Iri::parse("urn:kpar:test_diamond_selection_c".to_string()).unwrap())
+            .get(Iri::parse("urn:kpar:test_diamond_selection_c")?.into())
             .unwrap();
         assert_eq!(install_info_a.version, semver::Version::new(2, 0, 3));
 
