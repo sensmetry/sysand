@@ -121,3 +121,64 @@ merged. The project uses GitHub Actions CI, its configuration is in
 [`.github/workflows` directory](.github/workflows). The CI runs the same tests
 as [`./scripts/run_tests.sh`](scripts/run_tests.sh). Therefore it is recommended
 to make sure that all tests pass locally before submitting a pull request.
+
+## Text formatting guide
+
+### Log/error messages
+
+Rules to follow:
+
+- error messages are both for users and developers,
+  so should be comprehensible and useful to both
+- always quote user input (paths, file/dir names, arbitrary strings, IRIs, etc.)
+  using backticks (``)
+- messages start on a lowercase letter (if any)
+- include as much information as reasonable, do not hide underlying errors
+- for multiline warning log messages, indent subsequent lines
+  to align with the first:
+
+  ```rust
+  const SP: char = ' ';
+  log::warn!(
+      "this is a very long warning\n\
+      {SP:>8} message that spans\n\
+      {SP:>8} multiple lines"
+  );
+  ```
+
+- include explicit newlines in messages that are long or
+  include potentially long interpolated values (previous example)
+
+### Markdown
+
+Rules for markdown (Rust doc comments, `.md` files):
+
+- always include a language specifier in fenced code blocks,
+  use `plain` if no language is appropriate:
+
+  ````md
+  ```plain
+  ```
+  ````
+
+- for generic shell syntax highlighting using triple backticks,
+  use `sh` language specifier:
+
+  ````md
+  ```sh
+  ```
+  ````
+
+- for console session highlighting, such as
+
+  ```console
+  $ echo hello
+  hello
+  ```
+
+  use `console` language specifier:
+
+  ````md
+  ```console
+  ```
+  ````
