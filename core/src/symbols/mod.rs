@@ -185,7 +185,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
             Token::Comma => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "floating comma".to_string(),
+                    msg: "unexpected comma (`,`)".to_string(),
                 });
             }
             Token::OtherIdentifier | Token::Quoted => {
@@ -220,7 +220,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                             names => {
                                 return Err(ParseError {
                                     span: None,
-                                    msg: format!("warn: got a floating reference: {:?}", names),
+                                    msg: format!("warn: got an unexpected reference: {:?}", names),
                                 });
                             }
                         };
@@ -248,27 +248,27 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
             Token::String => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected floating string".to_string(),
+                    msg: "unexpected string".to_string(),
                 });
             }
             Token::OpenParen => skip_nested(token_iter, Token::OpenParen, Token::CloseParen)?,
             Token::CloseParen => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected floating `)`".to_string(),
+                    msg: "unexpected `)`".to_string(),
                 });
             }
             Token::OpenSquare => skip_nested(token_iter, Token::OpenSquare, Token::CloseSquare)?,
             Token::CloseSquare => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected floating `]`".to_string(),
+                    msg: "unexpected `]`".to_string(),
                 });
             }
             Token::DoubleColon => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected floating `::`".to_string(),
+                    msg: "unexpected `::`".to_string(),
                 });
             }
             Token::LT => {
@@ -289,7 +289,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                     None => {
                         return Err(ParseError {
                             span: Some(sp.clone()),
-                            msg: "unclosed short-name '<'".to_string(),
+                            msg: "unclosed short-name `<`".to_string(),
                         });
                     }
                     Some((Token::GT, ..)) => {}
@@ -297,7 +297,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                         return Err(ParseError {
                             span: Some(sp.start..span.end),
                             msg: format!(
-                                "expected '<', found `{}` (token {:?})",
+                                "expected `<`, found `{}` (token {:?})",
                                 original, invalid_token
                             ),
                         });
@@ -307,7 +307,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
             Token::GT => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "floating '<'".to_string(),
+                    msg: "unexpected `<`".to_string(),
                 });
             }
             Token::Equals => {
@@ -316,7 +316,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
             Token::Period => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "floating period".to_string(),
+                    msg: "unexpected period (`.`)".to_string(),
                 });
             }
             Token::OtherSymbol => match keywords.get(&**original) {
@@ -344,7 +344,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                 None => {
                     return Err(ParseError {
                         span: Some(sp.clone()),
-                        msg: format!("floating unknown symbol `{}`", original),
+                        msg: format!("unexpected unknown symbol `{}`", original),
                     });
                 }
             },
@@ -363,7 +363,7 @@ pub enum ExtractError {
     #[error("syntax error at line {0}, byte {1}:\n{2}")]
     Syntax(u32, u32, LexingError),
     #[error(
-        "missing body delimiter: brace '{{}}' nesting depth is {0} (should be 0) at the end of file"
+        "missing body delimiter:\nbrace `{{}}` nesting depth is {0} (should be 0) at the end of file"
     )]
     MissingBodyDelimiter(i32),
     #[error("unable to get token range")]
