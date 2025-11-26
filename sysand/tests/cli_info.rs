@@ -4,7 +4,7 @@
 #[cfg(feature = "alltests")]
 use std::process::Command;
 
-use std::io::Write as _;
+use std::{error::Error, io::Write as _};
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
@@ -14,7 +14,7 @@ mod common;
 pub use common::*;
 
 #[test]
-fn info_basic_in_cwd() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, out_init) =
         run_sysand(["init", "--version", "1.2.3", "--name", "info_basic"], None)?;
     out_init
@@ -32,7 +32,7 @@ fn info_basic_in_cwd() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, out_new) = run_sysand(["new", "--version", "1.2.3", "info_basic"], None)?;
     out_new
         .assert()
@@ -110,27 +110,27 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
-fn info_basic_path_explicit() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_path_explicit() -> Result<(), Box<dyn Error>> {
     info_basic(false, false)
 }
 
 #[test]
-fn info_basic_path_auto() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_path_auto() -> Result<(), Box<dyn Error>> {
     info_basic(false, true)
 }
 
 #[test]
-fn info_basic_iri_explicit() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_iri_explicit() -> Result<(), Box<dyn Error>> {
     info_basic(true, false)
 }
 
 #[test]
-fn info_basic_iri_auto() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_iri_auto() -> Result<(), Box<dyn Error>> {
     info_basic(true, true)
 }
 
 #[test]
-fn info_basic_http_url() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_http_url() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
 
     let git_mock = server
@@ -257,7 +257,7 @@ fn info_basic_http_url() -> Result<(), Box<dyn std::error::Error>> {
 // }
 
 #[test]
-fn info_basic_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
     let cwd = tempfile::TempDir::new()?;
     let zip_path = cwd.path().canonicalize()?.join("test.kpar");
 
@@ -289,7 +289,7 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "alltests")]
 #[test]
-fn info_basic_file_git() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_file_git() -> Result<(), Box<dyn Error>> {
     let cwd = tempfile::TempDir::new()?;
 
     {
@@ -361,7 +361,7 @@ fn info_basic_file_git() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
 
     let versions_mock = server
@@ -439,7 +439,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
+fn info_multi_index_url() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
 
@@ -578,7 +578,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn info_multi_index_url_config() -> Result<(), Box<dyn std::error::Error>> {
+fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
 
@@ -703,183 +703,201 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
+fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
     let (_tmp, cwd, out) = run_sysand(["new", "info_detailed_verbs", "--version", "1.2.3"], None)?;
     out.assert().success();
 
     let project_path = &cwd.join("info_detailed_verbs");
 
-    let get_field = |field: &'static str,
-                     expected: Option<String>|
-     -> Result<String, Box<dyn std::error::Error>> {
-        let out = run_sysand_in(project_path, ["info", field], None)?;
-        let stdout = out.stdout.clone();
-        if let Some(expected) = expected {
-            out.assert().success().stdout(expected);
-        }
-        Ok(String::from_utf8(stdout)?)
-    };
+    let get_field =
+        |field: &'static str, expected: Option<String>| -> Result<String, Box<dyn Error>> {
+            let out = run_sysand_in(project_path, ["info", field], None)?;
+            let stdout = out.stdout.clone();
+            if let Some(expected) = expected {
+                out.assert().success().stdout(expected);
+            }
+            Ok(String::from_utf8(stdout)?)
+        };
 
     // Check that a field does/does not get cleared
-    let try_clear =
-        |field: &'static str, expected: bool| -> Result<(), Box<dyn std::error::Error>> {
-            let before = get_field(field, None)?;
+    let try_clear = |field: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
+        let before = get_field(field, None)?;
 
-            let out = run_sysand_in(project_path, ["info", field, "--clear"], None)?;
+        let out = run_sysand_in(project_path, ["info", field, "--clear"], None)?;
+        if expected {
+            out.assert().success();
+            get_field(field, Some("".to_string()))?;
+        } else {
+            out.assert()
+                .stderr(predicates::str::contains("unexpected argument"));
+            get_field(field, Some(before))?;
+        }
+        Ok(())
+    };
+
+    let try_set = |field: &'static str,
+                   value: &'static str,
+                   expected: bool,
+                   expected_different: Option<&'static str>|
+     -> Result<(), Box<dyn Error>> {
+        let before = get_field(field, None)?;
+        let out = run_sysand_in(project_path, ["info", field, "--set", value], None)?;
+        if expected {
+            out.assert().success();
+            let mut expected_output = {
+                if let Some(dif) = expected_different {
+                    dif.to_owned()
+                } else {
+                    value.to_string()
+                }
+            };
+            expected_output.push('\n');
+            get_field(field, Some(expected_output))?;
+        } else {
+            out.assert()
+                .failure()
+                .stderr(predicates::str::contains("unexpected argument"));
+            get_field(field, Some(before))?;
+        }
+        Ok(())
+    };
+
+    let try_add =
+        |field: &'static str, value: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
+            let before = get_field(field, None)?;
+            let out = run_sysand_in(project_path, ["info", field, "--add", value], None)?;
             if expected {
                 out.assert().success();
-                get_field(field, Some("".to_string()))?;
+                let mut expected_output = before;
+                expected_output.push_str(value);
+                expected_output.push('\n');
+                get_field(field, Some(expected_output))?;
             } else {
                 out.assert()
+                    .failure()
                     .stderr(predicates::str::contains("unexpected argument"));
                 get_field(field, Some(before))?;
             }
             Ok(())
         };
 
-    let try_set = |field: &'static str,
-                   value: &'static str,
-                   expected: bool|
-     -> Result<(), Box<dyn std::error::Error>> {
-        let before = get_field(field, None)?;
-        let out = run_sysand_in(project_path, ["info", field, "--set", value], None)?;
-        if expected {
-            out.assert().success();
-            let mut expected_output = value.to_string();
-            expected_output.push('\n');
-            get_field(field, Some(expected_output))?;
-        } else {
-            out.assert()
-                .failure()
-                .stderr(predicates::str::contains("unexpected argument"));
-            get_field(field, Some(before))?;
-        }
-        Ok(())
-    };
-
-    let try_add = |field: &'static str,
-                   value: &'static str,
-                   expected: bool|
-     -> Result<(), Box<dyn std::error::Error>> {
-        let before = get_field(field, None)?;
-        let out = run_sysand_in(project_path, ["info", field, "--add", value], None)?;
-        if expected {
-            out.assert().success();
-            let mut expected_output = before;
-            expected_output.push_str(value);
-            expected_output.push('\n');
-            get_field(field, Some(expected_output))?;
-        } else {
-            out.assert()
-                .failure()
-                .stderr(predicates::str::contains("unexpected argument"));
-            get_field(field, Some(before))?;
-        }
-        Ok(())
-    };
-
-    let try_remove = |field: &'static str,
-                      index: &'static str,
-                      expected: bool|
-     -> Result<(), Box<dyn std::error::Error>> {
-        let before = get_field(field, None)?;
-        let out = run_sysand_in(project_path, ["info", field, "--remove", index], None)?;
-        if expected {
-            out.assert().success();
-            let skipped = index.parse::<usize>()? - 1;
-            let mut expected_output = "".to_string();
-            for (i, line) in before.lines().enumerate() {
-                if i != skipped {
-                    expected_output.push_str(line);
-                    expected_output.push('\n');
+    let try_remove =
+        |field: &'static str, index: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
+            let before = get_field(field, None)?;
+            let out = run_sysand_in(project_path, ["info", field, "--remove", index], None)?;
+            if expected {
+                out.assert().success();
+                let skipped = index.parse::<usize>()? - 1;
+                let mut expected_output = "".to_string();
+                for (i, line) in before.lines().enumerate() {
+                    if i != skipped {
+                        expected_output.push_str(line);
+                        expected_output.push('\n');
+                    }
                 }
+                get_field(field, Some(expected_output))?;
+            } else {
+                out.assert()
+                    .failure()
+                    .stderr(predicates::str::contains("unexpected argument"));
+                get_field(field, Some(before))?;
             }
-            get_field(field, Some(expected_output))?;
-        } else {
-            out.assert()
-                .failure()
-                .stderr(predicates::str::contains("unexpected argument"));
-            get_field(field, Some(before))?;
-        }
-        Ok(())
-    };
+            Ok(())
+        };
 
     get_field("name", Some("info_detailed_verbs\n".to_string()))?;
-    try_set("name", "info_detailed_verbs_alt", true)?;
+    try_set("name", "info_detailed_verbs_alt", true, None)?;
     try_clear("name", false)?;
     try_add("name", "name_1", false)?;
     try_remove("name", "1", false)?;
     get_field("version", Some("1.2.3\n".to_string()))?;
-    try_set("version", "3.2.1", true)?;
+    try_set("version", "3.2.1", true, None)?;
     try_clear("version", false)?;
     try_add("version", "version_1", false)?;
     try_remove("version", "1", false)?;
     get_field("description", Some("".to_string()))?;
-    try_set("description", "description", true)?;
+    try_set("description", "description", true, None)?;
     try_clear("description", true)?;
     try_add("description", "description_1", false)?;
     try_remove("description", "1", false)?;
     get_field("licence", Some("".to_string()))?;
-    try_set("licence", "BSD-4-Clause", true)?;
+    try_set("licence", "BSD-4-Clause", true, None)?;
     try_clear("licence", true)?;
     try_add("licence", "licence_1", false)?;
     try_remove("licence", "1", false)?;
     get_field("license", Some("".to_string()))?;
-    try_set("license", "BSD-4-Clause", true)?;
+    try_set("license", "BSD-4-Clause", true, None)?;
     try_clear("license", true)?;
     try_add("license", "license_1", false)?;
     try_remove("license", "1", false)?;
     get_field("maintainer", Some("".to_string()))?;
-    try_set("maintainer", "maintainer", true)?;
+    try_set("maintainer", "maintainer", true, None)?;
     try_clear("maintainer", true)?;
     try_add("maintainer", "maintainer_1", true)?;
     try_add("maintainer", "maintainer_2", true)?;
     try_add("maintainer", "maintainer_3", true)?;
     try_remove("maintainer", "2", true)?;
     get_field("website", Some("".to_string()))?;
-    try_set("website", "www.example.com", true)?;
+    try_set(
+        "website",
+        "www.example.com",
+        true,
+        Some("https://www.example.com"),
+    )?;
+    try_set(
+        "website",
+        "http://www.example.com",
+        true,
+        Some("http://www.example.com"),
+    )?;
+    try_set(
+        "website",
+        "https://www.example.com",
+        true,
+        Some("https://www.example.com"),
+    )?;
     try_clear("website", true)?;
     try_add("website", "website_1", false)?;
     try_remove("website", "1", false)?;
     get_field("topic", Some("".to_string()))?;
-    try_set("topic", "example", true)?;
+    try_set("topic", "example", true, None)?;
     try_clear("topic", true)?;
     try_add("topic", "topic_1", true)?;
     try_add("topic", "topic_2", true)?;
     try_add("topic", "topic_3", true)?;
     try_remove("topic", "2", true)?;
     get_field("usage", Some("".to_string()))?;
-    try_set("usage", "usage", false)?;
+    try_set("usage", "usage", false, None)?;
     try_clear("usage", false)?;
     try_add("usage", "usage_1", false)?;
     try_remove("usage", "1", false)?;
     get_field("index", Some("".to_string()))?;
-    try_set("index", "index", false)?;
+    try_set("index", "index", false, None)?;
     try_clear("index", false)?;
     try_add("index", "index_1", false)?;
     try_remove("index", "1", false)?;
     // get_field("created", Some("".to_string()))?;
-    try_set("created", "created", false)?;
+    try_set("created", "created", false, None)?;
     try_clear("created", false)?;
     try_add("created", "created_1", false)?;
     try_remove("created", "1", false)?;
     get_field("metamodel", Some("".to_string()))?;
-    try_set("metamodel", "metamodel", true)?;
+    try_set("metamodel", "metamodel", true, None)?;
     try_clear("metamodel", true)?;
     try_add("metamodel", "metamodel_1", false)?;
     try_remove("metamodel", "1", false)?;
     get_field("includes-derived", Some("".to_string()))?;
-    try_set("includes-derived", "true", true)?;
+    try_set("includes-derived", "true", true, None)?;
     try_clear("includes-derived", true)?;
     try_add("includes-derived", "includes_1", false)?;
     try_remove("includes-derived", "1", false)?;
     get_field("includes-implied", Some("".to_string()))?;
-    try_set("includes-implied", "false", true)?;
+    try_set("includes-implied", "false", true, None)?;
     try_clear("includes-implied", true)?;
     try_add("includes-implied", "includes_1", false)?;
     try_remove("includes-implied", "1", false)?;
     get_field("checksum", Some("".to_string()))?;
-    try_set("checksum", "checksum", false)?;
+    try_set("checksum", "checksum", false, None)?;
     try_clear("checksum", false)?;
     try_add("checksum", "checksum_1", false)?;
     try_remove("checksum", "1", false)?;

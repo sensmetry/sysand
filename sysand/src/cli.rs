@@ -336,8 +336,9 @@ pub enum InfoCommand {
     /// Get or set the website of the project
     #[group(required = false, multiple = false)]
     Website {
-        #[arg(long, default_value=None)]
-        set: Option<String>,
+        /// Set the website. Must be a valid IRI/URI/URL
+        #[arg(long, value_name = "URI", value_parser = parse_https_iri, default_value=None)]
+        set: Option<fluent_uri::Iri<String>>,
         #[arg(long, default_value = None)]
         clear: bool,
         // Only for better error messages
@@ -815,7 +816,7 @@ impl InfoCommand {
                 remove,
             } => pack_info(
                 GetInfoVerb::GetWebsite,
-                set.map(SetInfoVerb::SetWebsite),
+                set.map(|i| SetInfoVerb::SetWebsite(i.into_string())),
                 if clear {
                     Some(ClearInfoVerb::ClearWebsite)
                 } else {
@@ -1182,5 +1183,25 @@ pub struct GlobalOptions {
 impl GlobalOptions {
     pub fn sets_log_level(&self) -> bool {
         self.verbose || self.quiet
+    }
+}
+
+/// Parse an IRI. Tolerates missing IRI scheme, uses
+/// `https://` scheme in that case.
+fn parse_https_iri(s: &str) -> Result<fluent_uri::Iri<String>, fluent_uri::ParseError> {
+    use fluent_uri::Iri;
+    match Iri::parse(s) {
+        Ok(iri) => Ok(iri.into()),
+        Err(e) => {
+            let mut https = s.to_owned();
+            https.insert_str(0, "https://");
+            match Iri::parse(https) {
+                Ok(iri) => Ok(iri),
+                Err(_) => {
+                    // Return the original error to not confuse the user
+                    Err(e)
+                }
+            }
+        }
     }
 }
