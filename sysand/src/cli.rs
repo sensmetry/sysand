@@ -3,7 +3,7 @@
 
 use std::{convert::Infallible, ffi::OsStr, fmt::Write, path::PathBuf};
 
-use clap::{ValueEnum, builder::StyledStr};
+use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use semver::VersionReq;
 
 use crate::env_vars;
@@ -14,13 +14,28 @@ use crate::env_vars;
 /// <https://docs.sysand.org/>
 /// Package index and more information:
 /// <https://beta.sysand.org/>
+/// Project repository:
+/// <https://github.com/sensmetry/sysand/>
 #[derive(clap::Parser, Debug)]
-#[command(version)]
-#[command(long_about, verbatim_doc_comment)]
-#[command(arg_required_else_help = true)]
-#[command(disable_help_flag = true)]
-#[command(disable_version_flag = true)]
-#[command(styles=crate::style::STYLING)]
+#[command(
+    version,
+    long_about,
+    verbatim_doc_comment,
+    arg_required_else_help = true,
+    disable_help_flag = true,
+    disable_version_flag = true,
+    styles=crate::style::STYLING,
+    author = crate_authors!(",\n"),
+    help_template = "\
+{before-help}{about-with-newline}
+{usage-heading} {usage}
+
+{all-args}
+
+{name} v{version}
+Developed by: {author-with-newline}
+{after-help}"
+)]
 pub struct Args {
     #[command(flatten)]
     pub global_opts: GlobalOptions,
@@ -131,7 +146,9 @@ pub enum Command {
         #[command(flatten)]
         dependency_opts: DependencyOptions,
     },
-    /// Resolve and describe current project or one at at a specified path or IRI/URL
+    /// Describe or modify the current project or resolve
+    /// and describe a project at a specified path or IRI/URL
+    #[clap(verbatim_doc_comment)]
     Info {
         /// Use the project at the given path instead of the current project
         #[arg(short = 'p', long, group = "location")]
