@@ -16,13 +16,9 @@ use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 // pub struct ParsedIri(fluent_uri::Iri<String>);
 // pub struct NormalisedIri(fluent_uri::Iri<String>);
 
-pub const KNOWN_METAMODELS: [&str; 6] = [
+pub const KNOWN_METAMODELS: [&str; 2] = [
     "https://www.omg.org/spec/SysML/20250201",
-    "https://www.omg.org/spec/SysML/20240201",
-    "https://www.omg.org/spec/SysML/20230201",
     "https://www.omg.org/spec/KerML/20250201",
-    "https://www.omg.org/spec/KerML/20240201",
-    "https://www.omg.org/spec/KerML/20230201",
 ];
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
