@@ -479,8 +479,16 @@ pub enum InfoCommand {
         /// Set a SysML v2 or KerML metamodel. To set a custom metamodel, use `--set-custom`
         #[arg(long, value_name = "KIND", value_enum, default_value=None)]
         set: Option<MetamodelKind>,
-        /// Choose the release of the SysML v2 or KerML metamodel
-        #[arg(long, value_name = "YYYYMMDD", requires = "set", value_enum, default_value=MetamodelVersion::RELEASE)]
+        /// Choose the release of the SysML v2 or KerML metamodel.
+        /// SysML 2.0 and KerML 1.0 have the same release dates
+        #[arg(
+            long,
+            value_name = "YYYYMMDD",
+            requires = "set",
+            value_enum,
+            verbatim_doc_comment,
+            default_value=MetamodelVersion::RELEASE
+        )]
         release: MetamodelVersion,
         /// Set a custom metamodel. To set a SysML v2 or KerML metamodel, use `--set`
         #[arg(long, value_name = "METAMODEL", conflicts_with = "set", default_value=None)]
@@ -1276,19 +1284,14 @@ impl From<Metamodel> for String {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetamodelVersion {
-    Beta1_20230201 = 20230201,
-    Beta2_20240201 = 20240201,
-    #[default]
     Release_20250201 = 20250201,
 }
 
 impl From<&MetamodelVersion> for &'static str {
     fn from(value: &MetamodelVersion) -> Self {
         match value {
-            MetamodelVersion::Beta1_20230201 => MetamodelVersion::BETA1,
-            MetamodelVersion::Beta2_20240201 => MetamodelVersion::BETA2,
             MetamodelVersion::Release_20250201 => MetamodelVersion::RELEASE,
         }
     }
@@ -1301,18 +1304,12 @@ impl From<MetamodelVersion> for &'static str {
 }
 
 impl MetamodelVersion {
-    pub const BETA1: &str = "20230201";
-    pub const BETA2: &str = "20240201";
     pub const RELEASE: &str = "20250201";
 }
 
 impl ValueEnum for MetamodelVersion {
     fn value_variants<'a>() -> &'a [Self] {
-        &[
-            Self::Release_20250201,
-            Self::Beta2_20240201,
-            Self::Beta1_20230201,
-        ]
+        &[Self::Release_20250201]
     }
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
@@ -1320,12 +1317,6 @@ impl ValueEnum for MetamodelVersion {
         Some(match self {
             MetamodelVersion::Release_20250201 => {
                 PossibleValue::new(MetamodelVersion::RELEASE).help("SysMLv2/KerML Release or Beta4")
-            }
-            MetamodelVersion::Beta2_20240201 => {
-                PossibleValue::new(MetamodelVersion::BETA2).help("SysMLv2/KerML Beta2")
-            }
-            MetamodelVersion::Beta1_20230201 => {
-                PossibleValue::new(MetamodelVersion::BETA1).help("SysMLv2/KerML Beta1")
             }
         })
     }
