@@ -75,13 +75,13 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
 
     source_project.write_source(source_path, &mut Cursor::new(source_code), true)?;
 
-    memory_environment.put_project("urn::sysand_test::1", "1.2.3", |p| {
+    memory_environment.put_project("urn:sysand_test:1", "1.2.3", |p| {
         clone_project(&source_project, p, true)?;
 
         Ok::<(), CloneError<InMemoryError, InMemoryError>>(())
     })?;
 
-    let target_project = memory_environment.get_project("urn::sysand_test::1", "1.2.3")?;
+    let target_project = memory_environment.get_project("urn:sysand_test:1", "1.2.3")?;
 
     assert_eq!(target_project.info, Some(info.clone()));
     assert_eq!(target_project.meta, Some(meta.clone()));
@@ -97,12 +97,12 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
     let resolver = MemoryResolver {
         iri_predicate: AcceptAll {},
         projects: HashMap::from([(
-            fluent_uri::Iri::parse("urn::sysand_test::1".to_string())?,
+            fluent_uri::Iri::parse("urn:sysand_test:1")?.into(),
             vec![source_project.clone()],
         )]),
     };
 
-    let resolved_projects = do_info("urn::sysand_test::1", &resolver)?;
+    let resolved_projects = do_info("urn:sysand_test:1", &resolver)?;
 
     assert_eq!(resolved_projects.len(), 1);
     assert_eq!(resolved_projects[0], (info, meta));

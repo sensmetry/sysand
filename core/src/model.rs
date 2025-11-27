@@ -31,9 +31,8 @@ pub type InterchangeProjectUsage =
 impl InterchangeProjectUsageRaw {
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
         Ok(InterchangeProjectUsage {
-            resource: fluent_uri::Iri::parse(self.resource.clone()).map_err(|e| {
-                InterchangeProjectValidationError::IriParse(self.resource.to_string(), e)
-            })?,
+            resource: fluent_uri::Iri::parse(self.resource.clone())
+                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
 
             version_constraint: self
                 .version_constraint
@@ -41,7 +40,7 @@ impl InterchangeProjectUsageRaw {
                 .map(|c| semver::VersionReq::parse(c))
                 .transpose()
                 .map_err(|e| {
-                    InterchangeProjectValidationError::SemverConstraintParse(
+                    InterchangeProjectValidationError::SemVerConstraintParse(
                         self.version_constraint.clone().unwrap(),
                         e,
                     )
@@ -173,7 +172,7 @@ impl InterchangeProjectInfoRaw {
             name: self.name.clone(),
             description: self.description.clone(),
             version: semver::Version::parse(&self.version).map_err(|e| {
-                InterchangeProjectValidationError::SemverParse(self.version.as_str().into(), e)
+                InterchangeProjectValidationError::SemVerParse(self.version.as_str().into(), e)
             })?,
             license: self.license.clone(),
             maintainer: self.maintainer.clone(),
@@ -182,9 +181,7 @@ impl InterchangeProjectInfoRaw {
                 .clone()
                 .map(fluent_uri::Iri::parse)
                 .transpose()
-                .map_err(|e| {
-                    InterchangeProjectValidationError::IriParse(self.website.clone().unwrap(), e)
-                })?,
+                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
 
             topic: self.topic.clone(),
             usage,
@@ -265,13 +262,13 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
 
 #[derive(Error, Debug)]
 pub enum InterchangeProjectValidationError {
-    #[error("failed to parse '{0}' as IRI: {1}")]
-    IriParse(String, fluent_uri::error::ParseError<String>),
-    #[error("failed to parse '{0}' as a Semantic Version: {1}")]
-    SemverParse(Box<str>, semver::Error),
-    #[error("failed to parse '{0}' as a Semantic Version constraint: {1}")]
-    SemverConstraintParse(String, semver::Error),
-    #[error("failed to parse '{0}' as RFC3339 datetime: {1}")]
+    #[error("failed to parse `{0}` as IRI: {1}")]
+    IriParse(String, fluent_uri::ParseError),
+    #[error("failed to parse `{0}` as a Semantic Version: {1}")]
+    SemVerParse(Box<str>, semver::Error),
+    #[error("failed to parse `{0}` as a Semantic Version constraint: {1}")]
+    SemVerConstraintParse(String, semver::Error),
+    #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
     DatetimeParse(Box<str>, chrono::ParseError),
 }
 
@@ -309,9 +306,7 @@ impl InterchangeProjectMetadataRaw {
                 .clone()
                 .map(fluent_uri::Iri::parse)
                 .transpose()
-                .map_err(|e| {
-                    InterchangeProjectValidationError::IriParse(self.metamodel.clone().unwrap(), e)
-                })?,
+                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
             includes_derived: self.includes_derived,
             includes_implied: self.includes_implied,
             checksum: self.checksum.clone().map(|m| {
@@ -466,7 +461,7 @@ mod tests {
         //                                              as if concatenated from two separate files
         assert_eq!(
             format!("{:x}", super::project_hash_str("foobar", "bazbum")),
-            "e6e2e042d1d461877c7e79cc890af5de00f603739c17486dc1464acfc0f77797".to_string()
+            "e6e2e042d1d461877c7e79cc890af5de00f603739c17486dc1464acfc0f77797"
         );
     }
 
@@ -504,7 +499,7 @@ mod tests {
         // cat <(echo -n '{"name":"json_hash_agrees_with_shell","version":"1.2.3","usage":[]}') <(echo -n '{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}') | sha256sum | cut -f 1 -d ' '
         assert_eq!(
             format!("{:x}", super::project_hash_raw(&info, &meta)),
-            "b98340d7d7f41cefc3f7dd2b30d65fb48836b12a8d47884975e5c8637edfeea1".to_string()
+            "b98340d7d7f41cefc3f7dd2b30d65fb48836b12a8d47884975e5c8637edfeea1"
         );
     }
 }

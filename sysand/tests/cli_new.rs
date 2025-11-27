@@ -8,14 +8,14 @@ use predicates::prelude::*;
 mod common;
 pub use common::*;
 
-/// `sysand new` should create valid, minimal, .project.json
+/// `sysand init` should create valid, minimal, .project.json
 /// and .meta.json files in the specified directory, falling back
 /// on directory name as name.
 #[test]
-fn new_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(["new", "--version", "1.2.3", "new_basic"], None)?;
+fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(["init", "--version", "1.2.3", "init_basic"], None)?;
 
-    let proj_dir_path = cwd.join("new_basic");
+    let proj_dir_path = cwd.join("init_basic");
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -28,7 +28,7 @@ fn new_basic() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         info,
-        "{\n  \"name\": \"new_basic\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}"
+        "{\n  \"name\": \"init_basic\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}"
     );
     // Isn't there some nicer way to use this?
     assert!(meta_match.eval(&meta));
@@ -36,24 +36,24 @@ fn new_basic() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// `sysand new` should create valid, minimal, .project.json
+/// `sysand init` should create valid, minimal, .project.json
 /// and .meta.json files in the specified directory, using explicitly
 /// specified name as project name.
 #[test]
-fn new_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
+fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
-            "new",
+            "init",
             "--version",
             "1.2.3",
             "--name",
-            "other_than_new_explicit_name",
-            "new_explicit_name",
+            "other_than_init_explicit_name",
+            "init_explicit_name",
         ],
         None,
     )?;
 
-    let proj_dir_path = cwd.join("new_explicit_name");
+    let proj_dir_path = cwd.join("init_explicit_name");
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -66,7 +66,7 @@ fn new_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         info,
-        "{\n  \"name\": \"other_than_new_explicit_name\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}"
+        "{\n  \"name\": \"other_than_init_explicit_name\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}"
     );
     // Isn't there some nicer way to use this?
     assert!(meta_match.eval(&meta));
@@ -74,19 +74,19 @@ fn new_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// `sysand new` should fail (loudly) in case there is already
+/// `sysand init` should fail (loudly) in case there is already
 /// a project present (in the specified directory). Such an existing
-/// project should remain unaffected by the second `sysand new` execution.
+/// project should remain unaffected by the second `sysand init` execution.
 #[test]
-fn new_fail_on_double_new() -> Result<(), Box<dyn std::error::Error>> {
+fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     // Run 1
     let (_temp_dir, cwd, out) = run_sysand(
-        ["new", "--version", "1.2.3", "new_fail_on_double_new"],
+        ["init", "--version", "1.2.3", "init_fail_on_double_init"],
         None,
     )?;
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let proj_dir_path = cwd.join("new_fail_on_double_new");
+    let proj_dir_path = cwd.join("init_fail_on_double_init");
 
     assert!(proj_dir_path.exists());
 
@@ -96,7 +96,7 @@ fn new_fail_on_double_new() -> Result<(), Box<dyn std::error::Error>> {
     // Run 2
     let out_again = run_sysand_in(
         &cwd,
-        ["new", "--version", "1.2.3", "new_fail_on_double_new"],
+        ["init", "--version", "1.2.3", "init_fail_on_double_init"],
         None,
     )?;
     out_again
