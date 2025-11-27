@@ -8,8 +8,8 @@ use jni::{
     objects::{JObject, JObjectArray, JValue},
 };
 use sysand_core::model::{
-    InterchangeProjectChecksum, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-    InterchangeProjectUsageRaw,
+    InterchangeProjectChecksum, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
+    InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw,
 };
 
 pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: &str =
@@ -130,6 +130,25 @@ impl<K: ToJObject, V: ToJObject> ToJObject for IndexMap<K, V> {
 }
 
 impl ToJObject for InterchangeProjectChecksum {
+    fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
+        let checksum_class = env
+            .find_class(INTERCHANGE_PROJECT_CHECKSUM_CLASS)
+            .expect("Failed to find InterchangeProjectChecksum class");
+        let value = self.value.to_jobject(env);
+        let algorithm = {
+            let s: &str = self.algorithm.into();
+            s.to_jobject(env)
+        };
+        env.new_object(
+            checksum_class,
+            INTERCHANGE_PROJECT_CHECKSUM_CLASS_CONSTRUCTOR,
+            &[JValue::from(&value), JValue::from(&algorithm)],
+        )
+        .expect("Failed to create InterchangeProjectChecksum")
+    }
+}
+
+impl ToJObject for InterchangeProjectChecksumRaw {
     fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> JObject<'local> {
         let checksum_class = env
             .find_class(INTERCHANGE_PROJECT_CHECKSUM_CLASS)

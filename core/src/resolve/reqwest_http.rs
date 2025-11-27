@@ -180,8 +180,8 @@ impl HTTPProjects {
     pub fn try_resolve_as_src(&self) -> Option<HTTPProjectAsync> {
         // These URLs should technically have a path that ends (explicitly or implicitly)
         // with a slash, due to the way relative references are treated in HTTP. E.g.:
-        // resolving 'bar' relatieve to 'http://www.example.com/foo' gives 'http://www.example.com/bar'
-        // while resolving 'bar' relatieve to 'http://www.example.com/foo/' gives 'http://www.example.com/foo/bar'
+        // resolving `bar` relative to `http://www.example.com/foo` gives `http://www.example.com/bar`
+        // while resolving `bar` relative to `http://www.example.com/foo/` gives `http://www.example.com/foo/bar`
         if self.url.path() == "" || self.url.path().ends_with("/") {
             Some(HTTPProjectAsync::HTTPSrcProject(ReqwestSrcProjectAsync {
                 client: self.client.clone(), // Already internally an Rc

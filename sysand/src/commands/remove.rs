@@ -9,18 +9,41 @@ use crate::CliError;
 pub fn command_remove(iri: String, current_project: Option<LocalSrcProject>) -> Result<()> {
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
 
-    let usages = do_remove(&mut current_project, &iri)?;
+    let mut usages = do_remove(&mut current_project, &iri)?;
 
-    for usage in usages {
-        log::info!(
-            "{:>12} {} {}",
-            "",
-            &usage.resource,
-            usage
-                .version_constraint
-                .map(|vr| vr.to_string())
-                .unwrap_or("".to_string()),
-        );
+    let removed = "Removed";
+    let header = sysand_core::style::get_style_config().header;
+    if usages.len() == 1 {
+        let usage = usages.pop().unwrap();
+        match usage.version_constraint {
+            Some(vc) => {
+                log::info!(
+                    "{header}{removed:>12}{header:#} `{}` with version constraints `{}`",
+                    &usage.resource,
+                    vc
+                );
+            }
+            None => {
+                log::info!("{header}{removed:>12}{header:#} `{}`", &usage.resource,);
+            }
+        }
+    } else {
+        log::info!("{header}{removed:>12}{header:#}:");
+        for usage in usages {
+            match usage.version_constraint {
+                Some(vc) => {
+                    log::info!(
+                        "{:>13} `{}` with version constraints `{}`",
+                        ' ',
+                        &usage.resource,
+                        vc
+                    );
+                }
+                None => {
+                    log::info!("{:>13} `{}`", ' ', &usage.resource,);
+                }
+            }
+        }
     }
 
     Ok(())

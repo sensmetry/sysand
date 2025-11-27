@@ -69,7 +69,7 @@ pub enum TryMoveError {
     #[error("recovered from failure: {0}")]
     RecoveredIO(Box<FsIoError>),
     #[error(
-        "failed and may have left the directory in inconsistent state:\n{err}\ncaused by:\n{cause}"
+        "failed and may have left the directory in inconsistent state:\n{err}\nwhich was caused by:\n{cause}"
     )]
     CatastrophicIO {
         err: Box<FsIoError>,
@@ -297,9 +297,9 @@ impl LocalDirectoryEnvironment {
 
 #[derive(Error, Debug)]
 pub enum LocalReadError {
-    #[error("failed to read project list file 'entries.txt': {0}")]
+    #[error("failed to read project list file `entries.txt`: {0}")]
     ProjectListFileRead(io::Error),
-    #[error("failed to read project versions file 'versions.txt': {0}")]
+    #[error("failed to read project versions file `versions.txt`: {0}")]
     ProjectVersionsFileRead(io::Error),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),

@@ -18,6 +18,7 @@ alltests = []
 # General
 anyhow = { version = "1.0.98", default-features = false }
 clap = { version = "4.5.40", default-features = false, features = ["derive", "unicode", "help", "cargo", "color", "env", "suggestions", "usage"] }
+anstream = "0.6.21"
 env_logger = "0.11.8"
 log = { version = "0.4.27", default-features = false }
 sysand-core = { path = "../core", features = ["std", "filesystem", "networking"] }

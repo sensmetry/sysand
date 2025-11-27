@@ -3302,6 +3302,7 @@ dependencies = [
 name = "sysand"
 version = "0.0.6"
 dependencies = [
+ "anstream",
  "anyhow",
  "assert_cmd",
  "clap",
