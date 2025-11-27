@@ -33,8 +33,9 @@ fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
 }
 
 fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_new) = run_sysand(["new", "--version", "1.2.3", "info_basic"], None)?;
-    out_new
+    let (_temp_dir, cwd, out_init) =
+        run_sysand(["init", "--version", "1.2.3", "info_basic"], None)?;
+    out_init
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
@@ -704,7 +705,7 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) = run_sysand(["new", "info_detailed_verbs", "--version", "1.2.3"], None)?;
+    let (_tmp, cwd, out) = run_sysand(["init", "info_detailed_verbs", "--version", "1.2.3"], None)?;
     out.assert().success();
 
     let project_path = &cwd.join("info_detailed_verbs");

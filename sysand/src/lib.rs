@@ -103,20 +103,19 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     match args.command {
         cli::Command::Init {
-            name,
-            version,
-            no_semver,
-            license,
-            no_spdx,
-        } => command_new(name, version, no_semver, license, no_spdx, current_dir()?),
-        cli::Command::New {
             path,
             name,
             version,
             no_semver,
             license,
             no_spdx,
-        } => command_new(name, version, no_semver, license, no_spdx, Path::new(&path)),
+        } => {
+            let path = match path {
+                Some(p) => p.into(),
+                None => current_dir()?,
+            };
+            command_new(name, version, no_semver, license, no_spdx, path)
+        }
         cli::Command::Env { command } => match command {
             None => {
                 command_env(

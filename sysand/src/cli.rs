@@ -26,9 +26,12 @@ pub struct Args {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum Command {
-    /// Create new project in current directory
+    /// Create a new project
     Init {
-        /// Set the project name. Defaults to the directory name
+        /// The path to use for the project
+        #[clap(default_value = ".")]
+        path: Option<String>,
+        /// The name of the project. Defaults to the directory name
         #[arg(long)]
         name: Option<String>,
         /// Set the version in SemVer 2.0.0 format. Defaults to `0.0.1`
@@ -37,31 +40,9 @@ pub enum Command {
         /// Don't require version to conform to SemVer
         #[arg(long, requires = "version")]
         no_semver: bool,
-        /// Set the license in the form of an SPDX license identifier.
-        /// Defaults to omitting the license field
-        #[clap(verbatim_doc_comment)]
-        #[arg(long, alias = "licence")]
-        license: Option<String>,
-        /// Don't require license to be an SPDX expression
-        #[arg(long, requires = "license")]
-        no_spdx: bool,
-    },
-    /// Create new project in given directory
-    New {
-        /// Path to the new project
-        path: String,
-        /// Set the project name. Defaults to the directory name
-        #[arg(long)]
-        name: Option<String>,
-        /// Set the version in SemVer 2.0.0 format. Defaults to `0.0.1`
-        #[arg(long)]
-        version: Option<String>,
-        /// Don't require version to conform to Semantic Versioning
-        #[arg(long, requires = "version")]
-        no_semver: bool,
-        /// Set the license in the form of an SPDX license identifier.
-        /// Defaults to omitting the license field
-        #[clap(verbatim_doc_comment)]
+        /// Set the license in the form of an SPDX license identifier
+        // /// Defaults to omitting the license field
+        // #[clap(verbatim_doc_comment)]
         #[arg(long, alias = "licence")]
         license: Option<String>,
         /// Don't require license to be an SPDX expression
