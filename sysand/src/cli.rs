@@ -1,7 +1,12 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{convert::Infallible, ffi::OsStr, fmt::Write, path::PathBuf};
+use std::{
+    convert::Infallible,
+    ffi::OsStr,
+    fmt::{Display, Write},
+    path::PathBuf,
+};
 
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use semver::VersionReq;
@@ -471,7 +476,6 @@ pub enum InfoCommand {
     },
     /// Get or set the metamodel of the project
     #[group(required = false)]
-    // TODO: do not print warning about std libs
     Metamodel {
         // It would be nicer to have Option<Metamodel> here,
         // but that would introduce an additional level of
@@ -490,8 +494,22 @@ pub enum InfoCommand {
             default_value=MetamodelVersion::RELEASE
         )]
         release: MetamodelVersion,
+        /// Choose a custom release of the SysML v2 or KerML metamodel.
+        #[arg(
+            long,
+            value_name = "YYYYMMDD",
+            requires = "set",
+            conflicts_with = "release",
+            default_value=None,
+        )]
+        release_custom: Option<u32>,
         /// Set a custom metamodel. To set a SysML v2 or KerML metamodel, use `--set`
-        #[arg(long, value_name = "METAMODEL", conflicts_with = "set", default_value=None)]
+        #[arg(
+            long,
+            value_name = "METAMODEL",
+            conflicts_with_all = ["set", "release", "release_custom"],
+            default_value=None
+        )]
         set_custom: Option<String>,
         #[arg(long, num_args=0, default_missing_value="true", default_value = None, conflicts_with = "set")]
         clear: bool,
@@ -907,13 +925,20 @@ impl InfoCommand {
             ),
             InfoCommand::Metamodel {
                 set,
-                release: version,
+                release,
+                release_custom,
                 set_custom,
                 clear,
                 add,
                 remove,
             } => {
-                let metamodel = set.map(|mk| Metamodel(mk, version).into()).or(set_custom);
+                let metamodel = match set {
+                    Some(mk) => match release_custom {
+                        Some(rc) => Some(format!("{mk}{rc}")),
+                        None => Some(Metamodel(mk, release).into()),
+                    },
+                    None => set_custom,
+                };
                 pack_meta(
                     GetMetaVerb::GetMetamodel,
                     metamodel.map(SetMetaVerb::SetMetamodel),
@@ -1047,6 +1072,7 @@ impl InfoCommand {
             InfoCommand::Metamodel {
                 set: _,
                 release: _,
+                release_custom: _,
                 set_custom: _,
                 clear: _,
                 add: _,
@@ -1265,8 +1291,14 @@ impl From<MetamodelKind> for &'static str {
     }
 }
 
+impl Display for MetamodelKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.into())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Metamodel(MetamodelKind, MetamodelVersion);
+pub struct Metamodel(pub MetamodelKind, pub MetamodelVersion);
 
 impl From<&Metamodel> for String {
     fn from(value: &Metamodel) -> Self {
@@ -1274,6 +1306,13 @@ impl From<&Metamodel> for String {
         s.push_str(value.0.into());
         s.push_str(value.1.into());
         s
+    }
+}
+
+impl Display for Metamodel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.into())?;
+        f.write_str(self.1.into())
     }
 }
 
