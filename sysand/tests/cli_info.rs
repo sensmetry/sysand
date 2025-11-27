@@ -4,7 +4,7 @@
 #[cfg(feature = "alltests")]
 use std::process::Command;
 
-use std::io::Write as _;
+use std::{error::Error, io::Write as _};
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
@@ -14,7 +14,7 @@ mod common;
 pub use common::*;
 
 #[test]
-fn info_basic_in_cwd() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, out_init) =
         run_sysand(["init", "--version", "1.2.3", "--name", "info_basic"], None)?;
     out_init
@@ -32,7 +32,7 @@ fn info_basic_in_cwd() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, out_new) = run_sysand(["new", "--version", "1.2.3", "info_basic"], None)?;
     out_new
         .assert()
@@ -110,27 +110,27 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
-fn info_basic_path_explicit() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_path_explicit() -> Result<(), Box<dyn Error>> {
     info_basic(false, false)
 }
 
 #[test]
-fn info_basic_path_auto() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_path_auto() -> Result<(), Box<dyn Error>> {
     info_basic(false, true)
 }
 
 #[test]
-fn info_basic_iri_explicit() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_iri_explicit() -> Result<(), Box<dyn Error>> {
     info_basic(true, false)
 }
 
 #[test]
-fn info_basic_iri_auto() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_iri_auto() -> Result<(), Box<dyn Error>> {
     info_basic(true, true)
 }
 
 #[test]
-fn info_basic_http_url() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_http_url() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
 
     let git_mock = server
@@ -257,7 +257,7 @@ fn info_basic_http_url() -> Result<(), Box<dyn std::error::Error>> {
 // }
 
 #[test]
-fn info_basic_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
     let cwd = tempfile::TempDir::new()?;
     let zip_path = cwd.path().canonicalize()?.join("test.kpar");
 
@@ -289,7 +289,7 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "alltests")]
 #[test]
-fn info_basic_file_git() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_file_git() -> Result<(), Box<dyn Error>> {
     let cwd = tempfile::TempDir::new()?;
 
     {
@@ -361,7 +361,7 @@ fn info_basic_file_git() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
+fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
 
     let versions_mock = server
@@ -439,7 +439,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
+fn info_multi_index_url() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
 
@@ -578,7 +578,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn info_multi_index_url_config() -> Result<(), Box<dyn std::error::Error>> {
+fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
 
@@ -703,106 +703,98 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
+fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
     let (_tmp, cwd, out) = run_sysand(["new", "info_detailed_verbs", "--version", "1.2.3"], None)?;
     out.assert().success();
 
     let project_path = &cwd.join("info_detailed_verbs");
 
-    let get_field = |field: &'static str,
-                     expected: Option<String>|
-     -> Result<String, Box<dyn std::error::Error>> {
-        let out = run_sysand_in(project_path, ["info", field], None)?;
-        let stdout = out.stdout.clone();
-        if let Some(expected) = expected {
-            out.assert().success().stdout(expected);
-        }
-        Ok(String::from_utf8(stdout)?)
-    };
+    let get_field =
+        |field: &'static str, expected: Option<String>| -> Result<String, Box<dyn Error>> {
+            let out = run_sysand_in(project_path, ["info", field], None)?;
+            let stdout = out.stdout.clone();
+            if let Some(expected) = expected {
+                out.assert().success().stdout(expected);
+            }
+            Ok(String::from_utf8(stdout)?)
+        };
 
     // Check that a field does/does not get cleared
-    let try_clear =
-        |field: &'static str, expected: bool| -> Result<(), Box<dyn std::error::Error>> {
-            let before = get_field(field, None)?;
+    let try_clear = |field: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
+        let before = get_field(field, None)?;
 
-            let out = run_sysand_in(project_path, ["info", field, "--clear"], None)?;
+        let out = run_sysand_in(project_path, ["info", field, "--clear"], None)?;
+        if expected {
+            out.assert().success();
+            get_field(field, Some("".to_string()))?;
+        } else {
+            out.assert()
+                .stderr(predicates::str::contains("unexpected argument"));
+            get_field(field, Some(before))?;
+        }
+        Ok(())
+    };
+
+    let try_set =
+        |field: &'static str, value: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
+            let before = get_field(field, None)?;
+            let out = run_sysand_in(project_path, ["info", field, "--set", value], None)?;
             if expected {
                 out.assert().success();
-                get_field(field, Some("".to_string()))?;
+                let mut expected_output = value.to_string();
+                expected_output.push('\n');
+                get_field(field, Some(expected_output))?;
             } else {
                 out.assert()
+                    .failure()
                     .stderr(predicates::str::contains("unexpected argument"));
                 get_field(field, Some(before))?;
             }
             Ok(())
         };
 
-    let try_set = |field: &'static str,
-                   value: &'static str,
-                   expected: bool|
-     -> Result<(), Box<dyn std::error::Error>> {
-        let before = get_field(field, None)?;
-        let out = run_sysand_in(project_path, ["info", field, "--set", value], None)?;
-        if expected {
-            out.assert().success();
-            let mut expected_output = value.to_string();
-            expected_output.push('\n');
-            get_field(field, Some(expected_output))?;
-        } else {
-            out.assert()
-                .failure()
-                .stderr(predicates::str::contains("unexpected argument"));
-            get_field(field, Some(before))?;
-        }
-        Ok(())
-    };
-
-    let try_add = |field: &'static str,
-                   value: &'static str,
-                   expected: bool|
-     -> Result<(), Box<dyn std::error::Error>> {
-        let before = get_field(field, None)?;
-        let out = run_sysand_in(project_path, ["info", field, "--add", value], None)?;
-        if expected {
-            out.assert().success();
-            let mut expected_output = before;
-            expected_output.push_str(value);
-            expected_output.push('\n');
-            get_field(field, Some(expected_output))?;
-        } else {
-            out.assert()
-                .failure()
-                .stderr(predicates::str::contains("unexpected argument"));
-            get_field(field, Some(before))?;
-        }
-        Ok(())
-    };
-
-    let try_remove = |field: &'static str,
-                      index: &'static str,
-                      expected: bool|
-     -> Result<(), Box<dyn std::error::Error>> {
-        let before = get_field(field, None)?;
-        let out = run_sysand_in(project_path, ["info", field, "--remove", index], None)?;
-        if expected {
-            out.assert().success();
-            let skipped = index.parse::<usize>()? - 1;
-            let mut expected_output = "".to_string();
-            for (i, line) in before.lines().enumerate() {
-                if i != skipped {
-                    expected_output.push_str(line);
-                    expected_output.push('\n');
-                }
+    let try_add =
+        |field: &'static str, value: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
+            let before = get_field(field, None)?;
+            let out = run_sysand_in(project_path, ["info", field, "--add", value], None)?;
+            if expected {
+                out.assert().success();
+                let mut expected_output = before;
+                expected_output.push_str(value);
+                expected_output.push('\n');
+                get_field(field, Some(expected_output))?;
+            } else {
+                out.assert()
+                    .failure()
+                    .stderr(predicates::str::contains("unexpected argument"));
+                get_field(field, Some(before))?;
             }
-            get_field(field, Some(expected_output))?;
-        } else {
-            out.assert()
-                .failure()
-                .stderr(predicates::str::contains("unexpected argument"));
-            get_field(field, Some(before))?;
-        }
-        Ok(())
-    };
+            Ok(())
+        };
+
+    let try_remove =
+        |field: &'static str, index: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
+            let before = get_field(field, None)?;
+            let out = run_sysand_in(project_path, ["info", field, "--remove", index], None)?;
+            if expected {
+                out.assert().success();
+                let skipped = index.parse::<usize>()? - 1;
+                let mut expected_output = "".to_string();
+                for (i, line) in before.lines().enumerate() {
+                    if i != skipped {
+                        expected_output.push_str(line);
+                        expected_output.push('\n');
+                    }
+                }
+                get_field(field, Some(expected_output))?;
+            } else {
+                out.assert()
+                    .failure()
+                    .stderr(predicates::str::contains("unexpected argument"));
+                get_field(field, Some(before))?;
+            }
+            Ok(())
+        };
 
     get_field("name", Some("info_detailed_verbs\n".to_string()))?;
     try_set("name", "info_detailed_verbs_alt", true)?;
@@ -863,10 +855,10 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
     try_clear("created", false)?;
     try_add("created", "created_1", false)?;
     try_remove("created", "1", false)?;
+    // setting the metamodel has its own test
     get_field("metamodel", Some("".to_string()))?;
-    try_set("metamodel", "metamodel", true)?;
     try_clear("metamodel", true)?;
-    try_add("metamodel", "metamodel_1", false)?;
+    try_add("metamodel", "kerml", false)?;
     try_remove("metamodel", "1", false)?;
     get_field("includes-derived", Some("".to_string()))?;
     try_set("includes-derived", "true", true)?;
@@ -883,6 +875,125 @@ fn info_detailed_verbs() -> Result<(), Box<dyn std::error::Error>> {
     try_clear("checksum", false)?;
     try_add("checksum", "checksum_1", false)?;
     try_remove("checksum", "1", false)?;
+
+    Ok(())
+}
+
+#[test]
+fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
+    let (_tmp, cwd, out) =
+        run_sysand(["new", "info_custom_metamodel", "--version", "1.2.3"], None)?;
+    out.assert().success();
+
+    let project_path = &cwd.join("info_custom_metamodel");
+    let field = "metamodel";
+
+    let get_metamodel = |expected: Option<String>| -> Result<String, Box<dyn Error>> {
+        let out = run_sysand_in(project_path, ["info", field], None)?;
+        let stdout = out.stdout.clone();
+        if let Some(v) = expected {
+            out.assert().success().stdout(v);
+        }
+        Ok(String::from_utf8(stdout)?)
+    };
+
+    let try_set = |flags_values: &[&str],
+                   expected_value_err: Result<&str, &str>|
+     -> Result<(), Box<dyn Error>> {
+        let before = get_metamodel(None)?;
+        let out = run_sysand_in(
+            project_path,
+            ["info", field]
+                .into_iter()
+                .chain(flags_values.iter().copied()),
+            None,
+        )?;
+        match expected_value_err {
+            Ok(v) => {
+                out.assert().success();
+                let mut expected_output = v.to_string();
+                expected_output.push('\n');
+                get_metamodel(Some(expected_output))?;
+            }
+            Err(e) => {
+                out.assert().failure().stderr(predicates::str::contains(e));
+                get_metamodel(Some(before))?;
+            }
+        }
+        Ok(())
+    };
+
+    // Default release
+    try_set(
+        &["--set", "sysml"],
+        Ok("https://www.omg.org/spec/SysML/20250201"),
+    )?;
+    try_set(
+        &["--set", "kerml"],
+        Ok("https://www.omg.org/spec/KerML/20250201"),
+    )?;
+    // Explicitly specified release
+    try_set(
+        &["--set", "sysml", "--release", "20250201"],
+        Ok("https://www.omg.org/spec/SysML/20250201"),
+    )?;
+    try_set(
+        &["--set", "kerml", "--release", "20250201"],
+        Ok("https://www.omg.org/spec/KerML/20250201"),
+    )?;
+    // Unknown release
+    try_set(
+        &["--set", "sysml", "--release", "20230201"],
+        Err("invalid value '20230201'"),
+    )?;
+    // Custom release
+    try_set(
+        &["--set", "sysml", "--release-custom", "123"],
+        Ok("https://www.omg.org/spec/SysML/123"),
+    )?;
+    try_set(
+        &["--set", "kerml", "--release-custom", "456"],
+        Ok("https://www.omg.org/spec/KerML/456"),
+    )?;
+    // Invalid custom release
+    try_set(
+        &["--set", "kerml", "--release-custom", "abc"],
+        Err("invalid value 'abc' for '--release-custom"),
+    )?;
+    // Custom metamodel
+    try_set(&["--set-custom", "mm1"], Ok("mm1"))?;
+
+    //TODO: use IRI in InterchangeProjectMetadata
+    // Flag conflicts
+    try_set(
+        &["--set", "kerml", "--set-custom", "abc123"],
+        Err("the argument '--set <KIND>' cannot be used with '--set-custom"),
+    )?;
+    try_set(
+        &[
+            "--set",
+            "kerml",
+            "--release",
+            "20250201",
+            "--release-custom",
+            "123",
+        ],
+        Err("the argument '--release <YYYYMMDD>' cannot be used with '--release-custom"),
+    )?;
+    try_set(
+        &["--release", "20250201", "--release-custom", "123"],
+        Err("the argument '--release <YYYYMMDD>' cannot be used with '--release-custom"),
+    )?;
+    try_set(
+        &["--set-custom", "abc123", "--release-custom", "123"],
+        Err(
+            "the argument '--set-custom <METAMODEL>' cannot be used with '--release-custom <YYYYMMDD>'",
+        ),
+    )?;
+    try_set(
+        &["--set-custom", "abc123", "--release", "20250201"],
+        Err("the argument '--set-custom <METAMODEL>' cannot be used with '--release <YYYYMMDD>'"),
+    )?;
 
     Ok(())
 }
