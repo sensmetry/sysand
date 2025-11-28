@@ -1,11 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{
-    fmt::Debug,
-    // io::{self, Read},
-    iter::Peekable,
-};
+use std::{fmt::Debug, iter::Peekable};
 
 use indexmap::IndexMap;
 use thiserror::Error;
@@ -514,14 +510,12 @@ mod tests {
     use indexmap::IndexMap;
 
     use crate::{
-        env::memory::MemoryStorageEnvironment,
         info::do_info,
         model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-        project::{ProjectRead, memory::InMemoryProject},
+        project::memory::InMemoryProject,
         resolve::{
             ResolveRead,
             combined::{CombinedResolver, NO_RESOLVER},
-            env::EnvResolver,
             memory::{AcceptAll, MemoryResolver},
         },
     };
@@ -576,21 +570,6 @@ mod tests {
         })
     }
 
-    fn empty_env_resolver() -> Option<EnvResolver<MemoryStorageEnvironment<InMemoryProject>>> {
-        Some(EnvResolver {
-            env: MemoryStorageEnvironment::new(),
-        })
-    }
-
-    fn single_project_env_resolver<S: AsRef<str>>(
-        uri: S,
-        project: InMemoryProject,
-    ) -> Option<EnvResolver<MemoryStorageEnvironment<InMemoryProject>>> {
-        project.version().unwrap().map(|version| EnvResolver {
-            env: MemoryStorageEnvironment::from([(uri.as_ref().to_string(), version, project)]),
-        })
-    }
-
     // fn single_project_file_resolver<S: AsRef<str>>(
     //     uri: S,
     //     project: ProjectMemoryStorage,
@@ -625,7 +604,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
-            override_resolver: single_project_env_resolver(example_uri, project_a),
+            override_resolver: single_project_any_resolver(example_uri, project_a),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -646,7 +625,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
-            override_resolver: empty_env_resolver(),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -666,7 +645,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-            override_resolver: empty_env_resolver(),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver);
@@ -686,7 +665,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
-            override_resolver: empty_env_resolver(),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -707,7 +686,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
-            override_resolver: empty_env_resolver(),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -729,7 +708,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_c.clone()),
-            override_resolver: empty_env_resolver(),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -751,7 +730,7 @@ mod tests {
             remote_resolver: NO_RESOLVER,
             local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-            override_resolver: empty_env_resolver(),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -772,7 +751,7 @@ mod tests {
             remote_resolver: NO_RESOLVER,
             local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-            override_resolver: empty_env_resolver(),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -792,7 +771,7 @@ mod tests {
             remote_resolver: empty_any_resolver(),
             local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-            override_resolver: empty_env_resolver(),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -829,7 +808,7 @@ mod tests {
             remote_resolver: empty_any_resolver(),
             local_resolver: empty_any_resolver(),
             index_resolver: empty_any_resolver(),
-            override_resolver: empty_env_resolver(),
+            override_resolver: empty_any_resolver(),
         };
 
         let Ok(crate::resolve::ResolutionOutcome::Unresolvable(_)) =

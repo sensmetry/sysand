@@ -78,6 +78,7 @@ mod tests {
                 ..Default::default()
             }]),
             // auth: None,
+            projects: vec![],
         };
         config_file
             .write_all(toml::to_string_pretty(&config).unwrap().as_bytes())

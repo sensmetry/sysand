@@ -4,7 +4,9 @@
 use std::{fmt, result::Result, sync::Arc};
 
 use camino::Utf8PathBuf;
+use fluent_uri::Iri;
 use reqwest_middleware::ClientWithMiddleware;
+use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
 use crate::{
@@ -16,8 +18,13 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        ProjectRead, local_kpar::LocalKParProject, local_src::LocalSrcProject,
+        AsSyncProjectTokio, ProjectRead, ProjectReadAsync,
+        local_kpar::LocalKParProject,
+        local_src::LocalSrcProject,
         reference::ProjectReference,
+        reqwest_kpar_download::{ReqwestKparDownloadedError, ReqwestKparDownloadedProject},
+        reqwest_src::ReqwestSrcProjectAsync,
+        utils::FsIoError,
     },
     resolve::{
         AsSyncResolveTokio, ResolveRead, ResolveReadAsync,
@@ -25,6 +32,7 @@ use crate::{
         env::EnvResolver,
         file::FileResolver,
         gix_git::GitResolver,
+        memory::{AcceptAll, MemoryResolver},
         remote::{RemotePriority, RemoteResolver},
         reqwest_http::HTTPResolverAsync,
         sequential::SequentialResolver,
@@ -32,20 +40,75 @@ use crate::{
 };
 
 #[derive(Debug, ProjectRead)]
-pub enum AnyProject {
+pub enum AnyProject<Policy: HTTPAuthentication> {
     LocalSrc(LocalSrcProject),
     LocalKpar(LocalKParProject),
-    // RemoteSrc(ReqwestSrcProjectAsync),
-    // RemoteKpar(ReqwestKparDownloadedProject),
+    RemoteSrc(AsSyncProjectTokio<ReqwestSrcProjectAsync<Policy>>),
+    RemoteKpar(AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>),
 }
 
-pub type OverrideProject = ProjectReference<AnyProject>;
+#[derive(Error, Debug)]
+pub enum TryFromSourceError {
+    #[error("unsupported source\n{0}")]
+    UnsupportedSource(String),
+    #[error(transparent)]
+    LocalKpar(Box<FsIoError>),
+    #[error(transparent)]
+    RemoteKpar(ReqwestKparDownloadedError),
+    #[error(transparent)]
+    RemoteSrc(url::ParseError),
+}
 
-pub type OverrideEnvironment = MemoryStorageEnvironment<OverrideProject>;
+// TODO: Find a better solution going from source to project.
+// Preferably one that can also be used when syncing.
+impl<Policy: HTTPAuthentication> AnyProject<Policy> {
+    pub fn try_from_source(
+        source: Source,
+        auth_policy: Arc<Policy>,
+        client: ClientWithMiddleware,
+        runtime: Arc<tokio::runtime::Runtime>,
+    ) -> Result<Self, TryFromSourceError> {
+        match source {
+            Source::LocalKpar { kpar_path } => Ok(AnyProject::LocalKpar(
+                LocalKParProject::new_guess_root(kpar_path.as_str())
+                    .map_err(TryFromSourceError::LocalKpar)?,
+            )),
+            Source::LocalSrc { src_path } => Ok(AnyProject::LocalSrc(LocalSrcProject {
+                project_path: src_path.as_str().into(),
+            })),
+            Source::RemoteKpar {
+                remote_kpar,
+                remote_kpar_size: _,
+            } => Ok(AnyProject::RemoteKpar(
+                ReqwestKparDownloadedProject::<Policy>::new_guess_root(
+                    remote_kpar,
+                    client,
+                    auth_policy,
+                )
+                .map_err(TryFromSourceError::RemoteKpar)?
+                .to_tokio_sync(runtime),
+            )),
+            Source::RemoteSrc { remote_src } => Ok(AnyProject::RemoteSrc(
+                ReqwestSrcProjectAsync::<Policy> {
+                    client,
+                    url: reqwest::Url::parse(&remote_src).map_err(TryFromSourceError::RemoteSrc)?,
+                    auth_policy,
+                }
+                .to_tokio_sync(runtime),
+            )),
+            _ => Err(TryFromSourceError::UnsupportedSource(format!(
+                "{:?}",
+                source
+            ))),
+        }
+    }
+}
 
-pub type OverrideResolver = EnvResolver<OverrideEnvironment>;
+pub type OverrideProject<Policy> = ProjectReference<AnyProject<Policy>>;
 
-// pub type OverrideResolver = NullResolver;
+pub type OverrideEnvironment<Policy> = MemoryStorageEnvironment<OverrideProject<Policy>>;
+
+pub type OverrideResolver<Policy> = MemoryResolver<AcceptAll, OverrideProject<Policy>>;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
@@ -55,14 +118,14 @@ pub type RemoteIndexResolver<Policy> =
 type StandardResolverInner<Policy> = CombinedResolver<
     FileResolver,
     LocalEnvResolver,
-    OverrideResolver,
+    OverrideResolver<Policy>,
     RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Policy>>, GitResolver>,
     AsSyncResolveTokio<RemoteIndexResolver<Policy>>,
 >;
 
-pub struct StandardResolver<Policy>(StandardResolverInner<Policy>);
+pub struct StandardResolver<Policy: HTTPAuthentication>(StandardResolverInner<Policy>);
 
-impl<Policy: fmt::Debug> fmt::Debug for StandardResolver<Policy> {
+impl<Policy: HTTPAuthentication> fmt::Debug for StandardResolver<Policy> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("CliResolver").field(&self.0).finish()
     }
@@ -139,17 +202,18 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
 pub fn standard_resolver<Policy: HTTPAuthentication>(
     cwd: Option<Utf8PathBuf>,
     local_env_path: Option<Utf8PathBuf>,
-    overrides: Vec<(String, String, OverrideProject)>,
+    overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
     client: Option<ClientWithMiddleware>,
     index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> StandardResolver<Policy> {
     let file_resolver = standard_file_resolver(cwd);
+    let local_resolver = local_env_path.map(standard_local_resolver);
+    let override_resolver = MemoryResolver::from(overrides);
     let remote_resolver = client
         .clone()
         .map(|x| standard_remote_resolver(x, runtime.clone(), auth_policy.clone()));
-    let local_resolver = local_env_path.map(standard_local_resolver);
     let index_resolver = client
         .zip(index_urls)
         .map(|(client, urls)| standard_index_resolver(client, urls, runtime, auth_policy));
@@ -157,10 +221,7 @@ pub fn standard_resolver<Policy: HTTPAuthentication>(
     StandardResolver(CombinedResolver {
         file_resolver: Some(file_resolver),
         local_resolver,
-        // override_resolver: NO_RESOLVER,
-        override_resolver: Some(EnvResolver {
-            env: MemoryStorageEnvironment::from(overrides),
-        }),
+        override_resolver: Some(override_resolver),
         remote_resolver,
         index_resolver,
     })

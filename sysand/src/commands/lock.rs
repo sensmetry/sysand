@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use camino::Utf8Path;
+use fluent_uri::Iri;
 use pubgrub::Reporter as _;
 
 use sysand_core::{
@@ -15,11 +16,12 @@ use sysand_core::{
     },
     config::Config,
     env::local_directory::DEFAULT_ENV_NAME,
+    project::reference::ProjectReference,
     project::utils::wrapfs,
     resolve::{
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
-        standard::standard_resolver,
+        standard::{AnyProject, standard_resolver},
     },
     solve::pubgrub::{DependencyIdentifier, InternalSolverError},
     stdlib::known_std_libs,
@@ -57,6 +59,22 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
+    let mut overrides = Vec::new();
+    for config_project in &config.projects {
+        for identifier in &config_project.identifiers {
+            let mut projects = Vec::new();
+            for source in &config_project.sources {
+                projects.push(ProjectReference::new(AnyProject::try_from_source(
+                    source.clone(),
+                    auth_policy.clone(),
+                    client.clone(),
+                    runtime.clone(),
+                )?));
+            }
+            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+        }
+    }
+
     let provided_iris = if !include_std {
         known_std_libs()
     } else {
@@ -81,7 +99,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             } else {
                 None
             },
-            vec![],
+            overrides,
             Some(client),
             index_urls,
             runtime,
