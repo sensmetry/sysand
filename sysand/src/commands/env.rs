@@ -9,8 +9,8 @@ use std::{
 };
 
 use anyhow::{Result, anyhow, bail};
-
 use fluent_uri::Iri;
+
 use sysand_core::{
     commands::{env::do_env_local_dir, lock::LockOutcome},
     config::Config,
@@ -19,13 +19,13 @@ use sysand_core::{
     model::InterchangeProjectUsage,
     project::{
         ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
-        local_src::LocalSrcProject, utils::wrapfs,
+        local_src::LocalSrcProject, reference::ProjectReference, utils::wrapfs,
     },
     resolve::{
         file::FileResolverProject,
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
-        standard::standard_resolver,
+        standard::{AnyProject, standard_resolver},
     },
 };
 
@@ -83,6 +83,21 @@ pub fn command_env_install(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
+    let mut overrides = Vec::new();
+    for config_project in &config.projects {
+        for identifier in &config_project.identifiers {
+            let mut projects = Vec::new();
+            for source in &config_project.sources {
+                projects.push(ProjectReference::new(AnyProject::try_from_source(
+                    source.clone(),
+                    client.clone(),
+                    runtime.clone(),
+                )?));
+            }
+            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+        }
+    }
+
     let mut memory_projects = HashMap::default();
     for (k, v) in &provided_iris {
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
@@ -97,7 +112,7 @@ pub fn command_env_install(
         standard_resolver(
             None,
             None,
-            vec![],
+            overrides,
             Some(client.clone()),
             index_urls,
             runtime.clone(),
@@ -205,6 +220,21 @@ pub fn command_env_install_path<S: AsRef<str>>(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
+    let mut overrides = Vec::new();
+    for config_project in &config.projects {
+        for identifier in &config_project.identifiers {
+            let mut projects = Vec::new();
+            for source in &config_project.sources {
+                projects.push(ProjectReference::new(AnyProject::try_from_source(
+                    source.clone(),
+                    client.clone(),
+                    runtime.clone(),
+                )?));
+            }
+            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+        }
+    }
+
     if let Some(version) = version {
         let project_version = project
             .get_info()?
@@ -241,7 +271,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
             standard_resolver(
                 Some(PathBuf::from(path)),
                 None,
-                vec![],
+                overrides,
                 Some(client.clone()),
                 index_urls,
                 runtime.clone(),

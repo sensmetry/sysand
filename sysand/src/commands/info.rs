@@ -13,7 +13,10 @@ use sysand_core::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     },
     project::{ProjectMut, ProjectRead},
-    resolve::{file::FileResolverProject, standard::standard_resolver},
+    resolve::{
+        file::FileResolverProject,
+        standard::{OverrideProject, standard_resolver},
+    },
 };
 
 use anstream::{print, println};
@@ -102,6 +105,7 @@ pub fn command_info_uri(
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
     excluded_iris: &HashSet<String>,
+    overrides: Vec<(Iri<String>, Vec<OverrideProject>)>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     let cwd = wrapfs::current_dir().ok();
@@ -115,7 +119,7 @@ pub fn command_info_uri(
         } else {
             None
         },
-        vec![],
+        overrides,
         Some(client),
         index_urls,
         runtime,
@@ -190,6 +194,7 @@ pub fn command_info_verb_uri(
     numbered: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
+    overrides: Vec<(Iri<String>, Vec<OverrideProject>)>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     match verb {
@@ -206,7 +211,7 @@ pub fn command_info_verb_uri(
                 } else {
                     None
                 },
-                vec![],
+                overrides,
                 Some(client),
                 index_urls,
                 runtime,
