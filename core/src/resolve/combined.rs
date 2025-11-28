@@ -1,17 +1,18 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{
-    io::{self, Read},
-    iter::Peekable,
-};
+use std::{fmt::Debug, iter::Peekable};
 
 use indexmap::IndexMap;
 use thiserror::Error;
+use typed_path::Utf8UnixPath;
 
 use crate::{
-    model::{ProjectHash, project_hash_raw},
-    project::ProjectRead,
+    lock::Source,
+    model::{
+        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, ProjectHash, project_hash_raw,
+    },
+    project::{ProjectRead, cached::CachedProject},
     resolve::{ResolutionOutcome, ResolveRead, null::NullResolver},
 };
 
@@ -41,12 +42,20 @@ use crate::{
 /// Each resolver is optional, and can be skipped by passing `None`. `NO_RESOLVER` is a typed `None`
 /// value that can be used to avoid ambiguous typing.
 #[derive(Debug)]
-pub struct CombinedResolver<FileResolver, LocalResolver, RemoteResolver, RegistryResolver> {
+pub struct CombinedResolver<
+    FileResolver,
+    LocalResolver,
+    OverrideResolver,
+    RemoteResolver,
+    RegistryResolver,
+> {
     /// A resolver for whatever is considered a local file in the environment,
     /// would *typically* accept only file:// URLs
     pub file_resolver: Option<FileResolver>,
     /// A resolver for whatever is considered local environments/local caches
     pub local_resolver: Option<LocalResolver>,
+    /// Resolver used for explicit overrides of sources, typically coming from manual configuration.
+    pub override_resolver: Option<OverrideResolver>,
     /// A resolver for whatever is considered remote URLs, would typically resolves
     /// http(s) and git-URLs, as well as, possibly, FTP, rsync, scp, ...
     pub remote_resolver: Option<RemoteResolver>,
@@ -59,23 +68,13 @@ pub struct CombinedResolver<FileResolver, LocalResolver, RemoteResolver, Registr
 pub const NO_RESOLVER: Option<NullResolver> = None;
 
 #[derive(Error, Debug)]
-pub enum CombinedResolverError<FileError, LocalError, RemoteError, RegistryError> {
+pub enum CombinedResolverError<FileError, LocalError, OverrideError, RemoteError, RegistryError> {
     #[error(transparent)]
     File(FileError),
     #[error(transparent)]
     Local(LocalError),
     #[error(transparent)]
-    Remote(RemoteError),
-    #[error(transparent)]
-    Registry(RegistryError),
-}
-
-#[derive(Error, Debug)]
-pub enum CombinedReadError<FileError, LocalError, RemoteError, RegistryError> {
-    #[error(transparent)]
-    File(FileError),
-    #[error(transparent)]
-    Local(LocalError),
+    Override(OverrideError),
     #[error(transparent)]
     Remote(RemoteError),
     #[error(transparent)]
@@ -84,164 +83,35 @@ pub enum CombinedReadError<FileError, LocalError, RemoteError, RegistryError> {
 
 /// Outcome of a standard resolution remembers the (resolver) source of the project.
 /// Can either be taken apart or used directly as a project storage.
-#[derive(Debug)]
+#[derive(Debug, ProjectRead)]
 pub enum CombinedProjectStorage<
-    FileProjectStorage,
-    LocalProjectStorage,
-    RemoteProjectStorage,
-    RegistryProjectStorage,
+    FileProjectStorage: ProjectRead,
+    LocalProjectStorage: ProjectRead,
+    OverrideProjectStorage: ProjectRead,
+    RemoteProjectStorage: ProjectRead,
+    RegistryProjectStorage: ProjectRead,
 > {
+    OverrideProject(OverrideProjectStorage),
     FileProject(FileProjectStorage),
     RemoteProject(RemoteProjectStorage),
     RegistryProject(RegistryProjectStorage),
-    CachedRemoteProject(LocalProjectStorage, RemoteProjectStorage),
-    CachedRegistryProject(LocalProjectStorage, RegistryProjectStorage),
+    CachedRemoteProject(CachedProject<LocalProjectStorage, RemoteProjectStorage>),
+    CachedRegistryProject(CachedProject<LocalProjectStorage, RegistryProjectStorage>),
     DanglingLocalProject(LocalProjectStorage),
-}
-
-pub enum CombinedSourceReader<FileReader, LocalReader, RemoteReader, RegistryReader> {
-    FileProject(FileReader),
-    LocalProject(LocalReader),
-    RemoteProject(RemoteReader),
-    RegistryProject(RegistryReader),
-}
-
-impl<FileReader: Read, LocalReader: Read, RemoteReader: Read, RegistryReader: Read> Read
-    for CombinedSourceReader<FileReader, LocalReader, RemoteReader, RegistryReader>
-{
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            CombinedSourceReader::FileProject(reader) => reader.read(buf),
-            CombinedSourceReader::LocalProject(reader) => reader.read(buf),
-            CombinedSourceReader::RemoteProject(reader) => reader.read(buf),
-            CombinedSourceReader::RegistryProject(reader) => reader.read(buf),
-        }
-    }
-}
-
-impl<
-    FileProjectStorage: ProjectRead,
-    LocalProjectStorage: ProjectRead,
-    RemoteProjectStorage: ProjectRead,
-    RegistryProjectStorage: ProjectRead,
-> ProjectRead
-    for CombinedProjectStorage<
-        FileProjectStorage,
-        LocalProjectStorage,
-        RemoteProjectStorage,
-        RegistryProjectStorage,
-    >
-{
-    type Error = CombinedReadError<
-        FileProjectStorage::Error,
-        LocalProjectStorage::Error,
-        RemoteProjectStorage::Error,
-        RegistryProjectStorage::Error,
-    >;
-
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        match self {
-            CombinedProjectStorage::FileProject(project) => {
-                project.get_project().map_err(CombinedReadError::File)
-            }
-            CombinedProjectStorage::RemoteProject(project) => {
-                project.get_project().map_err(CombinedReadError::Remote)
-            }
-            CombinedProjectStorage::RegistryProject(project) => {
-                project.get_project().map_err(CombinedReadError::Registry)
-            }
-            CombinedProjectStorage::CachedRemoteProject(project, _) => {
-                project.get_project().map_err(CombinedReadError::Local)
-            }
-            CombinedProjectStorage::CachedRegistryProject(project, _) => {
-                project.get_project().map_err(CombinedReadError::Local)
-            }
-            CombinedProjectStorage::DanglingLocalProject(project) => {
-                project.get_project().map_err(CombinedReadError::Local)
-            }
-        }
-    }
-
-    type SourceReader<'a>
-        = CombinedSourceReader<
-        FileProjectStorage::SourceReader<'a>,
-        LocalProjectStorage::SourceReader<'a>,
-        RemoteProjectStorage::SourceReader<'a>,
-        RegistryProjectStorage::SourceReader<'a>,
-    >
-    where
-        Self: 'a;
-
-    fn read_source<P: AsRef<typed_path::Utf8UnixPath>>(
-        &self,
-        path: P,
-    ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        match self {
-            CombinedProjectStorage::FileProject(project) => project
-                .read_source(path)
-                .map_err(CombinedReadError::File)
-                .map(CombinedSourceReader::FileProject),
-            CombinedProjectStorage::RemoteProject(project) => project
-                .read_source(path)
-                .map_err(CombinedReadError::Remote)
-                .map(CombinedSourceReader::RemoteProject),
-            CombinedProjectStorage::RegistryProject(project) => project
-                .read_source(path)
-                .map_err(CombinedReadError::Registry)
-                .map(CombinedSourceReader::RegistryProject),
-            CombinedProjectStorage::CachedRemoteProject(project, _) => project
-                .read_source(path)
-                .map_err(CombinedReadError::Local)
-                .map(CombinedSourceReader::LocalProject),
-            CombinedProjectStorage::CachedRegistryProject(project, _) => project
-                .read_source(path)
-                .map_err(CombinedReadError::Local)
-                .map(CombinedSourceReader::LocalProject),
-            CombinedProjectStorage::DanglingLocalProject(project) => project
-                .read_source(path)
-                .map_err(CombinedReadError::Local)
-                .map(CombinedSourceReader::LocalProject),
-        }
-    }
-
-    fn is_definitely_invalid(&self) -> bool {
-        match self {
-            CombinedProjectStorage::FileProject(proj) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::RemoteProject(proj) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::RegistryProject(proj) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::CachedRemoteProject(proj, _) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::CachedRegistryProject(proj, _) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::DanglingLocalProject(proj) => proj.is_definitely_invalid(),
-        }
-    }
-
-    fn sources(&self) -> Vec<crate::lock::Source> {
-        match self {
-            CombinedProjectStorage::FileProject(proj) => proj.sources(),
-            CombinedProjectStorage::RemoteProject(proj) => proj.sources(),
-            CombinedProjectStorage::RegistryProject(proj) => proj.sources(),
-            CombinedProjectStorage::CachedRemoteProject(_, proj) => proj.sources(),
-            CombinedProjectStorage::CachedRegistryProject(_, proj) => proj.sources(),
-            CombinedProjectStorage::DanglingLocalProject(proj) => proj.sources(),
-        }
-    }
 }
 
 pub enum CombinedIteratorState<
     FileResolver: ResolveRead,
+    OverrideResolver: ResolveRead,
     RemoteResolver: ResolveRead,
     RegistryResolver: ResolveRead,
 > {
     /// The IRI was resolved as a local path
     ResolvedFile(<<FileResolver as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter),
+    /// The IRI was resolved as an override
+    ResolvedOverride(
+        <<OverrideResolver as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter,
+    ),
     /// The IRI was resolved to (at least one) valid remote project
     ResolvedRemote(
         Peekable<<<RemoteResolver as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter>,
@@ -257,30 +127,42 @@ pub enum CombinedIteratorState<
 pub struct CombinedIterator<
     FileResolver: ResolveRead,
     LocalResolver: ResolveRead,
+    OverrideResolver: ResolveRead,
     RemoteResolver: ResolveRead,
     RegistryResolver: ResolveRead,
 > {
-    pub state: CombinedIteratorState<FileResolver, RemoteResolver, RegistryResolver>,
+    pub state:
+        CombinedIteratorState<FileResolver, OverrideResolver, RemoteResolver, RegistryResolver>,
     pub locals: IndexMap<ProjectHash, LocalResolver::ProjectStorage>,
 }
 
 impl<
     FileResolver: ResolveRead,
     LocalResolver: ResolveRead,
+    OverrideResolver: ResolveRead,
     RemoteResolver: ResolveRead,
     RegistryResolver: ResolveRead,
-> Iterator for CombinedIterator<FileResolver, LocalResolver, RemoteResolver, RegistryResolver>
+> Iterator
+    for CombinedIterator<
+        FileResolver,
+        LocalResolver,
+        OverrideResolver,
+        RemoteResolver,
+        RegistryResolver,
+    >
 {
     type Item = Result<
         CombinedProjectStorage<
             FileResolver::ProjectStorage,
             LocalResolver::ProjectStorage,
+            OverrideResolver::ProjectStorage,
             RemoteResolver::ProjectStorage,
             RegistryResolver::ProjectStorage,
         >,
         CombinedResolverError<
             FileResolver::Error,
             LocalResolver::Error,
+            OverrideResolver::Error,
             RemoteResolver::Error,
             RegistryResolver::Error,
         >,
@@ -291,6 +173,10 @@ impl<
             CombinedIteratorState::ResolvedFile(iter) => iter.next().map(|r| {
                 r.map(CombinedProjectStorage::FileProject)
                     .map_err(CombinedResolverError::File)
+            }),
+            CombinedIteratorState::ResolvedOverride(iter) => iter.next().map(|r| {
+                r.map(CombinedProjectStorage::OverrideProject)
+                    .map_err(CombinedResolverError::Override)
             }),
             CombinedIteratorState::Done => self
                 .locals
@@ -307,7 +193,10 @@ impl<
                         });
 
                     if let Some(local_project) = cached {
-                        CombinedProjectStorage::CachedRemoteProject(local_project, project)
+                        CombinedProjectStorage::CachedRemoteProject(CachedProject::new(
+                            local_project,
+                            project,
+                        ))
                     } else {
                         CombinedProjectStorage::RemoteProject(project)
                     }
@@ -328,7 +217,10 @@ impl<
                         });
 
                     if let Some(local_project) = cached {
-                        CombinedProjectStorage::CachedRegistryProject(local_project, project)
+                        CombinedProjectStorage::CachedRegistryProject(CachedProject::new(
+                            local_project,
+                            project,
+                        ))
                     } else {
                         CombinedProjectStorage::RegistryProject(project)
                     }
@@ -345,13 +237,22 @@ impl<
 impl<
     FileResolver: ResolveRead,
     LocalResolver: ResolveRead,
+    OverrideResolver: ResolveRead,
     RemoteResolver: ResolveRead,
     RegistryResolver: ResolveRead,
-> ResolveRead for CombinedResolver<FileResolver, LocalResolver, RemoteResolver, RegistryResolver>
+> ResolveRead
+    for CombinedResolver<
+        FileResolver,
+        LocalResolver,
+        OverrideResolver,
+        RemoteResolver,
+        RegistryResolver,
+    >
 {
     type Error = CombinedResolverError<
         FileResolver::Error,
         LocalResolver::Error,
+        OverrideResolver::Error,
         RemoteResolver::Error,
         RegistryResolver::Error,
     >;
@@ -359,13 +260,19 @@ impl<
     type ProjectStorage = CombinedProjectStorage<
         FileResolver::ProjectStorage,
         LocalResolver::ProjectStorage,
+        OverrideResolver::ProjectStorage,
         RemoteResolver::ProjectStorage,
         RegistryResolver::ProjectStorage,
     >;
 
     // TODO: Replace this with something more efficient
-    type ResolvedStorages =
-        CombinedIterator<FileResolver, LocalResolver, RemoteResolver, RegistryResolver>;
+    type ResolvedStorages = CombinedIterator<
+        FileResolver,
+        LocalResolver,
+        OverrideResolver,
+        RemoteResolver,
+        RegistryResolver,
+    >;
 
     fn resolve_read(
         &self,
@@ -373,10 +280,25 @@ impl<
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let mut at_least_one_supports = false;
 
+        // If IRI resolves in overrides use that, otherwise continue
+        if let Some(override_resolver) = &self.override_resolver {
+            match override_resolver
+                .resolve_read(uri)
+                .map_err(Self::Error::Override)
+            {
+                Ok(ResolutionOutcome::Resolved(r)) => {
+                    return Ok(ResolutionOutcome::Resolved(CombinedIterator {
+                        state: CombinedIteratorState::ResolvedOverride(r.into_iter()),
+                        locals: IndexMap::new(),
+                    }));
+                }
+                _ => {} // Ignore everything that isn't a resolved project
+            }
+        }
+
         // If the file resolver does not outright reject the IRI type,
         // use it.
         if let Some(file_resolver) = &self.file_resolver {
-            let mut rejected = vec![];
             match file_resolver
                 .resolve_read(uri)
                 .map_err(CombinedResolverError::File)?
@@ -392,15 +314,11 @@ impl<
                     }));
                 }
                 ResolutionOutcome::Unresolvable(msg) => {
-                    rejected.push(msg);
+                    return Ok(ResolutionOutcome::Unresolvable(format!(
+                        "failed to resolve as file: {:?}",
+                        msg,
+                    )));
                 }
-            }
-
-            if !rejected.is_empty() {
-                return Ok(ResolutionOutcome::Unresolvable(format!(
-                    "failed to resolve as file: {:?}",
-                    rejected
-                )));
             }
         }
 
@@ -673,6 +591,27 @@ mod tests {
     // }
 
     #[test]
+    fn prefer_override_when_successful() {
+        let example_uri = "http://example.com";
+
+        let project_a = minimal_project("a", "1.2.3");
+        let project_b = minimal_project("b", "3.2.1");
+
+        let resolver = CombinedResolver {
+            file_resolver: single_project_any_resolver(example_uri, project_b.clone()),
+            remote_resolver: single_project_any_resolver(example_uri, project_b.clone()),
+            local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
+            index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
+            override_resolver: single_project_any_resolver(example_uri, project_a),
+        };
+
+        let xs = do_info(example_uri, &resolver).unwrap();
+
+        assert_eq!(xs.len(), 1);
+        assert_eq!(xs[0].0.name, "a");
+    }
+
+    #[test]
     fn prefer_file_resolver_when_successful() {
         let example_uri = "http://example.com";
 
@@ -684,6 +623,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -703,6 +643,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver);
@@ -722,6 +663,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -742,6 +684,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -763,6 +706,7 @@ mod tests {
             remote_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_c.clone()),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -784,6 +728,7 @@ mod tests {
             remote_resolver: NO_RESOLVER,
             local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -804,6 +749,7 @@ mod tests {
             remote_resolver: NO_RESOLVER,
             local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -823,6 +769,7 @@ mod tests {
             remote_resolver: empty_any_resolver(),
             local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
             index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
+            override_resolver: empty_any_resolver(),
         };
 
         let xs = do_info(example_uri, &resolver).unwrap();
@@ -840,6 +787,7 @@ mod tests {
             remote_resolver: NO_RESOLVER,
             local_resolver: NO_RESOLVER,
             index_resolver: NO_RESOLVER,
+            override_resolver: NO_RESOLVER,
         };
 
         let Ok(crate::resolve::ResolutionOutcome::UnsupportedIRIType(_)) =
@@ -858,6 +806,7 @@ mod tests {
             remote_resolver: empty_any_resolver(),
             local_resolver: empty_any_resolver(),
             index_resolver: empty_any_resolver(),
+            override_resolver: empty_any_resolver(),
         };
 
         let Ok(crate::resolve::ResolutionOutcome::Unresolvable(_)) =
