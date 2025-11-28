@@ -222,7 +222,7 @@ mod test {
             utils::{CloneError, clone_project},
         },
         init::do_init_memory,
-        project::memory::{InMemoryError, InMemoryProject},
+        project::memory::{InMemoryProject, InMemoryError},
     };
 
     #[test]
@@ -306,8 +306,10 @@ mod test {
 
     #[test]
     fn try_from() {
-        let project1 = do_init_memory("First 0.0.1".to_string(), "0.0.1".to_string(), None).unwrap();
-        let project2 = do_init_memory("First 0.1.0".to_string(), "0.1.0".to_string(), None).unwrap();
+        let project1 =
+            do_init_memory("First 0.0.1".to_string(), "0.0.1".to_string(), None).unwrap();
+        let project2 =
+            do_init_memory("First 0.1.0".to_string(), "0.1.0".to_string(), None).unwrap();
         let project3 = do_init_memory("Second".to_string(), "0.0.1".to_string(), None).unwrap();
         let env = MemoryStorageEnvironment::<InMemoryProject>::try_from([
             ("urn:kpar:first".to_string(), project1.clone()),

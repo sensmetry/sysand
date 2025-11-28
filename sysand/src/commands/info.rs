@@ -14,8 +14,11 @@ use sysand_core::{
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     },
-    project::{ProjectMut, ProjectRead, utils::ToPathBuf},
-    resolve::{file::FileResolverProject, standard::standard_resolver},
+    project::{ProjectMut, ProjectRead},
+    resolve::{
+        file::FileResolverProject,
+        standard::{OverrideProject, standard_resolver},
+    },
 };
 
 use anstream::{print, println};
@@ -74,7 +77,7 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverPro
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path)?)
     } else if path.as_ref().is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
-            project_path: path.to_path_buf(),
+            project_path: path.as_ref().as_str().into(),
         })
     } else {
         // TODO: NoResolve is for IRIs, this is a path
@@ -104,6 +107,7 @@ pub fn command_info_uri(
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
     excluded_iris: &HashSet<String>,
+    overrides: Vec<(Iri<String>, Vec<OverrideProject>)>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     let cwd = wrapfs::current_dir().ok();
@@ -117,7 +121,7 @@ pub fn command_info_uri(
         } else {
             None
         },
-        vec![],
+        overrides,
         Some(client),
         index_urls,
         runtime,
@@ -192,6 +196,7 @@ pub fn command_info_verb_uri(
     numbered: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
+    overrides: Vec<(Iri<String>, Vec<OverrideProject>)>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     match verb {
@@ -207,7 +212,7 @@ pub fn command_info_verb_uri(
                 } else {
                     None
                 },
-                vec![],
+                overrides,
                 Some(client),
                 index_urls,
                 runtime,
