@@ -9,7 +9,7 @@ use std::{
 };
 
 use semver::{Version, VersionReq};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml_edit::{
     Array, ArrayOfTables, DocumentMut, Formatted, InlineTable, Item, Table, Value, value,
@@ -437,20 +437,29 @@ const SOURCE_ENTRIES: &[&str] = &[
     "remote_api",
 ];
 
-#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(untagged)]
 pub enum Source {
     // Path must be a Unix path relative to workspace root
     Editable {
-        #[serde(deserialize_with = "parse_unix_path")]
+        #[serde(
+            deserialize_with = "parse_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
         editable: Utf8UnixPathBuf,
     },
     LocalSrc {
-        #[serde(deserialize_with = "parse_unix_path")]
+        #[serde(
+            deserialize_with = "parse_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
         src_path: Utf8UnixPathBuf,
     },
     LocalKpar {
-        #[serde(deserialize_with = "parse_unix_path")]
+        #[serde(
+            deserialize_with = "parse_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
         kpar_path: Utf8UnixPathBuf,
     },
     Registry {
@@ -469,6 +478,13 @@ pub enum Source {
     RemoteApi {
         remote_api: String,
     },
+}
+
+fn serialize_unix_path<S>(x: &Utf8UnixPathBuf, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_str(x.as_str())
 }
 
 fn parse_unix_path<'de, D>(deserializer: D) -> Result<Utf8UnixPathBuf, D::Error>

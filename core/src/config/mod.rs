@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::lock::Source;
+
 #[cfg(feature = "filesystem")]
 pub mod local_fs;
 
@@ -12,14 +14,31 @@ pub struct Config {
     pub quiet: Option<bool>,
     pub verbose: Option<bool>,
     pub index: Option<Vec<Index>>,
+    #[serde(rename = "project", skip_serializing_if = "Vec::is_empty", default)]
+    pub projects: Vec<ConfigProject>,
     // pub auth: Option<Vec<AuthSource>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfigProject {
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub identifiers: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub sources: Vec<Source>,
 }
 
 impl Config {
     pub fn merge(&mut self, config: Config) {
-        self.quiet = self.quiet.or(config.quiet);
-        self.verbose = self.verbose.or(config.verbose);
-        extend_option_vec(&mut self.index, config.index);
+        let Config {
+            quiet,
+            verbose,
+            index,
+            mut projects,
+        } = config;
+        self.quiet = self.quiet.or(quiet);
+        self.verbose = self.verbose.or(verbose);
+        extend_option_vec(&mut self.index, index);
+        self.projects.append(&mut projects);
 
         // if let Some(auth) = config.auth {
         //     self.auth = Some(auth.clone());
@@ -113,7 +132,10 @@ pub enum AuthSource {
 mod tests {
     use url::Url;
 
-    use crate::config::{Config, Index};
+    use crate::{
+        config::{Config, ConfigProject, Index},
+        lock::Source,
+    };
 
     #[test]
     fn default_config() {
@@ -144,6 +166,12 @@ mod tests {
                 url: "http://www.example.com".to_string(),
                 ..Default::default()
             }]),
+            projects: vec![ConfigProject {
+                identifiers: vec!["urn:kpar:test".to_string()],
+                sources: vec![Source::LocalSrc {
+                    src_path: "./path/to project".into(),
+                }],
+            }],
             // auth: None,
         };
         defaults.merge(config.clone());
