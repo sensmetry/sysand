@@ -16,4 +16,4 @@ proc-macro = true
 itertools = { version = "0.14.0", default-features = false  }
 proc-macro2 = "1.0.95"
 quote = "1.0.40"
-syn = { version = "2.0.104", default-features = false }
+syn = "2.0.104"
