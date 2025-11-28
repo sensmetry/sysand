@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, convert::Infallible};
 
-use fluent_uri::component::Scheme;
+use fluent_uri::{Iri, component::Scheme};
 
 use crate::{
     project::ProjectRead,
@@ -13,14 +13,41 @@ use crate::{
 #[derive(Debug)]
 pub struct MemoryResolver<Predicate, ProjectStorage: Clone> {
     pub iri_predicate: Predicate,
-    pub projects: HashMap<fluent_uri::Iri<String>, Vec<ProjectStorage>>,
+    pub projects: HashMap<Iri<String>, Vec<ProjectStorage>>,
+}
+
+impl<Project: ProjectRead + Clone> FromIterator<(Iri<String>, Vec<Project>)>
+    for MemoryResolver<AcceptAll, Project>
+{
+    fn from_iter<T: IntoIterator<Item = (Iri<String>, Vec<Project>)>>(iter: T) -> Self {
+        Self {
+            iri_predicate: AcceptAll {},
+            projects: HashMap::from_iter(iter),
+        }
+    }
+}
+
+impl<Project: ProjectRead + Clone, const N: usize> From<[(Iri<String>, Vec<Project>); N]>
+    for MemoryResolver<AcceptAll, Project>
+{
+    fn from(value: [(Iri<String>, Vec<Project>); N]) -> Self {
+        Self::from_iter(value)
+    }
+}
+
+impl<Project: ProjectRead + Clone> From<Vec<(Iri<String>, Vec<Project>)>>
+    for MemoryResolver<AcceptAll, Project>
+{
+    fn from(value: Vec<(Iri<String>, Vec<Project>)>) -> Self {
+        Self::from_iter(value)
+    }
 }
 
 pub trait IRIPredicate {
-    fn accept_iri(&self, iri: &fluent_uri::Iri<String>) -> bool;
+    fn accept_iri(&self, iri: &Iri<String>) -> bool;
 
     fn accept_iri_raw(&self, iri: &str) -> bool {
-        match fluent_uri::Iri::parse(iri.to_string()) {
+        match Iri::parse(iri.to_string()) {
             Ok(iri) => self.accept_iri(&iri),
             Err(_) => false,
         }
@@ -31,7 +58,7 @@ pub trait IRIPredicate {
 pub struct AcceptAll {}
 
 impl IRIPredicate for AcceptAll {
-    fn accept_iri(&self, _iri: &fluent_uri::Iri<String>) -> bool {
+    fn accept_iri(&self, _iri: &Iri<String>) -> bool {
         true
     }
 }
@@ -42,7 +69,7 @@ pub struct AcceptScheme<'a> {
 }
 
 impl IRIPredicate for AcceptScheme<'_> {
-    fn accept_iri(&self, iri: &fluent_uri::Iri<String>) -> bool {
+    fn accept_iri(&self, iri: &Iri<String>) -> bool {
         iri.scheme() == self.scheme
     }
 }
@@ -58,7 +85,7 @@ impl<Predicate: IRIPredicate, ProjectStorage: ProjectRead + Clone> ResolveRead
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        uri: &Iri<String>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         if !self.iri_predicate.accept_iri(uri) {
             return Ok(ResolutionOutcome::UnsupportedIRIType(format!(

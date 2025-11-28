@@ -66,6 +66,7 @@ mod tests {
                 url: "http://www.example.com".to_string(),
                 ..Default::default()
             }]),
+            projects: vec![],
         };
         config_file
             .write_all(toml::to_string_pretty(&config).unwrap().as_bytes())

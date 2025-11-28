@@ -3,7 +3,9 @@
 
 use std::{fmt, path::PathBuf, result::Result, sync::Arc};
 
+use fluent_uri::Iri;
 use reqwest_middleware::ClientWithMiddleware;
+use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
 use crate::{
@@ -14,8 +16,13 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        ProjectRead, local_kpar::LocalKParProject, local_src::LocalSrcProject,
+        AsSyncProjectTokio, ProjectRead, ProjectReadAsync,
+        local_kpar::LocalKParProject,
+        local_src::LocalSrcProject,
         reference::ProjectReference,
+        reqwest_kpar_download::{ReqwestKparDownloadedError, ReqwestKparDownloadedProject},
+        reqwest_src::ReqwestSrcProjectAsync,
+        utils::{FsIoError, ToPathBuf},
     },
     resolve::{
         AsSyncResolveTokio, ResolveRead, ResolveReadAsync,
@@ -23,6 +30,7 @@ use crate::{
         env::EnvResolver,
         file::FileResolver,
         gix_git::GitResolver,
+        memory::{AcceptAll, MemoryResolver},
         remote::{RemotePriority, RemoteResolver},
         reqwest_http::HTTPResolverAsync,
         sequential::SequentialResolver,
@@ -33,17 +41,66 @@ use crate::{
 pub enum AnyProject {
     LocalSrc(LocalSrcProject),
     LocalKpar(LocalKParProject),
-    // RemoteSrc(ReqwestSrcProjectAsync),
-    // RemoteKpar(ReqwestKparDownloadedProject),
+    RemoteSrc(AsSyncProjectTokio<ReqwestSrcProjectAsync>),
+    RemoteKpar(AsSyncProjectTokio<ReqwestKparDownloadedProject>),
+}
+
+#[derive(Error, Debug)]
+pub enum TryFromSourceError {
+    #[error("unsupported source\n{0}")]
+    UnsupportedSource(String),
+    #[error(transparent)]
+    LocalKpar(Box<FsIoError>),
+    #[error(transparent)]
+    RemoteKpar(ReqwestKparDownloadedError),
+    #[error(transparent)]
+    RemoteSrc(url::ParseError),
+}
+
+// TODO: Find a better solution going from source to project.
+// Preferably one that can also be used when syncing.
+impl AnyProject {
+    pub fn try_from_source(
+        source: Source,
+        client: ClientWithMiddleware,
+        runtime: Arc<tokio::runtime::Runtime>,
+    ) -> Result<Self, TryFromSourceError> {
+        match source {
+            Source::LocalKpar { kpar_path } => Ok(AnyProject::LocalKpar(
+                LocalKParProject::new_guess_root(kpar_path)
+                    .map_err(TryFromSourceError::LocalKpar)?,
+            )),
+            Source::LocalSrc { src_path } => Ok(AnyProject::LocalSrc(LocalSrcProject {
+                project_path: src_path.to_path_buf(),
+            })),
+            Source::RemoteKpar {
+                remote_kpar,
+                remote_kpar_size: _,
+            } => Ok(AnyProject::RemoteKpar(
+                ReqwestKparDownloadedProject::new_guess_root(remote_kpar, client)
+                    .map_err(TryFromSourceError::RemoteKpar)?
+                    .to_tokio_sync(runtime),
+            )),
+            Source::RemoteSrc { remote_src } => Ok(AnyProject::RemoteSrc(
+                ReqwestSrcProjectAsync {
+                    client,
+                    url: reqwest::Url::parse(&remote_src).map_err(TryFromSourceError::RemoteSrc)?,
+                }
+                .to_tokio_sync(runtime),
+            )),
+            _ => Err(TryFromSourceError::UnsupportedSource(format!(
+                "{:?}",
+                source
+            ))),
+        }
+    }
 }
 
 pub type OverrideProject = ProjectReference<AnyProject>;
 
 pub type OverrideEnvironment = MemoryStorageEnvironment<OverrideProject>;
 
-pub type OverrideResolver = EnvResolver<OverrideEnvironment>;
-
-// pub type OverrideResolver = NullResolver;
+pub type OverrideResolver = MemoryResolver<AcceptAll, OverrideProject>;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
@@ -133,16 +190,17 @@ pub fn standard_index_resolver(
 pub fn standard_resolver(
     cwd: Option<PathBuf>,
     local_env_path: Option<PathBuf>,
-    overrides: Vec<(String, String, OverrideProject)>,
+    overrides: Vec<(Iri<String>, Vec<OverrideProject>)>,
     client: Option<ClientWithMiddleware>,
     index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> StandardResolver {
     let file_resolver = standard_file_resolver(cwd);
+    let local_resolver = local_env_path.map(standard_local_resolver);
+    let override_resolver = MemoryResolver::from(overrides);
     let remote_resolver = client
         .clone()
         .map(|x| standard_remote_resolver(x, runtime.clone()));
-    let local_resolver = local_env_path.map(standard_local_resolver);
     let index_resolver = client
         .zip(index_urls)
         .map(|(client, urls)| standard_index_resolver(client, urls, runtime.clone()));
@@ -150,10 +208,7 @@ pub fn standard_resolver(
     StandardResolver(CombinedResolver {
         file_resolver: Some(file_resolver),
         local_resolver,
-        // override_resolver: NO_RESOLVER,
-        override_resolver: Some(EnvResolver {
-            env: MemoryStorageEnvironment::from(overrides),
-        }),
+        override_resolver: Some(override_resolver),
         remote_resolver,
         index_resolver,
     })

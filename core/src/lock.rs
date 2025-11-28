@@ -9,7 +9,7 @@ use std::{
 };
 
 use semver::{Version, VersionReq};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml_edit::{
     Array, ArrayOfTables, DocumentMut, Formatted, InlineTable, Item, Table, Value, value,
@@ -436,7 +436,7 @@ const SOURCE_ENTRIES: &[&str] = &[
     "remote_api",
 ];
 
-#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(untagged)]
 pub enum Source {
     Editable {

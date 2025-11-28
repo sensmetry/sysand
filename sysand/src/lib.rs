@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow::{Result, bail};
+use fluent_uri::Iri;
 
 use sysand_core::{
     config::{
@@ -21,7 +22,9 @@ use sysand_core::{
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     lock::Lock,
     new::NewError,
+    project::reference::ProjectReference,
     project::utils::wrapfs,
+    resolve::standard::AnyProject,
     stdlib::known_std_libs,
 };
 
@@ -282,6 +285,21 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashSet::default()
             };
 
+            let mut overrides = Vec::new();
+            for config_project in &config.projects {
+                for identifier in &config_project.identifiers {
+                    let mut projects = Vec::new();
+                    for source in &config_project.sources {
+                        projects.push(ProjectReference::new(AnyProject::try_from_source(
+                            source.clone(),
+                            client.clone(),
+                            runtime.clone(),
+                        )?));
+                    }
+                    overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+                }
+            }
+
             enum Location {
                 WorkDir,
                 Iri(fluent_uri::Iri<String>),
@@ -374,6 +392,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     client,
                     index_urls,
                     &excluded_iris,
+                    overrides,
                     runtime,
                 ),
                 (Location::Iri(iri), Some(subcommand)) => {
@@ -385,6 +404,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         numbered,
                         client,
                         index_urls,
+                        overrides,
                         runtime,
                     )
                 }

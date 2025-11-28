@@ -229,8 +229,8 @@ mod test {
         let uri1 = "urn:kpar:first".to_string();
         let uri2 = "urn:kpar:second".to_string();
         let version = "0.0.1".to_string();
-        let project1 = do_new_memory("First".to_string(), version.clone()).unwrap();
-        let project2 = do_new_memory("Second".to_string(), version.clone()).unwrap();
+        let project1 = do_new_memory("First".to_string(), version.clone(), None).unwrap();
+        let project2 = do_new_memory("Second".to_string(), version.clone(), None).unwrap();
         let mut env = MemoryStorageEnvironment::<InMemoryProject>::new();
 
         env.put_project(&uri1, &version, |p| clone_project(&project1, p, true))
@@ -266,7 +266,7 @@ mod test {
     fn readd_environment() {
         let iri = "urn:kpar:first".to_string();
         let version = "0.0.1".to_string();
-        let project = do_new_memory("First".to_string(), version.clone()).unwrap();
+        let project = do_new_memory("First".to_string(), version.clone(), None).unwrap();
         let env = MemoryStorageEnvironment {
             projects: HashMap::from([(
                 iri.clone(),
@@ -297,9 +297,9 @@ mod test {
 
     #[test]
     fn try_from() {
-        let project1 = do_new_memory("First 0.0.1".to_string(), "0.0.1".to_string()).unwrap();
-        let project2 = do_new_memory("First 0.1.0".to_string(), "0.1.0".to_string()).unwrap();
-        let project3 = do_new_memory("Second".to_string(), "0.0.1".to_string()).unwrap();
+        let project1 = do_new_memory("First 0.0.1".to_string(), "0.0.1".to_string(), None).unwrap();
+        let project2 = do_new_memory("First 0.1.0".to_string(), "0.1.0".to_string(), None).unwrap();
+        let project3 = do_new_memory("Second".to_string(), "0.0.1".to_string(), None).unwrap();
         let env = MemoryStorageEnvironment::<InMemoryProject>::try_from([
             ("urn:kpar:first".to_string(), project1.clone()),
             ("urn:kpar:first".to_string(), project2.clone()),
