@@ -59,8 +59,8 @@ fn discover<P: AsRef<Path>, F: Fn(&Path) -> bool>(
                             return None;
                         }
                     },
-                    Err(_) => {
-                        log::debug!("unable to canonicalise path `{}`", current.display());
+                    Err(e) => {
+                        log::debug!("unable to canonicalise path `{}`: {e}", current.display());
                     }
                 }
             }

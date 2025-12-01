@@ -37,9 +37,9 @@ pub fn do_info_project<P: ProjectRead>(
             );
             None
         }
-        Err(_) => {
+        Err(e) => {
             log::warn!(
-                "ignoring an invalid project",
+                "ignoring an invalid project: {e}",
                 //uri.as_ref()
             );
             None
