@@ -47,12 +47,12 @@ SPDX-License-Identifier: MIT OR Apache-2.0
     <dependency>
       <groupId>com.sensmetry</groupId>
       <artifactId>sysand</artifactId>
-      <version>VERSION</version>
+      <version>0.0.6</version>
     </dependency>
     <dependency>
       <groupId>com.sensmetry</groupId>
       <artifactId>sysand-maven-plugin</artifactId>
-      <version>VERSION</version>
+      <version>0.0.6</version>
     </dependency>
   </dependencies>
   <build>

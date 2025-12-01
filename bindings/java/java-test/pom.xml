@@ -43,7 +43,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
     <dependency>
       <groupId>com.sensmetry</groupId>
       <artifactId>sysand</artifactId>
-      <version>VERSION</version>
+      <version>0.0.6</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
