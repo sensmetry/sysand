@@ -6,7 +6,6 @@ compile_error!("`std` feature is currently required to build `sysand`");
 
 use std::{
     collections::{HashMap, HashSet},
-    env::current_dir,
     path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -65,7 +64,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     let current_environment = project_root
         .clone()
-        .or_else(|| current_dir().ok())
+        .or_else(|| wrapfs::current_dir().ok())
         .and_then(|p| crate::get_env(&p));
 
     let auto_config = if args.global_opts.no_config {
@@ -112,7 +111,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         } => {
             let path = match path {
                 Some(p) => p.into(),
-                None => current_dir()?,
+                None => PathBuf::from("."),
             };
             command_new(name, version, no_semver, license, no_spdx, path)
         }
@@ -120,7 +119,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             None => {
                 command_env(
                     project_root
-                        .unwrap_or(current_dir()?)
+                        .unwrap_or(wrapfs::current_dir()?)
                         .join(DEFAULT_ENV_NAME),
                 )?;
 
@@ -212,7 +211,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 None => command_env(
                     project_root
                         .as_ref()
-                        .unwrap_or(&current_dir()?)
+                        .unwrap_or(&wrapfs::current_dir()?)
                         .join(DEFAULT_ENV_NAME),
                 )?,
             };
@@ -223,7 +222,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } else {
                 HashMap::default()
             };
-            let project_root = project_root.unwrap_or(current_dir()?);
+            let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
             let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
             if !lockfile.is_file() {
                 command_lock(
@@ -234,7 +233,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     runtime.clone(),
                 )?;
             }
-            let lock = Lock::from_str(&std::fs::read_to_string(
+            let lock = Lock::from_str(&wrapfs::read_to_string(
                 project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
             )?)?;
             command_sync(
@@ -246,7 +245,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 runtime,
             )
         }
-        cli::Command::PrintRoot => command_print_root(current_dir()?),
+        cli::Command::PrintRoot => command_print_root(wrapfs::current_dir()?),
         cli::Command::Info {
             path,
             iri,

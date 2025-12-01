@@ -16,12 +16,16 @@ pub fn command_new<P: AsRef<Path>>(
     path: P,
 ) -> Result<()> {
     if !path.as_ref().exists() {
-        wrapfs::create_dir(&path)?;
+        wrapfs::create_dir_all(&path)?;
     }
     let version = version.unwrap_or_else(|| "0.0.1".to_string());
+    let name = match name {
+        Some(n) => n,
+        None => default_name_from_path(&path)?,
+    };
 
     sysand_core::new::do_new_ext(
-        name.ok_or(()).or_else(|_| default_name_from_path(&path))?,
+        name,
         version,
         no_semver,
         license,

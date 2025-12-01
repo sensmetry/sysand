@@ -28,13 +28,12 @@ pub struct Args {
 pub enum Command {
     /// Create a new project
     Init {
-        /// The path to use for the project
-        #[clap(default_value = ".")]
+        /// The path to use for the project. Defaults to current directory
         path: Option<String>,
         /// The name of the project. Defaults to the directory name
         #[arg(long)]
         name: Option<String>,
-        /// Set the version in SemVer 2.0.0 format. Defaults to `0.0.1`
+        /// Set the version in SemVer 2.0 format. Defaults to `0.0.1`
         #[arg(long)]
         version: Option<String>,
         /// Don't require version to conform to SemVer
@@ -248,7 +247,7 @@ pub enum InfoCommand {
     /// Get or set the version of the project
     #[group(required = false, multiple = false)]
     Version {
-        /// Set the version in SemVer 2.0.0 format
+        /// Set the version in SemVer 2.0 format
         #[arg(long, default_value=None)]
         set: Option<String>,
         /// Don't require version to conform to Semantic Versioning

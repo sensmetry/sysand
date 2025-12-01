@@ -138,9 +138,9 @@ where
         }
 
         if project.sources.is_empty() {
-            return Err(SyncError::MissingSource(Box::from(
-                project.identifiers.as_slice(),
-            )));
+            return Err(SyncError::MissingSource(
+                project.identifiers.as_slice().into(),
+            ));
         }
 
         for uri in &project.identifiers {

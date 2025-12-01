@@ -374,7 +374,10 @@ fn lex_source(source: &str) -> Result<Vec<TokenList>, ExtractError> {
 
     let mut depth = 0;
     while let Some(token) = lexer.next() {
-        let token_range = Box::from(source.slice(lexer.span()).ok_or(ExtractError::TokenRange)?);
+        let token_range = source
+            .slice(lexer.span())
+            .ok_or(ExtractError::TokenRange)?
+            .into();
         match token {
             Ok(Token::BraceOpen) => {
                 if depth == 0 {

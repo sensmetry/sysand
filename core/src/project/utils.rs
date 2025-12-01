@@ -91,14 +91,16 @@ pub enum FsIoError {
     RmFile(PathBuf, io::Error),
     #[error("failed to remove directory\n  '{0}':\n  {1}")]
     RmDir(PathBuf, io::Error),
+    #[error("failed to get path to current directory:\n  {0}")]
+    CurrentDir(io::Error),
 }
 
 /// Wrappers for filesystem I/O functions to return `FsIoError`.
 /// Copies the `std` interface 1 to 1, except for the error type.
 pub mod wrapfs {
     use std::fs;
-    use std::path;
     use std::path::Path;
+    use std::path::PathBuf;
 
     use super::FsIoError;
     use super::ToPathBuf;
@@ -166,9 +168,13 @@ pub mod wrapfs {
             .map_err(|e| Box::new(FsIoError::WriteFile(path.to_path_buf(), e)))
     }
 
-    pub fn canonicalize<P: AsRef<Path>>(path: P) -> Result<path::PathBuf, Box<FsIoError>> {
+    pub fn canonicalize<P: AsRef<Path>>(path: P) -> Result<PathBuf, Box<FsIoError>> {
         fs::canonicalize(&path)
             .map_err(|e| Box::new(FsIoError::Canonicalize(path.to_path_buf(), e)))
+    }
+
+    pub fn current_dir() -> Result<PathBuf, Box<FsIoError>> {
+        std::env::current_dir().map_err(|e| Box::new(FsIoError::CurrentDir(e)))
     }
 }
 

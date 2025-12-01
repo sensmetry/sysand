@@ -4,7 +4,6 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::{env::current_dir, fs};
 
 use anyhow::{Result, bail};
 use pubgrub::Reporter as _;
@@ -14,6 +13,7 @@ use sysand_core::{
         DEFAULT_LOCKFILE_NAME, LockError, LockOutcome, LockProjectError, do_lock_local_editable,
     },
     config::Config,
+    project::utils::wrapfs,
     resolve::{
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
@@ -39,7 +39,7 @@ pub fn command_lock<P: AsRef<Path>>(
         include_std,
     } = dependency_opts;
 
-    let cwd = current_dir().ok();
+    let cwd = wrapfs::current_dir().ok();
 
     let local_env_path =
         Path::new(path.as_ref()).join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
@@ -134,7 +134,7 @@ pub fn command_lock<P: AsRef<Path>>(
         Err(err) => Err(err)?,
     };
 
-    fs::write(
+    wrapfs::write(
         Path::new(path.as_ref()).join(DEFAULT_LOCKFILE_NAME),
         lock.canonicalize().to_string(),
     )?;

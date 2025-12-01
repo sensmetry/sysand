@@ -69,7 +69,7 @@ impl GixDownloadedProject {
 
         Ok(GixDownloadedProject {
             url: gix::url::parse(url.as_ref().into())
-                .map_err(|e| GixDownloadedError::UrlParse(Box::from(url.as_ref()), Box::new(e)))?,
+                .map_err(|e| GixDownloadedError::UrlParse(url.as_ref().into(), Box::new(e)))?,
             inner: LocalSrcProject {
                 project_path: wrapfs::canonicalize(tmp_dir.path())?,
             },

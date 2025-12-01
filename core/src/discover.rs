@@ -1,16 +1,18 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{
-    env::current_dir,
-    io,
-    path::{Path, PathBuf},
+use std::path::{Path, PathBuf};
+
+use crate::{
+    project::{
+        local_src::LocalSrcProject,
+        utils::{FsIoError, wrapfs},
+    },
+    workspace::Workspace,
 };
 
-use crate::{project::local_src::LocalSrcProject, workspace::Workspace};
-
-pub fn current_project() -> Result<Option<LocalSrcProject>, io::Error> {
-    Ok(discover_project(current_dir()?))
+pub fn current_project() -> Result<Option<LocalSrcProject>, Box<FsIoError>> {
+    Ok(discover_project(wrapfs::current_dir()?))
 }
 
 pub fn discover_project<P: AsRef<Path>>(working_directory: P) -> Option<LocalSrcProject> {
@@ -20,8 +22,8 @@ pub fn discover_project<P: AsRef<Path>>(working_directory: P) -> Option<LocalSrc
     Some(LocalSrcProject { project_path: path })
 }
 
-pub fn current_workspace() -> Result<Option<Workspace>, io::Error> {
-    Ok(discover_workspace(current_dir()?))
+pub fn current_workspace() -> Result<Option<Workspace>, Box<FsIoError>> {
+    Ok(discover_workspace(wrapfs::current_dir()?))
 }
 
 pub fn discover_workspace<P: AsRef<Path>>(working_directory: P) -> Option<Workspace> {

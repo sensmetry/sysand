@@ -18,7 +18,7 @@ use sysand_core::{
     model::InterchangeProjectUsage,
     project::{
         ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
-        local_src::LocalSrcProject,
+        local_src::LocalSrcProject, utils::wrapfs,
     },
     resolve::{
         ResolutionOutcome, ResolveRead,
@@ -51,7 +51,7 @@ pub fn command_env_install<S: AsRef<str>>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let project_root = project_root.unwrap_or(std::env::current_dir()?);
+    let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
     let InstallOptions {
         allow_overwrite,
@@ -178,7 +178,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let project_root = project_root.unwrap_or(std::env::current_dir()?);
+    let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
     let InstallOptions {
         allow_overwrite,

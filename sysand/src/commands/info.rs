@@ -16,9 +16,10 @@ use sysand_core::{
 
 use anyhow::{Result, bail};
 use fluent_uri::Iri;
-use std::{collections::HashSet, env::current_dir, path::Path, sync::Arc};
+use std::{collections::HashSet, path::Path, sync::Arc};
 use sysand_core::{
     info::{do_info, do_info_project},
+    project::utils::wrapfs,
     project::{local_kpar::LocalKParProject, local_src::LocalSrcProject},
 };
 use url::Url;
@@ -101,7 +102,7 @@ pub fn command_info_uri(
     excluded_iris: &HashSet<String>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let cwd = current_dir().ok();
+    let cwd = wrapfs::current_dir().ok();
 
     let local_env_path = Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
 
@@ -190,7 +191,7 @@ pub fn command_info_verb_uri(
 ) -> Result<()> {
     match verb {
         InfoCommandVerb::Get(get_verb) => {
-            let cwd = current_dir().ok();
+            let cwd = wrapfs::current_dir().ok();
 
             let local_env_path =
                 Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
