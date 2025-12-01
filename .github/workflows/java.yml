@@ -40,7 +40,7 @@ jobs:
     - uses: actions/setup-python@v6
       if: ${{ matrix.os == 'ubuntu-22.04' }}
       with:
-        python-version: 3.12
+        python-version: 3.14
     - name: Create version.txt
       shell: bash
       if: ${{ matrix.os == 'ubuntu-22.04' }}
@@ -73,7 +73,7 @@ jobs:
     - uses: actions/checkout@v5
     - uses: actions/setup-python@v6
       with:
-        python-version: 3.12
+        python-version: 3.14
     - uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
@@ -147,7 +147,7 @@ jobs:
         ls -la target/java/target/*
     - uses: actions/setup-python@v6
       with:
-        python-version: 3.12
+        python-version: 3.14
     - uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
@@ -199,7 +199,7 @@ jobs:
         subject-path: 'target/java/target/*.jar'
     - uses: actions/setup-python@v6
       with:
-        python-version: 3.12
+        python-version: 3.14
     - uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
