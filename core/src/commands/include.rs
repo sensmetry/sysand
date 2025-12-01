@@ -18,7 +18,7 @@ pub enum IncludeError<ProjectError> {
     #[error("failed to extract symbol names from '{0}': {1}")]
     Extract(Box<str>, ExtractError),
     #[error(
-        "unknown file format of '{0}', only SysML (.sysml) and KerML (.kerml) files are supported"
+        "unknown file format of '{0}', only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
 }

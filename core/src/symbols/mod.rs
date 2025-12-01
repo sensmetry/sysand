@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Module for extracting symbols from KerML or SysML files.
+//! Module for extracting symbols from KerML or SysML v2 files.
 //!
 //! The main function is `top_level`, which returns top level symbols for a
 //! given file. We need to know the top level symbols to correctly populate

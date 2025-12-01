@@ -2,9 +2,9 @@
 
 ## Model interchange projects
 
-A model interchange project is a collection of SysML or KerML files with
-additional metadata such as project name, versions, and the list of projects on
-which it depends. To create a new project called `my_project` run:
+A model interchange project is a collection of SysML v2 (`.sysml`) or KerML (`.kerml`)
+files with additional metadata such as project name, versions, and the list of
+projects on which it depends. To create a new project called `my_project` run:
 
 ```console
 $ sysand new my_project

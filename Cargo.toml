@@ -10,4 +10,6 @@ publish = false
 authors = ["Sensmetry <opensource@sensmetry.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/sensmetry/sysand"
-description = "A package manager for SysML v2 and KerML"
+description = "A project and package manager for SysML v2 and KerML"
+documentation = "https://docs.sysand.org"
+homepage = "https://beta.sysand.org"

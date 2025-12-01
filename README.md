@@ -1,4 +1,4 @@
-# Sysand: a package manager for SysML v2 and KerML
+# Sysand: a project and package manager for SysML v2 and KerML
 
 > [!important]
 > This is an early preview release, intended for early adopters
@@ -38,9 +38,9 @@ in the following subsection.
 
 ### Model interchange projects
 
-A model interchange project is a collection of SysML or KerML files with
-additional metadata such as project name, versions, and the list of projects on
-which it depends. To create a new project called `my_project` run:
+A model interchange project is a collection of SysML v2 (`.sysml`) or KerML (`.kerml`)
+files with additional metadata such as project name, versions, and the list of
+projects on which it depends. To create a new project called `my_project` run:
 
 ```console
 $ sysand new my_project

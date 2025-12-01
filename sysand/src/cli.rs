@@ -1109,7 +1109,7 @@ pub struct DependencyOptions {
         help_heading = "Dependency options"
     )]
     pub no_index: bool,
-    /// Include usages of KerML/SysML standard libraries if present
+    /// Include usages of KerML/SysML v2 standard libraries if present
     #[arg(
         long,
         default_value = "false",
@@ -1124,7 +1124,7 @@ pub struct SourcesOptions {
     /// Do not include sources for dependencies
     #[arg(long, default_value = "false", conflicts_with = "include_std")]
     pub no_deps: bool,
-    /// Include (installed) KerML/SysML standard libraries
+    /// Include (installed) KerML/SysML v2 standard libraries
     #[arg(long, default_value = "false")]
     pub include_std: bool,
 }
