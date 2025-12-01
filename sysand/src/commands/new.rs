@@ -1,23 +1,28 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::CliError;
 use anyhow::Result;
 use sysand_core::project::utils::wrapfs;
 
-pub fn command_new<P: AsRef<Path>>(
+pub fn command_new(
     name: Option<String>,
     version: Option<String>,
     no_semver: bool,
     license: Option<String>,
     no_spdx: bool,
-    path: P,
+    path: Option<String>,
 ) -> Result<()> {
-    if !path.as_ref().exists() {
-        wrapfs::create_dir_all(&path)?;
-    }
+    let path = match path {
+        Some(p) => {
+            wrapfs::create_dir_all(&p)?;
+
+            p.into()
+        }
+        None => PathBuf::from("."),
+    };
     let version = version.unwrap_or_else(|| "0.0.1".to_string());
     let name = match name {
         Some(n) => n,
@@ -30,9 +35,7 @@ pub fn command_new<P: AsRef<Path>>(
         no_semver,
         license,
         no_spdx,
-        &mut sysand_core::project::local_src::LocalSrcProject {
-            project_path: path.as_ref().into(),
-        },
+        &mut sysand_core::project::local_src::LocalSrcProject { project_path: path },
     )?;
     Ok(())
 }

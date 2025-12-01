@@ -108,13 +108,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_semver,
             license,
             no_spdx,
-        } => {
-            let path = match path {
-                Some(p) => p.into(),
-                None => PathBuf::from("."),
-            };
-            command_new(name, version, no_semver, license, no_spdx, path)
-        }
+        } => command_new(name, version, no_semver, license, no_spdx, path),
         cli::Command::Env { command } => match command {
             None => {
                 command_env(
