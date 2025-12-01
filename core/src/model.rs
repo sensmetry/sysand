@@ -331,10 +331,10 @@ impl Display for KerMlChecksumAlg {
 impl KerMlChecksumAlg {
     /// How long the hex-encoded checksum is for a given algorithm
     /// Formula: `checksum_len_bits / 4`, since each hex char is 4 bits
-    pub fn expected_hex_len(&self) -> u8 {
+    pub fn expected_hex_len(&self) -> Option<u8> {
         use KerMlChecksumAlg::*;
-        match self {
-            None => 0,
+        let len = match self {
+            None => return Option::None,
             Sha1 => 40,
             Sha224 => 56,
             Sha256 | Sha3_256 | Blake2b256 | Blake3 => 64,
@@ -344,9 +344,10 @@ impl KerMlChecksumAlg {
             // MD6 is variable length. TODO(spec): the
             // digest length must be somehow specified
             // Maybe specify as default MD6-256
-            Md6 => todo!("MD6 is variable length"),
+            Md6 => return Option::None,
             Adler32 => 8,
-        }
+        };
+        Some(len)
     }
 }
 
@@ -354,6 +355,7 @@ impl KerMlChecksumAlg {
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectChecksum {
+    // TODO: use Vec<u8> or Box<[u8]> and store raw hash bytes
     pub value: String,
     pub algorithm: KerMlChecksumAlg,
 }
@@ -452,6 +454,8 @@ pub enum InterchangeProjectValidationError {
         expected: u8,
         got: usize,
     },
+    #[error("checksum `{cksum}`\ncontains invalid symbols (only `A-Fa-f0-9` are allowed)")]
+    NonHexChecksumChars { cksum: Box<str> },
 }
 
 impl InterchangeProjectMetadataRaw {
@@ -478,13 +482,19 @@ impl InterchangeProjectMetadataRaw {
                         InterchangeProjectValidationError::ChecksumAlg(v.algorithm.as_str().into())
                     })?;
                 let value = {
-                    let expected_len = algorithm.expected_hex_len();
-                    if v.value.len() != expected_len as usize {
-                        return Err(InterchangeProjectValidationError::ChecksumLen {
-                            algorithm,
-                            expected: expected_len,
-                            got: v.value.len(),
-                        });
+                    if let Some(expected_len) = algorithm.expected_hex_len() {
+                        if v.value.len() != expected_len as usize {
+                            return Err(InterchangeProjectValidationError::ChecksumLen {
+                                algorithm,
+                                expected: expected_len,
+                                got: v.value.len(),
+                            });
+                        }
+                        if !v.value.bytes().all(|c| c.is_ascii_hexdigit()) {
+                            return Err(InterchangeProjectValidationError::NonHexChecksumChars {
+                                cksum: v.value.as_str().into(),
+                            });
+                        }
                     }
                     v.value.clone()
                 };

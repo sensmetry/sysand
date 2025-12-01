@@ -319,7 +319,7 @@ impl Lock {
             .projects
             .iter()
             .map(|p| (p.checksum.clone(), p.name.clone()))
-            .find(|(cs, _)| cs.len() != 64 || !cs.chars().all(|c| c.is_ascii_hexdigit()));
+            .find(|(cs, _)| cs.len() != 64 || !cs.bytes().all(|c| c.is_ascii_hexdigit()));
         if let Some((checksum, name)) = fail {
             Err(ValidationError::InvalidChecksumFormat {
                 checksum,
