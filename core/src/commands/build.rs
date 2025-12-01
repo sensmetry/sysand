@@ -122,7 +122,7 @@ pub fn do_build_kpar<P: AsRef<Path>, Pr: ProjectRead>(
     let building = "Building";
     let header = crate::style::get_style_config().header;
     log::info!(
-        "{header}{building:>12}{header:#} kpar: {}",
+        "{header}{building:>12}{header:#} kpar `{}`",
         path.as_ref().display()
     );
 

@@ -48,9 +48,7 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
 ) -> Result<(), IncludeError<Pr::Error>> {
     let including = "Including";
     let header = crate::style::get_style_config().header;
-    log::info!("{header}{including:>12}{header:#} files: {}", path.as_ref());
-
-    project.include_source(&path, compute_checksum, true)?;
+    log::info!("{header}{including:>12}{header:#} file `{}`", path.as_ref());
 
     if index_symbols {
         match force_format.or_else(|| Language::guess_from_path(&path)) {
@@ -75,5 +73,7 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
             }
         }
     }
+
+    project.include_source(&path, compute_checksum, true)?;
     Ok(())
 }
