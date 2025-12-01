@@ -21,6 +21,12 @@
       "matchPackageNames": ["pyo3*"]
     },
     {
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["python"],
+      "separateMultipleMinor": true,
+      "dependencyDashboardApproval": true
+    },
+    {
       "matchPackageNames": [
         "python",
         "com.sensmetry:sysand",
