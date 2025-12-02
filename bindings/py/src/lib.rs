@@ -132,6 +132,7 @@ fn do_info_py(
         let combined_resolver = standard_resolver(
             Some(Path::new(&relative_file_root).to_path_buf()),
             None,
+            vec![],
             Some(client),
             index_url,
             runtime,
