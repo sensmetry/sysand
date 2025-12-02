@@ -8,12 +8,16 @@ use anyhow::Result;
 use sysand_core::{
     add::do_add,
     auth::HTTPAuthentication,
-    config::Config,
+    config::{Config, local_fs::add_project_source_to_config},
     lock::Lock,
     project::{local_src::LocalSrcProject, utils::wrapfs},
 };
 
-use crate::{CliError, cli::ResolutionOptions, command_sync};
+use crate::{
+    CliError,
+    cli::{ProjectSourceOptions, ResolutionOptions},
+    command_sync,
+};
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
@@ -23,6 +27,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     no_lock: bool,
     no_sync: bool,
     resolution_opts: ResolutionOptions,
+    source_opts: ProjectSourceOptions,
     config: &Config,
     current_project: Option<LocalSrcProject>,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -31,6 +36,35 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
 ) -> Result<()> {
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path();
+
+    if let Some(src_path) = source_opts.local_src {
+        add_project_source_to_config(
+            &project_root,
+            &iri,
+            &sysand_core::lock::Source::LocalSrc { src_path: src_path.into() },
+        )?;
+    } else if let Some(kpar_path) = source_opts.local_kpar {
+        add_project_source_to_config(
+            &project_root,
+            &iri,
+            &sysand_core::lock::Source::LocalKpar { kpar_path: kpar_path.into() },
+        )?;
+    } else if let Some(remote_src) = source_opts.remote_src {
+        add_project_source_to_config(
+            &project_root,
+            &iri,
+            &sysand_core::lock::Source::RemoteSrc { remote_src },
+        )?;
+    } else if let Some(remote_kpar) = source_opts.remote_kpar {
+        add_project_source_to_config(
+            &project_root,
+            &iri,
+            &sysand_core::lock::Source::RemoteKpar {
+                remote_kpar,
+                remote_kpar_size: None,
+            },
+        )?;
+    }
 
     let provided_iris = if !resolution_opts.include_std {
         let sysml_std = crate::known_std_libs();

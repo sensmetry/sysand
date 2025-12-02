@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use anyhow::Result;
-use sysand_core::{project::local_src::LocalSrcProject, remove::do_remove};
+use sysand_core::{
+    config::local_fs::remove_project_source_from_config, project::local_src::LocalSrcProject,
+    remove::do_remove,
+};
 
 use crate::CliError;
 
@@ -11,6 +14,8 @@ pub fn command_remove<S: AsRef<str>>(
     current_project: Option<LocalSrcProject>,
 ) -> Result<()> {
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
+
+    remove_project_source_from_config(current_project.root_path(), &iri)?;
 
     let usages = do_remove(&mut current_project, &iri)?;
 
