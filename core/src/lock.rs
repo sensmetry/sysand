@@ -576,7 +576,7 @@ impl From<crate::model::InterchangeProjectUsage> for Usage {
     }
 }
 
-fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
+pub fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
     let mut array: Array = elements
         .map(|item| {
             let mut value = item.into();
