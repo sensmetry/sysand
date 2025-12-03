@@ -145,7 +145,7 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
     // }
 
     pub fn pop_usage(&mut self, resource: &Iri) -> Vec<InterchangeProjectUsageG<Iri, VersionReq>> {
-        // TODO: MSRV >=1.87
+        // TODO(MSRV >=1.87):
         // self.usage.extract_if(.., |InterchangeProjectUsageG { resource: this_resource, .. }| this_resource == resource).collect()
 
         let (removed, kept): (Vec<_>, Vec<_>) = self
