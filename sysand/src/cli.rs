@@ -1170,18 +1170,13 @@ impl GlobalOptions {
 /// `https://` scheme in that case.
 fn parse_https_iri(s: &str) -> Result<fluent_uri::Iri<String>, fluent_uri::ParseError> {
     use fluent_uri::Iri;
-    match Iri::parse(s) {
-        Ok(iri) => Ok(iri.into()),
-        Err(e) => {
-            let mut https = s.to_owned();
-            https.insert_str(0, "https://");
-            match Iri::parse(https) {
-                Ok(iri) => Ok(iri),
-                Err(_) => {
-                    // Return the original error to not confuse the user
-                    Err(e)
-                }
-            }
-        }
-    }
+
+    Iri::parse(s).map(Into::into).or_else(|original_err| {
+        let scheme = "https://";
+        let mut https = String::with_capacity(scheme.len() + s.len());
+        https.push_str(scheme);
+        https.push_str(s);
+        // Return the original error to not confuse the user
+        Iri::parse(https).map_err(|_| original_err)
+    })
 }
