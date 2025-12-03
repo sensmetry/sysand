@@ -13,7 +13,7 @@ use semver::VersionReq;
 
 use crate::env_vars;
 
-/// A project and package manager for SysML v2 and KerML
+/// A package manager for SysML v2 and KerML
 ///
 /// Documentation:
 /// <https://docs.sysand.org/>
