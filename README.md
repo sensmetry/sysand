@@ -1,4 +1,4 @@
-# Sysand: a project and package manager for SysML v2 and KerML
+# Sysand: a package manager for SysML v2 and KerML
 
 > [!important]
 > This is an early preview release, intended for early adopters
@@ -12,7 +12,7 @@ similar to package managers for programming languages such as Pip for Python,
 NPM for JavaScript, Maven for Java, and NuGet for .NET. Sysand is based on a
 concept of a model interchange project, a slight generalization of a project
 interchange file (`*.kpar`), defined in [KerML clause
-10.3](https://www.omg.org/spec/KerML/1.0/Beta4/PDF#page=428).
+10.3](https://www.omg.org/spec/KerML/1.0/PDF#page=432).
 
 Sysand can be used as a standalone tool through its command line interface (CLI)
 or be integrated into other tools through one of its APIs (currently, Python and

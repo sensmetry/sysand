@@ -13,7 +13,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
   <packaging>jar</packaging>
   <version>VERSION</version>
   <name>${project.groupId}:${project.artifactId}</name>
-  <description>A project and package manager for SysML v2 and KerML.</description>
+  <description>A package manager for SysML v2 and KerML.</description>
   <url>https://sysand.org/</url>
   <licenses>
     <license>
