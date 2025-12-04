@@ -96,7 +96,7 @@ pub enum Command {
         no_sync: bool,
 
         #[command(flatten)]
-        dependency_opts: DependencyOptions,
+        dependency_opts: ResolutionOptions,
     },
     /// Remove usage from project information
     #[clap(alias = "rm")]
@@ -104,12 +104,43 @@ pub enum Command {
         /// IRI identifying the project usage to be removed
         iri: String,
     },
+    /// Clone a project to a specified directory
+    /// Equivalent to manually downloading, extracting the
+    /// project to the directory and running `sysand lock`
+    // Name ideas: clone, (down)load, edit, checkout
+    #[clap(verbatim_doc_comment)]
+    Clone {
+        #[clap(flatten)]
+        locator: ProjectLocator,
+        /// Version of the project to clone. Defaults to the latest
+        /// version according to SemVer 2.0, ignoring pre-releases
+        // TODO: If from_path and version are both specified, we can only
+        // check if version of project at from_path is `version` and fail
+        // otherwise (env install path works this way)
+        #[arg(long, verbatim_doc_comment)]
+        version: Option<String>,
+        /// Path to clone the project into. Defaults to current directory
+        #[arg(long, default_value = None)]
+        path: Option<String>,
+
+        // TODO: not all options below make sense for this
+        /// Allow overwriting an existing project
+        #[arg(long)]
+        allow_overwrite: bool,
+        /// Don't resolve or install usages
+        #[arg(long)]
+        no_deps: bool,
+        #[command(flatten)]
+        dependency_opts: ResolutionOptions,
+    },
     /// Include model interchange files in project metadata
     Include {
         /// File(s) to include in the project.
         #[arg(num_args = 1..)]
         paths: Vec<String>,
-        /// Compute and add file (current) SHA256 checksum
+        /// Compute and add each file's (current) SHA256 checksum
+        // TODO: will it ever be automatically updated?
+        //       Maybe only when building a kpar?
         #[arg(long, default_value = "false")]
         compute_checksum: bool,
         /// Do not detect and add top level symbols to index
@@ -139,7 +170,7 @@ pub enum Command {
     /// Create or update lockfile
     Lock {
         #[command(flatten)]
-        dependency_opts: DependencyOptions,
+        dependency_opts: ResolutionOptions,
     },
     /// Create a local `sysand_env` directory for installing dependencies
     Env {
@@ -149,7 +180,7 @@ pub enum Command {
     /// Sync `sysand_env` to lockfile, creating a lockfile and `sysand_env` if needed
     Sync {
         #[command(flatten)]
-        dependency_opts: DependencyOptions,
+        dependency_opts: ResolutionOptions,
     },
     /// Describe or modify the current project or resolve
     /// and describe a project at a specified path or IRI/URL
@@ -167,10 +198,15 @@ pub enum Command {
             group = "location"
         )]
         iri: Option<String>,
-        /// Use the project with the given location, trying to parse it
-        /// as an IRI/URI/URL and otherwise falling back to a local path
-        #[clap(verbatim_doc_comment)]
-        #[arg(short = 'a', long, group = "location")]
+        /// Use the project with the given locator, trying to parse it as
+        /// an IRI/URI/URL and otherwise falling back to using it as a path
+        #[arg(
+            short = 'a',
+            long,
+            value_name = "LOCATOR",
+            group = "location",
+            verbatim_doc_comment
+        )]
         auto_location: Option<String>,
         /// Do not try to normalise the IRI/URI when resolving
         #[arg(long, default_value = "false", visible_alias = "no-normalize")]
@@ -178,7 +214,7 @@ pub enum Command {
         // TODO: Add various options, such as whether to take local environment
         //       into consideration
         #[command(flatten)]
-        dependency_opts: DependencyOptions,
+        dependency_opts: ResolutionOptions,
         #[command(subcommand)]
         subcommand: Option<InfoCommand>,
     },
@@ -190,6 +226,34 @@ pub enum Command {
     },
     /// Prints the root directory of the current project
     PrintRoot,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
+pub struct ProjectLocator {
+    /// Clone the project from a given locator, trying to parse it as an
+    /// IRI/URI/URL and otherwise falling back to using it as a path
+    #[clap(
+        default_value = None,
+        value_name = "LOCATOR", 
+        verbatim_doc_comment
+    )]
+    pub auto_location: Option<String>,
+    /// IRI/URI/URL identifying the project to be cloned
+    #[arg(short = 'i', long, visible_alias = "uri", visible_alias = "url")]
+    pub iri: Option<fluent_uri::Iri<String>>,
+    /// Path to clone the project from
+    // TODO: maybe remove this? Not sure of usefulness
+    // TODO: allow somehow requiring to use git here
+    // TODO: maybe have our own path type, or utilize Utf8Path everywhere
+    // This is to be clear about which types are used for what
+    #[arg(
+        long,
+        short = 's',
+        default_value = None,
+        value_name = "PATH"
+    )]
+    pub from_path: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -1107,7 +1171,9 @@ pub enum EnvCommand {
     Install {
         /// IRI identifying the project to be installed
         iri: String,
-        /// Version to be installed
+        /// Version to be installed. Defaults to the latest
+        /// version according to SemVer 2.0, ignoring pre-releases
+        #[clap(verbatim_doc_comment)]
         version: Option<String>,
         /// Local path to interchange project
         #[arg(long, default_value = None)]
@@ -1116,7 +1182,7 @@ pub enum EnvCommand {
         #[command(flatten)]
         install_opts: InstallOptions,
         #[command(flatten)]
-        dependency_opts: DependencyOptions,
+        dependency_opts: ResolutionOptions,
     },
     /// Uninstall project in `sysand_env`
     Uninstall {
@@ -1151,55 +1217,66 @@ pub struct InstallOptions {
     /// Install even if another version is already installed
     #[arg(long)]
     pub allow_multiple: bool,
-    /// Don't install any dependencies
+    /// Don't install any usages
     #[arg(long)]
     pub no_deps: bool,
 }
 
 #[derive(clap::Args, Debug, Clone)]
-pub struct DependencyOptions {
-    /// URLs for indexes to use when resolving dependencies, in addition to the default indexes.
+pub struct ResolutionOptions {
+    /// Comma-delimited list of index URLs to use when resolving
+    /// project(s) and/or their usages, in addition to the default indexes.
     #[arg(
         long,
         num_args = 0..,
         global = true,
-        help_heading = "Dependency options",
+        help_heading = "Resolution options",
         env = env_vars::SYSAND_INDEX,
-        value_delimiter = ','
+        value_delimiter = ',',
+        verbatim_doc_comment
     )]
     pub index: Vec<String>,
-    /// Set and override URL:s of the default indexes (by default 'https://beta.sysand.org')
+    /// Comma-delimited list of URLs to use as default index
+    /// URLs. Default indexes are tried before other indexes
+    /// (default `https://beta.sysand.org`)
+    // TODO: verify index use order
     #[arg(
         long,
         num_args = 0..,
         global = true,
-        help_heading = "Dependency options",
+        help_heading = "Resolution options",
         env = env_vars::SYSAND_DEFAULT_INDEX,
-        value_delimiter = ','
+        value_delimiter = ',',
+        verbatim_doc_comment
     )]
     pub default_index: Vec<String>,
-    /// Do not use any index when resolving this usage
+    /// Do not use any index when resolving project(s) and/or their usages
+    // TODO: document somewhere which sources are supported:
+    // - file:// (sometimes also regular paths)
+    // - git (https?, ssh?)
+    // - http(s)
+    // - index
     #[arg(
         long,
         default_value = "false",
         conflicts_with_all = ["index", "default_index"],
         global = true,
-        help_heading = "Dependency options"
+        help_heading = "Resolution options",
     )]
     pub no_index: bool,
-    /// Include usages of KerML/SysML v2 standard libraries if present
+    /// Don't ignore KerML/SysML v2 standard libraries if present in usages
     #[arg(
         long,
         default_value = "false",
         global = true,
-        help_heading = "Dependency options"
+        help_heading = "Resolution options"
     )]
     pub include_std: bool,
 }
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
-    /// Do not include sources for dependencies
+    /// Do not include sources for used projects
     #[arg(long, default_value = "false", conflicts_with = "include_std")]
     pub no_deps: bool,
     /// Include (installed) KerML/SysML v2 standard libraries

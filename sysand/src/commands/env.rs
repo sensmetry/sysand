@@ -31,7 +31,7 @@ use sysand_core::{
 
 use crate::{
     CliError, DEFAULT_INDEX_URL,
-    cli::{DependencyOptions, InstallOptions},
+    cli::{InstallOptions, ResolutionOptions},
     commands::sync::command_sync,
 };
 
@@ -45,7 +45,7 @@ pub fn command_env_install<S: AsRef<str>>(
     iri: S,
     version: Option<String>,
     install_opts: InstallOptions,
-    dependency_opts: DependencyOptions,
+    dependency_opts: ResolutionOptions,
     config: &Config,
     project_root: Option<PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -58,7 +58,7 @@ pub fn command_env_install<S: AsRef<str>>(
         allow_multiple,
         no_deps,
     } = install_opts;
-    let DependencyOptions {
+    let ResolutionOptions {
         index,
         default_index,
         no_index,
@@ -119,7 +119,7 @@ pub fn command_env_install<S: AsRef<str>>(
                             .is_some_and(|proj| proj.version == *ver)
                     })
                 })
-                .ok_or(anyhow!(CliError::MissingProject(iri.as_ref().to_string())))?;
+                .ok_or_else(|| anyhow!(CliError::MissingProject(iri.as_ref().to_string())))?;
             sysand_core::commands::env::do_env_install_project(
                 &iri,
                 &storage,
@@ -128,6 +128,7 @@ pub fn command_env_install<S: AsRef<str>>(
                 allow_multiple,
             )?;
         } else {
+            // TODO: don't eat resolution errors
             bail!(CliError::MissingProject(iri.as_ref().to_string()))
         }
     } else {
@@ -172,7 +173,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
     version: Option<String>,
     path: String,
     install_opts: InstallOptions,
-    dependency_opts: DependencyOptions,
+    dependency_opts: ResolutionOptions,
     config: &Config,
     project_root: Option<PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -185,20 +186,22 @@ pub fn command_env_install_path<S: AsRef<str>>(
         allow_multiple,
         no_deps,
     } = install_opts;
-    let DependencyOptions {
+    let ResolutionOptions {
         index,
         default_index,
         no_index,
         include_std,
     } = dependency_opts;
 
-    let project_path = PathBuf::from(&path);
-    let project = if project_path.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject { project_path })
-    } else if project_path.is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(project_path)?)
+    let metadata = wrapfs::metadata(&path)?;
+    let project = if metadata.is_dir() {
+        FileResolverProject::LocalSrcProject(LocalSrcProject {
+            project_path: path.as_str().into(),
+        })
+    } else if metadata.is_file() {
+        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(&path)?)
     } else {
-        bail!("{} does not exist", project_path.display())
+        bail!("`{path}` does not exist")
     };
 
     let provided_iris = if !include_std {
@@ -219,34 +222,25 @@ pub fn command_env_install_path<S: AsRef<str>>(
     };
 
     if let Some(version) = version {
-        if version
-            != project
-                .get_info()?
-                .ok_or(anyhow!("missing project info"))?
-                .version
-        {
-            bail!("given version does not match project version")
+        let project_version = project
+            .get_info()?
+            .ok_or_else(|| anyhow!("missing project info"))?
+            .version;
+        if version != project_version {
+            bail!("given version {version} does not match project version {project_version}")
         }
     }
 
-    if no_deps {
-        sysand_core::commands::env::do_env_install_project(
-            iri,
-            &project,
-            &mut env,
-            allow_overwrite,
-            allow_multiple,
-        )?;
-    } else {
-        // TODO: Fix this hack. Currently installing manually then turning project into Editable to
-        // avoid errors when syncing. Lockfile generation should be configurable.
-        sysand_core::commands::env::do_env_install_project(
-            iri,
-            &project,
-            &mut env,
-            allow_overwrite,
-            allow_multiple,
-        )?;
+    // TODO: Fix this hack. Currently installing manually then turning project into Editable to
+    // avoid errors when syncing. Lockfile generation should be configurable.
+    sysand_core::commands::env::do_env_install_project(
+        iri,
+        &project,
+        &mut env,
+        allow_overwrite,
+        allow_multiple,
+    )?;
+    if !no_deps {
         let project = EditableProject::new(&path, project);
 
         let mut memory_projects = HashMap::default();
@@ -272,7 +266,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
             lock,
             dependencies: _dependencies,
             inputs: _inputs,
-        } = sysand_core::commands::lock::do_lock_projects(vec![project], resolver)?;
+        } = sysand_core::commands::lock::do_lock_projects([project], resolver)?;
         command_sync(
             lock,
             project_root,
