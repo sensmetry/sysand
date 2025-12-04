@@ -491,8 +491,10 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             )));
         };
 
-        env.put_project(iri, version, |to| clone_project(&project, to, true))
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        env.put_project(iri, version, |to| {
+            clone_project(&project, to, true).map(|_| ())
+        })
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     } else if project_path.is_dir() {
         let project = LocalSrcProject { project_path };
 
@@ -506,8 +508,10 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             )));
         };
 
-        env.put_project(iri, version, |to| clone_project(&project, to, true))
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        env.put_project(iri, version, |to| {
+            clone_project(&project, to, true).map(|_| ())
+        })
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     } else {
         return Err(PyRuntimeError::new_err(format!(
             "unable to find project at `{}`",

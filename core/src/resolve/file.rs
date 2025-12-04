@@ -48,14 +48,19 @@ impl From<FsIoError> for FileResolverError {
 
 pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
 
-fn try_file_uri_to_path(uri: fluent_uri::Iri<String>) -> Option<PathBuf> {
-    if uri.scheme() != SCHEME_FILE {
+/// Try to obtain a file path from `uri`. If path is present,
+/// it is always absolute according to URI spec
+fn try_file_uri_to_path(uri: &fluent_uri::Iri<String>) -> Option<PathBuf> {
+    if uri.scheme() == SCHEME_FILE {
+        let path = uri.path();
+        if path.is_empty() {
+            None
+        } else {
+            Some(path.as_str().into())
+        }
+    } else {
         return None;
     }
-
-    let url = url::Url::parse(uri.as_str()).ok()?;
-
-    url.to_file_path().ok()
 }
 
 impl FileResolver {
@@ -108,7 +113,7 @@ impl FileResolver {
         &self,
         uri: &fluent_uri::Iri<String>,
     ) -> Result<ResolutionOutcome<PathBuf>, FileResolverError> {
-        if let Some(file_path) = try_file_uri_to_path(uri.clone()) {
+        if let Some(file_path) = try_file_uri_to_path(uri) {
             self.resolve_platform_path(file_path)
         } else {
             Ok(ResolutionOutcome::UnsupportedIRIType(format!(
@@ -269,5 +274,31 @@ impl ResolveRead for FileResolver {
             }
             ResolutionOutcome::Unresolvable(msg) => ResolutionOutcome::Unresolvable(msg),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{error::Error, path::PathBuf};
+
+    // Assumes that `iri` has `file://` scheme
+    fn file_iri_to_path(iri: &str) -> Result<(), Box<dyn Error>> {
+        let iri_path: PathBuf = fluent_uri::Iri::parse(iri)?.path().as_str().into();
+
+        let url = url::Url::parse(iri)?;
+
+        let url_path = url.to_file_path().unwrap();
+        assert_eq!(url_path, iri_path);
+        Ok(())
+    }
+
+    #[test]
+    fn test_file_iri_to_path() -> Result<(), Box<dyn Error>> {
+        file_iri_to_path("file:///a/b/c/d/")?;
+        file_iri_to_path("file:///a/b/c/d")?;
+        file_iri_to_path("file:///a/b/Mekanïk/Kommandöh.sysml")?;
+        file_iri_to_path("file:///a/b/žūą/")?;
+
+        Ok(())
     }
 }

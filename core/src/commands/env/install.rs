@@ -142,8 +142,11 @@ pub fn do_env_install_project<
         uri.as_ref(),
     );
 
-    env.put_project(uri, version, |p| clone_project(storage, p, true))
-        .map_err(EnvInstallError::Installation)?;
+    // TODO: print version(s) being installed
+    env.put_project(uri, version, |p| {
+        clone_project(storage, p, true).map(|_| ())
+    })
+    .map_err(EnvInstallError::Installation)?;
 
     Ok(())
 }
