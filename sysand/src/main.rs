@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use anstream::{eprint, eprintln};
 use clap::Parser;
+
 use sysand::{cli::Args, run_cli};
 
 fn main() {
@@ -17,7 +19,7 @@ fn main() {
             }
         }
         Err(err) => {
-            err.print().expect("Failed to write Clap error");
+            err.print().expect("failed to write Clap error");
             std::process::exit(err.exit_code())
         }
     }

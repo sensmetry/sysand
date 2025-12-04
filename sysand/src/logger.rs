@@ -5,7 +5,6 @@ use env_logger::{Builder, Target, fmt::Formatter};
 use log::{LevelFilter, Record};
 use std::io::{self, Write};
 
-// use crate::cli;
 use crate::style;
 
 pub fn init(level: LevelFilter) {
@@ -35,7 +34,7 @@ fn format(buf: &mut Formatter, record: &Record<'_>) -> Result<(), io::Error> {
 
 const SP: char = ' ';
 
-/// Print a warning that standard library package 'iri' is ignored
+/// Print a warning that standard library package `iri` is ignored
 pub fn warn_std(iri: &str) {
     log::warn!(
         "SysML v2/KerML standard library package `{iri}` is ignored\n\

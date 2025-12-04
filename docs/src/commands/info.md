@@ -13,7 +13,7 @@ sysand info [OPTIONS] <COMMAND>
 
 Prints out the information contained in the `.project.json` file for the specified
 project, defaulting to current project if no project is specified. Optionally an
-extra command can be given to gte or set values in `.project.json` and `.meta.json`.
+extra command can be given to get or set values in `.project.json` and `.meta.json`.
 
 Current project is determined as in [sysand print-root](root.md) and
 if none is found uses the current directory instead.

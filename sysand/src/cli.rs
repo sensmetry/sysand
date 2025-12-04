@@ -1,17 +1,46 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{convert::Infallible, fmt::Write, path::PathBuf};
+use std::{
+    convert::Infallible,
+    ffi::OsStr,
+    fmt::{Display, Write},
+    path::PathBuf,
+};
 
-use clap::builder::StyledStr;
+use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use semver::VersionReq;
 
 use crate::env_vars;
 
-/// A project manager for KerML and SysML
+/// A package manager for SysML v2 and KerML
+///
+/// Documentation:
+/// <https://docs.sysand.org/>
+/// Package index and more information:
+/// <https://beta.sysand.org/>
+/// Project repository:
+/// <https://github.com/sensmetry/sysand/>
 #[derive(clap::Parser, Debug)]
-#[command(author, version, about, long_about = None, arg_required_else_help = true, disable_help_flag = true, disable_version_flag = true)]
-#[command(styles=crate::style::STYLING)]
+#[command(
+    version,
+    long_about,
+    verbatim_doc_comment,
+    arg_required_else_help = true,
+    disable_help_flag = true,
+    disable_version_flag = true,
+    styles=crate::style::STYLING,
+    author = crate_authors!(",\n"),
+    help_template = "\
+{before-help}{about-with-newline}
+{usage-heading} {usage}
+
+{all-args}
+
+{name} v{version}
+Developed by: {author-with-newline}
+{after-help}"
+)]
 pub struct Args {
     #[command(flatten)]
     pub global_opts: GlobalOptions,
@@ -122,7 +151,9 @@ pub enum Command {
         #[command(flatten)]
         dependency_opts: DependencyOptions,
     },
-    /// Resolve and describe current project or one at at a specified path or IRI/URL
+    /// Describe or modify the current project or resolve
+    /// and describe a project at a specified path or IRI/URL
+    #[clap(verbatim_doc_comment)]
     Info {
         /// Use the project at the given path instead of the current project
         #[arg(short = 'p', long, group = "location")]
@@ -179,7 +210,7 @@ impl clap::builder::TypedValueParser for InvalidCommand {
         &self,
         cmd: &clap::Command,
         arg: Option<&clap::Arg>,
-        value: &std::ffi::OsStr,
+        value: &OsStr,
     ) -> Result<Self::Value, clap::Error> {
         let mut err = clap::Error::new(clap::error::ErrorKind::UnknownArgument).with_cmd(cmd);
         if let Some(arg) = arg {
@@ -211,7 +242,7 @@ pub enum InfoCommand {
     /// Get or set the name of the project
     #[group(required = false, multiple = false)]
     Name {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "NAME", default_value=None)]
         set: Option<String>,
         // Only for better error messages
         #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=
@@ -229,7 +260,7 @@ pub enum InfoCommand {
     /// Get or set the description of the project
     #[group(required = false, multiple = false)]
     Description {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "DESCRIPTION", default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
         clear: bool,
@@ -248,7 +279,7 @@ pub enum InfoCommand {
     #[group(required = false, multiple = false)]
     Version {
         /// Set the version in SemVer 2.0 format
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "VERSION", default_value=None)]
         set: Option<String>,
         /// Don't require version to conform to Semantic Versioning
         #[arg(long, requires = "set")]
@@ -279,7 +310,7 @@ pub enum InfoCommand {
     #[group(required = false, multiple = false)]
     License {
         /// Set the license in the form of an SPDX license identifier
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "LICENSE", default_value=None)]
         set: Option<String>,
         /// Don't require license to be an SPDX expression
         #[arg(long, requires = "set")]
@@ -301,7 +332,7 @@ pub enum InfoCommand {
     /// Get or manipulate the list of maintainers of the project
     #[group(required = false, multiple = false)]
     Maintainer {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "MAINTAINER", default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
         clear: bool,
@@ -335,11 +366,11 @@ pub enum InfoCommand {
     /// Get or manipulate the list of topics of the project
     #[group(required = false, multiple = false)]
     Topic {
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "TOPIC", default_value=None)]
         set: Option<String>,
         #[arg(long, default_value = None)]
         clear: bool,
-        #[arg(long, default_value=None)]
+        #[arg(long, value_name = "TOPIC", default_value=None)]
         add: Option<String>,
         #[arg(long, default_value=None)]
         remove: Option<usize>,
@@ -444,11 +475,43 @@ pub enum InfoCommand {
         remove: Option<Infallible>,
     },
     /// Get or set the metamodel of the project
-    #[group(required = false, multiple = false)]
+    #[group(required = false)]
     Metamodel {
-        #[arg(long, default_value=None)]
-        set: Option<String>,
-        #[arg(long, num_args=0, default_missing_value="true", default_value = None)]
+        // It would be nicer to have Option<Metamodel> here,
+        // but that would introduce an additional level of
+        // nesting, as clap does not support flatten with Option
+        /// Set a SysML v2 or KerML metamodel. To set a custom metamodel, use `--set-custom`
+        #[arg(long, value_name = "KIND", value_enum, default_value=None)]
+        set: Option<MetamodelKind>,
+        /// Choose the release of the SysML v2 or KerML metamodel.
+        /// SysML 2.0 and KerML 1.0 have the same release dates
+        #[arg(
+            long,
+            value_name = "YYYYMMDD",
+            requires = "set",
+            value_enum,
+            verbatim_doc_comment,
+            default_value=MetamodelVersion::RELEASE
+        )]
+        release: MetamodelVersion,
+        /// Choose a custom release of the SysML v2 or KerML metamodel.
+        #[arg(
+            long,
+            value_name = "YYYYMMDD",
+            requires = "set",
+            conflicts_with = "release",
+            default_value=None,
+        )]
+        release_custom: Option<u32>,
+        /// Set a custom metamodel. To set a SysML v2 or KerML metamodel, use `--set`
+        #[arg(
+            long,
+            value_name = "METAMODEL",
+            conflicts_with_all = ["set", "release", "release_custom"],
+            default_value=None
+        )]
+        set_custom: Option<String>,
+        #[arg(long, num_args=0, default_missing_value="true", default_value = None, conflicts_with = "set")]
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
@@ -464,7 +527,7 @@ pub enum InfoCommand {
     /// Get or set whether the project includes derived properties
     #[group(required = false, multiple = false)]
     IncludesDerived {
-        #[arg(long, num_args=1, default_value=None)]
+        #[arg(long, value_name = "INCLUDES_DERIVED", num_args=1, default_value=None)]
         set: Option<bool>,
         #[arg(long, default_value = None)]
         clear: bool,
@@ -491,7 +554,7 @@ pub enum InfoCommand {
     /// Get or set whether the project includes implied properties
     #[group(required = false, multiple = false)]
     IncludesImplied {
-        #[arg(long, num_args=1, default_value=None)]
+        #[arg(long, value_name = "INCLUDES_IMPLIED", num_args=1, default_value=None)]
         set: Option<bool>,
         #[arg(long, default_value = None)]
         clear: bool,
@@ -862,20 +925,32 @@ impl InfoCommand {
             ),
             InfoCommand::Metamodel {
                 set,
+                release,
+                release_custom,
+                set_custom,
                 clear,
                 add,
                 remove,
-            } => pack_meta(
-                GetMetaVerb::GetMetamodel,
-                set.map(SetMetaVerb::SetMetamodel),
-                if clear {
-                    Some(ClearMetaVerb::ClearMetamodel)
-                } else {
-                    None
-                },
-                impossible(add),
-                impossible(remove),
-            ),
+            } => {
+                let metamodel = match set {
+                    Some(mk) => match release_custom {
+                        Some(rc) => Some(format!("{mk}{rc}")),
+                        None => Some(Metamodel(mk, release).into()),
+                    },
+                    None => set_custom,
+                };
+                pack_meta(
+                    GetMetaVerb::GetMetamodel,
+                    metamodel.map(SetMetaVerb::SetMetamodel),
+                    if clear {
+                        Some(ClearMetaVerb::ClearMetamodel)
+                    } else {
+                        None
+                    },
+                    impossible(add),
+                    impossible(remove),
+                )
+            }
             InfoCommand::IncludesDerived {
                 set,
                 clear,
@@ -996,6 +1071,9 @@ impl InfoCommand {
             } => false,
             InfoCommand::Metamodel {
                 set: _,
+                release: _,
+                release_custom: _,
+                set_custom: _,
                 clear: _,
                 add: _,
                 remove: _,
@@ -1152,7 +1230,7 @@ pub struct GlobalOptions {
     /// Disable discovery of configuration files
     #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_NO_CONFIG)]
     pub no_config: bool,
-    /// Give path to 'sysand.toml' to use for configuration
+    /// Give path to `sysand.toml` to use for configuration
     #[arg(long, global = true, help_heading = "Global options", env = env_vars::SYSAND_CONFIG_FILE)]
     pub config_file: Option<String>,
     /// Print help
@@ -1179,4 +1257,106 @@ fn parse_https_iri(s: &str) -> Result<fluent_uri::Iri<String>, fluent_uri::Parse
         // Return the original error to not confuse the user
         Iri::parse(https).map_err(|_| original_err)
     })
+}
+
+// Default metamodel for .kpar archives is KerML according to spec.
+// But for non-packaged projects there is no default.
+// Therefore, we don't provide a default here.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[clap(rename_all = "lowercase")]
+pub enum MetamodelKind {
+    /// SysML v2 metamodel. Identifier: `https://www.omg.org/spec/SysML/<release>`
+    SysML,
+    /// KerML metamodel. Identifier: `https://www.omg.org/spec/KerML/<release>`
+    KerML,
+}
+
+impl MetamodelKind {
+    pub const SYSML: &str = "https://www.omg.org/spec/SysML/";
+    pub const KERML: &str = "https://www.omg.org/spec/KerML/";
+}
+
+impl From<&MetamodelKind> for &'static str {
+    fn from(value: &MetamodelKind) -> Self {
+        match value {
+            MetamodelKind::SysML => MetamodelKind::SYSML,
+            MetamodelKind::KerML => MetamodelKind::KERML,
+        }
+    }
+}
+
+impl From<MetamodelKind> for &'static str {
+    fn from(value: MetamodelKind) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl Display for MetamodelKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.into())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Metamodel(pub MetamodelKind, pub MetamodelVersion);
+
+impl From<&Metamodel> for String {
+    fn from(value: &Metamodel) -> Self {
+        let mut s = String::new();
+        s.push_str(value.0.into());
+        s.push_str(value.1.into());
+        s
+    }
+}
+
+impl Display for Metamodel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.into())?;
+        f.write_str(self.1.into())
+    }
+}
+
+impl From<Metamodel> for String {
+    fn from(value: Metamodel) -> Self {
+        Self::from(&value)
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetamodelVersion {
+    Release_20250201 = 20250201,
+}
+
+impl From<&MetamodelVersion> for &'static str {
+    fn from(value: &MetamodelVersion) -> Self {
+        match value {
+            MetamodelVersion::Release_20250201 => MetamodelVersion::RELEASE,
+        }
+    }
+}
+
+impl From<MetamodelVersion> for &'static str {
+    fn from(value: MetamodelVersion) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl MetamodelVersion {
+    pub const RELEASE: &str = "20250201";
+}
+
+impl ValueEnum for MetamodelVersion {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Release_20250201]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        use clap::builder::PossibleValue;
+        Some(match self {
+            MetamodelVersion::Release_20250201 => {
+                PossibleValue::new(MetamodelVersion::RELEASE).help("SysMLv2/KerML Release or Beta4")
+            }
+        })
+    }
 }

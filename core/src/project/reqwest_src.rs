@@ -83,13 +83,13 @@ impl ReqwestSrcProjectAsync {
 
 #[derive(Error, Debug)]
 pub enum ReqwestSrcError {
-    #[error("HTTP request to '{0}' failed: {1}")]
+    #[error("HTTP request to `{0}` failed: {1}")]
     Reqwest(String, reqwest_middleware::Error),
-    #[error("failed to decode response body from HTTP request to '{0}': {1}")]
+    #[error("failed to decode response body from HTTP request to `{0}`: {1}")]
     ResponseDecode(String, reqwest::Error),
-    #[error("HTTP request to\n  '{0}'\n  returned malformed data: {1}")]
+    #[error("HTTP request to\n  `{0}`\n  returned malformed data: {1}")]
     Deserialize(String, serde_json::Error),
-    #[error("HTTP request to '{0}' returned unexpected status code {1}")]
+    #[error("HTTP request to `{0}` returned unexpected status code {1}")]
     BadStatus(Box<str>, reqwest::StatusCode),
 }
 
