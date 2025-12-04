@@ -43,14 +43,18 @@ pub fn command_new(
 fn default_name_from_path<P: AsRef<Path>>(path: P) -> Result<String> {
     Ok(wrapfs::canonicalize(&path)?
         .file_name()
-        .ok_or(CliError::InvalidDirectory(format!(
-            "path `{}` is not a directory",
-            path.as_ref().display()
-        )))?
+        .ok_or_else(|| {
+            CliError::InvalidDirectory(format!(
+                "path `{}` is not a directory",
+                path.as_ref().display()
+            ))
+        })?
         .to_str()
-        .ok_or(CliError::InvalidDirectory(format!(
-            "directory name `{:?}` is not valid Unicode",
-            path.as_ref()
-        )))?
+        .ok_or_else(|| {
+            CliError::InvalidDirectory(format!(
+                "directory name `{:?}` is not valid Unicode",
+                path.as_ref()
+            ))
+        })?
         .to_string())
 }

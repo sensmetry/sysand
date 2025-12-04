@@ -12,7 +12,7 @@ use sysand_core::{
     project::{local_src::LocalSrcProject, utils::wrapfs},
 };
 
-use crate::{CliError, cli::DependencyOptions, command_sync};
+use crate::{CliError, cli::ResolutionOptions, command_sync};
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
@@ -21,7 +21,7 @@ pub fn command_add(
     versions_constraint: Option<String>,
     no_lock: bool,
     no_sync: bool,
-    dependency_opts: DependencyOptions,
+    dependency_opts: ResolutionOptions,
     config: &Config,
     current_project: Option<LocalSrcProject>,
     client: reqwest_middleware::ClientWithMiddleware,

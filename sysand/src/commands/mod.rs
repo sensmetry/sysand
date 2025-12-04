@@ -3,6 +3,7 @@
 
 pub mod add;
 pub mod build;
+pub mod clone;
 pub mod env;
 pub mod exclude;
 pub mod include;
