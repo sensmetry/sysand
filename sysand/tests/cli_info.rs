@@ -765,8 +765,8 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
 
     let try_add =
         |field: &'static str, value: &'static str, expected: bool| -> Result<(), Box<dyn Error>> {
-         let before = get_field(field, None)?;
-         let out = run_sysand_in(project_path, ["info", field, "--add", value], None)?;
+            let before = get_field(field, None)?;
+            let out = run_sysand_in(project_path, ["info", field, "--add", value], None)?;
             if expected {
                 out.assert().success();
                 let mut expected_output = before;
@@ -908,8 +908,10 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) =
-        run_sysand(["new", "info_custom_metamodel", "--version", "1.2.3"], None)?;
+    let (_tmp, cwd, out) = run_sysand(
+        ["init", "info_custom_metamodel", "--version", "1.2.3"],
+        None,
+    )?;
     out.assert().success();
 
     let project_path = &cwd.join("info_custom_metamodel");

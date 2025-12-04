@@ -284,7 +284,7 @@ fn try_install<
         log::debug!("incorrect checksum for `{}` in lockfile", uri.as_ref());
         log::debug!("lockfile checksum = `{}`", checksum.as_ref());
         log::debug!("project checksum = `{}`", project_checksum);
-        return Err(SyncError::BadChecksum(uri.clone()));
+        return Err(SyncError::BadChecksum(uri.as_ref().into()));
     }
     Ok(())
 }
