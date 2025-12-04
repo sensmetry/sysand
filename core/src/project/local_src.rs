@@ -21,16 +21,16 @@ use thiserror::Error;
 use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, ToPathBuf};
 
 /// Project stored in a local directory as an extracted kpar archive.
-/// Source file paths with (unix) segments segment1/.../segmentn are
+/// Source file paths with (unix) segments `segment1/.../segmentn` are
 /// re-interpreted as filesystem-native paths relative to `project_path`.
 #[derive(Clone, Debug)]
 pub struct LocalSrcProject {
     pub project_path: PathBuf,
 }
 
-// Tries to canonicalise the (longest possible) prefix of a path.
-// Useful if you have /path/to/file/that/does/not/exist
-// but where some prefix, say, /path/to/file can be canonicalised.
+/// Tries to canonicalise the (longest possible) prefix of a path.
+/// Useful if you have /path/to/file/that/does/not/exist
+/// but where some prefix, say, /path/to/file can be canonicalised.
 fn canonicalise_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
     let mut relative_part = PathBuf::new();
     let mut absolute_part = path.as_ref().to_path_buf();
@@ -56,14 +56,14 @@ fn canonicalise_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
 }
 
 fn relativise_path<P: AsRef<Path>, Q: AsRef<Path>>(path: P, relative_to: Q) -> Option<PathBuf> {
-    let mut path = path.as_ref().to_path_buf();
+    let path = if !path.as_ref().is_absolute() {
+        let path = std::path::absolute(path).ok()?;
+        canonicalise_prefix(path)
+    } else {
+        canonicalise_prefix(path)
+    };
 
-    if !path.is_absolute() {
-        path = std::path::absolute(path).ok()?;
-    }
-
-    canonicalise_prefix(path)
-        .strip_prefix(canonicalise_prefix(relative_to.as_ref()))
+    path.strip_prefix(canonicalise_prefix(relative_to))
         .ok()
         .map(|x| x.to_path_buf())
 }
@@ -95,9 +95,8 @@ impl LocalSrcProject {
             .canonicalize()
             .map_err(|e| UnixPathError::Canonicalize(root_path, e))?;
 
-        let path = relativise_path(&path, project_path).ok_or(
-            UnixPathError::PathOutsideProject(path.as_ref().to_path_buf()),
-        )?;
+        let path = relativise_path(&path, project_path)
+            .ok_or_else(|| UnixPathError::PathOutsideProject(path.as_ref().to_path_buf()))?;
 
         let mut unix_path = Utf8UnixPathBuf::new();
         for component in path.components() {

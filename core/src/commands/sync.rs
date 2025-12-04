@@ -248,7 +248,7 @@ fn is_installed<E: ReadEnvironment, U, Str1: AsRef<str>, Str2: AsRef<str>>(
             .map_err(|e| SyncError::ProjectRead(e.to_string()))?
             .checksum_noncanonical_hex()
             .map_err(|e| SyncError::ProjectRead(e.to_string()))?
-            .ok_or(SyncError::BadProject(uri.as_ref().to_owned()))?;
+            .ok_or_else(|| SyncError::BadProject(uri.as_ref().to_owned()))?;
         if checksum.as_ref() == project_checksum {
             return Ok(true);
         }
@@ -271,7 +271,7 @@ fn try_install<
     let project_checksum = storage
         .checksum_canonical_hex()
         .map_err(|e| SyncError::ProjectRead(e.to_string()))?
-        .ok_or(SyncError::BadProject(uri.as_ref().to_owned()))?;
+        .ok_or_else(|| SyncError::BadProject(uri.as_ref().to_owned()))?;
     if checksum.as_ref() == project_checksum {
         // TODO: Need to decide how to handle existing installations and possible flags to modify behavior
         do_env_install_project(&uri, &storage, env, true, true).map_err(|e| {
@@ -356,8 +356,10 @@ mod tests {
         let uri = "urn:kpar:install_test";
         let checksum = storage.checksum_noncanonical_hex().unwrap().unwrap();
         let mut env = MemoryStorageEnvironment::new();
-        env.put_project(uri, "1,2,3", |p| clone_project(&storage, p, true))
-            .unwrap();
+        env.put_project(uri, "1,2,3", |p| {
+            clone_project(&storage, p, true).map(|_| ())
+        })
+        .unwrap();
 
         assert!(is_installed::<MemoryStorageEnvironment, E, _, _>(uri, &checksum, &env).unwrap());
 

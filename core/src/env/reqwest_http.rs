@@ -41,7 +41,9 @@ pub struct HTTPEnvironmentAsync {
 pub enum HTTPEnvironmentError {
     #[error("failed to extend URL `{0}` with path `{1}`: {2}")]
     JoinURL(Box<str>, String, url::ParseError),
-    #[error("error making an HTTP request to `{0}`:\n{1}")]
+    // TODO: include error.source(). Currently it gives no details what's gone
+    // wrong. Also it includes URL, so no need to have it separately
+    #[error("error making an HTTP request to '{0}':\n{1}")]
     HTTPRequest(Box<str>, reqwest_middleware::Error),
     #[error("failed to get project `{0}`, version `{1}` in source or kpar format")]
     InvalidURL(Box<str>, Box<str>),

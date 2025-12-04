@@ -5,7 +5,8 @@ use crate::project::ProjectRead;
 
 #[derive(Debug)]
 /// Treat a project type `P` as an "Editable" project. This simply adds
-/// at `source` pointing to the nominal path `nominal_path`.
+/// a `source` pointing to the nominal path `nominal_path` when
+/// this project is in a lockfile.
 pub struct EditableProject<P> {
     inner: P,
     nominal_path: String,
