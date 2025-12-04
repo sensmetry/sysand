@@ -12,7 +12,7 @@ similar to package managers for programming languages such as Pip for Python,
 NPM for JavaScript, Maven for Java, and NuGet for .NET. Sysand is based on a
 concept of a model interchange project, a slight generalization of a project
 interchange file (`*.kpar`), defined in [KerML clause
-10.3](https://www.omg.org/spec/KerML/1.0/Beta4/PDF#page=428).
+10.3](https://www.omg.org/spec/KerML/1.0/PDF#page=432).
 
 Sysand can be used as a standalone tool through its command line interface (CLI)
 or be integrated into other tools through one of its APIs (currently, Python and
@@ -29,7 +29,7 @@ Sysand is written in Rust programming language. To build it, [install
 Rust](https://www.rust-lang.org/tools/install) and run the following command in
 the terminal:
 
-```bash
+```sh
 cargo install sysand --git=https://github.com/sensmetry/sysand.git
 ```
 
@@ -38,9 +38,9 @@ in the following subsection.
 
 ### Model interchange projects
 
-A model interchange project is a collection of SysML or KerML files with
-additional metadata such as project name, versions, and the list of projects on
-which it depends. To create a new project called `my_project` run:
+A model interchange project is a collection of SysML v2 (`.sysml`) or KerML (`.kerml`)
+files with additional metadata such as project name, versions, and the list of
+projects on which it depends. To create a new project called `my_project` run:
 
 ```console
 $ sysand new my_project
@@ -150,7 +150,8 @@ command again:
 $ sysand info
 Name: my_project
 Version: 0.0.1
-    Usage: https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar
+Usages:
+    https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar
 ```
 
 If we run `sysand source` again, it will now include all source files of the
@@ -259,13 +260,13 @@ can use `--no-deps` to install only the project itself.
 The "Sysand User Guide" is currently a work in progress. To preview make sure
 you have `mdbook` installed (`cargo install mdbook`), then either run
 
-```bash
+```sh
 mdbook build docs/
 ```
 
 and open `docs/book/index.html`, or run
 
-```bash
+```sh
 mdbook serve docs/
 ```
 

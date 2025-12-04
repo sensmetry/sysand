@@ -21,11 +21,17 @@
       "matchPackageNames": ["pyo3*"]
     },
     {
-      "matchPackageNames": ["com.sensmetry.sysand:sysand"],
-      "enabled": false
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["python"],
+      "separateMultipleMinor": true,
+      "dependencyDashboardApproval": true
     },
     {
-      "matchPackageNames": ["python"],
+      "matchPackageNames": [
+        "python",
+        "com.sensmetry:sysand",
+        "com.sensmetry:sysand-maven-plugin"
+      ],
       "enabled": false
     }
   ]

@@ -18,7 +18,7 @@ use sysand_core::{
     model::InterchangeProjectUsage,
     project::{
         ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
-        local_src::LocalSrcProject,
+        local_src::LocalSrcProject, utils::wrapfs,
     },
     resolve::{
         ResolutionOutcome, ResolveRead,
@@ -51,7 +51,7 @@ pub fn command_env_install<S: AsRef<str>>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let project_root = project_root.unwrap_or(std::env::current_dir()?);
+    let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
     let InstallOptions {
         allow_overwrite,
@@ -84,10 +84,10 @@ pub fn command_env_install<S: AsRef<str>>(
     };
 
     let mut memory_projects = HashMap::default();
-
     for (k, v) in &provided_iris {
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
     }
+
     // TODO: Move out the runtime
     let resolver = PriorityResolver::new(
         MemoryResolver {
@@ -133,9 +133,7 @@ pub fn command_env_install<S: AsRef<str>>(
     } else {
         let usages = vec![InterchangeProjectUsage {
             resource: fluent_uri::Iri::from_str(iri.as_ref())?,
-            version_constraint: version
-                .map(|v| semver::VersionReq::from_str(format!("^{}", v).as_str()))
-                .transpose()?,
+            version_constraint: version.map(|v| semver::VersionReq::parse(&v)).transpose()?,
         }];
 
         let LockOutcome {
@@ -180,7 +178,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let project_root = project_root.unwrap_or(std::env::current_dir()?);
+    let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
     let InstallOptions {
         allow_overwrite,
@@ -224,10 +222,10 @@ pub fn command_env_install_path<S: AsRef<str>>(
         if version
             != project
                 .get_info()?
-                .ok_or(anyhow!("Missing project info"))?
+                .ok_or(anyhow!("missing project info"))?
                 .version
         {
-            bail!("Given version does not match project version")
+            bail!("given version does not match project version")
         }
     }
 
@@ -252,10 +250,10 @@ pub fn command_env_install_path<S: AsRef<str>>(
         let project = EditableProject::new(&path, project);
 
         let mut memory_projects = HashMap::default();
-
         for (k, v) in provided_iris.iter() {
             memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
         }
+
         // TODO: Move out the runtime
         let resolver = PriorityResolver::new(
             MemoryResolver {
@@ -299,7 +297,7 @@ pub fn command_env_uninstall<S: AsRef<str>>(
 
 pub fn command_env_list(env: Option<LocalDirectoryEnvironment>) -> Result<()> {
     let Some(env) = env else {
-        bail!("Unable to identify environment to list.");
+        bail!("unable to identify environment to list");
     };
 
     for (uri, version) in sysand_core::commands::env::do_env_list(env)? {

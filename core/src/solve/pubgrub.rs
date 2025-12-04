@@ -77,7 +77,7 @@ impl Display for DiscreteHashSet {
                 let elts: Vec<usize> = hash_set.iter().cloned().collect();
 
                 if elts.is_empty() {
-                    return write!(f, "no valid alterantives");
+                    return write!(f, "no valid alternatives");
                 } else if elts.len() == 1 {
                     return write!(f, "alternative nr {}", elts[0]);
                 }
@@ -570,7 +570,7 @@ mod tests {
 
         let solution = super::solve(
             vec![InterchangeProjectUsage {
-                resource: fluent_uri::Iri::parse("urn:kpar:test_version_selection".to_string())?,
+                resource: fluent_uri::Iri::parse("urn:kpar:test_version_selection")?.into(),
                 version_constraint: Some(semver::VersionReq::parse(">=2.0.0")?),
             }],
             resolver,
@@ -579,10 +579,22 @@ mod tests {
         assert_eq!(solution.len(), 1);
 
         let (install_info, _, _) = solution
-            .get(&Iri::parse("urn:kpar:test_version_selection".to_string()).unwrap())
+            .get(Iri::parse("urn:kpar:test_version_selection")?.into())
             .unwrap();
 
         assert_eq!(install_info.version, semver::Version::new(2, 0, 1));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_version_constraint_default() -> Result<(), Box<dyn std::error::Error>> {
+        // `semver` by default prepends `^` if a version requirement does not
+        // have a comparator. This is not documented, but is also extremely
+        // unlikely to change, as it's the behavior relied on by cargo
+        let v_no_caret = semver::VersionReq::parse("2.0.0")?;
+        let v_caret = semver::VersionReq::parse("^2.0.0")?;
+        assert_eq!(v_no_caret, v_caret);
 
         Ok(())
     }
@@ -616,15 +628,11 @@ mod tests {
         let solution = super::solve(
             vec![
                 InterchangeProjectUsage {
-                    resource: fluent_uri::Iri::parse(
-                        "urn:kpar:test_diamond_selection_a".to_string(),
-                    )?,
+                    resource: fluent_uri::Iri::parse("urn:kpar:test_diamond_selection_a")?.into(),
                     version_constraint: Some(semver::VersionReq::parse(">=0.1.0")?),
                 },
                 InterchangeProjectUsage {
-                    resource: fluent_uri::Iri::parse(
-                        "urn:kpar:test_diamond_selection_b".to_string(),
-                    )?,
+                    resource: fluent_uri::Iri::parse("urn:kpar:test_diamond_selection_b")?.into(),
                     version_constraint: None,
                 },
             ],
@@ -634,17 +642,17 @@ mod tests {
         assert_eq!(solution.len(), 3);
 
         let (install_info_a, _, _) = solution
-            .get(&Iri::parse("urn:kpar:test_diamond_selection_a".to_string()).unwrap())
+            .get(Iri::parse("urn:kpar:test_diamond_selection_a")?.into())
             .unwrap();
         assert_eq!(install_info_a.version, semver::Version::new(1, 0, 1));
 
         let (install_info_b, _, _) = solution
-            .get(&Iri::parse("urn:kpar:test_diamond_selection_b".to_string()).unwrap())
+            .get(Iri::parse("urn:kpar:test_diamond_selection_b")?.into())
             .unwrap();
         assert_eq!(install_info_b.version, semver::Version::new(1, 0, 2));
 
         let (install_info_a, _, _) = solution
-            .get(&Iri::parse("urn:kpar:test_diamond_selection_c".to_string()).unwrap())
+            .get(Iri::parse("urn:kpar:test_diamond_selection_c")?.into())
             .unwrap();
         assert_eq!(install_info_a.version, semver::Version::new(2, 0, 3));
 

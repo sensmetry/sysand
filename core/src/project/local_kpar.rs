@@ -66,7 +66,7 @@ fn guess_root(archive: &mut ZipArchive<std::fs::File>) -> Result<PathBuf, LocalK
             if p.file_name() == Some(std::ffi::OsStr::new(".project.json")) {
                 maybe_root = Some(
                     p.parent()
-                        .ok_or_else(|| ZipArchiveError::InvalidPath(Box::from(p.as_path())))?
+                        .ok_or_else(|| ZipArchiveError::InvalidPath(p.as_path().into()))?
                         .to_path_buf(),
                 );
                 break;
@@ -200,7 +200,7 @@ impl LocalKParProject {
 
     fn new_archive(&self) -> Result<ZipArchive<std::fs::File>, LocalKParError> {
         Ok(zip::ZipArchive::new(self.new_file()?)
-            .map_err(|e| ZipArchiveError::ReadArchive(Box::from(self.archive_path.as_path()), e))?)
+            .map_err(|e| ZipArchiveError::ReadArchive(self.archive_path.as_path().into(), e))?)
     }
 
     pub fn file_size(&self) -> Result<u64, LocalKParError> {
@@ -282,9 +282,9 @@ impl ProjectRead for LocalKParProject {
             let mut archive = self.new_archive()?;
             let idx = path_index(self.root.as_deref(), &mut archive, &path)?;
 
-            let mut zip_file = archive.by_index(idx).map_err(|e| {
-                ZipArchiveError::NamedFileMeta(Box::from(path.as_ref().as_str()), e)
-            })?;
+            let mut zip_file = archive
+                .by_index(idx)
+                .map_err(|e| ZipArchiveError::NamedFileMeta(path.as_ref().as_str().into(), e))?;
 
             std::io::copy(&mut zip_file, &mut tmp_file)
                 .map_err(|e| FsIoError::WriteFile(tmp_file_path.to_path_buf(), e))?;

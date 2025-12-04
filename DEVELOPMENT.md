@@ -50,8 +50,8 @@ cd sysand
 
 Sysand command line utility can be compiled from local repository and
 installed as follows:
-```sh
-cargo install --path=sysand
+```console
+$ cargo install --path=sysand
 [...]
 Installed package `sysand vX.Y.Z (/...)` (executable `sysand`)
 ```

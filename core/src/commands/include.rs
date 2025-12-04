@@ -18,7 +18,7 @@ pub enum IncludeError<ProjectError> {
     #[error("failed to extract symbol names from '{0}': {1}")]
     Extract(Box<str>, ExtractError),
     #[error(
-        "unknown file format of '{0}', only SysML (.sysml) and KerML (.kerml) files are supported"
+        "unknown file format of '{0}', only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
 }
@@ -58,7 +58,7 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
                 let new_symbols = crate::symbols::top_level_sysml(
                     project.read_source(&path).map_err(IncludeError::Project)?,
                 )
-                .map_err(|e| IncludeError::Extract(Box::from(path.as_ref().as_str()), e))?;
+                .map_err(|e| IncludeError::Extract(path.as_ref().as_str().into(), e))?;
 
                 project.merge_index(new_symbols.into_iter().map(|x| (x, path.as_ref())), true)?;
             }
@@ -66,7 +66,7 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
                 let new_symbols = crate::symbols::top_level_kerml(
                     project.read_source(&path).map_err(IncludeError::Project)?,
                 )
-                .map_err(|e| IncludeError::Extract(Box::from(path.as_ref().as_str()), e))?;
+                .map_err(|e| IncludeError::Extract(path.as_ref().as_str().into(), e))?;
 
                 project.merge_index(new_symbols.into_iter().map(|x| (x, path.as_ref())), true)?;
             }

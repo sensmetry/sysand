@@ -1,41 +1,56 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::Path;
-
-use anyhow::Result;
+use std::path::{Path, PathBuf};
 
 use crate::CliError;
+use anyhow::Result;
+use sysand_core::project::utils::wrapfs;
 
-pub fn command_new<P: AsRef<Path>>(
+pub fn command_new(
     name: Option<String>,
     version: Option<String>,
-    path: P,
+    no_semver: bool,
+    license: Option<String>,
+    no_spdx: bool,
+    path: Option<String>,
 ) -> Result<()> {
-    if !path.as_ref().exists() {
-        std::fs::create_dir(&path)?;
-    }
+    let path = match path {
+        Some(p) => {
+            wrapfs::create_dir_all(&p)?;
 
-    Ok(sysand_core::new::do_new(
-        name.ok_or(()).or_else(|_| default_name_from_path(&path))?,
-        version.unwrap_or("0.0.1".to_string()),
-        &mut sysand_core::project::local_src::LocalSrcProject {
-            project_path: path.as_ref().into(),
-        },
-    )?)
+            p.into()
+        }
+        None => PathBuf::from("."),
+    };
+    let version = version.unwrap_or_else(|| "0.0.1".to_string());
+    let name = match name {
+        Some(n) => n,
+        None => default_name_from_path(&path)?,
+    };
+
+    sysand_core::new::do_new_ext(
+        name,
+        version,
+        no_semver,
+        license,
+        no_spdx,
+        &mut sysand_core::project::local_src::LocalSrcProject { project_path: path },
+    )?;
+    Ok(())
 }
 
 fn default_name_from_path<P: AsRef<Path>>(path: P) -> Result<String> {
-    Ok(std::fs::canonicalize(&path)?
+    Ok(wrapfs::canonicalize(&path)?
         .file_name()
         .ok_or(CliError::InvalidDirectory(format!(
-            "Directory has no name: {}",
+            "path `{}` is not a directory",
             path.as_ref().display()
         )))?
         .to_str()
         .ok_or(CliError::InvalidDirectory(format!(
-            "Directory name is not valid Unicode: {}",
-            path.as_ref().display()
+            "directory name `{:?}` is not valid Unicode",
+            path.as_ref()
         )))?
         .to_string())
 }

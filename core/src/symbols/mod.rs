@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Module for extracting symbols from KerML or SysML files.
+//! Module for extracting symbols from KerML or SysML v2 files.
 //!
 //! The main function is `top_level`, which returns top level symbols for a
 //! given file. We need to know the top level symbols to correctly populate
@@ -374,7 +374,10 @@ fn lex_source(source: &str) -> Result<Vec<TokenList>, ExtractError> {
 
     let mut depth = 0;
     while let Some(token) = lexer.next() {
-        let token_range = Box::from(source.slice(lexer.span()).ok_or(ExtractError::TokenRange)?);
+        let token_range = source
+            .slice(lexer.span())
+            .ok_or(ExtractError::TokenRange)?
+            .into();
         match token {
             Ok(Token::BraceOpen) => {
                 if depth == 0 {

@@ -5,7 +5,12 @@ use std::{collections::HashMap, path::PathBuf, str::FromStr, sync::Arc};
 
 use anyhow::Result;
 
-use sysand_core::{add::do_add, config::Config, lock::Lock, project::local_src::LocalSrcProject};
+use sysand_core::{
+    add::do_add,
+    config::Config,
+    lock::Lock,
+    project::{local_src::LocalSrcProject, utils::wrapfs},
+};
 
 use crate::{CliError, cli::DependencyOptions, command_sync};
 
@@ -49,7 +54,7 @@ pub fn command_add(
 
         if !no_sync {
             let mut env = crate::get_or_create_env(project_root.as_path())?;
-            let lock = Lock::from_str(&std::fs::read_to_string(
+            let lock = Lock::from_str(&wrapfs::read_to_string(
                 project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
             )?)?;
             command_sync(
