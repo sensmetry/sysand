@@ -19,7 +19,10 @@ pub fn discover_project<P: AsRef<Utf8Path>>(working_directory: P) -> Option<Loca
     let path = discover(working_directory, |path| {
         path.join(".project.json").is_file() || path.join(".meta.json").is_file()
     })?;
-    Some(LocalSrcProject { project_path: path })
+    Some(LocalSrcProject {
+        nominal_path: Some(Utf8PathBuf::from(".")),
+        project_path: path,
+    })
 }
 
 pub fn current_workspace() -> Result<Option<Workspace>, Box<FsIoError>> {

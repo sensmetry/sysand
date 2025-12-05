@@ -84,6 +84,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
             ".",
             resolution_opts,
             config,
+            &project_root,
             client.clone(),
             runtime.clone(),
             auth_policy.clone(),

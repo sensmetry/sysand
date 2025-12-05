@@ -169,7 +169,8 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     };
     for project in projects {
         let project = LocalSrcProject {
-            project_path: workspace.workspace_path.join(project.path),
+            nominal_path: None,
+            project_path: workspace.workspace_path.join(&project.path),
         };
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);

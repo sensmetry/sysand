@@ -162,6 +162,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_infoPath<'local>(
         return JObject::default();
     };
     let project = LocalSrcProject {
+        nominal_path: None,
         project_path: Utf8PathBuf::from(&path),
     };
 
@@ -335,6 +336,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
         return;
     };
     let project = LocalSrcProject {
+        nominal_path: None,
         project_path: Utf8PathBuf::from(project_path),
     };
     let command_result = sysand_core::commands::build::do_build_kpar(&project, &output_path, true);
