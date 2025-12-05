@@ -19,7 +19,7 @@ vendored_tls = ["reqwest/native-tls-vendored"]
 
 [dependencies]
 sysand-core = { path = "../../core", features = ["python", "filesystem", "networking"] }
-pyo3 = { version = "0.27.1", default-features = false, features = ["macros"] }
+pyo3 = { version = "0.27.2", default-features = false, features = ["macros"] }
 pyo3-log = "0.13.2"
 semver = { version = "1.0.27", default-features = false }
 typed-path = { version = "0.12.0", default-features = false, features= ["std"] }
