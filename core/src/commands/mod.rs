@@ -4,7 +4,6 @@
 pub mod add;
 #[cfg(feature = "filesystem")]
 pub mod build;
-pub mod clone;
 pub mod env;
 pub mod exclude;
 pub mod include;
