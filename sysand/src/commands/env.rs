@@ -295,7 +295,7 @@ pub fn command_env_list(env: Option<LocalDirectoryEnvironment>) -> Result<()> {
     };
 
     for (uri, version) in sysand_core::commands::env::do_env_list(env)? {
-        println!("{uri} {}", version.unwrap_or("".to_string()));
+        println!("`{uri}` {}", version.unwrap_or("".to_string()));
     }
     Ok(())
 }
