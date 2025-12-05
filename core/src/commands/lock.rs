@@ -157,17 +157,32 @@ pub type EditableLocalSrcProject = EditableProject<LocalSrcProject>;
 #[cfg(feature = "filesystem")]
 pub fn do_lock_local_editable<
     P: AsRef<Utf8Path>,
+    PR: AsRef<Utf8Path>,
     PD: ProjectRead + Debug,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     path: P,
+    project_root: PR,
     resolver: R,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
     let project = EditableProject::new(
         // TODO: this is incorrect if project is in a subdir of workspace
         ".".into(),
         LocalSrcProject {
-            project_path: path.to_path_buf(),
+            nominal_path: Some(path.to_path_buf()),
+            project_path: project_root
+                .as_ref()
+                .join(path.as_ref())
+                .canonicalize_utf8()
+                .map_err(|e| {
+                    LockError::Io(
+                        FsIoError::Canonicalize(
+                            project_root.to_path_buf().join(path.as_ref()),
+                            e,
+                        )
+                        .into(),
+                    )
+                })?,
         },
     );
 

@@ -31,6 +31,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         lock,
         env,
         Some(|src_path: &Utf8Path| LocalSrcProject {
+            nominal_path: Some(src_path.to_path_buf()),
             project_path: project_root.as_ref().join(src_path),
         }),
         Some(

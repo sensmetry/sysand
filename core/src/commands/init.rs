@@ -106,7 +106,10 @@ pub fn do_init_local_file(
     license: Option<String>,
     path: Utf8PathBuf,
 ) -> Result<LocalSrcProject, InitError<crate::project::local_src::LocalSrcError>> {
-    let mut storage = LocalSrcProject { project_path: path };
+    let mut storage = LocalSrcProject {
+        nominal_path: None,
+        project_path: path,
+    };
 
     do_init(name, version, license, &mut storage)?;
 

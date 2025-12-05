@@ -2,8 +2,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{fmt, result::Result, sync::Arc};
+// use std::{
+//     fmt,
+//     path::{Path, PathBuf},
+//     result::Result,
+//     sync::Arc,
+// };
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
@@ -62,8 +68,9 @@ pub enum TryFromSourceError {
 // TODO: Find a better solution going from source to project.
 // Preferably one that can also be used when syncing.
 impl<Policy: HTTPAuthentication> AnyProject<Policy> {
-    pub fn try_from_source(
+    pub fn try_from_source<P: AsRef<Utf8Path>>(
         source: Source,
+        project_root: P,
         auth_policy: Arc<Policy>,
         client: ClientWithMiddleware,
         runtime: Arc<tokio::runtime::Runtime>,
@@ -73,9 +80,14 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 LocalKParProject::new_guess_root(kpar_path.as_str())
                     .map_err(TryFromSourceError::LocalKpar)?,
             )),
-            Source::LocalSrc { src_path } => Ok(AnyProject::LocalSrc(LocalSrcProject {
-                project_path: src_path.as_str().into(),
-            })),
+            Source::LocalSrc { src_path } => {
+                let nominal_path = src_path.as_str().into();
+                let project_path = project_root.as_ref().join(&nominal_path);
+                Ok(AnyProject::LocalSrc(LocalSrcProject {
+                    nominal_path: Some(nominal_path),
+                    project_path,
+                }))
+            }
             Source::RemoteKpar {
                 remote_kpar,
                 remote_kpar_size: _,
