@@ -75,6 +75,7 @@ fn interpret_project_path<P: AsRef<Path>>(path: P) -> Result<FileResolverProject
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path.as_ref())?)
     } else if path.as_ref().is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
+            nominal_path: None,
             project_path: path.as_ref().to_path_buf(),
         })
     } else {

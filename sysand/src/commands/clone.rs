@@ -122,7 +122,10 @@ pub fn command_clone(
     let cloned = "Cloned";
     let header = sysand_core::style::get_style_config().header;
 
-    let mut local_project = LocalSrcProject { project_path };
+    let mut local_project = LocalSrcProject {
+        nominal_path: Some(project_path.clone()),
+        project_path,
+    };
     let std_resolver = standard_resolver(
         None,
         None,
@@ -150,6 +153,7 @@ pub fn command_clone(
         }
         ProjectLocator::Path(path) => {
             let remote_project = LocalSrcProject {
+                nominal_path: Some(path.clone().into()),
                 project_path: path.into(),
             };
             if let Some(version) = version {

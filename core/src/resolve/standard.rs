@@ -1,7 +1,12 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{fmt, path::PathBuf, result::Result, sync::Arc};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    result::Result,
+    sync::Arc,
+};
 
 use fluent_uri::Iri;
 use reqwest_middleware::ClientWithMiddleware;
@@ -60,8 +65,9 @@ pub enum TryFromSourceError {
 // TODO: Find a better solution going from source to project.
 // Preferably one that can also be used when syncing.
 impl AnyProject {
-    pub fn try_from_source(
+    pub fn try_from_source<P: AsRef<Path>>(
         source: Source,
+        project_root: P,
         client: ClientWithMiddleware,
         runtime: Arc<tokio::runtime::Runtime>,
     ) -> Result<Self, TryFromSourceError> {
@@ -71,7 +77,8 @@ impl AnyProject {
                     .map_err(TryFromSourceError::LocalKpar)?,
             )),
             Source::LocalSrc { src_path } => Ok(AnyProject::LocalSrc(LocalSrcProject {
-                project_path: src_path.to_path_buf(),
+                nominal_path: Some(src_path.to_path_buf()),
+                project_path: project_root.as_ref().join(src_path),
             })),
             Source::RemoteKpar {
                 remote_kpar,

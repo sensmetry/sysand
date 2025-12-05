@@ -25,6 +25,7 @@ use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationE
 /// re-interpreted as filesystem-native paths relative to `project_path`.
 #[derive(Clone, Debug)]
 pub struct LocalSrcProject {
+    pub nominal_path: Option<PathBuf>,
     pub project_path: PathBuf,
 }
 
@@ -195,6 +196,7 @@ impl LocalSrcProject {
     ) -> Result<(tempfile::TempDir, Self), CloneError<Pr::Error, LocalSrcError>> {
         let tmp = tempdir().map_err(FsIoError::MkTempDir)?;
         let mut tmp_project = Self {
+            nominal_path: None,
             project_path: wrapfs::canonicalize(tmp.path())?,
         };
 
@@ -383,9 +385,11 @@ impl ProjectRead for LocalSrcProject {
     }
 
     fn sources(&self) -> Vec<crate::lock::Source> {
-        let path_str = self.project_path.to_str().unwrap();
-        vec![crate::lock::Source::LocalSrc {
-            src_path: path_str.to_string(),
-        }]
+        match self.nominal_path.as_ref().and_then(|p| p.to_str()) {
+            Some(path_str) => vec![crate::lock::Source::LocalSrc {
+                src_path: path_str.to_string(),
+            }],
+            None => vec![],
+        }
     }
 }

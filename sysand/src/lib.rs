@@ -189,9 +189,16 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         },
         cli::Command::Lock { resolution_opts } => {
-            if project_root.is_some() {
-                crate::commands::lock::command_lock(".", resolution_opts, &config, client, runtime)
-                    .map(|_| ())
+            if let Some(project_root) = project_root {
+                crate::commands::lock::command_lock(
+                    ".",
+                    resolution_opts,
+                    &config,
+                    project_root,
+                    client,
+                    runtime,
+                )
+                .map(|_| ())
             } else {
                 bail!("not inside a project")
             }
@@ -216,6 +223,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     ".",
                     resolution_opts,
                     &config,
+                    project_root.clone(),
                     client.clone(),
                     runtime.clone(),
                 )?;
@@ -273,6 +281,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashSet::default()
             };
 
+            let project_root = project_root.unwrap_or(std::env::current_dir()?);
             let mut overrides = Vec::new();
             for config_project in &config.projects {
                 for identifier in &config_project.identifiers {
@@ -280,6 +289,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     for source in &config_project.sources {
                         projects.push(ProjectReference::new(AnyProject::try_from_source(
                             source.clone(),
+                            &project_root,
                             client.clone(),
                             runtime.clone(),
                         )?));

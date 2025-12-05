@@ -9,6 +9,7 @@ use anyhow::{Result, bail};
 use fluent_uri::Iri;
 use pubgrub::Reporter as _;
 
+use sysand_core::project::utils::ToPathBuf;
 use sysand_core::{
     commands::lock::{
         DEFAULT_LOCKFILE_NAME, LockError, LockOutcome, LockProjectError, do_lock_local_editable,
@@ -31,10 +32,11 @@ use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 /// `path` must be relative to workspace root.
 // TODO: this will not work properly if run in subdir of workspace,
 // as `path` will then refer to a deeper subdir
-pub fn command_lock<P: AsRef<Path>>(
+pub fn command_lock<P: AsRef<Path>, R: AsRef<Path>>(
     path: P,
     resolution_opts: ResolutionOptions,
     config: &Config,
+    project_root: R,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
@@ -45,8 +47,6 @@ pub fn command_lock<P: AsRef<Path>>(
         no_index,
         include_std,
     } = resolution_opts;
-
-    let cwd = wrapfs::current_dir().ok();
 
     let local_env_path = path
         .as_ref()
@@ -65,6 +65,7 @@ pub fn command_lock<P: AsRef<Path>>(
             for source in &config_project.sources {
                 projects.push(ProjectReference::new(AnyProject::try_from_source(
                     source.clone(),
+                    &project_root,
                     client.clone(),
                     runtime.clone(),
                 )?));
@@ -91,7 +92,7 @@ pub fn command_lock<P: AsRef<Path>>(
             projects: memory_projects,
         },
         standard_resolver(
-            cwd,
+            Some(project_root.to_path_buf()),
             if local_env_path.is_dir() {
                 Some(local_env_path)
             } else {
@@ -107,7 +108,7 @@ pub fn command_lock<P: AsRef<Path>>(
     let LockOutcome {
         lock,
         dependencies: _dependencies,
-    } = match do_lock_local_editable(&path, wrapped_resolver) {
+    } = match do_lock_local_editable(&path, &project_root, wrapped_resolver) {
         Ok(lock_outcome) => lock_outcome,
         Err(LockProjectError::LockError(lock_error)) => {
             if let LockError::Solver(solver_error) = lock_error {
