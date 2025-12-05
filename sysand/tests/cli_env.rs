@@ -71,7 +71,7 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("urn:kpar:test 0.0.1"));
+        .stderr(predicate::str::contains("`urn:kpar:test` 0.0.1"));
 
     assert_eq!(
         std::fs::read_to_string(cwd.join(env_path).join("entries.txt"))?,
@@ -114,7 +114,7 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert()
         .success()
-        .stdout(predicate::str::contains("urn:kpar:test 0.0.1"));
+        .stdout(predicate::str::contains("`urn:kpar:test` 0.0.1"));
 
     let out = run_sysand_in(&cwd, ["env", "uninstall", "urn:kpar:test"], None)?;
 
@@ -220,7 +220,7 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("urn:kpar:test 0.0.1"));
+        .stderr(predicate::str::contains("`urn:kpar:test` 0.0.1"));
 
     let out = run_sysand_in(
         &cwd,
@@ -253,7 +253,7 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("urn:kpar:test 0.0.1"));
+        .stderr(predicate::str::contains("`urn:kpar:test` 0.0.1"));
 
     Ok(())
 }
