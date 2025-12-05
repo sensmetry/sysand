@@ -13,7 +13,7 @@ use sysand_core::{
     commands,
     env::local_directory::{self, LocalWriteError},
     info::InfoError,
-    new::NewError,
+    init::InitError,
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,
@@ -61,17 +61,17 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
         },
     };
 
-    let command_result = commands::new::do_new_local_file(name, version, license, path);
+    let command_result = commands::init::do_init_local_file(name, version, license, path);
     match command_result {
         Ok(_) => {}
         Err(error) => match error {
-            NewError::SemVerParse(..) => {
+            InitError::SemVerParse(..) => {
                 env.throw_exception(ExceptionKind::InvalidSemanticVersion, error.to_string())
             }
-            NewError::SPDXLicenseParse(..) => {
+            InitError::SPDXLicenseParse(..) => {
                 env.throw_exception(ExceptionKind::InvalidSPDXLicense, error.to_string())
             }
-            NewError::Project(suberror) => match suberror {
+            InitError::Project(suberror) => match suberror {
                 LocalSrcError::AlreadyExists(msg) => {
                     env.throw_exception(ExceptionKind::ProjectAlreadyExists, msg)
                 }

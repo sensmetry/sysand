@@ -17,7 +17,7 @@ use sysand_core::{
     build::{KParBuildError, do_build_kpar},
     commands::{
         env::{EnvError, do_env_local_dir},
-        new::do_new_local_file,
+        init::do_init_local_file,
     },
     env::{
         ReadEnvironment as _, WriteEnvironment,
@@ -29,8 +29,8 @@ use sysand_core::{
     exclude::do_exclude,
     include::do_include,
     info::{InfoError, do_info, do_info_project},
+    init::InitError,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    new::NewError,
     project::{
         ProjectRead as _,
         local_kpar::LocalKParProject,
@@ -53,10 +53,10 @@ fn do_new_py_local_file(
     path: String,
     license: Option<String>,
 ) -> PyResult<()> {
-    do_new_local_file(name, version, license, Path::new(&path)).map_err(|err| match err {
-        NewError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
-        NewError::SPDXLicenseParse(..) => PyValueError::new_err(err.to_string()),
-        NewError::Project(err) => match err {
+    do_init_local_file(name, version, license, Path::new(&path)).map_err(|err| match err {
+        InitError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
+        InitError::SPDXLicenseParse(..) => PyValueError::new_err(err.to_string()),
+        InitError::Project(err) => match err {
             LocalSrcError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
             LocalSrcError::Deserialize(error) => PyValueError::new_err(error.to_string()),
             LocalSrcError::Io(error) => PyIOError::new_err(error.to_string()),
@@ -471,6 +471,7 @@ fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
     signature = (env_path, iri, location),
 )]
 fn do_env_install_path_py(env_path: String, iri: String, location: String) -> PyResult<()> {
+    // TODO: remove this useless clone when migrating to camino
     let project_path: PathBuf = location.clone().into();
 
     let mut env = LocalDirectoryEnvironment {
@@ -491,8 +492,10 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             )));
         };
 
-        env.put_project(iri, version, |to| clone_project(&project, to, true))
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        env.put_project(iri, version, |to| {
+            clone_project(&project, to, true).map(|_| ())
+        })
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     } else if project_path.is_dir() {
         let project = LocalSrcProject { project_path };
 
@@ -506,8 +509,10 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             )));
         };
 
-        env.put_project(iri, version, |to| clone_project(&project, to, true))
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        env.put_project(iri, version, |to| {
+            clone_project(&project, to, true).map(|_| ())
+        })
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     } else {
         return Err(PyRuntimeError::new_err(format!(
             "unable to find project at `{}`",

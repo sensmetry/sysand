@@ -4,7 +4,7 @@
 use wasm_bindgen::prelude::*;
 
 #[cfg(feature = "browser")]
-use sysand_core::commands::new::do_new;
+use sysand_core::commands::init::do_init;
 
 pub mod env;
 pub mod io;
@@ -40,7 +40,7 @@ pub fn do_new_js_local_storage(
 ) -> Result<(), JsValue> {
     use typed_path::Utf8UnixPath;
 
-    do_new(
+    do_init(
         name,
         version,
         license,

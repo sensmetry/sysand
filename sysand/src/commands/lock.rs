@@ -23,16 +23,16 @@ use sysand_core::{
     stdlib::known_std_libs,
 };
 
-use crate::{DEFAULT_INDEX_URL, cli::DependencyOptions};
+use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 
 pub fn command_lock<P: AsRef<Path>>(
     path: P,
-    dependency_opts: DependencyOptions,
+    dependency_opts: ResolutionOptions,
     config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let DependencyOptions {
+    let ResolutionOptions {
         index,
         default_index,
         no_index,

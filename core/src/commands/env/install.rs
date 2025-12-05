@@ -138,12 +138,15 @@ pub fn do_env_install_project<
     let installing = "Installing";
     let header = crate::style::get_style_config().header;
     log::info!(
-        "{header}{installing:>12}{header:#} {} {version}",
+        "{header}{installing:>12}{header:#} `{}` {version}",
         uri.as_ref(),
     );
 
-    env.put_project(uri, version, |p| clone_project(storage, p, true))
-        .map_err(EnvInstallError::Installation)?;
+    // TODO: print version(s) being installed
+    env.put_project(uri, version, |p| {
+        clone_project(storage, p, true).map(|_| ())
+    })
+    .map_err(EnvInstallError::Installation)?;
 
     Ok(())
 }

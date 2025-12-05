@@ -571,7 +571,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
 
             wrapfs::copy(versions_temp.path(), &versions_path)?;
 
-            remove_empty_dirs(project.root_path())?;
+            remove_empty_dirs(project.project_path)?;
             if empty {
                 let current_uris_: Result<Vec<String>, LocalReadError> = self.uris()?.collect();
                 let current_uris: Vec<String> = current_uris_?;

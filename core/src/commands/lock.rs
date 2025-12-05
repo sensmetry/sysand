@@ -79,22 +79,16 @@ pub fn do_lock_projects<
         let info = project
             .get_info()
             .map_err(LockProjectError::InputProjectError)?
-            .ok_or(LockError::IncompleteInputProject(format!(
-                "\n{:?}",
-                project
-            )))?;
+            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
         let meta = project
             .get_meta()
             .map_err(LockProjectError::InputProjectError)?
-            .ok_or(LockError::IncompleteInputProject(format!("{:?}", project)))?;
+            .ok_or_else(|| LockError::IncompleteInputProject(format!("{:?}", project)))?;
 
         let canonical_hash = project
             .checksum_canonical_hex()
             .map_err(LockProjectError::InputProjectCanonicalisationError)?
-            .ok_or(LockError::IncompleteInputProject(format!(
-                "\n{:?}",
-                project
-            )))?;
+            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
         lock.projects.push(Project {
             name: Some(info.name),
@@ -149,10 +143,7 @@ pub fn do_lock_extend<
         let canonical_hash = project
             .checksum_canonical_hex()
             .map_err(LockError::DependencyProjectCanonicalisation)?
-            .ok_or(LockError::IncompleteInputProject(format!(
-                "\n{:?}",
-                project
-            )))?;
+            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
         lock.projects.push(Project {
             name: Some(info.name),
@@ -190,18 +181,13 @@ pub fn do_lock_local_editable<
     LockOutcome<EditableLocalSrcProject, PD>,
     LockProjectError<EditableLocalSrcProject, PD, R>,
 > {
-    let project = EditableProject::new(
-        path.as_ref()
-            .to_str()
-            .ok_or(LockError::IncompleteInputProject(
-                ": project path contains invalid Unicode, and so cannot be stored".to_string(),
-            ))?,
-        LocalSrcProject {
-            project_path: path.as_ref().canonicalize().map_err(|e| {
-                LockError::Io(FsIoError::Canonicalize(path.to_path_buf(), e).into())
-            })?,
-        },
-    );
+    let project = EditableProject::new(LocalSrcProject {
+        project_path: path
+            .as_ref()
+            // TODO: path supplied to EditableProject was not canonicalized, this may break paths in lockfile
+            .canonicalize()
+            .map_err(|e| LockError::Io(FsIoError::Canonicalize(path.to_path_buf(), e).into()))?,
+    });
 
     do_lock_projects(std::iter::once(project), resolver)
 }

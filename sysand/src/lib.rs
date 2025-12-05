@@ -19,8 +19,8 @@ use sysand_core::{
         local_fs::{get_config, load_configs},
     },
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
+    init::InitError,
     lock::Lock,
-    new::NewError,
     project::utils::wrapfs,
     stdlib::known_std_libs,
 };
@@ -35,8 +35,8 @@ use crate::commands::{
     exclude::command_exclude,
     include::command_include,
     info::{command_info_current_project, command_info_path, command_info_verb_path},
+    init::command_init,
     lock::command_lock,
-    new::command_new,
     print_root::command_print_root,
     remove::command_remove,
     sources::{command_sources_env, command_sources_project},
@@ -108,7 +108,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_semver,
             license,
             no_spdx,
-        } => command_new(name, version, no_semver, license, no_spdx, path),
+        } => command_init(name, version, no_semver, license, no_spdx, path),
         cli::Command::Env { command } => match command {
             None => {
                 command_env(
@@ -199,7 +199,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         cli::Command::Sync { dependency_opts } => {
-            let cli::DependencyOptions { include_std, .. } = dependency_opts.clone();
+            let cli::ResolutionOptions { include_std, .. } = dependency_opts.clone();
             let mut local_environment = match current_environment {
                 Some(env) => env,
                 None => command_env(
@@ -248,7 +248,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             dependency_opts,
             subcommand,
         } => {
-            let cli::DependencyOptions {
+            let cli::ResolutionOptions {
                 index,
                 default_index,
                 no_index,
@@ -328,7 +328,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                         if !no_semver {
                                             if let Some(v) = set {
                                                 semver::Version::parse(v).map_err(|e| {
-                                                NewError::<std::convert::Infallible>::SemVerParse(
+                                                InitError::<std::convert::Infallible>::SemVerParse(
                                                     v.as_str().into(),
                                                     e,
                                                 )
@@ -345,7 +345,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                         if !no_spdx {
                                             if let Some(l) = set {
                                                 spdx::Expression::parse(l).map_err(|e| {
-                                                NewError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
+                                                InitError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
                                             })?;
                                             }
                                         }
@@ -471,11 +471,29 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &provided_iris,
             )
         }
+        cli::Command::Clone {
+            locator,
+            version,
+            path,
+            dependency_opts,
+            allow_overwrite,
+            no_deps,
+        } => commands::clone::command_clone(
+            locator,
+            version,
+            path,
+            allow_overwrite,
+            no_deps,
+            dependency_opts,
+            &config,
+            client,
+            runtime,
+        ),
     }
 }
 
-pub fn get_env(project_root: &Path) -> Option<LocalDirectoryEnvironment> {
-    let environment_path = project_root.join(DEFAULT_ENV_NAME);
+pub fn get_env(project_root: impl AsRef<Path>) -> Option<LocalDirectoryEnvironment> {
+    let environment_path = project_root.as_ref().join(DEFAULT_ENV_NAME);
     if !environment_path.is_dir() {
         None
     } else {
@@ -483,7 +501,8 @@ pub fn get_env(project_root: &Path) -> Option<LocalDirectoryEnvironment> {
     }
 }
 
-pub fn get_or_create_env(project_root: &Path) -> Result<LocalDirectoryEnvironment> {
+pub fn get_or_create_env(project_root: impl AsRef<Path>) -> Result<LocalDirectoryEnvironment> {
+    let project_root = project_root.as_ref();
     match get_env(project_root) {
         Some(env) => Ok(env),
         None => command_env(project_root.join(DEFAULT_ENV_NAME)),

@@ -125,7 +125,7 @@ mod filesystem_tests {
         source_project.write_source(source_path, &mut Cursor::new(source_code), true)?;
 
         directory_environment.put_project("urn::sysand_test::1", "1.2.3", |p| {
-            clone_project(&source_project, p, true)
+            clone_project(&source_project, p, true).map(|_| ())
         })?;
 
         let target_project = directory_environment.get_project("urn::sysand_test::1", "1.2.3")?;
