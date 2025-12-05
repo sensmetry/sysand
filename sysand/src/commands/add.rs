@@ -82,6 +82,7 @@ pub fn command_add<S: AsRef<str>>(
             ".",
             resolution_opts,
             config,
+            &project_root,
             client.clone(),
             runtime.clone(),
         )?;

@@ -112,6 +112,7 @@ fn do_info_py_path(
     let _ = pyo3_log::try_init();
 
     let project = LocalSrcProject {
+        nominal_path: None,
         project_path: path.into(),
     };
 
@@ -182,6 +183,7 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
         return Err(pyo3::exceptions::PyNotImplementedError::new_err("TODO"));
     };
     let project = LocalSrcProject {
+        nominal_path: None,
         project_path: current_project_path.into(),
     };
 
@@ -334,6 +336,7 @@ pub fn do_sources_project_py(
     let mut result = vec![];
 
     let current_project = LocalSrcProject {
+        nominal_path: None,
         project_path: path.into(),
     };
 
@@ -398,6 +401,7 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
     let _ = pyo3_log::try_init();
 
     let mut project = LocalSrcProject {
+        nominal_path: None,
         project_path: path.into(),
     };
 
@@ -412,6 +416,7 @@ fn do_remove_py(path: String, iri: String) -> PyResult<()> {
     let _ = pyo3_log::try_init();
 
     let mut project = LocalSrcProject {
+        nominal_path: None,
         project_path: path.into(),
     };
 
@@ -434,6 +439,7 @@ fn do_include_py(
     let _ = pyo3_log::try_init();
 
     let mut project = LocalSrcProject {
+        nominal_path: None,
         project_path: path.into(),
     };
 
@@ -468,6 +474,7 @@ fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
     let _ = pyo3_log::try_init();
 
     let mut project = LocalSrcProject {
+        nominal_path: None,
         project_path: path.into(),
     };
 
@@ -509,6 +516,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     } else if location.is_dir() {
         let project = LocalSrcProject {
+            nominal_path: None,
             project_path: location,
         };
 

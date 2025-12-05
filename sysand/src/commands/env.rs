@@ -87,6 +87,7 @@ pub fn command_env_install(
             for source in &config_project.sources {
                 projects.push(ProjectReference::new(AnyProject::try_from_source(
                     source.clone(),
+                    project_root.clone(),
                     client.clone(),
                     runtime.clone(),
                 )?));
@@ -189,12 +190,13 @@ pub fn command_env_install_path<S: AsRef<str>>(
         include_std,
     } = resolution_opts;
 
-    let m = wrapfs::metadata(&path)?;
-    let project = if m.is_dir() {
+    let metadata = wrapfs::metadata(&path)?;
+    let project = if metadata.is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
+            nominal_path: Some(path.as_str().into()),
             project_path: path.as_str().into(),
         })
-    } else if m.is_file() {
+    } else if metadata.is_file() {
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(&path)?)
     } else {
         bail!("path `{path}` is neither a directory nor a file");
@@ -224,6 +226,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
             for source in &config_project.sources {
                 projects.push(ProjectReference::new(AnyProject::try_from_source(
                     source.clone(),
+                    project_root.clone(),
                     client.clone(),
                     runtime.clone(),
                 )?));
