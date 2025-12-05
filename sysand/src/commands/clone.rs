@@ -20,14 +20,19 @@ use sysand_core::{
 
 use crate::{
     CliError, DEFAULT_INDEX_URL,
-    cli::{ProjectLocator, ResolutionOptions},
+    cli::{ProjectLocatorArgs, ResolutionOptions},
     commands::sync::command_sync,
     get_or_create_env,
 };
 
+pub enum ProjectLocator {
+    Iri(Iri<String>),
+    Path(String),
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn command_clone(
-    locator: ProjectLocator,
+    locator: ProjectLocatorArgs,
     version: Option<String>,
     install_path: Option<String>,
     allow_overwrite: bool,
@@ -46,8 +51,9 @@ pub fn command_clone(
 
     let project_path = match install_path {
         Some(p) => {
-            wrapfs::create_dir_all(&p)?;
-            p
+            let canonical = wrapfs::canonicalize(p)?;
+            wrapfs::create_dir_all(&canonical)?;
+            canonical
         }
         // TODO: add current_dir to some sort of common params, to
         // avoid calling current_dir everywhere
@@ -55,11 +61,7 @@ pub fn command_clone(
         // especially if sysand is called from ffi or within some script/app
         // where current dir is not obvious
         // TODO: replace with wrapfs::current_dir once it's merged
-        None => std::env::current_dir()?
-            .as_path()
-            .to_str()
-            .unwrap()
-            .to_owned(),
+        None => std::env::current_dir()?,
     };
     if let Some(existing_project) = discover_project(&project_path) {
         log::warn!(
@@ -76,63 +78,68 @@ pub fn command_clone(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
-    let mut local_project = LocalSrcProject {
-        project_path: project_path.as_str().into(),
-    };
-
-    // TODO: maybe extract to some fn do_* like other fn command_* do?
-    let cloning = "Cloning";
-    let header = sysand_core::style::get_style_config().header;
-    let ProjectLocator {
+    let ProjectLocatorArgs {
         auto_location,
         iri,
         from_path,
     } = locator;
 
     // TODO: maybe clone into temp dir first?
-    let (iri_path, info, _meta) = if let Some(auto_location) = auto_location {
+    let locator = if let Some(auto_location) = auto_location {
         match fluent_uri::Iri::parse(auto_location) {
-            Ok(iri) => {
-                let (info, meta) = clone_iri(
-                    &iri,
-                    version,
-                    &mut local_project,
-                    client.clone(),
-                    runtime.clone(),
-                    index_urls.clone(),
-                    allow_overwrite,
-                )?;
-                (iri.into_string(), info, meta)
-            }
-            Err((_e, path)) => {
-                let (info, meta) =
-                    clone_path(path.as_str().into(), &mut local_project, allow_overwrite)?;
-                (path, info, meta)
-            }
+            Ok(iri) => ProjectLocator::Iri(iri),
+            Err((_e, path)) => ProjectLocator::Path(path),
         }
     } else if let Some(path) = from_path {
-        let (info, meta) = clone_path(path.as_str().into(), &mut local_project, allow_overwrite)?;
-        (path, info, meta)
+        ProjectLocator::Path(path)
     } else if let Some(iri) = iri {
-        let (info, meta) = clone_iri(
-            &iri,
-            version,
-            &mut local_project,
-            client.clone(),
-            runtime.clone(),
-            index_urls.clone(),
-            allow_overwrite,
-        )?;
-        (iri.into_string(), info, meta)
+        ProjectLocator::Iri(iri)
     } else {
         unreachable!()
     };
-    log::info!(
-        "{header}{cloning:>12}{header:#} `{}` (`{}`) {}",
-        info.name,
-        iri_path, // TODO: maybe canonicalize if path?
-        info.version
-    );
+
+    let cloning = "Cloning";
+    let cloned = "Cloned";
+    let header = sysand_core::style::get_style_config().header;
+
+    let mut local_project = LocalSrcProject {
+        project_path: project_path.clone(),
+    };
+    match locator {
+        ProjectLocator::Iri(iri) => {
+            log::info!("{header}{cloning:>12}{header:#} project with IRI `{}`", iri);
+            let (info, _meta) = clone_iri(
+                &iri,
+                version,
+                &mut local_project,
+                client.clone(),
+                runtime.clone(),
+                index_urls.clone(),
+                allow_overwrite,
+            )?;
+            log::info!(
+                "{header}{cloned:>12}{header:#} `{}` {}",
+                info.name,
+                info.version
+            );
+        }
+        ProjectLocator::Path(path) => {
+            log::info!(
+                "{header}{cloning:>12}{header:#} project from `{}` to
+                {:>12} `{}`",
+                wrapfs::canonicalize(&path)?.display(),
+                ' ',
+                local_project.project_path.display(),
+            );
+            let (info, _meta) =
+                clone_path(path.as_str().into(), &mut local_project, allow_overwrite)?;
+            log::info!(
+                "{header}{cloned:>12}{header:#} `{}` {}",
+                info.name,
+                info.version
+            );
+        }
+    }
 
     if !no_deps {
         let provided_iris = if !include_std {
@@ -159,18 +166,16 @@ pub fn command_clone(
                 runtime.clone(),
             ),
         );
-        let project = EditableProject::new(&project_path, local_project);
+        let project = EditableProject::new(local_project);
         let LockOutcome {
             lock,
             dependencies: _dependencies,
             inputs: _inputs,
         } = sysand_core::commands::lock::do_lock_projects([project], resolver)?;
-        // TODO: get_or_create means we tolerate existing env. Is this desirable?
-        //       Shouldn't cause any harm
         let mut env = get_or_create_env(&project_path)?;
         command_sync(
             lock,
-            project_path.into(),
+            &project_path,
             &mut env,
             client,
             &provided_iris,

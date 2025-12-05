@@ -19,8 +19,8 @@ use sysand_core::{
         local_fs::{get_config, load_configs},
     },
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
+    init::InitError,
     lock::Lock,
-    new::NewError,
     project::utils::wrapfs,
     stdlib::known_std_libs,
 };
@@ -35,8 +35,8 @@ use crate::commands::{
     exclude::command_exclude,
     include::command_include,
     info::{command_info_current_project, command_info_path, command_info_verb_path},
+    init::command_init,
     lock::command_lock,
-    new::command_new,
     print_root::command_print_root,
     remove::command_remove,
     sources::{command_sources_env, command_sources_project},
@@ -108,7 +108,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_semver,
             license,
             no_spdx,
-        } => command_new(name, version, no_semver, license, no_spdx, path),
+        } => command_init(name, version, no_semver, license, no_spdx, path),
         cli::Command::Env { command } => match command {
             None => {
                 command_env(
@@ -328,7 +328,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                         if !no_semver {
                                             if let Some(v) = set {
                                                 semver::Version::parse(v).map_err(|e| {
-                                                NewError::<std::convert::Infallible>::SemVerParse(
+                                                InitError::<std::convert::Infallible>::SemVerParse(
                                                     v.as_str().into(),
                                                     e,
                                                 )
@@ -345,7 +345,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                         if !no_spdx {
                                             if let Some(l) = set {
                                                 spdx::Expression::parse(l).map_err(|e| {
-                                                NewError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
+                                                InitError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
                                             })?;
                                             }
                                         }

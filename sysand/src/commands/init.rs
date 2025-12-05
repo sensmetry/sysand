@@ -7,7 +7,7 @@ use crate::CliError;
 use anyhow::Result;
 use sysand_core::project::utils::wrapfs;
 
-pub fn command_new(
+pub fn command_init(
     name: Option<String>,
     version: Option<String>,
     no_semver: bool,
@@ -29,7 +29,7 @@ pub fn command_new(
         None => default_name_from_path(&path)?,
     };
 
-    sysand_core::new::do_new_ext(
+    sysand_core::init::do_init_ext(
         name,
         version,
         no_semver,

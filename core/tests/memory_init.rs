@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use semver::Version;
-use sysand_core::{commands::new::do_new, model::InterchangeProjectInfo, new::do_new_memory};
+use sysand_core::{commands::init::do_init, init::do_init_memory, model::InterchangeProjectInfo};
 
 /// `sysand init` should create valid, minimal, .project.json
 /// and .meta.json files in the current working directory. (Non-interactive use)
 #[test]
 fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let memory_storage = do_new_memory(
+    let memory_storage = do_init_memory(
         "init_basic".to_string(),
         "1.2.3".to_string(),
         Some("Apache-2.0".to_string()),
@@ -58,7 +58,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
 /// project should remain unaffected by the second `sysand init` execution.
 #[test]
 fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
-    let mut memory_storage = do_new_memory(
+    let mut memory_storage = do_init_memory(
         "init_fail_on_double_init".to_string(),
         "1.2.3".to_string(),
         Some("Apache-2.0 OR MIT".to_string()),
@@ -67,7 +67,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     let original_info = memory_storage.info.clone();
     let original_meta = memory_storage.meta.clone();
 
-    let second_result = do_new(
+    let second_result = do_init(
         "init_fail_on_double_init".to_string(),
         "1.2.3".to_string(),
         Some("Apache-2.0 OR MIT".to_string()),
@@ -76,7 +76,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
 
     assert!(matches!(
         second_result,
-        Err(sysand_core::commands::new::NewError::Project(
+        Err(sysand_core::commands::init::InitError::Project(
             sysand_core::project::memory::InMemoryError::AlreadyExists(_)
         ))
     ));
