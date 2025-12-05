@@ -181,18 +181,13 @@ pub fn do_lock_local_editable<
     LockOutcome<EditableLocalSrcProject, PD>,
     LockProjectError<EditableLocalSrcProject, PD, R>,
 > {
-    let project = EditableProject::new(
-        path.as_ref().to_str().ok_or_else(|| {
-            LockError::IncompleteInputProject(
-                ": project path contains invalid Unicode, and so cannot be stored".to_string(),
-            )
-        })?,
-        LocalSrcProject {
-            project_path: path.as_ref().canonicalize().map_err(|e| {
-                LockError::Io(FsIoError::Canonicalize(path.to_path_buf(), e).into())
-            })?,
-        },
-    );
+    let project = EditableProject::new(LocalSrcProject {
+        project_path: path
+            .as_ref()
+            // TODO: path supplied to EditableProject was not canonicalized, this may break paths in lockfile
+            .canonicalize()
+            .map_err(|e| LockError::Io(FsIoError::Canonicalize(path.to_path_buf(), e).into()))?,
+    });
 
     do_lock_projects(std::iter::once(project), resolver)
 }

@@ -111,7 +111,7 @@ pub enum Command {
     #[clap(verbatim_doc_comment)]
     Clone {
         #[clap(flatten)]
-        locator: ProjectLocator,
+        locator: ProjectLocatorArgs,
         /// Version of the project to clone. Defaults to the latest
         /// version according to SemVer 2.0, ignoring pre-releases
         // TODO: If from_path and version are both specified, we can only
@@ -230,7 +230,7 @@ pub enum Command {
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
-pub struct ProjectLocator {
+pub struct ProjectLocatorArgs {
     /// Clone the project from a given locator, trying to parse it as an
     /// IRI/URI/URL and otherwise falling back to using it as a path
     #[clap(

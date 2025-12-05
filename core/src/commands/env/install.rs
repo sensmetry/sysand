@@ -138,7 +138,7 @@ pub fn do_env_install_project<
     let installing = "Installing";
     let header = crate::style::get_style_config().header;
     log::info!(
-        "{header}{installing:>12}{header:#} {} {version}",
+        "{header}{installing:>12}{header:#} `{}` {version}",
         uri.as_ref(),
     );
 

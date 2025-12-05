@@ -3,7 +3,7 @@
 
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{self, ProjectRead, utils::ZipArchiveError},
+    project::{self, ProjectRead, editable::GetPath, utils::ZipArchiveError},
 };
 use std::{
     io::Write as _,
@@ -209,6 +209,12 @@ impl LocalKParProject {
             .metadata()
             .map_err(FsIoError::MetadataHandle)?
             .len())
+    }
+}
+
+impl GetPath for LocalKParProject {
+    fn get_path(&self) -> &str {
+        self.archive_path.to_str().unwrap()
     }
 }
 

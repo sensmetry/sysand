@@ -241,7 +241,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
         allow_multiple,
     )?;
     if !no_deps {
-        let project = EditableProject::new(&path, project);
+        let project = EditableProject::new(project);
 
         let mut memory_projects = HashMap::default();
         for (k, v) in provided_iris.iter() {

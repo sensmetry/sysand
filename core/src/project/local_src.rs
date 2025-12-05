@@ -4,7 +4,7 @@
 use crate::{
     env::utils::{CloneError, clone_project},
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectMut, ProjectRead, utils::wrapfs},
+    project::{ProjectMut, ProjectRead, editable::GetPath, utils::wrapfs},
 };
 use std::{
     collections::HashSet,
@@ -26,6 +26,13 @@ use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationE
 #[derive(Clone, Debug)]
 pub struct LocalSrcProject {
     pub project_path: PathBuf,
+}
+
+impl GetPath for LocalSrcProject {
+    fn get_path(&self) -> &str {
+        // TODO: fix this when migrating to camino
+        self.project_path.to_str().unwrap()
+    }
 }
 
 /// Tries to canonicalise the (longest possible) prefix of a path.
@@ -85,7 +92,7 @@ impl LocalSrcProject {
         Ok(self.get_project()?.0)
     }
 
-    pub fn get_meta(&mut self) -> Result<Option<InterchangeProjectMetadataRaw>, LocalSrcError> {
+    pub fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, LocalSrcError> {
         Ok(self.get_project()?.1)
     }
 
@@ -375,11 +382,9 @@ impl ProjectRead for LocalSrcProject {
     }
 
     fn sources(&self) -> Vec<crate::lock::Source> {
-        match self.project_path.to_str() {
-            Some(path_str) => vec![crate::lock::Source::LocalSrc {
-                src_path: path_str.to_string(),
-            }],
-            None => vec![],
-        }
+        let path_str = self.project_path.to_str().unwrap();
+        vec![crate::lock::Source::LocalSrc {
+            src_path: path_str.to_string(),
+        }]
     }
 }

@@ -7,23 +7,31 @@ use crate::project::ProjectRead;
 /// Treat a project type `P` as an "Editable" project. This simply adds
 /// a `source` pointing to the nominal path `nominal_path` when
 /// this project is in a lockfile.
-pub struct EditableProject<P> {
+pub struct EditableProject<P: GetPath> {
     inner: P,
-    nominal_path: String,
     include_original_sources: bool,
 }
 
-impl<P> EditableProject<P> {
-    pub fn new<Q: AsRef<str>>(nominal_path: Q, project: P) -> EditableProject<P> {
+// TODO: look how the lockfile works. Maybe this must be relative to `.`?
+pub trait GetPath {
+    // TODO: use camino path
+    fn get_path(&self) -> impl AsRef<str>;
+}
+
+impl<P: GetPath> EditableProject<P> {
+    pub fn new(project: P) -> EditableProject<P> {
         EditableProject {
             inner: project,
-            nominal_path: nominal_path.as_ref().to_string(),
             include_original_sources: false,
         }
     }
+
+    pub fn inner(&self) -> &P {
+        &self.inner
+    }
 }
 
-impl<P: ProjectRead> ProjectRead for EditableProject<P> {
+impl<P: ProjectRead + GetPath> ProjectRead for EditableProject<P> {
     type Error = P::Error;
 
     fn get_project(
@@ -60,7 +68,8 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
         inner_sources.insert(
             0,
             crate::lock::Source::Editable {
-                editable: self.nominal_path.clone(),
+                // TODO: fix this when migrating to camino
+                editable: self.inner.get_path().as_ref().to_owned(),
             },
         );
 

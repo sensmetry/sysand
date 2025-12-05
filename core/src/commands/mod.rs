@@ -4,12 +4,13 @@
 pub mod add;
 #[cfg(feature = "filesystem")]
 pub mod build;
+pub mod clone;
 pub mod env;
 pub mod exclude;
 pub mod include;
 pub mod info;
+pub mod init;
 pub mod lock;
-pub mod new;
 pub mod remove;
 #[cfg(feature = "filesystem")]
 pub mod root;

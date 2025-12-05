@@ -12,6 +12,7 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         self, ProjectRead,
+        editable::GetPath,
         local_kpar::{LocalKParError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ProjectDeserializationError, wrapfs},
@@ -125,6 +126,15 @@ impl FileResolver {
 pub enum FileResolverProject {
     LocalSrcProject(LocalSrcProject),
     LocalKParProject(LocalKParProject),
+}
+
+impl GetPath for FileResolverProject {
+    fn get_path(&self) -> &str {
+        match self {
+            FileResolverProject::LocalSrcProject(p) => p.get_path(),
+            FileResolverProject::LocalKParProject(p) => p.get_path(),
+        }
+    }
 }
 
 #[derive(Error, Debug)]
