@@ -91,6 +91,7 @@ pub fn command_env_install<S: AsRef<str>>(
             for source in &config_project.sources {
                 projects.push(ProjectReference::new(AnyProject::try_from_source(
                     source.clone(),
+                    project_root.clone(),
                     client.clone(),
                     runtime.clone(),
                 )?));
@@ -209,9 +210,12 @@ pub fn command_env_install_path<S: AsRef<str>>(
         include_std,
     } = dependency_opts;
 
-    let project_path = PathBuf::from(&path);
+    let project_path = PathBuf::from(&path).canonicalize()?;
     let project = if project_path.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject { project_path })
+        FileResolverProject::LocalSrcProject(LocalSrcProject {
+            nominal_path: Some(project_path.clone()),
+            project_path,
+        })
     } else if project_path.is_file() {
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(project_path)?)
     } else {
@@ -242,6 +246,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
             for source in &config_project.sources {
                 projects.push(ProjectReference::new(AnyProject::try_from_source(
                     source.clone(),
+                    project_root.clone(),
                     client.clone(),
                     runtime.clone(),
                 )?));

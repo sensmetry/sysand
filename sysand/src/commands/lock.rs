@@ -9,6 +9,7 @@ use anyhow::{Result, bail};
 use fluent_uri::Iri;
 use pubgrub::Reporter as _;
 
+use sysand_core::project::utils::ToPathBuf;
 use sysand_core::{
     commands::lock::{
         DEFAULT_LOCKFILE_NAME, LockError, LockOutcome, LockProjectError, do_lock_local_editable,
@@ -27,10 +28,11 @@ use sysand_core::{
 
 use crate::{DEFAULT_INDEX_URL, cli::DependencyOptions};
 
-pub fn command_lock<P: AsRef<Path>>(
+pub fn command_lock<P: AsRef<Path>, R: AsRef<Path>>(
     path: P,
     dependency_opts: DependencyOptions,
     config: &Config,
+    project_root: R,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
@@ -41,10 +43,8 @@ pub fn command_lock<P: AsRef<Path>>(
         include_std,
     } = dependency_opts;
 
-    let cwd = wrapfs::current_dir().ok();
-
     let local_env_path =
-        Path::new(path.as_ref()).join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+        Path::new(project_root.as_ref()).join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
 
     let index_urls = if no_index {
         None
@@ -59,6 +59,7 @@ pub fn command_lock<P: AsRef<Path>>(
             for source in &config_project.sources {
                 projects.push(ProjectReference::new(AnyProject::try_from_source(
                     source.clone(),
+                    &project_root,
                     client.clone(),
                     runtime.clone(),
                 )?));
@@ -85,7 +86,7 @@ pub fn command_lock<P: AsRef<Path>>(
             projects: memory_projects,
         },
         standard_resolver(
-            cwd,
+            Some(project_root.to_path_buf()),
             if local_env_path.is_dir() {
                 Some(local_env_path)
             } else {
@@ -102,7 +103,7 @@ pub fn command_lock<P: AsRef<Path>>(
         lock,
         dependencies: _dependencies,
         inputs: _inputs,
-    } = match do_lock_local_editable(&path, wrapped_resolver) {
+    } = match do_lock_local_editable(&path, &project_root, wrapped_resolver) {
         Ok(lock_outcome) => lock_outcome,
         Err(LockProjectError::LockError(lock_error)) => {
             if let LockError::Solver(solver_error) = lock_error {
@@ -153,7 +154,7 @@ pub fn command_lock<P: AsRef<Path>>(
     };
 
     wrapfs::write(
-        Path::new(path.as_ref()).join(DEFAULT_LOCKFILE_NAME),
+        Path::new(project_root.as_ref()).join(DEFAULT_LOCKFILE_NAME),
         lock.canonicalize().to_string(),
     )?;
 

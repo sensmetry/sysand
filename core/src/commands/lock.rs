@@ -181,10 +181,12 @@ pub type EditableLocalSrcProject = EditableProject<LocalSrcProject>;
 #[cfg(feature = "filesystem")]
 pub fn do_lock_local_editable<
     P: AsRef<Path>,
+    PR: AsRef<Path>,
     PD: ProjectRead + Debug,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     path: P,
+    project_root: PR,
     resolver: R,
 ) -> Result<
     LockOutcome<EditableLocalSrcProject, PD>,
@@ -197,9 +199,20 @@ pub fn do_lock_local_editable<
                 ": project path contains invalid Unicode, and so cannot be stored".to_string(),
             ))?,
         LocalSrcProject {
-            project_path: path.as_ref().canonicalize().map_err(|e| {
-                LockError::Io(FsIoError::Canonicalize(path.to_path_buf(), e).into())
-            })?,
+            nominal_path: Some(path.as_ref().to_path_buf()),
+            project_path: project_root
+                .as_ref()
+                .join(path.as_ref())
+                .canonicalize()
+                .map_err(|e| {
+                    LockError::Io(
+                        FsIoError::Canonicalize(
+                            project_root.to_path_buf().join(path.to_path_buf()),
+                            e,
+                        )
+                        .into(),
+                    )
+                })?,
         },
     );
 

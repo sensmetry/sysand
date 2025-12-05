@@ -82,6 +82,7 @@ pub fn command_add(
             PathBuf::from("."),
             dependency_opts,
             config,
+            &project_root,
             client.clone(),
             runtime.clone(),
         )?;

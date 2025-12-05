@@ -35,7 +35,10 @@ pub fn command_new(
         no_semver,
         license,
         no_spdx,
-        &mut sysand_core::project::local_src::LocalSrcProject { project_path: path },
+        &mut sysand_core::project::local_src::LocalSrcProject {
+            nominal_path: None,
+            project_path: path,
+        },
     )?;
     Ok(())
 }
