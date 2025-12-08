@@ -121,7 +121,7 @@ pub enum Command {
         version: Option<String>,
         /// Path to clone the project into. Defaults to current directory
         #[arg(long, default_value = None)]
-        path: Option<String>,
+        target: Option<String>,
 
         // TODO: not all options below make sense for this
         /// Allow overwriting an existing project
@@ -243,17 +243,14 @@ pub struct ProjectLocatorArgs {
     #[arg(short = 'i', long, visible_alias = "uri", visible_alias = "url")]
     pub iri: Option<fluent_uri::Iri<String>>,
     /// Path to clone the project from
-    // TODO: maybe remove this? Not sure of usefulness
     // TODO: allow somehow requiring to use git here
-    // TODO: maybe have our own path type, or utilize Utf8Path everywhere
-    // This is to be clear about which types are used for what
     #[arg(
         long,
         short = 's',
         default_value = None,
         value_name = "PATH"
     )]
-    pub from_path: Option<String>,
+    pub path: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -1175,7 +1172,7 @@ pub enum EnvCommand {
         /// version according to SemVer 2.0, ignoring pre-releases
         #[clap(verbatim_doc_comment)]
         version: Option<String>,
-        /// Local path to interchange project
+        /// Path to interchange project
         #[arg(long, default_value = None)]
         path: Option<String>,
 

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use assert_cmd::prelude::*;
 use mockito::{Server, ServerGuard};

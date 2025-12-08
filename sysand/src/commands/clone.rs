@@ -30,11 +30,12 @@ pub enum ProjectLocator {
     Path(String),
 }
 
+/// Clones project from `locator` to `target` directory.
 #[allow(clippy::too_many_arguments)]
 pub fn command_clone(
     locator: ProjectLocatorArgs,
     version: Option<String>,
-    install_path: Option<String>,
+    target: Option<String>,
     allow_overwrite: bool,
     no_deps: bool,
     resolution_opts: ResolutionOptions,
@@ -49,7 +50,7 @@ pub fn command_clone(
         include_std,
     } = resolution_opts;
 
-    let project_path = match install_path {
+    let project_path = match target {
         Some(p) => {
             let canonical = wrapfs::canonicalize(p)?;
             wrapfs::create_dir_all(&canonical)?;
@@ -81,7 +82,7 @@ pub fn command_clone(
     let ProjectLocatorArgs {
         auto_location,
         iri,
-        from_path,
+        path,
     } = locator;
 
     // TODO: maybe clone into temp dir first?
@@ -90,7 +91,7 @@ pub fn command_clone(
             Ok(iri) => ProjectLocator::Iri(iri),
             Err((_e, path)) => ProjectLocator::Path(path),
         }
-    } else if let Some(path) = from_path {
+    } else if let Some(path) = path {
         ProjectLocator::Path(path)
     } else if let Some(iri) = iri {
         ProjectLocator::Iri(iri)

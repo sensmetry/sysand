@@ -458,14 +458,14 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         cli::Command::Clone {
             locator,
             version,
-            path,
+            target,
             dependency_opts,
             allow_overwrite,
             no_deps,
         } => commands::clone::command_clone(
             locator,
             version,
-            path,
+            target,
             allow_overwrite,
             no_deps,
             dependency_opts,
