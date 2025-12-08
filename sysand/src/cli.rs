@@ -88,7 +88,7 @@ pub enum Command {
         /// For details, see the user guide's Project Metadata section
         #[clap(verbatim_doc_comment)]
         version_constraint: Option<String>,
-        /// Do not automatically resolve usages (and generate lockfile)
+        /// Do not automatically resolve dependencies (and generate lockfile)
         #[arg(long, default_value = "false")]
         no_lock: bool,
         /// Do not automatically install dependencies
@@ -127,7 +127,7 @@ pub enum Command {
         /// Allow overwriting an existing project
         #[arg(long)]
         allow_overwrite: bool,
-        /// Don't resolve or install usages
+        /// Don't resolve or install dependencies
         #[arg(long)]
         no_deps: bool,
         #[command(flatten)]
@@ -1214,7 +1214,7 @@ pub struct InstallOptions {
     /// Install even if another version is already installed
     #[arg(long)]
     pub allow_multiple: bool,
-    /// Don't install any usages
+    /// Don't install any dependencies
     #[arg(long)]
     pub no_deps: bool,
 }
@@ -1226,7 +1226,7 @@ pub struct InstallOptions {
 #[derive(clap::Args, Debug, Clone)]
 pub struct ResolutionOptions {
     /// Comma-delimited list of index URLs to use when resolving
-    /// project(s) and/or their usages, in addition to the default indexes.
+    /// project(s) and/or their dependencies, in addition to the default indexes.
     #[arg(
         long,
         num_args = 0..,
@@ -1251,7 +1251,7 @@ pub struct ResolutionOptions {
         verbatim_doc_comment
     )]
     pub default_index: Vec<String>,
-    /// Do not use any index when resolving project(s) and/or their usages
+    /// Do not use any index when resolving project(s) and/or their dependencies
     // TODO: document somewhere which sources are supported:
     // - file:// (sometimes also regular paths)
     // - git (https?, ssh?)
@@ -1265,7 +1265,7 @@ pub struct ResolutionOptions {
         help_heading = "Resolution options",
     )]
     pub no_index: bool,
-    /// Don't ignore KerML/SysML v2 standard libraries if present in usages
+    /// Don't ignore KerML/SysML v2 standard libraries if specified as dependencies
     #[arg(
         long,
         default_value = "false",
@@ -1277,7 +1277,7 @@ pub struct ResolutionOptions {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
-    /// Do not include sources for used projects
+    /// Do not include sources for dependencies
     #[arg(long, default_value = "false", conflicts_with = "include_std")]
     pub no_deps: bool,
     /// Include (installed) KerML/SysML v2 standard libraries
