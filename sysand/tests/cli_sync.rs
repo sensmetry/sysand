@@ -75,7 +75,7 @@ sources = [
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("env is up to date"));
+        .stderr(predicate::str::contains("env is already up to date"));
 
     Ok(())
 }
@@ -143,7 +143,7 @@ sources = [
 
     out.assert()
         .success()
-        .stderr(predicate::str::contains("env is up to date"));
+        .stderr(predicate::str::contains("env is already up to date"));
 
     Ok(())
 }

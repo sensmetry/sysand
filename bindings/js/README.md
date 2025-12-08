@@ -10,13 +10,13 @@ Requirements:
 `cargo install wasm-pack`)
 
 Build:
-```bash
+```sh
 wasm-pack build
 ```
 
 Build and run "native" tests using Firefox browser:
 
-```bash
+```sh
 WASM_BINDGEN_USE_BROWSER=1 wasm-pack test --headless --firefox
 ```
 
@@ -32,7 +32,7 @@ to see which versions of the tools are tested in CI and, therefore, expected to 
 
 To run the Jasmine tests, install the dependencies and run `test:browser` target:
 
-```bash
+```sh
 npm install
 npm run test:browser
 ```

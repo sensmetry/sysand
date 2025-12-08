@@ -882,10 +882,10 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
     try_clear("created", false)?;
     try_add("created", "created_1", false)?;
     try_remove("created", "1", false)?;
+    // setting the metamodel has its own test
     get_field("metamodel", Some("".to_string()))?;
-    try_set("metamodel", "metamodel", true, None)?;
     try_clear("metamodel", true)?;
-    try_add("metamodel", "metamodel_1", false)?;
+    try_add("metamodel", "kerml", false)?;
     try_remove("metamodel", "1", false)?;
     get_field("includes-derived", Some("".to_string()))?;
     try_set("includes-derived", "true", true, None)?;
@@ -902,6 +902,126 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
     try_clear("checksum", false)?;
     try_add("checksum", "checksum_1", false)?;
     try_remove("checksum", "1", false)?;
+
+    Ok(())
+}
+
+#[test]
+fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
+    let (_tmp, cwd, out) = run_sysand(
+        ["init", "info_custom_metamodel", "--version", "1.2.3"],
+        None,
+    )?;
+    out.assert().success();
+
+    let project_path = &cwd.join("info_custom_metamodel");
+    let field = "metamodel";
+
+    let get_metamodel = |expected: Option<String>| -> Result<String, Box<dyn Error>> {
+        let out = run_sysand_in(project_path, ["info", field], None)?;
+        let stdout = out.stdout.clone();
+        if let Some(v) = expected {
+            out.assert().success().stdout(v);
+        }
+        Ok(String::from_utf8(stdout)?)
+    };
+
+    let try_set = |flags_values: &[&str],
+                   expected_value_err: Result<&str, &str>|
+     -> Result<(), Box<dyn Error>> {
+        let before = get_metamodel(None)?;
+        let out = run_sysand_in(
+            project_path,
+            ["info", field]
+                .into_iter()
+                .chain(flags_values.iter().copied()),
+            None,
+        )?;
+        match expected_value_err {
+            Ok(v) => {
+                out.assert().success();
+                let mut expected_output = v.to_string();
+                expected_output.push('\n');
+                get_metamodel(Some(expected_output))?;
+            }
+            Err(e) => {
+                out.assert().failure().stderr(predicates::str::contains(e));
+                get_metamodel(Some(before))?;
+            }
+        }
+        Ok(())
+    };
+
+    // Default release
+    try_set(
+        &["--set", "sysml"],
+        Ok("https://www.omg.org/spec/SysML/20250201"),
+    )?;
+    try_set(
+        &["--set", "kerml"],
+        Ok("https://www.omg.org/spec/KerML/20250201"),
+    )?;
+    // Explicitly specified release
+    try_set(
+        &["--set", "sysml", "--release", "20250201"],
+        Ok("https://www.omg.org/spec/SysML/20250201"),
+    )?;
+    try_set(
+        &["--set", "kerml", "--release", "20250201"],
+        Ok("https://www.omg.org/spec/KerML/20250201"),
+    )?;
+    // Unknown release
+    try_set(
+        &["--set", "sysml", "--release", "20230201"],
+        Err("invalid value '20230201'"),
+    )?;
+    // Custom release
+    try_set(
+        &["--set", "sysml", "--release-custom", "123"],
+        Ok("https://www.omg.org/spec/SysML/123"),
+    )?;
+    try_set(
+        &["--set", "kerml", "--release-custom", "456"],
+        Ok("https://www.omg.org/spec/KerML/456"),
+    )?;
+    // Invalid custom release
+    try_set(
+        &["--set", "kerml", "--release-custom", "abc"],
+        Err("invalid value 'abc' for '--release-custom"),
+    )?;
+    // Custom metamodel
+    try_set(&["--set-custom", "mm1"], Ok("mm1"))?;
+
+    // Flag conflicts
+    try_set(
+        &["--set", "kerml", "--set-custom", "abc123"],
+        Err("the argument '--set <KIND>' cannot be used with '--set-custom"),
+    )?;
+    try_set(
+        &[
+            "--set",
+            "kerml",
+            "--release",
+            "20250201",
+            "--release-custom",
+            "123",
+        ],
+        Err("the argument '--release <YYYYMMDD>' cannot be used with '--release-custom"),
+    )?;
+    try_set(
+        &["--release", "20250201", "--release-custom", "123"],
+        Err("the argument '--release <YYYYMMDD>' cannot be used with '--release-custom"),
+    )?;
+    try_set(
+        &["--set-custom", "abc123", "--release-custom", "123"],
+        Err(
+            "the argument '--set-custom <METAMODEL>' cannot be used with '--release-custom <YYYYMMDD>'",
+        ),
+    )?;
+    try_set(
+        &["--set-custom", "abc123", "--release", "20250201"],
+        Err("the argument '--set-custom <METAMODEL>' cannot be used with '--release <YYYYMMDD>'"),
+    )?;
 
     Ok(())
 }

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::model::{
-    InterchangeProjectChecksum, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-    InterchangeProjectUsageRaw, ProjectHash, project_hash_raw,
+    InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+    InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
 };
 use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
@@ -82,7 +82,7 @@ async fn hash_reader_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Proje
 pub enum CanonicalisationError<ReadError> {
     #[error(transparent)]
     ProjectRead(ReadError),
-    #[error("failed to read from file\n  '{0}':\n  {1}")]
+    #[error("failed to read from file\n  `{0}`:\n  {1}")]
     FileRead(Box<str>, io::Error),
 }
 
@@ -92,9 +92,9 @@ pub enum IntoProjectError<ReadError, W: ProjectMut> {
     ProjectRead(ReadError),
     #[error(transparent)]
     ProjectWrite(W::Error),
-    #[error("missing project information file '.project.json'")]
+    #[error("missing project information file `.project.json`")]
     MissingInfo,
-    #[error("missing project metadata file '.meta.json'")]
+    #[error("missing project metadata file `.meta.json`")]
     MissingMeta,
 }
 
@@ -169,7 +169,7 @@ pub trait ProjectRead {
 
     fn checksum(
         &self,
-    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksum>>, Self::Error> {
+    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error> {
         Ok(self.get_meta()?.and_then(|meta| meta.checksum))
     }
 
@@ -190,8 +190,9 @@ pub trait ProjectRead {
             .into_iter()
             .flat_map(|index| index.iter_mut())
         {
-            if checksum.algorithm != "SHA256" {
-                checksum.algorithm = "SHA256".to_string();
+            let sha256: &str = KerMlChecksumAlg::Sha256.into();
+            if checksum.algorithm != sha256 {
+                checksum.algorithm = sha256.to_owned();
 
                 let mut src = self
                     .read_source(path)
@@ -316,7 +317,7 @@ pub trait ProjectReadAsync {
 
     fn checksum_async(
         &self,
-    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksum>>, Self::Error>>
+    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error>>
     {
         async { Ok(self.get_meta_async().await?.and_then(|meta| meta.checksum)) }
     }
@@ -338,8 +339,9 @@ pub trait ProjectReadAsync {
 
             if let Some(mut checksums) = meta.checksum {
                 let future_checksums = checksums.drain(..).map(|(path, mut checksum)| async move {
-                    if checksum.algorithm != "SHA256" {
-                        checksum.algorithm = "SHA256".to_string();
+                    let sha256: &str = KerMlChecksumAlg::Sha256.into();
+                    if checksum.algorithm != sha256 {
+                        checksum.algorithm = sha256.to_owned();
 
                         let mut src = self
                             .read_source_async(&path)
@@ -358,7 +360,7 @@ pub trait ProjectReadAsync {
                     Ok((path, checksum))
                 });
 
-                let collected_checksums: Result<Vec<(String, InterchangeProjectChecksum)>, _> =
+                let collected_checksums: Result<Vec<(String, InterchangeProjectChecksumRaw)>, _> =
                     futures::future::join_all(future_checksums.into_iter())
                         .await
                         .into_iter()
@@ -436,7 +438,7 @@ pub struct IndexMergeOutcome {
 
 #[derive(Debug)]
 pub struct SourceExclusionOutcome {
-    pub removed_checksum: Option<InterchangeProjectChecksum>,
+    pub removed_checksum: Option<InterchangeProjectChecksumRaw>,
     pub removed_symbols: Vec<String>,
 }
 
@@ -490,9 +492,14 @@ pub trait ProjectMut: ProjectRead {
                 let sha256_checksum = hash_reader(&mut reader)
                     .map_err(|e| FsIoError::ReadFile(path.as_ref().as_str().into(), e))?;
 
-                meta.add_checksum(&path, "SHA256", format!("{:x}", sha256_checksum), overwrite);
+                meta.add_checksum(
+                    &path,
+                    KerMlChecksumAlg::Sha256,
+                    format!("{:x}", sha256_checksum),
+                    overwrite,
+                );
             } else {
-                meta.add_checksum(&path, "NONE", "", overwrite);
+                meta.add_checksum(&path, KerMlChecksumAlg::None, "", overwrite);
             }
         }
 
@@ -693,7 +700,8 @@ mod tests {
 
     use crate::{
         model::{
-            InterchangeProjectChecksum, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+            InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
+            InterchangeProjectMetadataRaw, KerMlChecksumAlg,
         },
         project::{ProjectRead, hash_reader, memory::InMemoryProject},
     };
@@ -732,8 +740,8 @@ mod tests {
                 includes_implied: None,
                 checksum: Some(IndexMap::from([(
                     "MyFile.txt".to_string(),
-                    InterchangeProjectChecksum {
-                        algorithm: "None".to_string(),
+                    InterchangeProjectChecksumRaw {
+                        algorithm: KerMlChecksumAlg::None.to_string(),
                         value: "".to_string(),
                     },
                 )])),
@@ -756,10 +764,10 @@ mod tests {
         assert_eq!(checksums.len(), 1);
         assert_eq!(
             checksums.get("MyFile.txt"),
-            Some(&InterchangeProjectChecksum {
+            Some(&InterchangeProjectChecksumRaw {
                 value: "4da8b89a905445e96dd0ab6c9be9a72c8b0ffc686a57a3cc6808a8952a3560ed"
                     .to_string(),
-                algorithm: "SHA256".to_string()
+                algorithm: KerMlChecksumAlg::Sha256.to_string()
             })
         );
 

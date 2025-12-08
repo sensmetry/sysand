@@ -13,7 +13,7 @@ pub const CONFIG_FILE: &str = "sysand.toml";
 
 #[derive(Error, Debug)]
 pub enum ConfigReadError {
-    #[error("failed to deserialize TOML file '{0}': {1}")]
+    #[error("failed to deserialize TOML file `{0}`: {1}")]
     Toml(Box<Path>, toml::de::Error),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),

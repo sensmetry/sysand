@@ -11,16 +11,38 @@ pub fn command_remove(iri: String, current_project: Option<LocalSrcProject>) -> 
 
     let usages = do_remove(&mut current_project, &iri)?;
 
-    for usage in usages {
-        log::info!(
-            "{:>12} {} {}",
-            "",
-            &usage.resource,
-            usage
-                .version_constraint
-                .map(|vr| vr.to_string())
-                .unwrap_or("".to_string()),
-        );
+    let removed = "Removed";
+    let header = sysand_core::style::get_style_config().header;
+    if let [usage] = usages.as_slice() {
+        match usage.version_constraint {
+            Some(ref vc) => {
+                log::info!(
+                    "{header}{removed:>12}{header:#} `{}` with version constraints `{}`",
+                    &usage.resource,
+                    vc
+                );
+            }
+            None => {
+                log::info!("{header}{removed:>12}{header:#} `{}`", &usage.resource,);
+            }
+        }
+    } else {
+        log::info!("{header}{removed:>12}{header:#}:");
+        for usage in usages {
+            match usage.version_constraint {
+                Some(vc) => {
+                    log::info!(
+                        "{:>13} `{}` with version constraints `{}`",
+                        ' ',
+                        &usage.resource,
+                        vc
+                    );
+                }
+                None => {
+                    log::info!("{:>13} `{}`", ' ', &usage.resource,);
+                }
+            }
+        }
     }
 
     Ok(())

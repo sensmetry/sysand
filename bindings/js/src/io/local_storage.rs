@@ -32,21 +32,21 @@ pub fn open_project_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("refusing to overwrite already existing '{0}'")]
+    #[error("refusing to overwrite already existing `{0}`")]
     AlreadyExists(Box<str>),
-    #[error("failed to get 'window' object")]
+    #[error("failed to get `window` object")]
     NoWindow,
-    #[error("failed to get 'window.localStorage' object")]
+    #[error("failed to get `window.localStorage` object")]
     NoLocalStorage,
     #[error("JS error: {0:?}")]
     Js(wasm_bindgen::JsValue),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("failed to serialize information to write it to '{0}': {1}")]
+    #[error("failed to serialize information to write it to `{0}`: {1}")]
     Serialize(&'static str, serde_json::Error),
     #[error("failed to serialize: {0}")]
     SerializeHandle(#[from] serde_json::Error),
-    #[error("key '{0}' not found in local storage")]
+    #[error("key `{0}` not found in local storage")]
     KeyNotFound(String),
 }
 
