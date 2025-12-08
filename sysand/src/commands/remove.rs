@@ -9,14 +9,13 @@ use crate::CliError;
 pub fn command_remove(iri: String, current_project: Option<LocalSrcProject>) -> Result<()> {
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
 
-    let mut usages = do_remove(&mut current_project, &iri)?;
+    let usages = do_remove(&mut current_project, &iri)?;
 
     let removed = "Removed";
     let header = sysand_core::style::get_style_config().header;
-    if usages.len() == 1 {
-        let usage = usages.pop().unwrap();
+    if let [usage] = usages.as_slice() {
         match usage.version_constraint {
-            Some(vc) => {
+            Some(ref vc) => {
                 log::info!(
                     "{header}{removed:>12}{header:#} `{}` with version constraints `{}`",
                     &usage.resource,
