@@ -96,7 +96,7 @@ pub enum Command {
         no_sync: bool,
 
         #[command(flatten)]
-        dependency_opts: ResolutionOptions,
+        resolution_opts: ResolutionOptions,
     },
     /// Remove usage from project information
     #[clap(alias = "rm")]
@@ -131,7 +131,7 @@ pub enum Command {
         #[arg(long)]
         no_deps: bool,
         #[command(flatten)]
-        dependency_opts: ResolutionOptions,
+        resolution_opts: ResolutionOptions,
     },
     /// Include model interchange files in project metadata
     Include {
@@ -170,7 +170,7 @@ pub enum Command {
     /// Create or update lockfile
     Lock {
         #[command(flatten)]
-        dependency_opts: ResolutionOptions,
+        resolution_opts: ResolutionOptions,
     },
     /// Create a local `sysand_env` directory for installing dependencies
     Env {
@@ -180,7 +180,7 @@ pub enum Command {
     /// Sync `sysand_env` to lockfile, creating a lockfile and `sysand_env` if needed
     Sync {
         #[command(flatten)]
-        dependency_opts: ResolutionOptions,
+        resolution_opts: ResolutionOptions,
     },
     /// Describe or modify the current project or resolve
     /// and describe a project at a specified path or IRI/URL
@@ -214,7 +214,7 @@ pub enum Command {
         // TODO: Add various options, such as whether to take local environment
         //       into consideration
         #[command(flatten)]
-        dependency_opts: ResolutionOptions,
+        resolution_opts: ResolutionOptions,
         #[command(subcommand)]
         subcommand: Option<InfoCommand>,
     },
@@ -1179,7 +1179,7 @@ pub enum EnvCommand {
         #[command(flatten)]
         install_opts: InstallOptions,
         #[command(flatten)]
-        dependency_opts: ResolutionOptions,
+        resolution_opts: ResolutionOptions,
     },
     /// Uninstall project in `sysand_env`
     Uninstall {
@@ -1219,6 +1219,10 @@ pub struct InstallOptions {
     pub no_deps: bool,
 }
 
+/// Control how packages and their dependencies are resolved.
+/// `include_std` is here only for convenience, as it does not
+/// affect package resolution, only installation
+/// (in `sync`, `env install`, `lock`, etc.)
 #[derive(clap::Args, Debug, Clone)]
 pub struct ResolutionOptions {
     /// Comma-delimited list of index URLs to use when resolving

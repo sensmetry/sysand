@@ -29,7 +29,7 @@ use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 /// `path` must be relative.
 pub fn command_lock<P: AsRef<Path>>(
     path: P,
-    dependency_opts: ResolutionOptions,
+    resolution_opts: ResolutionOptions,
     config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -40,7 +40,7 @@ pub fn command_lock<P: AsRef<Path>>(
         default_index,
         no_index,
         include_std,
-    } = dependency_opts;
+    } = resolution_opts;
 
     let cwd = wrapfs::current_dir().ok();
 

@@ -21,7 +21,7 @@ pub fn command_add<S: AsRef<str>>(
     versions_constraint: Option<String>,
     no_lock: bool,
     no_sync: bool,
-    dependency_opts: ResolutionOptions,
+    resolution_opts: ResolutionOptions,
     config: &Config,
     current_project: Option<LocalSrcProject>,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -30,7 +30,7 @@ pub fn command_add<S: AsRef<str>>(
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path();
 
-    let provided_iris = if !dependency_opts.include_std {
+    let provided_iris = if !resolution_opts.include_std {
         let sysml_std = crate::known_std_libs();
         if sysml_std.contains_key(iri.as_ref()) {
             crate::logger::warn_std(iri);
@@ -46,7 +46,7 @@ pub fn command_add<S: AsRef<str>>(
     if !no_lock {
         crate::commands::lock::command_lock(
             ".",
-            dependency_opts,
+            resolution_opts,
             config,
             client.clone(),
             runtime.clone(),

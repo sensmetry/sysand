@@ -46,7 +46,7 @@ pub fn command_env_install(
     iri: Iri<String>,
     version: Option<String>,
     install_opts: InstallOptions,
-    dependency_opts: ResolutionOptions,
+    resolution_opts: ResolutionOptions,
     config: &Config,
     project_root: Option<PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -64,7 +64,7 @@ pub fn command_env_install(
         default_index,
         no_index,
         include_std,
-    } = dependency_opts;
+    } = resolution_opts;
 
     // TODO: should probably first check that current project exists
     let provided_iris = if !include_std {
@@ -174,7 +174,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
     version: Option<String>,
     path: String,
     install_opts: InstallOptions,
-    dependency_opts: ResolutionOptions,
+    resolution_opts: ResolutionOptions,
     config: &Config,
     project_root: Option<PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -192,7 +192,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
         default_index,
         no_index,
         include_std,
-    } = dependency_opts;
+    } = resolution_opts;
 
     let metadata = wrapfs::metadata(&path)?;
     let project = if metadata.is_dir() {

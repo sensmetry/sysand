@@ -121,7 +121,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 version,
                 path,
                 install_opts,
-                dependency_opts,
+                resolution_opts,
             }) => {
                 if let Some(path) = path {
                     command_env_install_path(
@@ -129,7 +129,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         version,
                         path,
                         install_opts,
-                        dependency_opts,
+                        resolution_opts,
                         &config,
                         project_root,
                         client,
@@ -140,7 +140,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         iri,
                         version,
                         install_opts,
-                        dependency_opts,
+                        resolution_opts,
                         &config,
                         project_root,
                         client,
@@ -181,16 +181,16 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         },
-        cli::Command::Lock { dependency_opts } => {
+        cli::Command::Lock { resolution_opts } => {
             if project_root.is_some() {
-                crate::commands::lock::command_lock(".", dependency_opts, &config, client, runtime)
+                crate::commands::lock::command_lock(".", resolution_opts, &config, client, runtime)
                     .map(|_| ())
             } else {
                 bail!("not inside a project")
             }
         }
-        cli::Command::Sync { dependency_opts } => {
-            let cli::ResolutionOptions { include_std, .. } = dependency_opts.clone();
+        cli::Command::Sync { resolution_opts } => {
+            let cli::ResolutionOptions { include_std, .. } = resolution_opts.clone();
             let mut local_environment = match current_environment {
                 Some(env) => env,
                 None => command_env(project_root.as_ref().unwrap_or(&cwd).join(DEFAULT_ENV_NAME))?,
@@ -207,7 +207,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             if !lockfile.is_file() {
                 command_lock(
                     ".",
-                    dependency_opts,
+                    resolution_opts,
                     &config,
                     client.clone(),
                     runtime.clone(),
@@ -231,7 +231,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             iri,
             auto_location,
             no_normalise,
-            dependency_opts,
+            resolution_opts,
             subcommand,
         } => {
             let cli::ResolutionOptions {
@@ -239,7 +239,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 default_index,
                 no_index,
                 include_std,
-            } = dependency_opts;
+            } = resolution_opts;
             let index_urls = if no_index {
                 None
             } else {
@@ -385,13 +385,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             version_constraint,
             no_lock,
             no_sync,
-            dependency_opts,
+            resolution_opts,
         } => command_add(
             iri,
             version_constraint,
             no_lock,
             no_sync,
-            dependency_opts,
+            resolution_opts,
             &config,
             current_project,
             client,
@@ -459,7 +459,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             locator,
             version,
             target,
-            dependency_opts,
+            resolution_opts,
             allow_overwrite,
             no_deps,
         } => commands::clone::command_clone(
@@ -468,7 +468,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             target,
             allow_overwrite,
             no_deps,
-            dependency_opts,
+            resolution_opts,
             &config,
             client,
             runtime,
