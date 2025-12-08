@@ -10,7 +10,7 @@ use thiserror::Error;
 pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
 
 #[cfg(feature = "filesystem")]
-use crate::project::{editable::EditableProject, local_src::LocalSrcProject, utils::ToPathBuf};
+use crate::project::{editable::EditableProject, local_src::LocalSrcProject};
 use crate::{
     lock::{Lock, Project, Usage},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
@@ -182,11 +182,7 @@ pub fn do_lock_local_editable<
     LockProjectError<EditableLocalSrcProject, PD, R>,
 > {
     let project = EditableProject::new(LocalSrcProject {
-        project_path: path
-            .as_ref()
-            // TODO: path supplied to EditableProject was not canonicalized, this may break paths in lockfile
-            .canonicalize()
-            .map_err(|e| LockError::Io(FsIoError::Canonicalize(path.to_path_buf(), e).into()))?,
+        project_path: path.as_ref().to_path_buf(),
     });
 
     do_lock_projects(std::iter::once(project), resolver)

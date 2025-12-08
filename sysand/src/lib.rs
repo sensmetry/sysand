@@ -306,9 +306,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 debug_assert!(path.is_none());
                 debug_assert!(auto_location.is_none());
 
-                Location::Iri(
-                    fluent_uri::Iri::parse(iri).map_err(|(e, val)| CliError::InvalidIri(val, e))?,
-                )
+                Location::Iri(iri)
             } else {
                 Location::WorkDir
             };

@@ -28,7 +28,7 @@ pub fn command_sync(
         lock,
         env,
         Some(|src_path: String| LocalSrcProject {
-            project_path: project_root.as_ref().to_path_buf().join(src_path),
+            project_path: project_root.as_ref().join(src_path),
         }),
         Some(
             |remote_src: String| -> Result<AsSyncProjectTokio<ReqwestSrcProjectAsync>, ParseError> {

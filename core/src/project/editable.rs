@@ -12,7 +12,6 @@ pub struct EditableProject<P: GetPath> {
     include_original_sources: bool,
 }
 
-// TODO: look how the lockfile works. Maybe this must be relative to `.`?
 pub trait GetPath {
     // TODO: use camino path
     fn get_path(&self) -> impl AsRef<str>;

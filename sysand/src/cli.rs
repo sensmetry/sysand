@@ -80,7 +80,7 @@ pub enum Command {
     /// Add usage to project information
     Add {
         /// IRI identifying the project to be used
-        iri: String,
+        iri: fluent_uri::Iri<String>,
         /// A constraint on the allowed versions of a used project.
         /// Assumes that the project being added uses Semantic Versioning.
         /// Version constraints use same syntax as Rust's Cargo.
@@ -102,7 +102,7 @@ pub enum Command {
     #[clap(alias = "rm")]
     Remove {
         /// IRI identifying the project usage to be removed
-        iri: String,
+        iri: fluent_uri::Iri<String>,
     },
     /// Clone a project to a specified directory
     /// Equivalent to manually downloading, extracting the
@@ -197,7 +197,7 @@ pub enum Command {
             visible_alias = "url",
             group = "location"
         )]
-        iri: Option<String>,
+        iri: Option<fluent_uri::Iri<String>>,
         /// Use the project with the given locator, trying to parse it as
         /// an IRI/URI/URL and otherwise falling back to using it as a path
         #[arg(
@@ -1170,7 +1170,7 @@ pub enum EnvCommand {
     /// Install project in `sysand_env`
     Install {
         /// IRI identifying the project to be installed
-        iri: String,
+        iri: fluent_uri::Iri<String>,
         /// Version to be installed. Defaults to the latest
         /// version according to SemVer 2.0, ignoring pre-releases
         #[clap(verbatim_doc_comment)]
@@ -1187,7 +1187,7 @@ pub enum EnvCommand {
     /// Uninstall project in `sysand_env`
     Uninstall {
         /// IRI identifying the project to be uninstalled
-        iri: String,
+        iri: fluent_uri::Iri<String>,
         /// Version to be uninstalled
         version: Option<String>,
     },
@@ -1200,7 +1200,7 @@ pub enum EnvCommand {
         /// IRI of the (already installed) project for which
         /// to enumerate source files
         #[clap(verbatim_doc_comment)]
-        iri: String,
+        iri: fluent_uri::Iri<String>,
         /// Version of project to list sources for
         version: Option<VersionReq>,
 

@@ -50,7 +50,7 @@ fn canonicalise_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
 
         match (absolute_part.parent(), absolute_part.file_name()) {
             (Some(absolute_part_parent), Some(absolute_part_file)) => {
-                relative_part = PathBuf::from(absolute_part_file).join(relative_part);
+                relative_part = Path::new(absolute_part_file).join(relative_part);
                 absolute_part = absolute_part_parent.to_path_buf();
             }
             _ => {

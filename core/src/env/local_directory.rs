@@ -554,8 +554,8 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
 
             // TODO: Add better error messages for catastrophic errors
             if let Err(err) = try_remove_files(project.get_source_paths()?.into_iter().chain(vec![
-                project.root_path().join(".project.json"),
-                project.root_path().join(".meta.json"),
+                project.project_path.join(".project.json"),
+                project.project_path.join(".meta.json"),
             ])) {
                 match err {
                     TryMoveError::CatastrophicIO { .. } => {

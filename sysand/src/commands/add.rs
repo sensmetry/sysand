@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashMap, path::PathBuf, str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use anyhow::Result;
 
@@ -16,8 +16,8 @@ use crate::{CliError, cli::ResolutionOptions, command_sync};
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
-pub fn command_add(
-    iri: String,
+pub fn command_add<S: AsRef<str>>(
+    iri: S,
     versions_constraint: Option<String>,
     no_lock: bool,
     no_sync: bool,
@@ -32,8 +32,8 @@ pub fn command_add(
 
     let provided_iris = if !dependency_opts.include_std {
         let sysml_std = crate::known_std_libs();
-        if sysml_std.contains_key(&iri) {
-            crate::logger::warn_std(&iri);
+        if sysml_std.contains_key(iri.as_ref()) {
+            crate::logger::warn_std(iri);
             return Ok(());
         }
         sysml_std
@@ -45,7 +45,7 @@ pub fn command_add(
 
     if !no_lock {
         crate::commands::lock::command_lock(
-            PathBuf::from("."),
+            ".",
             dependency_opts,
             config,
             client.clone(),

@@ -47,7 +47,7 @@ fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
         panic!();
     };
 
-    assert_eq!(PathBuf::from("."), PathBuf::from(editable));
+    assert_eq!(Path::new("."), Path::new(editable));
 
     Ok(())
 }

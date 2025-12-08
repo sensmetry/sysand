@@ -25,6 +25,8 @@ use sysand_core::{
 
 use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 
+/// Generate a lockfile for project at `path`.
+/// `path` must be relative.
 pub fn command_lock<P: AsRef<Path>>(
     path: P,
     dependency_opts: ResolutionOptions,
@@ -32,6 +34,7 @@ pub fn command_lock<P: AsRef<Path>>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
+    assert!(path.as_ref().is_relative(), "{}", path.as_ref().display());
     let ResolutionOptions {
         index,
         default_index,
@@ -41,8 +44,9 @@ pub fn command_lock<P: AsRef<Path>>(
 
     let cwd = wrapfs::current_dir().ok();
 
-    let local_env_path =
-        Path::new(path.as_ref()).join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+    let local_env_path = path
+        .as_ref()
+        .join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
 
     let index_urls = if no_index {
         None
@@ -135,7 +139,7 @@ pub fn command_lock<P: AsRef<Path>>(
     };
 
     wrapfs::write(
-        Path::new(path.as_ref()).join(DEFAULT_LOCKFILE_NAME),
+        path.as_ref().join(DEFAULT_LOCKFILE_NAME),
         lock.canonicalize().to_string(),
     )?;
 

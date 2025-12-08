@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::{Result, anyhow, bail};
 
+use fluent_uri::Iri;
 use sysand_core::{
     commands::{env::do_env_local_dir, lock::LockOutcome},
     config::Config,
@@ -41,8 +42,8 @@ pub fn command_env<P: AsRef<Path>>(path: P) -> Result<LocalDirectoryEnvironment>
 
 // TODO: Factor out provided_iris logic
 #[allow(clippy::too_many_arguments)]
-pub fn command_env_install<S: AsRef<str>>(
-    iri: S,
+pub fn command_env_install(
+    iri: Iri<String>,
     version: Option<String>,
     install_opts: InstallOptions,
     dependency_opts: ResolutionOptions,
@@ -280,9 +281,9 @@ pub fn command_env_install_path<S: AsRef<str>>(
     Ok(())
 }
 
-pub fn command_env_uninstall<S: AsRef<str>>(
+pub fn command_env_uninstall<S: AsRef<str>, Q: AsRef<str>>(
     iri: S,
-    version: Option<S>,
+    version: Option<Q>,
     env: LocalDirectoryEnvironment,
 ) -> Result<()> {
     sysand_core::commands::env::do_env_uninstall(iri, version, env)?;

@@ -16,8 +16,8 @@ use sysand_core::{
 
 use sysand_core::env::ReadEnvironment;
 
-pub fn command_sources_env(
-    iri: String,
+pub fn command_sources_env<S: AsRef<str>>(
+    iri: S,
     version: Option<VersionReq>,
     include_deps: bool,
     env: Option<LocalDirectoryEnvironment>,
@@ -50,10 +50,13 @@ pub fn command_sources_env(
         match version {
             Some(vr) => bail!(
                 "unable to find project `{}` ({}) in local environment",
-                iri,
+                iri.as_ref(),
                 vr
             ),
-            None => bail!("unable to find project `{}` in local environment", iri),
+            None => bail!(
+                "unable to find project `{}` in local environment",
+                iri.as_ref()
+            ),
         }
     };
 

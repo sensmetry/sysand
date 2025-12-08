@@ -35,10 +35,11 @@ fn format(buf: &mut Formatter, record: &Record<'_>) -> Result<(), io::Error> {
 const SP: char = ' ';
 
 /// Print a warning that standard library package `iri` is ignored
-pub fn warn_std(iri: &str) {
+pub fn warn_std(iri: impl AsRef<str>) {
     log::warn!(
-        "SysML v2/KerML standard library package `{iri}` is ignored\n\
-        {SP:>8} by default. If you want to process it, pass `--include-std` flag"
+        "SysML v2/KerML standard library package `{}` is ignored\n\
+        {SP:>8} by default. If you want to process it, pass `--include-std` flag",
+        iri.as_ref()
     );
 }
 

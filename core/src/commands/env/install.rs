@@ -142,7 +142,6 @@ pub fn do_env_install_project<
         uri.as_ref(),
     );
 
-    // TODO: print version(s) being installed
     env.put_project(uri, version, |p| {
         clone_project(storage, p, true).map(|_| ())
     })
