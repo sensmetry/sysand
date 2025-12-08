@@ -225,7 +225,6 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     let combined_resolver = standard_resolver(
         Some(Utf8PathBuf::from(relative_file_root)),
         None,
-        vec![],
         Some(client),
         index_base_url.map(|x| vec![x]),
         runtime,

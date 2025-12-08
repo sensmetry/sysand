@@ -121,7 +121,6 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     let std_resolver = standard_resolver(
         None,
         None,
-        vec![],
         Some(client.clone()),
         index_urls,
         runtime.clone(),

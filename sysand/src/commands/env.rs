@@ -103,17 +103,19 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     for (k, v) in &provided_iris {
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
     }
-
-    // TODO: Move out the runtime
-    let resolver = PriorityResolver::new(
+    let override_resolver = PriorityResolver::new(
+        MemoryResolver::from(overrides),
         MemoryResolver {
             iri_predicate: AcceptAll {},
             projects: memory_projects,
         },
+    );
+    // TODO: Move out the runtime
+    let resolver = PriorityResolver::new(
+        override_resolver,
         standard_resolver(
             None,
             None,
-            overrides,
             Some(client.clone()),
             index_urls,
             runtime.clone(),
@@ -270,17 +272,19 @@ pub fn command_env_install_path<S: AsRef<str>, Policy: HTTPAuthentication>(
         for (k, v) in provided_iris.iter() {
             memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
         }
-
-        // TODO: Move out the runtime
-        let resolver = PriorityResolver::new(
+        let override_resolver = PriorityResolver::new(
+            MemoryResolver::from(overrides),
             MemoryResolver {
                 iri_predicate: AcceptAll {},
                 projects: memory_projects,
             },
+        );
+        // TODO: Move out the runtime
+        let resolver = PriorityResolver::new(
+            override_resolver,
             standard_resolver(
                 Some(path),
                 None,
-                overrides,
                 Some(client.clone()),
                 index_urls,
                 runtime.clone(),

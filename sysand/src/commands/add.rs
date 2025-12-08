@@ -41,13 +41,17 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         add_project_source_to_config(
             &project_root,
             &iri,
-            &sysand_core::lock::Source::LocalSrc { src_path: src_path.into() },
+            &sysand_core::lock::Source::LocalSrc {
+                src_path: src_path.into(),
+            },
         )?;
     } else if let Some(kpar_path) = source_opts.local_kpar {
         add_project_source_to_config(
             &project_root,
             &iri,
-            &sysand_core::lock::Source::LocalKpar { kpar_path: kpar_path.into() },
+            &sysand_core::lock::Source::LocalKpar {
+                kpar_path: kpar_path.into(),
+            },
         )?;
     } else if let Some(remote_src) = source_opts.remote_src {
         add_project_source_to_config(

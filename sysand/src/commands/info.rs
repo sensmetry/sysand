@@ -18,6 +18,8 @@ use sysand_core::{
     project::{ProjectMut, ProjectRead},
     resolve::{
         file::FileResolverProject,
+        memory::MemoryResolver,
+        priority::PriorityResolver,
         standard::{OverrideProject, standard_resolver},
     },
 };
@@ -103,6 +105,7 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn command_info_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     _normalise: bool,
@@ -117,18 +120,20 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
 
     let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
 
-    let combined_resolver = standard_resolver(
-        cwd,
-        if local_env_path.is_dir() {
-            Some(local_env_path)
-        } else {
-            None
-        },
-        overrides,
-        Some(client),
-        index_urls,
-        runtime,
-        auth_policy,
+    let combined_resolver = PriorityResolver::new(
+        MemoryResolver::from(overrides),
+        standard_resolver(
+            cwd,
+            if local_env_path.is_dir() {
+                Some(local_env_path)
+            } else {
+                None
+            },
+            Some(client),
+            index_urls,
+            runtime,
+            auth_policy,
+        ),
     );
 
     let mut found = false;
@@ -194,6 +199,7 @@ pub fn command_info_verb_path<P: AsRef<Utf8Path>>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     verb: InfoCommandVerb,
@@ -210,18 +216,20 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
 
             let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
 
-            let combined_resolver = standard_resolver(
-                cwd,
-                if local_env_path.is_dir() {
-                    Some(local_env_path)
-                } else {
-                    None
-                },
-                overrides,
-                Some(client),
-                index_urls,
-                runtime,
-                auth_policy,
+            let combined_resolver = PriorityResolver::new(
+                MemoryResolver::from(overrides),
+                standard_resolver(
+                    cwd,
+                    if local_env_path.is_dir() {
+                        Some(local_env_path)
+                    } else {
+                        None
+                    },
+                    Some(client),
+                    index_urls,
+                    runtime,
+                    auth_policy,
+                ),
             );
 
             let mut found = false;
