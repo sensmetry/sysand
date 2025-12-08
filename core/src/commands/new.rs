@@ -106,6 +106,7 @@ pub fn do_new_local_file<P: AsRef<Path>>(
     path: P,
 ) -> Result<LocalSrcProject, NewError<crate::project::local_src::LocalSrcError>> {
     let mut storage = LocalSrcProject {
+        nominal_path: None,
         project_path: path.as_ref().to_path_buf(),
     };
 

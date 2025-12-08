@@ -97,6 +97,8 @@ pub enum Command {
 
         #[command(flatten)]
         dependency_opts: DependencyOptions,
+        #[command(flatten)]
+        source_opts: ProjectSourceOptions,
     },
     /// Remove usage from project information
     #[clap(alias = "rm")]
@@ -1195,6 +1197,22 @@ pub struct DependencyOptions {
         help_heading = "Dependency options"
     )]
     pub include_std: bool,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ProjectSourceOptions {
+    /// Path to local interchange project
+    #[arg(long, group = "source", help_heading = "Source options")]
+    pub local_src: Option<String>,
+    /// Path to local interchange project archive (KPAR)
+    #[arg(long, group = "source", help_heading = "Source options")]
+    pub local_kpar: Option<String>,
+    /// URL to remote interchange project
+    #[arg(long, group = "source", help_heading = "Source options")]
+    pub remote_src: Option<String>,
+    /// URL to remote interchange project archive (KPAR)
+    #[arg(long, group = "source", help_heading = "Source options")]
+    pub remote_kpar: Option<String>,
 }
 
 #[derive(clap::Args, Debug, Clone)]
