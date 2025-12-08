@@ -176,11 +176,8 @@ pub fn do_lock_local_editable<
                 .canonicalize_utf8()
                 .map_err(|e| {
                     LockError::Io(
-                        FsIoError::Canonicalize(
-                            project_root.to_path_buf().join(path.as_ref()),
-                            e,
-                        )
-                        .into(),
+                        FsIoError::Canonicalize(project_root.to_path_buf().join(path.as_ref()), e)
+                            .into(),
                     )
                 })?,
         },

@@ -85,11 +85,15 @@ pub fn command_lock<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
     }
 
-    let wrapped_resolver = PriorityResolver::new(
+    let override_resolver = PriorityResolver::new(
+        MemoryResolver::from(overrides),
         MemoryResolver {
             iri_predicate: AcceptAll {},
             projects: memory_projects,
         },
+    );
+    let wrapped_resolver = PriorityResolver::new(
+        override_resolver,
         standard_resolver(
             Some(project_root.to_path_buf()),
             if local_env_path.is_dir() {
@@ -97,7 +101,6 @@ pub fn command_lock<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             } else {
                 None
             },
-            overrides,
             Some(client),
             index_urls,
             runtime,

@@ -222,7 +222,7 @@ mod test {
             utils::{CloneError, clone_project},
         },
         init::do_init_memory,
-        project::memory::{InMemoryProject, InMemoryError},
+        project::memory::{InMemoryError, InMemoryProject},
     };
 
     #[test]

@@ -17,6 +17,8 @@ use sysand_core::{
     project::{ProjectMut, ProjectRead},
     resolve::{
         file::FileResolverProject,
+        memory::MemoryResolver,
+        priority::PriorityResolver,
         standard::{OverrideProject, standard_resolver},
     },
 };
@@ -115,17 +117,19 @@ pub fn command_info_uri(
 
     let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
 
-    let combined_resolver = standard_resolver(
-        cwd,
-        if local_env_path.is_dir() {
-            Some(local_env_path)
-        } else {
-            None
-        },
-        overrides,
-        Some(client),
-        index_urls,
-        runtime,
+    let combined_resolver = PriorityResolver::new(
+        MemoryResolver::from(overrides),
+        standard_resolver(
+            cwd,
+            if local_env_path.is_dir() {
+                Some(local_env_path)
+            } else {
+                None
+            },
+            Some(client),
+            index_urls,
+            runtime,
+        ),
     );
 
     let mut found = false;
@@ -206,17 +210,19 @@ pub fn command_info_verb_uri(
 
             let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
 
-            let combined_resolver = standard_resolver(
-                cwd,
-                if local_env_path.is_dir() {
-                    Some(local_env_path)
-                } else {
-                    None
-                },
-                overrides,
-                Some(client),
-                index_urls,
-                runtime,
+            let combined_resolver = PriorityResolver::new(
+                MemoryResolver::from(overrides),
+                standard_resolver(
+                    cwd,
+                    if local_env_path.is_dir() {
+                        Some(local_env_path)
+                    } else {
+                        None
+                    },
+                    Some(client),
+                    index_urls,
+                    runtime,
+                ),
             );
 
             let mut found = false;

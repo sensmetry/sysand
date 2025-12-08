@@ -442,15 +442,24 @@ const SOURCE_ENTRIES: &[&str] = &[
 pub enum Source {
     // Path must be a Unix path relative to workspace root
     Editable {
-        #[serde(deserialize_with = "parse_unix_path", serialize_with = "serialize_unix_path")]
+        #[serde(
+            deserialize_with = "parse_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
         editable: Utf8UnixPathBuf,
     },
     LocalSrc {
-        #[serde(deserialize_with = "parse_unix_path", serialize_with = "serialize_unix_path")]
+        #[serde(
+            deserialize_with = "parse_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
         src_path: Utf8UnixPathBuf,
     },
     LocalKpar {
-        #[serde(deserialize_with = "parse_unix_path", serialize_with = "serialize_unix_path")]
+        #[serde(
+            deserialize_with = "parse_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
         kpar_path: Utf8UnixPathBuf,
     },
     Registry {

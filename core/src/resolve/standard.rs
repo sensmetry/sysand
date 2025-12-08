@@ -4,7 +4,6 @@
 use std::{fmt, result::Result, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
-use fluent_uri::Iri;
 use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
@@ -70,7 +69,7 @@ impl AnyProject {
         match source {
             Source::LocalKpar { kpar_path } => Ok(AnyProject::LocalKpar(
                 LocalKParProject::new_guess_root_nominal(
-                    project_root.as_ref().join(&kpar_path.as_str()),
+                    project_root.as_ref().join(kpar_path.as_str()),
                     kpar_path.as_str(),
                 )
                 .map_err(TryFromSourceError::LocalKpar)?,
@@ -119,7 +118,6 @@ pub type RemoteIndexResolver = SequentialResolver<EnvResolver<HTTPEnvironmentAsy
 type StandardResolverInner = CombinedResolver<
     FileResolver,
     LocalEnvResolver,
-    OverrideResolver,
     RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync>, GitResolver>,
     AsSyncResolveTokio<RemoteIndexResolver>,
 >;
@@ -200,14 +198,12 @@ pub fn standard_index_resolver(
 pub fn standard_resolver(
     cwd: Option<Utf8PathBuf>,
     local_env_path: Option<Utf8PathBuf>,
-    overrides: Vec<(Iri<String>, Vec<OverrideProject>)>,
     client: Option<ClientWithMiddleware>,
     index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> StandardResolver {
     let file_resolver = standard_file_resolver(cwd);
     let local_resolver = local_env_path.map(standard_local_resolver);
-    let override_resolver = MemoryResolver::from(overrides);
     let remote_resolver = client
         .clone()
         .map(|x| standard_remote_resolver(x, runtime.clone()));
@@ -218,7 +214,6 @@ pub fn standard_resolver(
     StandardResolver(CombinedResolver {
         file_resolver: Some(file_resolver),
         local_resolver,
-        override_resolver: Some(override_resolver),
         remote_resolver,
         index_resolver,
     })
