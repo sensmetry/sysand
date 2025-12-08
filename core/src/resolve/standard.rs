@@ -73,8 +73,11 @@ impl AnyProject {
     ) -> Result<Self, TryFromSourceError> {
         match source {
             Source::LocalKpar { kpar_path } => Ok(AnyProject::LocalKpar(
-                LocalKParProject::new_guess_root(kpar_path)
-                    .map_err(TryFromSourceError::LocalKpar)?,
+                LocalKParProject::new_guess_root_nominal(
+                    project_root.as_ref().join(&kpar_path),
+                    kpar_path,
+                )
+                .map_err(TryFromSourceError::LocalKpar)?,
             )),
             Source::LocalSrc { src_path } => Ok(AnyProject::LocalSrc(LocalSrcProject {
                 nominal_path: Some(src_path.to_path_buf()),

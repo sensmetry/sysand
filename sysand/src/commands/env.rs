@@ -217,7 +217,10 @@ pub fn command_env_install_path<S: AsRef<str>>(
             project_path,
         })
     } else if project_path.is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(project_path)?)
+        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root_nominal(
+            project_path.clone(),
+            project_path,
+        )?)
     } else {
         bail!("{} does not exist", project_path.display())
     };
