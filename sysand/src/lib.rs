@@ -6,7 +6,7 @@ compile_error!("`std` feature is currently required to build `sysand`");
 
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::Path,
     str::FromStr,
     sync::Arc,
 };
@@ -59,18 +59,19 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     let current_workspace = sysand_core::discover::current_workspace()?;
     let current_project = sysand_core::discover::current_project()?;
+    let cwd = wrapfs::current_dir()?;
 
     let project_root = current_project.clone().map(|p| p.root_path()).clone();
 
-    let current_environment = project_root
-        .clone()
-        .or_else(|| wrapfs::current_dir().ok())
-        .and_then(|p| crate::get_env(&p));
+    let current_environment = {
+        let dir = project_root.as_ref().unwrap_or(&cwd);
+        crate::get_env(dir)
+    };
 
     let auto_config = if args.global_opts.no_config {
         Config::default()
     } else {
-        load_configs(project_root.clone().unwrap_or(PathBuf::from(".")))?
+        load_configs(project_root.as_deref().unwrap_or(Path::new(".")))?
     };
 
     let mut config = if let Some(config_file) = &args.global_opts.config_file {
@@ -111,11 +112,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         } => command_init(name, version, no_semver, license, no_spdx, path),
         cli::Command::Env { command } => match command {
             None => {
-                command_env(
-                    project_root
-                        .unwrap_or(wrapfs::current_dir()?)
-                        .join(DEFAULT_ENV_NAME),
-                )?;
+                command_env(project_root.unwrap_or(cwd).join(DEFAULT_ENV_NAME))?;
 
                 Ok(())
             }
@@ -186,14 +183,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         },
         cli::Command::Lock { dependency_opts } => {
             if project_root.is_some() {
-                crate::commands::lock::command_lock(
-                    PathBuf::from("."),
-                    dependency_opts,
-                    &config,
-                    client,
-                    runtime,
-                )
-                .map(|_| ())
+                crate::commands::lock::command_lock(".", dependency_opts, &config, client, runtime)
+                    .map(|_| ())
             } else {
                 bail!("not inside a project")
             }
@@ -202,12 +193,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             let cli::ResolutionOptions { include_std, .. } = dependency_opts.clone();
             let mut local_environment = match current_environment {
                 Some(env) => env,
-                None => command_env(
-                    project_root
-                        .as_ref()
-                        .unwrap_or(&wrapfs::current_dir()?)
-                        .join(DEFAULT_ENV_NAME),
-                )?,
+                None => command_env(project_root.as_ref().unwrap_or(&cwd).join(DEFAULT_ENV_NAME))?,
             };
 
             let provided_iris = if !include_std {
@@ -216,11 +202,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } else {
                 HashMap::default()
             };
-            let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
+            let project_root = project_root.unwrap_or(cwd);
             let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
             if !lockfile.is_file() {
                 command_lock(
-                    PathBuf::from("."),
+                    ".",
                     dependency_opts,
                     &config,
                     client.clone(),
@@ -239,7 +225,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 runtime,
             )
         }
-        cli::Command::PrintRoot => command_print_root(wrapfs::current_dir()?),
+        cli::Command::PrintRoot => command_print_root(cwd),
         cli::Command::Info {
             path,
             iri,
