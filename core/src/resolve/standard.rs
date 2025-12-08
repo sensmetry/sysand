@@ -2,12 +2,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::{fmt, result::Result, sync::Arc};
-// use std::{
-//     fmt,
-//     path::{Path, PathBuf},
-//     result::Result,
-//     sync::Arc,
-// };
 
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
@@ -77,8 +71,11 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
     ) -> Result<Self, TryFromSourceError> {
         match source {
             Source::LocalKpar { kpar_path } => Ok(AnyProject::LocalKpar(
-                LocalKParProject::new_guess_root(kpar_path.as_str())
-                    .map_err(TryFromSourceError::LocalKpar)?,
+                LocalKParProject::new_guess_root_nominal(
+                    project_root.as_ref().join(&kpar_path.as_str()),
+                    kpar_path.as_str(),
+                )
+                .map_err(TryFromSourceError::LocalKpar)?,
             )),
             Source::LocalSrc { src_path } => {
                 let nominal_path = src_path.as_str().into();
