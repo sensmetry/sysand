@@ -75,6 +75,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             url: reqwest::Url::parse(url.as_ref())
                 .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?,
             inner: LocalKParProject {
+                nominal_path: None,
                 archive_path: {
                     let mut p = wrapfs::canonicalize(tmp_dir.path())?;
                     p.push("project.kpar");

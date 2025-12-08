@@ -33,6 +33,7 @@ use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
 #[derive(Debug)]
 pub struct LocalKParProject {
     pub tmp_dir: Utf8TempDir,
+    pub nominal_path: Option<Utf8PathBuf>,
     pub archive_path: Utf8PathBuf,
     pub root: Option<Utf8PathBuf>,
 }
@@ -136,6 +137,19 @@ impl LocalKParProject {
     ) -> Result<Self, Box<FsIoError>> {
         Ok(LocalKParProject {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
+            nominal_path: None,
+            archive_path: path.to_path_buf(),
+            root: Some(root.to_path_buf()),
+        })
+    }
+    pub fn new_nominal<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>, N: AsRef<Utf8Path>>(
+        path: P,
+        root: Q,
+        nominal: N,
+    ) -> Result<Self, Box<FsIoError>> {
+        Ok(LocalKParProject {
+            tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
+            nominal_path: Some(nominal.to_path_buf()),
             archive_path: path.to_path_buf(),
             root: Some(root.to_path_buf()),
         })
@@ -144,6 +158,19 @@ impl LocalKParProject {
     pub fn new_guess_root<P: AsRef<Utf8Path>>(path: P) -> Result<Self, Box<FsIoError>> {
         Ok(LocalKParProject {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
+            nominal_path: None,
+            archive_path: path.to_path_buf(),
+            root: None,
+        })
+    }
+
+    pub fn new_guess_root_nominal<P: AsRef<Utf8Path>, N: AsRef<Utf8Path>>(
+        path: P,
+        nominal: N,
+    ) -> Result<Self, Box<FsIoError>> {
+        Ok(LocalKParProject {
+            tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
+            nominal_path: Some(nominal.to_path_buf()),
             archive_path: path.to_path_buf(),
             root: None,
         })
@@ -311,9 +338,12 @@ impl ProjectRead for LocalKParProject {
     }
 
     fn sources(&self) -> Vec<crate::lock::Source> {
-        vec![crate::lock::Source::LocalKpar {
-            kpar_path: self.archive_path.as_str().into(),
-        }]
+        match self.nominal_path.as_ref().map(|p| p.as_str()) {
+            Some(path_str) => vec![crate::lock::Source::LocalKpar {
+                kpar_path: path_str.into(),
+            }],
+            None => vec![],
+        }
     }
 }
 

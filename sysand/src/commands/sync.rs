@@ -45,7 +45,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             },
         ),
         // TODO: Fix error handling here
-        Some(|kpar_path: &Utf8Path| LocalKParProject::new_guess_root(kpar_path).unwrap()),
+        Some(|kpar_path: &Utf8Path| LocalKParProject::new_guess_root_nominal(project_root.as_ref().join(&kpar_path), kpar_path).unwrap()),
         Some(
             |remote_kpar: String| -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>, ParseError> {
                 Ok(

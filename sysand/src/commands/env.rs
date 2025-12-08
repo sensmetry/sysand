@@ -203,7 +203,9 @@ pub fn command_env_install_path<S: AsRef<str>, Policy: HTTPAuthentication>(
             project_path: path.as_str().into(),
         })
     } else if metadata.is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(&path)?)
+        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root_nominal(
+            &path, &path,
+        )?)
     } else {
         bail!("path `{path}` is neither a directory nor a file");
     };
