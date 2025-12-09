@@ -21,7 +21,7 @@ def test_basic_new(caplog: pytest.LogCaptureFixture) -> None:
 
         assert caplog.record_tuples == [
             (
-                "sysand_core.commands.new",
+                "sysand_core.commands.init",
                 logging.INFO,
                 "    Creating interchange project `test_basic_new`",
             )

@@ -56,12 +56,12 @@ fn init_basic_cwd() -> Result<(), Box<dyn std::error::Error>> {
     let meta = std::fs::read_to_string(cwd.join(".meta.json"))?;
 
     let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}"#,
+        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}\n"#,
     )?;
 
     assert_eq!(
         info,
-        "{\n  \"name\": \"init_basic_cwd\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}"
+        "{\n  \"name\": \"init_basic_cwd\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}\n"
     );
     // Isn't there some nicer way to use this?
     assert!(meta_match.eval(&meta));
@@ -94,12 +94,12 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
     let meta = std::fs::read_to_string(proj_dir_path.join(".meta.json"))?;
 
     let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}"#,
+        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}\n"#,
     )?;
 
     assert_eq!(
         info,
-        "{\n  \"name\": \"other_than_init_explicit_name\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}"
+        "{\n  \"name\": \"other_than_init_explicit_name\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}\n"
     );
     // Isn't there some nicer way to use this?
     assert!(meta_match.eval(&meta));
@@ -135,7 +135,7 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     out_again
         .assert()
         .failure()
-        .stderr(predicate::str::contains("'.project.json' already exists"));
+        .stderr(predicate::str::contains("`.project.json` already exists"));
 
     assert_eq!(
         original_info,

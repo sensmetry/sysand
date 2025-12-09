@@ -137,7 +137,7 @@ sources = [
 
     out.assert()
         .success()
-        .stdout(predicate::str::contains("urn:kpar:sync_to_remote 1.2.3"));
+        .stdout(predicate::str::contains("`urn:kpar:sync_to_remote` 1.2.3"));
 
     let out = run_sysand_in(&cwd, ["sync"], None)?;
 
