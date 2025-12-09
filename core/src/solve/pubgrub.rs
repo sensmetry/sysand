@@ -353,42 +353,56 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
         package: &Self::P,
         range: &Self::VS,
     ) -> Result<Option<Self::V>, Self::Err> {
-        let result = match range {
-            DiscreteHashSet::Finite(hash_set) => Ok(hash_set.iter().min().cloned()),
+        match range {
+            DiscreteHashSet::Finite(hash_set) => {
+                let res = hash_set.iter().min().cloned();
+                log::debug!("choosing version for request ({:?})", res);
+                Ok(res)
+            }
             DiscreteHashSet::CoFinite(hash_set) => {
-                let mut found = None;
+                match package {
+                    DependencyIdentifier::Requested(_) => {
+                        log::debug!("unknown version for request");
+                        Ok(None)
+                    }
+                    DependencyIdentifier::Remote(iri) => {
+                        let candidate_versions = resolve_candidates(
+                            &self.resolver,
+                            iri,
+                            &mut self.resolved_candidates.borrow_mut(),
+                        )?;
+                        // let max = candidate_versions.len();
+                        let mut versions_indexes: Vec<(usize, semver::Version)> =
+                            candidate_versions
+                                .into_iter()
+                                .enumerate()
+                                .map(|(idx, el)| (idx, el.0.version))
+                                .collect();
+                        // Choose the highest version. We'll assume that version order is stable
+                        // across multiple `resolve_candidates()` calls,
+                        // as DiscreteHashSet does not save actual versions
+                        versions_indexes.sort_unstable_by(|el1, el2| el2.1.cmp(&el1.1));
+                        let mut found = None;
+                        for (i, v) in versions_indexes.iter() {
+                            if !hash_set.contains(i) {
+                                found = Some(*i);
+                                log::debug!("chose version for `{}`: {}", iri.as_str(), v);
+                                break;
+                            }
+                        }
+                        // TODO: why is this called twice? First time it selects some version,
+                        // and the next that version can't be selected anymore.
+                        log::debug!(
+                            "no allowed versions for `{}`, considered: {:?}",
+                            iri.as_str(),
+                            versions_indexes
+                        );
 
-                let max = match package {
-                    DependencyIdentifier::Requested(_) => 0,
-                    DependencyIdentifier::Remote(iri) => resolve_candidates(
-                        &self.resolver,
-                        iri,
-                        &mut self.resolved_candidates.borrow_mut(),
-                    )?
-                    .len(),
-                };
-
-                for i in 0..max {
-                    if !hash_set.contains(&i) {
-                        found = Some(i);
-                        break;
+                        Ok(found)
                     }
                 }
-
-                Ok(found)
-            }
-        };
-
-        match package {
-            DependencyIdentifier::Requested(_) => {
-                log::debug!("Choosing version for request ({:?})", result)
-            }
-            DependencyIdentifier::Remote(iri) => {
-                log::debug!("Choosing version for {} ({:?})", iri.as_str(), result)
             }
         }
-
-        result
     }
 
     fn get_dependencies(

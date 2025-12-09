@@ -105,7 +105,7 @@ pub fn command_env_install(
     );
 
     if no_deps {
-        let outcome = resolver.resolve_read(&fluent_uri::Iri::from_str(iri.as_ref())?)?;
+        let outcome = resolver.resolve_read(&iri)?;
         // let outcome = resolver.resolve_read(&iri)?;
         if let ResolutionOutcome::Resolved(alternatives) = outcome {
             let storage = alternatives

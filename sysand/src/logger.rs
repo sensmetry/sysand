@@ -26,6 +26,10 @@ fn format(buf: &mut Formatter, record: &Record<'_>) -> Result<(), io::Error> {
             let style = style::WARN;
             writeln!(buf, "{style}warning{style:#}: {}", record.args())
         }
+        log::Level::Debug => {
+            let style = style::NOTE;
+            writeln!(buf, "{style}debug{style:#}: {}", record.args())
+        }
         _ => {
             writeln!(buf, "{}", record.args())
         }
