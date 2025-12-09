@@ -8,8 +8,13 @@ use crate::{
 
 use thiserror::Error;
 
+/// Trait to use as a bound for all errors exposed through public
+/// crate interfaces. This makes it convenient to use anyhow::Error.
+pub trait ErrorBound: std::error::Error + Send + Sync + 'static {}
+impl<T> ErrorBound for T where T: std::error::Error + Send + Sync + 'static {}
+
 #[derive(Error, Debug)]
-pub enum CloneError<ProjectReadError, EnvironmentWriteError> {
+pub enum CloneError<ProjectReadError: ErrorBound, EnvironmentWriteError: ErrorBound> {
     #[error("project read error: {0}")]
     ProjectRead(ProjectReadError),
     #[error("environment write error: {0}")]
@@ -20,7 +25,7 @@ pub enum CloneError<ProjectReadError, EnvironmentWriteError> {
     Io(#[from] Box<FsIoError>),
 }
 
-impl<ProjectReadError, EnvironmentWriteError> From<FsIoError>
+impl<ProjectReadError: ErrorBound, EnvironmentWriteError: ErrorBound> From<FsIoError>
     for CloneError<ProjectReadError, EnvironmentWriteError>
 {
     fn from(v: FsIoError) -> Self {

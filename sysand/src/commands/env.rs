@@ -22,7 +22,6 @@ use sysand_core::{
         local_src::LocalSrcProject, utils::wrapfs,
     },
     resolve::{
-        ResolutionOutcome, ResolveRead,
         file::FileResolverProject,
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
@@ -31,7 +30,7 @@ use sysand_core::{
 };
 
 use crate::{
-    CliError, DEFAULT_INDEX_URL,
+    DEFAULT_INDEX_URL,
     cli::{InstallOptions, ResolutionOptions},
     commands::sync::command_sync,
 };
@@ -104,34 +103,18 @@ pub fn command_env_install(
         ),
     );
 
+    // TODO: don't use different root project resolution
+    //       mechanisms depending on no_deps
     if no_deps {
-        let outcome = resolver.resolve_read(&iri)?;
-        // let outcome = resolver.resolve_read(&iri)?;
-        if let ResolutionOutcome::Resolved(alternatives) = outcome {
-            let storage = alternatives
-                .into_iter()
-                .filter_map(Result::ok)
-                .find(|store| {
-                    version.as_ref().is_none_or(|ver| {
-                        store
-                            .get_project()
-                            .ok()
-                            .and_then(|(opt, _)| opt)
-                            .is_some_and(|proj| proj.version == *ver)
-                    })
-                })
-                .ok_or_else(|| anyhow!(CliError::MissingProject(iri.as_ref().to_string())))?;
-            sysand_core::commands::env::do_env_install_project(
-                &iri,
-                &storage,
-                &mut env,
-                allow_overwrite,
-                allow_multiple,
-            )?;
-        } else {
-            // TODO: don't eat resolution errors
-            bail!(CliError::MissingProject(iri.as_ref().to_string()))
-        }
+        let (_version, storage) =
+            crate::commands::clone::get_project_version(&iri, version, &resolver)?;
+        sysand_core::commands::env::do_env_install_project(
+            &iri,
+            &storage,
+            &mut env,
+            allow_overwrite,
+            allow_multiple,
+        )?;
     } else {
         let usages = vec![InterchangeProjectUsage {
             resource: fluent_uri::Iri::from_str(iri.as_ref())?,
@@ -155,7 +138,7 @@ pub fn command_env_install(
             crate::logger::warn_std_deps();
         }
         command_sync(
-            lock,
+            &lock,
             project_root,
             &mut env,
             client,
@@ -269,7 +252,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
             inputs: _inputs,
         } = sysand_core::commands::lock::do_lock_projects([project], resolver)?;
         command_sync(
-            lock,
+            &lock,
             project_root,
             &mut env,
             client,

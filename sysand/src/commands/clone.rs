@@ -4,7 +4,7 @@ use fluent_uri::Iri;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use sysand_core::{
-    commands::lock::LockOutcome,
+    commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
     config::Config,
     discover::discover_project,
     env::utils::clone_project,
@@ -144,7 +144,6 @@ pub fn command_clone(
 
     if !no_deps {
         let provided_iris = if !include_std {
-            // TODO: warn about std libs when resolving deps
             crate::known_std_libs()
         } else {
             HashMap::default()
@@ -168,19 +167,35 @@ pub fn command_clone(
             ),
         );
         let project = EditableProject::new(local_project);
+        // TODO: it would be more efficient to use `do_lock_extend()`, as
+        //       we have project info/meta
         let LockOutcome {
             lock,
             dependencies: _dependencies,
             inputs: _inputs,
         } = sysand_core::commands::lock::do_lock_projects([project], resolver)?;
+        // Warn if we have any std lib dependencies
+        if !provided_iris.is_empty()
+            && lock
+                .projects
+                .iter()
+                .any(|x| x.identifiers.iter().any(|y| provided_iris.contains_key(y)))
+        {
+            crate::logger::warn_std_deps();
+        }
+
         let mut env = get_or_create_env(&project_path)?;
         command_sync(
-            lock,
+            &lock,
             &project_path,
             &mut env,
             client,
             &provided_iris,
             runtime,
+        )?;
+        wrapfs::write(
+            project_path.join(DEFAULT_LOCKFILE_NAME),
+            lock.canonicalize().to_string(),
         )?;
     }
 
@@ -214,27 +229,79 @@ fn clone_iri(
     // Different resolver will be used to resolve deps
     let resolver = standard_resolver(None, None, Some(client), index_urls, runtime);
 
+    let (_version, storage) = get_project_version(iri, version, &resolver)?;
+    // TODO: we could use move_fs_item, but then the target dir must be new
+    //       to not overwrite data
+    // match LocalSrcProject::temporary_from_project(&storage) {
+    //     Ok((dir, tmp_project)) => ,
+    //     Err(_) => todo!(),
+    // }
+    match clone_project(&storage, local_project, allow_overwrite) {
+        Ok(m) => Ok(m),
+        Err(e) => Err(e.into()),
+    }
+}
+
+pub fn get_project_version<R: ResolveRead>(
+    iri: &Iri<String>,
+    version: Option<String>,
+    resolver: &R,
+) -> Result<(semver::Version, R::ProjectStorage), anyhow::Error> {
     let outcome = resolver.resolve_read(iri)?;
-    if let ResolutionOutcome::Resolved(alternatives) = outcome {
-        let storage = alternatives
-            .into_iter()
-            .filter_map(Result::ok)
-            .find(|store| {
-                version.as_ref().is_none_or(|ver| {
-                    store
-                        .get_project()
-                        .ok()
-                        .and_then(|(opt, _)| opt)
-                        .is_some_and(|proj| proj.version == *ver)
+    Ok(if let ResolutionOutcome::Resolved(alternatives) = outcome {
+        // If no version is supplied, choose the highest
+        // Else, choose version that is supplied
+        // TODO: this eats a whole bunch of potential errors, they should be reported
+        //       We also ignore invalid semver versions
+        // TODO: maybe add `no_semver` param to control whether version is
+        //       interpreted as semver?
+        let alt_it = alternatives.into_iter();
+        match version {
+            Some(version) => {
+                let v = semver::Version::parse(&version).map_err(|e| {
+                    anyhow!("failed to parse given version {version} as SemVer: {e}")
+                })?;
+                alt_it
+                    .filter_map(|el| {
+                        el.ok().and_then(|x| {
+                            x.get_info().ok().and_then(|a| {
+                                a.and_then(|b| match semver::Version::parse(&b.version) {
+                                    Ok(ver) => {
+                                        if v == ver {
+                                            Some((ver, x))
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                    Err(_) => None,
+                                })
+                            })
+                        })
+                    })
+                    .max_by(|el1, el2| el1.0.cmp(&el2.0))
+                    .ok_or_else(|| {
+                        anyhow!(CliError::MissingProjectVersion(
+                            iri.as_ref().to_string(),
+                            version
+                        ))
+                    })?
+            }
+            None => alt_it
+                .filter_map(|el| {
+                    el.ok().and_then(|x| {
+                        x.get_info().ok().and_then(|a| {
+                            a.and_then(|b| match semver::Version::parse(&b.version) {
+                                Ok(ver) => Some((ver, x)),
+                                Err(_) => None,
+                            })
+                        })
+                    })
                 })
-            })
-            .ok_or_else(|| anyhow!(CliError::MissingProject(iri.as_ref().to_string())))?;
-        match clone_project(&storage, local_project, allow_overwrite) {
-            Ok(m) => Ok(m),
-            Err(e) => Err(e.into()),
+                .max_by(|el1, el2| el1.0.cmp(&el2.0))
+                .ok_or_else(|| anyhow!(CliError::MissingProject(iri.as_ref().to_string())))?,
         }
     } else {
         // TODO: don't eat resolution errors
         bail!(CliError::MissingProject(iri.as_ref().to_string()))
-    }
+    })
 }

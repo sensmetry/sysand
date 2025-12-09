@@ -5,6 +5,7 @@ use semver::Version;
 use spdx;
 
 use crate::{
+    env::utils::ErrorBound,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadata},
     project::{ProjectMut, memory::InMemoryProject},
 };
@@ -17,7 +18,7 @@ use std::path::Path;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum InitError<ProjectError: std::error::Error> {
+pub enum InitError<ProjectError: ErrorBound> {
     #[error("failed to parse `{0}` as a Semantic Version: {1}")]
     SemVerParse(Box<str>, semver::Error),
     #[error(transparent)]

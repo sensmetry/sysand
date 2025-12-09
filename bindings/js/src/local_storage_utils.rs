@@ -21,14 +21,21 @@ pub enum LocalStorageError {
     NoWindow,
     #[error("failed to get `window.localStorage` object")]
     NoLocalStorage,
-    #[error("JS error: {0:?}")]
-    Js(wasm_bindgen::JsValue),
+    /// String since JsValue is not Send/Sync
+    #[error("JS error: {0}")]
+    Js(String),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("failed to serialize: {0}")]
     Serialize(#[from] serde_json::Error),
     #[error("key `{0}` not found in local storage")]
     KeyNotFound(String),
+}
+
+impl From<wasm_bindgen::JsValue> for LocalStorageError {
+    fn from(value: wasm_bindgen::JsValue) -> Self {
+        Self::Js(format!("{value:?}"))
+    }
 }
 
 impl From<FsIoError> for LocalStorageError {
@@ -44,8 +51,7 @@ pub fn get_local_browser_storage<S: AsRef<str>>(
         prefix: prefix.as_ref().to_string(),
         local_storage: web_sys::window()
             .ok_or(LocalStorageError::NoWindow)?
-            .local_storage()
-            .map_err(LocalStorageError::Js)?
+            .local_storage()?
             .ok_or(LocalStorageError::NoLocalStorage)?,
     })
 }
@@ -56,11 +62,7 @@ impl LocalStorageVFS {
     }
 
     pub fn exists<P: AsRef<Utf8UnixPath>>(&self, path: P) -> Result<bool, LocalStorageError> {
-        Ok(self
-            .local_storage
-            .get_item(&self.to_key(path))
-            .map_err(LocalStorageError::Js)?
-            .is_some())
+        Ok(self.local_storage.get_item(&self.to_key(path))?.is_some())
     }
 
     pub fn write_serialisable<P: AsRef<Utf8UnixPath>, S: Serialize>(
@@ -79,7 +81,7 @@ impl LocalStorageVFS {
         let key = self.to_key(path);
         self.local_storage
             .set_item(&key, value.as_ref())
-            .map_err(LocalStorageError::Js)
+            .map_err(LocalStorageError::from)
     }
 
     pub fn read_string<P: AsRef<Utf8UnixPath>>(
@@ -89,8 +91,7 @@ impl LocalStorageVFS {
         let key = self.to_key(path);
 
         self.local_storage
-            .get_item(&key)
-            .map_err(LocalStorageError::Js)?
+            .get_item(&key)?
             .ok_or(LocalStorageError::KeyNotFound(key))
     }
 
@@ -110,6 +111,6 @@ impl LocalStorageVFS {
         let key = self.to_key(path);
         self.local_storage
             .remove_item(&key)
-            .map_err(LocalStorageError::Js)
+            .map_err(LocalStorageError::from)
     }
 }

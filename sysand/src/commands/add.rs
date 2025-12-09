@@ -58,7 +58,7 @@ pub fn command_add<S: AsRef<str>>(
                 project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
             )?)?;
             command_sync(
-                lock,
+                &lock,
                 project_root,
                 &mut env,
                 client,

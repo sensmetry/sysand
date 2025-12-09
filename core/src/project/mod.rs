@@ -1,9 +1,12 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::model::{
-    InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-    InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
+use crate::{
+    env::utils::ErrorBound,
+    model::{
+        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
+    },
 };
 use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
@@ -79,7 +82,7 @@ async fn hash_reader_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Proje
 }
 
 #[derive(Error, Debug)]
-pub enum CanonicalisationError<ReadError> {
+pub enum CanonicalisationError<ReadError: ErrorBound> {
     #[error(transparent)]
     ProjectRead(ReadError),
     #[error("failed to read from file\n  `{0}`:\n  {1}")]
@@ -87,7 +90,7 @@ pub enum CanonicalisationError<ReadError> {
 }
 
 #[derive(Debug, Error)]
-pub enum IntoProjectError<ReadError, W: ProjectMut> {
+pub enum IntoProjectError<ReadError: ErrorBound, W: ProjectMut> {
     #[error(transparent)]
     ProjectRead(ReadError),
     #[error(transparent)]
@@ -103,7 +106,7 @@ pub enum IntoProjectError<ReadError, W: ProjectMut> {
 pub trait ProjectRead {
     // Mandatory
 
-    type Error: std::error::Error + Debug;
+    type Error: ErrorBound;
 
     /// Fetch project information and metadata (if they exist).
     fn get_project(
@@ -395,7 +398,7 @@ impl<T: ProjectRead> ProjectRead for &mut T {
 pub trait ProjectReadAsync {
     // Mandatory
 
-    type Error: std::error::Error + Debug;
+    type Error: ErrorBound;
 
     /// Fetch project information and metadata (if they exist).
     fn get_project_async(

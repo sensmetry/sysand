@@ -3,7 +3,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::{
-    env::utils::CloneError,
+    env::utils::{CloneError, ErrorBound},
     model::InterchangeProjectValidationError,
     project::{
         ProjectRead,
@@ -19,7 +19,7 @@ use crate::{project::local_src::LocalSrcProject, workspace::Workspace};
 use super::include::IncludeError;
 
 #[derive(Error, Debug)]
-pub enum KParBuildError<ProjectReadError> {
+pub enum KParBuildError<ProjectReadError: ErrorBound> {
     #[error(transparent)]
     ProjectRead(ProjectReadError),
     #[error(transparent)]
@@ -50,13 +50,13 @@ pub enum KParBuildError<ProjectReadError> {
     InternalError(&'static str),
 }
 
-impl<ProjectReadError> From<FsIoError> for KParBuildError<ProjectReadError> {
+impl<ProjectReadError: ErrorBound> From<FsIoError> for KParBuildError<ProjectReadError> {
     fn from(v: FsIoError) -> Self {
         Self::Io(Box::new(v))
     }
 }
 
-impl<ProjectReadError> From<CloneError<ProjectReadError, LocalSrcError>>
+impl<ProjectReadError: ErrorBound> From<CloneError<ProjectReadError, LocalSrcError>>
     for KParBuildError<ProjectReadError>
 {
     fn from(value: CloneError<ProjectReadError, LocalSrcError>) -> Self {
@@ -69,7 +69,9 @@ impl<ProjectReadError> From<CloneError<ProjectReadError, LocalSrcError>>
     }
 }
 
-impl<ProjectReadError> From<IncludeError<LocalSrcError>> for KParBuildError<ProjectReadError> {
+impl<ProjectReadError: ErrorBound> From<IncludeError<LocalSrcError>>
+    for KParBuildError<ProjectReadError>
+{
     fn from(value: IncludeError<LocalSrcError>) -> Self {
         match value {
             IncludeError::Project(error) => error.into(),
@@ -80,7 +82,9 @@ impl<ProjectReadError> From<IncludeError<LocalSrcError>> for KParBuildError<Proj
     }
 }
 
-impl<ProjectReadError> From<IntoKparError<LocalSrcError>> for KParBuildError<ProjectReadError> {
+impl<ProjectReadError: ErrorBound> From<IntoKparError<LocalSrcError>>
+    for KParBuildError<ProjectReadError>
+{
     fn from(value: IntoKparError<LocalSrcError>) -> Self {
         match value {
             IntoKparError::MissingInfo => KParBuildError::MissingInfo,

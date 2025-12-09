@@ -185,5 +185,5 @@ pub fn do_lock_local_editable<
         project_path: path.as_ref().to_path_buf(),
     });
 
-    do_lock_projects(std::iter::once(project), resolver)
+    do_lock_projects([project], resolver)
 }

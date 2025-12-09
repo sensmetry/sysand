@@ -13,6 +13,8 @@ pub enum CliError {
     InvalidIri(String, fluent_uri::ParseError),
     #[error("unable to find interchange project `{0}`")]
     MissingProject(String),
+    #[error("unable to find interchange project `{0}` version {1}")]
+    MissingProjectVersion(String, String),
     #[error("unable to find interchange project in current directory")]
     MissingProjectCurrentDir,
 }

@@ -220,7 +220,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
             let lock = Lock::from_str(&wrapfs::read_to_string(lockfile)?)?;
             command_sync(
-                lock,
+                &lock,
                 project_root,
                 &mut local_environment,
                 client,

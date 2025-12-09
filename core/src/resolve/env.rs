@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Resolve IRIs in an environment
-
 use crate::{
     env::{ReadEnvironment, ReadEnvironmentAsync},
     resolve::{ResolutionOutcome, ResolveRead, ResolveReadAsync},

@@ -382,9 +382,9 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                                 .rev()
                                 .map(|(idx, el)| (idx, el.0.version))
                                 .collect();
-                        // Choose the highest version. We'll assume that version order is stable
-                        // across multiple `resolve_candidates()` calls,
-                        // as DiscreteHashSet does not save actual versions
+                        // Choose the highest version. We'll assume that version
+                        // order is stable across multiple `resolve_candidates()`
+                        // calls, as DiscreteHashSet does not save actual versions
                         versions_indexes.sort_unstable_by(|el1, el2| el2.1.cmp(&el1.1));
                         let mut found = None;
                         for (i, v) in versions_indexes.iter() {
