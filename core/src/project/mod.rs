@@ -297,7 +297,7 @@ impl<T: ProjectRead> ProjectRead for &T {
 
     fn checksum(
         &self,
-    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksum>>, Self::Error> {
+    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error> {
         (*self).checksum()
     }
 
@@ -373,7 +373,7 @@ impl<T: ProjectRead> ProjectRead for &mut T {
 
     fn checksum(
         &self,
-    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksum>>, Self::Error> {
+    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error> {
         (**self).checksum()
     }
 
@@ -632,7 +632,7 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
 
     fn checksum_async(
         &self,
-    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksum>>, Self::Error>>
+    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error>>
     {
         (**self).checksum_async()
     }
@@ -723,7 +723,7 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
 
     fn checksum_async(
         &self,
-    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksum>>, Self::Error>>
+    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error>>
     {
         (**self).checksum_async()
     }
