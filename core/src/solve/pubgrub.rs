@@ -376,6 +376,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                             candidate_versions
                                 .into_iter()
                                 .enumerate()
+                                // Versions are usually returned in ascending order.
+                                // Since we need them in descending order, sort will need
+                                // to perform less work if the iterator is reversed
+                                .rev()
                                 .map(|(idx, el)| (idx, el.0.version))
                                 .collect();
                         // Choose the highest version. We'll assume that version order is stable
