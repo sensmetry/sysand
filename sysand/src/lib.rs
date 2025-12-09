@@ -112,7 +112,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         } => command_init(name, version, no_semver, license, no_spdx, path),
         cli::Command::Env { command } => match command {
             None => {
-                command_env(project_root.unwrap_or(cwd).join(DEFAULT_ENV_NAME))?;
+                let env_dir = {
+                    let mut p = project_root.unwrap_or(cwd);
+                    p.push(DEFAULT_ENV_NAME);
+                    p
+                };
+                command_env(env_dir)?;
 
                 Ok(())
             }
@@ -213,9 +218,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     runtime.clone(),
                 )?;
             }
-            let lock = Lock::from_str(&wrapfs::read_to_string(
-                project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
-            )?)?;
+            let lock = Lock::from_str(&wrapfs::read_to_string(lockfile)?)?;
             command_sync(
                 lock,
                 project_root,
@@ -410,7 +413,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let path = if let Some(path) = path {
                     path
                 } else {
-                    let output_dir = current_workspace
+                    let mut output_dir = current_workspace
                         .as_ref()
                         .map(|workspace| &workspace.workspace_path)
                         .unwrap_or_else(|| &current_project.project_path)
@@ -419,7 +422,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     if !output_dir.is_dir() {
                         wrapfs::create_dir(&output_dir)?;
                     }
-                    output_dir.join(name)
+                    output_dir.push(name);
+                    output_dir
                 };
                 command_build_for_project(path, current_project)
             } else {

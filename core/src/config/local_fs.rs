@@ -40,7 +40,11 @@ pub fn get_config<P: AsRef<Path>>(path: P) -> Result<Config, ConfigReadError> {
 pub fn load_configs<P: AsRef<Path>>(working_dir: P) -> Result<Config, ConfigReadError> {
     let mut config = dirs::config_dir().map_or_else(
         || Ok(Config::default()),
-        |path| get_config(path.join(CONFIG_DIR).join(CONFIG_FILE)),
+        |mut path| {
+            path.push(CONFIG_DIR);
+            path.push(CONFIG_FILE);
+            get_config(path)
+        },
     )?;
     config.merge(get_config(working_dir.as_ref().join(CONFIG_FILE))?);
 

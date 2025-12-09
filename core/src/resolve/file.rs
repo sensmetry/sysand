@@ -69,7 +69,6 @@ impl FileResolver {
         // Try to resolve relative paths
         let project_path: PathBuf = if path.is_relative() {
             if let Some(root_part) = &self.relative_path_root {
-                let root_part: PathBuf = root_part.into();
                 root_part.join(&path)
             } else {
                 return Ok(ResolutionOutcome::UnsupportedIRIType(format!(

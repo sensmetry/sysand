@@ -16,9 +16,9 @@ use sysand_core::{
     },
 };
 
-pub fn command_sync(
+pub fn command_sync<P: AsRef<Path>>(
     lock: Lock,
-    project_root: impl AsRef<Path>,
+    project_root: P,
     env: &mut LocalDirectoryEnvironment,
     client: reqwest_middleware::ClientWithMiddleware,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,

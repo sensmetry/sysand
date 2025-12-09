@@ -59,7 +59,8 @@ fn canonicalise_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
         }
     }
 
-    absolute_part.join(relative_part)
+    absolute_part.push(relative_part);
+    absolute_part
 }
 
 fn relativise_path<P: AsRef<Path>, Q: AsRef<Path>>(path: P, relative_to: Q) -> Option<PathBuf> {

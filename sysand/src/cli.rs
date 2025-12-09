@@ -69,9 +69,8 @@ pub enum Command {
         #[arg(long, requires = "version")]
         no_semver: bool,
         /// Set the license in the form of an SPDX license identifier
-        // /// Defaults to omitting the license field
-        // #[clap(verbatim_doc_comment)]
-        #[arg(long, alias = "licence")]
+        /// Defaults to omitting the license field
+        #[arg(long, alias = "licence", verbatim_doc_comment)]
         license: Option<String>,
         /// Don't require license to be an SPDX expression
         #[arg(long, requires = "license")]
@@ -84,8 +83,8 @@ pub enum Command {
         /// A constraint on the allowed versions of a used project.
         /// Assumes that the project being added uses Semantic Versioning.
         /// Version constraints use same syntax as Rust's Cargo.
-        /// Examples: `1.2.3`, `<2`, `>=3`.
-        /// For details, see the user guide's Project Metadata section
+        /// Examples: `1.2.3`, `<2`, `>=3`. For details, see the user
+        /// guide's `Project information and metadata` section
         #[clap(verbatim_doc_comment)]
         version_constraint: Option<String>,
         /// Do not automatically resolve dependencies (and generate lockfile)

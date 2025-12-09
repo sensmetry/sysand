@@ -275,12 +275,15 @@ impl ProjectRead for LocalKParProject {
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         let tmp_name = format!("{:X}", sha2::Sha256::digest(path.as_ref()));
-        let tmp_file_path = self
-            .tmp_dir
-            .path()
-            .canonicalize()
-            .map_err(|e| FsIoError::Canonicalize(self.tmp_dir.path().to_path_buf(), e))?
-            .join(tmp_name);
+        let tmp_file_path = {
+            let mut p = self
+                .tmp_dir
+                .path()
+                .canonicalize()
+                .map_err(|e| FsIoError::Canonicalize(self.tmp_dir.path().to_path_buf(), e))?;
+            p.push(tmp_name);
+            p
+        };
 
         if !tmp_file_path.is_file() {
             let mut tmp_file = wrapfs::File::create(&tmp_file_path)?;

@@ -31,10 +31,11 @@ pub const DEFAULT_ENV_NAME: &str = "sysand_env";
 pub const ENTRIES_PATH: &str = "entries.txt";
 pub const VERSIONS_PATH: &str = "versions.txt";
 
+/// Get a relative path corresponding to the given `uri`
 pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> PathBuf {
     let mut result = PathBuf::new();
     for segment in segment_uri_generic::<S, Sha256>(uri) {
-        result = result.join(segment);
+        result.push(segment);
     }
 
     result
@@ -286,12 +287,15 @@ impl LocalDirectoryEnvironment {
     }
 
     pub fn versions_path<S: AsRef<str>>(&self, uri: S) -> PathBuf {
-        self.uri_path(uri).join(VERSIONS_PATH)
+        let mut p = self.uri_path(uri);
+        p.push(VERSIONS_PATH);
+        p
     }
 
     pub fn project_path<S: AsRef<str>, T: AsRef<str>>(&self, uri: S, version: T) -> PathBuf {
-        self.uri_path(uri)
-            .join(format!("{}.kpar", version.as_ref()))
+        let mut p = self.uri_path(uri);
+        p.push(format!("{}.kpar", version.as_ref()));
+        p
     }
 }
 
