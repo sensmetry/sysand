@@ -124,7 +124,6 @@ pub fn command_env_install(
         let LockOutcome {
             lock,
             dependencies: _dependencies,
-            inputs: _inputs,
         } = sysand_core::commands::lock::do_lock_extend(Lock::default(), usages, resolver)?;
         // Find if we added any std lib dependencies. This relies on `Lock::default()`
         // and `do_lock_extend()` to not read the existing lockfile, i.e. `lock` contains
@@ -249,7 +248,6 @@ pub fn command_env_install_path<S: AsRef<str>>(
         let LockOutcome {
             lock,
             dependencies: _dependencies,
-            inputs: _inputs,
         } = sysand_core::commands::lock::do_lock_projects([project], resolver)?;
         command_sync(
             &lock,

@@ -172,7 +172,6 @@ pub fn command_clone(
         let LockOutcome {
             lock,
             dependencies: _dependencies,
-            inputs: _inputs,
         } = sysand_core::commands::lock::do_lock_projects([project], resolver)?;
         // Warn if we have any std lib dependencies
         if !provided_iris.is_empty()
@@ -183,6 +182,8 @@ pub fn command_clone(
         {
             crate::logger::warn_std_deps();
         }
+        let lock = lock.canonicalize();
+        wrapfs::write(project_path.join(DEFAULT_LOCKFILE_NAME), lock.to_string())?;
 
         let mut env = get_or_create_env(&project_path)?;
         command_sync(
@@ -192,10 +193,6 @@ pub fn command_clone(
             client,
             &provided_iris,
             runtime,
-        )?;
-        wrapfs::write(
-            project_path.join(DEFAULT_LOCKFILE_NAME),
-            lock.canonicalize().to_string(),
         )?;
     }
 

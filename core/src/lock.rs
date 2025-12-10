@@ -5,6 +5,7 @@ use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
     fmt::Display,
+    path::Path,
     str::FromStr,
 };
 
@@ -471,6 +472,8 @@ impl Source {
         let mut table = InlineTable::new();
         match self {
             Source::Editable { editable } => {
+                // TODO: is there a case where an absolute path is valid here?
+                debug_assert!(!Path::new(editable).is_absolute(), "{editable}");
                 table.insert("editable", Value::from(editable));
             }
             Source::LocalKpar { kpar_path } => {
