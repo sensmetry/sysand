@@ -1,14 +1,21 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::path::PathBuf;
+
 use crate::project::ProjectRead;
 
 #[derive(Debug)]
 /// Treat a project type `P` as an "Editable" project. This simply adds
 /// a `source` pointing to the nominal path `nominal_path` when
 /// this project is in a lockfile.
+/// Project's own path cannot be used as `source`, since it may be
+/// absolute to allow the project to be read without changing
+/// program's dir to workspace root.
 pub struct EditableProject<P: GetPath> {
     inner: P,
+    /// Must be relative to workspace root
+    nominal_path: PathBuf,
     include_original_sources: bool,
 }
 
@@ -18,9 +25,11 @@ pub trait GetPath {
 }
 
 impl<P: GetPath> EditableProject<P> {
-    pub fn new(project: P) -> EditableProject<P> {
+    pub fn new(nominal_path: PathBuf, project: P) -> EditableProject<P> {
+        debug_assert!(nominal_path.is_relative());
         EditableProject {
             inner: project,
+            nominal_path,
             include_original_sources: false,
         }
     }
@@ -68,7 +77,7 @@ impl<P: ProjectRead + GetPath> ProjectRead for EditableProject<P> {
             0,
             crate::lock::Source::Editable {
                 // TODO: fix this when migrating to camino
-                editable: self.inner.get_path().as_ref().to_owned(),
+                editable: self.nominal_path.to_str().unwrap().to_owned(),
             },
         );
 

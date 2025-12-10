@@ -26,7 +26,9 @@ use sysand_core::{
 use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 
 /// Generate a lockfile for project at `path`.
-/// `path` must be relative.
+/// `path` must be relative to workspace root.
+// TODO: this will not work properly if run in subdir of workspace,
+// as `path` will then refer to a deeper subdir
 pub fn command_lock<P: AsRef<Path>>(
     path: P,
     resolution_opts: ResolutionOptions,

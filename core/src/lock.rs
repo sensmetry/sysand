@@ -440,6 +440,7 @@ const SOURCE_ENTRIES: &[&str] = &[
 #[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd)]
 #[serde(untagged)]
 pub enum Source {
+    // Path must be a Unix path relative to workspace root
     Editable {
         editable: String,
     },
@@ -472,8 +473,10 @@ impl Source {
         let mut table = InlineTable::new();
         match self {
             Source::Editable { editable } => {
-                // TODO: is there a case where an absolute path is valid here?
-                debug_assert!(!Path::new(editable).is_absolute(), "{editable}");
+                debug_assert!(
+                    Path::new(editable).is_relative(),
+                    "editable project path is absolute: `{editable}`"
+                );
                 table.insert("editable", Value::from(editable));
             }
             Source::LocalKpar { kpar_path } => {

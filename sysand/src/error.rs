@@ -5,7 +5,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum CliError {
-    #[error("invalid directory: `{0}`")]
+    #[error("invalid directory: {0}")]
     InvalidDirectory(String),
     #[error("unable to find project with IRI `{0}`")]
     NoResolve(String),

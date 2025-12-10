@@ -176,15 +176,15 @@ pub fn command_env_install_path<S: AsRef<str>>(
         include_std,
     } = resolution_opts;
 
-    let metadata = wrapfs::metadata(&path)?;
-    let project = if metadata.is_dir() {
+    let m = wrapfs::metadata(&path)?;
+    let project = if m.is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
             project_path: path.as_str().into(),
         })
-    } else if metadata.is_file() {
+    } else if m.is_file() {
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(&path)?)
     } else {
-        bail!("`{path}` does not exist")
+        bail!("path `{path}` is neither a directory nor a file");
     };
 
     let provided_iris = if !include_std {
@@ -224,7 +224,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
         allow_multiple,
     )?;
     if !no_deps {
-        let project = EditableProject::new(project);
+        let project = EditableProject::new(PathBuf::new(), project);
 
         let mut memory_projects = HashMap::default();
         for (k, v) in provided_iris.iter() {
@@ -248,7 +248,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
         let LockOutcome {
             lock,
             dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_projects([project], resolver)?;
+        } = sysand_core::commands::lock::do_lock_projects([&project], resolver)?;
         command_sync(
             &lock,
             project_root,

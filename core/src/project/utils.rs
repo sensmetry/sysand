@@ -99,6 +99,7 @@ pub enum FsIoError {
 /// Copies the `std` interface 1 to 1, except for the error type.
 pub mod wrapfs {
     use std::fs;
+    use std::path;
     use std::path::Path;
     use std::path::PathBuf;
 
@@ -171,6 +172,11 @@ pub mod wrapfs {
     pub fn canonicalize<P: AsRef<Path>>(path: P) -> Result<PathBuf, Box<FsIoError>> {
         fs::canonicalize(&path)
             .map_err(|e| Box::new(FsIoError::Canonicalize(path.to_path_buf(), e)))
+    }
+
+    /// see `std::path::absolute()`
+    pub fn absolute<P: AsRef<Path>>(path: P) -> Result<PathBuf, Box<FsIoError>> {
+        path::absolute(&path).map_err(|e| Box::new(FsIoError::Canonicalize(path.to_path_buf(), e)))
     }
 
     pub fn current_dir() -> Result<PathBuf, Box<FsIoError>> {

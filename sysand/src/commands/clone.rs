@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow, bail};
 use fluent_uri::Iri;
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, fs, io::ErrorKind, path::PathBuf, sync::Arc};
 
 use sysand_core::{
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
@@ -36,7 +36,6 @@ pub fn command_clone(
     locator: ProjectLocatorArgs,
     version: Option<String>,
     target: Option<String>,
-    allow_overwrite: bool,
     no_deps: bool,
     resolution_opts: ResolutionOptions,
     config: &Config,
@@ -50,24 +49,37 @@ pub fn command_clone(
         include_std,
     } = resolution_opts;
 
-    let project_path = match target {
-        Some(p) => {
-            let canonical = wrapfs::canonicalize(p)?;
-            wrapfs::create_dir_all(&canonical)?;
-            canonical
+    let project_path: PathBuf = {
+        let target: PathBuf = target.unwrap_or_else(|| ".".into()).into();
+        // Canonicalization is performed only for better error messages
+        let canonical = wrapfs::absolute(&target)?;
+        match fs::read_dir(&target) {
+            Ok(mut dir_it) => match dir_it.next() {
+                Some(_) => bail!("directory not empty: `{}`", canonical.display()),
+                None => (),
+            },
+            Err(e) => match e.kind() {
+                ErrorKind::NotFound => {
+                    wrapfs::create_dir_all(&canonical)?;
+                }
+                ErrorKind::NotADirectory => {
+                    bail!("path `{}` is not a directory", canonical.display())
+                }
+                e => {
+                    bail!(
+                        "failed to get metadata for `{}`: {}",
+                        canonical.display(),
+                        e
+                    );
+                }
+            },
         }
-        // TODO: add current_dir to some sort of common params, to
-        // avoid calling current_dir everywhere
-        // current_dir is desirable over '.', since errors are better,
-        // especially if sysand is called from ffi or within some script/app
-        // where current dir is not obvious
-        // TODO: replace with wrapfs::current_dir once it's merged
-        None => std::env::current_dir()?,
+        canonical
     };
     if let Some(existing_project) = discover_project(&project_path) {
         log::warn!(
-            "found an existing project in the project destination path or its\n\
-            {:>8} parent directory `{}`",
+            "found an existing project in the destination path's parent\n\
+            {:>8} directory `{}`",
             ' ',
             existing_project.project_path.display()
         );
@@ -104,7 +116,7 @@ pub fn command_clone(
     let header = sysand_core::style::get_style_config().header;
 
     let mut local_project = LocalSrcProject {
-        project_path: project_path.clone(),
+        project_path: project_path,
     };
     match locator {
         ProjectLocator::Iri(iri) => {
@@ -116,7 +128,7 @@ pub fn command_clone(
                 client.clone(),
                 runtime.clone(),
                 index_urls.clone(),
-                allow_overwrite,
+                true,
             )?;
             log::info!(
                 "{header}{cloned:>12}{header:#} `{}` {}",
@@ -125,15 +137,28 @@ pub fn command_clone(
             );
         }
         ProjectLocator::Path(path) => {
+            let remote_project = LocalSrcProject {
+                project_path: path.into(),
+            };
+            if let Some(version) = version {
+                let project_version = remote_project
+                    .get_info()?
+                    .ok_or_else(|| anyhow!("missing project info"))?
+                    .version;
+                if version != project_version {
+                    bail!(
+                        "given version {version} does not match project version {project_version}"
+                    )
+                }
+            }
             log::info!(
-                "{header}{cloning:>12}{header:#} project from `{}` to
+                "{header}{cloning:>12}{header:#} project from `{}` to\n\
                 {:>12} `{}`",
-                wrapfs::canonicalize(&path)?.display(),
+                wrapfs::canonicalize(&remote_project.project_path)?.display(),
                 ' ',
                 local_project.project_path.display(),
             );
-            let (info, _meta) =
-                clone_path(path.as_str().into(), &mut local_project, allow_overwrite)?;
+            let (info, _meta) = clone_project(&remote_project, &mut local_project, true)?;
             log::info!(
                 "{header}{cloned:>12}{header:#} `{}` {}",
                 info.name,
@@ -166,13 +191,13 @@ pub fn command_clone(
                 runtime.clone(),
             ),
         );
-        let project = EditableProject::new(local_project);
+        let project = EditableProject::new(".".into(), local_project);
         // TODO: it would be more efficient to use `do_lock_extend()`, as
         //       we have project info/meta
         let LockOutcome {
             lock,
             dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_projects([project], resolver)?;
+        } = sysand_core::commands::lock::do_lock_projects([&project], resolver)?;
         // Warn if we have any std lib dependencies
         if !provided_iris.is_empty()
             && lock
@@ -183,12 +208,15 @@ pub fn command_clone(
             crate::logger::warn_std_deps();
         }
         let lock = lock.canonicalize();
-        wrapfs::write(project_path.join(DEFAULT_LOCKFILE_NAME), lock.to_string())?;
+        wrapfs::write(
+            project.inner().project_path.join(DEFAULT_LOCKFILE_NAME),
+            lock.to_string(),
+        )?;
 
-        let mut env = get_or_create_env(&project_path)?;
+        let mut env = get_or_create_env(&project.inner().project_path)?;
         command_sync(
             &lock,
-            &project_path,
+            &project.inner().project_path,
             &mut env,
             client,
             &provided_iris,
@@ -197,20 +225,6 @@ pub fn command_clone(
     }
 
     Ok(())
-}
-
-fn clone_path(
-    remote_path: PathBuf,
-    local_project: &mut LocalSrcProject,
-    allow_overwrite: bool,
-) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
-    let remote_project = LocalSrcProject {
-        project_path: remote_path,
-    };
-    match clone_project(&remote_project, local_project, allow_overwrite) {
-        Ok(m) => Ok(m),
-        Err(e) => Err(e.into()),
-    }
 }
 
 fn clone_iri(

@@ -61,9 +61,10 @@ pub struct LockOutcome<PD> {
 /// Returns a lockfile, as well as a list of dependency projects to install (in addition to)
 /// `projects`.
 pub fn do_lock_projects<
-    PI: ProjectRead + Debug,
+    'a,
+    PI: ProjectRead + Debug + 'a,
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = PI>,
+    I: IntoIterator<Item = &'a PI>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     projects: I, // TODO: Should this be an iterable over Q?
@@ -72,9 +73,8 @@ pub fn do_lock_projects<
     let mut lock = Lock::default();
 
     let mut all_deps = vec![];
-    let mut inputs = vec![];
 
-    for project in projects.into_iter() {
+    for project in projects {
         let info = project
             .get_info()
             .map_err(LockProjectError::InputProjectError)?
@@ -102,8 +102,6 @@ pub fn do_lock_projects<
         let usages: Result<Vec<InterchangeProjectUsage>, InterchangeProjectValidationError> =
             info.usage.iter().map(|p| p.validate()).collect();
         let usages = usages.map_err(LockError::Validation)?;
-
-        inputs.push(project);
 
         all_deps.extend(usages);
     }
@@ -165,9 +163,13 @@ pub fn do_lock_local_editable<
     path: P,
     resolver: R,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
-    let project = EditableProject::new(LocalSrcProject {
-        project_path: path.as_ref().to_path_buf(),
-    });
+    let project = EditableProject::new(
+        // TODO: this is incorrect if project is in a subdir of workspace
+        ".".into(),
+        LocalSrcProject {
+            project_path: path.as_ref().to_path_buf(),
+        },
+    );
 
-    do_lock_projects([project], resolver)
+    do_lock_projects([&project], resolver)
 }

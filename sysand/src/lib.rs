@@ -464,13 +464,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             version,
             target,
             resolution_opts,
-            allow_overwrite,
             no_deps,
         } => commands::clone::command_clone(
             locator,
             version,
             target,
-            allow_overwrite,
             no_deps,
             resolution_opts,
             &config,

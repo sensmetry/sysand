@@ -111,21 +111,18 @@ pub enum Command {
     Clone {
         #[clap(flatten)]
         locator: ProjectLocatorArgs,
+        /// Path to clone the project into. If already exists, must
+        /// be an empty directory. Defaults to current directory
+        #[clap(default_value = None, verbatim_doc_comment)]
+        target: Option<String>,
         /// Version of the project to clone. Defaults to the latest
-        /// version according to SemVer 2.0, ignoring pre-releases
-        // TODO: If from_path and version are both specified, we can only
+        /// version according to SemVer 2.0
+        // TODO: If source path and version are both specified, we can only
         // check if version of project at from_path is `version` and fail
         // otherwise (env install path works this way)
-        #[arg(long, verbatim_doc_comment)]
+        #[arg(long, short = 'V', verbatim_doc_comment)]
         version: Option<String>,
-        /// Path to clone the project into. Defaults to current directory
-        #[arg(long, default_value = None)]
-        target: Option<String>,
 
-        // TODO: not all options below make sense for this
-        /// Allow overwriting an existing project
-        #[arg(long)]
-        allow_overwrite: bool,
         /// Don't resolve or install dependencies
         #[arg(long)]
         no_deps: bool,
