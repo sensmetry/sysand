@@ -1,7 +1,14 @@
 use anyhow::{Result, anyhow, bail};
 use fluent_uri::Iri;
 
-use std::{collections::HashMap, fs, io::ErrorKind, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    fs,
+    io::ErrorKind,
+    mem,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use sysand_core::{
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
@@ -49,15 +56,16 @@ pub fn command_clone(
         include_std,
     } = resolution_opts;
 
-    let project_path: PathBuf = {
-        let target: PathBuf = target.unwrap_or_else(|| ".".into()).into();
+    let target: PathBuf = target.unwrap_or_else(|| ".".into()).into();
+    let (project_path, cleaner) = {
         // Canonicalization is performed only for better error messages
         let canonical = wrapfs::absolute(&target)?;
         match fs::read_dir(&target) {
-            Ok(mut dir_it) => match dir_it.next() {
-                Some(_) => bail!("directory not empty: `{}`", canonical.display()),
-                None => (),
-            },
+            Ok(mut dir_it) => {
+                if dir_it.next().is_some() {
+                    bail!("directory not empty: `{}`", canonical.display())
+                }
+            }
             Err(e) => match e.kind() {
                 ErrorKind::NotFound => {
                     wrapfs::create_dir_all(&canonical)?;
@@ -74,7 +82,7 @@ pub fn command_clone(
                 }
             },
         }
-        canonical
+        (canonical, DirCleaner(&target))
     };
     if let Some(existing_project) = discover_project(&project_path) {
         log::warn!(
@@ -97,7 +105,6 @@ pub fn command_clone(
         path,
     } = locator;
 
-    // TODO: maybe clone into temp dir first?
     let locator = if let Some(auto_location) = auto_location {
         match fluent_uri::Iri::parse(auto_location) {
             Ok(iri) => ProjectLocator::Iri(iri),
@@ -115,9 +122,7 @@ pub fn command_clone(
     let cloned = "Cloned";
     let header = sysand_core::style::get_style_config().header;
 
-    let mut local_project = LocalSrcProject {
-        project_path: project_path,
-    };
+    let mut local_project = LocalSrcProject { project_path };
     match locator {
         ProjectLocator::Iri(iri) => {
             log::info!("{header}{cloning:>12}{header:#} project with IRI `{}`", iri);
@@ -224,6 +229,8 @@ pub fn command_clone(
         )?;
     }
 
+    // DirCleaner must only be dropped on failure
+    mem::forget(cleaner);
     Ok(())
 }
 
@@ -315,4 +322,31 @@ pub fn get_project_version<R: ResolveRead>(
         // TODO: don't eat resolution errors
         bail!(CliError::MissingProject(iri.as_ref().to_string()))
     })
+}
+
+/// Removes all files in dir `P` on drop. Directory
+/// iself is not touched. In happy path use
+/// `std::mem::forget()` to prevent drop.
+/// Struct doesn't own `Drop` values, so memory won't be leaked.
+struct DirCleaner<'a>(&'a Path);
+
+impl Drop for DirCleaner<'_> {
+    fn drop(&mut self) {
+        let Ok(entries) = fs::read_dir(self.0) else {
+            return;
+        };
+
+        for entry in entries {
+            let Ok(entry) = entry else { continue };
+            let path = entry.path();
+            let Ok(entry_type) = entry.file_type() else {
+                continue;
+            };
+            if entry_type.is_dir() {
+                let _ = fs::remove_dir_all(&path);
+            } else {
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
 }
