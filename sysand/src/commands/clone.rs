@@ -125,7 +125,13 @@ pub fn command_clone(
     let mut local_project = LocalSrcProject { project_path };
     match locator {
         ProjectLocator::Iri(iri) => {
-            log::info!("{header}{cloning:>12}{header:#} project with IRI `{}`", iri);
+            log::info!(
+                "{header}{cloning:>12}{header:#} project with IRI `{}` to\n\
+                {:>12} `{}`",
+                iri,
+                ' ',
+                local_project.project_path.display(),
+            );
             let (info, _meta) = clone_iri(
                 &iri,
                 version,
