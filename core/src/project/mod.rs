@@ -109,6 +109,7 @@ pub trait ProjectRead {
     type Error: ErrorBound;
 
     /// Fetch project information and metadata (if they exist).
+    // TODO: cache project info
     fn get_project(
         &self,
     ) -> Result<
