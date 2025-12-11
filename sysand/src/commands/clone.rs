@@ -63,7 +63,7 @@ pub fn command_clone(
         match fs::read_dir(&target) {
             Ok(mut dir_it) => {
                 if dir_it.next().is_some() {
-                    bail!("directory not empty: `{}`", canonical.display())
+                    bail!("target directory not empty: `{}`", canonical.display())
                 }
             }
             Err(e) => match e.kind() {
@@ -71,7 +71,7 @@ pub fn command_clone(
                     wrapfs::create_dir_all(&canonical)?;
                 }
                 ErrorKind::NotADirectory => {
-                    bail!("path `{}` is not a directory", canonical.display())
+                    bail!("target path `{}` is not a directory", canonical.display())
                 }
                 e => {
                     bail!(
@@ -86,8 +86,8 @@ pub fn command_clone(
     };
     if let Some(existing_project) = discover_project(&project_path) {
         log::warn!(
-            "found an existing project in the destination path's parent\n\
-            {:>8} directory `{}`",
+            "found an existing project in one of target path's parent\n\
+            {:>8} directories `{}`",
             ' ',
             existing_project.project_path.display()
         );

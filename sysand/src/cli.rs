@@ -112,7 +112,7 @@ pub enum Command {
         locator: ProjectLocatorArgs,
         /// Path to clone the project into. If already exists, must
         /// be an empty directory. Defaults to current directory
-        #[clap(default_value = None, verbatim_doc_comment)]
+        #[arg(long, short, default_value = None, verbatim_doc_comment)]
         target: Option<String>,
         /// Version of the project to clone. Defaults to the latest
         /// version according to SemVer 2.0
