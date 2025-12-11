@@ -324,9 +324,8 @@ pub fn get_project_version<R: ResolveRead>(
     })
 }
 
-/// Removes all files in dir `P` on drop. Directory
-/// iself is not touched. In happy path use
-/// `std::mem::forget()` to prevent drop.
+/// Removes all files in the directory on drop. Directory itself
+/// is not touched. Use `std::mem::forget()` to prevent drop.
 /// Struct doesn't own `Drop` values, so memory won't be leaked.
 struct DirCleaner<'a>(&'a Path);
 
