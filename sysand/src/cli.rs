@@ -789,7 +789,7 @@ impl InfoCommand {
                 (None, Some(clear), None, None) => InfoCommandVerb::Clear(clear),
                 (None, None, Some(add), None) => InfoCommandVerb::Add(add),
                 (None, None, None, Some(remove)) => InfoCommandVerb::Remove(remove),
-                _ => panic!("internal error: invalid CLI command produced"),
+                _ => unreachable!("internal error: invalid CLI command produced"),
             }
         }
 

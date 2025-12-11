@@ -25,7 +25,8 @@ pub fn ensure_debug_hook() {
 #[cfg(feature = "browser")]
 #[wasm_bindgen(js_name = clear_local_storage)]
 pub fn clear_local_storage(prefix: &str) -> Result<(), JsValue> {
-    let local_storage = local_storage_utils::get_local_browser_storage(prefix).unwrap();
+    let local_storage = local_storage_utils::get_local_browser_storage(prefix)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     local_storage.local_storage.clear()
 }
 
@@ -45,7 +46,8 @@ pub fn do_new_js_local_storage(
         version,
         license,
         &mut io::local_storage::ProjectLocalBrowserStorage {
-            vfs: local_storage_utils::get_local_browser_storage(prefix).unwrap(),
+            vfs: local_storage_utils::get_local_browser_storage(prefix)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?,
             root_path: Utf8UnixPath::new(root_path).to_path_buf(),
         },
     )

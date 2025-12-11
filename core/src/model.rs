@@ -42,14 +42,12 @@ impl InterchangeProjectUsageRaw {
             version_constraint: self
                 .version_constraint
                 .as_ref()
-                .map(|c| semver::VersionReq::parse(c))
-                .transpose()
-                .map_err(|e| {
-                    InterchangeProjectValidationError::SemVerConstraintParse(
-                        self.version_constraint.clone().unwrap(),
-                        e,
-                    )
-                })?,
+                .map(|c| {
+                    semver::VersionReq::parse(c).map_err(|e| {
+                        InterchangeProjectValidationError::SemVerConstraintParse(c.to_owned(), e)
+                    })
+                })
+                .transpose()?,
         })
     }
 }
@@ -548,12 +546,7 @@ impl InterchangeProjectMetadataRaw {
         value: T,
         overwrite: bool,
     ) -> Option<InterchangeProjectChecksumRaw> {
-        let checksum = if let Some(checksum) = self.checksum.as_mut() {
-            checksum
-        } else {
-            self.checksum = Some(IndexMap::default());
-            self.checksum.as_mut().unwrap()
-        };
+        let checksum = self.checksum.get_or_insert_with(IndexMap::default);
 
         match checksum.entry(path.as_ref().to_string()) {
             indexmap::map::Entry::Occupied(mut occupied_entry) => Some(if overwrite {

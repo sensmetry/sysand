@@ -98,7 +98,10 @@ pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
-) -> Result<Vec<<Env as ReadEnvironment>::InterchangeProjectRead>, SolverError<EnvResolver<Env>>> {
+) -> Result<
+    Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
+    SolverError<PriorityResolver<MemoryResolver<AcceptAll, InMemoryProject>, EnvResolver<Env>>>,
+> {
     let mut memory_projects = HashMap::default();
 
     for (k, v) in provided_iris {
@@ -113,7 +116,7 @@ pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
         EnvResolver { env },
     );
 
-    let mut wrapped_result = crate::solve::pubgrub::solve(requested, wrapped_resolver).unwrap();
+    let mut wrapped_result = crate::solve::pubgrub::solve(requested, wrapped_resolver)?;
 
     Ok(wrapped_result
         .drain()
