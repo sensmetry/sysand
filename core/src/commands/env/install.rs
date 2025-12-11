@@ -4,7 +4,10 @@
 use thiserror::Error;
 
 use crate::{
-    env::{ReadEnvironment, WriteEnvironment, utils::clone_project},
+    env::{
+        PutProjectError, ReadEnvironment, WriteEnvironment,
+        utils::{CloneError, clone_project},
+    },
     project::ProjectRead,
 };
 
@@ -82,10 +85,7 @@ pub enum EnvInstallError<EnvReadError, ProjectReadError, InstallationError> {
 }
 
 type InstallationError<EnvWriteError, ProjectReadError, ProjectWriteError> =
-    crate::env::PutProjectError<
-        EnvWriteError,
-        crate::env::utils::CloneError<ProjectReadError, ProjectWriteError>,
-    >;
+    PutProjectError<EnvWriteError, CloneError<ProjectReadError, ProjectWriteError>>;
 
 impl<EnvReadError, ProjectReadError, I> From<CheckInstallError<EnvReadError, ProjectReadError>>
     for EnvInstallError<EnvReadError, ProjectReadError, I>

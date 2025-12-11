@@ -304,7 +304,7 @@ pub enum PutProjectError<WE, CE> {
 }
 
 pub trait WriteEnvironment {
-    type WriteError: std::error::Error + Debug;
+    type WriteError: ErrorBound;
 
     type InterchangeProjectMut: ProjectMut;
 

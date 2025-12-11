@@ -5,7 +5,10 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::env::memory::{MemoryStorageEnvironment, MemoryWriteError};
+use crate::env::{
+    memory::{MemoryStorageEnvironment, MemoryWriteError},
+    utils::ErrorBound,
+};
 #[cfg(feature = "filesystem")]
 use crate::{
     env::local_directory::{ENTRIES_PATH, LocalDirectoryEnvironment, LocalWriteError},
@@ -24,7 +27,7 @@ mod list;
 pub use list::do_env_list;
 
 #[derive(Error, Debug)]
-pub enum EnvError<WriteError: std::error::Error> {
+pub enum EnvError<WriteError: ErrorBound> {
     #[error("refusing to overwrite `{0}`")]
     AlreadyExists(PathBuf),
     #[error("environment write error: {0}")]
