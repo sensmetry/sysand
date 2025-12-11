@@ -103,10 +103,9 @@ pub enum Command {
         /// IRI identifying the project usage to be removed
         iri: fluent_uri::Iri<String>,
     },
-    /// Clone a project to a specified directory
+    /// Clone a project to a specified directory.
     /// Equivalent to manually downloading, extracting the
-    /// project to the directory and running `sysand lock`
-    // Name ideas: clone, (down)load, edit, checkout
+    /// project to the directory and running `sysand sync`
     #[clap(verbatim_doc_comment)]
     Clone {
         #[clap(flatten)]
@@ -117,9 +116,6 @@ pub enum Command {
         target: Option<String>,
         /// Version of the project to clone. Defaults to the latest
         /// version according to SemVer 2.0
-        // TODO: If source path and version are both specified, we can only
-        // check if version of project at from_path is `version` and fail
-        // otherwise (env install path works this way)
         #[arg(long, short = 'V', verbatim_doc_comment)]
         version: Option<String>,
 
