@@ -116,7 +116,7 @@ pub fn standard_resolver(
     let local_resolver = local_env_path.map(standard_local_resolver);
     let index_resolver = client
         .zip(index_urls)
-        .map(|(client, urls)| standard_index_resolver(client, urls, runtime.clone()));
+        .map(|(client, urls)| standard_index_resolver(client, urls, runtime));
 
     StandardResolver(CombinedResolver {
         file_resolver: Some(file_resolver),

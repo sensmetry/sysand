@@ -15,7 +15,6 @@ use sysand_core::{
     config::Config,
     discover::discover_project,
     env::utils::clone_project,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectRead, editable::EditableProject, local_src::LocalSrcProject, utils::wrapfs},
     resolve::{
         ResolutionOutcome, ResolveRead,
@@ -123,6 +122,13 @@ pub fn command_clone(
     let header = sysand_core::style::get_style_config().header;
 
     let mut local_project = LocalSrcProject { project_path };
+    let std_resolver = standard_resolver(
+        None,
+        None,
+        Some(client.clone()),
+        index_urls,
+        runtime.clone(),
+    );
     match locator {
         ProjectLocator::Iri(iri) => {
             log::info!(
@@ -132,15 +138,8 @@ pub fn command_clone(
                 ' ',
                 local_project.project_path.display(),
             );
-            let (info, _meta) = clone_iri(
-                &iri,
-                version,
-                &mut local_project,
-                client.clone(),
-                runtime.clone(),
-                index_urls.clone(),
-                true,
-            )?;
+            let (_version, storage) = get_project_version(&iri, version, &std_resolver)?;
+            let (info, _meta) = clone_project(&storage, &mut local_project, true)?;
             log::info!(
                 "{header}{cloned:>12}{header:#} `{}` {}",
                 info.name,
@@ -177,6 +176,8 @@ pub fn command_clone(
             );
         }
     }
+    // Project is successfully cloned
+    mem::forget(cleaner);
 
     if !no_deps {
         let provided_iris = if !include_std {
@@ -194,17 +195,9 @@ pub fn command_clone(
                 iri_predicate: AcceptAll {},
                 projects: memory_projects,
             },
-            standard_resolver(
-                None,
-                None,
-                Some(client.clone()),
-                index_urls,
-                runtime.clone(),
-            ),
+            std_resolver,
         );
         let project = EditableProject::new(".".into(), local_project);
-        // TODO: it would be more efficient to use `do_lock_extend()`, as
-        //       we have project info/meta
         let LockOutcome {
             lock,
             dependencies: _dependencies,
@@ -235,35 +228,7 @@ pub fn command_clone(
         )?;
     }
 
-    // DirCleaner must only be dropped on failure
-    mem::forget(cleaner);
     Ok(())
-}
-
-fn clone_iri(
-    iri: &Iri<String>,
-    version: Option<String>,
-    local_project: &mut LocalSrcProject,
-    client: reqwest_middleware::ClientWithMiddleware,
-    runtime: Arc<tokio::runtime::Runtime>,
-    index_urls: Option<Vec<url::Url>>,
-    allow_overwrite: bool,
-) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
-    // Here we need to always obtain the project, even if it's one of std libs
-    // Different resolver will be used to resolve deps
-    let resolver = standard_resolver(None, None, Some(client), index_urls, runtime);
-
-    let (_version, storage) = get_project_version(iri, version, &resolver)?;
-    // TODO: we could use move_fs_item, but then the target dir must be new
-    //       to not overwrite data
-    // match LocalSrcProject::temporary_from_project(&storage) {
-    //     Ok((dir, tmp_project)) => ,
-    //     Err(_) => todo!(),
-    // }
-    match clone_project(&storage, local_project, allow_overwrite) {
-        Ok(m) => Ok(m),
-        Err(e) => Err(e.into()),
-    }
 }
 
 pub fn get_project_version<R: ResolveRead>(
@@ -276,7 +241,6 @@ pub fn get_project_version<R: ResolveRead>(
         // If no version is supplied, choose the highest
         // Else, choose version that is supplied
         // TODO: this eats a whole bunch of potential errors, they should be reported
-        //       We also ignore invalid semver versions
         // TODO: maybe add `no_semver` param to control whether version is
         //       interpreted as semver?
         let alt_it = alternatives.into_iter();
@@ -297,6 +261,7 @@ pub fn get_project_version<R: ResolveRead>(
                                             None
                                         }
                                     }
+                                    // TODO: don't ignore non-semver versions
                                     Err(_) => None,
                                 })
                             })
@@ -316,6 +281,7 @@ pub fn get_project_version<R: ResolveRead>(
                         x.get_info().ok().and_then(|a| {
                             a.and_then(|b| match semver::Version::parse(&b.version) {
                                 Ok(ver) => Some((ver, x)),
+                                // TODO: don't ignore non-semver versions
                                 Err(_) => None,
                             })
                         })
@@ -332,7 +298,7 @@ pub fn get_project_version<R: ResolveRead>(
 
 /// Removes all files in the directory on drop. Directory itself
 /// is not touched. Use `std::mem::forget()` to prevent drop.
-/// Struct doesn't own `Drop` values, so memory won't be leaked.
+/// This doesn't own `Drop` values, so memory won't be leaked.
 struct DirCleaner<'a>(&'a Path);
 
 impl Drop for DirCleaner<'_> {
@@ -340,6 +306,7 @@ impl Drop for DirCleaner<'_> {
         let Ok(entries) = fs::read_dir(self.0) else {
             return;
         };
+        log::debug!("drop: clearing contents of dir `{}`", self.0.display());
 
         for entry in entries {
             let Ok(entry) = entry else { continue };
