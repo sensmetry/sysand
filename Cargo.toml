@@ -3,7 +3,7 @@ resolver = "3"
 members = ["sysand", "core", "bindings/py", "bindings/js", "bindings/java"]
 
 [workspace.package]
-version = "0.0.6"
+version = "0.0.7"
 edition = "2024"
 rust-version = "1.85"
 publish = false
