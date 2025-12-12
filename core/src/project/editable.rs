@@ -1,28 +1,45 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::path::PathBuf;
+
 use crate::project::ProjectRead;
 
 #[derive(Debug)]
 /// Treat a project type `P` as an "Editable" project. This simply adds
-/// at `source` pointing to the nominal path `nominal_path`.
-pub struct EditableProject<P> {
+/// a `source` pointing to the nominal path `nominal_path` when
+/// this project is in a lockfile.
+/// Project's own path cannot be used as `source`, since it may be
+/// absolute to allow the project to be read without changing
+/// program's dir to workspace root.
+pub struct EditableProject<P: GetPath> {
     inner: P,
-    nominal_path: String,
+    /// Must be relative to workspace root
+    nominal_path: PathBuf,
     include_original_sources: bool,
 }
 
-impl<P> EditableProject<P> {
-    pub fn new<Q: AsRef<str>>(nominal_path: Q, project: P) -> EditableProject<P> {
+pub trait GetPath {
+    // TODO: use camino path
+    fn get_path(&self) -> impl AsRef<str>;
+}
+
+impl<P: GetPath> EditableProject<P> {
+    pub fn new(nominal_path: PathBuf, project: P) -> EditableProject<P> {
+        debug_assert!(nominal_path.is_relative());
         EditableProject {
             inner: project,
-            nominal_path: nominal_path.as_ref().to_string(),
+            nominal_path,
             include_original_sources: false,
         }
     }
+
+    pub fn inner(&self) -> &P {
+        &self.inner
+    }
 }
 
-impl<P: ProjectRead> ProjectRead for EditableProject<P> {
+impl<P: ProjectRead + GetPath> ProjectRead for EditableProject<P> {
     type Error = P::Error;
 
     fn get_project(
@@ -59,7 +76,8 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
         inner_sources.insert(
             0,
             crate::lock::Source::Editable {
-                editable: self.nominal_path.clone(),
+                // TODO: fix this when migrating to camino
+                editable: self.nominal_path.to_str().unwrap().to_owned(),
             },
         );
 

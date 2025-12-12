@@ -14,10 +14,11 @@ use std::{
 use tempfile::TempDir;
 
 pub fn fixture_path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("data")
-        .join(name)
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("tests");
+    path.push("data");
+    path.push(name);
+    path
 }
 
 pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(

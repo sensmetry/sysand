@@ -5,7 +5,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{project::ProjectRead, resolve::ResolveRead};
+use crate::{env::utils::ErrorBound, project::ProjectRead, resolve::ResolveRead};
 
 /// Resolver that overrides the resolution of some underlying (lower priority)
 /// resolver by that of another (higher priority) resolver.
@@ -22,7 +22,7 @@ impl<Higher, Lower> PriorityResolver<Higher, Lower> {
 }
 
 #[derive(Error, Debug)]
-pub enum PriorityError<HigherError, LowerError> {
+pub enum PriorityError<HigherError: ErrorBound, LowerError: ErrorBound> {
     #[error(transparent)]
     Higher(HigherError),
     #[error(transparent)]

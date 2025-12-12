@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
 use url::ParseError;
@@ -16,9 +16,9 @@ use sysand_core::{
     },
 };
 
-pub fn command_sync(
-    lock: Lock,
-    project_root: PathBuf,
+pub fn command_sync<P: AsRef<Path>>(
+    lock: &Lock,
+    project_root: P,
     env: &mut LocalDirectoryEnvironment,
     client: reqwest_middleware::ClientWithMiddleware,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
@@ -28,7 +28,7 @@ pub fn command_sync(
         lock,
         env,
         Some(|src_path: String| LocalSrcProject {
-            project_path: project_root.join(src_path),
+            project_path: project_root.as_ref().join(src_path),
         }),
         Some(
             |remote_src: String| -> Result<AsSyncProjectTokio<ReqwestSrcProjectAsync>, ParseError> {

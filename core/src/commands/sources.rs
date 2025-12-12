@@ -16,6 +16,7 @@ use crate::{
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectRead, memory::InMemoryProject},
     resolve::{
+        ResolveRead,
         env::EnvResolver,
         memory::{AcceptAll, MemoryResolver},
         priority::{PriorityProject, PriorityResolver},
@@ -93,12 +94,15 @@ pub fn do_sources_local_src_project_no_deps(
 /// in an environment and enumerate the resolved projects.
 ///
 /// `provided_iris` are assumed to have been satisfied (including their dependencies)
-/// but have to match .
+/// but have to match.
 pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
-) -> Result<Vec<<Env as ReadEnvironment>::InterchangeProjectRead>, SolverError<EnvResolver<Env>>> {
+) -> Result<
+    Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
+    SolverError<impl ResolveRead + Debug + use<Env>>,
+> {
     let mut memory_projects = HashMap::default();
 
     for (k, v) in provided_iris {
@@ -113,7 +117,7 @@ pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
         EnvResolver { env },
     );
 
-    let mut wrapped_result = crate::solve::pubgrub::solve(requested, wrapped_resolver).unwrap();
+    let mut wrapped_result = crate::solve::pubgrub::solve(requested, wrapped_resolver)?;
 
     Ok(wrapped_result
         .drain()

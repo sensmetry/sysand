@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+#![allow(refining_impl_trait)]
+
 pub mod commands;
 pub use commands::*;
 

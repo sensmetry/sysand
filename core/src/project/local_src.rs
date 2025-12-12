@@ -4,7 +4,7 @@
 use crate::{
     env::utils::{CloneError, clone_project},
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectMut, ProjectRead, utils::wrapfs},
+    project::{ProjectMut, ProjectRead, editable::GetPath, utils::wrapfs},
 };
 use std::{
     collections::HashSet,
@@ -21,16 +21,23 @@ use thiserror::Error;
 use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, ToPathBuf};
 
 /// Project stored in a local directory as an extracted kpar archive.
-/// Source file paths with (unix) segments segment1/.../segmentn are
+/// Source file paths with (unix) segments `segment1/.../segmentn` are
 /// re-interpreted as filesystem-native paths relative to `project_path`.
 #[derive(Clone, Debug)]
 pub struct LocalSrcProject {
     pub project_path: PathBuf,
 }
 
-// Tries to canonicalise the (longest possible) prefix of a path.
-// Useful if you have /path/to/file/that/does/not/exist
-// but where some prefix, say, /path/to/file can be canonicalised.
+impl GetPath for LocalSrcProject {
+    fn get_path(&self) -> &str {
+        // TODO: fix this when migrating to camino
+        self.project_path.to_str().unwrap()
+    }
+}
+
+/// Tries to canonicalise the (longest possible) prefix of a path.
+/// Useful if you have /path/to/file/that/does/not/exist
+/// but where some prefix, say, /path/to/file can be canonicalised.
 fn canonicalise_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
     let mut relative_part = PathBuf::new();
     let mut absolute_part = path.as_ref().to_path_buf();
@@ -43,7 +50,7 @@ fn canonicalise_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
 
         match (absolute_part.parent(), absolute_part.file_name()) {
             (Some(absolute_part_parent), Some(absolute_part_file)) => {
-                relative_part = PathBuf::from(absolute_part_file).join(relative_part);
+                relative_part = Path::new(absolute_part_file).join(relative_part);
                 absolute_part = absolute_part_parent.to_path_buf();
             }
             _ => {
@@ -52,18 +59,19 @@ fn canonicalise_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
         }
     }
 
-    absolute_part.join(relative_part)
+    absolute_part.push(relative_part);
+    absolute_part
 }
 
 fn relativise_path<P: AsRef<Path>, Q: AsRef<Path>>(path: P, relative_to: Q) -> Option<PathBuf> {
-    let mut path = path.as_ref().to_path_buf();
+    let path = if !path.as_ref().is_absolute() {
+        let path = std::path::absolute(path).ok()?;
+        canonicalise_prefix(path)
+    } else {
+        canonicalise_prefix(path)
+    };
 
-    if !path.is_absolute() {
-        path = std::path::absolute(path).ok()?;
-    }
-
-    canonicalise_prefix(path)
-        .strip_prefix(canonicalise_prefix(relative_to.as_ref()))
+    path.strip_prefix(canonicalise_prefix(relative_to))
         .ok()
         .map(|x| x.to_path_buf())
 }
@@ -85,7 +93,7 @@ impl LocalSrcProject {
         Ok(self.get_project()?.0)
     }
 
-    pub fn get_meta(&mut self) -> Result<Option<InterchangeProjectMetadataRaw>, LocalSrcError> {
+    pub fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, LocalSrcError> {
         Ok(self.get_project()?.1)
     }
 
@@ -95,9 +103,8 @@ impl LocalSrcProject {
             .canonicalize()
             .map_err(|e| UnixPathError::Canonicalize(root_path, e))?;
 
-        let path = relativise_path(&path, project_path).ok_or(
-            UnixPathError::PathOutsideProject(path.as_ref().to_path_buf()),
-        )?;
+        let path = relativise_path(&path, project_path)
+            .ok_or_else(|| UnixPathError::PathOutsideProject(path.as_ref().to_path_buf()))?;
 
         let mut unix_path = Utf8UnixPathBuf::new();
         for component in path.components() {
@@ -376,11 +383,9 @@ impl ProjectRead for LocalSrcProject {
     }
 
     fn sources(&self) -> Vec<crate::lock::Source> {
-        match self.project_path.to_str() {
-            Some(path_str) => vec![crate::lock::Source::LocalSrc {
-                src_path: path_str.to_string(),
-            }],
-            None => vec![],
-        }
+        let path_str = self.project_path.to_str().unwrap();
+        vec![crate::lock::Source::LocalSrc {
+            src_path: path_str.to_string(),
+        }]
     }
 }

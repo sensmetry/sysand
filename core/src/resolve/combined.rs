@@ -375,6 +375,7 @@ impl<
 
         // If the file resolver does not outright reject the IRI type,
         // use it.
+        // TODO: autodetect git (and possibly other VCSs), and use appropriate (e.g. git) resolver for them.
         if let Some(file_resolver) = &self.file_resolver {
             let mut rejected = vec![];
             match file_resolver

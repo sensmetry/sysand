@@ -7,13 +7,13 @@ use thiserror::Error;
 
 use crate::{
     commands::env::do_env_install_project,
-    env::{ReadEnvironment, WriteEnvironment},
+    env::{ReadEnvironment, WriteEnvironment, utils::ErrorBound},
     lock::{Lock, Source},
     project::{ProjectRead, memory::InMemoryProject},
 };
 
 #[derive(Error, Debug)]
-pub enum SyncError<UrlParseError> {
+pub enum SyncError<UrlParseError: ErrorBound> {
     #[error("incorrect checksum for project with IRI `{0}` in lockfile")]
     BadChecksum(String),
     #[error("project with IRI `{0}` is missing `.project.json` or `.meta.json`")]
@@ -70,9 +70,9 @@ pub fn do_sync<
     KParPathStorage,
     CreateRemoteKParStorage,
     RemoteKParStorage,
-    UrlParseError,
+    UrlParseError: ErrorBound,
 >(
-    lockfile: Lock,
+    lockfile: &Lock,
     env: &mut Environment,
     src_path_storage: Option<CreateSrcPathStorage>,
     remote_src_storage: Option<CreateRemoteSrcStorage>,
@@ -96,7 +96,7 @@ where
     log::info!("{header}{syncing:>12}{header:#} env");
 
     let mut updated = false;
-    'main_loop: for project in lockfile.projects {
+    'main_loop: for project in lockfile.projects.iter() {
         // TODO: We need a proper way to treat multiple IRIs here
         let main_uri = project.identifiers.first().cloned();
 
@@ -151,7 +151,7 @@ where
         }
 
         let mut no_supported = true;
-        for source in project.sources {
+        for source in project.sources.iter() {
             let mut supported = true;
             match source {
                 Source::Editable { .. } => {
@@ -227,9 +227,9 @@ where
     Ok(())
 }
 
-fn is_installed<E: ReadEnvironment, U, Str1: AsRef<str>, Str2: AsRef<str>>(
-    uri: Str1,
-    checksum: Str2,
+fn is_installed<E: ReadEnvironment, U: ErrorBound, S: AsRef<str>, P: AsRef<str>>(
+    uri: S,
+    checksum: P,
     env: &E,
 ) -> Result<bool, SyncError<U>> {
     if !env
@@ -248,7 +248,7 @@ fn is_installed<E: ReadEnvironment, U, Str1: AsRef<str>, Str2: AsRef<str>>(
             .map_err(|e| SyncError::ProjectRead(e.to_string()))?
             .checksum_noncanonical_hex()
             .map_err(|e| SyncError::ProjectRead(e.to_string()))?
-            .ok_or(SyncError::BadProject(uri.as_ref().to_owned()))?;
+            .ok_or_else(|| SyncError::BadProject(uri.as_ref().to_owned()))?;
         if checksum.as_ref() == project_checksum {
             return Ok(true);
         }
@@ -259,7 +259,7 @@ fn is_installed<E: ReadEnvironment, U, Str1: AsRef<str>, Str2: AsRef<str>>(
 fn try_install<
     E: ReadEnvironment + WriteEnvironment,
     P: ProjectRead,
-    U,
+    U: ErrorBound,
     Str1: AsRef<str>,
     Str2: AsRef<str>,
 >(
@@ -271,7 +271,7 @@ fn try_install<
     let project_checksum = storage
         .checksum_canonical_hex()
         .map_err(|e| SyncError::ProjectRead(e.to_string()))?
-        .ok_or(SyncError::BadProject(uri.as_ref().to_owned()))?;
+        .ok_or_else(|| SyncError::BadProject(uri.as_ref().to_owned()))?;
     if checksum.as_ref() == project_checksum {
         // TODO: Need to decide how to handle existing installations and possible flags to modify behavior
         do_env_install_project(&uri, &storage, env, true, true).map_err(|e| {
@@ -291,6 +291,8 @@ fn try_install<
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
+
     use chrono::DateTime;
     use indexmap::IndexMap;
     use semver::Version;
@@ -304,9 +306,6 @@ mod tests {
         project::{ProjectMut, ProjectRead, memory::InMemoryProject},
         sync::{SyncError, is_installed, try_install},
     };
-
-    #[derive(Debug)]
-    struct E;
 
     fn storage_example() -> InMemoryProject {
         let mut storage = InMemoryProject::new();
@@ -346,7 +345,10 @@ mod tests {
         let checksum = "00";
         let env = MemoryStorageEnvironment::new();
 
-        assert!(!is_installed::<MemoryStorageEnvironment, u32, _, _>(uri, checksum, &env).unwrap());
+        assert!(
+            !is_installed::<MemoryStorageEnvironment, Infallible, _, _>(uri, checksum, &env)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -356,15 +358,23 @@ mod tests {
         let uri = "urn:kpar:install_test";
         let checksum = storage.checksum_noncanonical_hex().unwrap().unwrap();
         let mut env = MemoryStorageEnvironment::new();
-        env.put_project(uri, "1,2,3", |p| clone_project(&storage, p, true))
-            .unwrap();
-
-        assert!(is_installed::<MemoryStorageEnvironment, E, _, _>(uri, &checksum, &env).unwrap());
-
-        assert!(!is_installed::<MemoryStorageEnvironment, E, _, _>(uri, "00", &env).unwrap());
+        env.put_project(uri, "1,2,3", |p| {
+            clone_project(&storage, p, true).map(|_| ())
+        })
+        .unwrap();
 
         assert!(
-            !is_installed::<MemoryStorageEnvironment, E, _, _>("not_uri", &checksum, &env).unwrap()
+            is_installed::<MemoryStorageEnvironment, Infallible, _, _>(uri, &checksum, &env)
+                .unwrap()
+        );
+
+        assert!(
+            !is_installed::<MemoryStorageEnvironment, Infallible, _, _>(uri, "00", &env).unwrap()
+        );
+
+        assert!(
+            !is_installed::<MemoryStorageEnvironment, Infallible, _, _>("not_uri", &checksum, &env)
+                .unwrap()
         );
     }
 
@@ -376,7 +386,7 @@ mod tests {
         let checksum = storage.checksum_noncanonical_hex().unwrap().unwrap();
         let mut env = MemoryStorageEnvironment::new();
 
-        try_install::<MemoryStorageEnvironment, InMemoryProject, E, _, _>(
+        try_install::<MemoryStorageEnvironment, InMemoryProject, Infallible, _, _>(
             uri, &checksum, storage, &mut env,
         )
         .unwrap();
@@ -401,7 +411,7 @@ mod tests {
         let mut env = MemoryStorageEnvironment::new();
 
         let SyncError::BadChecksum(msg) =
-            try_install::<MemoryStorageEnvironment, InMemoryProject, E, _, _>(
+            try_install::<MemoryStorageEnvironment, InMemoryProject, Infallible, _, _>(
                 &uri, &checksum, storage, &mut env,
             )
             .unwrap_err()

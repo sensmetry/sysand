@@ -68,7 +68,11 @@ impl ReqwestKparDownloadedProject {
             url: reqwest::Url::parse(url.as_ref())
                 .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?,
             inner: LocalKParProject {
-                archive_path: wrapfs::canonicalize(tmp_dir.path())?.join("project.kpar"),
+                archive_path: {
+                    let mut p = wrapfs::canonicalize(tmp_dir.path())?;
+                    p.push("project.kpar");
+                    p
+                },
                 tmp_dir,
                 root: None,
             },

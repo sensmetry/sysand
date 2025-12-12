@@ -184,7 +184,7 @@ can also match regular versions.
 
 Examples:
 
-- constraint `1.0` will not be satisified by version `1.0.0-alpha`
+- constraint `1.0` will not be satisfied by version `1.0.0-alpha`
 - constraint `>=1.0.0-beta.2, <2.0.0-alpha.5` will be satisfied by
   version `1.2.3-rc.2`
 - constraint `>=5.4.2-beta1` will be satisfied by versions `5.4.2`, `6.2.0`

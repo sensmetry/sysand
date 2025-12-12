@@ -3,9 +3,9 @@
 
 use crate::env::WriteEnvironment;
 
-pub fn do_env_uninstall<S: AsRef<str>, E: WriteEnvironment>(
+pub fn do_env_uninstall<S: AsRef<str>, Q: AsRef<str>, E: WriteEnvironment>(
     uri: S,
-    version: Option<S>,
+    version: Option<Q>,
     mut env: E,
 ) -> Result<(), E::WriteError> {
     let uninstalling = "Uninstalling";

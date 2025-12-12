@@ -3,7 +3,7 @@
 
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{self, ProjectRead, utils::ZipArchiveError},
+    project::{self, ProjectRead, editable::GetPath, utils::ZipArchiveError},
 };
 use std::{
     io::Write as _,
@@ -212,6 +212,12 @@ impl LocalKParProject {
     }
 }
 
+impl GetPath for LocalKParProject {
+    fn get_path(&self) -> &str {
+        self.archive_path.to_str().unwrap()
+    }
+}
+
 type KParFile<'a> = super::utils::FileWithLifetime<'a>;
 
 // NOTE: Current implementation keeps re-opening the archive file. This appears to
@@ -269,12 +275,15 @@ impl ProjectRead for LocalKParProject {
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         let tmp_name = format!("{:X}", sha2::Sha256::digest(path.as_ref()));
-        let tmp_file_path = self
-            .tmp_dir
-            .path()
-            .canonicalize()
-            .map_err(|e| FsIoError::Canonicalize(self.tmp_dir.path().to_path_buf(), e))?
-            .join(tmp_name);
+        let tmp_file_path = {
+            let mut p = self
+                .tmp_dir
+                .path()
+                .canonicalize()
+                .map_err(|e| FsIoError::Canonicalize(self.tmp_dir.path().to_path_buf(), e))?;
+            p.push(tmp_name);
+            p
+        };
 
         if !tmp_file_path.is_file() {
             let mut tmp_file = wrapfs::File::create(&tmp_file_path)?;

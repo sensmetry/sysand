@@ -10,7 +10,7 @@ use thiserror::Error;
 pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
 
 #[cfg(feature = "filesystem")]
-use crate::project::{editable::EditableProject, local_src::LocalSrcProject, utils::ToPathBuf};
+use crate::project::{editable::EditableProject, local_src::LocalSrcProject};
 use crate::{
     lock::{Lock, Project, Usage},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
@@ -45,9 +45,8 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     Solver(SolverError<R>),
 }
 
-pub struct LockOutcome<PI, PD> {
+pub struct LockOutcome<PD> {
     pub lock: Lock,
-    pub inputs: Vec<PI>,
     pub dependencies: Vec<(fluent_uri::Iri<String>, PD)>,
 }
 
@@ -62,39 +61,33 @@ pub struct LockOutcome<PI, PD> {
 /// Returns a lockfile, as well as a list of dependency projects to install (in addition to)
 /// `projects`.
 pub fn do_lock_projects<
-    PI: ProjectRead + Debug,
+    'a,
+    PI: ProjectRead + Debug + 'a,
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = PI>,
+    I: IntoIterator<Item = &'a PI>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     projects: I, // TODO: Should this be an iterable over Q?
     resolver: R,
-) -> Result<LockOutcome<PI, PD>, LockProjectError<PI, PD, R>> {
+) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
     let mut lock = Lock::default();
 
     let mut all_deps = vec![];
-    let mut inputs = vec![];
 
-    for project in projects.into_iter() {
+    for project in projects {
         let info = project
             .get_info()
             .map_err(LockProjectError::InputProjectError)?
-            .ok_or(LockError::IncompleteInputProject(format!(
-                "\n{:?}",
-                project
-            )))?;
+            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
         let meta = project
             .get_meta()
             .map_err(LockProjectError::InputProjectError)?
-            .ok_or(LockError::IncompleteInputProject(format!("{:?}", project)))?;
+            .ok_or_else(|| LockError::IncompleteInputProject(format!("{:?}", project)))?;
 
         let canonical_hash = project
             .checksum_canonical_hex()
             .map_err(LockProjectError::InputProjectCanonicalisationError)?
-            .ok_or(LockError::IncompleteInputProject(format!(
-                "\n{:?}",
-                project
-            )))?;
+            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
         lock.projects.push(Project {
             name: Some(info.name),
@@ -110,22 +103,12 @@ pub fn do_lock_projects<
             info.usage.iter().map(|p| p.validate()).collect();
         let usages = usages.map_err(LockError::Validation)?;
 
-        inputs.push(project);
-
         all_deps.extend(usages);
     }
 
-    let LockOutcome {
-        lock,
-        inputs: _,
-        dependencies,
-    } = do_lock_extend(lock, all_deps, resolver)?;
+    let LockOutcome { lock, dependencies } = do_lock_extend(lock, all_deps, resolver)?;
 
-    Ok(LockOutcome {
-        lock,
-        inputs,
-        dependencies,
-    })
+    Ok(LockOutcome { lock, dependencies })
 }
 
 /// Solves for compatible set of dependencies based on usages and adds the solution
@@ -140,19 +123,16 @@ pub fn do_lock_extend<
     mut lock: Lock,
     usages: I,
     resolver: R,
-) -> Result<LockOutcome<InterchangeProjectUsage, PD>, LockError<PD, R>> {
+) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     let inputs: Vec<_> = usages.into_iter().collect();
     let mut dependencies = vec![];
-    let solution = solve(inputs.to_vec(), resolver).map_err(LockError::Solver)?;
+    let solution = solve(inputs, resolver).map_err(LockError::Solver)?;
 
     for (iri, (info, meta, project)) in solution {
         let canonical_hash = project
             .checksum_canonical_hex()
             .map_err(LockError::DependencyProjectCanonicalisation)?
-            .ok_or(LockError::IncompleteInputProject(format!(
-                "\n{:?}",
-                project
-            )))?;
+            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
         lock.projects.push(Project {
             name: Some(info.name),
@@ -167,11 +147,7 @@ pub fn do_lock_extend<
         dependencies.push((iri, project));
     }
 
-    Ok(LockOutcome {
-        lock,
-        inputs,
-        dependencies,
-    })
+    Ok(LockOutcome { lock, dependencies })
 }
 
 #[cfg(feature = "filesystem")]
@@ -186,22 +162,14 @@ pub fn do_lock_local_editable<
 >(
     path: P,
     resolver: R,
-) -> Result<
-    LockOutcome<EditableLocalSrcProject, PD>,
-    LockProjectError<EditableLocalSrcProject, PD, R>,
-> {
+) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
     let project = EditableProject::new(
-        path.as_ref()
-            .to_str()
-            .ok_or(LockError::IncompleteInputProject(
-                ": project path contains invalid Unicode, and so cannot be stored".to_string(),
-            ))?,
+        // TODO: this is incorrect if project is in a subdir of workspace
+        ".".into(),
         LocalSrcProject {
-            project_path: path.as_ref().canonicalize().map_err(|e| {
-                LockError::Io(FsIoError::Canonicalize(path.to_path_buf(), e).into())
-            })?,
+            project_path: path.as_ref().to_path_buf(),
         },
     );
 
-    do_lock_projects(std::iter::once(project), resolver)
+    do_lock_projects([&project], resolver)
 }

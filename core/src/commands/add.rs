@@ -14,14 +14,14 @@ pub enum AddError<ProjectError> {
     MissingInfo(&'static str),
 }
 
-pub fn do_add<P: ProjectMut>(
+pub fn do_add<P: ProjectMut, S: AsRef<str>>(
     project: &mut P,
-    iri: String,
+    iri: S,
     versions_constraint: Option<String>,
 ) -> Result<(), AddError<P::Error>> {
     let usage: crate::model::InterchangeProjectUsageRaw =
         crate::model::InterchangeProjectUsageRaw {
-            resource: iri.clone(),
+            resource: iri.as_ref().to_owned(),
             version_constraint: versions_constraint.clone(),
         }
         .validate()?
@@ -31,7 +31,7 @@ pub fn do_add<P: ProjectMut>(
     let header = crate::style::get_style_config().header;
     log::info!(
         "{header}{adding:>12}{header:#} usage: `{}` {}",
-        &iri,
+        iri.as_ref(),
         versions_constraint
             .as_ref()
             .map(|vr| vr.to_string())

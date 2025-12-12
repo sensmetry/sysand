@@ -4,13 +4,14 @@
 use thiserror::Error;
 
 use crate::{
+    env::utils::ErrorBound,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::ProjectRead,
     resolve::{ResolutionOutcome, ResolveRead},
 };
 
 #[derive(Error, Debug)]
-pub enum InfoError<Error: std::error::Error> {
+pub enum InfoError<Error: ErrorBound> {
     #[error("failed to resolve {0}")]
     NoResolve(String),
     #[error("failure during resolution: {0}")]

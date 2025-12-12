@@ -8,8 +8,9 @@ use sha2::Digest;
 
 use thiserror::Error;
 
-use crate::project::{
-    AsAsyncProject, AsSyncProjectTokio, ProjectMut, ProjectRead, ProjectReadAsync,
+use crate::{
+    env::utils::ErrorBound,
+    project::{AsAsyncProject, AsSyncProjectTokio, ProjectMut, ProjectRead, ProjectReadAsync},
 };
 
 // pub mod utils;
@@ -24,6 +25,7 @@ pub mod reqwest_http;
 
 pub mod utils;
 
+/// Get path segment(s) corresponding to the given `uri`
 pub fn segment_uri_generic<S: AsRef<str>, D: Digest>(uri: S) -> std::vec::IntoIter<String>
 where
     digest::Output<D>: core::fmt::LowerHex,
@@ -35,7 +37,7 @@ where
 }
 
 pub trait ReadEnvironment {
-    type ReadError: std::error::Error + Debug;
+    type ReadError: ErrorBound;
 
     type UriIter: IntoIterator<Item = Result<String, Self::ReadError>>;
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError>;
@@ -96,7 +98,7 @@ pub trait ReadEnvironment {
 }
 
 pub trait ReadEnvironmentAsync {
-    type ReadError: std::error::Error + Debug;
+    type ReadError: ErrorBound;
 
     type UriStream: futures::Stream<Item = Result<String, Self::ReadError>>;
     fn uris_async(&self) -> impl Future<Output = Result<Self::UriStream, Self::ReadError>>;
@@ -302,7 +304,7 @@ pub enum PutProjectError<WE, CE> {
 }
 
 pub trait WriteEnvironment {
-    type WriteError: std::error::Error + Debug;
+    type WriteError: ErrorBound;
 
     type InterchangeProjectMut: ProjectMut;
 

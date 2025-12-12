@@ -38,8 +38,9 @@ pub enum Error {
     NoWindow,
     #[error("failed to get `window.localStorage` object")]
     NoLocalStorage,
-    #[error("JS error: {0:?}")]
-    Js(wasm_bindgen::JsValue),
+    /// String since JsValue is not Send/Sync
+    #[error("JS error: {0}")]
+    Js(String),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("failed to serialize information to write it to `{0}`: {1}")]
@@ -48,6 +49,12 @@ pub enum Error {
     SerializeHandle(#[from] serde_json::Error),
     #[error("key `{0}` not found in local storage")]
     KeyNotFound(String),
+}
+
+impl From<wasm_bindgen::JsValue> for Error {
+    fn from(value: wasm_bindgen::JsValue) -> Self {
+        Self::Js(format!("{value:?}"))
+    }
 }
 
 impl From<FsIoError> for Error {

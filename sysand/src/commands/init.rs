@@ -7,7 +7,7 @@ use crate::CliError;
 use anyhow::Result;
 use sysand_core::project::utils::wrapfs;
 
-pub fn command_new(
+pub fn command_init(
     name: Option<String>,
     version: Option<String>,
     no_semver: bool,
@@ -29,7 +29,7 @@ pub fn command_new(
         None => default_name_from_path(&path)?,
     };
 
-    sysand_core::new::do_new_ext(
+    sysand_core::init::do_init_ext(
         name,
         version,
         no_semver,
@@ -43,14 +43,18 @@ pub fn command_new(
 fn default_name_from_path<P: AsRef<Path>>(path: P) -> Result<String> {
     Ok(wrapfs::canonicalize(&path)?
         .file_name()
-        .ok_or(CliError::InvalidDirectory(format!(
-            "path `{}` is not a directory",
-            path.as_ref().display()
-        )))?
+        .ok_or_else(|| {
+            CliError::InvalidDirectory(format!(
+                "path `{}` is not a directory",
+                path.as_ref().display()
+            ))
+        })?
         .to_str()
-        .ok_or(CliError::InvalidDirectory(format!(
-            "directory name `{:?}` is not valid Unicode",
-            path.as_ref()
-        )))?
+        .ok_or_else(|| {
+            CliError::InvalidDirectory(format!(
+                "directory name `{:?}` is not valid Unicode",
+                path.as_ref()
+            ))
+        })?
         .to_string())
 }

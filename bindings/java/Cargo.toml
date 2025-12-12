@@ -19,7 +19,7 @@ crate-type = ["cdylib"]
 jni = "0.21.1"
 sysand-core = { path = "../../core", features = ["std", "filesystem", "networking"] }
 indexmap = { version = "2.12.1", default-features = false, features = ["serde"] }
-reqwest = { version = "0.12.24", default-features = false }
+reqwest = { version = "0.12.25", default-features = false }
 url = { version = "2.5.7", default-features = false }
 tokio = { version = "1.48.0", default-features = false, features = ["rt"] }
 reqwest-middleware = { version = "0.4.2", default-features = false }

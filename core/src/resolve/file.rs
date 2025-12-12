@@ -12,6 +12,7 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         self, ProjectRead,
+        editable::GetPath,
         local_kpar::{LocalKParError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ProjectDeserializationError, wrapfs},
@@ -48,14 +49,16 @@ impl From<FsIoError> for FileResolverError {
 
 pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
 
-fn try_file_uri_to_path(uri: fluent_uri::Iri<String>) -> Option<PathBuf> {
-    if uri.scheme() != SCHEME_FILE {
-        return None;
+/// Try to obtain a file path from `uri` with `file` scheme. If path
+/// is present, it is always absolute according to URI spec
+fn try_file_uri_to_path(uri: &fluent_uri::Iri<String>) -> Option<PathBuf> {
+    if uri.scheme() == SCHEME_FILE {
+        let url = url::Url::parse(uri.as_str()).ok()?;
+
+        url.to_file_path().ok()
+    } else {
+        None
     }
-
-    let url = url::Url::parse(uri.as_str()).ok()?;
-
-    url.to_file_path().ok()
 }
 
 impl FileResolver {
@@ -66,7 +69,6 @@ impl FileResolver {
         // Try to resolve relative paths
         let project_path: PathBuf = if path.is_relative() {
             if let Some(root_part) = &self.relative_path_root {
-                let root_part: PathBuf = root_part.into();
                 root_part.join(&path)
             } else {
                 return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
@@ -108,7 +110,7 @@ impl FileResolver {
         &self,
         uri: &fluent_uri::Iri<String>,
     ) -> Result<ResolutionOutcome<PathBuf>, FileResolverError> {
-        if let Some(file_path) = try_file_uri_to_path(uri.clone()) {
+        if let Some(file_path) = try_file_uri_to_path(uri) {
             self.resolve_platform_path(file_path)
         } else {
             Ok(ResolutionOutcome::UnsupportedIRIType(format!(
@@ -123,6 +125,15 @@ impl FileResolver {
 pub enum FileResolverProject {
     LocalSrcProject(LocalSrcProject),
     LocalKParProject(LocalKParProject),
+}
+
+impl GetPath for FileResolverProject {
+    fn get_path(&self) -> &str {
+        match self {
+            FileResolverProject::LocalSrcProject(p) => p.get_path(),
+            FileResolverProject::LocalKParProject(p) => p.get_path(),
+        }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -169,7 +180,6 @@ impl From<LocalKParError> for FileResolverProjectError {
             LocalKParError::NotFound(err) => FileResolverProjectError::NotFound(err),
             LocalKParError::Deserialize(error) => FileResolverProjectError::Deserialize(error),
             LocalKParError::Io(error) => FileResolverProjectError::Io(error),
-            // It would be pointless to include the same variants with the same error messages here
             LocalKParError::Zip(err) => FileResolverProjectError::Zip(err),
         }
     }

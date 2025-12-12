@@ -23,26 +23,32 @@ use sysand_core::{
     stdlib::known_std_libs,
 };
 
-use crate::{DEFAULT_INDEX_URL, cli::DependencyOptions};
+use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 
+/// Generate a lockfile for project at `path`.
+/// `path` must be relative to workspace root.
+// TODO: this will not work properly if run in subdir of workspace,
+// as `path` will then refer to a deeper subdir
 pub fn command_lock<P: AsRef<Path>>(
     path: P,
-    dependency_opts: DependencyOptions,
+    resolution_opts: ResolutionOptions,
     config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let DependencyOptions {
+    assert!(path.as_ref().is_relative(), "{}", path.as_ref().display());
+    let ResolutionOptions {
         index,
         default_index,
         no_index,
         include_std,
-    } = dependency_opts;
+    } = resolution_opts;
 
     let cwd = wrapfs::current_dir().ok();
 
-    let local_env_path =
-        Path::new(path.as_ref()).join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+    let local_env_path = path
+        .as_ref()
+        .join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
 
     let index_urls = if no_index {
         None
@@ -83,7 +89,6 @@ pub fn command_lock<P: AsRef<Path>>(
     let LockOutcome {
         lock,
         dependencies: _dependencies,
-        inputs: _inputs,
     } = match do_lock_local_editable(&path, wrapped_resolver) {
         Ok(lock_outcome) => lock_outcome,
         Err(LockProjectError::LockError(lock_error)) => {
@@ -109,7 +114,7 @@ pub fn command_lock<P: AsRef<Path>>(
                     pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => {
                         match package {
                             DependencyIdentifier::Requested(_) => {
-                                bail!("Unxpected internal error: {:?}", source)
+                                bail!("Unexpected internal error: {:?}", source)
                             }
                             DependencyIdentifier::Remote(iri) => {
                                 bail!("Unable to select version of usage {}", iri)
@@ -135,7 +140,7 @@ pub fn command_lock<P: AsRef<Path>>(
     };
 
     wrapfs::write(
-        Path::new(path.as_ref()).join(DEFAULT_LOCKFILE_NAME),
+        path.as_ref().join(DEFAULT_LOCKFILE_NAME),
         lock.canonicalize().to_string(),
     )?;
 

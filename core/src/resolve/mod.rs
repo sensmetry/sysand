@@ -4,7 +4,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use crate::{
-    env::SyncStreamIter,
+    env::{SyncStreamIter, utils::ErrorBound},
     project::{AsAsyncProject, AsSyncProjectTokio, ProjectRead, ProjectReadAsync},
 };
 
@@ -47,7 +47,7 @@ impl<T> ResolutionOutcome<T> {
 }
 
 pub trait ResolveRead {
-    type Error: std::error::Error + Debug;
+    type Error: ErrorBound;
 
     type ProjectStorage: ProjectRead;
     type ResolvedStorages: IntoIterator<Item = Result<Self::ProjectStorage, Self::Error>>;
@@ -87,7 +87,7 @@ pub trait ResolveRead {
 }
 
 pub trait ResolveReadAsync {
-    type Error: std::error::Error + Debug;
+    type Error: ErrorBound;
 
     type ProjectStorage: ProjectReadAsync;
     type ResolvedStorages: futures::Stream<Item = Result<Self::ProjectStorage, Self::Error>>;

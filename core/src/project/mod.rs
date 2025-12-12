@@ -1,9 +1,12 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::model::{
-    InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-    InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
+use crate::{
+    env::utils::ErrorBound,
+    model::{
+        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
+    },
 };
 use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
@@ -79,7 +82,7 @@ async fn hash_reader_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Proje
 }
 
 #[derive(Error, Debug)]
-pub enum CanonicalisationError<ReadError> {
+pub enum CanonicalisationError<ReadError: ErrorBound> {
     #[error(transparent)]
     ProjectRead(ReadError),
     #[error("failed to read from file\n  `{0}`:\n  {1}")]
@@ -87,7 +90,7 @@ pub enum CanonicalisationError<ReadError> {
 }
 
 #[derive(Debug, Error)]
-pub enum IntoProjectError<ReadError, W: ProjectMut> {
+pub enum IntoProjectError<ReadError: ErrorBound, W: ProjectMut> {
     #[error(transparent)]
     ProjectRead(ReadError),
     #[error(transparent)]
@@ -103,9 +106,10 @@ pub enum IntoProjectError<ReadError, W: ProjectMut> {
 pub trait ProjectRead {
     // Mandatory
 
-    type Error: std::error::Error + Debug;
+    type Error: ErrorBound;
 
     /// Fetch project information and metadata (if they exist).
+    // TODO: cache project info
     fn get_project(
         &self,
     ) -> Result<
@@ -240,10 +244,162 @@ pub trait ProjectRead {
     }
 }
 
+impl<T: ProjectRead> ProjectRead for &T {
+    type Error = T::Error;
+
+    fn get_project(
+        &self,
+    ) -> Result<
+        (
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
+        ),
+        Self::Error,
+    > {
+        (*self).get_project()
+    }
+
+    type SourceReader<'a>
+        = T::SourceReader<'a>
+    where
+        Self: 'a;
+
+    fn read_source<P: AsRef<Utf8UnixPath>>(
+        &self,
+        path: P,
+    ) -> Result<Self::SourceReader<'_>, Self::Error> {
+        (*self).read_source(path)
+    }
+
+    fn sources(&self) -> Vec<crate::lock::Source> {
+        (*self).sources()
+    }
+
+    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        (*self).get_info()
+    }
+
+    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        (*self).get_meta()
+    }
+
+    fn name(&self) -> Result<Option<String>, Self::Error> {
+        (*self).name()
+    }
+
+    fn is_definitely_invalid(&self) -> bool {
+        (*self).is_definitely_invalid()
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        (*self).version()
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        (*self).usage()
+    }
+
+    fn checksum(
+        &self,
+    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error> {
+        (*self).checksum()
+    }
+
+    fn canonical_meta(
+        &self,
+    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>> {
+        (*self).canonical_meta()
+    }
+
+    fn checksum_noncanonical_hex(&self) -> Result<Option<String>, Self::Error> {
+        (*self).checksum_noncanonical_hex()
+    }
+
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalisationError<Self::Error>> {
+        (*self).checksum_canonical_hex()
+    }
+}
+
+impl<T: ProjectRead> ProjectRead for &mut T {
+    type Error = T::Error;
+
+    fn get_project(
+        &self,
+    ) -> Result<
+        (
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
+        ),
+        Self::Error,
+    > {
+        (**self).get_project()
+    }
+
+    type SourceReader<'a>
+        = T::SourceReader<'a>
+    where
+        Self: 'a;
+
+    fn read_source<P: AsRef<Utf8UnixPath>>(
+        &self,
+        path: P,
+    ) -> Result<Self::SourceReader<'_>, Self::Error> {
+        (**self).read_source(path)
+    }
+
+    fn sources(&self) -> Vec<crate::lock::Source> {
+        (**self).sources()
+    }
+
+    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        (**self).get_info()
+    }
+
+    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        (**self).get_meta()
+    }
+
+    fn name(&self) -> Result<Option<String>, Self::Error> {
+        (**self).name()
+    }
+
+    fn is_definitely_invalid(&self) -> bool {
+        (**self).is_definitely_invalid()
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        (**self).version()
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        (**self).usage()
+    }
+
+    fn checksum(
+        &self,
+    ) -> Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error> {
+        (**self).checksum()
+    }
+
+    fn canonical_meta(
+        &self,
+    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>> {
+        (**self).canonical_meta()
+    }
+
+    fn checksum_noncanonical_hex(&self) -> Result<Option<String>, Self::Error> {
+        (**self).checksum_noncanonical_hex()
+    }
+
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalisationError<Self::Error>> {
+        (**self).checksum_canonical_hex()
+    }
+}
+
 pub trait ProjectReadAsync {
     // Mandatory
 
-    type Error: std::error::Error + Debug;
+    type Error: ErrorBound;
 
     /// Fetch project information and metadata (if they exist).
     fn get_project_async(
@@ -415,6 +571,188 @@ pub trait ProjectReadAsync {
     }
 }
 
+impl<T: ProjectReadAsync> ProjectReadAsync for &T {
+    type Error = T::Error;
+
+    fn get_project_async(
+        &self,
+    ) -> impl Future<
+        Output = Result<
+            (
+                Option<InterchangeProjectInfoRaw>,
+                Option<InterchangeProjectMetadataRaw>,
+            ),
+            Self::Error,
+        >,
+    > {
+        (**self).get_project_async()
+    }
+
+    type SourceReader<'a>
+        = T::SourceReader<'a>
+    where
+        Self: 'a;
+
+    fn read_source_async<P: AsRef<Utf8UnixPath>>(
+        &self,
+        path: P,
+    ) -> impl Future<Output = Result<Self::SourceReader<'_>, Self::Error>> {
+        (**self).read_source_async(path)
+    }
+
+    fn sources_async(&self) -> impl Future<Output = Vec<crate::lock::Source>> {
+        (**self).sources_async()
+    }
+
+    fn get_info_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<InterchangeProjectInfoRaw>, Self::Error>> {
+        (**self).get_info_async()
+    }
+
+    fn get_meta_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<InterchangeProjectMetadataRaw>, Self::Error>> {
+        (**self).get_meta_async()
+    }
+
+    fn name_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        (**self).name_async()
+    }
+
+    fn is_definitely_invalid_async(&self) -> impl Future<Output = bool> {
+        (**self).is_definitely_invalid_async()
+    }
+
+    fn version_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        (**self).version_async()
+    }
+
+    fn usage_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error>> {
+        (**self).usage_async()
+    }
+
+    fn checksum_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error>>
+    {
+        (**self).checksum_async()
+    }
+
+    fn canonical_meta_async(
+        &self,
+    ) -> impl Future<
+        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>>,
+    > {
+        (**self).canonical_meta_async()
+    }
+
+    fn checksum_noncanonical_hex_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        (**self).checksum_noncanonical_hex_async()
+    }
+
+    fn checksum_canonical_hex_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<String>, CanonicalisationError<Self::Error>>> {
+        (**self).checksum_canonical_hex_async()
+    }
+}
+
+impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
+    type Error = T::Error;
+
+    fn get_project_async(
+        &self,
+    ) -> impl Future<
+        Output = Result<
+            (
+                Option<InterchangeProjectInfoRaw>,
+                Option<InterchangeProjectMetadataRaw>,
+            ),
+            Self::Error,
+        >,
+    > {
+        (**self).get_project_async()
+    }
+
+    type SourceReader<'a>
+        = T::SourceReader<'a>
+    where
+        Self: 'a;
+
+    fn read_source_async<P: AsRef<Utf8UnixPath>>(
+        &self,
+        path: P,
+    ) -> impl Future<Output = Result<Self::SourceReader<'_>, Self::Error>> {
+        (**self).read_source_async(path)
+    }
+
+    fn sources_async(&self) -> impl Future<Output = Vec<crate::lock::Source>> {
+        (**self).sources_async()
+    }
+
+    fn get_info_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<InterchangeProjectInfoRaw>, Self::Error>> {
+        (**self).get_info_async()
+    }
+
+    fn get_meta_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<InterchangeProjectMetadataRaw>, Self::Error>> {
+        (**self).get_meta_async()
+    }
+
+    fn name_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        (**self).name_async()
+    }
+
+    fn is_definitely_invalid_async(&self) -> impl Future<Output = bool> {
+        (**self).is_definitely_invalid_async()
+    }
+
+    fn version_async(&self) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        (**self).version_async()
+    }
+
+    fn usage_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error>> {
+        (**self).usage_async()
+    }
+
+    fn checksum_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<IndexMap<String, InterchangeProjectChecksumRaw>>, Self::Error>>
+    {
+        (**self).checksum_async()
+    }
+
+    fn canonical_meta_async(
+        &self,
+    ) -> impl Future<
+        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>>,
+    > {
+        (**self).canonical_meta_async()
+    }
+
+    fn checksum_noncanonical_hex_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
+        (**self).checksum_noncanonical_hex_async()
+    }
+
+    fn checksum_canonical_hex_async(
+        &self,
+    ) -> impl Future<Output = Result<Option<String>, CanonicalisationError<Self::Error>>> {
+        (**self).checksum_canonical_hex_async()
+    }
+}
+
 // TODO: Eliminate the need for this?
 #[derive(Error, Debug)]
 pub enum ProjectOrIOError<ProjectError> {
@@ -564,6 +902,66 @@ pub trait ProjectMut: ProjectRead {
             .map_err(ProjectOrIOError::Project)?;
 
         Ok(IndexMergeOutcome { new, existing })
+    }
+}
+
+impl<T: ProjectMut> ProjectMut for &mut T {
+    fn put_info(
+        &mut self,
+        info: &InterchangeProjectInfoRaw,
+        overwrite: bool,
+    ) -> Result<(), Self::Error> {
+        (**self).put_info(info, overwrite)
+    }
+
+    fn put_meta(
+        &mut self,
+        meta: &InterchangeProjectMetadataRaw,
+        overwrite: bool,
+    ) -> Result<(), Self::Error> {
+        (**self).put_meta(meta, overwrite)
+    }
+
+    fn write_source<P: AsRef<Utf8UnixPath>, R: Read>(
+        &mut self,
+        path: P,
+        source: &mut R,
+        overwrite: bool,
+    ) -> Result<(), Self::Error> {
+        (**self).write_source(path, source, overwrite)
+    }
+
+    fn put_project(
+        &mut self,
+        info: &InterchangeProjectInfoRaw,
+        meta: &InterchangeProjectMetadataRaw,
+        overwrite: bool,
+    ) -> Result<(), Self::Error> {
+        (**self).put_project(info, meta, overwrite)
+    }
+
+    fn include_source<P: AsRef<Utf8UnixPath>>(
+        &mut self,
+        path: P,
+        compute_checksum: bool,
+        overwrite: bool,
+    ) -> Result<(), ProjectOrIOError<Self::Error>> {
+        (**self).include_source(path, compute_checksum, overwrite)
+    }
+
+    fn exclude_source<P: AsRef<Utf8UnixPath>>(
+        &mut self,
+        path: P,
+    ) -> Result<SourceExclusionOutcome, ProjectOrIOError<Self::Error>> {
+        (**self).exclude_source(path)
+    }
+
+    fn merge_index<S: AsRef<str>, P: AsRef<str>, I: Iterator<Item = (S, P)>>(
+        &mut self,
+        symbols: I,
+        overwrite: bool,
+    ) -> Result<IndexMergeOutcome, ProjectOrIOError<Self::Error>> {
+        (**self).merge_index(symbols, overwrite)
     }
 }
 

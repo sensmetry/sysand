@@ -6,7 +6,7 @@ compile_error!("`std` feature is currently required to build `sysand`");
 
 use std::{
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::Path,
     str::FromStr,
     sync::Arc,
 };
@@ -19,8 +19,8 @@ use sysand_core::{
         local_fs::{get_config, load_configs},
     },
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
+    init::InitError,
     lock::Lock,
-    new::NewError,
     project::utils::wrapfs,
     stdlib::known_std_libs,
 };
@@ -35,8 +35,8 @@ use crate::commands::{
     exclude::command_exclude,
     include::command_include,
     info::{command_info_current_project, command_info_path, command_info_verb_path},
+    init::command_init,
     lock::command_lock,
-    new::command_new,
     print_root::command_print_root,
     remove::command_remove,
     sources::{command_sources_env, command_sources_project},
@@ -59,18 +59,19 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     let current_workspace = sysand_core::discover::current_workspace()?;
     let current_project = sysand_core::discover::current_project()?;
+    let cwd = wrapfs::current_dir()?;
 
     let project_root = current_project.clone().map(|p| p.root_path()).clone();
 
-    let current_environment = project_root
-        .clone()
-        .or_else(|| wrapfs::current_dir().ok())
-        .and_then(|p| crate::get_env(&p));
+    let current_environment = {
+        let dir = project_root.as_ref().unwrap_or(&cwd);
+        crate::get_env(dir)
+    };
 
     let auto_config = if args.global_opts.no_config {
         Config::default()
     } else {
-        load_configs(project_root.clone().unwrap_or(PathBuf::from(".")))?
+        load_configs(project_root.as_deref().unwrap_or(Path::new(".")))?
     };
 
     let mut config = if let Some(config_file) = &args.global_opts.config_file {
@@ -108,14 +109,15 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_semver,
             license,
             no_spdx,
-        } => command_new(name, version, no_semver, license, no_spdx, path),
+        } => command_init(name, version, no_semver, license, no_spdx, path),
         cli::Command::Env { command } => match command {
             None => {
-                command_env(
-                    project_root
-                        .unwrap_or(wrapfs::current_dir()?)
-                        .join(DEFAULT_ENV_NAME),
-                )?;
+                let env_dir = {
+                    let mut p = project_root.unwrap_or(cwd);
+                    p.push(DEFAULT_ENV_NAME);
+                    p
+                };
+                command_env(env_dir)?;
 
                 Ok(())
             }
@@ -124,7 +126,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 version,
                 path,
                 install_opts,
-                dependency_opts,
+                resolution_opts,
             }) => {
                 if let Some(path) = path {
                     command_env_install_path(
@@ -132,7 +134,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         version,
                         path,
                         install_opts,
-                        dependency_opts,
+                        resolution_opts,
                         &config,
                         project_root,
                         client,
@@ -143,7 +145,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         iri,
                         version,
                         install_opts,
-                        dependency_opts,
+                        resolution_opts,
                         &config,
                         project_root,
                         client,
@@ -184,30 +186,19 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         },
-        cli::Command::Lock { dependency_opts } => {
+        cli::Command::Lock { resolution_opts } => {
             if project_root.is_some() {
-                crate::commands::lock::command_lock(
-                    PathBuf::from("."),
-                    dependency_opts,
-                    &config,
-                    client,
-                    runtime,
-                )
-                .map(|_| ())
+                crate::commands::lock::command_lock(".", resolution_opts, &config, client, runtime)
+                    .map(|_| ())
             } else {
                 bail!("not inside a project")
             }
         }
-        cli::Command::Sync { dependency_opts } => {
-            let cli::DependencyOptions { include_std, .. } = dependency_opts.clone();
+        cli::Command::Sync { resolution_opts } => {
+            let cli::ResolutionOptions { include_std, .. } = resolution_opts.clone();
             let mut local_environment = match current_environment {
                 Some(env) => env,
-                None => command_env(
-                    project_root
-                        .as_ref()
-                        .unwrap_or(&wrapfs::current_dir()?)
-                        .join(DEFAULT_ENV_NAME),
-                )?,
+                None => command_env(project_root.as_ref().unwrap_or(&cwd).join(DEFAULT_ENV_NAME))?,
             };
 
             let provided_iris = if !include_std {
@@ -216,22 +207,20 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } else {
                 HashMap::default()
             };
-            let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
+            let project_root = project_root.unwrap_or(cwd);
             let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
             if !lockfile.is_file() {
                 command_lock(
-                    PathBuf::from("."),
-                    dependency_opts,
+                    ".",
+                    resolution_opts,
                     &config,
                     client.clone(),
                     runtime.clone(),
                 )?;
             }
-            let lock = Lock::from_str(&wrapfs::read_to_string(
-                project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
-            )?)?;
+            let lock = Lock::from_str(&wrapfs::read_to_string(lockfile)?)?;
             command_sync(
-                lock,
+                &lock,
                 project_root,
                 &mut local_environment,
                 client,
@@ -239,21 +228,21 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 runtime,
             )
         }
-        cli::Command::PrintRoot => command_print_root(wrapfs::current_dir()?),
+        cli::Command::PrintRoot => command_print_root(cwd),
         cli::Command::Info {
             path,
             iri,
             auto_location,
             no_normalise,
-            dependency_opts,
+            resolution_opts,
             subcommand,
         } => {
-            let cli::DependencyOptions {
+            let cli::ResolutionOptions {
                 index,
                 default_index,
                 no_index,
                 include_std,
-            } = dependency_opts;
+            } = resolution_opts;
             let index_urls = if no_index {
                 None
             } else {
@@ -306,9 +295,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 debug_assert!(path.is_none());
                 debug_assert!(auto_location.is_none());
 
-                Location::Iri(
-                    fluent_uri::Iri::parse(iri).map_err(|(e, val)| CliError::InvalidIri(val, e))?,
-                )
+                Location::Iri(iri)
             } else {
                 Location::WorkDir
             };
@@ -328,7 +315,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                         if !no_semver {
                                             if let Some(v) = set {
                                                 semver::Version::parse(v).map_err(|e| {
-                                                NewError::<std::convert::Infallible>::SemVerParse(
+                                                InitError::<std::convert::Infallible>::SemVerParse(
                                                     v.as_str().into(),
                                                     e,
                                                 )
@@ -345,7 +332,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                         if !no_spdx {
                                             if let Some(l) = set {
                                                 spdx::Expression::parse(l).map_err(|e| {
-                                                NewError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
+                                                InitError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
                                             })?;
                                             }
                                         }
@@ -401,13 +388,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             version_constraint,
             no_lock,
             no_sync,
-            dependency_opts,
+            resolution_opts,
         } => command_add(
             iri,
             version_constraint,
             no_lock,
             no_sync,
-            dependency_opts,
+            resolution_opts,
             &config,
             current_project,
             client,
@@ -426,7 +413,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let path = if let Some(path) = path {
                     path
                 } else {
-                    let output_dir = current_workspace
+                    let mut output_dir = current_workspace
                         .as_ref()
                         .map(|workspace| &workspace.workspace_path)
                         .unwrap_or_else(|| &current_project.project_path)
@@ -435,7 +422,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     if !output_dir.is_dir() {
                         wrapfs::create_dir(&output_dir)?;
                     }
-                    output_dir.join(name)
+                    output_dir.push(name);
+                    output_dir
                 };
                 command_build_for_project(path, current_project)
             } else {
@@ -471,11 +459,27 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &provided_iris,
             )
         }
+        cli::Command::Clone {
+            locator,
+            version,
+            target,
+            resolution_opts,
+            no_deps,
+        } => commands::clone::command_clone(
+            locator,
+            version,
+            target,
+            no_deps,
+            resolution_opts,
+            &config,
+            client,
+            runtime,
+        ),
     }
 }
 
-pub fn get_env(project_root: &Path) -> Option<LocalDirectoryEnvironment> {
-    let environment_path = project_root.join(DEFAULT_ENV_NAME);
+pub fn get_env(project_root: impl AsRef<Path>) -> Option<LocalDirectoryEnvironment> {
+    let environment_path = project_root.as_ref().join(DEFAULT_ENV_NAME);
     if !environment_path.is_dir() {
         None
     } else {
@@ -483,7 +487,8 @@ pub fn get_env(project_root: &Path) -> Option<LocalDirectoryEnvironment> {
     }
 }
 
-pub fn get_or_create_env(project_root: &Path) -> Result<LocalDirectoryEnvironment> {
+pub fn get_or_create_env(project_root: impl AsRef<Path>) -> Result<LocalDirectoryEnvironment> {
+    let project_root = project_root.as_ref();
     match get_env(project_root) {
         Some(env) => Ok(env),
         None => command_env(project_root.join(DEFAULT_ENV_NAME)),
