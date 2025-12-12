@@ -114,7 +114,7 @@ pub fn command_lock<P: AsRef<Path>>(
                     pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => {
                         match package {
                             DependencyIdentifier::Requested(_) => {
-                                bail!("Unxpected internal error: {:?}", source)
+                                bail!("Unexpected internal error: {:?}", source)
                             }
                             DependencyIdentifier::Remote(iri) => {
                                 bail!("Unable to select version of usage {}", iri)

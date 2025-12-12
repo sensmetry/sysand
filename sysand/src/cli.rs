@@ -234,13 +234,15 @@ pub struct ProjectLocatorArgs {
     /// IRI/URI/URL identifying the project to be cloned
     #[arg(short = 'i', long, visible_alias = "uri", visible_alias = "url")]
     pub iri: Option<fluent_uri::Iri<String>>,
-    /// Path to clone the project from
+    /// Path to clone the project from. If version is also
+    /// given, verifies that the project has the given version
     // TODO: allow somehow requiring to use git here
     #[arg(
         long,
         short = 's',
         default_value = None,
-        value_name = "PATH"
+        value_name = "PATH",
+        verbatim_doc_comment
     )]
     pub path: Option<String>,
 }

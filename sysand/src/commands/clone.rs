@@ -253,11 +253,27 @@ pub fn get_project_version<R: ResolveRead>(
                 .transpose()?;
             let mut candidates = Vec::new();
             for alt in alternatives {
-                let candidate_project = alt?;
-                let info = match candidate_project.get_info()? {
+                let candidate_project = match alt {
+                    Ok(cp) => cp,
+                    Err(e) => {
+                        // These errors may be ugly, as `candidates` includes all
+                        // possible candidates, with expectation that only some
+                        // of them will work. So we don't show these by default
+                        log::debug!("skipping candidate project: {e}");
+                        continue;
+                    }
+                };
+                let maybe_info = match candidate_project.get_info() {
+                    Ok(mi) => mi,
+                    Err(e) => {
+                        log::debug!("skipping candidate project, failed to get info: {e}");
+                        continue;
+                    }
+                };
+                let info = match maybe_info {
                     Some(info) => info,
                     None => {
-                        log::warn!("skipping candidate project with missing info");
+                        log::debug!("skipping candidate project with missing info");
                         continue;
                     }
                 };
@@ -265,7 +281,7 @@ pub fn get_project_version<R: ResolveRead>(
                     Ok(v) => v,
                     Err(e) => {
                         log::warn!(
-                            "skipping project with non-SemVer version {}: {e}",
+                            "skipping candidate project with invalid SemVer version {}: {e}",
                             &info.version
                         );
                         continue;
@@ -303,7 +319,7 @@ pub fn get_project_version<R: ResolveRead>(
             iri
         ),
         ResolutionOutcome::Unresolvable(e) => {
-            bail!("failed to obtain project `{iri}`: {e}")
+            bail!("failed to resolve project `{iri}`: {e}")
         }
     }
 }

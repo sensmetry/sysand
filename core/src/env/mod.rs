@@ -25,7 +25,7 @@ pub mod reqwest_http;
 
 pub mod utils;
 
-/// Get path segment(s) correspoding to the given `uri`
+/// Get path segment(s) corresponding to the given `uri`
 pub fn segment_uri_generic<S: AsRef<str>, D: Digest>(uri: S) -> std::vec::IntoIter<String>
 where
     digest::Output<D>: core::fmt::LowerHex,
