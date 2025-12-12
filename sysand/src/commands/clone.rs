@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow, bail};
 use fluent_uri::Iri;
+use semver::Version;
 
 use std::{
     collections::HashMap,
@@ -236,64 +237,75 @@ pub fn get_project_version<R: ResolveRead>(
     version: Option<String>,
     resolver: &R,
 ) -> Result<(semver::Version, R::ProjectStorage), anyhow::Error> {
-    let outcome = resolver.resolve_read(iri)?;
-    Ok(if let ResolutionOutcome::Resolved(alternatives) = outcome {
-        // If no version is supplied, choose the highest
-        // Else, choose version that is supplied
-        // TODO: this eats a whole bunch of potential errors, they should be reported
-        // TODO: maybe add `no_semver` param to control whether version is
-        //       interpreted as semver?
-        let alt_it = alternatives.into_iter();
-        match version {
-            Some(version) => {
-                let v = semver::Version::parse(&version).map_err(|e| {
-                    anyhow!("failed to parse given version {version} as SemVer: {e}")
-                })?;
-                alt_it
-                    .filter_map(|el| {
-                        el.ok().and_then(|x| {
-                            x.get_info().ok().and_then(|a| {
-                                a.and_then(|b| match semver::Version::parse(&b.version) {
-                                    Ok(ver) => {
-                                        if v == ver {
-                                            Some((ver, x))
-                                        } else {
-                                            None
-                                        }
-                                    }
-                                    // TODO: don't ignore non-semver versions
-                                    Err(_) => None,
-                                })
-                            })
-                        })
-                    })
-                    .max_by(|el1, el2| el1.0.cmp(&el2.0))
-                    .ok_or_else(|| {
-                        anyhow!(CliError::MissingProjectVersion(
-                            iri.as_ref().to_string(),
-                            version
-                        ))
-                    })?
-            }
-            None => alt_it
-                .filter_map(|el| {
-                    el.ok().and_then(|x| {
-                        x.get_info().ok().and_then(|a| {
-                            a.and_then(|b| match semver::Version::parse(&b.version) {
-                                Ok(ver) => Some((ver, x)),
-                                // TODO: don't ignore non-semver versions
-                                Err(_) => None,
-                            })
-                        })
-                    })
+    match resolver.resolve_read(iri)? {
+        ResolutionOutcome::Resolved(alternatives) => {
+            // If no version is supplied, choose the highest
+            // Else, choose version that is supplied
+            // TODO: maybe add `no_semver` param to control whether version is
+            //       interpreted as semver?
+            let requested_version = version
+                .as_ref()
+                .map(|v| {
+                    // TODO: since we require this anyway, might as well take Option<Iri<String>>
+                    semver::Version::parse(v)
+                        .map_err(|e| anyhow!("failed to parse given version {v} as SemVer: {e}"))
                 })
-                .max_by(|el1, el2| el1.0.cmp(&el2.0))
-                .ok_or_else(|| anyhow!(CliError::MissingProject(iri.as_ref().to_string())))?,
+                .transpose()?;
+            let mut candidates = Vec::new();
+            for alt in alternatives {
+                let candidate_project = alt?;
+                let info = match candidate_project.get_info()? {
+                    Some(info) => info,
+                    None => {
+                        log::warn!("skipping candidate project with missing info");
+                        continue;
+                    }
+                };
+                let candidate_version = match Version::parse(&info.version) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::warn!(
+                            "skipping project with non-SemVer version {}: {e}",
+                            &info.version
+                        );
+                        continue;
+                    }
+                };
+                if let Some(version) = &requested_version {
+                    if &candidate_version != version {
+                        continue;
+                    }
+                }
+                candidates.push((candidate_version, candidate_project));
+            }
+
+            match candidates.len() {
+                0 => match version {
+                    Some(v) => bail!(CliError::MissingProjectVersion(iri.as_ref().to_string(), v)),
+                    None => bail!(CliError::MissingProject(iri.as_ref().to_string())),
+                },
+                1 => {
+                    // Can't move out values with match
+                    Ok(candidates.pop().unwrap())
+                }
+                _ => {
+                    let max_v = candidates
+                        .into_iter()
+                        .max_by(|(v1, _), (v2, _)| v1.cmp(v2))
+                        .unwrap();
+                    Ok(max_v)
+                }
+            }
         }
-    } else {
-        // TODO: don't eat resolution errors
-        bail!(CliError::MissingProject(iri.as_ref().to_string()))
-    })
+        ResolutionOutcome::UnsupportedIRIType(e) => bail!(
+            "IRI scheme `{}` of `{}` is not supported: {e}",
+            iri.scheme(),
+            iri
+        ),
+        ResolutionOutcome::Unresolvable(e) => {
+            bail!("failed to obtain project `{iri}`: {e}")
+        }
+    }
 }
 
 /// Removes all files in the directory on drop. Directory itself
