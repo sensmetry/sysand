@@ -61,6 +61,17 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
     }
 }
 
+impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>>
+    for InterchangeProjectUsageG<String, semver::VersionReq>
+{
+    fn from(value: InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>) -> Self {
+        InterchangeProjectUsageG {
+            resource: value.resource.to_string(),
+            version_constraint: value.version_constraint,
+        }
+    }
+}
+
 impl TryFrom<InterchangeProjectUsageRaw> for InterchangeProjectUsage {
     type Error = InterchangeProjectValidationError;
 
@@ -142,21 +153,20 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
     //     });
     // }
 
+    /// Remove and return all occurrences of `resource` in project usages.
+    /// Note that sysand will never add multiple usages of the same resource
+    /// to the project, but it does tolerate such usages.
+    // TODO: the spec does not say anything about this and should be clarified
     pub fn pop_usage(&mut self, resource: &Iri) -> Vec<InterchangeProjectUsageG<Iri, VersionReq>> {
         // TODO(MSRV >=1.87):
         // self.usage.extract_if(.., |InterchangeProjectUsageG { resource: this_resource, .. }| this_resource == resource).collect()
 
-        let (removed, kept): (Vec<_>, Vec<_>) = self
-            .usage
-            .iter()
-            .cloned()
-            .partition(
-                |InterchangeProjectUsageG {
-                     resource: this_resource,
-                     ..
-                 }| this_resource == resource,
-            )
-            .to_owned();
+        let (removed, kept): (Vec<_>, Vec<_>) = self.usage.iter().cloned().partition(
+            |InterchangeProjectUsageG {
+                 resource: this_resource,
+                 ..
+             }| this_resource == resource,
+        );
 
         self.usage = kept;
 
@@ -401,22 +411,22 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
         InterchangeProjectMetadataRaw {
             index: value
                 .index
-                .iter()
-                .map(|(k, v)| (k.to_owned(), v.to_string()))
+                .into_iter()
+                .map(|(k, v)| (k, v.into_string()))
                 .collect(),
             created: value
                 .created
                 .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
-            metamodel: value.metamodel.map(|iri| iri.to_string()),
+            metamodel: value.metamodel.map(|iri| iri.into_string()),
             includes_derived: value.includes_derived,
             includes_implied: value.includes_implied,
             checksum: value.checksum.map(|m| {
-                m.iter()
+                m.into_iter()
                     .map(|(k, v)| {
                         (
-                            k.to_string(),
+                            k.into_string(),
                             InterchangeProjectChecksumRaw {
-                                value: v.value.clone(),
+                                value: v.value,
                                 algorithm: v.algorithm.to_string(),
                             },
                         )
