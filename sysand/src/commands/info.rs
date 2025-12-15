@@ -104,6 +104,12 @@ pub fn command_info_uri(
     excluded_iris: &HashSet<String>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
+    // FIXME: The more precise error messages are ignored here. For example,
+    // if a user provides a relative file URI (this is invalid since file
+    // URIs have to be absolute), the error message will be saying that the
+    // interchange project was not found without any hints that the provided
+    // URI is invalid.
+
     let cwd = wrapfs::current_dir().ok();
 
     let local_env_path = Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
@@ -120,23 +126,8 @@ pub fn command_info_uri(
         runtime,
     );
 
-    let mut found = false;
-
     for (info, _) in do_info(&uri, &combined_resolver)? {
-        found = true;
         pprint_interchange_project(info, excluded_iris);
-    }
-
-    if !found {
-        // FIXME: The more precise error messages are ignored here. For example,
-        // if a user provides a relative file URI (this is invalid since file
-        // URIs have to be absolute), the error message will be saying that the
-        // interchange project was not found without any hints that the provided
-        // URI is invalid.
-        bail!(CliError::NoResolve(format!(
-            "unable to find interchange project '{}'",
-            uri
-        )));
     }
 
     Ok(())
@@ -358,7 +349,7 @@ fn apply_get_meta(
             Some(
                 meta.index
                     .into_iter()
-                    .map(|(symbol, path)| format!("{} in {}", symbol, path))
+                    .map(|(symbol, path)| format!("`{}` in `{}`", symbol, path))
                     .collect(),
             ),
             numbered,
@@ -550,7 +541,7 @@ fn add_info(
     add_info_verb: &AddInfoVerb,
     info: InterchangeProjectInfoRaw,
 ) -> Result<InterchangeProjectInfoRaw> {
-    let mut result = info.clone();
+    let mut result = info;
 
     match add_info_verb {
         AddInfoVerb::AddMaintainer(items) => {
