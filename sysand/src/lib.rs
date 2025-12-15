@@ -14,6 +14,7 @@ use std::{
 use anyhow::{Result, bail};
 
 use sysand_core::{
+    commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{
         Config,
         local_fs::{get_config, load_configs},
@@ -195,30 +196,31 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         cli::Command::Sync { resolution_opts } => {
-            let cli::ResolutionOptions { include_std, .. } = resolution_opts.clone();
             let mut local_environment = match current_environment {
                 Some(env) => env,
                 None => command_env(project_root.as_ref().unwrap_or(&cwd).join(DEFAULT_ENV_NAME))?,
             };
 
-            let provided_iris = if !include_std {
+            let provided_iris = if !resolution_opts.include_std {
                 crate::logger::warn_std_deps();
                 known_std_libs()
             } else {
                 HashMap::default()
             };
+
             let project_root = project_root.unwrap_or(cwd);
-            let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
-            if !lockfile.is_file() {
+            let lockfile = project_root.join(DEFAULT_LOCKFILE_NAME);
+            let lock = if !lockfile.is_file() {
                 command_lock(
                     ".",
                     resolution_opts,
                     &config,
                     client.clone(),
                     runtime.clone(),
-                )?;
-            }
-            let lock = Lock::from_str(&wrapfs::read_to_string(lockfile)?)?;
+                )?
+            } else {
+                read_lockfile(lockfile)?
+            };
             command_sync(
                 &lock,
                 project_root,
@@ -508,5 +510,31 @@ fn get_log_level(verbose: bool, quiet: bool) -> Result<log::LevelFilter> {
         (true, false) => Ok(log::LevelFilter::Debug),
         (false, true) => Ok(log::LevelFilter::Error),
         (false, false) => Ok(log::LevelFilter::Info),
+    }
+}
+
+fn read_lockfile(lockfile_path: impl AsRef<Path>) -> Result<Lock> {
+    use sysand_core::lock::ParseError;
+    match Lock::from_str(&wrapfs::read_to_string(&lockfile_path)?) {
+        Ok(l) => Ok(l),
+        // Include file path in errors
+        Err(e) => match e {
+            ParseError::Toml(e) => bail!(
+                "failed to parse lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+            ParseError::TomlEdit(e) => bail!(
+                "failed to parse lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+            ParseError::Validation(e) => bail!(
+                "invalid lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+            ParseError::Version(e) => bail!(
+                "failed to parse lockfile `{}`:\n{e}",
+                lockfile_path.as_ref().display()
+            ),
+        },
     }
 }
