@@ -125,7 +125,8 @@ impl FromStr for Lock {
 
         // TODO: find a way to not reparse
         let lock: Lock = toml::from_str(s)?;
-        Ok(lock.validate()?)
+        lock.validate()?;
+        Ok(lock)
     }
 }
 
@@ -245,12 +246,12 @@ impl Lock {
         doc
     }
 
-    pub fn validate(self) -> Result<Self, ValidationError> {
+    pub fn validate(&self) -> Result<(), ValidationError> {
         self.validate_lock_version()?;
         self.check_name_collision()?;
         self.validate_usages()?;
         self.validate_checksum_format()?;
-        Ok(self)
+        Ok(())
     }
 
     fn validate_lock_version(&self) -> Result<(), ValidationError> {
@@ -345,6 +346,8 @@ impl Lock {
     pub fn canonicalize(mut self) -> Self {
         self.sort();
         self.canonicalize_checksums();
+        // Check that we aren't generating invalid lockfiles
+        debug_assert!(self.validate().map(|_| true).unwrap());
         self
     }
 
