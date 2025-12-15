@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::fmt::Debug;
 #[cfg(feature = "filesystem")]
 use std::path::Path;
+use std::{collections::HashSet, fmt::Debug};
 
 use thiserror::Error;
 
@@ -117,8 +117,14 @@ pub fn do_lock_projects<
 
 /// Solves for compatible set of dependencies based on usages and adds the solution
 /// to existing lockfile.
-/// Note: The content of the lockfile is not taken into account when solving.
-// TODO: Fix this or find a better way.
+/// Note: The content of the lockfile is taken into account only to avoid
+///       including duplicate projects (same project, same version) in lock.
+///       This can cause incorrect version selection, as possible
+///       constraints from current usages are not taken into account
+// TODO: Take into account existing lock when solving deps:
+//       - to account for all constraints
+//       - to not waste time looking up deps that are
+//         already in lockfile
 pub fn do_lock_extend<
     PD: ProjectRead + Debug,
     I: IntoIterator<Item = InterchangeProjectUsage>,
@@ -131,6 +137,10 @@ pub fn do_lock_extend<
     let inputs: Vec<_> = usages.into_iter().collect();
     let mut dependencies = vec![];
     let solution = solve(inputs, resolver).map_err(LockError::Solver)?;
+    let mut lock_projects = HashSet::new();
+    for p in lock.projects.iter() {
+        lock_projects.insert(p.hash_val());
+    }
 
     for (iri, (info, meta, project)) in solution {
         let canonical_hash = project
@@ -138,7 +148,7 @@ pub fn do_lock_extend<
             .map_err(LockError::DependencyProjectCanonicalisation)?
             .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
-        lock.projects.push(Project {
+        let lock_project = Project {
             name: Some(info.name),
             version: info.version.to_string(),
             exports: meta.index.into_keys().collect(),
@@ -151,6 +161,15 @@ pub fn do_lock_extend<
                 .map(|u| Usage::from(u.resource))
                 .collect(),
         };
+        if !lock_projects.contains(&lock_project.hash_val()) {
+            lock.projects.push(lock_project);
+        } else {
+            log::debug!(
+                "not adding project `{}` ({}) to lock, as lock already contains it",
+                lock_project.identifiers[0],
+                lock_project.version
+            );
+        }
 
         dependencies.push((iri, project));
     }
