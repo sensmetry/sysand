@@ -21,7 +21,10 @@ use crate::{
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum DependencyIdentifier {
+    /// Dependencies that are to be resolved.
     Requested(Vec<InterchangeProjectUsage>),
+    /// Found dependencies. Note that this does not mean that the
+    /// required version was found, just that the IRI was resolved.
     Remote(fluent_uri::Iri<String>),
 }
 

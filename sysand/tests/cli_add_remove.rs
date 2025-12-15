@@ -169,6 +169,24 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
 }
 
 #[test]
+fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "add_nonexistent"],
+        None,
+    )?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["add", "urn:kpar:add_nonexistent"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "unable to resolve usage `urn:kpar:add_nonexistent`",
+    ));
+
+    Ok(())
+}
+
+#[test]
 fn remove_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         ["init", "--version", "1.2.3", "--name", "remove_nonexistent"],
