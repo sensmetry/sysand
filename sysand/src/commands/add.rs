@@ -1,24 +1,31 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 
 use sysand_core::{
     add::do_add,
+    commands::lock::{LockOutcome, do_lock_extend},
     config::Config,
     lock::Lock,
     project::{local_src::LocalSrcProject, utils::wrapfs},
 };
 
-use crate::{CliError, cli::ResolutionOptions, command_sync};
+use crate::{
+    CliError,
+    cli::ResolutionOptions,
+    command_sync,
+    commands::lock::{create_resolver, handle_lock_error},
+    read_lockfile,
+};
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
 pub fn command_add<S: AsRef<str>>(
     iri: S,
-    versions_constraint: Option<String>,
+    version_constraint: Option<String>,
     no_lock: bool,
     no_sync: bool,
     resolution_opts: ResolutionOptions,
@@ -41,22 +48,42 @@ pub fn command_add<S: AsRef<str>>(
         HashMap::default()
     };
 
-    do_add(&mut current_project, iri, versions_constraint)?;
+    let usage_raw = sysand_core::model::InterchangeProjectUsageRaw {
+        // TODO: fix the function to take String
+        resource: iri.as_ref().to_owned(),
+        version_constraint,
+    };
 
     if !no_lock {
-        crate::commands::lock::command_lock(
-            ".",
+        let lockfile_path = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
+
+        let resolver = create_resolver(
+            &project_root,
             resolution_opts,
             config,
+            provided_iris.clone(),
             client.clone(),
             runtime.clone(),
         )?;
+        let current_lock = if !lockfile_path.is_file() {
+            Lock::default()
+        } else {
+            read_lockfile(&lockfile_path)?
+        };
+
+        // Lock before adding to check if resource (and its required version)
+        // can be found
+        let usage = usage_raw.validate()?;
+        let LockOutcome { lock, .. } =
+            do_lock_extend(current_lock, [usage], resolver).map_err(handle_lock_error)?;
+
+        do_add(&mut current_project, usage_raw)?;
+
+        let lock = lock.canonicalize();
+        wrapfs::write(lockfile_path, lock.to_string())?;
 
         if !no_sync {
-            let mut env = crate::get_or_create_env(project_root.as_path())?;
-            let lock = Lock::from_str(&wrapfs::read_to_string(
-                project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
-            )?)?;
+            let mut env = crate::get_or_create_env(&project_root)?;
             command_sync(
                 &lock,
                 project_root,
@@ -66,6 +93,8 @@ pub fn command_add<S: AsRef<str>>(
                 runtime,
             )?;
         }
+    } else {
+        do_add(&mut current_project, usage_raw)?;
     }
 
     Ok(())
