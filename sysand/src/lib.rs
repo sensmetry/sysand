@@ -61,7 +61,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let current_project = sysand_core::discover::current_project()?;
     let cwd = wrapfs::current_dir()?;
 
-    let project_root = current_project.clone().map(|p| p.root_path()).clone();
+    let project_root = current_project.as_ref().map(|p| p.root_path());
 
     let current_environment = {
         let dir = project_root.as_ref().unwrap_or(&cwd);
@@ -266,7 +266,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 {
                     crate::logger::warn_std_deps()
                 }
-                known_std_libs().keys().cloned().collect()
+                known_std_libs().into_keys().collect()
             } else {
                 HashSet::default()
             };

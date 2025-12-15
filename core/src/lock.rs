@@ -42,7 +42,7 @@ impl Default for Lock {
 
 #[derive(Debug, Error)]
 pub enum VersionError {
-    #[error("lockfile version \"{0}\" is not supported")]
+    #[error("lockfile version `{0}` is not supported")]
     Unsupported(String),
     #[error("lockfile version is missing")]
     Missing,
@@ -63,9 +63,9 @@ fn check_lock_version(document: &DocumentMut) -> Result<(), VersionError> {
 
 #[derive(Debug, Error)]
 pub enum ParseError {
-    #[error("failed to parse lockfile")]
+    #[error("failed to parse lockfile: {0}")]
     Toml(#[from] toml::de::Error),
-    #[error("failed to parse lockfile")]
+    #[error("failed to parse lockfile: {0}")]
     TomlEdit(#[from] toml_edit::TomlError),
     #[error(transparent)]
     Validation(#[from] ValidationError),
@@ -81,7 +81,7 @@ impl FromStr for Lock {
 
         for (field, _) in document.iter() {
             if !LOCKFILE_ENTRIES.contains(&field) {
-                log::warn!("unknown field '{}' in lockfile", field);
+                log::warn!("unknown field `{}` in lockfile", field);
             }
         }
         for (field, value, name) in document
@@ -97,7 +97,7 @@ impl FromStr for Lock {
         {
             if !PROJECT_ENTRIES.contains(&field) {
                 log::warn!(
-                    "unknown field '{}' in {} in lockfile",
+                    "unknown field `{}` in {} in lockfile",
                     field,
                     project_with(name)
                 );
@@ -112,7 +112,7 @@ impl FromStr for Lock {
                 {
                     if !SOURCE_ENTRIES.contains(&field) {
                         log::warn!(
-                            "unknown field '{}' in source for {} in lockfile",
+                            "unknown field `{}` in source for {} in lockfile",
                             field,
                             project_with(name)
                         );
@@ -129,7 +129,7 @@ impl FromStr for Lock {
 
 fn project_with<D: Display>(name: Option<D>) -> String {
     if let Some(name) = name {
-        format!("project with name {}", name)
+        format!("project with name `{}`", name)
     } else {
         "project without name".to_string()
     }
@@ -151,9 +151,14 @@ pub enum ResolutionError<EnvironmentError> {
 
 #[derive(Debug, Error)]
 pub enum ValidationError {
-    #[error("lockfile version \"{0}\" is not supported")]
+    #[error("lockfile version `{0}` is not supported")]
     UnsupportedVersion(String),
-    #[error("\"{0}\" is exported by more than one project in lockfile")]
+    // TODO: should this be an error? Projects can export any
+    // symbols they want, and they can certainly collide
+    // This does make life more difficult for other tools to
+    // deal with, but it arguably does not make the lockfile
+    // itself invalid
+    #[error("symbol name `{0}` is exported by more than one project in lockfile")]
     NameCollision(String),
     #[error("unsatisfied usage '{usage}' for {project_with_name} in lockfile")]
     UnsatisfiedUsage {
@@ -270,9 +275,11 @@ impl Lock {
             let version = Version::parse(&project.version)
                 .inspect_err(|err| {
                     log::warn!(
-                        "invalid semantic version '{}' for project '{:?}'\n{}",
+                        "invalid semantic version `{}` for project `{:?}`\n\
+                        {:>8} {}",
                         project.version,
                         project.name,
+                        ' ',
                         err
                     );
                 })
@@ -331,6 +338,13 @@ impl Lock {
         }
     }
 
+    /// Should always be called before writing lock to file.
+    /// Makes lock canonical:
+    ///
+    /// - sorts all the collections
+    /// - canonicalizes project checksums
+    ///
+    /// Does not change contents or semantics.
     pub fn canonicalize(mut self) -> Self {
         self.sort();
         self.canonicalize_checksums();
@@ -578,7 +592,7 @@ mod tests {
     fn check_current_lock_version() {
         let version = CURRENT_LOCK_VERSION.to_string();
         let document =
-            DocumentMut::from_str(format!("lock_version = \"{}\"", version).as_str()).unwrap();
+            DocumentMut::from_str(format!(r#"lock_version = "{}""#, version).as_str()).unwrap();
         check_lock_version(&document).unwrap();
     }
 
@@ -586,7 +600,7 @@ mod tests {
     fn check_unsupported_lock_version() {
         let version = "X";
         let document =
-            DocumentMut::from_str(format!("lock_version = \"{}\"", version).as_str()).unwrap();
+            DocumentMut::from_str(format!(r#"lock_version = "{}""#, version).as_str()).unwrap();
         let Err(err) = check_lock_version(&document) else {
             panic!()
         };

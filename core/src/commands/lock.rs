@@ -92,7 +92,7 @@ pub fn do_lock_projects<
         lock.projects.push(Project {
             name: Some(info.name),
             version: info.version,
-            exports: meta.index.keys().cloned().collect(),
+            exports: meta.index.into_keys().collect(),
             identifiers: vec![],
             checksum: canonical_hash,
             sources: project.sources(),
@@ -137,7 +137,7 @@ pub fn do_lock_extend<
         lock.projects.push(Project {
             name: Some(info.name),
             version: info.version.to_string(),
-            exports: meta.index.keys().cloned().collect(),
+            exports: meta.index.into_keys().collect(),
             identifiers: vec![iri.to_string()],
             checksum: canonical_hash,
             sources: project.sources(),
