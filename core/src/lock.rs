@@ -5,6 +5,7 @@ use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
     fmt::Display,
+    hash::{DefaultHasher, Hash, Hasher},
     path::Path,
     str::FromStr,
 };
@@ -161,7 +162,11 @@ pub enum ValidationError {
     // itself invalid
     #[error("symbol name `{0}` is exported by more than one project in lockfile")]
     NameCollision(String),
-    #[error("unsatisfied usage '{usage}' for {project_with_name} in lockfile")]
+    #[error("project identifier `{0}` is\nspecified by more than one project in lockfile")]
+    ProjectIdCollision(String),
+    #[error("{0} does not have an identifier")]
+    ProjectWithoutId(String),
+    #[error("unsatisfied usage `{usage}` for {project_with_name} in lockfile")]
     UnsatisfiedUsage {
         usage: String,
         project_with_name: String,
@@ -259,10 +264,22 @@ impl Lock {
     }
 
     fn check_name_collision(&self) -> Result<(), ValidationError> {
-        let mut seen = HashSet::new();
+        let mut seen_projects = HashSet::new();
+        let mut seen_exports = HashSet::new();
         for project in &self.projects {
+            if !seen_projects.insert(project) {
+                let id = match project.identifiers.first() {
+                    Some(id) => id,
+                    None => {
+                        return Err(ValidationError::ProjectWithoutId(project_with(
+                            project.name.as_ref(),
+                        )));
+                    }
+                };
+                return Err(ValidationError::ProjectIdCollision(id.to_string()));
+            }
             for name in &project.exports {
-                if !seen.insert(name) {
+                if !seen_exports.insert(name) {
                     return Err(ValidationError::NameCollision(name.clone()));
                 }
             }
@@ -373,6 +390,19 @@ pub struct Project {
     pub checksum: String,
 }
 
+/// Project hash takes into account:
+///
+/// - name
+/// - version
+/// - checksum
+impl std::hash::Hash for Project {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.version.hash(state);
+        self.checksum.hash(state);
+    }
+}
+
 impl Ord for Project {
     fn cmp(&self, other: &Self) -> Ordering {
         self.name
@@ -416,6 +446,12 @@ impl Project {
         }
         table.insert("checksum", value(&self.checksum));
         table
+    }
+
+    pub fn hash_val(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
     }
 }
 
