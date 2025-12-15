@@ -56,6 +56,11 @@ impl<Env: ReadEnvironmentAsync> ResolveReadAsync for EnvResolver<Env> {
         use futures::StreamExt as _;
 
         let versions: Vec<Result<String, _>> = self.env.versions_async(uri).await?.collect().await;
+        if versions.is_empty() {
+            return Ok(ResolutionOutcome::Unresolvable(format!(
+                "IRI `{uri}` not found in environment"
+            )));
+        }
 
         let projects = futures::future::join_all(
             versions
