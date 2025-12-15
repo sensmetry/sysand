@@ -96,7 +96,11 @@ pub fn do_lock_projects<
             identifiers: vec![],
             checksum: canonical_hash,
             sources: project.sources(),
-            usages: info.usage.iter().cloned().map(Usage::from).collect(),
+            usages: info
+                .usage
+                .iter()
+                .map(|u| Usage::from(u.resource.clone()))
+                .collect(),
         });
 
         let usages: Result<Vec<InterchangeProjectUsage>, InterchangeProjectValidationError> =
@@ -141,8 +145,12 @@ pub fn do_lock_extend<
             identifiers: vec![iri.to_string()],
             checksum: canonical_hash,
             sources: project.sources(),
-            usages: info.usage.iter().cloned().map(Usage::from).collect(),
-        });
+            usages: info
+                .usage
+                .into_iter()
+                .map(|u| Usage::from(u.resource))
+                .collect(),
+        };
 
         dependencies.push((iri, project));
     }
