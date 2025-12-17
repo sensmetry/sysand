@@ -1006,21 +1006,21 @@ fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
             "--release-custom",
             "123",
         ],
-        Err("the argument '--release <YYYYMMDD>' cannot be used with '--release-custom"),
+        Err("the argument '--release <YYYYMMXX>' cannot be used with '--release-custom"),
     )?;
     try_set(
         &["--release", "20250201", "--release-custom", "123"],
-        Err("the argument '--release <YYYYMMDD>' cannot be used with '--release-custom"),
+        Err("the argument '--release <YYYYMMXX>' cannot be used with '--release-custom"),
     )?;
     try_set(
         &["--set-custom", "abc123", "--release-custom", "123"],
         Err(
-            "the argument '--set-custom <METAMODEL>' cannot be used with '--release-custom <YYYYMMDD>'",
+            "the argument '--set-custom <METAMODEL>' cannot be used with '--release-custom <YYYYMMXX>'",
         ),
     )?;
     try_set(
         &["--set-custom", "abc123", "--release", "20250201"],
-        Err("the argument '--set-custom <METAMODEL>' cannot be used with '--release <YYYYMMDD>'"),
+        Err("the argument '--set-custom <METAMODEL>' cannot be used with '--release <YYYYMMXX>'"),
     )?;
 
     Ok(())
