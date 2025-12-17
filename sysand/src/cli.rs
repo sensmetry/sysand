@@ -542,7 +542,7 @@ pub enum InfoCommand {
         /// SysML 2.0 and KerML 1.0 have the same release dates
         #[arg(
             long,
-            value_name = "YYYYMMDD",
+            value_name = "YYYYMMXX",
             requires = "set",
             value_enum,
             verbatim_doc_comment,
@@ -552,7 +552,7 @@ pub enum InfoCommand {
         /// Choose a custom release of the SysML v2 or KerML metamodel.
         #[arg(
             long,
-            value_name = "YYYYMMDD",
+            value_name = "YYYYMMXX",
             requires = "set",
             conflicts_with = "release",
             default_value=None,
