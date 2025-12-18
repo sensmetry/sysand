@@ -653,6 +653,8 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
         .expect_at_most(2) // TODO: Reduce this to 1 after caching
         .create();
 
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+
     let cfg = format!(
         r#"
     [[index]]
@@ -666,9 +668,12 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
         &server_alt.url()
     );
 
+    let cfg_path = cwd.join(sysand_core::config::local_fs::CONFIG_FILE);
+    std::fs::write(&cfg_path, cfg)?;
+
     let (_, _, out) = run_sysand(
         ["info", "--iri", "urn:kpar:info_multi_index_url_config"],
-        Some(cfg.as_str()),
+        cfg_path.to_str(),
     )?;
 
     out.assert()
@@ -680,7 +685,7 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
 
     let (_, _, out) = run_sysand(
         ["info", "--iri", "urn:kpar:info_multi_index_url_config_alt"],
-        Some(cfg.as_str()),
+        cfg_path.to_str(),
     )?;
 
     out.assert()

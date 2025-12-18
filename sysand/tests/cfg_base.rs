@@ -35,8 +35,10 @@ fn cfg_set_quiet() -> Result<(), Box<dyn std::error::Error>> {
         projects: vec![],
     })?;
 
-    let out_quiet_local_config =
-        run_sysand_in(&cwd, ["init", "cfg_set_quiet"], Some(quiet_cfg.as_str()))?;
+    let cfg_path = cwd.join(sysand_core::config::local_fs::CONFIG_FILE);
+    std::fs::write(&cfg_path, quiet_cfg)?;
+
+    let out_quiet_local_config = run_sysand_in(&cwd, ["init", "cfg_set_quiet"], cfg_path.to_str())?;
 
     out_quiet_local_config
         .assert()

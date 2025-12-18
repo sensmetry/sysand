@@ -7,7 +7,7 @@ use rexpect::session::{PtySession, spawn_command};
 use std::os::unix::process::ExitStatusExt;
 use std::{
     error::Error,
-    io::Write,
+    // io::Write,
     path::{Path, PathBuf},
     process::{Command, Output},
 };
@@ -24,25 +24,12 @@ pub fn fixture_path(name: &str) -> PathBuf {
 pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
     cwd: &Path,
     args: I,
-    cfg: Option<&str>,
+    cfg: Option<&'a str>,
 ) -> Result<Command, Box<dyn Error>> {
-    let cfg_args = if let Some(config) = cfg {
-        let config_path = cwd.join("sysand.toml");
-        let mut config_file = std::fs::File::create_new(&config_path)?;
-        config_file.write_all(config.as_bytes())?;
-        vec![
-            "--config-file".to_string(),
-            config_path.display().to_string(),
-        ]
-    } else {
-        vec![]
-    };
-    let args = [
-        args.into_iter().map(|s| s.to_string()).collect(),
-        vec!["--no-config".to_string()],
-        cfg_args,
-    ]
-    .concat();
+    let args = args
+        .into_iter()
+        .chain(["--no-config"])
+        .chain(cfg.iter().flat_map(|cfg| ["--config-file", cfg]));
     // NOTE had trouble getting test-temp-dir crate working, but would be better
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("sysand"));
 
@@ -69,7 +56,7 @@ pub fn new_temp_cwd() -> Result<(TempDir, PathBuf), Box<dyn Error>> {
 
 pub fn sysand_cmd<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
-    cfg: Option<&str>,
+    cfg: Option<&'a str>,
 ) -> Result<(TempDir, PathBuf, Command), Box<dyn Error>> {
     // NOTE had trouble getting test-temp-dir crate working, but would be better
     let (temp_dir, cwd) = new_temp_cwd()?;
@@ -81,14 +68,14 @@ pub fn sysand_cmd<'a, I: IntoIterator<Item = &'a str>>(
 pub fn run_sysand_in<'a, I: IntoIterator<Item = &'a str>>(
     cwd: &Path,
     args: I,
-    cfg: Option<&str>,
+    cfg: Option<&'a str>,
 ) -> Result<Output, Box<dyn Error>> {
     Ok(sysand_cmd_in(cwd, args, cfg)?.output()?)
 }
 
 pub fn run_sysand<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
-    cfg: Option<&str>,
+    cfg: Option<&'a str>,
 ) -> Result<(TempDir, PathBuf, Output), Box<dyn Error>> {
     let (temp_dir, cwd, mut cmd) = sysand_cmd(args /*, stdin*/, cfg)?;
 
@@ -101,7 +88,7 @@ pub fn run_sysand_interactive_in<'a, I: IntoIterator<Item = &'a str>>(
     cwd: &Path,
     args: I,
     timeout_ms: Option<u64>,
-    cfg: Option<&str>,
+    cfg: Option<&'a str>,
 ) -> Result<PtySession, Box<dyn Error>> {
     let cmd = sysand_cmd_in(cwd, args, cfg)?;
 
@@ -113,7 +100,7 @@ pub fn run_sysand_interactive_in<'a, I: IntoIterator<Item = &'a str>>(
 pub fn run_sysand_interactive<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     timeout_ms: Option<u64>,
-    cfg: Option<&str>,
+    cfg: Option<&'a str>,
 ) -> Result<(TempDir, PathBuf, PtySession), Box<dyn Error>> {
     let (temp_dir, cwd, cmd) = sysand_cmd(args, cfg)?;
 

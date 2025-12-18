@@ -70,6 +70,9 @@ fn add_and_remove_with_local_src() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
+    let config_path = cwd.join("sysand.toml");
+    std::fs::File::create_new(&config_path)?;
+
     let out = run_sysand_in(
         &cwd,
         [
@@ -79,7 +82,7 @@ fn add_and_remove_with_local_src() -> Result<(), Box<dyn std::error::Error>> {
             "--local-src",
             "local/test",
         ],
-        None,
+        config_path.to_str(),
     )?;
 
     out.assert()
@@ -102,7 +105,7 @@ fn add_and_remove_with_local_src() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(cwd.join("sysand.toml"))?;
+    let config = std::fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -116,7 +119,7 @@ sources = [
 "#
     );
 
-    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], None)?;
+    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], config_path.to_str())?;
 
     out.assert().success().stderr(predicate::str::contains(
         r#"Removing `urn:kpar:test` from usages
@@ -135,7 +138,7 @@ sources = [
 "#
     );
 
-    let config = std::fs::read_to_string(cwd.join("sysand.toml"))?;
+    let config = std::fs::read_to_string(config_path)?;
 
     assert_eq!(config, "");
 
@@ -151,6 +154,9 @@ fn add_and_remove_with_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
+    let config_path = cwd.join("sysand.toml");
+    std::fs::File::create_new(&config_path)?;
+
     let out = run_sysand_in(
         &cwd,
         [
@@ -160,7 +166,7 @@ fn add_and_remove_with_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
             "--local-kpar",
             "local/test.kpar",
         ],
-        None,
+        config_path.to_str(),
     )?;
 
     out.assert()
@@ -183,7 +189,7 @@ fn add_and_remove_with_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(cwd.join("sysand.toml"))?;
+    let config = std::fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -197,7 +203,7 @@ sources = [
 "#
     );
 
-    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], None)?;
+    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], config_path.to_str())?;
 
     out.assert().success().stderr(predicate::str::contains(
         r#"Removing `urn:kpar:test` from usages
@@ -216,7 +222,7 @@ sources = [
 "#
     );
 
-    let config = std::fs::read_to_string(cwd.join("sysand.toml"))?;
+    let config = std::fs::read_to_string(config_path)?;
 
     assert_eq!(config, "");
 
@@ -232,6 +238,9 @@ fn add_and_remove_with_remote_src() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
+    let config_path = cwd.join("sysand.toml");
+    std::fs::File::create_new(&config_path)?;
+
     let out = run_sysand_in(
         &cwd,
         [
@@ -241,7 +250,7 @@ fn add_and_remove_with_remote_src() -> Result<(), Box<dyn std::error::Error>> {
             "--remote-src",
             "www.example.com/test",
         ],
-        None,
+        config_path.to_str(),
     )?;
 
     out.assert()
@@ -264,7 +273,7 @@ fn add_and_remove_with_remote_src() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(cwd.join("sysand.toml"))?;
+    let config = std::fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -278,7 +287,7 @@ sources = [
 "#
     );
 
-    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], None)?;
+    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], config_path.to_str())?;
 
     out.assert().success().stderr(predicate::str::contains(
         r#"Removing `urn:kpar:test` from usages
@@ -297,7 +306,7 @@ sources = [
 "#
     );
 
-    let config = std::fs::read_to_string(cwd.join("sysand.toml"))?;
+    let config = std::fs::read_to_string(config_path)?;
 
     assert_eq!(config, "");
 
@@ -313,6 +322,9 @@ fn add_and_remove_with_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success();
 
+    let config_path = cwd.join("sysand.toml");
+    std::fs::File::create_new(&config_path)?;
+
     let out = run_sysand_in(
         &cwd,
         [
@@ -322,7 +334,7 @@ fn add_and_remove_with_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
             "--remote-kpar",
             "www.example.com/test.kpar",
         ],
-        None,
+        config_path.to_str(),
     )?;
 
     out.assert()
@@ -345,7 +357,7 @@ fn add_and_remove_with_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
 "#
     );
 
-    let config = std::fs::read_to_string(cwd.join("sysand.toml"))?;
+    let config = std::fs::read_to_string(&config_path)?;
 
     assert_eq!(
         config,
@@ -359,7 +371,7 @@ sources = [
 "#
     );
 
-    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], None)?;
+    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], config_path.to_str())?;
 
     out.assert().success().stderr(predicate::str::contains(
         r#"Removing `urn:kpar:test` from usages
@@ -378,7 +390,7 @@ sources = [
 "#
     );
 
-    let config = std::fs::read_to_string(cwd.join("sysand.toml"))?;
+    let config = std::fs::read_to_string(config_path)?;
 
     assert_eq!(config, "");
 
