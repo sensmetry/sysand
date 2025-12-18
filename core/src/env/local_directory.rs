@@ -375,11 +375,6 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
         uri: S,
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
-        log::info!(
-            "get_project({}, {}) from local_directory",
-            uri.as_ref(),
-            version.as_ref()
-        );
         let path = self.project_path(&uri, version);
         let project_path = wrapfs::canonicalize(path)?;
         let root_path = wrapfs::canonicalize(self.root_path())?;
