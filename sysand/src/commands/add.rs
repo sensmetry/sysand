@@ -3,12 +3,16 @@
 
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 
 use sysand_core::{
     add::do_add,
     auth::HTTPAuthentication,
-    config::{Config, local_fs::add_project_source_to_config},
+    config::{
+        Config, ConfigProject,
+        local_fs::{CONFIG_FILE, add_project_source_to_config},
+    },
     lock::Lock,
     project::{local_src::LocalSrcProject, utils::wrapfs},
 };
@@ -28,7 +32,9 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     no_sync: bool,
     resolution_opts: ResolutionOptions,
     source_opts: ProjectSourceOptions,
-    config: &Config,
+    mut config: Config,
+    config_file: Option<String>,
+    no_config: bool,
     current_project: Option<LocalSrcProject>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -37,37 +43,50 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path();
 
-    if let Some(src_path) = source_opts.local_src {
-        add_project_source_to_config(
-            &project_root,
-            &iri,
-            &sysand_core::lock::Source::LocalSrc {
-                src_path: src_path.into(),
-            },
-        )?;
+    let config_path = config_file
+        .map(Utf8PathBuf::from)
+        .or((!no_config).then(|| project_root.join(CONFIG_FILE)));
+
+    // For readability and compactness
+    #[allow(clippy::manual_map)]
+    let source = if let Some(local_src) = source_opts.local_src {
+        let src_path = if wrapfs::current_dir()? != project_root {
+            relativize(
+                &Utf8Path::new(&local_src).canonicalize_utf8()?,
+                &project_root,
+            )
+        } else {
+            local_src.into()
+        };
+        Some(sysand_core::lock::Source::LocalSrc {
+            src_path: src_path.as_str().into(),
+        })
     } else if let Some(kpar_path) = source_opts.local_kpar {
-        add_project_source_to_config(
-            &project_root,
-            &iri,
-            &sysand_core::lock::Source::LocalKpar {
-                kpar_path: kpar_path.into(),
-            },
-        )?;
+        Some(sysand_core::lock::Source::LocalKpar {
+            kpar_path: kpar_path.into(),
+        })
     } else if let Some(remote_src) = source_opts.remote_src {
-        add_project_source_to_config(
-            &project_root,
-            &iri,
-            &sysand_core::lock::Source::RemoteSrc { remote_src },
-        )?;
+        Some(sysand_core::lock::Source::RemoteSrc { remote_src })
     } else if let Some(remote_kpar) = source_opts.remote_kpar {
-        add_project_source_to_config(
-            &project_root,
-            &iri,
-            &sysand_core::lock::Source::RemoteKpar {
-                remote_kpar,
-                remote_kpar_size: None,
-            },
-        )?;
+        Some(sysand_core::lock::Source::RemoteKpar {
+            remote_kpar,
+            remote_kpar_size: None,
+        })
+    } else {
+        None
+    };
+
+    if let Some(source) = source {
+        if let Some(path) = config_path {
+            add_project_source_to_config(&path, &iri, &source)?;
+
+            config.projects.push(ConfigProject {
+                identifiers: vec![iri.as_ref().to_string()],
+                sources: vec![source],
+            });
+        } else {
+            bail!("must provide config file for specifying project source")
+        }
     }
 
     let provided_iris = if !resolution_opts.include_std {
@@ -87,7 +106,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         crate::commands::lock::command_lock(
             ".",
             resolution_opts,
-            config,
+            &config,
             &project_root,
             client.clone(),
             runtime.clone(),
@@ -112,4 +131,41 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     }
 
     Ok(())
+}
+
+fn relativize(path: &Utf8Path, root: &Utf8Path) -> Utf8PathBuf {
+    // If prefixes (e.g. C: vs D: on Windows) differ, no relative path is possible.
+    if path.components().next() != root.components().next() {
+        return path.to_path_buf();
+    }
+
+    let mut path_iter = path.components().peekable();
+    let mut root_iter = root.components().peekable();
+
+    while let (Some(p), Some(r)) = (path_iter.peek(), root_iter.peek()) {
+        if p == r {
+            path_iter.next();
+            root_iter.next();
+        } else {
+            break;
+        }
+    }
+
+    let mut result = Utf8PathBuf::new();
+
+    for r in root_iter {
+        if let Utf8Component::Normal(_) = r {
+            result.push("..");
+        }
+    }
+
+    for p in path_iter {
+        result.push(p.as_str());
+    }
+
+    if result.as_str().is_empty() {
+        result.push(".");
+    }
+
+    result
 }
