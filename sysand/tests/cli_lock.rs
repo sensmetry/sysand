@@ -81,7 +81,10 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
         }],
     })?;
 
-    let out = run_sysand_in(&cwd, ["lock"], Some(cfg.as_str()))?;
+    let cfg_path = cwd.join(sysand_core::config::local_fs::CONFIG_FILE);
+    std::fs::write(&cfg_path, cfg)?;
+
+    let out = run_sysand_in(&cwd, ["lock"], Some(cfg_path.as_str()))?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 

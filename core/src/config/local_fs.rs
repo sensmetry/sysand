@@ -73,13 +73,12 @@ pub enum ConfigProjectSourceError {
 }
 
 pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
-    working_dir: P,
+    config_path: P,
     iri: S,
     source: &Source,
 ) -> Result<(), ConfigProjectSourceError> {
-    let config_path = working_dir.as_ref().join(CONFIG_FILE);
     let sources = multiline_list(std::iter::once(source.to_toml()));
-    let contents = if config_path.is_file() {
+    let contents = if config_path.as_ref().is_file() {
         wrapfs::read_to_string(&config_path)?
     } else {
         String::new()
@@ -119,11 +118,10 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
 }
 
 pub fn remove_project_source_from_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
-    working_dir: P,
+    config_path: P,
     iri: S,
 ) -> Result<bool, ConfigProjectSourceError> {
-    let config_path = working_dir.as_ref().join(CONFIG_FILE);
-    if !config_path.is_file() {
+    if !config_path.as_ref().is_file() {
         return Ok(false);
     }
     let contents = wrapfs::read_to_string(&config_path)?;
@@ -200,7 +198,7 @@ mod tests {
             src_path: "local/test".into(),
         };
 
-        local_fs::add_project_source_to_config(dir.path(), iri, &source)?;
+        local_fs::add_project_source_to_config(&config_path, iri, &source)?;
 
         let config = Config {
             quiet: None,
@@ -240,7 +238,7 @@ mod tests {
         };
         config_file.write_all(toml::to_string_pretty(&config)?.as_bytes())?;
 
-        local_fs::remove_project_source_from_config(dir.path(), iri)?;
+        local_fs::remove_project_source_from_config(&config_path, iri)?;
 
         assert_eq!(
             Config {
