@@ -17,9 +17,9 @@ and sync the local environment (creating one if not already present).
 ## Arguments
 
 - `<IRI>`: IRI identifying the project to be used
-- `[VERSION_CONSTRAINT]`: A constraint on the allowable versions of a used project
-                          Assumes that the project uses Semantic Versioning
-                          See [`versionConstraint` docs](../metadata.md#versionconstraint) for details
+- `[VERSION_CONSTRAINT]`: A constraint on the allowable versions of a used
+  project. Assumes that the project uses Semantic Versioning. See
+  [`versionConstraint`](../metadata.md#versionconstraint) for details
 
 ## Options
 
