@@ -7,7 +7,6 @@ use assert_cmd::prelude::*;
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
-use predicates::prelude::PredicateBooleanExt;
 
 #[test]
 fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
@@ -185,9 +184,9 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let out = run_sysand_in(&path, ["sources"], None)?;
-    out.assert().success().stdout(
-        predicates::str::contains("src.sysml").and(predicates::str::contains("src_dep.sysml")),
-    );
+    out.assert().success().stdout(predicates::str::is_match(
+        "^.*src\\.sysml\n.*src_dep\\.sysml\n$",
+    )?);
 
     Ok(())
 }
