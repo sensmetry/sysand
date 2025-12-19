@@ -1275,16 +1275,16 @@ pub struct ResolutionOptions {
 #[derive(clap::Args, Debug, Clone)]
 pub struct ProjectSourceOptions {
     /// Path to local interchange project
-    #[arg(long, group = "source", help_heading = "Source options")]
+    #[arg(long, group = "source")]
     pub local_src: Option<String>,
     /// Path to local interchange project archive (KPAR)
-    #[arg(long, group = "source", help_heading = "Source options")]
+    #[arg(long, group = "source")]
     pub local_kpar: Option<String>,
     /// URL to remote interchange project
-    #[arg(long, group = "source", help_heading = "Source options")]
+    #[arg(long, group = "source")]
     pub remote_src: Option<String>,
     /// URL to remote interchange project archive (KPAR)
-    #[arg(long, group = "source", help_heading = "Source options")]
+    #[arg(long, group = "source")]
     pub remote_kpar: Option<String>,
 }
 

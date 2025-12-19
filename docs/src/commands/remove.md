@@ -2,6 +2,8 @@
 
 Remove usage from project information
 
+Will also remove project source overrides from configuration file if available.
+
 ## Usage
 
 ```sh

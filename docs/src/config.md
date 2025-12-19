@@ -23,3 +23,4 @@ can be used to specify the path to an additional config file.
 ## Configurable options
 
 - [Indexes](config/indexes.md)
+- [Dependencies](config/dependencies.md)
