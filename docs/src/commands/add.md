@@ -26,6 +26,6 @@ and sync the local environment (creating one if not already present).
 - `--no-lock`: Do not automatically resolve usages (and generate lockfile)
 - `--no-sync`: Do not automatically install dependencies
 
-{{#include ./partials/dependency_opts.md}}
+{{#include ./partials/resolution_opts.md}}
 
 {{#include ./partials/global_opts.md}}
