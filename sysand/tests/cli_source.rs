@@ -174,7 +174,7 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(&path, ["sources"], None)?;
     out.assert().success().stdout(predicates::str::is_match(
-        "^.*src\\.sysml\n.*src_dep\\.sysml\n$",
+        r"^.*?src\.sysml\n.*?src_dep\.sysml\n$",
     )?);
 
     Ok(())
