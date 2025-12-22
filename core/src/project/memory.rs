@@ -15,7 +15,7 @@ use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 /// Project stored in a local directory
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Eq, Default, Debug, PartialEq)]
 pub struct InMemoryProject {
     pub info: Option<InterchangeProjectInfoRaw>,
     pub meta: Option<InterchangeProjectMetadataRaw>,

@@ -10,7 +10,7 @@ use std::{
 };
 
 use semver::{Version, VersionReq};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml_edit::{
     Array, ArrayOfTables, DocumentMut, Formatted, InlineTable, Item, Table, Value, value,
@@ -437,7 +437,7 @@ const SOURCE_ENTRIES: &[&str] = &[
     "remote_api",
 ];
 
-#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(untagged)]
 pub enum Source {
     // Path must be a Unix path relative to workspace root
@@ -548,7 +548,7 @@ impl From<crate::model::InterchangeProjectUsage> for Usage {
     }
 }
 
-fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
+pub fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
     let mut array: Array = elements
         .map(|item| {
             let mut value = item.into();

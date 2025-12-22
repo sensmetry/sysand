@@ -99,6 +99,7 @@ fn do_info_py_path(
     path: String,
 ) -> PyResult<Option<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>> {
     let project = LocalSrcProject {
+        nominal_path: None,
         project_path: Path::new(&path).to_path_buf(),
     };
 
@@ -164,6 +165,7 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
         return Err(pyo3::exceptions::PyNotImplementedError::new_err("TODO"));
     };
     let project = LocalSrcProject {
+        nominal_path: None,
         project_path: Path::new(&current_project_path).to_path_buf(),
     };
 
@@ -322,6 +324,7 @@ pub fn do_sources_project_py(
     let mut result = vec![];
 
     let current_project = LocalSrcProject {
+        nominal_path: None,
         project_path: path.into(),
     };
 
@@ -394,6 +397,7 @@ pub fn do_sources_project_py(
 )]
 fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()> {
     let mut project = LocalSrcProject {
+        nominal_path: None,
         project_path: Path::new(&path).to_path_buf(),
     };
 
@@ -406,6 +410,7 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
 )]
 fn do_remove_py(path: String, iri: String) -> PyResult<()> {
     let mut project = LocalSrcProject {
+        nominal_path: None,
         project_path: Path::new(&path).to_path_buf(),
     };
 
@@ -426,6 +431,7 @@ fn do_include_py(
     force_format: Option<String>,
 ) -> PyResult<()> {
     let mut project = LocalSrcProject {
+        nominal_path: None,
         project_path: Path::new(&path).to_path_buf(),
     };
 
@@ -458,6 +464,7 @@ fn do_include_py(
 )]
 fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
     let mut project = LocalSrcProject {
+        nominal_path: None,
         project_path: Path::new(&path).to_path_buf(),
     };
 
@@ -497,7 +504,10 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
         })
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
     } else if project_path.is_dir() {
-        let project = LocalSrcProject { project_path };
+        let project = LocalSrcProject {
+            nominal_path: None,
+            project_path,
+        };
 
         let Some(version) = project
             .version()

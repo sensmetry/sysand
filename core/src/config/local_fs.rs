@@ -1,12 +1,16 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::Path;
+use std::{path::Path, str::FromStr};
 
 use thiserror::Error;
+use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
 use super::Config;
-use crate::project::utils::{FsIoError, wrapfs};
+use crate::{
+    lock::{Source, multiline_list},
+    project::utils::{FsIoError, wrapfs},
+};
 
 pub const CONFIG_DIR: &str = "sysand";
 pub const CONFIG_FILE: &str = "sysand.toml";
@@ -51,18 +55,114 @@ pub fn load_configs<P: AsRef<Path>>(working_dir: P) -> Result<Config, ConfigRead
     Ok(config)
 }
 
+#[derive(Error, Debug)]
+pub enum ConfigProjectSourceError {
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+    #[error("failed to parse configuration file")]
+    TomlEdit(#[from] toml_edit::TomlError),
+    #[error("{0}")]
+    InvalidProjects(String),
+}
+
+pub fn add_project_source_to_config<P: AsRef<Path>, S: AsRef<str>>(
+    config_path: P,
+    iri: S,
+    source: &Source,
+) -> Result<(), ConfigProjectSourceError> {
+    let sources = multiline_list(std::iter::once(source.to_toml()));
+    let contents = if config_path.as_ref().is_file() {
+        wrapfs::read_to_string(&config_path)?
+    } else {
+        String::new()
+    };
+    let mut config = DocumentMut::from_str(&contents)?;
+    let projects = config
+        .as_table_mut()
+        .entry("project")
+        .or_insert(Item::ArrayOfTables(ArrayOfTables::new()))
+        .as_array_of_tables_mut()
+        .ok_or(ConfigProjectSourceError::InvalidProjects(
+            "`project` should always be an array of tables".to_string(),
+        ))?;
+
+    if let Some(project) = projects.iter_mut().find(|table| {
+        table
+            .get("identifiers")
+            .and_then(|n| n.as_array())
+            .is_some_and(|arr| {
+                arr.iter()
+                    .any(|identifier| identifier.as_str() == Some(iri.as_ref()))
+            })
+    }) {
+        project["sources"] = toml_edit::value(sources);
+    } else {
+        let mut project = Table::new();
+        project["identifiers"] =
+            toml_edit::value(multiline_list(std::iter::once(Value::from(iri.as_ref()))));
+        project["sources"] = toml_edit::value(sources);
+
+        projects.push(project);
+    }
+
+    wrapfs::write(&config_path, config.to_string())?;
+
+    Ok(())
+}
+
+pub fn remove_project_source_from_config<P: AsRef<Path>, S: AsRef<str>>(
+    config_path: P,
+    iri: S,
+) -> Result<bool, ConfigProjectSourceError> {
+    if !config_path.as_ref().is_file() {
+        return Ok(false);
+    }
+    let contents = wrapfs::read_to_string(&config_path)?;
+    let mut config = DocumentMut::from_str(&contents)?;
+    let Some(projects) = config
+        .as_table_mut()
+        .get_mut("project")
+        .and_then(Item::as_array_of_tables_mut)
+    else {
+        return Ok(false);
+    };
+
+    let remove_index = projects.iter().position(|project| {
+        project
+            .get("identifiers")
+            .and_then(|n| n.as_array())
+            .is_some_and(|arr| {
+                arr.iter()
+                    .any(|identifier| identifier.as_str() == Some(iri.as_ref()))
+            })
+    });
+
+    if let Some(index) = remove_index {
+        projects.remove(index);
+        wrapfs::write(&config_path, config.to_string())?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::{error::Error, io::Write};
 
-    use crate::config::{Config, Index, local_fs};
     use tempfile::tempdir;
 
+    use crate::{
+        config::{Config, ConfigProject, Index, local_fs},
+        lock::Source,
+        project::utils::wrapfs,
+    };
+
     #[test]
-    fn load_configs() {
-        let dir = tempdir().unwrap();
+    fn load_configs() -> Result<(), Box<dyn Error>> {
+        let dir = tempdir()?;
         let config_path = dir.path().join(local_fs::CONFIG_FILE);
-        let mut config_file = std::fs::File::create(config_path).unwrap();
+        let mut config_file = wrapfs::File::create(config_path)?;
         let config = Config {
             quiet: Some(true),
             verbose: Some(false),
@@ -70,13 +170,78 @@ mod tests {
                 url: "http://www.example.com".to_string(),
                 ..Default::default()
             }]),
+            projects: vec![],
         };
-        config_file
-            .write_all(toml::to_string_pretty(&config).unwrap().as_bytes())
-            .unwrap();
+        config_file.write_all(toml::to_string_pretty(&config)?.as_bytes())?;
 
-        let config_read = local_fs::load_configs(dir.path()).unwrap();
+        let config_read = local_fs::load_configs(dir.path())?;
 
         assert_eq!(config_read, config);
+
+        Ok(())
+    }
+
+    #[test]
+    fn add_project_source_to_config() -> Result<(), Box<dyn Error>> {
+        let dir = tempdir()?;
+        let config_path = dir.path().join(local_fs::CONFIG_FILE);
+        let iri = "urn:kpar:test";
+        let source = Source::LocalSrc {
+            src_path: "local/test".to_string(),
+        };
+
+        local_fs::add_project_source_to_config(&config_path, iri, &source)?;
+
+        let config = Config {
+            quiet: None,
+            verbose: None,
+            index: None,
+            projects: vec![ConfigProject {
+                identifiers: vec![iri.to_string()],
+                sources: vec![source],
+            }],
+        };
+
+        assert_eq!(
+            config,
+            toml::from_str(wrapfs::read_to_string(config_path)?.as_str())?,
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn remove_project_source_from_config() -> Result<(), Box<dyn Error>> {
+        let dir = tempdir()?;
+        let config_path = dir.path().join(local_fs::CONFIG_FILE);
+        let mut config_file = wrapfs::File::create(&config_path)?;
+        let iri = "urn:kpar:test";
+        let source = Source::LocalSrc {
+            src_path: "local/test".to_string(),
+        };
+        let config = Config {
+            quiet: None,
+            verbose: None,
+            index: None,
+            projects: vec![ConfigProject {
+                identifiers: vec![iri.to_string()],
+                sources: vec![source],
+            }],
+        };
+        config_file.write_all(toml::to_string_pretty(&config)?.as_bytes())?;
+
+        local_fs::remove_project_source_from_config(&config_path, iri)?;
+
+        assert_eq!(
+            Config {
+                quiet: None,
+                verbose: None,
+                index: None,
+                projects: vec![]
+            },
+            toml::from_str(wrapfs::read_to_string(config_path)?.as_str())?,
+        );
+
+        Ok(())
     }
 }

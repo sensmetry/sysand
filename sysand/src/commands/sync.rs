@@ -13,6 +13,7 @@ use sysand_core::{
         AsSyncProjectTokio, ProjectReadAsync, local_kpar::LocalKParProject,
         local_src::LocalSrcProject, memory::InMemoryProject,
         reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProjectAsync,
+        utils::ToPathBuf,
     },
 };
 
@@ -28,6 +29,7 @@ pub fn command_sync<P: AsRef<Path>>(
         lock,
         env,
         Some(|src_path: String| LocalSrcProject {
+            nominal_path: Some(src_path.to_path_buf()),
             project_path: project_root.as_ref().join(src_path),
         }),
         Some(
@@ -40,7 +42,7 @@ pub fn command_sync<P: AsRef<Path>>(
             },
         ),
         // TODO: Fix error handling here
-        Some(|kpar_path: String| LocalKParProject::new_guess_root(kpar_path).unwrap()),
+        Some(|kpar_path: String| LocalKParProject::new_guess_root_nominal(project_root.as_ref().join(&kpar_path), kpar_path).unwrap()),
         Some(
             |remote_kpar: String| -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject>, ParseError> {
                 Ok(

@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow::{Result, bail};
+use fluent_uri::Iri;
 
 use sysand_core::{
     config::{
@@ -21,7 +22,8 @@ use sysand_core::{
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     init::InitError,
     lock::Lock,
-    project::utils::wrapfs,
+    project::{reference::ProjectReference, utils::wrapfs},
+    resolve::standard::AnyProject,
     stdlib::known_std_libs,
 };
 
@@ -187,9 +189,16 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         },
         cli::Command::Lock { resolution_opts } => {
-            if project_root.is_some() {
-                crate::commands::lock::command_lock(".", resolution_opts, &config, client, runtime)
-                    .map(|_| ())
+            if let Some(project_root) = project_root {
+                crate::commands::lock::command_lock(
+                    ".",
+                    resolution_opts,
+                    &config,
+                    project_root,
+                    client,
+                    runtime,
+                )
+                .map(|_| ())
             } else {
                 bail!("not inside a project")
             }
@@ -214,6 +223,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     ".",
                     resolution_opts,
                     &config,
+                    project_root.clone(),
                     client.clone(),
                     runtime.clone(),
                 )?;
@@ -270,6 +280,23 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } else {
                 HashSet::default()
             };
+
+            let project_root = project_root.unwrap_or(std::env::current_dir()?);
+            let mut overrides = Vec::new();
+            for config_project in &config.projects {
+                for identifier in &config_project.identifiers {
+                    let mut projects = Vec::new();
+                    for source in &config_project.sources {
+                        projects.push(ProjectReference::new(AnyProject::try_from_source(
+                            source.clone(),
+                            &project_root,
+                            client.clone(),
+                            runtime.clone(),
+                        )?));
+                    }
+                    overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+                }
+            }
 
             enum Location {
                 WorkDir,
@@ -361,6 +388,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     client,
                     index_urls,
                     &excluded_iris,
+                    overrides,
                     runtime,
                 ),
                 (Location::Iri(iri), Some(subcommand)) => {
@@ -372,6 +400,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         numbered,
                         client,
                         index_urls,
+                        overrides,
                         runtime,
                     )
                 }
@@ -389,18 +418,27 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_lock,
             no_sync,
             resolution_opts,
+            source_opts,
         } => command_add(
             iri,
             version_constraint,
             no_lock,
             no_sync,
             resolution_opts,
-            &config,
+            source_opts,
+            config,
+            args.global_opts.config_file,
+            args.global_opts.no_config,
             current_project,
             client,
             runtime,
         ),
-        cli::Command::Remove { iri } => command_remove(iri, current_project),
+        cli::Command::Remove { iri } => command_remove(
+            iri,
+            current_project,
+            args.global_opts.config_file,
+            args.global_opts.no_config,
+        ),
         cli::Command::Include {
             paths,
             compute_checksum: add_checksum,

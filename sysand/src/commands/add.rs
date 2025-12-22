@@ -1,18 +1,30 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Component, Path, PathBuf},
+    str::FromStr,
+    sync::Arc,
+};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow, bail};
 
 use sysand_core::{
     add::do_add,
-    config::Config,
+    config::{
+        Config, ConfigProject,
+        local_fs::{CONFIG_FILE, add_project_source_to_config},
+    },
     lock::Lock,
     project::{local_src::LocalSrcProject, utils::wrapfs},
 };
 
-use crate::{CliError, cli::ResolutionOptions, command_sync};
+use crate::{
+    CliError,
+    cli::{ProjectSourceOptions, ResolutionOptions},
+    command_sync,
+};
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
@@ -22,13 +34,58 @@ pub fn command_add<S: AsRef<str>>(
     no_lock: bool,
     no_sync: bool,
     resolution_opts: ResolutionOptions,
-    config: &Config,
+    source_opts: ProjectSourceOptions,
+    mut config: Config,
+    config_file: Option<String>,
+    no_config: bool,
     current_project: Option<LocalSrcProject>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path();
+
+    let config_path = config_file
+        .map(PathBuf::from)
+        .or((!no_config).then(|| project_root.join(CONFIG_FILE)));
+
+    // For readability and compactness
+    #[allow(clippy::manual_map)]
+    let source = if let Some(local_src) = source_opts.local_src {
+        let src_path = if wrapfs::current_dir()? != project_root {
+            let path = relativize(&Path::new(&local_src).canonicalize()?, &project_root);
+            path.to_str()
+                .ok_or_else(|| anyhow!("invalid unicode in path: {}", path.display()))?
+                .to_string()
+        } else {
+            local_src
+        };
+        Some(sysand_core::lock::Source::LocalSrc { src_path })
+    } else if let Some(kpar_path) = source_opts.local_kpar {
+        Some(sysand_core::lock::Source::LocalKpar { kpar_path })
+    } else if let Some(remote_src) = source_opts.remote_src {
+        Some(sysand_core::lock::Source::RemoteSrc { remote_src })
+    } else if let Some(remote_kpar) = source_opts.remote_kpar {
+        Some(sysand_core::lock::Source::RemoteKpar {
+            remote_kpar,
+            remote_kpar_size: None,
+        })
+    } else {
+        None
+    };
+
+    if let Some(source) = source {
+        if let Some(path) = config_path {
+            add_project_source_to_config(&path, &iri, &source)?;
+
+            config.projects.push(ConfigProject {
+                identifiers: vec![iri.as_ref().to_string()],
+                sources: vec![source],
+            });
+        } else {
+            bail!("must provide config file for specifying project source")
+        }
+    }
 
     let provided_iris = if !resolution_opts.include_std {
         let sysml_std = crate::known_std_libs();
@@ -47,7 +104,8 @@ pub fn command_add<S: AsRef<str>>(
         crate::commands::lock::command_lock(
             ".",
             resolution_opts,
-            config,
+            &config,
+            &project_root,
             client.clone(),
             runtime.clone(),
         )?;
@@ -69,4 +127,41 @@ pub fn command_add<S: AsRef<str>>(
     }
 
     Ok(())
+}
+
+fn relativize(path: &Path, root: &Path) -> PathBuf {
+    // If prefixes (e.g. C: vs D: on Windows) differ, no relative path is possible.
+    if path.components().next() != root.components().next() {
+        return path.to_path_buf();
+    }
+
+    let mut path_iter = path.components().peekable();
+    let mut root_iter = root.components().peekable();
+
+    while let (Some(p), Some(r)) = (path_iter.peek(), root_iter.peek()) {
+        if p == r {
+            path_iter.next();
+            root_iter.next();
+        } else {
+            break;
+        }
+    }
+
+    let mut result = PathBuf::new();
+
+    for r in root_iter {
+        if let Component::Normal(_) = r {
+            result.push("..");
+        }
+    }
+
+    for p in path_iter {
+        result.push(p.as_os_str());
+    }
+
+    if result.as_os_str().is_empty() {
+        result.push(".");
+    }
+
+    result
 }
