@@ -146,11 +146,13 @@ pub fn handle_lock_error<PR: ProjectRead, RR: ResolveRead + std::fmt::Debug>(
                 package, source, ..
             } => match package {
                 DependencyIdentifier::Requested(_) => {
-                    // TODO: can this happen?
+                    // TODO: when can this happen?
+                    // This should always indicate either I/O failure or a bug.
+                    anyhow!()
 
                     match source {
                         InternalSolverError::Resolution(err) => {
-                            anyhow!("resolution error: {:?}", err)
+                            anyhow!("resolution error: {}", err)
                         }
                         // InternalSolverError::InvalidProject => {
                         //     anyhow!("found invalid project during usage resolution")
@@ -162,15 +164,16 @@ pub fn handle_lock_error<PR: ProjectRead, RR: ResolveRead + std::fmt::Debug>(
                             anyhow!("requested version unavailable: {msg}")
                         }
                     }
-                    // anyhow!("unexpected internal error: {:?}", source)
+                    // anyhow!("unexpected internal error: {}", source)
                 }
                 DependencyIdentifier::Remote(iri) => {
-                    anyhow!("failed to retrieve (transitive) usages of usage `{}`", iri)
+                    anyhow!("failed to retrieve dependencies of usage `{}`", iri)
                 }
             },
             pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => match package {
                 DependencyIdentifier::Requested(_) => {
-                    // TODO: investigate when this can happen
+                    // TODO: investigate when this can happen and give appropriate errors
+                    // This should always indicate either I/O failure or a bug.
 
                     match source {
                         InternalSolverError::Resolution(err) => {
@@ -186,7 +189,7 @@ pub fn handle_lock_error<PR: ProjectRead, RR: ResolveRead + std::fmt::Debug>(
                             anyhow!("requested version unavailable: {msg}")
                         }
                     }
-                    // anyhow!("unexpected internal error: {:?}", source)
+                    // anyhow!("unexpected internal error: {}", source)
                 }
                 DependencyIdentifier::Remote(iri) => {
                     // anyhow!("unable to select version of usage `{iri}`: {source}")
