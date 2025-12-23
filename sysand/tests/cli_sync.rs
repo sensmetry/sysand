@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::io::Write;
-
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME;
@@ -20,29 +18,26 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir(&lib_dir)?;
     let proj_dir = lib_dir.join("sync_to_local");
     std::fs::create_dir(&proj_dir)?;
-    let mut info_file = std::fs::File::create_new(proj_dir.join(".project.json"))?;
-    info_file.write_all(
+    std::fs::write(
+        proj_dir.join(".project.json"),
         r#"{
   "name": "sync_to_local",
   "version": "1.2.3",
   "usage": []
 }
-"#
-        .as_bytes(),
+"#,
     )?;
-    let mut meta_file = std::fs::File::create_new(proj_dir.join(".meta.json"))?;
-    meta_file.write_all(
+    std::fs::write(
+        proj_dir.join(".meta.json"),
         r#"{
   "index": {},
   "created": "2025-06-12T10:48:55.597880Z"
 }
-"#
-        .as_bytes(),
+"#,
     )?;
 
-    let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
-
-    lockfile.write_all(
+    std::fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
         r#"lock_version = "0.3"
 
 [[project]]
@@ -53,8 +48,7 @@ checksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c"
 sources = [
     { src_path = "lib/sync_to_local" },
 ]
-"#
-        .as_bytes(),
+"#,
     )?;
 
     let out = run_sysand_in(&cwd, ["sync"], None)?;
@@ -102,9 +96,8 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
         .expect_at_most(4) // TODO: Reduce this to 1 after caching
         .create();
 
-    let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
-
-    lockfile.write_all(
+    std::fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
             r#"lock_version = "0.3"
 
@@ -118,8 +111,7 @@ sources = [
 ]
 "#,
             &server.url()
-        )
-        .as_bytes(),
+        ),
     )?;
 
     let out = run_sysand_in(&cwd, ["sync"], None)?;
