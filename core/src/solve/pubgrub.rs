@@ -214,7 +214,7 @@ fn resolve_candidates<R: ResolveRead>(
                 .map_err(InternalSolverError::Resolution)?
             {
                 crate::resolve::ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    return Err(InternalSolverError::NotResolvable(msg));
+                    return Err(InternalSolverError::UnsupportedIriType(msg));
                 }
                 crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
                     return Err(InternalSolverError::NotResolvable(msg));
@@ -326,17 +326,21 @@ impl<R: ResolveRead + fmt::Debug + 'static> From<pubgrub::PubGrubError<ProjectSo
 
 #[derive(Error, Debug)]
 pub enum InternalSolverError<R: ResolveRead> {
-    #[error(transparent)]
+    #[error("resolution error: {0}")]
     Resolution(R::Error),
     // #[error("invalid project requested")]
     // InvalidProject,
     /// Project not found by current resolver
     /// Value is the formatted error message
-    #[error("{0}")]
+    #[error("IRI is not resolvable: {0}")]
     NotResolvable(String),
+    /// Project not found by current resolver
+    /// Value is the formatted error message
+    #[error("IRI is of type not supported by this resolver: {0}")]
+    UnsupportedIriType(String),
     /// Project is found, but the requested version is not
     /// Value is the formatted error message
-    #[error("{0}")]
+    #[error("requested version unavailable: {0}")]
     VersionNotAvailable(String),
 }
 
