@@ -20,7 +20,7 @@ use sysand_core::{
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
     },
-    solve::pubgrub::{DependencyIdentifier, InternalSolverError},
+    solve::pubgrub::DependencyIdentifier,
     stdlib::known_std_libs,
 };
 
@@ -146,83 +146,25 @@ pub fn handle_lock_error<PR: ProjectRead, RR: ResolveRead + std::fmt::Debug>(
                 package, source, ..
             } => match package {
                 DependencyIdentifier::Requested(_) => {
-                    // TODO: when can this happen?
-                    // This should always indicate either I/O failure or a bug.
-                    anyhow!()
-
-                    match source {
-                        InternalSolverError::Resolution(err) => {
-                            anyhow!("resolution error: {}", err)
-                        }
-                        // InternalSolverError::InvalidProject => {
-                        //     anyhow!("found invalid project during usage resolution")
-                        // }
-                        InternalSolverError::NotResolvable(iri) => {
-                            anyhow!("unable to resolve usage `{}`", iri)
-                        }
-                        InternalSolverError::VersionNotAvailable(msg) => {
-                            anyhow!("requested version unavailable: {msg}")
-                        }
-                    }
-                    // anyhow!("unexpected internal error: {}", source)
+                    anyhow!("failed to retrieve project(s): {source}")
                 }
                 DependencyIdentifier::Remote(iri) => {
-                    anyhow!("failed to retrieve dependencies of usage `{}`", iri)
+                    anyhow!("failed to retrieve `{iri}`: {source}")
                 }
             },
             pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => match package {
                 DependencyIdentifier::Requested(_) => {
-                    // TODO: investigate when this can happen and give appropriate errors
-                    // This should always indicate either I/O failure or a bug.
-
-                    match source {
-                        InternalSolverError::Resolution(err) => {
-                            anyhow!("resolution error: {}", err)
-                        }
-                        // InternalSolverError::InvalidProject => {
-                        //     anyhow!("found invalid project during usage resolution")
-                        // }
-                        InternalSolverError::NotResolvable(msg) => {
-                            anyhow!("unable to resolve usage(s): {msg}")
-                        }
-                        InternalSolverError::VersionNotAvailable(msg) => {
-                            anyhow!("requested version unavailable: {msg}")
-                        }
-                    }
-                    // anyhow!("unexpected internal error: {}", source)
+                    // `fn choose_version()` is infallible in this path
+                    unreachable!();
                 }
                 DependencyIdentifier::Remote(iri) => {
-                    // anyhow!("unable to select version of usage `{iri}`: {source}")
-                    match source {
-                        InternalSolverError::Resolution(err) => {
-                            anyhow!("resolution error during resolution of `{iri}`: {err}")
-                        }
-                        // InternalSolverError::InvalidProject => {
-                        //     anyhow!("found invalid project during usage resolution")
-                        // }
-                        InternalSolverError::NotResolvable(msg) => {
-                            anyhow!("unable to resolve usage `{iri}`: {msg}")
-                        }
-                        InternalSolverError::VersionNotAvailable(msg) => {
-                            anyhow!("requested version of `{iri}` unavailable: {msg}")
-                        }
-                    }
+                    anyhow!("unable to select version of `{iri}`: {source}")
                 }
             },
-            pubgrub::PubGrubError::ErrorInShouldCancel(err) => match err {
-                InternalSolverError::Resolution(err) => {
-                    anyhow!("resolution error: {}", err)
-                }
-                // InternalSolverError::InvalidProject => {
-                //     anyhow!("found invalid project during usage resolution")
-                // }
-                InternalSolverError::NotResolvable(iri) => {
-                    anyhow!("unable to resolve usage `{}`", iri)
-                }
-                InternalSolverError::VersionNotAvailable(msg) => {
-                    anyhow!("requested version unavailable: {msg}")
-                }
-            },
+            pubgrub::PubGrubError::ErrorInShouldCancel(_) => {
+                // ProjectSolver doesn't implement this and default impl does nothing
+                unreachable!();
+            }
         }
     } else {
         anyhow!("{lock_error}")
