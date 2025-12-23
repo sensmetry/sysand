@@ -3,7 +3,6 @@
 ## Commands available for `sysand`
 
 - [init](commands/init.md)
-- [new](commands/new.md)
 - [add](commands/add.md)
 - [remove](commands/remove.md)
 - [include](commands/include.md)

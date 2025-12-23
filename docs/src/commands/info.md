@@ -27,6 +27,6 @@ if none is found uses the current directory instead.
   to parse it as an IRI/URI/URL and otherwise falling back to a local path
 - `--no-normalise`: Do not try to normalise the IRI/URI when resolving
 
-{{#include ./partials/dependency_opts.md}}
+{{#include ./partials/resolution_opts.md}}
 
 {{#include ./partials/global_opts.md}}

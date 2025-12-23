@@ -30,6 +30,6 @@ as [sysand env](../env.md).
 - `--allow-multiple`: Install even if another version is already installed
 - `--no-deps`: Don't install any dependencies
 
-{{#include ../partials/dependency_opts.md}}
+{{#include ../partials/resolution_opts.md}}
 
 {{#include ../partials/global_opts.md}}

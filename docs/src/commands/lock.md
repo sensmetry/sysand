@@ -17,6 +17,6 @@ sources for all dependencies.
 Current project is determined as in [sysand print-root](root.md) and
 if none is found uses the current directory instead.
 
-{{#include ./partials/dependency_opts.md}}
+{{#include ./partials/resolution_opts.md}}
 
 {{#include ./partials/global_opts.md}}
