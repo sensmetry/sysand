@@ -294,10 +294,10 @@ impl Lock {
             let version = Version::parse(&project.version)
                 .inspect_err(|err| {
                     log::warn!(
-                        "invalid semantic version `{}` for project `{:?}`\n\
+                        "invalid semantic version `{}` for project `{}`\n\
                         {:>8} {}",
                         project.version,
-                        project.name,
+                        project_with(project.name.as_ref()),
                         ' ',
                         err
                     );

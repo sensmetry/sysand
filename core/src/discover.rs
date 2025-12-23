@@ -46,7 +46,7 @@ fn discover<P: AsRef<Path>, F: Fn(&Path) -> bool>(
 
     while !predicate(&current) {
         match current.parent() {
-            Some(parent) if parent == Path::new("") => {
+            Some(parent) if parent.as_os_str().is_empty() => {
                 log::debug!("hit empty relative path, trying to canonicalise");
                 match current.canonicalize() {
                     Ok(current_canonical) => match current_canonical.parent() {

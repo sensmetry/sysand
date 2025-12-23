@@ -511,7 +511,7 @@ impl<
                                     }
                                     Err(err) => {
                                         log::debug!(
-                                            "remote resolver skipping project for IRI `{}`: {:?}",
+                                            "remote resolver skipping project for IRI `{}`: {}",
                                             uri,
                                             err
                                         );
