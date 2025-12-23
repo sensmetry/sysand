@@ -41,10 +41,10 @@ pub struct HTTPEnvironmentAsync {
 pub enum HTTPEnvironmentError {
     #[error("failed to extend URL `{0}` with path `{1}`: {2}")]
     JoinURL(Box<str>, String, url::ParseError),
-    // TODO: include error.source(). Currently it gives no details what's gone
-    // wrong. Also it includes URL, so no need to have it separately
-    #[error("error making an HTTP request to '{0}':\n{1}")]
-    HTTPRequest(Box<str>, reqwest_middleware::Error),
+    // TODO: nicer formatting. Debug formmating is used here to include
+    // all the details, since they are not given in the Display impl
+    #[error("error making an HTTP request:\n{0:#?}")]
+    HTTPRequest(#[from] reqwest_middleware::Error),
     #[error("failed to get project `{0}`, version `{1}` in source or kpar format")]
     InvalidURL(Box<str>, Box<str>),
     #[error("failed to read HTTP response: {0}")]
@@ -145,8 +145,7 @@ impl HTTPEnvironmentAsync {
             .head(src_project_url.clone())
             .header("ACCEPT", "application/json, text/plain")
             .send()
-            .await
-            .map_err(|e| HTTPEnvironmentError::HTTPRequest(src_project_url.as_str().into(), e))?
+            .await?
             .status()
             .is_success()
         {
@@ -173,8 +172,7 @@ impl HTTPEnvironmentAsync {
             .head(kpar_project_url.clone())
             .header("ACCEPT", "application/zip, application/octet-stream")
             .send()
-            .await
-            .map_err(|e| HTTPEnvironmentError::HTTPRequest(kpar_project_url.as_str().into(), e))?
+            .await?
             .status()
             .is_success()
         {
@@ -238,9 +236,7 @@ impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
     >;
 
     async fn uris_async(&self) -> Result<Self::UriStream, Self::ReadError> {
-        let response = self.get_entries_request()?.send().await.map_err(|e| {
-            HTTPEnvironmentError::HTTPRequest(self.entries_url().unwrap().as_str().into(), e)
-        })?;
+        let response = self.get_entries_request()?.send().await?;
 
         let inner = if response.status().is_success() {
             Some(
@@ -268,9 +264,7 @@ impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
         &self,
         uri: S,
     ) -> Result<Self::VersionStream, Self::ReadError> {
-        let response = self.get_versions_request(&uri)?.send().await.map_err(|e| {
-            HTTPEnvironmentError::HTTPRequest(self.versions_url(uri).unwrap().as_str().into(), e)
-        })?;
+        let response = self.get_versions_request(&uri)?.send().await?;
 
         let inner = if response.status().is_success() {
             Some(
