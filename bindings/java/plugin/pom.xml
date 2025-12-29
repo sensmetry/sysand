@@ -43,7 +43,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
     <maven.compiler.target>1.8</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.plugin.tools.version>3.15.2</maven.plugin.tools.version>
-    <maven.api.version>3.9.11</maven.api.version>
+    <maven.api.version>3.9.12</maven.api.version>
   </properties>
   <profiles>
     <!-- maven.compiler.release is only available in Java 9+, but it is required
