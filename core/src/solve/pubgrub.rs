@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use fluent_uri::Iri;
-use pubgrub::{DependencyProvider, VersionSet};
+use pubgrub::{DefaultStringReporter, DependencyProvider, Reporter, VersionSet};
 
 use std::{
     cell::RefCell,
@@ -307,22 +307,68 @@ fn compute_deps<R: ResolveRead>(
     Ok(pubgrub::Dependencies::Available(depmap))
 }
 
-#[derive(Error, Debug)]
-#[error("{inner}")]
+#[derive(Debug)]
 pub struct SolverError<R: ResolveRead + fmt::Debug + 'static> {
-    #[from]
     pub inner: Box<pubgrub::PubGrubError<ProjectSolver<R>>>,
+}
+
+impl<R: ResolveRead + fmt::Debug + 'static> From<Box<pubgrub::PubGrubError<ProjectSolver<R>>>>
+    for SolverError<R>
+{
+    fn from(mut value: Box<pubgrub::PubGrubError<ProjectSolver<R>>>) -> Self {
+        if let pubgrub::PubGrubError::NoSolution(ref mut derivation_tree) = *value {
+            derivation_tree.collapse_no_versions();
+        }
+        Self { inner: value }
+    }
 }
 
 impl<R: ResolveRead + fmt::Debug + 'static> From<pubgrub::PubGrubError<ProjectSolver<R>>>
     for SolverError<R>
 {
     fn from(value: pubgrub::PubGrubError<ProjectSolver<R>>) -> Self {
-        Self {
-            inner: Box::new(value),
+        Self::from(Box::new(value))
+    }
+}
+
+impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.inner.as_ref() {
+            pubgrub::PubGrubError::NoSolution(derivation_tree) => {
+                writeln!(
+                    f,
+                    "failed to satisfy usage constraints:\n{}",
+                    DefaultStringReporter::report(derivation_tree)
+                )
+            }
+            pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                package, source, ..
+            } => match package {
+                DependencyIdentifier::Requested(_) => {
+                    write!(f, "failed to retrieve project(s): {source}")
+                }
+                DependencyIdentifier::Remote(iri) => {
+                    write!(f, "failed to retrieve `{iri}`: {source}")
+                }
+            },
+            pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => match package {
+                DependencyIdentifier::Requested(_) => {
+                    // `fn choose_version()` is infallible in this path
+                    unreachable!();
+                }
+                DependencyIdentifier::Remote(iri) => {
+                    write!(f, "unable to select version of `{iri}`: {source}")
+                }
+            },
+            pubgrub::PubGrubError::ErrorInShouldCancel(_) => {
+                // ProjectSolver doesn't implement this and default impl does nothing
+                unreachable!();
+            }
         }
     }
 }
+
+impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R> {}
 
 #[derive(Error, Debug)]
 pub enum InternalSolverError<R: ResolveRead> {

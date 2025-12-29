@@ -14,11 +14,7 @@ use sysand_core::{
 };
 
 use crate::{
-    CliError,
-    cli::ResolutionOptions,
-    command_sync,
-    commands::lock::{create_resolver, handle_lock_error},
-    read_lockfile,
+    CliError, cli::ResolutionOptions, command_sync, commands::lock::create_resolver, read_lockfile,
 };
 
 // TODO: Collect common arguments
@@ -74,8 +70,7 @@ pub fn command_add<S: AsRef<str>>(
         // Lock before adding to check if resource (and its required version)
         // can be found
         let usage = usage_raw.validate()?;
-        let LockOutcome { lock, .. } =
-            do_lock_extend(current_lock, [usage], resolver).map_err(handle_lock_error)?;
+        let LockOutcome { lock, .. } = do_lock_extend(current_lock, [usage], resolver)?;
 
         do_add(&mut current_project, usage_raw)?;
 
