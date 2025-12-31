@@ -5,7 +5,6 @@ use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
     fmt::Display,
-    path::Path,
     str::FromStr,
 };
 
@@ -15,6 +14,7 @@ use thiserror::Error;
 use toml_edit::{
     Array, ArrayOfTables, DocumentMut, Formatted, InlineTable, Item, Table, Value, value,
 };
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{env::ReadEnvironment, project::ProjectRead};
 
@@ -442,13 +442,16 @@ const SOURCE_ENTRIES: &[&str] = &[
 pub enum Source {
     // Path must be a Unix path relative to workspace root
     Editable {
-        editable: String,
+        #[serde(deserialize_with = "parse_unix_path")]
+        editable: Utf8UnixPathBuf,
     },
     LocalSrc {
-        src_path: String,
+        #[serde(deserialize_with = "parse_unix_path")]
+        src_path: Utf8UnixPathBuf,
     },
     LocalKpar {
-        kpar_path: String,
+        #[serde(deserialize_with = "parse_unix_path")]
+        kpar_path: Utf8UnixPathBuf,
     },
     Registry {
         registry: String,
@@ -468,22 +471,31 @@ pub enum Source {
     },
 }
 
+fn parse_unix_path<'de, D>(deserializer: D) -> Result<Utf8UnixPathBuf, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    // TODO: check that it is actually what we want
+    Ok(Utf8UnixPathBuf::from(s))
+}
+
 impl Source {
     pub fn to_toml(&self) -> InlineTable {
         let mut table = InlineTable::new();
         match self {
             Source::Editable { editable } => {
                 debug_assert!(
-                    Path::new(editable).is_relative(),
+                    editable.is_relative(),
                     "editable project path is absolute: `{editable}`"
                 );
-                table.insert("editable", Value::from(editable));
+                table.insert("editable", Value::from(editable.as_str()));
             }
             Source::LocalKpar { kpar_path } => {
-                table.insert("kpar_path", Value::from(kpar_path));
+                table.insert("kpar_path", Value::from(kpar_path.as_str()));
             }
             Source::LocalSrc { src_path } => {
-                table.insert("src_path", Value::from(src_path));
+                table.insert("src_path", Value::from(src_path.as_str()));
             }
             Source::Registry { registry } => {
                 table.insert("registry", Value::from(registry));
@@ -566,6 +578,7 @@ mod tests {
     use std::{convert::Infallible, fmt::Display, slice, str::FromStr};
 
     use toml_edit::DocumentMut;
+    use typed_path::Utf8UnixPathBuf;
 
     use crate::lock::{
         CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
@@ -818,7 +831,7 @@ checksum = "{CHECKSUM}"
                 identifiers: vec![],
                 usages: vec![],
                 sources: vec![Source::Editable {
-                    editable: ".".to_string(),
+                    editable: Utf8UnixPathBuf::from("."),
                 }],
                 checksum: CHECKSUM.to_string(),
             }],
@@ -847,10 +860,10 @@ checksum = "{CHECKSUM}"
                 usages: vec![],
                 sources: vec![
                     Source::LocalKpar {
-                        kpar_path: "example.kpar".to_string(),
+                        kpar_path: Utf8UnixPathBuf::from("example.kpar"),
                     },
                     Source::LocalSrc {
-                        src_path: "example/path".to_string(),
+                        src_path: Utf8UnixPathBuf::from("example/path"),
                     },
                     Source::Registry {
                         registry: "www.example.com".to_string(),

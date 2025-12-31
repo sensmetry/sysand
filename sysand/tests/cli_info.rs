@@ -7,6 +7,7 @@ use std::process::Command;
 use std::{error::Error, io::Write as _};
 
 use assert_cmd::prelude::*;
+use camino::Utf8PathBuf;
 use predicates::prelude::*;
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -87,7 +88,7 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
             .stdout(predicate::str::contains("Version: 1.2.3"));
     }
 
-    let project_path: std::path::PathBuf = cwd.join("info_basic");
+    let project_path: Utf8PathBuf = cwd.join("info_basic");
     let out_absolute = {
         let mut args = vec!["info"];
         if use_iri {
@@ -95,8 +96,7 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
             add_iri_args(&mut args, use_auto, &project_path_uri);
             run_sysand_in(&cwd, args, None)?
         } else {
-            let project_path_str = project_path.display().to_string();
-            add_path_args(&mut args, use_auto, &project_path_str);
+            add_path_args(&mut args, use_auto, project_path.as_str());
             run_sysand_in(&cwd, args, None)?
         }
     };

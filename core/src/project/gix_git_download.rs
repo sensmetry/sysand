@@ -8,7 +8,7 @@ use crate::{
     project::{
         ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
-        utils::FileWithLifetime,
+        utils::{FileWithLifetime, ToPathBuf},
     },
 };
 
@@ -17,7 +17,7 @@ use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationE
 #[derive(Debug)]
 pub struct GixDownloadedProject {
     pub url: gix::Url,
-    tmp_dir: tempfile::TempDir,
+    tmp_dir: camino_tempfile::Utf8TempDir,
     inner: LocalSrcProject,
 }
 
@@ -65,7 +65,7 @@ impl From<LocalSrcError> for GixDownloadedError {
 
 impl GixDownloadedProject {
     pub fn new<S: AsRef<str>>(url: S) -> Result<GixDownloadedProject, GixDownloadedError> {
-        let tmp_dir = tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
+        let tmp_dir = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
 
         Ok(GixDownloadedProject {
             url: gix::url::parse(url.as_ref().into())
@@ -88,7 +88,7 @@ impl GixDownloadedProject {
             let (_repo, _) = prepare_checkout
                 .main_worktree(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
                 .map_err(|e| {
-                    GixDownloadedError::Checkout(self.tmp_dir.path().to_owned(), Box::new(e))
+                    GixDownloadedError::Checkout(self.tmp_dir.to_std_path_buf(), Box::new(e))
                 })?;
         }
 

@@ -3,6 +3,7 @@
 
 use std::path::Path;
 
+use camino::Utf8Path;
 use thiserror::Error;
 
 use super::Config;
@@ -37,7 +38,7 @@ pub fn get_config<P: AsRef<Path>>(path: P) -> Result<Config, ConfigReadError> {
     }
 }
 
-pub fn load_configs<P: AsRef<Path>>(working_dir: P) -> Result<Config, ConfigReadError> {
+pub fn load_configs<P: AsRef<Utf8Path>>(working_dir: P) -> Result<Config, ConfigReadError> {
     let mut config = dirs::config_dir().map_or_else(
         || Ok(Config::default()),
         |mut path| {
@@ -56,7 +57,7 @@ mod tests {
     use std::io::Write;
 
     use crate::config::{Config, Index, local_fs};
-    use tempfile::tempdir;
+    use camino_tempfile::tempdir;
 
     #[test]
     fn load_configs() {

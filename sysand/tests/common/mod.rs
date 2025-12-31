@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use camino::{Utf8Path, Utf8PathBuf};
+use camino_tempfile::Utf8TempDir;
 #[cfg(not(target_os = "windows"))]
 use rexpect::session::{PtySession, spawn_command};
 #[cfg(not(target_os = "windows"))]
@@ -8,13 +10,11 @@ use std::os::unix::process::ExitStatusExt;
 use std::{
     error::Error,
     io::Write,
-    path::{Path, PathBuf},
     process::{Command, Output},
 };
-use tempfile::TempDir;
 
-pub fn fixture_path(name: &str) -> PathBuf {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+pub fn fixture_path(name: &str) -> Utf8PathBuf {
+    let mut path = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("tests");
     path.push("data");
     path.push(name);
@@ -22,7 +22,7 @@ pub fn fixture_path(name: &str) -> PathBuf {
 }
 
 pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
-    cwd: &Path,
+    cwd: &Utf8Path,
     args: I,
     cfg: Option<&str>,
 ) -> Result<Command, Box<dyn Error>> {
@@ -30,10 +30,7 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
         let config_path = cwd.join("sysand.toml");
         let mut config_file = std::fs::File::create_new(&config_path)?;
         config_file.write_all(config.as_bytes())?;
-        vec![
-            "--config-file".to_string(),
-            config_path.display().to_string(),
-        ]
+        vec!["--config-file".to_string(), config_path.to_string()]
     } else {
         vec![]
     };
@@ -60,9 +57,9 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
 /// the path because tests check the output of CLI to see whether it operated on
 /// the expected files and CLI typically prints the canonicalised version of the
 /// path.
-pub fn new_temp_cwd() -> Result<(TempDir, PathBuf), Box<dyn Error>> {
-    let temp_dir = TempDir::with_prefix("sysand_test_")?;
-    let temp_dir_path = temp_dir.path().canonicalize()?;
+pub fn new_temp_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
+    let temp_dir = camino_tempfile::Utf8TempDir::with_prefix("sysand_test_")?;
+    let temp_dir_path = temp_dir.path().canonicalize_utf8()?;
 
     Ok((temp_dir, temp_dir_path))
 }
@@ -70,7 +67,7 @@ pub fn new_temp_cwd() -> Result<(TempDir, PathBuf), Box<dyn Error>> {
 pub fn sysand_cmd<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
-) -> Result<(TempDir, PathBuf, Command), Box<dyn Error>> {
+) -> Result<(Utf8TempDir, Utf8PathBuf, Command), Box<dyn Error>> {
     // NOTE had trouble getting test-temp-dir crate working, but would be better
     let (temp_dir, cwd) = new_temp_cwd()?;
     let cmd = sysand_cmd_in(&cwd, args /*, stdin*/, cfg)?;
@@ -79,7 +76,7 @@ pub fn sysand_cmd<'a, I: IntoIterator<Item = &'a str>>(
 }
 
 pub fn run_sysand_in<'a, I: IntoIterator<Item = &'a str>>(
-    cwd: &Path,
+    cwd: &Utf8Path,
     args: I,
     cfg: Option<&str>,
 ) -> Result<Output, Box<dyn Error>> {
@@ -89,7 +86,7 @@ pub fn run_sysand_in<'a, I: IntoIterator<Item = &'a str>>(
 pub fn run_sysand<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
-) -> Result<(TempDir, PathBuf, Output), Box<dyn Error>> {
+) -> Result<(Utf8TempDir, Utf8PathBuf, Output), Box<dyn Error>> {
     let (temp_dir, cwd, mut cmd) = sysand_cmd(args /*, stdin*/, cfg)?;
 
     Ok((temp_dir, cwd, cmd.output()?))
@@ -98,7 +95,7 @@ pub fn run_sysand<'a, I: IntoIterator<Item = &'a str>>(
 // TODO: Figure out how to do interactive tests on Windows.
 #[cfg(not(target_os = "windows"))]
 pub fn run_sysand_interactive_in<'a, I: IntoIterator<Item = &'a str>>(
-    cwd: &Path,
+    cwd: &Utf8Path,
     args: I,
     timeout_ms: Option<u64>,
     cfg: Option<&str>,
@@ -114,7 +111,7 @@ pub fn run_sysand_interactive<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     timeout_ms: Option<u64>,
     cfg: Option<&str>,
-) -> Result<(TempDir, PathBuf, PtySession), Box<dyn Error>> {
+) -> Result<(Utf8TempDir, Utf8PathBuf, PtySession), Box<dyn Error>> {
     let (temp_dir, cwd, cmd) = sysand_cmd(args, cfg)?;
 
     Ok((temp_dir, cwd, spawn_command(cmd, timeout_ms)?))

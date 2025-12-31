@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-#[cfg(feature = "filesystem")]
-use std::path::PathBuf;
 use std::{collections::HashMap, fmt::Debug};
 
+#[cfg(feature = "filesystem")]
+use camino::Utf8PathBuf;
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 
@@ -79,7 +79,7 @@ impl From<SourcesError<LocalSrcError>> for LocalSourcesError {
 pub fn do_sources_local_src_project_no_deps(
     project: &LocalSrcProject,
     include_index: bool,
-) -> Result<Vec<PathBuf>, LocalSourcesError> {
+) -> Result<Vec<Utf8PathBuf>, LocalSourcesError> {
     let unix_srcs = do_sources_project_no_deps(project, include_index)?;
 
     let srcs: Result<Vec<_>, _> = unix_srcs

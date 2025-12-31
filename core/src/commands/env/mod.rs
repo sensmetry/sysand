@@ -1,10 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-#[cfg(feature = "filesystem")]
-use std::path::Path;
-use std::path::PathBuf;
-
 use crate::env::{
     memory::{MemoryStorageEnvironment, MemoryWriteError},
     utils::ErrorBound,
@@ -15,6 +11,9 @@ use crate::{
     project::utils::wrapfs,
 };
 
+#[cfg(feature = "filesystem")]
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use thiserror::Error;
 
 mod install;
@@ -29,7 +28,7 @@ pub use list::do_env_list;
 #[derive(Error, Debug)]
 pub enum EnvError<WriteError: ErrorBound> {
     #[error("refusing to overwrite `{0}`")]
-    AlreadyExists(PathBuf),
+    AlreadyExists(Utf8PathBuf),
     #[error("environment write error: {0}")]
     Write(#[from] WriteError),
 }
@@ -39,7 +38,7 @@ pub fn do_env_memory() -> Result<MemoryStorageEnvironment, EnvError<MemoryWriteE
 }
 
 #[cfg(feature = "filesystem")]
-pub fn do_env_local_dir<P: AsRef<Path>>(
+pub fn do_env_local_dir<P: AsRef<Utf8Path>>(
     path: P,
 ) -> Result<LocalDirectoryEnvironment, EnvError<LocalWriteError>> {
     if path.as_ref().exists() {

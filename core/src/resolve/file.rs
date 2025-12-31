@@ -3,10 +3,7 @@
 
 // Resolver for file:// URLs
 
-use std::{
-    io::{self, Read},
-    path::{Path, PathBuf},
-};
+use std::io::{self, Read};
 
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
@@ -20,6 +17,7 @@ use crate::{
     resolve::{ResolutionOutcome, ResolveRead},
 };
 
+use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::component::Scheme;
 use thiserror::Error;
 
@@ -27,10 +25,10 @@ use thiserror::Error;
 #[derive(Debug)]
 pub struct FileResolver {
     /// Relative URIs are resolved with respect to this root.
-    pub relative_path_root: Option<PathBuf>,
+    pub relative_path_root: Option<Utf8PathBuf>,
     /// This field enables sandboxing the resolved path. If field is not `None`,
     /// the resolved path must be inside at least one of these directories.
-    pub sandbox_roots: Option<Vec<PathBuf>>,
+    pub sandbox_roots: Option<Vec<Utf8PathBuf>>,
 }
 
 #[derive(Error, Debug)]
@@ -51,11 +49,15 @@ pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
 
 /// Try to obtain a file path from `uri` with `file` scheme. If path
 /// is present, it is always absolute according to URI spec
-fn try_file_uri_to_path(uri: &fluent_uri::Iri<String>) -> Option<PathBuf> {
+fn try_file_uri_to_path(uri: &fluent_uri::Iri<String>) -> Option<Utf8PathBuf> {
     if uri.scheme() == SCHEME_FILE {
         let url = url::Url::parse(uri.as_str()).ok()?;
 
-        url.to_file_path().ok()
+        // TODO: maybe handle errors somehow? Or at least log them.
+        match url.to_file_path() {
+            Ok(p) => Utf8PathBuf::from_path_buf(p).ok(),
+            Err(_) => None,
+        }
     } else {
         None
     }
@@ -64,16 +66,16 @@ fn try_file_uri_to_path(uri: &fluent_uri::Iri<String>) -> Option<PathBuf> {
 impl FileResolver {
     fn resolve_platform_path(
         &self,
-        path: PathBuf,
-    ) -> Result<ResolutionOutcome<PathBuf>, FileResolverError> {
+        path: Utf8PathBuf,
+    ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
         // Try to resolve relative paths
-        let project_path: PathBuf = if path.is_relative() {
+        let project_path = if path.is_relative() {
             if let Some(root_part) = &self.relative_path_root {
                 root_part.join(&path)
             } else {
                 return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
                     "cannot resolve relative file without a specified root directory: {}",
-                    path.display()
+                    path
                 )));
             }
         } else {
@@ -92,12 +94,12 @@ impl FileResolver {
                     found = true;
                     break;
                 }
-                sandbox_roots_canonical.push(sandbox_root_canonical.display().to_string());
+                sandbox_roots_canonical.push(sandbox_root_canonical.to_string());
             }
             if !found {
                 return Ok(ResolutionOutcome::Unresolvable(format!(
                     "refusing to resolve path `{}`, is not inside in any of the allowed directories\n{}",
-                    project_path.display(),
+                    project_path,
                     sandbox_roots_canonical.join("; "),
                 )));
             }
@@ -109,7 +111,7 @@ impl FileResolver {
     fn resolve_general(
         &self,
         uri: &fluent_uri::Iri<String>,
-    ) -> Result<ResolutionOutcome<PathBuf>, FileResolverError> {
+    ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
         if let Some(file_path) = try_file_uri_to_path(uri) {
             self.resolve_platform_path(file_path)
         } else {
@@ -141,7 +143,7 @@ pub enum FileResolverProjectError {
     #[error(transparent)]
     Zip(project::utils::ZipArchiveError),
     #[error("path `{0}` not found")]
-    NotFound(Box<Path>),
+    NotFound(Box<Utf8Path>),
     #[error(transparent)]
     Deserialize(ProjectDeserializationError),
     #[error(transparent)]

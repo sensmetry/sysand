@@ -61,7 +61,7 @@ pub fn command_sources_env<S: AsRef<str>>(
     };
 
     for src_path in do_sources_local_src_project_no_deps(&project, true)? {
-        println!("{}", src_path.display());
+        println!("{}", src_path);
     }
 
     if include_deps {
@@ -74,7 +74,7 @@ pub fn command_sources_env<S: AsRef<str>>(
         }
         for dep in find_project_dependencies(info.validate()?.usage, env, provided_iris)? {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
-                println!("{}", src_path.display());
+                println!("{}", src_path);
             }
         }
     }
@@ -91,7 +91,7 @@ pub fn command_sources_project(
     let current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
 
     for src_path in do_sources_local_src_project_no_deps(&current_project, true)? {
-        println!("{}", src_path.display());
+        println!("{}", src_path);
     }
 
     if include_deps {
@@ -110,7 +110,7 @@ pub fn command_sources_project(
 
         for dep in deps {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
-                println!("{}", src_path.display());
+                println!("{}", src_path);
             }
         }
     }

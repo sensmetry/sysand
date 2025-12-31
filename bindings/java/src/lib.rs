@@ -2,8 +2,9 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
+use camino::Utf8PathBuf;
 use jni::{
     JNIEnv,
     objects::{JClass, JObject, JObjectArray, JString},
@@ -61,7 +62,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
         },
     };
 
-    let command_result = commands::init::do_init_local_file(name, version, license, path);
+    let command_result = commands::init::do_init_local_file(name, version, license, path.into());
     match command_result {
         Ok(_) => {}
         Err(error) => match error {
@@ -119,9 +120,9 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
     match command_result {
         Ok(_) => {}
         Err(error) => match error {
-            commands::env::EnvError::AlreadyExists(msg) => env.throw_exception(
+            commands::env::EnvError::AlreadyExists(path) => env.throw_exception(
                 ExceptionKind::PathError,
-                format!("Path already exists: {}", msg.display()),
+                format!("Path already exists: {}", path),
             ),
             commands::env::EnvError::Write(suberror) => match suberror {
                 LocalWriteError::Io(subsuberror) => {
@@ -160,7 +161,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_infoPath<'local>(
         return JObject::default();
     };
     let project = LocalSrcProject {
-        project_path: PathBuf::from(&path),
+        project_path: Utf8PathBuf::from(&path),
     };
 
     let command_result = commands::info::do_info_project(&project);
@@ -220,7 +221,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     };
 
     let combined_resolver = standard_resolver(
-        Some(PathBuf::from(&relative_file_root)),
+        Some(Utf8PathBuf::from(relative_file_root)),
         None,
         Some(client),
         index_base_url.map(|x| vec![x]),
@@ -330,7 +331,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
         return;
     };
     let project = LocalSrcProject {
-        project_path: PathBuf::from(project_path),
+        project_path: Utf8PathBuf::from(project_path),
     };
     let command_result = sysand_core::commands::build::do_build_kpar(&project, &output_path, true);
     match command_result {
@@ -353,7 +354,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
         return;
     };
     let workspace = Workspace {
-        workspace_path: PathBuf::from(workspace_path),
+        workspace_path: Utf8PathBuf::from(workspace_path),
     };
     match wrapfs::create_dir_all(&output_path) {
         Ok(_) => {}

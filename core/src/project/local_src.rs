@@ -10,47 +10,45 @@ use std::{
     collections::HashSet,
     fs::File,
     io::{Read, Write as _},
-    path::{Path, PathBuf},
 };
 
-use tempfile::tempdir;
+use camino::{Utf8Path, Utf8PathBuf};
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use thiserror::Error;
 
-use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, ToPathBuf};
+use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError};
 
 /// Project stored in a local directory as an extracted kpar archive.
 /// Source file paths with (unix) segments `segment1/.../segmentn` are
 /// re-interpreted as filesystem-native paths relative to `project_path`.
 #[derive(Clone, Debug)]
 pub struct LocalSrcProject {
-    pub project_path: PathBuf,
+    pub project_path: Utf8PathBuf,
 }
 
 impl GetPath for LocalSrcProject {
     fn get_path(&self) -> &str {
-        // TODO: fix this when migrating to camino
-        self.project_path.to_str().unwrap()
+        self.project_path.as_str()
     }
 }
 
 /// Tries to canonicalise the (longest possible) prefix of a path.
 /// Useful if you have /path/to/file/that/does/not/exist
 /// but where some prefix, say, /path/to/file can be canonicalised.
-fn canonicalise_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
-    let mut relative_part = PathBuf::new();
+fn canonicalise_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
+    let mut relative_part = Utf8PathBuf::new();
     let mut absolute_part = path.as_ref().to_path_buf();
 
     loop {
-        if let Ok(canonical_absolute) = absolute_part.canonicalize() {
+        if let Ok(canonical_absolute) = absolute_part.canonicalize_utf8() {
             absolute_part = canonical_absolute;
             break;
         }
 
         match (absolute_part.parent(), absolute_part.file_name()) {
             (Some(absolute_part_parent), Some(absolute_part_file)) => {
-                relative_part = Path::new(absolute_part_file).join(relative_part);
+                relative_part = Utf8Path::new(absolute_part_file).join(relative_part);
                 absolute_part = absolute_part_parent.to_path_buf();
             }
             _ => {
@@ -63,9 +61,12 @@ fn canonicalise_prefix<P: AsRef<Path>>(path: P) -> PathBuf {
     absolute_part
 }
 
-fn relativise_path<P: AsRef<Path>, Q: AsRef<Path>>(path: P, relative_to: Q) -> Option<PathBuf> {
+fn relativise_path<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+    path: P,
+    relative_to: Q,
+) -> Option<Utf8PathBuf> {
     let path = if !path.as_ref().is_absolute() {
-        let path = std::path::absolute(path).ok()?;
+        let path = camino::absolute_utf8(path.as_ref()).ok()?;
         canonicalise_prefix(path)
     } else {
         canonicalise_prefix(path)
@@ -77,15 +78,15 @@ fn relativise_path<P: AsRef<Path>, Q: AsRef<Path>>(path: P, relative_to: Q) -> O
 }
 
 impl LocalSrcProject {
-    pub fn root_path(&self) -> PathBuf {
+    pub fn root_path(&self) -> Utf8PathBuf {
         self.project_path.clone()
     }
 
-    pub fn info_path(&self) -> PathBuf {
+    pub fn info_path(&self) -> Utf8PathBuf {
         self.project_path.join(".project.json")
     }
 
-    pub fn meta_path(&self) -> PathBuf {
+    pub fn meta_path(&self) -> Utf8PathBuf {
         self.project_path.join(".meta.json")
     }
 
@@ -97,10 +98,13 @@ impl LocalSrcProject {
         Ok(self.get_project()?.1)
     }
 
-    pub fn get_unix_path<P: AsRef<Path>>(&self, path: P) -> Result<Utf8UnixPathBuf, UnixPathError> {
+    pub fn get_unix_path<P: AsRef<Utf8Path>>(
+        &self,
+        path: P,
+    ) -> Result<Utf8UnixPathBuf, UnixPathError> {
         let root_path = self.root_path();
         let project_path = root_path
-            .canonicalize()
+            .canonicalize_utf8()
             .map_err(|e| UnixPathError::Canonicalize(root_path, e))?;
 
         let path = relativise_path(&path, project_path)
@@ -112,14 +116,17 @@ impl LocalSrcProject {
                 component
                     .as_os_str()
                     .to_str()
-                    .ok_or_else(|| UnixPathError::Conversion(path.to_path_buf()))?,
+                    .ok_or_else(|| UnixPathError::Conversion(path.to_owned()))?,
             );
         }
 
         Ok(unix_path)
     }
 
-    pub fn get_source_path<P: AsRef<Utf8UnixPath>>(&self, path: P) -> Result<PathBuf, PathError> {
+    pub fn get_source_path<P: AsRef<Utf8UnixPath>>(
+        &self,
+        path: P,
+    ) -> Result<Utf8PathBuf, PathError> {
         let utf_path = if path.as_ref().is_absolute() {
             if !cfg!(feature = "lenient_checks") {
                 return Err(PathError::AbsolutePath(path.as_ref().to_owned()));
@@ -164,7 +171,7 @@ impl LocalSrcProject {
     }
 
     // TODO: Do we iterate over index or checksum or both?
-    pub fn get_source_paths(&self) -> Result<HashSet<PathBuf>, LocalSrcError> {
+    pub fn get_source_paths(&self) -> Result<HashSet<Utf8PathBuf>, LocalSrcError> {
         let mut result = HashSet::new();
 
         // if let Some(meta) = self.get_meta()? {
@@ -192,8 +199,8 @@ impl LocalSrcProject {
 
     pub fn temporary_from_project<Pr: ProjectRead>(
         project: &Pr,
-    ) -> Result<(tempfile::TempDir, Self), CloneError<Pr::Error, LocalSrcError>> {
-        let tmp = tempdir().map_err(FsIoError::MkTempDir)?;
+    ) -> Result<(camino_tempfile::Utf8TempDir, Self), CloneError<Pr::Error, LocalSrcError>> {
+        let tmp = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
         let mut tmp_project = Self {
             project_path: wrapfs::canonicalize(tmp.path())?,
         };
@@ -227,7 +234,7 @@ impl ProjectMut for LocalSrcProject {
             ProjectSerializationError::new(
                 format!(
                     "failed to serialize and write project info to `{}`",
-                    project_json_path.display()
+                    project_json_path
                 ),
                 e,
             )
@@ -255,7 +262,7 @@ impl ProjectMut for LocalSrcProject {
             ProjectSerializationError::new(
                 format!(
                     "failed to serialize and write project metadata to `{}`",
-                    meta_json_path.display()
+                    meta_json_path
                 ),
                 e,
             )
@@ -276,8 +283,7 @@ impl ProjectMut for LocalSrcProject {
 
         if !overwrite && source_path.exists() {
             return Err(LocalSrcError::AlreadyExists(format!(
-                "`{}` already exists",
-                source_path.display()
+                "`{source_path}` already exists"
             )));
         }
 
@@ -315,17 +321,17 @@ impl From<FsIoError> for LocalSrcError {
 #[derive(Error, Debug)]
 pub enum UnixPathError {
     #[error("path `{0}`\n  is outside the project directory")]
-    PathOutsideProject(PathBuf),
+    PathOutsideProject(Utf8PathBuf),
     #[error("failed to canonicalize\n  `{0}`:\n  {1}")]
-    Canonicalize(PathBuf, std::io::Error),
+    Canonicalize(Utf8PathBuf, std::io::Error),
     #[error("path `{0}` is not valid Unicode")]
-    Conversion(PathBuf),
+    Conversion(Utf8PathBuf),
 }
 
 #[derive(Error, Debug)]
 pub enum PathError {
     #[error("path `{0}` is unsafe: {1}")]
-    UnsafePath(PathBuf, typed_path::CheckedPathError),
+    UnsafePath(Utf8PathBuf, typed_path::CheckedPathError),
     #[error("path `{0}` is absolute")]
     AbsolutePath(typed_path::Utf8UnixPathBuf),
 }
@@ -383,9 +389,8 @@ impl ProjectRead for LocalSrcProject {
     }
 
     fn sources(&self) -> Vec<crate::lock::Source> {
-        let path_str = self.project_path.to_str().unwrap();
         vec![crate::lock::Source::LocalSrc {
-            src_path: path_str.to_string(),
+            src_path: self.project_path.as_str().into(),
         }]
     }
 }

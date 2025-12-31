@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::fmt::Debug;
-#[cfg(feature = "filesystem")]
-use std::path::Path;
 
+#[cfg(feature = "filesystem")]
+use camino::Utf8Path;
 use thiserror::Error;
 
 pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
@@ -156,7 +156,7 @@ pub type EditableLocalSrcProject = EditableProject<LocalSrcProject>;
 /// Treats a project at `path` as an editable project and solves for its dependencies.
 #[cfg(feature = "filesystem")]
 pub fn do_lock_local_editable<
-    P: AsRef<Path>,
+    P: AsRef<Utf8Path>,
     PD: ProjectRead + Debug,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
