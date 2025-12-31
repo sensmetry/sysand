@@ -67,7 +67,7 @@ pub fn do_lock_projects<
     I: IntoIterator<Item = &'a PI>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
-    projects: I, // TODO: Should this be an iterable over Q?
+    projects: I,
     resolver: R,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
     let mut lock = Lock::default();
@@ -110,9 +110,9 @@ pub fn do_lock_projects<
         all_deps.extend(usages);
     }
 
-    let LockOutcome { lock, dependencies } = do_lock_extend(lock, all_deps, resolver)?;
+    let lock_outcome = do_lock_extend(lock, all_deps, resolver)?;
 
-    Ok(LockOutcome { lock, dependencies })
+    Ok(lock_outcome)
 }
 
 /// Solves for compatible set of dependencies based on usages and adds the solution

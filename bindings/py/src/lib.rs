@@ -406,7 +406,7 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
 
     do_add(
         &mut project,
-        InterchangeProjectUsageRaw {
+        &InterchangeProjectUsageRaw {
             resource: iri,
             version_constraint: version,
         },

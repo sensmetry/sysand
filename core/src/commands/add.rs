@@ -3,7 +3,9 @@
 use thiserror::Error;
 
 use crate::{
-    model::{InterchangeProjectUsageG, InterchangeProjectValidationError},
+    model::{
+        InterchangeProjectUsageG, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
+    },
     project::ProjectMut,
 };
 
@@ -21,7 +23,7 @@ pub enum AddError<ProjectError> {
 
 pub fn do_add<P: ProjectMut>(
     project: &mut P,
-    usage_raw: crate::model::InterchangeProjectUsageRaw,
+    usage_raw: &InterchangeProjectUsageRaw,
 ) -> Result<(), AddError<P::Error>> {
     let usage: InterchangeProjectUsageG<String, String> = usage_raw.validate()?.into();
 
