@@ -114,8 +114,7 @@ impl FileResolver {
             self.resolve_platform_path(file_path)
         } else {
             Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "`{}` is not a valid file URL",
-                &uri
+                "`{uri}` is not a valid file URL",
             )))
         }
     }

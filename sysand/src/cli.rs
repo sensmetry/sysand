@@ -210,8 +210,11 @@ pub enum Command {
         #[command(subcommand)]
         subcommand: Option<InfoCommand>,
     },
-    /// List source files for the current project and
-    /// (optionally) its dependencies
+    /// List source files for the current project and (optionally)
+    /// its dependencies available in `sysand_env`. Requires that
+    /// `sysand_env` is up to date, so it's recommended to run
+    /// `sysand sync` prior to this
+    #[clap(verbatim_doc_comment)]
     Sources {
         #[command(flatten)]
         sources_opts: SourcesOptions,
