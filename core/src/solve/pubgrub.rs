@@ -221,17 +221,36 @@ fn resolve_candidates<R: ResolveRead>(
                 }
                 crate::resolve::ResolutionOutcome::Resolved(alternatives) => {
                     for alternative in alternatives {
-                        let Ok(project) = alternative else {
-                            continue;
+                        let project = match alternative {
+                            Ok(project) => project,
+                            Err(e) => {
+                                log::debug!("resolved project for `{uri}` is error: {e}");
+                                continue;
+                            }
                         };
 
-                        let Ok((Some(info), Some(meta))) = project.get_project() else {
-                            continue;
+                        let (info, meta) = match project.get_project() {
+                            Ok((Some(info), Some(meta))) => (info, meta),
+                            Ok(incomplete) => {
+                                log::debug!(
+                                    "resolved project for `{uri}` failed to get info or meta: {incomplete:?}"
+                                );
+                                continue;
+                            }
+                            Err(e) => {
+                                log::debug!(
+                                    "resolved project for `{uri}` failed to get info and meta: {e}"
+                                );
+                                continue;
+                            }
                         };
 
-                        let Ok(validated_info): Result<InterchangeProjectInfo, _> = info.try_into()
-                        else {
-                            continue;
+                        let validated_info: InterchangeProjectInfo = match info.try_into() {
+                            Ok(i) => i,
+                            Err(e) => {
+                                log::debug!("resolved project for `{uri}` has invalid info: {e}");
+                                continue;
+                            }
                         };
 
                         found.push((validated_info, meta, project));
@@ -458,7 +477,6 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                             iri,
                             &mut self.resolved_candidates.borrow_mut(),
                         )?;
-                        // let max = candidate_versions.len();
                         let mut versions_indexes: Vec<(usize, semver::Version)> =
                             candidate_versions
                                 .into_iter()
@@ -481,13 +499,13 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                                 break;
                             }
                         }
-                        // TODO: why is this called twice? First time it selects some version,
-                        // and the next that version can't be selected anymore.
-                        log::debug!(
-                            "no allowed versions for `{}`, considered: {:?}",
-                            iri.as_str(),
-                            versions_indexes
-                        );
+                        if found.is_none() {
+                            log::debug!(
+                                "no allowed versions for `{}`, considered: {:?}",
+                                iri.as_str(),
+                                versions_indexes
+                            );
+                        }
 
                         Ok(found)
                     }
