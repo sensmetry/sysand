@@ -236,6 +236,11 @@ fn resolve_candidates<R: ResolveRead>(
 
                         found.push((validated_info, meta, project));
                     }
+                    if found.is_empty() {
+                        return Err(InternalSolverError::NotResolvable(format!(
+                            "no valid candidates found for project `{uri}`"
+                        )));
+                    }
                 }
             }
 
@@ -297,6 +302,9 @@ fn compute_deps<R: ResolveRead>(
                 DiscreteHashSet::Finite(valid_candidates),
             );
         } else {
+            // Check that the project can be found
+            resolve_candidates(resolver, &usage.resource, cache)?;
+
             depmap.insert(
                 DependencyIdentifier::Remote(usage.resource.clone()),
                 DiscreteHashSet::empty().complement(),
