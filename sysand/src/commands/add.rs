@@ -63,6 +63,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
             command_sync(
                 &lock,
                 project_root,
+                true,
                 &mut env,
                 client,
                 &provided_iris,

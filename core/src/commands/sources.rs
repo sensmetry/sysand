@@ -137,5 +137,10 @@ pub fn enumerate_projects_lock<Env: ReadEnvironment>(
     Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
     ResolutionError<<Env as ReadEnvironment>::ReadError>,
 > {
-    lock.resolve_projects(env)
+    let projects = lock
+        .resolve_projects(env)?
+        .into_iter()
+        .filter_map(|(_, project_read)| project_read)
+        .collect();
+    Ok(projects)
 }

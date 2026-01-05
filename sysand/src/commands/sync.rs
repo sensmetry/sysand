@@ -9,18 +9,21 @@ use url::ParseError;
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    env::local_directory::LocalDirectoryEnvironment,
+    env::local_directory::{DEFAULT_ENV_NAME, DEFAULT_MANIFEST_NAME, LocalDirectoryEnvironment},
     lock::Lock,
     project::{
         AsSyncProjectTokio, ProjectReadAsync, local_kpar::LocalKParProject,
         local_src::LocalSrcProject, memory::InMemoryProject,
         reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProjectAsync,
+        utils::wrapfs,
     },
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     lock: &Lock,
     project_root: P,
+    update_manifest: bool,
     env: &mut LocalDirectoryEnvironment,
     client: reqwest_middleware::ClientWithMiddleware,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
@@ -57,5 +60,17 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         ),
         provided_iris,
     )?;
+
+    if update_manifest {
+        let manifest = lock.to_resolved_manifest(env, &project_root)?;
+        wrapfs::write(
+            project_root
+                .as_ref()
+                .join(DEFAULT_ENV_NAME)
+                .join(DEFAULT_MANIFEST_NAME),
+            manifest.to_string(),
+        )?;
+    }
+
     Ok(())
 }

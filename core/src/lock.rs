@@ -175,18 +175,33 @@ pub enum ValidationError {
     },
 }
 
+pub type ProjectResolution<Env> = (
+    Project,
+    Option<<Env as ReadEnvironment>::InterchangeProjectRead>,
+);
+
 impl Lock {
     pub fn resolve_projects<Env: ReadEnvironment>(
         &self,
         env: &Env,
-    ) -> Result<
-        Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
-        ResolutionError<Env::ReadError>,
-    > {
+    ) -> Result<Vec<ProjectResolution<Env>>, ResolutionError<Env::ReadError>> {
         let mut missing = vec![];
         let mut found = vec![];
 
         for project in &self.projects {
+            // Projects without sources (default for standard libraries) and
+            // projects with editable sources won't be installed in environment.
+            match project.sources.as_slice() {
+                [] => {
+                    continue;
+                }
+                [Source::Editable { editable: _ }, ..] => {
+                    found.push((project.clone(), None));
+                    continue;
+                }
+                _ => {}
+            }
+
             let checksum = &project.checksum;
 
             let mut resolved_project = None;
@@ -206,8 +221,8 @@ impl Lock {
                 }
             }
 
-            if let Some(success) = resolved_project {
-                found.push(success);
+            if resolved_project.is_some() {
+                found.push((project.clone(), resolved_project));
             } else {
                 missing.push(project.clone());
             }
@@ -560,7 +575,7 @@ impl From<crate::model::InterchangeProjectUsage> for Usage {
     }
 }
 
-fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
+pub fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
     let mut array: Array = elements
         .map(|item| {
             let mut value = item.into();
