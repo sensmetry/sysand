@@ -179,9 +179,9 @@ fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(&cwd, ["add", "urn:kpar:add_nonexistent"], None)?;
 
-    out.assert().failure().stderr(predicate::str::contains(
-        "unable to select version of `urn:kpar:add_nonexistent`",
-    ));
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("failed to retrieve project(s)"));
 
     Ok(())
 }

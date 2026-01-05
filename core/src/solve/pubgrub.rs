@@ -323,6 +323,12 @@ fn compute_deps<R: ResolveRead>(
         } else {
             // Check that the project can be found
             resolve_candidates(resolver, &usage.resource, cache)?;
+            // TODO: reenable this when it's fixed to give better error messages
+            // https://github.com/pubgrub-rs/pubgrub/pull/216
+            // match resolve_candidates(resolver, &usage.resource, cache) {
+            //     Ok(_) => (),
+            //     Err(err) => return Ok(pubgrub::Dependencies::Unavailable(err.to_string())),
+            // };
 
             depmap.insert(
                 DependencyIdentifier::Remote(usage.resource.clone()),
