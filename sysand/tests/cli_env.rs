@@ -7,7 +7,7 @@ use assert_cmd::prelude::*;
 use camino::Utf8Path;
 use mockito::Server;
 use predicates::prelude::*;
-use sysand_core::env::local_directory::DEFAULT_ENV_NAME;
+use sysand_core::env::local_directory::{DEFAULT_ENV_NAME, ENTRIES_PATH, VERSIONS_PATH};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -31,13 +31,12 @@ fn env_init_empty_env() -> Result<(), Box<dyn std::error::Error>> {
         if path.is_dir() {
             assert_eq!(path.strip_prefix(&cwd)?, env_path);
         } else {
-            // if path.is_file()
-            assert_eq!(path.strip_prefix(&cwd)?, env_path.join("entries.txt"));
+            assert_eq!(path.strip_prefix(&cwd)?, env_path.join(ENTRIES_PATH));
         }
     }
 
     assert_eq!(
-        std::fs::File::open(cwd.join("sysand_env/entries.txt"))?
+        std::fs::File::open(cwd.join(DEFAULT_ENV_NAME).join(ENTRIES_PATH))?
             .metadata()?
             .len(),
         0
@@ -75,7 +74,7 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
         .stderr(predicate::str::contains("`urn:kpar:test` 0.0.1"));
 
     assert_eq!(
-        std::fs::read_to_string(cwd.join(env_path).join("entries.txt"))?,
+        std::fs::read_to_string(cwd.join(env_path).join(ENTRIES_PATH))?,
         "urn:kpar:test\n"
     );
 
@@ -84,7 +83,7 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
     assert!(cwd.join(env_path).join(test_hash).is_dir());
 
     assert_eq!(
-        std::fs::read_to_string(cwd.join(env_path).join(test_hash).join("versions.txt"))?,
+        std::fs::read_to_string(cwd.join(env_path).join(test_hash).join(VERSIONS_PATH))?,
         "0.0.1\n"
     );
 
@@ -127,7 +126,7 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(entries.len(), 1);
 
-    assert_eq!(entries[0].file_name(), "entries.txt");
+    assert_eq!(entries[0].file_name(), ENTRIES_PATH);
 
     assert_eq!(std::fs::read_to_string(entries[0].path())?, "");
 
@@ -190,7 +189,7 @@ fn env_install_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     assert_eq!(
-        std::fs::read_to_string(cwd.join(env_path).join("entries.txt"))?,
+        std::fs::read_to_string(cwd.join(env_path).join(ENTRIES_PATH))?,
         format!("{}\n", &project_url)
     );
 
