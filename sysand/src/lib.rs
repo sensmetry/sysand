@@ -14,11 +14,11 @@ use std::{
 };
 
 use anstream::{eprint, eprintln};
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
-
+use fluent_uri::Iri;
 use sysand_core::{
     auth::StandardHTTPAuthenticationBuilder,
     config::{
@@ -31,6 +31,7 @@ use sysand_core::{
     project::utils::wrapfs,
     stdlib::known_std_libs,
 };
+use url::Url;
 
 use crate::{
     cli::{Args, InfoCommand},
@@ -98,7 +99,7 @@ fn set_panic_hook() {
     // panic::set_backtrace_style(panic::BacktraceStyle::Short);
     panic::set_hook(Box::new(move |panic_info| {
         std::eprintln!(
-            "Sysand crashed. This is a bug. We would appreciate a bug report at either\n\
+            "Sysand crashed. This is likely a bug. We would appreciate a bug report at either\n\
             Sysand's issue tracker: https://github.com/sensmetry/sysand/issues\n\
             or Sensmetry forum: https://forum.sensmetry.com/c/sysand/24\n\
             or via email: sysand@sensmetry.com\n\
@@ -254,6 +255,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             license,
             no_spdx,
         } => command_init(name, version, no_semver, license, no_spdx, path),
+        cli::Command::New(..) => bail!("use `init` instead of `new`"),
         cli::Command::Env { command } => match command {
             None => {
                 let env_dir = {
@@ -446,7 +448,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 debug_assert!(auto_location.is_none());
                 debug_assert!(iri.is_none());
 
-                Location::Path(path.into())
+                Location::Path(path)
             } else if let Some(iri) = iri {
                 debug_assert!(path.is_none());
                 debug_assert!(auto_location.is_none());
@@ -465,32 +467,22 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                     cli::InfoCommand::Version {
                                         ref set, no_semver, ..
                                     } => {
-                                        // TODO(MSRV 1.88):
-                                        // if let Some(v) = set
-                                        //     && !no_semver
-                                        if !no_semver {
-                                            if let Some(v) = set {
-                                                semver::Version::parse(v).map_err(|e| {
+                                        if !no_semver && let Some(v) = set {
+                                            semver::Version::parse(v).map_err(|e| {
                                                 InitError::<std::convert::Infallible>::SemVerParse(
                                                     v.as_str().into(),
                                                     e,
                                                 )
                                             })?;
-                                            }
                                         }
                                     }
                                     cli::InfoCommand::License {
                                         ref set, no_spdx, ..
                                     } => {
-                                        // TODO(MSRV 1.88):
-                                        // if let Some(v) = set
-                                        //     && !no_spdx
-                                        if !no_spdx {
-                                            if let Some(l) = set {
-                                                spdx::Expression::parse(l).map_err(|e| {
+                                        if !no_spdx && let Some(l) = set {
+                                            spdx::Expression::parse(l).map_err(|e| {
                                                 InitError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
                                             })?;
-                                            }
                                         }
                                     }
                                     _ => (),
@@ -542,31 +534,40 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         cli::Command::Add {
-            iri,
+            locator,
             version_constraint,
             no_lock,
             no_sync,
             resolution_opts,
-        } => command_add(
-            iri,
-            version_constraint,
-            no_lock,
-            no_sync,
-            resolution_opts,
-            &config,
-            current_project,
-            client,
-            runtime,
-            basic_auth_policy,
-        ),
-        cli::Command::Remove { iri } => command_remove(iri, current_project),
+        } => {
+            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
+            command_add(
+                iri,
+                version_constraint,
+                no_lock,
+                no_sync,
+                resolution_opts,
+                &config,
+                current_project,
+                client,
+                runtime,
+                basic_auth_policy,
+            )
+        }
+        cli::Command::Remove { locator } => {
+            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
+            command_remove(iri, current_project)
+        }
         cli::Command::Include {
             paths,
             compute_checksum: add_checksum,
             no_index_symbols,
         } => command_include(paths, add_checksum, !no_index_symbols, current_project),
         cli::Command::Exclude { paths } => command_exclude(paths, current_project),
-        cli::Command::Build { path } => {
+        cli::Command::Build {
+            path,
+            allow_path_usage,
+        } => {
             if let Some(current_project) = current_project {
                 // Even if we are in a workspace, the project takes precedence.
                 let path = if let Some(path) = path {
@@ -584,7 +585,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     output_dir.push(name);
                     output_dir
                 };
-                command_build_for_project(path, current_project)
+                command_build_for_project(path, current_project, allow_path_usage)
             } else {
                 // If the workspace is also missing, report an error about
                 // missing project because that is what the user is more likely
@@ -596,7 +597,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 if !output_dir.is_dir() {
                     wrapfs::create_dir(&output_dir)?;
                 }
-                command_build_for_workspace(output_dir, current_workspace)
+                command_build_for_workspace(output_dir, current_workspace, allow_path_usage)
             }
         }
         cli::Command::Sources { sources_opts } => {
@@ -636,6 +637,23 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             basic_auth_policy,
         ),
     }
+}
+
+fn iri_or_path_to_iri(
+    iri: Option<Iri<String>>,
+    path: Option<Utf8PathBuf>,
+) -> Result<Iri<String>, anyhow::Error> {
+    Ok(if let Some(iri) = iri {
+        iri
+    } else {
+        let Some(path) = path else { unreachable!() };
+        let abs_path = wrapfs::canonicalize(&path)?;
+        let url: String = Url::from_file_path(abs_path)
+            .map_err(|()| anyhow!("unsupported path type of `{path}`"))?
+            .into();
+        // TODO: can this fail?
+        Iri::parse(url).unwrap()
+    })
 }
 
 pub fn get_env(project_root: impl AsRef<Utf8Path>) -> Option<LocalDirectoryEnvironment> {

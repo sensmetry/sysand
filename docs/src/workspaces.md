@@ -1,13 +1,9 @@
 # Workspaces
 
-<div class="warning">
-
-Warning:
-Workspace support is experimental and may change or be removed in any release.
-See [workspaces tracking issue](https://github.com/sensmetry/sysand/issues/101)
-for planned functionality and changes
-
-</div>
+> [!warning]
+> Workspace support is experimental and may change or be removed in any release.
+> See [workspaces tracking issue](https://github.com/sensmetry/sysand/issues/101)
+> for planned functionality and changes
 
 ## Introduction
 

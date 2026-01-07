@@ -28,7 +28,7 @@ pub type WorkspaceProjectInfoRaw = WorkspaceProjectInfoG<String>;
 pub enum WorkspaceReadError {
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("failed to deserialize '.workspace.json': {0}")]
+    #[error("failed to deserialize `.workspace.json`: {0}")]
     Deserialize(#[from] WorkspaceDeserializationError),
 }
 
@@ -64,7 +64,7 @@ impl Workspace {
         let info_json = if info_json_path.exists() {
             Some(
                 serde_json::from_reader(wrapfs::File::open(&info_json_path)?).map_err(|e| {
-                    WorkspaceDeserializationError::new("failed to deserialize '.workspace.json'", e)
+                    WorkspaceDeserializationError::new("failed to deserialize `.workspace.json`", e)
                 })?,
             )
         } else {

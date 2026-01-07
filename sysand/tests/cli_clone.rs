@@ -44,11 +44,6 @@ fn assert_only_libtest_cloned(target: impl AsRef<Path>) {
     assert!(!target.join(env_path).join("entries.txt").exists());
 }
 
-/// `p` must be absolute OS-native path
-fn file_url_from_path(p: impl AsRef<Path>) -> String {
-    url::Url::from_file_path(p).unwrap().to_string()
-}
-
 /// Assert that the given path is an empty dir
 fn assert_dir_empty(p: impl AsRef<Utf8Path>) -> Result<(), Box<dyn std::error::Error>> {
     let mut dir_it = wrapfs::read_dir(p)?;

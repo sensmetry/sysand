@@ -15,7 +15,7 @@ mod common;
 pub use common::*;
 
 #[test]
-fn test_project_build() -> Result<(), Box<dyn std::error::Error>> {
+fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
         run_sysand(["init", "--version", "1.2.3", "--name", "test_build"], None)?;
 
@@ -68,8 +68,65 @@ fn test_project_build() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Build a project that has a path (`file:`) usage
 #[test]
-fn test_workspace_build() -> Result<(), Box<dyn std::error::Error>> {
+fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir1, cwd1, out1) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "test_build1"],
+        None,
+    )?;
+    let (_temp_dir2, cwd2, out2) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "test_build2"],
+        None,
+    )?;
+
+    out1.assert().success();
+    out2.assert().success();
+
+    let out = run_sysand_in(&cwd1, ["add", "--path", cwd2.as_str()], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd1, ["build", "./test_build.kpar"], None)?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("project includes a path usage"));
+    assert!(!cwd1.join("test_build.kpar").exists());
+
+    let out = run_sysand_in(
+        &cwd1,
+        ["build", "./test_build.kpar", "--allow-path-usage"],
+        None,
+    )?;
+
+    // Warning must still be produced
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("project includes a path usage"));
+
+    let out = run_sysand_in(
+        &cwd1,
+        ["info", "--path", cwd1.join("test_build.kpar").as_str()],
+        None,
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: test_build"))
+        .stdout(predicate::str::contains("Version: 1.2.3"))
+        .stdout(predicate::str::contains(file_url_from_path(&cwd2)));
+
+    let kpar_project = LocalKParProject::new_guess_root(cwd1.join("test_build.kpar"))?;
+
+    let (Some(_), Some(_)) = kpar_project.get_project()? else {
+        panic!("failed to get built project info/meta");
+    };
+
+    Ok(())
+}
+
+#[test]
+fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project_group_cwd = cwd.join("subgroup");
     std::fs::create_dir(&project_group_cwd)?;

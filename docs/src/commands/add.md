@@ -1,11 +1,11 @@
 # `sysand add`
 
-Add usage to project information
+Add usage to project information.
 
 ## Usage
 
 ```sh
-sysand add [OPTIONS] <IRI> [VERSION_CONSTRAINT]
+sysand add [OPTIONS] <IRI|--path <PATH>> [VERSION_CONSTRAINT]
 ```
 
 ## Description
@@ -24,6 +24,12 @@ and sync the local environment (creating one if not already present).
 
 ## Options
 
+- `-p`, `--path` `<PATH>`: Path to the project to be added. Since every
+  usage is identified by an IRI, `file://` URL will be used to refer to
+  the project.
+
+  Warning: using this makes the project not portable between different
+  computers, as `file://` URL always contains an absolute path
 - `--no-lock`: Do not automatically resolve usages (and generate lockfile)
 - `--no-sync`: Do not automatically install dependencies
 

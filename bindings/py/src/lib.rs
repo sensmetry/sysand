@@ -187,7 +187,7 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
         project_path: current_project_path.into(),
     };
 
-    do_build_kpar(&project, &output_path, true)
+    do_build_kpar(&project, &output_path, true, false)
         .map(|_| ())
         .map_err(|err| match err {
             KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
@@ -203,6 +203,7 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
             KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
             KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
             KParBuildError::InternalError(_) => PyRuntimeError::new_err(err.to_string()),
+            KParBuildError::PathUsage(_) => PyValueError::new_err(err.to_string()),
         })
 }
 
@@ -259,10 +260,9 @@ pub fn do_sources_env_py(
                     .version()
                     .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
                     .and_then(|x| Version::parse(&x).ok())
+                    && vr.matches(&v)
                 {
-                    if vr.matches(&v) {
-                        break Some(candidate);
-                    }
+                    break Some(candidate);
                 }
             } else {
                 break None;
