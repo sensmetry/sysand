@@ -62,6 +62,94 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn add_and_remove_with_editable() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        None,
+    )?;
+
+    out.assert().success();
+
+    let config_path = cwd.join("sysand.toml");
+    std::fs::File::create_new(&config_path)?;
+
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "urn:kpar:test",
+            "--editable",
+            "local/test",
+        ],
+        Some(config_path.as_str()),
+    )?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("Adding usage: `urn:kpar:test`"));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_and_remove",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "resource": "urn:kpar:test"
+    }
+  ]
+}
+"#
+    );
+
+    let config = std::fs::read_to_string(&config_path)?;
+
+    assert_eq!(
+        config,
+        r#"[[project]]
+identifiers = [
+    "urn:kpar:test",
+]
+sources = [
+    { editable = "local/test" },
+]
+"#
+    );
+
+    let out = run_sysand_in(
+        &cwd,
+        ["remove", "urn:kpar:test"],
+        Some(config_path.as_str()),
+    )?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        r#"Removing `urn:kpar:test` from usages
+     Removed `urn:kpar:test`"#,
+    ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_and_remove",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
+    );
+
+    let config = std::fs::read_to_string(config_path)?;
+
+    assert_eq!(config, "");
+
+    Ok(())
+}
+
+#[test]
 fn add_and_remove_with_local_src() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         ["init", "--version", "1.2.3", "--name", "add_and_remove"],

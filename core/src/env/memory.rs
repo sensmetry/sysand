@@ -272,7 +272,7 @@ mod test {
     }
 
     #[test]
-    fn readd_environment() {
+    fn read_environment() {
         let iri = "urn:kpar:first".to_string();
         let version = "0.0.1".to_string();
         let project = do_init_memory("First".to_string(), version.clone(), None).unwrap();
