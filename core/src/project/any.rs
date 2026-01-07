@@ -10,6 +10,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     auth::HTTPAuthentication,
+    context::ProjectContext,
     env::memory::MemoryStorageEnvironment,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},

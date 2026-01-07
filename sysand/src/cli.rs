@@ -78,10 +78,15 @@ pub enum Command {
         #[arg(long, requires = "license")]
         no_spdx: bool,
     },
+    // Only for better error messages
+    New {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Add usage to project information
     Add {
-        /// IRI identifying the project to be used
-        iri: fluent_uri::Iri<String>,
+        #[clap(flatten)]
+        locator: AddProjectLocatorArgs,
         /// A constraint on the allowed versions of a used project.
         /// Assumes that the project being added uses Semantic Versioning.
         /// Version constraints use same syntax as Rust's Cargo.
@@ -90,10 +95,10 @@ pub enum Command {
         #[clap(verbatim_doc_comment)]
         version_constraint: Option<String>,
         /// Do not automatically resolve dependencies (and generate lockfile)
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         no_lock: bool,
         /// Do not automatically install dependencies
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         no_sync: bool,
 
         #[command(flatten)]
@@ -104,8 +109,8 @@ pub enum Command {
     /// Remove usage from project information
     #[clap(alias = "rm")]
     Remove {
-        /// IRI identifying the project usage to be removed
-        iri: fluent_uri::Iri<String>,
+        #[clap(flatten)]
+        locator: RemoveProjectLocatorArgs,
     },
     /// Clone a project to a specified directory.
     /// Equivalent to manually downloading, extracting the
@@ -113,7 +118,7 @@ pub enum Command {
     #[clap(verbatim_doc_comment)]
     Clone {
         #[clap(flatten)]
-        locator: ProjectLocatorArgs,
+        locator: CloneProjectLocatorArgs,
         /// Path to clone the project into. If already exists, must
         /// be an empty directory. Defaults to current directory
         #[arg(long, short, default_value = None, verbatim_doc_comment)]
@@ -137,10 +142,10 @@ pub enum Command {
         /// Compute and add each file's (current) SHA256 checksum
         // TODO: will it ever be automatically updated?
         //       Maybe only when building a kpar?
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         compute_checksum: bool,
         /// Do not detect and add top level symbols to index
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         no_index_symbols: bool,
     },
     /// Exclude model interchange file from project metadata
@@ -153,7 +158,7 @@ pub enum Command {
     /// outside of a project, builds all projects in the workspace.
     #[clap(verbatim_doc_comment)]
     Build {
-        /// Path giving where to put the finished KPAR or KPARs. When building a
+        /// Path for the finished KPAR or KPARs. When building a
         /// workspace, it is a path to the folder to write the KPARs to
         /// (default: `<current-workspace>/output`). When building a single
         /// project, it is a path to the KPAR file to write (default
@@ -162,10 +167,15 @@ pub enum Command {
         /// on whether the current project belongs to a workspace or not).
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
-        #[clap(verbatim_doc_comment)]
         /// Method to compress the files in the KPAR
         #[arg(short = 'c', long, default_value_t, value_enum)]
         compression: KparCompressionMethodCli,
+        /// Allow usages of local paths (`file://`).
+        /// Warning: using this makes the project not portable between different
+        /// computers, as `file://` URL always contains an absolute path.
+        /// For multiple related projects, consider using a workspace instead
+        #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
+        allow_path_usage: bool,
     },
     /// Create or update lockfile
     Lock {
@@ -189,7 +199,7 @@ pub enum Command {
     Info {
         /// Use the project at the given path instead of the current project
         #[arg(short = 'p', long, group = "location")]
-        path: Option<String>,
+        path: Option<Utf8PathBuf>,
         /// Use the project with the given IRI/URI/URL instead of the current project
         #[arg(
             short = 'i',
@@ -210,7 +220,7 @@ pub enum Command {
         )]
         auto_location: Option<String>,
         /// Do not try to normalise the IRI/URI when resolving
-        #[arg(long, default_value = "false", visible_alias = "no-normalize")]
+        #[arg(long, default_value_t = false, visible_alias = "no-normalize")]
         no_normalise: bool,
         // TODO: Add various options, such as whether to take local environment
         //       into consideration
@@ -234,7 +244,44 @@ pub enum Command {
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
-pub struct ProjectLocatorArgs {
+pub struct AddProjectLocatorArgs {
+    /// IRI/URI/URL identifying the project to be used
+    #[clap(default_value = None, value_parser = parse_iri_suggest_path)]
+    pub iri: Option<fluent_uri::Iri<String>>,
+    /// Path to the project to be added. Since every usage is identified
+    /// by an IRI, `file://` URL will be used to refer to the project.
+    /// Warning: using this makes the project not portable between different
+    /// computers, as `file://` URL always contains an absolute path.
+    /// For multiple related projects, consider using a workspace instead
+    #[arg(
+        long,
+        short = 'p',
+        default_value = None,
+        verbatim_doc_comment
+    )]
+    pub path: Option<Utf8PathBuf>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
+pub struct RemoveProjectLocatorArgs {
+    /// IRI identifying the project usage to be removed
+    #[clap(default_value = None, value_parser = parse_iri_suggest_path)]
+    pub iri: Option<fluent_uri::Iri<String>>,
+    /// Path to the project to be removed from usages. Since every usage is
+    /// identified by an IRI, the path will be transformed into a `file://` URL
+    #[arg(
+        long,
+        short = 'p',
+        default_value = None,
+        verbatim_doc_comment
+    )]
+    pub path: Option<Utf8PathBuf>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
+pub struct CloneProjectLocatorArgs {
     /// Clone the project from a given locator, trying to parse it as an
     /// IRI/URI/URL and otherwise falling back to using it as a path
     #[clap(
@@ -253,10 +300,9 @@ pub struct ProjectLocatorArgs {
         long,
         short = 's',
         default_value = None,
-        value_name = "PATH",
         verbatim_doc_comment
     )]
-    pub path: Option<String>,
+    pub path: Option<Utf8PathBuf>,
 }
 
 #[derive(clap::ValueEnum, Default, Copy, Clone, Debug)]
@@ -466,7 +512,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         remove: Option<usize>,
         /// Prints a numbered list
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         numbered: bool,
     },
     /// Get or set the website of the project
@@ -500,7 +546,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         remove: Option<usize>,
         /// Prints a numbered list
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         numbered: bool,
     },
     /// Print project usages
@@ -533,7 +579,7 @@ pub enum InfoCommand {
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         numbered: bool,
     },
     /// Get project index
@@ -566,7 +612,7 @@ pub enum InfoCommand {
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         numbered: bool,
     },
     /// Get project metadata manifest creation time
@@ -636,7 +682,13 @@ pub enum InfoCommand {
             default_value=None
         )]
         set_custom: Option<String>,
-        #[arg(long, num_args=0, default_missing_value="true", default_value = None, conflicts_with = "set")]
+        #[arg(
+            long,
+            num_args = 0,
+            default_missing_value = "true",
+            default_value_t = false,
+            conflicts_with = "set"
+        )]
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
@@ -724,7 +776,7 @@ pub enum InfoCommand {
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         numbered: bool,
     },
 }
@@ -1323,7 +1375,7 @@ pub struct ResolutionOptions {
     // - index
     #[arg(
         long,
-        default_value = "false",
+        default_value_t = false,
         conflicts_with_all = ["index", "default_index"],
         global = true,
         help_heading = "Resolution options",
@@ -1332,7 +1384,7 @@ pub struct ResolutionOptions {
     /// Don't ignore KerML/SysML v2 standard libraries if specified as dependencies
     #[arg(
         long,
-        default_value = "false",
+        default_value_t = false,
         global = true,
         help_heading = "Resolution options"
     )]
@@ -1380,10 +1432,10 @@ pub struct ProjectSourceOptions {
 #[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
     /// Do not include sources for dependencies
-    #[arg(long, default_value = "false", conflicts_with = "include_std")]
+    #[arg(long, default_value_t = false, conflicts_with = "include_std")]
     pub no_deps: bool,
     /// Include (installed) KerML/SysML v2 standard libraries
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     pub include_std: bool,
 }
 
@@ -1533,4 +1585,11 @@ impl ValueEnum for MetamodelVersion {
             }
         })
     }
+}
+
+fn parse_iri_suggest_path(s: &str) -> Result<Iri<String>, String> {
+    use crate::style::USAGE;
+    Iri::parse(s.to_owned()).map_err(|(err, _val)| {
+        format!("{err}\n{USAGE}hint:{USAGE:#} if you wanted to use a path, use `--path` instead")
+    })
 }

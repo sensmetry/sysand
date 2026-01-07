@@ -8,6 +8,7 @@ use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
 use crate::{
+    context::ProjectContext,
     lock::Source,
     model::{
         InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, ProjectHash, project_hash_raw,

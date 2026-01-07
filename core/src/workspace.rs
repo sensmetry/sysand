@@ -79,6 +79,7 @@ impl WorkspaceDeserializationError {
     }
 }
 
+#[derive(Debug)]
 pub struct Workspace {
     root_dir: Utf8PathBuf,
     info: WorkspaceInfo,

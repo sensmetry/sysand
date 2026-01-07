@@ -12,13 +12,13 @@ use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::{
+    context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectMut, ProjectRead,
-        editable::GetPath,
-        utils::{ToPathBuf, wrapfs},
+        utils::{RelativizePathError, ToPathBuf, relativize_path, wrapfs},
     },
 };
 
@@ -38,12 +38,6 @@ pub struct LocalSrcProject {
     /// Path used when locating the project internally.
     /// Should be absolute.
     pub project_path: Utf8PathBuf,
-}
-
-impl GetPath for LocalSrcProject {
-    fn get_path(&self) -> &str {
-        self.project_path.as_str()
-    }
 }
 
 /// Tries to canonicalize the (longest possible) prefix of a path.
@@ -74,7 +68,7 @@ fn canonicalize_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
     absolute_part
 }
 
-fn relativize_path<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     path: P,
     relative_to: Q,
 ) -> Option<Utf8PathBuf> {
@@ -120,7 +114,7 @@ impl LocalSrcProject {
             .canonicalize_utf8()
             .map_err(|e| UnixPathError::Canonicalize(root_path.to_owned(), e))?;
 
-        let path = relativize_path(&path, project_path)
+        let path = relativize_path_in(&path, project_path)
             .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
 
         let mut unix_path = Utf8UnixPathBuf::new();
@@ -210,7 +204,7 @@ impl LocalSrcProject {
         Ok(result)
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     pub fn temporary_from_project<Pr: ProjectRead>(
         project: &Pr,
     ) -> Result<
@@ -333,6 +327,12 @@ pub enum LocalSrcError {
     Path(#[from] PathError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
+    #[error(
+        "cannot construct a relative path from the workspace/project
+        directory to one of its dependencies' directory:\n\
+        {0}"
+    )]
+    ImpossibleRelativePath(#[from] RelativizePathError),
 }
 
 impl From<FsIoError> for LocalSrcError {
@@ -411,14 +411,25 @@ impl ProjectRead for LocalSrcProject {
         Ok(f)
     }
 
-    fn sources(&self) -> Vec<Source> {
-        self.nominal_path
-            .as_ref()
-            .map(|path| {
-                vec![Source::LocalSrc {
-                    src_path: path.as_str().into(),
-                }]
-            })
-            .expect("`LocalSrcProject` without `nominal_path` does not have any project sources")
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        if let Some(np) = self.nominal_path.as_ref() {
+            Ok(vec![Source::LocalSrc {
+                src_path: np.as_str().into(),
+            }])
+        } else if let Some(w) = &ctx.current_workspace {
+            Ok(vec![Source::LocalSrc {
+                src_path: relativize_path(&self.project_path, w.root_path())?
+                    .into_string()
+                    .into(),
+            }])
+        } else if let Some(cp) = &ctx.current_project {
+            Ok(vec![Source::LocalSrc {
+                src_path: relativize_path(&self.project_path, cp.root_path())?
+                    .into_string()
+                    .into(),
+            }])
+        } else {
+            panic!("`LocalSrcProject` without `nominal_path` does not have any project sources");
+        }
     }
 }

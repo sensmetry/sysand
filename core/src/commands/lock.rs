@@ -16,6 +16,7 @@ pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
 #[cfg(feature = "filesystem")]
 use crate::project::{editable::EditableProject, local_src::LocalSrcProject, utils::ToPathBuf};
 use crate::{
+    context::ProjectContext,
     lock::{Lock, Project, Usage, hash_str},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{CanonicalizationError, ProjectRead, utils::FsIoError},
@@ -85,6 +86,7 @@ pub fn do_lock_projects<
 >(
     projects: I,
     resolver: R,
+    ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
     let mut lock = Lock::default();
 
@@ -105,7 +107,9 @@ pub fn do_lock_projects<
             .map_err(LockProjectError::InputProjectCanonicalizationError)?
             .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
-        let sources = project.sources();
+        let sources = project
+            .sources(ctx)
+            .map_err(LockProjectError::InputProjectError)?;
         debug_assert!(!sources.is_empty());
 
         lock.projects.push(Project {
@@ -117,7 +121,6 @@ pub fn do_lock_projects<
                 .unwrap_or_default(),
             checksum: canonical_hash,
             sources,
-            // usages: info.usage.iter().cloned().map(Usage::from).collect(),
             usages: info
                 .usage
                 .iter()
@@ -132,7 +135,7 @@ pub fn do_lock_projects<
         all_deps.extend(usages);
     }
 
-    let lock_outcome = do_lock_extend(lock, all_deps, resolver)?;
+    let lock_outcome = do_lock_extend(lock, all_deps, resolver, ctx)?;
 
     Ok(lock_outcome)
 }
@@ -155,6 +158,7 @@ pub fn do_lock_extend<
     mut lock: Lock,
     usages: I,
     resolver: R,
+    ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     let inputs: Vec<_> = usages.into_iter().collect();
     let mut dependencies = vec![];
@@ -183,7 +187,7 @@ pub fn do_lock_extend<
             .map_err(LockError::DependencyProjectCanonicalization)?
             .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
-        let sources = project.sources();
+        let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;
         debug_assert!(!sources.is_empty());
 
         let lock_project = Project {
@@ -193,7 +197,6 @@ pub fn do_lock_extend<
             identifiers: vec![iri.to_string()],
             checksum: canonical_hash,
             sources,
-            // usages: info.usage.into_iter().map(Usage::from).collect(),
             usages: info
                 .usage
                 .into_iter()
@@ -248,25 +251,19 @@ pub fn do_lock_local_editable<
     project_root: PR,
     identifiers: Option<Vec<Iri<String>>>,
     resolver: R,
+    ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
     let project = EditableProject::new(
-        // TODO: this is incorrect if project is in a subdir of workspace
-        ".".into(),
+        path.to_path_buf(),
         LocalSrcProject {
             nominal_path: Some(path.to_path_buf()),
-            project_path: project_root
-                .as_ref()
-                .join(&path)
-                .canonicalize_utf8()
-                .map_err(|e| {
-                    LockError::Io(
-                        FsIoError::Canonicalize(project_root.as_ref().join(path), e).into(),
-                    )
-                })?,
+            project_path: project_root.as_ref().canonicalize_utf8().map_err(|e| {
+                LockError::Io(FsIoError::Canonicalize(project_root.as_ref().join(path), e).into())
+            })?,
         },
     );
 
-    do_lock_projects([(identifiers, &project)], resolver)
+    do_lock_projects([(identifiers, &project)], resolver, ctx)
 }
 
 #[cfg(test)]
@@ -304,7 +301,7 @@ mod tests {
                 },
             ],
         };
-        let res = do_lock_extend(lock, [], NullResolver {});
+        let res = do_lock_extend(lock, [], NullResolver {}, &Default::default());
 
         assert!(matches!(res, Err(LockError::NameCollision(_))));
     }

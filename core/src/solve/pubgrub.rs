@@ -582,7 +582,7 @@ pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
 
     let version: usize = 0;
 
-    let solution = pubgrub::resolve(&solver, package.clone(), version)?;
+    let solution = pubgrub::resolve(&solver, package, version)?;
 
     let mut map = solver.resolved_candidates.replace(HashMap::default());
 

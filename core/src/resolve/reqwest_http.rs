@@ -9,6 +9,8 @@ use thiserror::Error;
 
 use crate::{
     auth::HTTPAuthentication,
+    context::ProjectContext,
+    lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectRead, ProjectReadAsync, reqwest_kpar_download::ReqwestKparDownloadedProject,
@@ -132,11 +134,17 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         }
     }
 
-    async fn sources_async(&self) -> Vec<crate::lock::Source> {
+    async fn sources_async(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj.sources_async().await,
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .sources_async(ctx)
+                .await
+                .map_err(HTTPProjectError::SrcProject),
             //HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj.sources(),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj.sources_async().await,
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .sources_async(ctx)
+                .await
+                .map_err(HTTPProjectError::KparDownloaded),
         }
     }
 }

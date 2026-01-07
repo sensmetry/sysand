@@ -6,7 +6,7 @@ use camino::Utf8PathBuf;
 
 use sysand_core::{
     config::local_fs::{CONFIG_FILE, remove_project_source_from_config},
-    project::local_src::LocalSrcProject,
+    context::ProjectContext,
     remove::do_remove,
 };
 
@@ -14,11 +14,13 @@ use crate::CliError;
 
 pub fn command_remove<S: AsRef<str>>(
     iri: S,
-    current_project: Option<LocalSrcProject>,
+    ctx: ProjectContext,
     config_file: Option<String>,
     no_config: bool,
 ) -> Result<()> {
-    let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
+    let mut current_project = ctx
+        .current_project
+        .ok_or(CliError::MissingProjectCurrentDir)?;
 
     let config_path = config_file
         .map(Utf8PathBuf::from)

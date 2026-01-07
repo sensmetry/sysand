@@ -204,11 +204,10 @@ impl Lock {
                     .map_err(ResolutionError::CandidateProjects)?
                 {
                     if let Ok(Some(candidate_checksum)) = candidate_project.checksum_canonical_hex()
+                        && candidate_checksum == *checksum
                     {
-                        if candidate_checksum == *checksum {
-                            resolved_project = Some(candidate_project);
-                            break 'outer;
-                        }
+                        resolved_project = Some(candidate_project);
+                        break 'outer;
                     }
                 }
             }

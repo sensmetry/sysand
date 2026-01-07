@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 
 use crate::{
+    context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::ProjectRead,
@@ -16,19 +17,14 @@ use crate::{
 /// Project's own path cannot be used as `source`, since it may be
 /// absolute to allow the project to be read without changing
 /// program's dir to workspace root.
-pub struct EditableProject<P: GetPath> {
+pub struct EditableProject<P: ProjectRead> {
     inner: P,
     /// Must be relative to workspace root
     nominal_path: Utf8PathBuf,
     include_original_sources: bool,
 }
 
-pub trait GetPath {
-    // TODO: use camino path
-    fn get_path(&self) -> impl AsRef<Utf8Path>;
-}
-
-impl<P: GetPath> EditableProject<P> {
+impl<P: ProjectRead> EditableProject<P> {
     pub fn new(nominal_path: Utf8PathBuf, project: P) -> EditableProject<P> {
         debug_assert!(nominal_path.is_relative());
         EditableProject {
@@ -43,7 +39,7 @@ impl<P: GetPath> EditableProject<P> {
     }
 }
 
-impl<P: ProjectRead + GetPath> ProjectRead for EditableProject<P> {
+impl<P: ProjectRead> ProjectRead for EditableProject<P> {
     type Error = P::Error;
 
     fn get_project(
@@ -70,9 +66,9 @@ impl<P: ProjectRead + GetPath> ProjectRead for EditableProject<P> {
         self.inner.read_source(path)
     }
 
-    fn sources(&self) -> Vec<Source> {
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         let mut inner_sources = if self.include_original_sources {
-            self.inner.sources()
+            self.inner.sources(ctx)?
         } else {
             vec![]
         };
@@ -84,6 +80,6 @@ impl<P: ProjectRead + GetPath> ProjectRead for EditableProject<P> {
             },
         );
 
-        inner_sources
+        Ok(inner_sources)
     }
 }

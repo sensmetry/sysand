@@ -11,6 +11,7 @@ pub mod model;
 #[cfg(feature = "networking")]
 pub mod auth;
 pub mod config;
+pub mod context;
 pub mod env;
 pub mod lock;
 pub mod project;

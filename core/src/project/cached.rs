@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::{
+    context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectRead, Utf8UnixPath},
@@ -51,8 +52,12 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         self.local.read_source(path)
     }
 
-    fn sources(&self) -> Vec<Source> {
-        self.remote.sources()
+    /// It is assumed here that `remote.sources()` is infallible
+    // Can't return error, since return type is local project error, but we call
+    // remote project sources
+    // TODO: more elegant solution
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        Ok(self.remote.sources(ctx).unwrap())
     }
 
     fn is_definitely_invalid(&self) -> bool {

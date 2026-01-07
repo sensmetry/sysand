@@ -13,7 +13,7 @@ use sysand_core::{
 
 // Have to have these in scope for ProjectRead
 // TODO: Find a better solution (that works both inside and outside sysand_core)
-use sysand_core::lock::Source;
+use sysand_core::{context::ProjectContext, lock::Source};
 use typed_path::Utf8UnixPath;
 
 #[derive(ProjectRead)]
@@ -110,7 +110,7 @@ fn test_macro_read_source() {
 fn test_macro_sources() {
     let project = OneVariantProjectRead::Variant(InMemoryProject::new());
 
-    project.sources();
+    project.sources(&Default::default()).unwrap();
 }
 
 #[test]

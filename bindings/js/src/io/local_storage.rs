@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::io::{Cursor, Read};
+use sysand_core::context::ProjectContext;
 
+use sysand_core::lock::Source;
 use sysand_core::{
-    lock,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectMut, ProjectRead, utils::FsIoError},
 };
@@ -126,10 +127,10 @@ impl ProjectRead for ProjectLocalBrowserStorage {
         ))
     }
 
-    fn sources(&self) -> Vec<lock::Source> {
-        vec![sysand_core::lock::Source::LocalSrc {
+    fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        Ok(vec![sysand_core::lock::Source::LocalSrc {
             src_path: self.root_path.as_str().into(),
-        }]
+        }])
     }
 }
 

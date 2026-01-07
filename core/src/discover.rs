@@ -32,7 +32,6 @@ pub fn discover_project<P: AsRef<Utf8Path>>(
     Ok(project)
 }
 
-// TODO: don't use multiple Results here
 /// If current directory is known by caller, consider using `discover_workspace`
 pub fn current_workspace<P: AsRef<Utf8Path>>(
     cwd: P,

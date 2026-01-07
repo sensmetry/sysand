@@ -4,7 +4,7 @@
 use anyhow::Result;
 use camino::Utf8PathBuf;
 // use glob::glob;
-use sysand_core::{include::do_include, project::local_src::LocalSrcProject};
+use sysand_core::{context::ProjectContext, include::do_include};
 
 use crate::CliError;
 
@@ -12,9 +12,11 @@ pub fn command_include(
     files: Vec<Utf8PathBuf>,
     compute_checksum: bool,
     index_symbols: bool,
-    current_project: Option<LocalSrcProject>,
+    ctx: ProjectContext,
 ) -> Result<()> {
-    let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
+    let mut current_project = ctx
+        .current_project
+        .ok_or(CliError::MissingProjectCurrentDir)?;
 
     for file in files {
         let unix_path = current_project.get_unix_path(file)?;

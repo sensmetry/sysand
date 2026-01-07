@@ -18,6 +18,7 @@ pub use sysand_macros::ProjectRead;
 pub use typed_path::Utf8UnixPath;
 
 use crate::{
+    context::ProjectContext,
     env::utils::ErrorBound,
     lock::Source,
     model::{
@@ -147,8 +148,11 @@ pub trait ProjectRead {
     /// multiple ones are listed they should aim to be in
     /// some typical order of preference.
     ///
+    /// In case no sources are included, they should be derived
+    /// from the known info, including `ctx` if possible.
+    ///
     /// Should panic if no sources are available.
-    fn sources(&self) -> Vec<Source>;
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error>;
 
     // Optional and helpers
 
@@ -282,8 +286,8 @@ impl<T: ProjectRead> ProjectRead for &T {
         (*self).read_source(path)
     }
 
-    fn sources(&self) -> Vec<Source> {
-        (*self).sources()
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        (*self).sources(ctx)
     }
 
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
@@ -358,8 +362,8 @@ impl<T: ProjectRead> ProjectRead for &mut T {
         (**self).read_source(path)
     }
 
-    fn sources(&self) -> Vec<Source> {
-        (**self).sources()
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        (**self).sources(ctx)
     }
 
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
@@ -442,7 +446,10 @@ pub trait ProjectReadAsync {
     /// some typical order of preference.
     ///
     /// May be empty if no valid sources are known.
-    fn sources_async(&self) -> impl Future<Output = Vec<Source>>;
+    fn sources_async(
+        &self,
+        ctx: &ProjectContext,
+    ) -> impl Future<Output = Result<Vec<Source>, Self::Error>>;
 
     // Optional and helpers
 
@@ -611,8 +618,11 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
         (**self).read_source_async(path)
     }
 
-    fn sources_async(&self) -> impl Future<Output = Vec<Source>> {
-        (**self).sources_async()
+    fn sources_async(
+        &self,
+        ctx: &ProjectContext,
+    ) -> impl Future<Output = Result<Vec<Source>, Self::Error>> {
+        (**self).sources_async(ctx)
     }
 
     fn get_info_async(
@@ -702,8 +712,11 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
         (**self).read_source_async(path)
     }
 
-    fn sources_async(&self) -> impl Future<Output = Vec<Source>> {
-        (**self).sources_async()
+    fn sources_async(
+        &self,
+        ctx: &ProjectContext,
+    ) -> impl Future<Output = Result<Vec<Source>, Self::Error>> {
+        (**self).sources_async(ctx)
     }
 
     fn get_info_async(
@@ -833,7 +846,7 @@ pub trait ProjectMut: ProjectRead {
         let mut meta = self
             .get_meta()
             .map_err(ProjectOrIOError::Project)?
-            .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
+            .unwrap_or_default();
 
         {
             let mut reader = self.read_source(path).map_err(ProjectOrIOError::Project)?;
@@ -864,7 +877,7 @@ pub trait ProjectMut: ProjectRead {
         let mut meta = self
             .get_meta()
             .map_err(ProjectOrIOError::Project)?
-            .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
+            .unwrap_or_default();
 
         let removed_checksum = meta.remove_checksum(&path);
         let removed_symbols = meta.remove_index(&path);
@@ -886,7 +899,7 @@ pub trait ProjectMut: ProjectRead {
         let mut meta = self
             .get_meta()
             .map_err(ProjectOrIOError::Project)?
-            .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
+            .unwrap_or_default();
 
         let mut new = vec![];
         let mut existing = vec![];
@@ -1031,8 +1044,8 @@ where
         })
     }
 
-    async fn sources_async(&self) -> Vec<Source> {
-        self.inner.sources()
+    async fn sources_async(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        self.inner.sources(ctx)
     }
 }
 
@@ -1091,8 +1104,8 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
         })
     }
 
-    fn sources(&self) -> Vec<Source> {
-        self.runtime.block_on(self.inner.sources_async())
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        self.runtime.block_on(self.inner.sources_async(ctx))
     }
 
     fn is_definitely_invalid(&self) -> bool {
@@ -1193,6 +1206,8 @@ mod macro_tests {
     // TODO: Find a better solution (that works both inside and outside sysand_core)
     use crate::lock::Source;
     use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
+    use crate::project::ProjectContext;
+
     use typed_path::Utf8UnixPath;
 
     #[derive(ProjectRead)]

@@ -74,6 +74,9 @@ fn do_new_py_local_file(
                 LocalSrcError::Io(error) => PyIOError::new_err(error.to_string()),
                 LocalSrcError::Path(error) => PyIOError::new_err(error.to_string()),
                 LocalSrcError::Serialize(error) => PyValueError::new_err(error.to_string()),
+                LocalSrcError::ImpossibleRelativePath(error) => {
+                    PyValueError::new_err(error.to_string())
+                }
             },
         },
     )?;
@@ -98,6 +101,9 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
             LocalWriteError::Serialize(error) => PyValueError::new_err(error.to_string()),
             LocalWriteError::TryMove(error) => PyIOError::new_err(error.to_string()),
             LocalWriteError::LocalRead(error) => PyIOError::new_err(error.to_string()),
+            LocalWriteError::ImpossibleRelativePath(error) => {
+                PyValueError::new_err(error.to_string())
+            }
         },
     })?;
 
@@ -202,7 +208,7 @@ fn do_build_py(
         None => KparCompressionMethod::default(),
     };
 
-    do_build_kpar(&project, &output_path, compression, true)
+    do_build_kpar(&project, &output_path, compression, true, false)
         .map(|_| ())
         .map_err(|err| match err {
             KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
@@ -217,7 +223,7 @@ fn do_build_py(
             KParBuildError::Zip(_) => PyIOError::new_err(err.to_string()),
             KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
             KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::InternalError(_) => PyRuntimeError::new_err(err.to_string()),
+            KParBuildError::PathUsage(_) => PyValueError::new_err(err.to_string()),
         })
 }
 
@@ -274,10 +280,9 @@ pub fn do_sources_env_py(
                     .version()
                     .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
                     .and_then(|x| Version::parse(&x).ok())
+                    && vr.matches(&v)
                 {
-                    if vr.matches(&v) {
-                        break Some(candidate);
-                    }
+                    break Some(candidate);
                 }
             } else {
                 break None;

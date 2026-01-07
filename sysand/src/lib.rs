@@ -16,12 +16,11 @@ use std::{
 };
 
 use anstream::{eprint, eprintln};
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use fluent_uri::Iri;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
-
 use sysand_core::{
     auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder},
     commands::lock::DEFAULT_LOCKFILE_NAME,
@@ -29,6 +28,7 @@ use sysand_core::{
         Config,
         local_fs::{get_config, load_configs},
     },
+    context::ProjectContext,
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     init::InitError,
     lock::Lock,
@@ -40,6 +40,7 @@ use sysand_core::{
     stdlib::known_std_libs,
     workspace::Workspace,
 };
+use url::Url;
 
 use crate::{
     cli::{Args, InfoCommand},
@@ -109,7 +110,7 @@ fn set_panic_hook() {
         std::eprintln!(
             "\n\n\
             Sysand crashed. This is likely a bug. We would appreciate a bug report at either\n\
-            Sysand's issue tracker: https://github.com/sensmetry/sysand/issues\n\
+            Sysand issue tracker: https://github.com/sensmetry/sysand/issues\n\
             or Sensmetry forum: https://forum.sensmetry.com/c/sysand/24\n\
             or via email: sysand@sensmetry.com\n\
             \n\
@@ -134,9 +135,14 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         log::set_max_level(log_level);
     }
 
-    let current_workspace = sysand_core::discover::current_workspace(&cwd)?;
-    let current_project = sysand_core::discover::current_project(&cwd)?;
-    let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
+    let ctx = ProjectContext {
+        current_workspace: sysand_core::discover::current_workspace(&cwd)?,
+        current_project: sysand_core::discover::current_project(&cwd)?,
+    };
+    let project_root = ctx
+        .current_project
+        .as_ref()
+        .map(|p| p.root_path().to_owned());
 
     let current_environment = {
         let dir = project_root.as_ref().unwrap_or(&cwd);
@@ -258,6 +264,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             license,
             no_spdx,
         } => command_init(name, version, no_semver, license, no_spdx, path),
+        cli::Command::New { .. } => bail!("use `init` instead of `new`"),
         cli::Command::Env { command } => match command {
             None => {
                 let env_dir = {
@@ -288,6 +295,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         client,
                         runtime,
                         basic_auth_policy,
+                        ctx,
                     )
                 } else {
                     command_env_install(
@@ -300,6 +308,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         client,
                         runtime,
                         basic_auth_policy,
+                        ctx,
                     )
                 }
             }
@@ -340,13 +349,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             if let Some(project_root) = project_root {
                 crate::commands::lock::command_lock(
                     ".",
-                    current_workspace,
                     resolution_opts,
                     &config,
                     project_root,
                     client,
                     runtime,
                     basic_auth_policy,
+                    ctx,
                 )
                 .map(|_| ())
             } else {
@@ -380,13 +389,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     if e.kind() == ErrorKind::NotFound {
                         command_lock(
                             ".",
-                            current_workspace,
                             resolution_opts,
                             &config,
                             &project_root,
                             client.clone(),
                             runtime.clone(),
                             basic_auth_policy.clone(),
+                            ctx,
                         )?
                     } else {
                         bail!("failed to read lockfile `{lockfile}`: {e}")
@@ -475,7 +484,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 debug_assert!(auto_location.is_none());
                 debug_assert!(iri.is_none());
 
-                Location::Path(path.into())
+                Location::Path(path)
             } else if let Some(iri) = iri {
                 debug_assert!(path.is_none());
                 debug_assert!(auto_location.is_none());
@@ -487,39 +496,29 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
             match (location, subcommand) {
                 (Location::WorkDir, subcommand) => {
-                    if let Some(current_project) = current_project {
+                    if let Some(current_project) = ctx.current_project {
                         match subcommand {
                             Some(subcommand) => {
                                 match subcommand {
                                     cli::InfoCommand::Version {
                                         ref set, no_semver, ..
                                     } => {
-                                        // TODO(MSRV 1.88):
-                                        // if let Some(v) = set
-                                        //     && !no_semver
-                                        if !no_semver {
-                                            if let Some(v) = set {
-                                                semver::Version::parse(v).map_err(|e| {
+                                        if !no_semver && let Some(v) = set {
+                                            semver::Version::parse(v).map_err(|e| {
                                                 InitError::<std::convert::Infallible>::SemVerParse(
                                                     v.as_str().into(),
                                                     e,
                                                 )
                                             })?;
-                                            }
                                         }
                                     }
                                     cli::InfoCommand::License {
                                         ref set, no_spdx, ..
                                     } => {
-                                        // TODO(MSRV 1.88):
-                                        // if let Some(v) = set
-                                        //     && !no_spdx
-                                        if !no_spdx {
-                                            if let Some(l) = set {
-                                                spdx::Expression::parse(l).map_err(|e| {
+                                        if !no_spdx && let Some(l) = set {
+                                            spdx::Expression::parse(l).map_err(|e| {
                                                 InitError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
                                             })?;
-                                            }
                                         }
                                     }
                                     _ => (),
@@ -573,47 +572,57 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         cli::Command::Add {
-            iri,
+            locator,
             version_constraint,
             no_lock,
             no_sync,
             resolution_opts,
             source_opts,
-        } => command_add(
-            iri,
-            version_constraint,
-            no_lock,
-            no_sync,
-            resolution_opts,
-            source_opts,
-            config,
-            args.global_opts.config_file,
-            args.global_opts.no_config,
-            current_project,
-            current_workspace,
-            client,
-            runtime,
-            basic_auth_policy,
-        ),
-        cli::Command::Remove { iri } => command_remove(
-            iri,
-            current_project,
-            args.global_opts.config_file,
-            args.global_opts.no_config,
-        ),
+        } => {
+            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
+            command_add(
+                iri,
+                version_constraint,
+                no_lock,
+                no_sync,
+                resolution_opts,
+                source_opts,
+                config,
+                args.global_opts.config_file,
+                args.global_opts.no_config,
+                ctx,
+                client,
+                runtime,
+                basic_auth_policy,
+            )
+        }
+        cli::Command::Remove { locator } => {
+            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
+            command_remove(
+                iri,
+                ctx,
+                args.global_opts.config_file,
+                args.global_opts.no_config,
+            )
+        }
         cli::Command::Include {
             paths,
             compute_checksum: add_checksum,
             no_index_symbols,
-        } => command_include(paths, add_checksum, !no_index_symbols, current_project),
-        cli::Command::Exclude { paths } => command_exclude(paths, current_project),
-        cli::Command::Build { path, compression } => {
-            if let Some(current_project) = current_project {
+        } => command_include(paths, add_checksum, !no_index_symbols, ctx),
+        cli::Command::Exclude { paths } => command_exclude(paths, ctx),
+        cli::Command::Build {
+            path,
+            compression,
+            allow_path_usage,
+        } => {
+            if let Some(current_project) = ctx.current_project {
                 // Even if we are in a workspace, the project takes precedence.
                 let path = if let Some(path) = path {
                     path
                 } else {
-                    let mut output_dir = current_workspace
+                    let mut output_dir = ctx
+                        .current_workspace
                         .as_ref()
                         .map(Workspace::root_path)
                         .unwrap_or_else(|| &current_project.project_path)
@@ -625,19 +634,30 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     output_dir.push(name);
                     output_dir
                 };
-                command_build_for_project(path, compression.into(), current_project)
+                command_build_for_project(
+                    path,
+                    compression.into(),
+                    current_project,
+                    allow_path_usage,
+                )
             } else {
                 // If the workspace is also missing, report an error about
                 // missing project because that is what the user is more likely
                 // to be looking for.
-                let current_workspace =
-                    current_workspace.ok_or(CliError::MissingProjectCurrentDir)?;
+                let current_workspace = ctx
+                    .current_workspace
+                    .ok_or(CliError::MissingProjectCurrentDir)?;
                 let output_dir =
                     path.unwrap_or_else(|| current_workspace.root_path().join("output"));
                 if !wrapfs::is_dir(&output_dir)? {
                     wrapfs::create_dir(&output_dir)?;
                 }
-                command_build_for_workspace(output_dir, compression.into(), current_workspace)
+                command_build_for_workspace(
+                    output_dir,
+                    compression.into(),
+                    current_workspace,
+                    allow_path_usage,
+                )
             }
         }
         cli::Command::Sources { sources_opts } => {
@@ -652,12 +672,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashMap::default()
             };
 
-            command_sources_project(
-                !no_deps,
-                current_project,
-                current_environment,
-                &provided_iris,
-            )
+            command_sources_project(!no_deps, ctx, current_environment, &provided_iris)
         }
         cli::Command::Clone {
             locator,
@@ -669,8 +684,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             locator,
             version,
             target,
-            current_project,
-            current_workspace,
+            ctx,
             no_deps,
             resolution_opts,
             &config,
@@ -679,6 +693,23 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             basic_auth_policy,
         ),
     }
+}
+
+fn iri_or_path_to_iri(
+    iri: Option<Iri<String>>,
+    path: Option<Utf8PathBuf>,
+) -> Result<Iri<String>, anyhow::Error> {
+    Ok(if let Some(iri) = iri {
+        iri
+    } else {
+        let Some(path) = path else { unreachable!() };
+        let abs_path = wrapfs::canonicalize(&path)?;
+        let url: String = Url::from_file_path(abs_path)
+            .map_err(|()| anyhow!("unsupported path type of `{path}`"))?
+            .into();
+        // This cannot fail, since URL from a path will never have a fragment
+        Iri::parse(url).unwrap()
+    })
 }
 
 pub fn get_env(project_root: impl AsRef<Utf8Path>) -> Result<Option<LocalDirectoryEnvironment>> {

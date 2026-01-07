@@ -14,6 +14,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     auth::HTTPAuthentication,
+    context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::ProjectReadAsync,
@@ -202,10 +203,10 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
         }
     }
 
-    async fn sources_async(&self) -> Vec<Source> {
-        vec![Source::RemoteSrc {
+    async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        Ok(vec![Source::RemoteSrc {
             remote_src: self.url.to_string(),
-        }]
+        }])
     }
 }
 

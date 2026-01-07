@@ -11,9 +11,13 @@ use typed_path::{Utf8Component, Utf8UnixPath};
 use zip::ZipArchive;
 
 use crate::{
+    context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{self, ProjectRead, editable::GetPath, utils::ZipArchiveError},
+    project::{
+        self, ProjectRead,
+        utils::{RelativizePathError, ZipArchiveError, relativize_path},
+    },
 };
 
 use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
@@ -58,6 +62,12 @@ pub enum LocalKParError {
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
+    #[error(
+        "cannot construct a relative path from the workspace/project
+        directory to one of its dependencies' directory:\n\
+        {0}"
+    )]
+    ImpossibleRelativePath(#[from] RelativizePathError),
 }
 
 impl From<FsIoError> for LocalKParError {
@@ -262,12 +272,6 @@ impl LocalKParProject {
     }
 }
 
-impl GetPath for LocalKParProject {
-    fn get_path(&self) -> &str {
-        self.archive_path.as_str()
-    }
-}
-
 type KParFile<'a> = super::utils::FileWithLifetime<'a>;
 
 // NOTE: Current implementation keeps re-opening the archive file. This appears to
@@ -349,15 +353,26 @@ impl ProjectRead for LocalKParProject {
         // Ok(KparFile { archive: archive, file: &mut archive.by_index(idx)? })
     }
 
-    fn sources(&self) -> Vec<Source> {
-        self.nominal_path
-            .as_ref()
-            .map(|path| {
-                vec![Source::LocalKpar {
-                    kpar_path: path.as_str().into(),
-                }]
-            })
-            .expect("`LocalKparProject` without `nominal_path` does not have any project sources")
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        if let Some(np) = self.nominal_path.as_ref() {
+            Ok(vec![Source::LocalKpar {
+                kpar_path: np.as_str().into(),
+            }])
+        } else if let Some(w) = &ctx.current_workspace {
+            Ok(vec![Source::LocalKpar {
+                kpar_path: relativize_path(&self.archive_path, w.root_path())?
+                    .into_string()
+                    .into(),
+            }])
+        } else if let Some(cp) = &ctx.current_project {
+            Ok(vec![Source::LocalKpar {
+                kpar_path: relativize_path(&self.archive_path, cp.root_path())?
+                    .into_string()
+                    .into(),
+            }])
+        } else {
+            panic!("`LocalKparProject` without `nominal_path` does not have any project sources");
+        }
     }
 }
 

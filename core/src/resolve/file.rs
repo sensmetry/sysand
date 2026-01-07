@@ -13,14 +13,14 @@ use fluent_uri::component::Scheme;
 use thiserror::Error;
 
 use crate::{
+    context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         self, ProjectRead,
-        editable::GetPath,
         local_kpar::{LocalKParError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
-        utils::{FsIoError, ProjectDeserializationError, wrapfs},
+        utils::{FsIoError, ProjectDeserializationError, RelativizePathError, wrapfs},
     },
     resolve::{ResolutionOutcome, ResolveRead},
 };
@@ -63,6 +63,8 @@ fn try_file_uri_to_path(
     if uri.scheme() == SCHEME_FILE {
         let url = match url::Url::parse(uri.as_str()) {
             Ok(u) => u,
+            // This fails only in esoteric cases, such as if host is
+            // IPvFuture, which is allowed by IRI, but not WHATWG URL.
             Err(e) => return Err(FileResolverError::IriNotValidUrl(uri.to_string(), e)),
         };
 
@@ -140,15 +142,6 @@ pub enum FileResolverProject {
     LocalKParProject(LocalKParProject),
 }
 
-impl GetPath for FileResolverProject {
-    fn get_path(&self) -> &str {
-        match self {
-            FileResolverProject::LocalSrcProject(p) => p.get_path(),
-            FileResolverProject::LocalKParProject(p) => p.get_path(),
-        }
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum FileResolverProjectError {
     #[error(transparent)]
@@ -163,6 +156,12 @@ pub enum FileResolverProjectError {
     Io(#[from] Box<FsIoError>),
     #[error(transparent)]
     Path(#[from] project::local_src::PathError),
+    #[error(
+        "cannot construct a relative path from the workspace/project
+        directory to one of its dependencies' directory:\n\
+        {0}"
+    )]
+    ImpossibleRelativePath(#[from] RelativizePathError),
     #[error("{0}")]
     Other(String),
 }
@@ -194,6 +193,7 @@ impl From<LocalKParError> for FileResolverProjectError {
             LocalKParError::Deserialize(error) => FileResolverProjectError::Deserialize(error),
             LocalKParError::Io(error) => FileResolverProjectError::Io(error),
             LocalKParError::Zip(err) => FileResolverProjectError::Zip(err),
+            LocalKParError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
         }
     }
 }
@@ -259,10 +259,12 @@ impl ProjectRead for FileResolverProject {
         }
     }
 
-    fn sources(&self) -> Vec<Source> {
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            FileResolverProject::LocalSrcProject(proj) => proj.sources(),
-            FileResolverProject::LocalKParProject(proj) => proj.sources(),
+            FileResolverProject::LocalSrcProject(proj) => proj
+                .sources(ctx)
+                .map_err(FileResolverProjectError::LocalSrc),
+            FileResolverProject::LocalKParProject(proj) => Ok(proj.sources(ctx)?),
         }
     }
 }
