@@ -14,11 +14,11 @@ use std::{
 };
 
 use anstream::{eprint, eprintln};
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
-
+use fluent_uri::Iri;
 use sysand_core::{
     config::{
         Config,
@@ -30,6 +30,7 @@ use sysand_core::{
     project::utils::wrapfs,
     stdlib::known_std_libs,
 };
+use url::Url;
 
 use crate::{
     cli::Args,
@@ -173,6 +174,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             license,
             no_spdx,
         } => command_init(name, version, no_semver, license, no_spdx, path),
+        cli::Command::New(..) => bail!("use `init` instead of `new`"),
         cli::Command::Env { command } => match command {
             None => {
                 let env_dir = {
@@ -447,22 +449,38 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         cli::Command::Add {
-            iri,
+            locator,
             version_constraint,
             no_lock,
             no_sync,
             resolution_opts,
-        } => command_add(
-            iri,
-            version_constraint,
-            no_lock,
-            no_sync,
-            resolution_opts,
-            &config,
-            current_project,
-            client,
-            runtime,
-        ),
+        } => {
+            let iri = {
+                if let Some(iri) = locator.iri {
+                    iri
+                } else {
+                    let Some(path) = locator.path else {
+                        unreachable!()
+                    };
+                    let abs_path = wrapfs::canonicalize(&path)?;
+                    let url: String = Url::from_file_path(abs_path)
+                        .map_err(|()| anyhow!("unsupported path type of `{path}`"))?
+                        .into();
+                    Iri::parse(url).unwrap()
+                }
+            };
+            command_add(
+                iri,
+                version_constraint,
+                no_lock,
+                no_sync,
+                resolution_opts,
+                &config,
+                current_project,
+                client,
+                runtime,
+            )
+        }
         cli::Command::Remove { iri } => command_remove(iri, current_project),
         cli::Command::Include {
             paths,

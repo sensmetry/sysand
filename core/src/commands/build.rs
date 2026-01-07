@@ -142,6 +142,18 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 log::warn!("project's license `{l}` is not a valid SPDX license expression:\n{e}")
             }
         }
+    let (_tmp, mut local_project) = LocalSrcProject::temporary_from_project(project)?;
+    let (Some(info), Some(meta)) = local_project.get_project()? else {
+        // `temporary_from_project()` already checked that the project is valid
+        unreachable!()
+    };
+
+    if let Some(u) = info.usage.iter().find(|x| x.resource.starts_with("file:")) {
+        log::warn!(
+            "project includes a path usage `{}`,\n\
+            which is unlikely to be available on a different computer",
+            u.resource
+        );
     }
 
     if canonicalise {

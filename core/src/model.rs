@@ -456,8 +456,8 @@ pub enum InterchangeProjectValidationError {
     NonHexChecksumChars { cksum: Box<str> },
 }
 
-impl InterchangeProjectMetadataRaw {
-    pub fn generate_blank() -> Self {
+impl Default for InterchangeProjectMetadataRaw {
+    fn default() -> Self {
         InterchangeProjectMetadataRaw {
             index: IndexMap::default(),
             created: chrono::Utc::now().to_rfc3339(),
@@ -467,7 +467,9 @@ impl InterchangeProjectMetadataRaw {
             checksum: None,
         }
     }
+}
 
+impl InterchangeProjectMetadataRaw {
     pub fn validate(
         &self,
     ) -> Result<InterchangeProjectMetadata, InterchangeProjectValidationError> {

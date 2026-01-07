@@ -9,6 +9,7 @@ use std::{
 
 use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
+use fluent_uri::Iri;
 use semver::VersionReq;
 
 use crate::env_vars;
@@ -76,10 +77,13 @@ pub enum Command {
         #[arg(long, requires = "license")]
         no_spdx: bool,
     },
+    // Only for better error messages
+    #[command(external_subcommand, hide = true)]
+    New(Vec<String>),
     /// Add usage to project information
     Add {
-        /// IRI identifying the project to be used
-        iri: fluent_uri::Iri<String>,
+        #[clap(flatten)]
+        locator: AddProjectLocatorArgs,
         /// A constraint on the allowed versions of a used project.
         /// Assumes that the project being added uses Semantic Versioning.
         /// Version constraints use same syntax as Rust's Cargo.
@@ -109,7 +113,7 @@ pub enum Command {
     #[clap(verbatim_doc_comment)]
     Clone {
         #[clap(flatten)]
-        locator: ProjectLocatorArgs,
+        locator: CloneProjectLocatorArgs,
         /// Path to clone the project into. If already exists, must
         /// be an empty directory. Defaults to current directory
         #[arg(long, short, default_value = None, verbatim_doc_comment)]
@@ -222,7 +226,26 @@ pub enum Command {
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
-pub struct ProjectLocatorArgs {
+pub struct AddProjectLocatorArgs {
+    /// IRI/URI/URL identifying the project to be used
+    #[clap(default_value = None, value_parser = parse_iri_suggest_path)]
+    pub iri: Option<fluent_uri::Iri<String>>,
+    /// Path to the project to be added. Since every usage is identified
+    /// by an IRI, `file://` URL will be used to refer to the project.
+    /// Using this makes the project not portable between different
+    /// computers, as `file://` URL always contains an absolute path
+    #[arg(
+        long,
+        short = 'p',
+        default_value = None,
+        verbatim_doc_comment
+    )]
+    pub path: Option<String>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
+pub struct CloneProjectLocatorArgs {
     /// Clone the project from a given locator, trying to parse it as an
     /// IRI/URI/URL and otherwise falling back to using it as a path
     #[clap(
@@ -241,7 +264,6 @@ pub struct ProjectLocatorArgs {
         long,
         short = 's',
         default_value = None,
-        value_name = "PATH",
         verbatim_doc_comment
     )]
     pub path: Option<String>,
@@ -1431,4 +1453,11 @@ impl ValueEnum for MetamodelVersion {
             }
         })
     }
+}
+
+fn parse_iri_suggest_path(s: &str) -> Result<Iri<String>, String> {
+    use crate::style::USAGE;
+    Iri::parse(s.to_owned()).map_err(|(err, _val)| {
+        format!("{err}\n{USAGE}hint:{USAGE:#} if you wanted to use a path, use `--path` instead")
+    })
 }

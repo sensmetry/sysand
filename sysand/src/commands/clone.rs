@@ -21,7 +21,7 @@ use sysand_core::{
 
 use crate::{
     CliError, DEFAULT_INDEX_URL,
-    cli::{ProjectLocatorArgs, ResolutionOptions},
+    cli::{CloneProjectLocatorArgs, ResolutionOptions},
     commands::sync::command_sync,
     get_or_create_env,
 };
@@ -34,7 +34,7 @@ pub enum ProjectLocator {
 /// Clones project from `locator` to `target` directory.
 #[allow(clippy::too_many_arguments)]
 pub fn command_clone(
-    locator: ProjectLocatorArgs,
+    locator: CloneProjectLocatorArgs,
     version: Option<String>,
     target: Option<Utf8PathBuf>,
     no_deps: bool,
@@ -89,7 +89,7 @@ pub fn command_clone(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
-    let ProjectLocatorArgs {
+    let CloneProjectLocatorArgs {
         auto_location,
         iri,
         path,

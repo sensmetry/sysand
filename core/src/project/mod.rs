@@ -821,7 +821,7 @@ pub trait ProjectMut: ProjectRead {
         let mut meta = self
             .get_meta()
             .map_err(ProjectOrIOError::Project)?
-            .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
+            .unwrap_or_default();
 
         {
             let mut reader = self.read_source(&path).map_err(ProjectOrIOError::Project)?;
@@ -852,7 +852,7 @@ pub trait ProjectMut: ProjectRead {
         let mut meta = self
             .get_meta()
             .map_err(ProjectOrIOError::Project)?
-            .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
+            .unwrap_or_default();
 
         let removed_checksum = meta.remove_checksum(&path);
         let removed_symbols = meta.remove_index(&path);
@@ -874,7 +874,7 @@ pub trait ProjectMut: ProjectRead {
         let mut meta = self
             .get_meta()
             .map_err(ProjectOrIOError::Project)?
-            .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
+            .unwrap_or_default();
 
         let mut new = vec![];
         let mut existing = vec![];
