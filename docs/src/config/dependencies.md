@@ -36,6 +36,25 @@ sources = [
 Note that the path to the project is given by path that is relative to the root
 of your project.
 
+## Local editable projects
+
+Normally when you add a project as a usage, `sysand` will copy and install it,
+so any changes made to the project after will not affect the installed project.
+For local projects you also have the option to add them as "editable" usages,
+meaning the project won't be copied and will instead just be referred to where
+it is originally located. A local project is specified as editable in
+`sysand.toml` by adding
+
+```toml
+[[project]]
+identifiers = [
+    "urn:kpar:my-project",
+]
+sources = [
+    { editable = "path/to/project" },
+]
+```
+
 ## Local KPARs
 
 If you have a project locally available as a compressed KPAR this can be identified

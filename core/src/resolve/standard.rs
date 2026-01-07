@@ -18,6 +18,7 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         AsSyncProjectTokio, ProjectRead, ProjectReadAsync,
+        editable::EditableProject,
         local_kpar::LocalKParProject,
         local_src::LocalSrcProject,
         reference::ProjectReference,
@@ -40,6 +41,7 @@ use crate::{
 
 #[derive(Debug, ProjectRead)]
 pub enum AnyProject<Policy: HTTPAuthentication> {
+    Editable(EditableProject<LocalSrcProject>),
     LocalSrc(LocalSrcProject),
     LocalKpar(LocalKParProject),
     RemoteSrc(AsSyncProjectTokio<ReqwestSrcProjectAsync<Policy>>),
@@ -69,6 +71,16 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
         runtime: Arc<tokio::runtime::Runtime>,
     ) -> Result<Self, TryFromSourceError> {
         match source {
+            Source::Editable { editable } => {
+                let nominal_path = editable.to_path_buf();
+                let project = LocalSrcProject {
+                    nominal_path: Some(nominal_path.to_string().into()),
+                    project_path: project_root.as_ref().join(nominal_path.as_str()),
+                };
+                Ok(AnyProject::Editable(
+                    EditableProject::<LocalSrcProject>::new(nominal_path.as_str().into(), project),
+                ))
+            }
             Source::LocalKpar { kpar_path } => Ok(AnyProject::LocalKpar(
                 LocalKParProject::new_guess_root_nominal(
                     project_root.as_ref().join(kpar_path.as_str()),

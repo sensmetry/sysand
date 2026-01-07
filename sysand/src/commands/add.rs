@@ -47,19 +47,14 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         .map(Utf8PathBuf::from)
         .or((!no_config).then(|| project_root.join(CONFIG_FILE)));
 
-    // For readability and compactness
-    #[allow(clippy::manual_map)]
-    let source = if let Some(local_src) = source_opts.local_src {
-        let src_path = if wrapfs::current_dir()? != project_root {
-            relativize(
-                &Utf8Path::new(&local_src).canonicalize_utf8()?,
-                &project_root,
-            )
-        } else {
-            local_src.into()
-        };
+    #[allow(clippy::manual_map)] // For readability and compactness
+    let source = if let Some(editable) = source_opts.editable {
+        Some(sysand_core::lock::Source::Editable {
+            editable: get_relative(editable, &project_root)?.as_str().into(),
+        })
+    } else if let Some(local_src) = source_opts.local_src {
         Some(sysand_core::lock::Source::LocalSrc {
-            src_path: src_path.as_str().into(),
+            src_path: get_relative(local_src, &project_root)?.as_str().into(),
         })
     } else if let Some(kpar_path) = source_opts.local_kpar {
         Some(sysand_core::lock::Source::LocalKpar {
@@ -131,6 +126,18 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     }
 
     Ok(())
+}
+
+fn get_relative<P: Into<Utf8PathBuf>>(src_path: P, project_root: &Utf8Path) -> Result<Utf8PathBuf> {
+    let src_path = if wrapfs::current_dir()? != project_root {
+        relativize(
+            &Utf8Path::new(&src_path.into()).canonicalize_utf8()?,
+            project_root,
+        )
+    } else {
+        src_path.into()
+    };
+    Ok(src_path)
 }
 
 fn relativize(path: &Utf8Path, root: &Utf8Path) -> Utf8PathBuf {

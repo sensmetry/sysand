@@ -1274,6 +1274,9 @@ pub struct ResolutionOptions {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct ProjectSourceOptions {
+    /// Path to local editable interchange project
+    #[arg(long, group = "source")]
+    pub editable: Option<String>,
     /// Path to local interchange project
     #[arg(long, group = "source")]
     pub local_src: Option<String>,

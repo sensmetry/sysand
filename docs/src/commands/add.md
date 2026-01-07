@@ -34,6 +34,7 @@ source will be configured so future syncing will not take this into account.
 
 - `--no-lock`: Do not automatically resolve usages (and generate lockfile)
 - `--no-sync`: Do not automatically install dependencies
+- `--editable <EDITABLE>`: Path to local editable interchange project
 - `--local-src <LOCAL_SRC>`: Path to local interchange project
 - `--local-kpar <LOCAL_KPAR>`: Path to local interchange project archive (KPAR)
 - `--remote-src <REMOTE_SRC>`: URL to remote interchange project
