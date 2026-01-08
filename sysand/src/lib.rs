@@ -488,7 +488,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_index_symbols,
         } => command_include(paths, add_checksum, !no_index_symbols, current_project),
         cli::Command::Exclude { paths } => command_exclude(paths, current_project),
-        cli::Command::Build { path } => {
+        cli::Command::Build {
+            path,
+            allow_path_usage,
+        } => {
             if let Some(current_project) = current_project {
                 // Even if we are in a workspace, the project takes precedence.
                 let path = if let Some(path) = path {
@@ -506,7 +509,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     output_dir.push(name);
                     output_dir
                 };
-                command_build_for_project(path, current_project)
+                command_build_for_project(path, current_project, allow_path_usage)
             } else {
                 // If the workspace is also missing, report an error about
                 // missing project because that is what the user is more likely
@@ -518,7 +521,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 if !output_dir.is_dir() {
                     wrapfs::create_dir(&output_dir)?;
                 }
-                command_build_for_workspace(output_dir, current_workspace)
+                command_build_for_workspace(output_dir, current_workspace, allow_path_usage)
             }
         }
         cli::Command::Sources { sources_opts } => {

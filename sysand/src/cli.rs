@@ -92,10 +92,10 @@ pub enum Command {
         #[clap(verbatim_doc_comment)]
         version_constraint: Option<String>,
         /// Do not automatically resolve dependencies (and generate lockfile)
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         no_lock: bool,
         /// Do not automatically install dependencies
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         no_sync: bool,
 
         #[command(flatten)]
@@ -137,10 +137,10 @@ pub enum Command {
         /// Compute and add each file's (current) SHA256 checksum
         // TODO: will it ever be automatically updated?
         //       Maybe only when building a kpar?
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         compute_checksum: bool,
         /// Do not detect and add top level symbols to index
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         no_index_symbols: bool,
     },
     /// Exclude model interchange file from project metadata
@@ -153,7 +153,7 @@ pub enum Command {
     /// outside of a project, builds all projects in the workspace.
     #[clap(verbatim_doc_comment)]
     Build {
-        /// Path giving where to put the finished KPAR or KPARs. When building a
+        /// Path for the finished KPAR or KPARs. When building a
         /// workspace, it is a path to the folder to write the KPARs to
         /// (default: `<current-workspace>/output`). When building a single
         /// project, it is a path to the KPAR file to write (default
@@ -162,6 +162,12 @@ pub enum Command {
         /// on whether the current project belongs to a workspace or not).
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
+        /// Allow usages of local paths (`file://`).
+        /// Warning: using this makes the project not portable between different
+        /// computers, as `file://` URL always contains an absolute path.
+        /// For multiple related projects, consider using a workspace instead
+        #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
+        allow_path_usage: bool,
     },
     /// Create or update lockfile
     Lock {
@@ -205,7 +211,7 @@ pub enum Command {
         )]
         auto_location: Option<String>,
         /// Do not try to normalise the IRI/URI when resolving
-        #[arg(long, default_value = "false", visible_alias = "no-normalize")]
+        #[arg(long, default_value_t = false, visible_alias = "no-normalize")]
         no_normalise: bool,
         // TODO: Add various options, such as whether to take local environment
         //       into consideration
@@ -232,8 +238,9 @@ pub struct AddProjectLocatorArgs {
     pub iri: Option<fluent_uri::Iri<String>>,
     /// Path to the project to be added. Since every usage is identified
     /// by an IRI, `file://` URL will be used to refer to the project.
-    /// Using this makes the project not portable between different
-    /// computers, as `file://` URL always contains an absolute path
+    /// Warning: using this makes the project not portable between different
+    /// computers, as `file://` URL always contains an absolute path.
+    /// For multiple related projects, consider using a workspace instead
     #[arg(
         long,
         short = 'p',
@@ -418,7 +425,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         remove: Option<usize>,
         /// Prints a numbered list
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         numbered: bool,
     },
     /// Get or set the website of the project
@@ -452,7 +459,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         remove: Option<usize>,
         /// Prints a numbered list
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         numbered: bool,
     },
     /// Print project usages
@@ -485,7 +492,7 @@ pub enum InfoCommand {
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         numbered: bool,
     },
     /// Get project index
@@ -518,7 +525,7 @@ pub enum InfoCommand {
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         numbered: bool,
     },
     /// Get project metadata manifest creation time
@@ -676,7 +683,7 @@ pub enum InfoCommand {
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value_t = false)]
         numbered: bool,
     },
 }
@@ -1275,7 +1282,7 @@ pub struct ResolutionOptions {
     // - index
     #[arg(
         long,
-        default_value = "false",
+        default_value_t = false,
         conflicts_with_all = ["index", "default_index"],
         global = true,
         help_heading = "Resolution options",
@@ -1284,7 +1291,7 @@ pub struct ResolutionOptions {
     /// Don't ignore KerML/SysML v2 standard libraries if specified as dependencies
     #[arg(
         long,
-        default_value = "false",
+        default_value_t = false,
         global = true,
         help_heading = "Resolution options"
     )]
@@ -1294,10 +1301,10 @@ pub struct ResolutionOptions {
 #[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
     /// Do not include sources for dependencies
-    #[arg(long, default_value = "false", conflicts_with = "include_std")]
+    #[arg(long, default_value_t = false, conflicts_with = "include_std")]
     pub no_deps: bool,
     /// Include (installed) KerML/SysML v2 standard libraries
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value_t = false)]
     pub include_std: bool,
 }
 
