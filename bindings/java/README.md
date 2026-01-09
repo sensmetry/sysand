@@ -27,15 +27,14 @@ We have decided to use the first approach because it should be the easiest to
 integrate for our end-users. We may want to migrate to the foreign function and
 memory API once Pilot updates to Java 22 or newer.
 
-Note: From JDK 22, Java throws a warning when loading a native Java module. This
-warning will become an error in JDK 24 and will require the user to explicitly
-allow native modules as described in [JEP
-472](https://openjdk.org/jeps/472#Description). Currently, the warning looks as
-follows:
+Note: From JDK 22, Java throws a warning when loading a native Java module, and
+it will become an error in the future. To fix this, user has to explicitly allow
+native modules as described in [JEP 472](https://openjdk.org/jeps/472#Description).
+Currently, the warning looks as follows:
 
    ```plain
    WARNING: A restricted method in java.lang.System has been called
-   WARNING: java.lang.System::load has been called by com.sensmetry.sysand.NativeLoader in an unnamed module (file:.../sysand-0.0.4-SNAPSHOT.jar)
+   WARNING: java.lang.System::load has been called by com.sensmetry.sysand.NativeLoader in an unnamed module (file:.../sysand-X.Y.Z-SNAPSHOT.jar)
    WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
    WARNING: Restricted methods will be blocked in a future release unless native access is enabled
    ```
