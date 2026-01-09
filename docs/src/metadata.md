@@ -66,10 +66,10 @@ an IRI. For this reason, elsewhere in this documentation IRI, URI and URL are
 used interchangeably and mean IRI, unless specified otherwise.
 
 IRIs are not required to be resolvable (i.e. be URLs that have a well-defined
-way of obtaining the identified resource).
-So Sysand tries to obtain each project using a variety of methods. The first
-method that successfully obtains the project is chosen. The order in which
-different methods are tried is unspecified and may change in the future.
+way of obtaining the identified resource). So Sysand tries to obtain each
+project using a variety of methods. The first method that successfully obtains
+the project is chosen. The order in which different methods are tried is
+unspecified and may change in the future.
 
 Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
 
