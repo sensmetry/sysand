@@ -4,6 +4,7 @@
   - [Installation](getting_started/installation.md)
   - [Tutorial](getting_started/tutorial.md)
 - [Project metadata](metadata.md)
+- [Workspaces](workspaces.md)
 - [Commands](commands.md)
   - [sysand init](commands/init.md)
   - [sysand add](commands/add.md)
