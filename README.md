@@ -230,8 +230,8 @@ Serving HTTP on 0.0.0.0 port 8080 (http://0.0.0.0:8080/) ...
 > Python's built-in `http.server` module is *not* intended for production use.
 
 Any project in the above `sysand_env` can now be used in `sysand add`, `sysand sync`,
-`sysand env install`, etc., as long as the flag `--use-index http://localhost:8080`
-is added (or soon by specifying it in `sysand.toml`!).
+`sysand env install`, etc., as long as the flag `--index http://localhost:8080`
+is added (or by [specifying it in `sysand.toml`](docs/src/config/indexes.md)).
 
 For example, to create an index to publish the above `my_project` project we can
 create a fresh `sysand_env`.

@@ -1,13 +1,13 @@
 # Configuration
 
-Sysand offers three ways of configuring it's behavior:
+Sysand offers three ways of configuring its behavior:
 
 - command line options
 - environment variables
 - configuration files
 
 Command line options override corresponding environment variables, while both
-take priority over (but not always overriding) options in configuration files.
+take priority over (but not always override) options in configuration files.
 
 ## Configuration files
 
