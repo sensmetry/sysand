@@ -6,7 +6,6 @@
 - [Project metadata](metadata.md)
 - [Commands](commands.md)
   - [sysand init](commands/init.md)
-  - [sysand new](commands/new.md)
   - [sysand add](commands/add.md)
   - [sysand remove](commands/remove.md)
   - [sysand include](commands/include.md)
