@@ -65,18 +65,25 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
 
     match outcome {
         ResolutionOutcome::Resolved(resolved) => {
-            let mut result: Vec<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> =
-                vec![];
-
             let mut it = resolved.into_iter().peekable();
             assert!(it.peek().is_some());
 
-            for project in it {
-                if let Some(info_meta) = do_info_project(&project?) {
+            let mut result = vec![];
+            for alt in it {
+                let candidate_project = match alt {
+                    Ok(cp) => cp,
+                    Err(e) => {
+                        // These errors may be ugly, as `resolved` includes all
+                        // possible candidates, with expectation that only some
+                        // of them will work. So we don't show these by default
+                        log::debug!("skipping candidate project: {e}");
+                        continue;
+                    }
+                };
+                if let Some(info_meta) = do_info_project(&candidate_project) {
                     result.push(info_meta);
-                }
+                };
             }
-
             Ok(result)
         }
         ResolutionOutcome::UnsupportedIRIType(e) => {

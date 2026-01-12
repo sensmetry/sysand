@@ -299,10 +299,9 @@ fn compute_deps<R: ResolveRead>(
                     valid_candidates.insert(i);
                 }
             }
-            debug_assert!(!found_versions.is_empty());
             if valid_candidates.is_empty() {
                 let mut versions = String::new();
-                // Indexing will not panic, as `found_versions.len() >= 1`
+                // `found_versions` must contain at least one element
                 write!(versions, "`{}`", found_versions[0]).unwrap();
                 for v in &found_versions[1..] {
                     write!(versions, ", `{}`", v).unwrap();

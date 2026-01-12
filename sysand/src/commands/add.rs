@@ -20,7 +20,7 @@ use crate::{CliError, cli::ResolutionOptions, command_sync, commands::lock::crea
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
 pub fn command_add(
-    iri: fluent_uri::Iri<String>,
+    iri: Iri<String>,
     version_constraint: Option<String>,
     no_lock: bool,
     no_sync: bool,
@@ -57,7 +57,7 @@ pub fn command_add(
         let alias_iris = if let Some(w) = current_workspace {
             w.projects()
                 .iter()
-                .find(|p| p.path == current_project.project_path)
+                .find(|p| Path::new(&p.path) == current_project.project_path)
                 .map(|p| p.iris.to_owned())
         } else {
             None

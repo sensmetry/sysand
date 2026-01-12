@@ -88,10 +88,10 @@ impl Workspace {
     /// Read and parse workspace info file `.workspace.json` residing in `root_dir`
     pub fn new(root_dir: PathBuf) -> Result<Self, WorkspaceReadError> {
         let info_path = root_dir.join(".workspace.json");
-        let raw_info: WorkspaceInfoRaw = serde_json::from_reader(wrapfs::File::open(&root_dir)?)
+        let raw_info: WorkspaceInfoRaw = serde_json::from_reader(wrapfs::File::open(&info_path)?)
             .map_err(|e| {
-                WorkspaceDeserializationError::new("failed to deserialize `.workspace.json`", e)
-            })?;
+            WorkspaceDeserializationError::new("failed to deserialize `.workspace.json`", e)
+        })?;
         match WorkspaceInfo::try_from(raw_info) {
             Ok(info) => Ok(Self { root_dir, info }),
             Err(e) => Err(WorkspaceReadError::Validation(info_path, e)),

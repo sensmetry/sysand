@@ -5,7 +5,6 @@
 use std::path::Path;
 use std::{collections::HashSet, fmt::Debug};
 
-#[cfg(feature = "filesystem")]
 use fluent_uri::Iri;
 use thiserror::Error;
 

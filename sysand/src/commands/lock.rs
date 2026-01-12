@@ -53,7 +53,7 @@ pub fn command_lock<P: AsRef<Path>>(
     let alias_iris = if let Some(w) = current_workspace {
         w.projects()
             .iter()
-            .find(|p| &p.path == path.as_ref())
+            .find(|p| Path::new(&p.path) == path.as_ref())
             .map(|p| p.iris.to_owned())
     } else {
         None
