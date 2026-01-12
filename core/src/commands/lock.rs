@@ -5,6 +5,8 @@
 use std::path::Path;
 use std::{collections::HashSet, fmt::Debug};
 
+#[cfg(feature = "filesystem")]
+use fluent_uri::Iri;
 use thiserror::Error;
 
 pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
@@ -64,7 +66,7 @@ pub fn do_lock_projects<
     'a,
     PI: ProjectRead + Debug + 'a,
     PD: ProjectRead + Debug,
-    I: IntoIterator<Item = &'a PI>,
+    I: IntoIterator<Item = (Option<Vec<Iri<String>>>, &'a PI)>,
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     projects: I,
@@ -74,7 +76,7 @@ pub fn do_lock_projects<
 
     let mut all_deps = vec![];
 
-    for project in projects {
+    for (identifiers, project) in projects {
         let info = project
             .get_info()
             .map_err(LockProjectError::InputProjectError)?
@@ -93,7 +95,9 @@ pub fn do_lock_projects<
             name: Some(info.name),
             version: info.version,
             exports: meta.index.into_keys().collect(),
-            identifiers: vec![],
+            identifiers: identifiers
+                .map(|ids| ids.into_iter().map(|id| id.into_string()).collect())
+                .unwrap_or_default(),
             checksum: canonical_hash,
             sources: project.sources(),
             usages: info
@@ -188,6 +192,7 @@ pub fn do_lock_local_editable<
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     path: P,
+    identifiers: Option<Vec<Iri<String>>>,
     resolver: R,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
     let project = EditableProject::new(
@@ -198,5 +203,5 @@ pub fn do_lock_local_editable<
         },
     );
 
-    do_lock_projects([&project], resolver)
+    do_lock_projects([(identifiers, &project)], resolver)
 }

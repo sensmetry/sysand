@@ -5,12 +5,14 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
 
+use fluent_uri::Iri;
 use sysand_core::{
     add::do_add,
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
     config::Config,
     model::InterchangeProjectUsageRaw,
     project::{local_src::LocalSrcProject, utils::wrapfs},
+    workspace::Workspace,
 };
 
 use crate::{CliError, cli::ResolutionOptions, command_sync, commands::lock::create_resolver};
@@ -25,6 +27,7 @@ pub fn command_add(
     resolution_opts: ResolutionOptions,
     config: &Config,
     current_project: Option<LocalSrcProject>,
+    current_workspace: Option<Workspace>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
@@ -51,6 +54,15 @@ pub fn command_add(
         let info_backup = wrapfs::read_to_string(&info_path)?;
         do_add(&mut current_project, &usage_raw)?;
 
+        let alias_iris = if let Some(w) = current_workspace {
+            w.projects()
+                .iter()
+                .find(|p| p.path == current_project.project_path)
+                .map(|p| p.iris.to_owned())
+        } else {
+            None
+        };
+
         match resolve_deps(
             no_sync,
             resolution_opts,
@@ -58,6 +70,7 @@ pub fn command_add(
             client,
             runtime,
             &current_project.project_path,
+            alias_iris,
             provided_iris,
         ) {
             Ok(_) => Ok(()),
@@ -73,6 +86,7 @@ pub fn command_add(
     }
 }
 
+#[expect(clippy::too_many_arguments)]
 fn resolve_deps<P: AsRef<Path>>(
     no_sync: bool,
     resolution_opts: ResolutionOptions,
@@ -80,6 +94,7 @@ fn resolve_deps<P: AsRef<Path>>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     project_root: P,
+    project_identifiers: Option<Vec<Iri<String>>>,
     provided_iris: HashMap<String, Vec<sysand_core::project::memory::InMemoryProject>>,
 ) -> Result<(), anyhow::Error> {
     let resolver = create_resolver(
@@ -90,7 +105,8 @@ fn resolve_deps<P: AsRef<Path>>(
         client.clone(),
         runtime.clone(),
     )?;
-    let LockOutcome { lock, .. } = do_lock_local_editable(&project_root, resolver)?;
+    let LockOutcome { lock, .. } =
+        do_lock_local_editable(&project_root, project_identifiers, resolver)?;
     let lock = lock.canonicalize();
     wrapfs::write(
         project_root.as_ref().join(DEFAULT_LOCKFILE_NAME),

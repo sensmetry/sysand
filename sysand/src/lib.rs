@@ -7,6 +7,8 @@ compile_error!("`std` feature is currently required to build `sysand`");
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
+    fs,
+    io::ErrorKind,
     panic,
     path::Path,
     process::ExitCode,
@@ -15,20 +17,21 @@ use std::{
 };
 
 use anstream::{eprint, eprintln};
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 
 use clap::Parser;
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{
-        Config,
         local_fs::{get_config, load_configs},
+        Config,
     },
-    env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
+    env::local_directory::{LocalDirectoryEnvironment, DEFAULT_ENV_NAME},
     init::InitError,
     lock::Lock,
     project::utils::wrapfs,
     stdlib::known_std_libs,
+    workspace::Workspace,
 };
 
 use crate::{
@@ -111,9 +114,9 @@ fn set_panic_hook() {
 pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
-    let current_workspace = sysand_core::discover::current_workspace()?;
-    let current_project = sysand_core::discover::current_project()?;
     let cwd = wrapfs::current_dir()?;
+    let current_workspace = sysand_core::discover::discover_workspace(&cwd)?;
+    let current_project = sysand_core::discover::discover_project(&cwd);
 
     let project_root = current_project.as_ref().map(|p| p.root_path());
 
@@ -241,11 +244,20 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         },
         cli::Command::Lock { resolution_opts } => {
-            if project_root.is_some() {
-                crate::commands::lock::command_lock(".", resolution_opts, &config, client, runtime)
-                    .map(|_| ())
+            if current_project.is_some() {
+                command_lock(
+                    ".",
+                    current_workspace,
+                    resolution_opts,
+                    &config,
+                    client,
+                    runtime,
+                )
+                .map(|_| ())
             } else {
-                bail!("not inside a project")
+                bail!(
+                    "not inside a project - neither current nor any of the parent directories contain a SysML v2 or KerML project"
+                )
             }
         }
         cli::Command::Sync { resolution_opts } => {
@@ -261,18 +273,28 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashMap::default()
             };
 
-            let project_root = project_root.unwrap_or(cwd);
+            let project_root = project_root.ok_or(CliError::MissingProjectCurrentDir)?;
             let lockfile = project_root.join(DEFAULT_LOCKFILE_NAME);
-            let lock = if !lockfile.is_file() {
-                command_lock(
-                    ".",
-                    resolution_opts,
-                    &config,
-                    client.clone(),
-                    runtime.clone(),
-                )?
-            } else {
-                read_lockfile(lockfile)?
+            let lock = match fs::read_to_string(&lockfile) {
+                Ok(l) => match Lock::from_str(&l) {
+                    Ok(l) => l,
+                    // Include file path in errors
+                    Err(e) => bail!("invalid lockfile `{}`:\n{e}", lockfile.display()),
+                },
+                Err(e) => {
+                    if let ErrorKind::NotFound = e.kind() {
+                        command_lock(
+                            ".",
+                            current_workspace,
+                            resolution_opts,
+                            &config,
+                            client.clone(),
+                            runtime.clone(),
+                        )?
+                    } else {
+                        bail!("failed to read lockfile `{}`: {e}", lockfile.display())
+                    }
+                }
             };
             command_sync(
                 &lock,
@@ -357,7 +379,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
             match (location, subcommand) {
                 (Location::WorkDir, subcommand) => {
-                    if let Some(current_project) = sysand_core::discover::current_project()? {
+                    if let Some(current_project) = current_project {
                         match subcommand {
                             Some(subcommand) => {
                                 match subcommand {
@@ -452,6 +474,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             resolution_opts,
             &config,
             current_project,
+            current_workspace,
             client,
             runtime,
         ),
@@ -470,7 +493,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 } else {
                     let mut output_dir = current_workspace
                         .as_ref()
-                        .map(|workspace| &workspace.workspace_path)
+                        .map(Workspace::root_path)
                         .unwrap_or_else(|| &current_project.project_path)
                         .join("output");
                     let name = sysand_core::build::default_kpar_file_name(&current_project)?;
@@ -488,7 +511,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let current_workspace =
                     current_workspace.ok_or(CliError::MissingProjectCurrentDir)?;
                 let output_dir =
-                    path.unwrap_or_else(|| current_workspace.workspace_path.join("output"));
+                    path.unwrap_or_else(|| current_workspace.root_path().join("output"));
                 if !output_dir.is_dir() {
                     wrapfs::create_dir(&output_dir)?;
                 }
@@ -563,31 +586,5 @@ fn get_log_level(verbose: bool, quiet: bool) -> Result<log::LevelFilter> {
         (true, false) => Ok(log::LevelFilter::Debug),
         (false, true) => Ok(log::LevelFilter::Error),
         (false, false) => Ok(log::LevelFilter::Info),
-    }
-}
-
-fn read_lockfile(lockfile_path: impl AsRef<Path>) -> Result<Lock> {
-    use sysand_core::lock::ParseError;
-    match Lock::from_str(&wrapfs::read_to_string(&lockfile_path)?) {
-        Ok(l) => Ok(l),
-        // Include file path in errors
-        Err(e) => match e {
-            ParseError::Toml(e) => bail!(
-                "failed to parse lockfile `{}`:\n{e}",
-                lockfile_path.as_ref().display()
-            ),
-            ParseError::TomlEdit(e) => bail!(
-                "failed to parse lockfile `{}`:\n{e}",
-                lockfile_path.as_ref().display()
-            ),
-            ParseError::Validation(e) => bail!(
-                "invalid lockfile `{}`:\n{e}",
-                lockfile_path.as_ref().display()
-            ),
-            ParseError::Version(e) => bail!(
-                "failed to parse lockfile `{}`:\n{e}",
-                lockfile_path.as_ref().display()
-            ),
-        },
     }
 }

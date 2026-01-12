@@ -151,8 +151,8 @@ pub fn command_env_install(
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
-pub fn command_env_install_path<S: AsRef<str>>(
-    iri: S,
+pub fn command_env_install_path(
+    iri: Iri<String>,
     version: Option<String>,
     path: String,
     install_opts: InstallOptions,
@@ -217,7 +217,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
     // TODO: Fix this hack. Currently installing manually then turning project into Editable to
     // avoid errors when syncing. Lockfile generation should be configurable.
     sysand_core::commands::env::do_env_install_project(
-        iri,
+        iri.as_str(),
         &project,
         &mut env,
         allow_overwrite,
@@ -248,7 +248,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
         let LockOutcome {
             lock,
             dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_projects([&project], resolver)?;
+        } = sysand_core::commands::lock::do_lock_projects([(Some(vec![iri]), &project)], resolver)?;
         command_sync(
             &lock,
             project_root,

@@ -352,8 +352,12 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
     let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
         return;
     };
-    let workspace = Workspace {
-        workspace_path: PathBuf::from(workspace_path),
+    let workspace = match Workspace::new(workspace_path.into()) {
+        Ok(w) => w,
+        Err(e) => {
+            env.throw_exception(ExceptionKind::InvalidWorkspace, e.to_string());
+            return;
+        }
     };
     match wrapfs::create_dir_all(&output_path) {
         Ok(_) => {}

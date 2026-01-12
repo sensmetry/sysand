@@ -17,16 +17,18 @@ use sysand_core::{
         standard::{StandardResolver, standard_resolver},
     },
     stdlib::known_std_libs,
+    workspace::Workspace,
 };
 
 use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 
-/// Generate a lockfile for project at `path`.
+/// Generate a lockfile for `current_project`.
 /// `path` must be relative to workspace root.
 // TODO: this will not work properly if run in subdir of workspace,
 // as `path` will then refer to a deeper subdir
 pub fn command_lock<P: AsRef<Path>>(
     path: P,
+    current_workspace: Option<Workspace>,
     resolution_opts: ResolutionOptions,
     config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -48,10 +50,18 @@ pub fn command_lock<P: AsRef<Path>>(
         runtime,
     )?;
 
+    let alias_iris = if let Some(w) = current_workspace {
+        w.projects()
+            .iter()
+            .find(|p| &p.path == path.as_ref())
+            .map(|p| p.iris.to_owned())
+    } else {
+        None
+    };
     let LockOutcome {
         lock,
         dependencies: _dependencies,
-    } = do_lock_local_editable(&path, wrapped_resolver)?;
+    } = do_lock_local_editable(&path, alias_iris, wrapped_resolver)?;
 
     let canonical = lock.canonicalize();
     wrapfs::write(
