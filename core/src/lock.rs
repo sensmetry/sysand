@@ -393,15 +393,12 @@ pub struct Project {
     pub checksum: String,
 }
 
-/// Project hash takes into account:
-///
-/// - name
-/// - version
-/// - checksum
 impl std::hash::Hash for Project {
+    /// Project hash is its canonical checksum.
+    /// IRIs could also be used for this, but they may differ in amount
+    /// (including having no known IRIs) and/or ordering between different
+    /// project instances
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.version.hash(state);
         self.checksum.hash(state);
     }
 }
@@ -451,6 +448,7 @@ impl Project {
         table
     }
 
+    /// Project hash is its canonical checksum
     pub fn hash_val(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
