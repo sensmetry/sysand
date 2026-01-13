@@ -160,16 +160,11 @@ fn add_and_remove_with_local_src() -> Result<(), Box<dyn std::error::Error>> {
 
     let config_path = cwd.join("sysand.toml");
     std::fs::File::create_new(&config_path)?;
+    std::fs::create_dir_all(cwd.join("local/test"))?;
 
     let out = run_sysand_in(
         &cwd,
-        [
-            "add",
-            "--no-lock",
-            "urn:kpar:test",
-            "--local-src",
-            "local/test",
-        ],
+        ["add", "--no-lock", "urn:kpar:test", "--path", "local/test"],
         Some(config_path.as_str()),
     )?;
 
@@ -248,6 +243,8 @@ fn add_and_remove_with_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
 
     let config_path = cwd.join("sysand.toml");
     std::fs::File::create_new(&config_path)?;
+    std::fs::create_dir(cwd.join("local"))?;
+    std::fs::File::create_new(cwd.join("local/test.kpar"))?;
 
     let out = run_sysand_in(
         &cwd,
@@ -255,7 +252,7 @@ fn add_and_remove_with_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
             "add",
             "--no-lock",
             "urn:kpar:test",
-            "--local-kpar",
+            "--path",
             "local/test.kpar",
         ],
         Some(config_path.as_str()),
@@ -343,7 +340,7 @@ fn add_and_remove_with_remote_src() -> Result<(), Box<dyn std::error::Error>> {
             "add",
             "--no-lock",
             "urn:kpar:test",
-            "--remote-src",
+            "--url-src",
             "www.example.com/test",
         ],
         Some(config_path.as_str()),
@@ -431,7 +428,7 @@ fn add_and_remove_with_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
             "add",
             "--no-lock",
             "urn:kpar:test",
-            "--remote-kpar",
+            "--url-kpar",
             "www.example.com/test.kpar",
         ],
         Some(config_path.as_str()),
