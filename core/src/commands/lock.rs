@@ -3,7 +3,10 @@
 
 #[cfg(feature = "filesystem")]
 use std::path::Path;
-use std::{collections::HashSet, fmt::Debug};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+};
 
 use fluent_uri::Iri;
 use thiserror::Error;
@@ -13,7 +16,7 @@ pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
 #[cfg(feature = "filesystem")]
 use crate::project::{editable::EditableProject, local_src::LocalSrcProject};
 use crate::{
-    lock::{Lock, Project, Usage},
+    lock::{Lock, Project, Usage, hash_str},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{CanonicalisationError, ProjectRead, utils::FsIoError},
     resolve::ResolveRead,
@@ -31,6 +34,16 @@ pub enum LockProjectError<PI: ProjectRead, PD: ProjectRead, R: ResolveRead + Deb
 }
 
 #[derive(Error, Debug)]
+#[error(
+        "symbol name `{}` is exported more than once in lockfile:\nproject 1:\n{:#}\nproject 2:\n{:#}", .symbol, .pr1.to_toml(), .pr2.to_toml()
+    )]
+pub struct NameCollisionError {
+    pub symbol: String,
+    pub pr1: Project,
+    pub pr2: Project,
+}
+
+#[derive(Error, Debug)]
 pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     DependencyProject(PD::Error),
@@ -44,6 +57,8 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     Validation(InterchangeProjectValidationError),
     #[error(transparent)]
     Solver(SolverError<R>),
+    #[error(transparent)]
+    NameCollision(Box<NameCollisionError>),
 }
 
 pub struct LockOutcome<PD> {
@@ -141,8 +156,21 @@ pub fn do_lock_extend<
     let mut dependencies = vec![];
     let solution = solve(inputs, resolver).map_err(LockError::Solver)?;
     let mut lock_projects = HashSet::new();
-    for p in lock.projects.iter() {
+    let mut lock_symbols = HashMap::new();
+    for (i, p) in lock.projects.iter().enumerate() {
         lock_projects.insert(p.hash_val());
+        for s in p.exports.iter() {
+            if let Some(conflict_idx) = lock_symbols.insert(hash_str(s), i) {
+                return Err(LockError::NameCollision(
+                    NameCollisionError {
+                        symbol: s.to_owned(),
+                        pr1: lock.projects[conflict_idx].clone(),
+                        pr2: p.clone(),
+                    }
+                    .into(),
+                ));
+            }
+        }
     }
 
     for (iri, (info, meta, project)) in solution {
@@ -164,14 +192,31 @@ pub fn do_lock_extend<
                 .map(|u| Usage::from(u.resource))
                 .collect(),
         };
-        if !lock_projects.contains(&lock_project.hash_val()) {
-            lock.projects.push(lock_project);
-        } else {
+        if lock_projects.contains(&lock_project.hash_val()) {
             log::debug!(
                 "not adding project `{}` ({}) to lock, as lock already contains it",
-                lock_project.identifiers[0],
+                iri,
                 lock_project.version
             );
+        } else {
+            for s in &lock_project.exports {
+                if let Some(conflict_idx) = lock_symbols.insert(hash_str(s), lock.projects.len()) {
+                    return Err(LockError::NameCollision(
+                        NameCollisionError {
+                            symbol: s.to_owned(),
+                            pr1: if conflict_idx == lock.projects.len() {
+                                // Will happen if `lock_project` exports duplicate symbols
+                                lock_project.clone()
+                            } else {
+                                lock.projects[conflict_idx].clone()
+                            },
+                            pr2: lock_project,
+                        }
+                        .into(),
+                    ));
+                }
+            }
+            lock.projects.push(lock_project);
         }
 
         dependencies.push((iri, project));
@@ -203,4 +248,45 @@ pub fn do_lock_local_editable<
     );
 
     do_lock_projects([(identifiers, &project)], resolver)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        commands::lock::{LockError, do_lock_extend},
+        lock::{Lock, Project},
+        resolve::null::NullResolver,
+    };
+
+    #[test]
+    fn lock_export_conflict() {
+        let exports = vec!["sym1".into(), "sym2".into(), "sym3".into()];
+
+        let lock = Lock {
+            lock_version: String::new(),
+            projects: vec![
+                Project {
+                    name: Some("test1".into()),
+                    version: String::new(),
+                    exports: exports.clone(),
+                    identifiers: vec!["test1".into()],
+                    checksum: String::new(),
+                    sources: vec![],
+                    usages: vec![],
+                },
+                Project {
+                    name: Some("test2".into()),
+                    version: String::new(),
+                    exports,
+                    identifiers: vec!["test2".into()],
+                    checksum: String::new(),
+                    sources: vec![],
+                    usages: vec![],
+                },
+            ],
+        };
+        let res = do_lock_extend(lock, [], NullResolver {});
+
+        assert!(matches!(res, Err(LockError::NameCollision(_))));
+    }
 }

@@ -3,7 +3,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fmt::Display,
     hash::{DefaultHasher, Hash, Hasher},
     path::Path,
@@ -156,11 +156,6 @@ pub enum ResolutionError<EnvironmentError> {
 pub enum ValidationError {
     #[error("lockfile version `{0}` is not supported")]
     UnsupportedVersion(String),
-    // TODO: should this be an error? Projects can export any
-    // symbols they want, and they can certainly collide
-    // This does make life more difficult for other tools to
-    // deal with, but it arguably does not make the lockfile
-    // itself invalid
     #[error("symbol name `{0}` is exported by more than one project in lockfile")]
     NameCollision(String),
     #[error("project identifier `{0}` is\nspecified by more than one project in lockfile")]
@@ -289,27 +284,25 @@ impl Lock {
     }
 
     fn validate_usages(&self) -> Result<(), ValidationError> {
-        let mut iri_versions = HashMap::new();
+        let mut iri_versions = HashSet::new();
         for project in &self.projects {
-            let version = Version::parse(&project.version)
-                .inspect_err(|err| {
-                    log::warn!(
-                        "invalid semantic version `{}` for project `{}`\n\
+            let _ = Version::parse(&project.version).inspect_err(|err| {
+                log::warn!(
+                    "invalid semantic version `{}` for project {}\n\
                         {:>8} {}",
-                        project.version,
-                        project_with(project.name.as_ref()),
-                        ' ',
-                        err
-                    );
-                })
-                .ok();
+                    project.version,
+                    project_with(project.name.as_ref()),
+                    ' ',
+                    err
+                );
+            });
             for iri in &project.identifiers {
-                iri_versions.insert(iri.clone(), version.clone());
+                iri_versions.insert(iri.clone());
             }
         }
         for project in &self.projects {
             for usage in &project.usages {
-                if !iri_versions.contains_key(&usage.resource) {
+                if !iri_versions.contains(&usage.resource) {
                     return Err(ValidationError::UnsatisfiedUsage {
                         usage: usage.resource.clone(),
                         project_with_name: project_with(project.name.clone()),
@@ -421,6 +414,17 @@ impl PartialOrd for Project {
     }
 }
 
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct ProjectHash(u64);
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct StrHash(u64);
+
+pub fn hash_str(val: &str) -> StrHash {
+    let mut hasher = DefaultHasher::new();
+    val.hash(&mut hasher);
+    StrHash(hasher.finish())
+}
+
 impl Project {
     pub fn to_toml(&self) -> Table {
         let mut table = Table::new();
@@ -449,10 +453,10 @@ impl Project {
     }
 
     /// Project hash is its canonical checksum
-    pub fn hash_val(&self) -> u64 {
+    pub fn hash_val(&self) -> ProjectHash {
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
-        hasher.finish()
+        ProjectHash(hasher.finish())
     }
 }
 
