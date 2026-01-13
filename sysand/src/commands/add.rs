@@ -48,21 +48,26 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         .or((!no_config).then(|| project_root.join(CONFIG_FILE)));
 
     #[allow(clippy::manual_map)] // For readability and compactness
-    let source = if let Some(editable) = source_opts.editable {
+    let source = if let Some(path) = source_opts.path {
+        let metadata = wrapfs::metadata(&path)?;
+        if metadata.is_dir() {
+            Some(sysand_core::lock::Source::LocalSrc {
+                src_path: get_relative(path, &project_root)?.as_str().into(),
+            })
+        } else if metadata.is_file() {
+            Some(sysand_core::lock::Source::LocalKpar {
+                kpar_path: path.into(),
+            })
+        } else {
+            bail!("path `{path}` is neither a directory nor a file");
+        }
+    } else if let Some(editable) = source_opts.editable {
         Some(sysand_core::lock::Source::Editable {
             editable: get_relative(editable, &project_root)?.as_str().into(),
         })
-    } else if let Some(local_src) = source_opts.local_src {
-        Some(sysand_core::lock::Source::LocalSrc {
-            src_path: get_relative(local_src, &project_root)?.as_str().into(),
-        })
-    } else if let Some(kpar_path) = source_opts.local_kpar {
-        Some(sysand_core::lock::Source::LocalKpar {
-            kpar_path: kpar_path.into(),
-        })
-    } else if let Some(remote_src) = source_opts.remote_src {
+    } else if let Some(remote_src) = source_opts.url_src {
         Some(sysand_core::lock::Source::RemoteSrc { remote_src })
-    } else if let Some(remote_kpar) = source_opts.remote_kpar {
+    } else if let Some(remote_kpar) = source_opts.url_kpar {
         Some(sysand_core::lock::Source::RemoteKpar {
             remote_kpar,
             remote_kpar_size: None,
