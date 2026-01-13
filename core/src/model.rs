@@ -447,6 +447,8 @@ pub enum InterchangeProjectValidationError {
     SemVerConstraintParse(String, semver::Error),
     #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
     DatetimeParse(Box<str>, chrono::ParseError),
+    #[error("file `{0}` is present in symbol index, but absent in file checksums")]
+    MissingFileInChecksum(Box<str>),
     #[error(
         "invalid file checksum algorithm `{0}`, expected one of:\n\
         SHA1, SHA224, SHA256, SHA-384, SHA3-256, SHA3-384, SHA3-512\n\
@@ -482,6 +484,16 @@ impl InterchangeProjectMetadataRaw {
         &self,
     ) -> Result<InterchangeProjectMetadata, InterchangeProjectValidationError> {
         let checksum = if let Some(checksum) = &self.checksum {
+            // Checksum must include all the files mentioned in index,
+            // but index may mention less files than checksum.
+            for path in self.index.values() {
+                if !checksum.contains_key(path) {
+                    return Err(InterchangeProjectValidationError::MissingFileInChecksum(
+                        path.as_str().into(),
+                    ));
+                }
+            }
+
             let mut res = IndexMap::with_capacity(checksum.len());
             for (k, v) in checksum {
                 let k = Utf8UnixPath::new(k).to_path_buf();
@@ -508,16 +520,19 @@ impl InterchangeProjectMetadataRaw {
                 };
                 res.insert(k, InterchangeProjectChecksum { value, algorithm });
             }
+
             Some(res)
         } else {
             None
         };
+
         Ok(InterchangeProjectMetadata {
             index: self
                 .index
                 .iter()
                 .map(|(k, v)| (k.to_owned(), Utf8UnixPath::new(v).to_path_buf()))
                 .collect(),
+            // TODO: this is not strictly correct, as RFC3339 only partially overlaps with ISO8601
             created: chrono::DateTime::parse_from_rfc3339(&self.created)
                 .map_err(|e| {
                     InterchangeProjectValidationError::DatetimeParse(
