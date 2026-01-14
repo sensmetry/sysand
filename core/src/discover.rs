@@ -6,7 +6,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use crate::{
     project::{
         local_src::LocalSrcProject,
-        utils::{FsIoError, wrapfs},
+        utils::{FsIoError, ToPathBuf, wrapfs},
     },
     workspace::Workspace,
 };
@@ -40,7 +40,7 @@ fn discover<P: AsRef<Utf8Path>, F: Fn(&Utf8Path) -> bool>(
     working_directory: P,
     predicate: F,
 ) -> Option<Utf8PathBuf> {
-    let mut current = working_directory.as_ref().to_path_buf();
+    let mut current = working_directory.to_path_buf();
 
     log::debug!("trying to discover project in `{}`", current);
 

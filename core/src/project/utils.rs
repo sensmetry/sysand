@@ -4,14 +4,9 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 #[cfg(feature = "filesystem")]
-use zip;
+use zip::{self, result::ZipError};
 
-#[cfg(feature = "filesystem")]
-use std::path::Path;
-use std::{
-    io::{self, Read},
-    path::PathBuf,
-};
+use std::io::{self, Read};
 
 /// A file that is guaranteed to exist as long as the lifetime.
 /// Intended to be used with temporary files that are automatically
@@ -38,14 +33,14 @@ impl Read for FileWithLifetime<'_> {
 }
 
 pub trait ToPathBuf {
-    fn to_std_path_buf(&self) -> PathBuf;
+    fn to_path_buf(&self) -> Utf8PathBuf;
 }
 
 impl<P> ToPathBuf for P
 where
     P: AsRef<Utf8Path>,
 {
-    fn to_std_path_buf(&self) -> PathBuf {
+    fn to_path_buf(&self) -> Utf8PathBuf {
         self.as_ref().into()
     }
 }
@@ -55,13 +50,13 @@ where
 #[derive(Error, Debug)]
 pub enum FsIoError {
     #[error("failed to canonicalize path\n  `{0}`:\n  {1}")]
-    Canonicalize(PathBuf, io::Error),
+    Canonicalize(Utf8PathBuf, io::Error),
     #[error("failed to create directory\n  `{0}`:\n  {1}")]
-    MkDir(PathBuf, io::Error),
+    MkDir(Utf8PathBuf, io::Error),
     #[error("failed to open file\n  `{0}`:\n  {1}")]
-    OpenFile(PathBuf, io::Error),
+    OpenFile(Utf8PathBuf, io::Error),
     #[error("failed to get metadata for\n  `{0}`:\n  {1}")]
-    Metadata(PathBuf, io::Error),
+    Metadata(Utf8PathBuf, io::Error),
     /// Same as `Self::Metadata`, but path is unknown when using file handle
     #[error("failed to get metadata for file: {0}")]
     MetadataHandle(io::Error),
@@ -72,22 +67,22 @@ pub enum FsIoError {
     #[error("failed to write file\n  `{0}`:\n  {1}")]
     WriteFile(Utf8PathBuf, io::Error),
     #[error("failed to read directory\n  `{0}`:\n  {1}")]
-    ReadDir(PathBuf, io::Error),
+    ReadDir(Utf8PathBuf, io::Error),
     #[error("failed to read file\n  `{0}`:\n  {1}")]
-    ReadFile(PathBuf, io::Error),
+    ReadFile(Utf8PathBuf, io::Error),
     /// Same as `Self::ReadFile`, but path is unknown when using file handle.
     #[error("failed to read file: {0}")]
     ReadFileHandle(io::Error),
     #[error("failed to move\n  `{0}` to\n  `{1}`:\n  {2}")]
-    Move(PathBuf, PathBuf, io::Error),
+    Move(Utf8PathBuf, Utf8PathBuf, io::Error),
     #[error("failed to create file\n  `{0}`:\n  {1}")]
-    CreateFile(PathBuf, io::Error),
+    CreateFile(Utf8PathBuf, io::Error),
     #[error("failed to copy file from\n  `{0}` to\n  `{1}`:\n  {2}")]
-    CopyFile(PathBuf, PathBuf, io::Error),
+    CopyFile(Utf8PathBuf, Utf8PathBuf, io::Error),
     #[error("failed to remove file\n  `{0}`:\n  {1}")]
-    RmFile(PathBuf, io::Error),
+    RmFile(Utf8PathBuf, io::Error),
     #[error("failed to remove directory\n  `{0}`:\n  {1}")]
-    RmDir(PathBuf, io::Error),
+    RmDir(Utf8PathBuf, io::Error),
     #[error("failed to get path to current directory:\n  {0}")]
     CurrentDir(io::Error),
 }
@@ -98,7 +93,6 @@ pub mod wrapfs {
 
     use std::fs;
     use std::io;
-    use std::path::Path;
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
@@ -109,14 +103,13 @@ pub mod wrapfs {
     pub mod File {
 
         use std::fs;
-        use std::path::Path;
 
         use camino::Utf8Path;
 
         use super::FsIoError;
 
-        pub fn open<P: AsRef<Path>>(path: P) -> Result<fs::File, Box<FsIoError>> {
-            fs::File::open(&path)
+        pub fn open<P: AsRef<Utf8Path>>(path: P) -> Result<fs::File, Box<FsIoError>> {
+            fs::File::open(path.as_ref())
                 .map_err(|e| Box::new(FsIoError::OpenFile(path.as_ref().into(), e)))
         }
 
@@ -131,7 +124,7 @@ pub mod wrapfs {
             .map_err(|e| Box::new(FsIoError::MkDir(path.as_ref().into(), e)))
     }
 
-    pub fn create_dir_all<P: AsRef<Path>>(path: P) -> Result<(), Box<FsIoError>> {
+    pub fn create_dir_all<P: AsRef<Utf8Path>>(path: P) -> Result<(), Box<FsIoError>> {
         fs::create_dir_all(path.as_ref())
             .map_err(|e| Box::new(FsIoError::MkDir(path.as_ref().into(), e)))
     }
@@ -170,7 +163,7 @@ pub mod wrapfs {
         })
     }
 
-    pub fn read_to_string<P: AsRef<Path>>(path: P) -> Result<String, Box<FsIoError>> {
+    pub fn read_to_string<P: AsRef<Utf8Path>>(path: P) -> Result<String, Box<FsIoError>> {
         fs::read_to_string(path.as_ref())
             .map_err(|e| Box::new(FsIoError::ReadFile(path.as_ref().into(), e)))
     }
@@ -243,17 +236,17 @@ impl ProjectSerializationError {
 #[derive(Debug, Error)]
 pub enum ZipArchiveError {
     #[error("failed to parse zip archive `{0}`: {1}")]
-    ReadArchive(Box<Path>, zip::result::ZipError),
+    ReadArchive(Box<Utf8Path>, ZipError),
     #[error("failed to retrieve file from zip archive: {0}")]
-    FileMeta(zip::result::ZipError),
+    FileMeta(ZipError),
     #[error("failed to retrieve file from zip archive: {0}")]
-    NamedFileMeta(Box<str>, zip::result::ZipError),
+    NamedFileMeta(Box<str>, ZipError),
     #[error(
         "zip archive path handling error: file `{0}` in a zip archive is not contained in a directory"
     )]
     InvalidPath(Box<Utf8Path>),
     #[error("failed to write file `{0}` to zip archive: {1}")]
-    Write(Box<Utf8Path>, zip::result::ZipError),
+    Write(Box<Utf8Path>, ZipError),
     #[error("failed to finish creating zip archive at `{0}`: {1}")]
-    Finish(Box<Utf8Path>, zip::result::ZipError),
+    Finish(Box<Utf8Path>, ZipError),
 }

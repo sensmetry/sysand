@@ -261,11 +261,11 @@ fn try_install<
     E: ReadEnvironment + WriteEnvironment,
     P: ProjectRead,
     U: ErrorBound,
-    Str1: AsRef<str>,
-    Str2: AsRef<str>,
+    S1: AsRef<str>,
+    S2: AsRef<str>,
 >(
-    uri: Str1,
-    checksum: Str2,
+    uri: S1,
+    checksum: S2,
     storage: P,
     env: &mut E,
 ) -> Result<(), SyncError<U>> {

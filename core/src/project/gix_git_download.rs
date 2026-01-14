@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-
+use camino::Utf8PathBuf;
 use gix::prepare_clone;
 use thiserror::Error;
 
@@ -38,7 +37,7 @@ pub enum GixDownloadedError {
     #[error("git fetch from `{0}` failed: {1}")]
     Fetch(String, Box<gix::clone::fetch::Error>),
     #[error("git checkout in temporary directory `{0}` failed: {1}")]
-    Checkout(PathBuf, Box<gix::clone::checkout::main_worktree::Error>),
+    Checkout(Utf8PathBuf, Box<gix::clone::checkout::main_worktree::Error>),
     #[error("{0}")]
     Other(String),
 }
@@ -88,7 +87,7 @@ impl GixDownloadedProject {
             let (_repo, _) = prepare_checkout
                 .main_worktree(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
                 .map_err(|e| {
-                    GixDownloadedError::Checkout(self.tmp_dir.to_std_path_buf(), Box::new(e))
+                    GixDownloadedError::Checkout(self.tmp_dir.to_path_buf(), Box::new(e))
                 })?;
         }
 

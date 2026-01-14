@@ -100,7 +100,7 @@ impl ProjectMut for InMemoryProject {
         if let Entry::Occupied(_) = file_entry {
             if !overwrite {
                 return Err(InMemoryError::AlreadyExists(format!(
-                    "{} already exists",
+                    "`{}` already exists",
                     path.as_ref()
                 )));
             }
@@ -119,7 +119,7 @@ pub enum InMemoryError {
     #[error("{0}")]
     AlreadyExists(String),
     #[error("project read error: file `{0}` not found")]
-    FileNotFound(Box<str>),
+    FileNotFound(Utf8UnixPathBuf),
     #[error("failed to read from reader: {0}")]
     IoRead(#[from] std::io::Error),
 }
@@ -145,10 +145,11 @@ impl ProjectRead for InMemoryProject {
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, InMemoryError> {
+        let path_buf = path.as_ref().to_path_buf();
         let contents = self
             .files
-            .get(&path.as_ref().to_path_buf())
-            .ok_or_else(|| InMemoryError::FileNotFound(path.as_ref().as_str().into()))?;
+            .get(&path_buf)
+            .ok_or(InMemoryError::FileNotFound(path_buf))?;
 
         Ok(contents.as_bytes())
     }

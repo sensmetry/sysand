@@ -44,7 +44,7 @@ pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> Utf8PathBuf {
 pub fn remove_dir_if_empty<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
     match fs::remove_dir(path.as_ref()) {
         Err(err) if err.kind() == io::ErrorKind::DirectoryNotEmpty => Ok(()),
-        r => r.map_err(|e| FsIoError::RmDir(path.to_std_path_buf(), e)),
+        r => r.map_err(|e| FsIoError::RmDir(path.to_path_buf(), e)),
     }
 }
 
@@ -93,7 +93,7 @@ fn try_remove_files<P: AsRef<Utf8Path>, I: Iterator<Item = P>>(
     for (i, path) in paths.enumerate() {
         match move_fs_item(&path, tempdir.path().join(i.to_string())) {
             Ok(_) => {
-                moved.push(path.as_ref().to_path_buf());
+                moved.push(path.to_path_buf());
             }
             Err(cause) => {
                 // NOTE: This dance is to bypass the fact that std::io::error is not Clone-eable...
@@ -126,10 +126,10 @@ fn copy_dir_recursive<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     wrapfs::create_dir(&dst)?;
 
     for entry_result in wrapfs::read_dir(&src)? {
-        let entry = entry_result.map_err(|e| FsIoError::ReadDir(src.to_std_path_buf(), e))?;
+        let entry = entry_result.map_err(|e| FsIoError::ReadDir(src.to_path_buf(), e))?;
         let file_type = entry
             .file_type()
-            .map_err(|e| FsIoError::ReadDir(src.to_std_path_buf(), e))?;
+            .map_err(|e| FsIoError::ReadDir(src.to_path_buf(), e))?;
         let src_path = entry.path();
         let dst_path = dst.as_ref().join(entry.file_name());
 
@@ -161,11 +161,7 @@ fn move_fs_item<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
             }
             Ok(())
         }
-        Err(e) => Err(FsIoError::Move(
-            src.to_std_path_buf(),
-            dst.to_std_path_buf(),
-            e,
-        ))?,
+        Err(e) => Err(FsIoError::Move(src.to_path_buf(), dst.to_path_buf(), e))?,
     }
 }
 
@@ -441,8 +437,7 @@ fn add_line_temp<R: Read, S: AsRef<str>>(
 
     let mut line_added = false;
     for this_line in BufReader::new(reader).lines() {
-        let this_line =
-            this_line.map_err(|e| FsIoError::ReadFile(temp_file.to_std_path_buf(), e))?;
+        let this_line = this_line.map_err(|e| FsIoError::ReadFile(temp_file.to_path_buf(), e))?;
 
         if !line_added && line.as_ref() < this_line.as_str() {
             writeln!(temp_file, "{}", line.as_ref())
@@ -552,7 +547,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             let current_versions_f = BufReader::new(wrapfs::File::open(&versions_path)?);
             for version_line_ in current_versions_f.lines() {
                 let version_line = version_line_
-                    .map_err(|e| FsIoError::ReadFile(versions_path.to_std_path_buf(), e))?;
+                    .map_err(|e| FsIoError::ReadFile(versions_path.to_path_buf(), e))?;
 
                 if version.as_ref() != version_line {
                     writeln!(versions_temp, "{}", version_line)

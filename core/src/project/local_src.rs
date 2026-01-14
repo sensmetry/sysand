@@ -4,7 +4,11 @@
 use crate::{
     env::utils::{CloneError, clone_project},
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectMut, ProjectRead, editable::GetPath, utils::wrapfs},
+    project::{
+        ProjectMut, ProjectRead,
+        editable::GetPath,
+        utils::{ToPathBuf, wrapfs},
+    },
 };
 use std::{
     collections::HashSet,
@@ -38,7 +42,7 @@ impl GetPath for LocalSrcProject {
 /// but where some prefix, say, /path/to/file can be canonicalised.
 fn canonicalise_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
     let mut relative_part = Utf8PathBuf::new();
-    let mut absolute_part = path.as_ref().to_path_buf();
+    let mut absolute_part = path.to_path_buf();
 
     loop {
         if let Ok(canonical_absolute) = absolute_part.canonicalize_utf8() {
@@ -108,7 +112,7 @@ impl LocalSrcProject {
             .map_err(|e| UnixPathError::Canonicalize(root_path, e))?;
 
         let path = relativise_path(&path, project_path)
-            .ok_or_else(|| UnixPathError::PathOutsideProject(path.as_ref().to_path_buf()))?;
+            .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
 
         let mut unix_path = Utf8UnixPathBuf::new();
         for component in path.components() {

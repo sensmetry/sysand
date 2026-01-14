@@ -8,7 +8,7 @@ use crate::env::{
 #[cfg(feature = "filesystem")]
 use crate::{
     env::local_directory::{ENTRIES_PATH, LocalDirectoryEnvironment, LocalWriteError},
-    project::utils::wrapfs,
+    project::utils::{ToPathBuf, wrapfs},
 };
 
 #[cfg(feature = "filesystem")]
@@ -42,7 +42,7 @@ pub fn do_env_local_dir<P: AsRef<Utf8Path>>(
     path: P,
 ) -> Result<LocalDirectoryEnvironment, EnvError<LocalWriteError>> {
     if path.as_ref().exists() {
-        return Err(EnvError::AlreadyExists(path.as_ref().to_path_buf()));
+        return Err(EnvError::AlreadyExists(path.to_path_buf()));
     }
 
     let creating = "Creating";
@@ -55,6 +55,6 @@ pub fn do_env_local_dir<P: AsRef<Utf8Path>>(
     wrapfs::File::create(&fp).map_err(LocalWriteError::from)?;
 
     Ok(LocalDirectoryEnvironment {
-        environment_path: path.as_ref().to_path_buf(),
+        environment_path: path.to_path_buf(),
     })
 }

@@ -89,7 +89,7 @@ fn path_index<P: AsRef<Utf8UnixPath>, Q: AsRef<Utf8Path>>(
 ) -> Result<usize, LocalKParError> {
     // NOTE:
     let mut native_path = match set_root {
-        Some(root) => root.as_ref().to_path_buf(),
+        Some(root) => root.to_path_buf(),
         None => guess_root(archive)?,
     };
 
@@ -136,15 +136,15 @@ impl LocalKParProject {
     ) -> Result<Self, Box<FsIoError>> {
         Ok(LocalKParProject {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
-            archive_path: path.as_ref().to_path_buf(),
-            root: Some(root.as_ref().to_path_buf()),
+            archive_path: path.to_path_buf(),
+            root: Some(root.to_path_buf()),
         })
     }
 
     pub fn new_guess_root<P: AsRef<Utf8Path>>(path: P) -> Result<Self, Box<FsIoError>> {
         Ok(LocalKParProject {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
-            archive_path: path.as_ref().to_path_buf(),
+            archive_path: path.to_path_buf(),
             root: None,
         })
     }
@@ -188,7 +188,7 @@ impl LocalKParProject {
             zip.start_file(&source_path, options)
                 .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&source_path).into(), e))?;
             std::io::copy(&mut reader, &mut zip)
-                .map_err(|e| FsIoError::CopyFile(source_path.into(), path.to_std_path_buf(), e))?;
+                .map_err(|e| FsIoError::CopyFile(source_path.into(), path.to_path_buf(), e))?;
         }
 
         zip.finish()
@@ -283,7 +283,7 @@ impl ProjectRead for LocalKParProject {
                 .tmp_dir
                 .path()
                 .canonicalize_utf8()
-                .map_err(|e| FsIoError::Canonicalize(self.tmp_dir.to_std_path_buf(), e))?;
+                .map_err(|e| FsIoError::Canonicalize(self.tmp_dir.to_path_buf(), e))?;
             p.push(tmp_name);
             p
         };

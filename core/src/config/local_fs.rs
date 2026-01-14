@@ -1,13 +1,13 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::Path;
+use std::{fs, path::Path};
 
 use camino::Utf8Path;
 use thiserror::Error;
 
 use super::Config;
-use crate::project::utils::{FsIoError, wrapfs};
+use crate::project::utils::FsIoError;
 
 pub const CONFIG_DIR: &str = "sysand";
 pub const CONFIG_FILE: &str = "sysand.toml";
@@ -15,7 +15,7 @@ pub const CONFIG_FILE: &str = "sysand.toml";
 #[derive(Error, Debug)]
 pub enum ConfigReadError {
     #[error("failed to deserialize TOML file `{0}`: {1}")]
-    Toml(Box<Path>, toml::de::Error),
+    Toml(Box<Utf8Path>, toml::de::Error),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
@@ -28,11 +28,20 @@ impl From<FsIoError> for ConfigReadError {
 
 pub fn get_config<P: AsRef<Path>>(path: P) -> Result<Config, ConfigReadError> {
     if path.as_ref().is_file() {
-        let contents = wrapfs::read_to_string(&path)?;
-        Ok(
-            toml::from_str(&contents)
-                .map_err(|e| ConfigReadError::Toml(path.as_ref().into(), e))?,
-        )
+        let contents = {
+            fs::read_to_string(path.as_ref()).map_err(|e| {
+                Box::new(FsIoError::ReadFile(
+                    path.as_ref().to_string_lossy().into_owned().into(),
+                    e,
+                ))
+            })
+        }?;
+        Ok(toml::from_str(&contents).map_err(|e| {
+            ConfigReadError::Toml(
+                path.as_ref().to_string_lossy().into_owned().as_str().into(),
+                e,
+            )
+        })?)
     } else {
         Ok(Config::default())
     }

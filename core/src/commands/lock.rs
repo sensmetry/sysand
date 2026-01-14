@@ -10,7 +10,7 @@ use thiserror::Error;
 pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
 
 #[cfg(feature = "filesystem")]
-use crate::project::{editable::EditableProject, local_src::LocalSrcProject};
+use crate::project::{editable::EditableProject, local_src::LocalSrcProject, utils::ToPathBuf};
 use crate::{
     lock::{Lock, Project, Usage},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
@@ -167,7 +167,7 @@ pub fn do_lock_local_editable<
         // TODO: this is incorrect if project is in a subdir of workspace
         ".".into(),
         LocalSrcProject {
-            project_path: path.as_ref().to_path_buf(),
+            project_path: path.to_path_buf(),
         },
     );
 
