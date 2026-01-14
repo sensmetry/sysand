@@ -66,9 +66,7 @@ fn try_file_uri_to_path(
         };
 
         match url.to_file_path() {
-            Ok(p) => Some(
-                Utf8PathBuf::from_path_buf(p).map_err(|orig| FileResolverError::InvalidPath(orig)),
-            ),
+            Ok(p) => Some(Utf8PathBuf::from_path_buf(p).map_err(FileResolverError::InvalidPath)),
             Err(()) => Some(Err(FileResolverError::FailedPathExtract)),
         }
     } else {

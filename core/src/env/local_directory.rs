@@ -53,11 +53,10 @@ pub fn remove_empty_dirs<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
         .into_iter()
         .filter_map(|e| e.ok())
         .filter_map(|e| {
-            if e.file_type().is_dir() {
-                Utf8PathBuf::from_path_buf(e.into_path()).ok()
-            } else {
-                None
-            }
+            e.file_type()
+                .is_dir()
+                .then(|| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+                .flatten()
         })
         .collect();
 

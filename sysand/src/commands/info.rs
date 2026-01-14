@@ -14,7 +14,7 @@ use sysand_core::{
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     },
-    project::{ProjectMut, ProjectRead},
+    project::{ProjectMut, ProjectRead, utils::ToPathBuf},
     resolve::{file::FileResolverProject, standard::standard_resolver},
 };
 
@@ -71,10 +71,10 @@ pub fn pprint_interchange_project(
 
 fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverProject> {
     Ok(if path.as_ref().is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path.as_ref())?)
+        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path)?)
     } else if path.as_ref().is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
-            project_path: path.as_ref().to_path_buf(),
+            project_path: path.to_path_buf(),
         })
     } else {
         bail!(CliError::NoResolve(path.as_ref().to_string()));

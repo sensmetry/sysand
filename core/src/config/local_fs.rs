@@ -37,10 +37,7 @@ pub fn get_config<P: AsRef<Path>>(path: P) -> Result<Config, ConfigReadError> {
             })
         }?;
         Ok(toml::from_str(&contents).map_err(|e| {
-            ConfigReadError::Toml(
-                path.as_ref().to_string_lossy().into_owned().as_str().into(),
-                e,
-            )
+            ConfigReadError::Toml(Utf8Path::new(&path.as_ref().to_string_lossy()).into(), e)
         })?)
     } else {
         Ok(Config::default())
