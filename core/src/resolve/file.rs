@@ -3,7 +3,10 @@
 
 // Resolver for file:// URLs
 
-use std::io::{self, Read};
+use std::{
+    io::{self, Read},
+    path::PathBuf,
+};
 
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
@@ -33,8 +36,12 @@ pub struct FileResolver {
 
 #[derive(Error, Debug)]
 pub enum FileResolverError {
-    #[error("invalid path `{0}`")]
-    InvalidPath(String),
+    #[error("failed to encode path `{0}` in UTF-8")]
+    InvalidPath(PathBuf),
+    #[error("IRI `{0}` is not a valid URL: {1}")]
+    IriNotValidUrl(String, url::ParseError),
+    #[error("failed to extract path from file URL")]
+    FailedPathExtract,
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
@@ -49,14 +56,20 @@ pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
 
 /// Try to obtain a file path from `uri` with `file` scheme. If path
 /// is present, it is always absolute according to URI spec
-fn try_file_uri_to_path(uri: &fluent_uri::Iri<String>) -> Option<Utf8PathBuf> {
+fn try_file_uri_to_path(
+    uri: &fluent_uri::Iri<String>,
+) -> Option<Result<Utf8PathBuf, FileResolverError>> {
     if uri.scheme() == SCHEME_FILE {
-        let url = url::Url::parse(uri.as_str()).ok()?;
+        let url = match url::Url::parse(uri.as_str()) {
+            Ok(u) => u,
+            Err(e) => return Some(Err(FileResolverError::IriNotValidUrl(uri.to_string(), e))),
+        };
 
-        // TODO: maybe handle errors somehow? Or at least log them.
         match url.to_file_path() {
-            Ok(p) => Utf8PathBuf::from_path_buf(p).ok(),
-            Err(_) => None,
+            Ok(p) => Some(
+                Utf8PathBuf::from_path_buf(p).map_err(|orig| FileResolverError::InvalidPath(orig)),
+            ),
+            Err(()) => Some(Err(FileResolverError::FailedPathExtract)),
         }
     } else {
         None
@@ -112,13 +125,15 @@ impl FileResolver {
         &self,
         uri: &fluent_uri::Iri<String>,
     ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
-        if let Some(file_path) = try_file_uri_to_path(uri) {
-            self.resolve_platform_path(file_path)
-        } else {
-            Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "`{}` is not a valid file URL",
+        match try_file_uri_to_path(uri) {
+            Some(res) => match res {
+                Ok(path) => self.resolve_platform_path(path),
+                Err(e) => Err(e),
+            },
+            None => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+                "`{}` is not a file URL",
                 &uri
-            )))
+            ))),
         }
     }
 }
