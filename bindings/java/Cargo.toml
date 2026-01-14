@@ -22,7 +22,7 @@ reqwest-middleware = { version = "0.5.0" }
 indexmap = { version = "2.13.0", default-features = false, features = ["serde"] }
 url = { version = "2.5.8", default-features = false }
 tokio = { version = "1.49.0", default-features = false, features = ["rt"] }
-reqwest-middleware = { version = "0.5.0", default-features = false }
+reqwest-middleware = { version = "0.5.0", default-features = false, features = ["rustls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149", default-features = false, features = ["preserve_order"] }
 
