@@ -1,27 +1,50 @@
 [build-system]
-requires = ["maturin>=1,<2"]
+requires = ["maturin>=1.8,<2"]
 build-backend = "maturin"
 
 [project]
-name = "sysand"
+# TODO: change to sysand before merging
+name = "sysand-test"
+description = "A package manager for SysML v2 and KerML"
 license = "MIT OR Apache-2.0"
 dynamic = ["version"]
 requires-python = ">= 3.8"
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
     "Programming Language :: Python",
-    "Programming Language :: Rust"
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering",
 ]
+# TODO: create a proper readme and/or docs to document
+# what is available in bindings
+readme = "README.md"
+maintainers = [
+    { name = "Sensmetry", email = "opensource@sensmetry.com" }
+]
+import-names = ["sysand"]
 
-[tool.maturin]
-python-source = "python"
-features = ["pyo3/extension-module"]
-module-name = "sysand._sysand_core"
+[project.urls]
+documentation = "https://docs.sysand.org"
+homepage = "https://beta.sysand.org"
+source = "https://github.com/sensmetry/sysand"
+issues = "https://github.com/sensmetry/sysand/issues"
+forum = "https://forum.sensmetry.com/c/sysand/24"
+
+[project.scripts]
+sysand = "sysand.__main__:main"
 
 [dependency-groups]
 dev = [
-    "maturin>=1,<2",
+    "maturin>=1.8,<2",
     "pytest>=8.3.5",
     "pytest-httpserver>=1.1.1",
 ]
@@ -29,3 +52,9 @@ linters = [
     "mypy>=1.14.1",
     "ruff>=0.12.11",
 ]
+
+[tool.maturin]
+python-source = "python"
+features = ["pyo3/extension-module"]
+module-name = "sysand._sysand_core"
+strip = true

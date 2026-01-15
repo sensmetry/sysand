@@ -6,13 +6,18 @@ compile_error!("`std` feature is currently required to build `sysand`");
 
 use std::{
     collections::{HashMap, HashSet},
+    ffi::OsString,
+    panic,
     path::Path,
+    process::ExitCode,
     str::FromStr,
     sync::Arc,
 };
 
+use anstream::{eprint, eprintln};
 use anyhow::{Result, bail};
 
+use clap::Parser;
 use sysand_core::{
     config::{
         Config,
@@ -25,22 +30,25 @@ use sysand_core::{
     stdlib::known_std_libs,
 };
 
-use crate::commands::{
-    add::command_add,
-    build::{command_build_for_project, command_build_for_workspace},
-    env::{
-        command_env, command_env_install, command_env_install_path, command_env_list,
-        command_env_uninstall,
+use crate::{
+    cli::Args,
+    commands::{
+        add::command_add,
+        build::{command_build_for_project, command_build_for_workspace},
+        env::{
+            command_env, command_env_install, command_env_install_path, command_env_list,
+            command_env_uninstall,
+        },
+        exclude::command_exclude,
+        include::command_include,
+        info::{command_info_current_project, command_info_path, command_info_verb_path},
+        init::command_init,
+        lock::command_lock,
+        print_root::command_print_root,
+        remove::command_remove,
+        sources::{command_sources_env, command_sources_project},
+        sync::command_sync,
     },
-    exclude::command_exclude,
-    include::command_include,
-    info::{command_info_current_project, command_info_path, command_info_verb_path},
-    init::command_init,
-    lock::command_lock,
-    print_root::command_print_root,
-    remove::command_remove,
-    sources::{command_sources_env, command_sources_project},
-    sync::command_sync,
 };
 
 pub const DEFAULT_INDEX_URL: &str = "https://beta.sysand.org";
@@ -53,6 +61,51 @@ pub mod style;
 
 mod error;
 pub use error::CliError;
+
+pub fn lib_main<I, T>(args: I) -> ExitCode
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    set_panic_hook();
+
+    match Args::try_parse_from(args) {
+        Ok(args) => {
+            if let Err(err) = run_cli(args) {
+                let style = style::ERROR;
+                eprint!("{style}error{style:#}: ");
+                for cause in err.chain() {
+                    eprintln!("{}", cause);
+                }
+                return ExitCode::FAILURE;
+            }
+        }
+        Err(err) => {
+            err.print().expect("failed to write Clap error");
+            return ExitCode::from(err.exit_code() as u8);
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn set_panic_hook() {
+    // TODO: use `panic::update_hook()` once it's stable
+    //       also set bactrace style once it's stable, but take
+    //       into account the current level
+    let default_hook = panic::take_hook();
+    // panic::set_backtrace_style(panic::BacktraceStyle::Short);
+    panic::set_hook(Box::new(move |panic_info| {
+        std::eprintln!(
+            "Sysand crashed. This is a bug. We would appreciate a bug report at either\n\
+            Sysand's issue tracker: https://github.com/sensmetry/sysand/issues\n\
+            or Sensmetry forum: https://forum.sensmetry.com/c/sysand/24\n\
+            or via email: sysand@sensmetry.com\n\
+            \n\
+            Below are details of the crash. It would be helpful to include them in the bug report."
+        );
+        default_hook(panic_info);
+    }));
+}
 
 pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);

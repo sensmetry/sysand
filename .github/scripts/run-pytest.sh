@@ -11,8 +11,7 @@ ACTIVATION_SCRIPT=${ACTIVATION_SCRIPT:-.venv/bin/activate}
 
 export UV_PYTHON_DOWNLOADS=automatic
 
-set -e
-set -x
+set -ex
 
 rm -f bindings/py/.python-version
 uv python list --only-installed
@@ -20,5 +19,6 @@ cd bindings/py
 uv venv --clear --no-project
 source ${ACTIVATION_SCRIPT}
 uv sync --only-dev --active --no-install-project --locked
-uv pip install sysand --find-links ../../dist --force-reinstall --no-index
+# TODO: change to sysand before merging
+uv pip install sysand_test --find-links ../../dist --force-reinstall --no-index
 pytest

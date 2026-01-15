@@ -3,18 +3,172 @@
 #
 #    maturin generate-ci github --pytest --manifest-path bindings/py/Cargo.toml
 #
-name: Python
+name: Build/test/publish python packages
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "ap/refactor-ci" ] # TODO: change to "main" before merging
+    tags: ["*"]
+    paths:
+      - 'bindings/py/**'
+      - 'core/**'
+      - Cargo.toml
+      - '.github/**'
   pull_request:
-    branches: [ "main" ]
+    branches: [ "ap/refactor-ci" ] # TODO: change to "main" before merging
+    paths: # TODO: maybe include Cargo.lock?
+      - 'bindings/py/**'
+      - 'core/**'
+      - Cargo.toml
+      - '.github/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  UV_HTTP_RETRIES: 5
+  UV_HTTP_TIMEOUT: 60
+
+# TODO: build cp38 and both 3.13t and 3.14t wheels for all targets
 jobs:
+  windows:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: windows-latest
+            target: x64
+            rust_target: x86_64-pc-windows-msvc
+          - runner: windows-latest
+            target: x86
+            rust_target: i686-pc-windows-msvc
+          - runner: windows-11-arm
+            target: arm64 # not aarch64 because expected by setup-python
+            rust_target: aarch64-pc-windows-msvc
+        # TODO: why is is python set up this way here? Maybe restructure same as linux?
+        python:
+          - version: "3.13"
+            label: "default"
+            args_suffix: ""
+          - version: "3.13t"
+            label: 3.13-free-threaded
+            args_suffix: " -i python3.13t"
+          - version: "3.14t"
+            label: 3.14-free-threaded
+            args_suffix: " -i python3.14t"
+        exclude:
+          # Free-threaded python does not work on windows arm currently
+          # https://github.com/actions/setup-python/issues/1267
+          - platform:
+              runner: windows-11-arm
+            python:
+              version: "3.13t"
+          - platform:
+              runner: windows-11-arm
+            python:
+              version: "3.14t"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # 6.1.0
+        with:
+          python-version: ${{ matrix.python.version }}
+          architecture: ${{ matrix.platform.target }}
+      - name: Build bindings wheels
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        with:
+          target: ${{ matrix.platform.rust_target }}
+          args: -r -o dist --compatibility pypi -m bindings/py/Cargo.toml${{ matrix.python.args_suffix }}
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        with:
+          name: wheels-windows-${{ matrix.platform.target }}-${{ matrix.python.label }}
+          path: dist
+      - name: Run Rust tests for Python bindings
+        run: |
+          cd bindings/py
+          cargo test --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # 7.2.0
+      - name: pytest
+        shell: bash
+        run: |
+          export UV_PYTHON=${{ matrix.python.version }}
+          export ACTIVATION_SCRIPT=.venv/Scripts/activate
+          /bin/bash .github/scripts/run-pytest.sh ${{ matrix.python.version }}
+
+  musllinux:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+            native: true
+          - runner: ubuntu-22.04
+            target: x86
+            native: true
+          - runner: ubuntu-22.04-arm
+            target: aarch64
+            native: true
+          - runner: ubuntu-22.04
+            target: armv7
+            native: false
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+      - name: Run Rust tests for Python bindings
+        run: cargo test --package sysand-py --verbose --no-default-features
+      - name: Build bindings wheels
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        with:
+          target: ${{ matrix.platform.target }}
+          args: -r -o dist --compatibility pypi -m bindings/py/Cargo.toml
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          manylinux: musllinux_1_2
+      - name: Build bindings free-threaded wheels
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        with:
+          target: ${{ matrix.platform.target }}
+          args: -r -o dist --compatibility pypi -m bindings/py/Cargo.toml -i python3.13t
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          manylinux: musllinux_1_2
+      - name: Upload wheels
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
+        with:
+          name: wheels-musllinux-${{ matrix.platform.target }}
+          path: dist
+      - name: pytest (native)
+        if: ${{ matrix.platform.native }}
+        uses: addnab/docker-run-action@4f65fabd2431ebc8d299f8e5a018d79a769ae185 # v3
+        with:
+          image: ${{ matrix.platform.target == 'x86' && 'i386/alpine:latest' || 'alpine:latest' }}
+          options: -v ${{ github.workspace }}:/io -w /io
+          run: |
+            apk add curl bash python3
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH=$PATH:$HOME/.local/bin
+            /bin/bash .github/scripts/run-pytest.sh
+      - name: pytest (emulated)
+        if: ${{ !matrix.platform.native }}
+        uses: uraimo/run-on-arch-action@d94c13912ea685de38fccc1109385b83fd79427d # 3.0.1
+        with:
+          arch: ${{ matrix.platform.target }}
+          distro: alpine_latest
+          githubToken: ${{ github.token }}
+          install: |
+            apk add curl bash python3
+          run: |
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH=$PATH:$HOME/.local/bin
+            /bin/bash .github/scripts/run-pytest.sh
+
   linux:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
@@ -22,52 +176,52 @@ jobs:
         platform:
           - runner: ubuntu-22.04
             target: x86_64
+            native: true
           - runner: ubuntu-22.04
             target: x86
-          - runner: ubuntu-22.04
+            native: true
+          - runner: ubuntu-22.04-arm
             target: aarch64
+            native: true
           - runner: ubuntu-22.04
             target: armv7
+            native: false
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: 3.14
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
+      - name: Build bindings wheels
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/py/Cargo.toml --features vendored_tls
+          args: -r -o dist --compatibility pypi -m bindings/py/Cargo.toml
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          manylinux: auto
-          before-script-linux: |
-            /bin/bash .github/scripts/install-linux-dependencies.sh
-      - name: Build free-threaded wheels
-        uses: PyO3/maturin-action@v1
+          manylinux: manylinux2014
+      - name: Build bindings free-threaded wheels
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/py/Cargo.toml -i python3.13t --features vendored_tls
+          args: -r -o dist -i python3.13t --compatibility pypi -m bindings/py/Cargo.toml
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          manylinux: auto
-          before-script-linux: |
-            /bin/bash .github/scripts/install-linux-dependencies.sh
+          manylinux: manylinux2014 # TODO: don't use default cross-compile containers
       - name: Upload wheels
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
         with:
           name: wheels-linux-${{ matrix.platform.target }}
           path: dist
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # 6.1.0
+        with:
+          python-version: 3.14
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
-      - name: pytest
-        if: ${{ startsWith(matrix.platform.target, 'x86_64') }}
-        shell: bash
-        run: |
-          /bin/bash .github/scripts/run-pytest.sh
-      - name: pytest
-        if: ${{ !startsWith(matrix.platform.target, 'x86') && matrix.platform.target != 'ppc64' }}
-        uses: uraimo/run-on-arch-action@v3
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # 7.2.0
+      - name: pytest (native)
+        # TODO: run tests on x86_32. Currently skipped because no containers are used here
+        # and run-on-arch-action does not support x86_32
+        if: ${{ matrix.platform.native && matrix.platform.target != 'x86' }}
+        run: /bin/bash .github/scripts/run-pytest.sh
+      - name: pytest (emulated)
+        if: ${{ !matrix.platform.native }}
+        uses: uraimo/run-on-arch-action@d94c13912ea685de38fccc1109385b83fd79427d # 3.0.1
         with:
           arch: ${{ matrix.platform.target }}
           distro: ubuntu22.04
@@ -90,119 +244,6 @@ jobs:
           ruff check python
           mypy --strict python
 
-  musllinux:
-    runs-on: ${{ matrix.platform.runner }}
-    strategy:
-      matrix:
-        platform:
-          - runner: ubuntu-22.04
-            target: x86_64
-          - runner: ubuntu-22.04
-            target: x86
-          - runner: ubuntu-22.04
-            target: aarch64
-          - runner: ubuntu-22.04
-            target: armv7
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: 3.14
-      - name: Run Rust tests for Python bindings
-        run: cargo test --package sysand-py --verbose --no-default-features
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/py/Cargo.toml --features vendored_tls
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          manylinux: musllinux_1_2
-      - name: Build free-threaded wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/py/Cargo.toml -i python3.13t --features vendored_tls
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          manylinux: musllinux_1_2
-      - name: Upload wheels
-        uses: actions/upload-artifact@v5
-        with:
-          name: wheels-musllinux-${{ matrix.platform.target }}
-          path: dist
-      - name: pytest
-        if: ${{ startsWith(matrix.platform.target, 'x86_64') }}
-        uses: addnab/docker-run-action@v3
-        with:
-          image: alpine:latest
-          options: -v ${{ github.workspace }}:/io -w /io
-          run: |
-            apk add curl bash
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-            export PATH=$PATH:$HOME/.local/bin
-            /bin/bash .github/scripts/run-pytest.sh
-      - name: pytest
-        if: ${{ !startsWith(matrix.platform.target, 'x86') }}
-        uses: uraimo/run-on-arch-action@v3
-        with:
-          arch: ${{ matrix.platform.target }}
-          distro: alpine_latest
-          githubToken: ${{ github.token }}
-          install: |
-            apk add curl bash python3
-          run: |
-            curl -LsSf https://astral.sh/uv/install.sh | sh
-            export PATH=$PATH:$HOME/.local/bin
-            /bin/bash .github/scripts/run-pytest.sh
-
-  windows:
-    runs-on: ${{ matrix.platform.runner }}
-    strategy:
-      matrix:
-        platform:
-          - runner: windows-latest
-            target: x64
-            rust_target: x86_64-pc-windows-msvc
-          - runner: windows-latest
-            target: x86
-            rust_target: i686-pc-windows-msvc
-        python:
-          - version: "3.13"
-            label: default
-            args_suffix: ""
-          - version: "3.13t"
-            label: free-threaded
-            args_suffix: " -i python3.13t"
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python.version }}
-          architecture: ${{ matrix.platform.target }}
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/py/Cargo.toml${{ matrix.python.args_suffix }}
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-      - name: Upload wheels
-        uses: actions/upload-artifact@v5
-        with:
-          name: wheels-windows-${{ matrix.platform.target }}-${{ matrix.python.label }}
-          path: dist
-      - name: Run Rust tests for Python bindings
-        run: |
-          cd bindings/py
-          cargo test --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-      - name: pytest
-        if: ${{ !startsWith(matrix.platform.target, 'aarch64') }}
-        shell: bash
-        run: |
-          export UV_PYTHON=${{ matrix.python.version }}
-          export ACTIVATION_SCRIPT=.venv/Scripts/activate
-          /bin/bash .github/scripts/run-pytest.sh ${{ matrix.python.version }}
-
   macos:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
@@ -213,31 +254,31 @@ jobs:
           - runner: macos-14
             target: aarch64
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+      - uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # 6.1.0
         with:
           python-version: 3.14
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
       - name: Build wheels
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/py/Cargo.toml
+          args: -r -o dist --compatibility pypi -m bindings/py/Cargo.toml
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Build free-threaded wheels
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --manifest-path bindings/py/Cargo.toml -i python3.13t
+          args: -r -o dist --compatibility pypi -m bindings/py/Cargo.toml -i python3.13t
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Upload wheels
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
         with:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # 7.2.0
       - name: pytest
         run: |
           /bin/bash .github/scripts/run-pytest.sh
@@ -245,41 +286,57 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # 6.0.2
+      - name: Maturin fixup
+        # Maturin-action blindly downloads the specified toolchain without
+        # checking that it won't be needed at all for sdist
+        # TODO: fix maturin so that this isn't needed
+        run: rm rust-toolchain.toml
       - name: Build sdist
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
         with:
           command: sdist
-          args: --out dist --manifest-path bindings/py/Cargo.toml
+          args: -o dist -m bindings/py/Cargo.toml
       - name: Upload sdist
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # 6.0.0
         with:
           name: wheels-sdist
           path: dist
 
-  # release:
-  #   name: Release
-  #   runs-on: ubuntu-latest
-  #   if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-  #   needs: [linux, musllinux, windows, macos, sdist]
-  #   permissions:
-  #     # Use to sign the release artifacts
-  #     id-token: write
-  #     # Used to upload release artifacts
-  #     contents: write
-  #     # Used to generate artifact attestation
-  #     attestations: write
-  #   steps:
-  #     - uses: actions/download-artifact@v4
-  #     - name: Generate artifact attestation
-  #       uses: actions/attest-build-provenance@v2
-  #       with:
-  #         subject-path: 'wheels-*/*'
-  #     - name: Publish to PyPI
-  #       if: ${{ startsWith(github.ref, 'refs/tags/') }}
-  #       uses: PyO3/maturin-action@v1
-  #       env:
-  #         MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-  #       with:
-  #         command: upload
-  #         args: --non-interactive --skip-existing wheels-*/*
+  release:
+    name: Release to PyPI
+    # TODO: change this before merging
+    environment: testpypi
+    runs-on: ubuntu-slim
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+    needs: [linux, musllinux, macos, windows, sdist]
+    permissions:
+      # Used to sign the release artifacts
+      id-token: write
+      # Used to upload release artifacts
+      contents: write
+      # Used to generate artifact attestation
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # 7.0.0
+      - name: Generate artifact attestation
+        id: attest
+        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # 3.1.0
+        with:
+          subject-path: 'wheels-*/*'
+      - name: Prepare attestations for uv
+        run: |
+          # The action creates one attestation bundle for all artifacts, but
+          # uv expects a separate .publish.attestation file for each artifact
+          for file in wheels-*/*; do
+            cp "${{ steps.attest.outputs.bundle-path }}" "$file.publish.attestation"
+          done
+      - name: Publish to PyPI
+        # TODO: reenable before merging
+        # if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH=$PATH:$HOME/.local/bin
+          echo 'index = [{ name = "testpypi", url = "https://test.pypi.org/simple/", publish-url = "https://test.pypi.org/legacy/", default = true }]' > uv.toml
+          # TODO: remove index testpypi and its config before merging
+          uv publish -v --index testpypi --trusted-publishing always wheels-*/*
