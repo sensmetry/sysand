@@ -39,16 +39,28 @@ pub trait HTTPAuthentication {
 pub struct Unauthenticated {}
 
 impl HTTPAuthentication for Unauthenticated {
-    fn request_with_authentication<F>(
+    async fn request_with_authentication<F>(
         &mut self,
         client: &ClientWithMiddleware,
         request: Request,
         _renew_request: &F,
-    ) -> impl Future<Output = Result<Response, reqwest_middleware::Error>>
+    ) -> Result<Response, reqwest_middleware::Error>
     where
         F: Fn() -> Request + 'static,
     {
-        async move { client.execute(request).await }
+        client.execute(request).await
+    }
+
+    async fn with_authentication<F>(
+        &mut self,
+        client: &ClientWithMiddleware,
+        renew_request: &F,
+    ) -> Result<Response, reqwest_middleware::Error>
+    where
+        F: Fn() -> Request + 'static,
+    {
+        self.request_with_authentication(client, renew_request(), renew_request)
+            .await
     }
 }
 
@@ -60,24 +72,34 @@ pub struct ForceHTTPBasicAuth {
 }
 
 impl HTTPAuthentication for ForceHTTPBasicAuth {
-    fn request_with_authentication<F>(
+    async fn request_with_authentication<F>(
         &mut self,
         client: &ClientWithMiddleware,
         request: Request,
         _renew_request: &F,
-    ) -> impl Future<Output = Result<Response, reqwest_middleware::Error>>
+    ) -> Result<Response, reqwest_middleware::Error>
     where
         F: Fn() -> Request + 'static,
     {
-        async move {
-            client
-                .execute(
-                    RequestBuilder::from_parts(client.clone(), request)
-                        .basic_auth(self.username.clone(), Some(self.password.clone()))
-                        .build()?,
-                )
-                .await
-        }
+        client
+            .execute(
+                RequestBuilder::from_parts(client.clone(), request)
+                    .basic_auth(self.username.clone(), Some(self.password.clone()))
+                    .build()?,
+            )
+            .await
+    }
+
+    async fn with_authentication<F>(
+        &mut self,
+        client: &ClientWithMiddleware,
+        renew_request: &F,
+    ) -> Result<Response, reqwest_middleware::Error>
+    where
+        F: Fn() -> Request + 'static,
+    {
+        self.request_with_authentication(client, renew_request(), renew_request)
+            .await
     }
 }
 
@@ -93,31 +115,29 @@ pub struct SequenceAuthentication<Higher, Lower> {
 impl<Higher: HTTPAuthentication, Lower: HTTPAuthentication> HTTPAuthentication
     for SequenceAuthentication<Higher, Lower>
 {
-    fn request_with_authentication<F>(
+    async fn request_with_authentication<F>(
         &mut self,
         client: &ClientWithMiddleware,
         request: Request,
         renew_request: &F,
-    ) -> impl Future<Output = Result<Response, reqwest_middleware::Error>>
+    ) -> Result<Response, reqwest_middleware::Error>
     where
         F: Fn() -> Request + 'static,
     {
-        async move {
-            // Always try without authentication first
-            let initial_response = self
-                .higher
-                .request_with_authentication(client, request, renew_request)
-                .await?;
+        // Always try without authentication first
+        let initial_response = self
+            .higher
+            .request_with_authentication(client, request, renew_request)
+            .await?;
 
-            // Many servers (e.g. GitLab pages) generate a 404 instead of a 401 or 403 in response
-            // to lack of authentication.
-            if initial_response.status().is_client_error() {
-                self.lower
-                    .request_with_authentication(client, renew_request(), renew_request)
-                    .await
-            } else {
-                Ok(initial_response)
-            }
+        // Many servers (e.g. GitLab pages) generate a 404 instead of a 401 or 403 in response
+        // to lack of authentication.
+        if initial_response.status().is_client_error() {
+            self.lower
+                .request_with_authentication(client, renew_request(), renew_request)
+                .await
+        } else {
+            Ok(initial_response)
         }
     }
 }
@@ -135,12 +155,18 @@ pub struct GlobMap<T> {
     globset: globset::GlobSet,
 }
 
-impl<T> GlobMapBuilder<T> {
-    pub fn new() -> Self {
+impl<T> Default for GlobMapBuilder<T> {
+    fn default() -> Self {
         GlobMapBuilder {
             keys: vec![],
             values: vec![],
         }
+    }
+}
+
+impl<T> GlobMapBuilder<T> {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn add<S: AsRef<str>>(&mut self, globstr: S, value: T) {
@@ -174,7 +200,7 @@ pub enum GlobMapResultMut<'a, T> {
 impl<T> GlobMap<T> {
     pub fn lookup_mut<'a>(&'a mut self, key: &str) -> GlobMapResultMut<'a, T> {
         let outcome = self.globset.matches(key);
-        if outcome.len() == 0 {
+        if outcome.is_empty() {
             GlobMapResultMut::NotFound
         } else if outcome.len() == 1 {
             GlobMapResultMut::Found(self.keys[0].clone(), &mut self.values[outcome[0]])
@@ -209,47 +235,45 @@ pub struct RestrictAuthentication<Restricted, Unrestricted> {
 impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthentication
     for RestrictAuthentication<Restricted, Unrestricted>
 {
-    fn request_with_authentication<F>(
+    async fn request_with_authentication<F>(
         &mut self,
         client: &ClientWithMiddleware,
         request: Request,
         renew_request: &F,
-    ) -> impl Future<Output = Result<Response, reqwest_middleware::Error>>
+    ) -> Result<Response, reqwest_middleware::Error>
     where
         F: Fn() -> Request + 'static,
     {
-        async move {
-            let url = request.url();
-            match self.restricted.lookup_mut(url.as_str()) {
-                GlobMapResultMut::Found(_, restricted) => {
-                    restricted
-                        .request_with_authentication(client, request, renew_request)
-                        .await
-                }
-                GlobMapResultMut::NotFound => {
-                    self.unrestricted
-                        .request_with_authentication(client, request, renew_request)
-                        .await
-                }
-                GlobMapResultMut::Ambiguous(items) => {
-                    let mut items = items.into_iter();
-                    let (_, first_restricted) = items.next().unwrap();
-                    let first_response = first_restricted
-                        .request_with_authentication(client, request, renew_request)
-                        .await?;
-                    if !first_response.status().is_client_error() {
-                        return Ok(first_response);
-                    } else {
-                        for (_, other_restricted) in items {
-                            let other_resonse = other_restricted
-                                .with_authentication(client, renew_request)
-                                .await?;
-                            if !other_resonse.status().is_client_error() {
-                                return Ok(other_resonse);
-                            }
+        let url = request.url();
+        match self.restricted.lookup_mut(url.as_str()) {
+            GlobMapResultMut::Found(_, restricted) => {
+                restricted
+                    .request_with_authentication(client, request, renew_request)
+                    .await
+            }
+            GlobMapResultMut::NotFound => {
+                self.unrestricted
+                    .request_with_authentication(client, request, renew_request)
+                    .await
+            }
+            GlobMapResultMut::Ambiguous(items) => {
+                let mut items = items.into_iter();
+                let (_, first_restricted) = items.next().unwrap();
+                let first_response = first_restricted
+                    .request_with_authentication(client, request, renew_request)
+                    .await?;
+                if !first_response.status().is_client_error() {
+                    Ok(first_response)
+                } else {
+                    for (_, other_restricted) in items {
+                        let other_resonse = other_restricted
+                            .with_authentication(client, renew_request)
+                            .await?;
+                        if !other_resonse.status().is_client_error() {
+                            return Ok(other_resonse);
                         }
-                        return Ok(first_response);
                     }
+                    Ok(first_response)
                 }
             }
         }
