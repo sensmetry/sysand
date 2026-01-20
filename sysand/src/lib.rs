@@ -29,8 +29,7 @@ use sysand_core::{
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     init::InitError,
     lock::Lock,
-    project::{reference::ProjectReference, utils::wrapfs},
-    resolve::standard::AnyProject,
+    project::{any::AnyProject, reference::ProjectReference, utils::wrapfs},
     stdlib::known_std_libs,
 };
 

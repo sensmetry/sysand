@@ -16,14 +16,14 @@ use sysand_core::{
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
-        ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
+        ProjectRead, any::AnyProject, editable::EditableProject, local_kpar::LocalKParProject,
         local_src::LocalSrcProject, reference::ProjectReference, utils::wrapfs,
     },
     resolve::{
         file::FileResolverProject,
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
-        standard::{AnyProject, standard_resolver},
+        standard::standard_resolver,
     },
 };
 

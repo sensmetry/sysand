@@ -15,12 +15,10 @@ use sysand_core::{
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     },
-    project::{ProjectMut, ProjectRead},
+    project::{ProjectMut, ProjectRead, any::OverrideProject},
     resolve::{
-        file::FileResolverProject,
-        memory::MemoryResolver,
-        priority::PriorityResolver,
-        standard::{OverrideProject, standard_resolver},
+        file::FileResolverProject, memory::MemoryResolver, priority::PriorityResolver,
+        standard::standard_resolver,
     },
 };
 

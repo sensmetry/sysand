@@ -25,6 +25,8 @@ pub use sysand_macros::ProjectRead;
 pub use typed_path::Utf8UnixPath;
 
 // Implementations
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod any;
 pub mod editable;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod gix_git_download;

@@ -142,7 +142,7 @@ fn get_relative<P: Into<Utf8PathBuf>>(src_path: P, project_root: &Utf8Path) -> R
         if path.is_absolute() {
             bail!(
                 "unable to find relative path from project root to `{}`",
-                path
+                path,
             );
         }
         path
