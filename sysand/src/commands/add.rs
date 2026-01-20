@@ -135,10 +135,17 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
 
 fn get_relative<P: Into<Utf8PathBuf>>(src_path: P, project_root: &Utf8Path) -> Result<Utf8PathBuf> {
     let src_path = if wrapfs::current_dir()? != project_root {
-        relativize(
+        let path = relativize(
             &Utf8Path::new(&src_path.into()).canonicalize_utf8()?,
             project_root,
-        )
+        );
+        if path.is_absolute() {
+            bail!(
+                "unable to find relative path from project root to `{}`",
+                path
+            );
+        }
+        path
     } else {
         src_path.into()
     };
