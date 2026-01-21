@@ -12,6 +12,7 @@ on:
     paths:
       - 'bindings/py/**'
       - 'core/**'
+      - 'sysand/**'
       - Cargo.toml
       - '.github/**'
   pull_request:
@@ -19,6 +20,7 @@ on:
     paths: # TODO: maybe include Cargo.lock?
       - 'bindings/py/**'
       - 'core/**'
+      - 'sysand/**'
       - Cargo.toml
       - '.github/**'
   workflow_dispatch:
