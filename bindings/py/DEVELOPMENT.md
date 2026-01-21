@@ -4,7 +4,7 @@
 
 Requirements:
 
-- Rust 1.85 or later
+- Rust version given in `rust-version` in [Cargo.toml](../../Cargo.toml) or later
 - uv
 
 First, set up a Python venv:
