@@ -54,7 +54,8 @@ jobs:
           - runner: windows-11-arm
             target: arm64 # not aarch64 because expected by setup-python
             rust_target: aarch64-pc-windows-msvc
-        # TODO: why is is python set up this way here? Maybe restructure same as linux?
+        # A single python version is used for each run, because some tools
+        # don't know which version to use if multiple are present
         python:
           - version: "3.13"
             label: "default"
