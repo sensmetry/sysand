@@ -7,7 +7,7 @@ use assert_cmd::prelude::*;
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
-use predicates::prelude::predicate::{self, str::contains};
+use predicates::prelude::predicate::str::contains;
 
 #[test]
 fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
