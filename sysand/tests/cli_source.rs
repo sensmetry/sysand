@@ -7,6 +7,7 @@ use assert_cmd::prelude::*;
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
+use predicates::prelude::predicate::{self, str::contains};
 
 #[test]
 fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
@@ -74,7 +75,9 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(&path, ["sources", "--no-deps"], None)?;
 
-    out.assert().success().stdout(expected_path);
+    // contains and not directly equals, because on windows,
+    // one or both may be UNC paths
+    out.assert().success().stdout(contains(expected_path));
 
     let out = run_sysand_in(
         &path,
@@ -82,11 +85,11 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    out.assert().success().stdout(dep_expected_path);
+    out.assert().success().stdout(contains(dep_expected_path));
 
     let out = run_sysand_in(&path, ["sources"], None)?;
 
-    out.assert().success().stdout(combined_path);
+    out.assert().success().stdout(contains(combined_path));
 
     Ok(())
 }
