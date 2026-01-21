@@ -1,15 +1,12 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{ffi::OsString, os::unix::ffi::OsStringExt, path::PathBuf};
-
 use assert_cmd::prelude::*;
 //use predicates::prelude::*;
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
-use predicates::prelude::predicate::str::contains;
 
 #[test]
 fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
@@ -79,7 +76,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 
     // contains and not directly equals, because on windows,
     // one or both may be UNC paths
-    let p: OsString = OsString::from_vec(out.assert().success().get_output().stdout.clone());
+    let p = String::from_utf8(out.assert().success().get_output().stdout.clone()).unwrap();
     assert_eq!(std::fs::canonicalize(p).unwrap(), expected_path);
 
     let out = run_sysand_in(
@@ -88,12 +85,12 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    let p: OsString = OsString::from_vec(out.assert().success().get_output().stdout.clone());
+    let p = String::from_utf8(out.assert().success().get_output().stdout.clone()).unwrap();
     assert_eq!(std::fs::canonicalize(p).unwrap(), dep_expected_path);
 
     let out = run_sysand_in(&path, ["sources"], None)?;
 
-    let p: OsString = OsString::from_vec(out.assert().success().get_output().stdout.clone());
+    let p = String::from_utf8(out.assert().success().get_output().stdout.clone()).unwrap();
     assert_eq!(std::fs::canonicalize(p).unwrap(), combined_path);
 
     Ok(())
