@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::{ffi::OsString, os::unix::ffi::OsStringExt, path::PathBuf};
+
 use assert_cmd::prelude::*;
 //use predicates::prelude::*;
 
@@ -77,7 +79,8 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 
     // contains and not directly equals, because on windows,
     // one or both may be UNC paths
-    out.assert().success().stdout(contains(expected_path));
+    let p: OsString = OsString::from_vec(out.assert().success().get_output().stdout.clone());
+    assert_eq!(std::fs::canonicalize(p).unwrap(), expected_path);
 
     let out = run_sysand_in(
         &path,
@@ -85,11 +88,13 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    out.assert().success().stdout(contains(dep_expected_path));
+    let p: OsString = OsString::from_vec(out.assert().success().get_output().stdout.clone());
+    assert_eq!(std::fs::canonicalize(p).unwrap(), dep_expected_path);
 
     let out = run_sysand_in(&path, ["sources"], None)?;
 
-    out.assert().success().stdout(contains(combined_path));
+    let p: OsString = OsString::from_vec(out.assert().success().get_output().stdout.clone());
+    assert_eq!(std::fs::canonicalize(p).unwrap(), combined_path);
 
     Ok(())
 }
