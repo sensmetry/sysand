@@ -50,7 +50,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-engine</artifactId>
-      <version>6.0.1</version>
+      <version>6.0.2</version>
       <scope>test</scope>
     </dependency>
 
