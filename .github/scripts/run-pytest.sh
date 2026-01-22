@@ -11,8 +11,7 @@ ACTIVATION_SCRIPT=${ACTIVATION_SCRIPT:-.venv/bin/activate}
 
 export UV_PYTHON_DOWNLOADS=automatic
 
-set -e
-set -x
+set -ex
 
 rm -f bindings/py/.python-version
 uv python list --only-installed

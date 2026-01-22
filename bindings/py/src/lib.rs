@@ -4,6 +4,7 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    process::ExitCode,
     sync::Arc,
 };
 
@@ -42,6 +43,12 @@ use sysand_core::{
     stdlib::known_std_libs,
     symbols::Language,
 };
+
+#[pyfunction(name = "_run_cli")]
+fn run_cli(args: Vec<String>) -> PyResult<bool> {
+    let exit_code = sysand::lib_main(args);
+    Ok(exit_code == ExitCode::SUCCESS)
+}
 
 #[pyfunction(name = "do_new_py_local_file")]
 #[pyo3(
@@ -527,6 +534,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
 pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();
 
+    m.add_function(wrap_pyfunction!(run_cli, m)?)?;
     m.add_function(wrap_pyfunction!(do_new_py_local_file, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_py_local_dir, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py_path, m)?)?;

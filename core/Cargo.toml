@@ -13,7 +13,7 @@ homepage.workspace = true
 
 [features]
 default = ["std"]
-std = ["log/std", "wasm-bindgen/std", "thiserror/std", "typed-path/std", "url/std", "futures/std"]
+std = ["log/std", "wasm-bindgen?/std", "thiserror/std", "typed-path/std", "url/std", "futures/std"]
 # Whether we should be more lenient when validating data in cases where the
 # KerML specification is vague.
 lenient_checks = []
@@ -21,7 +21,7 @@ lenient_checks = []
 python = ["dep:pyo3"]
 js = ["dep:wasm-bindgen"]
 filesystem = ["dep:tempfile", "dep:dirs", "dep:zip"]
-networking = ["dep:partialzip", "dep:reqwest", "dep:gix"] # "dep:reqwest-middleware"
+networking = ["dep:reqwest", "dep:gix"] # "dep:reqwest-middleware", "dep:partialzip"
 alltests = []
 
 [dependencies]
@@ -36,9 +36,9 @@ indexmap = { version = "2.12.1", default-features = false, features = ["serde"] 
 # icu_normalizer = { version = "2.0.0", default-features = false, features = ["compiled_data"] }
 log = { version = "0.4.29", default-features = false }
 pubgrub = { version = "0.3.0", default-features = false }
-partialzip = { version = "5.0.0", default-features = false, optional = true }
+# partialzip = { version = "5.0.0", default-features = false, optional = true }
 pyo3 = { version = "0.27.2", default-features = false, features = ["macros", "chrono", "indexmap"], optional = true }
-reqwest = { version = "0.12.25", optional = true, features = ["stream"] }
+reqwest-middleware = { version = "0.5.0" }
 semver = { version = "1.0.27", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", default-features = false, features = ["preserve_order"] }
@@ -53,13 +53,18 @@ walkdir = "2.5.0"
 wasm-bindgen = { version = "0.2.106", default-features = false, optional = true }
 zip = { version = "6.0.0", default-features = false, optional = true }
 url = { version = "2.5.7", default-features = false }
-gix = { version = "0.75.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation"] }
+gix = { version = "0.77.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation"] }
 logos = "0.15.1"
 futures = { version = "0.3.31", default-features = false, features = ["alloc", "async-await"] }
 tokio = { version = "1.48.0", default-features = false, features = ["rt", "io-util"] }
-reqwest-middleware = { version = "0.4.2", default-features = false }
 bytes = { version = "1.11.0", default-features = false }
 toml_edit = { version = "0.23.9", features = ["serde"] }
+
+# Use native TLS only on Windows and Apple OSs
+[target.'cfg(any(target_os = "windows", target_vendor = "apple"))'.dependencies]
+reqwest = { version = "0.13.1", optional = true, default-features = false, features = ["native-tls", "http2", "system-proxy", "stream"] }
+[target.'cfg(not(any(target_os = "windows", target_vendor = "apple")))'.dependencies]
+reqwest = { version = "0.13.1", features = ["rustls", "stream"] }
 
 [dev-dependencies]
 assert_cmd = "2.1.1"
