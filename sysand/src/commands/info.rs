@@ -77,6 +77,7 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverPro
             project_path: path.to_path_buf(),
         })
     } else {
+        // TODO: NoResolve is for IRIs, this is a path
         bail!(CliError::NoResolve(path.as_ref().to_string()));
     })
 }

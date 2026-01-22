@@ -58,19 +58,20 @@ pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
 /// is present, it is always absolute according to URI spec
 fn try_file_uri_to_path(
     uri: &fluent_uri::Iri<String>,
-) -> Option<Result<Utf8PathBuf, FileResolverError>> {
+) -> Result<Option<Utf8PathBuf>, FileResolverError> {
     if uri.scheme() == SCHEME_FILE {
         let url = match url::Url::parse(uri.as_str()) {
             Ok(u) => u,
-            Err(e) => return Some(Err(FileResolverError::IriNotValidUrl(uri.to_string(), e))),
+            Err(e) => return Err(FileResolverError::IriNotValidUrl(uri.to_string(), e)),
         };
 
         match url.to_file_path() {
-            Ok(p) => Some(Utf8PathBuf::from_path_buf(p).map_err(FileResolverError::InvalidPath)),
-            Err(()) => Some(Err(FileResolverError::FailedPathExtract)),
+            Ok(p) => Some(Utf8PathBuf::from_path_buf(p).map_err(FileResolverError::InvalidPath))
+                .transpose(),
+            Err(()) => Err(FileResolverError::FailedPathExtract),
         }
     } else {
-        None
+        Ok(None)
     }
 }
 
@@ -123,11 +124,8 @@ impl FileResolver {
         &self,
         uri: &fluent_uri::Iri<String>,
     ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
-        match try_file_uri_to_path(uri) {
-            Some(res) => match res {
-                Ok(path) => self.resolve_platform_path(path),
-                Err(e) => Err(e),
-            },
+        match try_file_uri_to_path(uri)? {
+            Some(path) => self.resolve_platform_path(path),
             None => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
                 "`{}` is not a file URL",
                 &uri
