@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::Path;
+use std::{fs::canonicalize, path::Path};
 
 use assert_cmd::prelude::*;
 //use predicates::prelude::*;
@@ -68,10 +68,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
         .to_str()
         .unwrap()
         .to_string();
-    let mut combined_path = String::new();
-    combined_path.push_str(&expected_path);
-    combined_path.push('\n');
-    combined_path.push_str(&dep_expected_path);
+    let combined_path = vec![&expected_path, &dep_expected_path];
 
     let out = run_sysand_in(&path, ["sources", "--no-deps"], None)?;
 
@@ -83,7 +80,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
             .trim_ascii_end()
             .to_owned(),
     )?;
-    assert_eq!(std::fs::canonicalize(p)?, expected_path);
+    assert_eq!(canonicalize(p)?, expected_path);
 
     let out = run_sysand_in(
         &path,
@@ -99,7 +96,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
             .trim_ascii_end()
             .to_owned(),
     )?;
-    assert_eq!(std::fs::canonicalize(p)?, dep_expected_path);
+    assert_eq!(canonicalize(p)?, dep_expected_path);
 
     let out = run_sysand_in(&path, ["sources"], None)?;
 
@@ -111,8 +108,8 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
             .trim_ascii_end()
             .to_owned(),
     )?;
-    for (actual, expected) in p.split('\n').zip(combined_path.split('\n')) {
-        assert_eq!(std::fs::canonicalize(actual)?, Path::new(expected));
+    for (actual, expected) in p.split('\n').zip(combined_path) {
+        assert_eq!(canonicalize(actual)?, Path::new(expected));
     }
 
     Ok(())
