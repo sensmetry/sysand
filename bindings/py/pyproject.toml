@@ -3,8 +3,7 @@ requires = ["maturin>=1.8,<2"]
 build-backend = "maturin"
 
 [project]
-# TODO: change to sysand before merging
-name = "sysand-test"
+name = "sysand"
 description = "A package manager for SysML v2 and KerML"
 license = "MIT OR Apache-2.0"
 dynamic = ["version"]

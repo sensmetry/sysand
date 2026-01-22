@@ -7,7 +7,7 @@ name: Build/test/publish python packages
 
 on:
   push:
-    branches: [ "ap/refactor-ci" ] # TODO: change to "main" before merging
+    branches: [ "main" ]
     tags: ["*"]
     paths:
       - 'bindings/py/**'
@@ -16,7 +16,7 @@ on:
       - Cargo.toml
       - '.github/**'
   pull_request:
-    branches: [ "ap/refactor-ci" ] # TODO: change to "main" before merging
+    branches: [ "main" ]
     paths: # TODO: maybe include Cargo.lock?
       - 'bindings/py/**'
       - 'core/**'
@@ -308,8 +308,7 @@ jobs:
 
   release:
     name: Release to PyPI
-    # TODO: change this before merging
-    environment: testpypi
+    environment: pypi-publish
     runs-on: ubuntu-slim
     if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
     needs: [linux, musllinux, macos, windows, sdist]
@@ -335,11 +334,8 @@ jobs:
             cp "${{ steps.attest.outputs.bundle-path }}" "$file.publish.attestation"
           done
       - name: Publish to PyPI
-        # TODO: reenable before merging
-        # if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           export PATH=$PATH:$HOME/.local/bin
-          echo 'index = [{ name = "testpypi", url = "https://test.pypi.org/simple/", publish-url = "https://test.pypi.org/legacy/", default = true }]' > uv.toml
-          # TODO: remove index testpypi and its config before merging
-          uv publish -v --index testpypi --trusted-publishing always wheels-*/*
+          uv publish -v --trusted-publishing always wheels-*/*
