@@ -13,15 +13,15 @@ on:
       - 'bindings/py/**'
       - 'core/**'
       - 'sysand/**'
-      - Cargo.toml
+      - 'Cargo.*'
       - '.github/**'
   pull_request:
     branches: [ "main" ]
-    paths: # TODO: maybe include Cargo.lock?
+    paths:
       - 'bindings/py/**'
       - 'core/**'
       - 'sysand/**'
-      - Cargo.toml
+      - 'Cargo.*'
       - '.github/**'
   workflow_dispatch:
 
