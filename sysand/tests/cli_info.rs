@@ -234,7 +234,10 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
 
     let kpar_download_try_auth = server
         .mock("GET", "/")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
         .with_status(404)
         .expect(1)
         .create();
@@ -250,7 +253,10 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
 
     let info_mock_head_auth = server
         .mock("HEAD", "/.project.json")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
@@ -268,7 +274,10 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
 
     let info_mock_auth = server
         .mock("GET", "/.project.json")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
@@ -286,7 +295,10 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
 
     let meta_mock_head_auth = server
         .mock("HEAD", "/.meta.json")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
@@ -305,7 +317,10 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
     let meta_mock_auth = server
         .mock("GET", "/.meta.json")
         .with_status(200)
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
         .expect(3) // TODO: Reduce this to 1
@@ -315,10 +330,19 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         ["info", "--iri", &server.url()],
         None,
         &IndexMap::from([
-            ("SYSAND_CRED_TEST".to_string(), "http://127.0.0.1:*/**".to_string()),
-            ("SYSAND_CRED_TEST_BASIC_USER".to_string(), "user_1234".to_string()),
-            ("SYSAND_CRED_TEST_BASIC_PASS".to_string(), "pass_4321".to_string()),
-        ])
+            (
+                "SYSAND_CRED_TEST".to_string(),
+                "http://127.0.0.1:*/**".to_string(),
+            ),
+            (
+                "SYSAND_CRED_TEST_BASIC_USER".to_string(),
+                "user_1234".to_string(),
+            ),
+            (
+                "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
+                "pass_4321".to_string(),
+            ),
+        ]),
     )?;
 
     out.assert()
@@ -342,7 +366,6 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
 
     meta_mock.assert();
     meta_mock_auth.assert();
-
 
     Ok(())
 }
@@ -744,7 +767,10 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
             "GET",
             "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/versions.txt",
         )
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
         .with_status(200)
         .with_header("content-type", "text/plain")
         .with_body("1.2.3\n")
@@ -845,9 +871,18 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
         .create();
 
     let auth_env = IndexMap::from([
-        ("SYSAND_CRED_TEST".to_string(), format!("http://{}/**", server.host_with_port())),
-        ("SYSAND_CRED_TEST_BASIC_USER".to_string(), "user_1234".to_string()),
-        ("SYSAND_CRED_TEST_BASIC_PASS".to_string(), "pass_4321".to_string()),
+        (
+            "SYSAND_CRED_TEST".to_string(),
+            format!("http://{}/**", server.host_with_port()),
+        ),
+        (
+            "SYSAND_CRED_TEST_BASIC_USER".to_string(),
+            "user_1234".to_string(),
+        ),
+        (
+            "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
+            "pass_4321".to_string(),
+        ),
     ]);
 
     let (_, _, out) = run_sysand_with(
@@ -861,7 +896,7 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
             &server_alt.url(),
         ],
         None,
-        &auth_env
+        &auth_env,
     )?;
 
     versions_mock.assert();

@@ -167,7 +167,10 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
 
     let info_mock_auth = server
         .mock("GET", "/.project.json")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
@@ -185,7 +188,10 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
 
     let meta_mock_auth = server
         .mock("GET", "/.meta.json")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
@@ -212,11 +218,25 @@ sources = [
         .as_bytes(),
     )?;
 
-    let out = run_sysand_in_with(&cwd, ["sync"], None, &IndexMap::from([
-        ("SYSAND_CRED_TEST".to_string(), format!("http://{}/**", server.host_with_port())),
-        ("SYSAND_CRED_TEST_BASIC_USER".to_string(), "user_1234".to_string()),
-        ("SYSAND_CRED_TEST_BASIC_PASS".to_string(), "pass_4321".to_string()),
-    ]))?;
+    let out = run_sysand_in_with(
+        &cwd,
+        ["sync"],
+        None,
+        &IndexMap::from([
+            (
+                "SYSAND_CRED_TEST".to_string(),
+                format!("http://{}/**", server.host_with_port()),
+            ),
+            (
+                "SYSAND_CRED_TEST_BASIC_USER".to_string(),
+                "user_1234".to_string(),
+            ),
+            (
+                "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
+                "pass_4321".to_string(),
+            ),
+        ]),
+    )?;
 
     info_mock.assert();
     info_mock_auth.assert();
@@ -261,7 +281,10 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
 
     let info_mock_auth = server
         .mock("GET", "/.project.json")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
@@ -279,7 +302,10 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
 
     let meta_mock_auth = server
         .mock("GET", "/.meta.json")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
@@ -306,19 +332,32 @@ sources = [
         .as_bytes(),
     )?;
 
-    let out = run_sysand_in_with(&cwd, ["sync"], None, &IndexMap::from([
-        ("SYSAND_CRED_TEST".to_string(),"http://127.0.0.1:80/**".to_string()),
-        ("SYSAND_CRED_TEST_BASIC_USER".to_string(), "user_1234".to_string()),
-        ("SYSAND_CRED_TEST_BASIC_PASS".to_string(), "pass_4321".to_string()),
-    ]))?;
+    let out = run_sysand_in_with(
+        &cwd,
+        ["sync"],
+        None,
+        &IndexMap::from([
+            (
+                "SYSAND_CRED_TEST".to_string(),
+                "http://127.0.0.1:80/**".to_string(),
+            ),
+            (
+                "SYSAND_CRED_TEST_BASIC_USER".to_string(),
+                "user_1234".to_string(),
+            ),
+            (
+                "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
+                "pass_4321".to_string(),
+            ),
+        ]),
+    )?;
 
     info_mock.assert();
     info_mock_auth.assert();
     meta_mock.assert();
     meta_mock_auth.assert();
 
-    out.assert()
-        .failure();
+    out.assert().failure();
 
     Ok(())
 }

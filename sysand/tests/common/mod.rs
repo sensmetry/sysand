@@ -26,7 +26,7 @@ pub fn sysand_cmd_in_with<'a, I: IntoIterator<Item = &'a str>>(
     cwd: &Path,
     args: I,
     cfg: Option<&str>,
-    env: &IndexMap<String, String>
+    env: &IndexMap<String, String>,
 ) -> Result<Command, Box<dyn Error>> {
     let cfg_args = if let Some(config) = cfg {
         let config_path = cwd.join("sysand.toml");
@@ -81,7 +81,7 @@ pub fn new_temp_cwd() -> Result<(TempDir, PathBuf), Box<dyn Error>> {
 pub fn sysand_cmd<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
-    env: &IndexMap<String, String>
+    env: &IndexMap<String, String>,
 ) -> Result<(TempDir, PathBuf, Command), Box<dyn Error>> {
     // NOTE had trouble getting test-temp-dir crate working, but would be better
     let (temp_dir, cwd) = new_temp_cwd()?;
@@ -110,7 +110,7 @@ pub fn run_sysand_in<'a, I: IntoIterator<Item = &'a str>>(
 pub fn run_sysand_with<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
-    env: &IndexMap<String, String>
+    env: &IndexMap<String, String>,
 ) -> Result<(TempDir, PathBuf, Output), Box<dyn Error>> {
     let (temp_dir, cwd, mut cmd) = sysand_cmd(args /*, stdin*/, cfg, env)?;
 
