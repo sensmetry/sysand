@@ -22,9 +22,8 @@ sysand = { path = "../../sysand" }
 pyo3 = { version = "0.27.2", default-features = false, features = ["macros"] }
 pyo3-log = "0.13.2"
 semver = { version = "1.0.27", default-features = false }
-typed-path = { version = "0.12.0", default-features = false, features= ["std"] }
+typed-path = { version = "0.12.1", default-features = false, features= ["std"] }
 url = { version = "2.5.8", default-features = false }
-reqwest-middleware = "0.5.0"
 reqwest-middleware = "0.5.0"
 tokio = { version = "1.49.0", default-features = false, features = ["rt"] }
 

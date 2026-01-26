@@ -17,16 +17,16 @@ use std::{
 };
 
 use anstream::{eprint, eprintln};
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use clap::Parser;
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{
-        local_fs::{get_config, load_configs},
         Config,
+        local_fs::{get_config, load_configs},
     },
-    env::local_directory::{LocalDirectoryEnvironment, DEFAULT_ENV_NAME},
+    env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     init::InitError,
     lock::Lock,
     project::utils::wrapfs,
@@ -273,7 +273,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashMap::default()
             };
 
-            let project_root = project_root.ok_or(CliError::MissingProjectCurrentDir)?;
+            let project_root = project_root.unwrap_or(cwd);
             let lockfile = project_root.join(DEFAULT_LOCKFILE_NAME);
             let lock = match fs::read_to_string(&lockfile) {
                 Ok(l) => match Lock::from_str(&l) {
