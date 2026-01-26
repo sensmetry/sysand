@@ -9,6 +9,7 @@ use crate::{
     },
 };
 use sysand_core::{
+    auth::HTTPAuthentication,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     },
@@ -96,13 +97,14 @@ pub fn command_info_path<P: AsRef<Path>>(path: P, excluded_iris: &HashSet<String
     }
 }
 
-pub fn command_info_uri(
+pub fn command_info_uri<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
     uri: Iri<String>,
     _normalise: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
     excluded_iris: &HashSet<String>,
     runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Pol>,
 ) -> Result<()> {
     let cwd = wrapfs::current_dir().ok();
 
@@ -118,6 +120,7 @@ pub fn command_info_uri(
         Some(client),
         index_urls,
         runtime,
+        auth_policy,
     );
 
     let mut found = false;
@@ -183,13 +186,14 @@ pub fn command_info_verb_path<P: AsRef<Path>>(
     }
 }
 
-pub fn command_info_verb_uri(
+pub fn command_info_verb_uri<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
     uri: Iri<String>,
     verb: InfoCommandVerb,
     numbered: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Pol>,
 ) -> Result<()> {
     match verb {
         InfoCommandVerb::Get(get_verb) => {
@@ -208,6 +212,7 @@ pub fn command_info_verb_uri(
                 Some(client),
                 index_urls,
                 runtime,
+                auth_policy,
             );
 
             let mut found = false;

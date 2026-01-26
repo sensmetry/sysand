@@ -5,15 +5,20 @@ use std::{
     io::{self, Write as _},
     marker::Unpin,
     pin::Pin,
+    sync::Arc,
 };
 
 use futures::AsyncRead;
+use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 use tempfile::tempdir;
 use thiserror::Error;
 
-use crate::project::{
-    ProjectRead, ProjectReadAsync,
-    local_kpar::{LocalKParError, LocalKParProject},
+use crate::{
+    auth::HTTPAuthentication,
+    project::{
+        ProjectRead, ProjectReadAsync,
+        local_kpar::{LocalKParError, LocalKParProject},
+    },
 };
 
 use super::utils::{FsIoError, ToPathBuf, wrapfs};
@@ -27,10 +32,11 @@ use super::utils::{FsIoError, ToPathBuf, wrapfs};
 /// Downloads the full archive to a temporary directory and then accesses it using
 /// `LocalKParProject`.
 #[derive(Debug)]
-pub struct ReqwestKparDownloadedProject {
+pub struct ReqwestKparDownloadedProject<Pol> {
     pub url: reqwest::Url,
     pub client: reqwest_middleware::ClientWithMiddleware,
     pub inner: LocalKParProject,
+    pub auth_policy: Arc<Pol>,
 }
 
 #[derive(Error, Debug)]
@@ -57,10 +63,11 @@ impl From<FsIoError> for ReqwestKparDownloadedError {
     }
 }
 
-impl ReqwestKparDownloadedProject {
+impl<Pol: HTTPAuthentication> ReqwestKparDownloadedProject<Pol> {
     pub fn new_guess_root<S: AsRef<str>>(
         url: S,
         client: reqwest_middleware::ClientWithMiddleware,
+        auth_policy: Arc<Pol>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
         let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
 
@@ -77,6 +84,7 @@ impl ReqwestKparDownloadedProject {
                 root: None,
             },
             client,
+            auth_policy,
         })
     }
 
@@ -87,10 +95,15 @@ impl ReqwestKparDownloadedProject {
 
         let mut file = wrapfs::File::create(&self.inner.archive_path)?;
 
+        let this_url = self.url.clone();
         let resp = self
-            .client
-            .get(self.url.clone())
-            .send()
+            .auth_policy
+            .with_authentication(
+                &self.client,
+                &move |client: &ClientWithMiddleware| -> RequestBuilder {
+                    client.get(this_url.clone())
+                },
+            )
             .await
             .map_err(|e| ReqwestKparDownloadedError::Reqwest(self.url.as_str().into(), e))?;
 
@@ -134,7 +147,7 @@ impl<T: io::Read + Unpin> AsyncRead for AsAsyncRead<T> {
     }
 }
 
-impl ProjectReadAsync for ReqwestKparDownloadedProject {
+impl<Pol: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProject<Pol> {
     type Error = ReqwestKparDownloadedError;
 
     async fn get_project_async(
@@ -182,7 +195,10 @@ mod tests {
         sync::Arc,
     };
 
-    use crate::project::{ProjectRead, ProjectReadAsync};
+    use crate::{
+        auth::Unauthenticated,
+        project::{ProjectRead, ProjectReadAsync},
+    };
 
     #[test]
     fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
@@ -224,6 +240,7 @@ mod tests {
         let project = super::ReqwestKparDownloadedProject::new_guess_root(
             format!("{}test_basic_download_request.kpar", url,),
             reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+            Arc::new(Unauthenticated {}),
         )?
         .to_tokio_sync(Arc::new(
             tokio::runtime::Builder::new_current_thread()

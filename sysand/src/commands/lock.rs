@@ -9,6 +9,7 @@ use anyhow::{Result, bail};
 use pubgrub::Reporter as _;
 
 use sysand_core::{
+    auth::HTTPAuthentication,
     commands::lock::{
         DEFAULT_LOCKFILE_NAME, LockError, LockOutcome, LockProjectError, do_lock_local_editable,
     },
@@ -29,12 +30,13 @@ use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 /// `path` must be relative to workspace root.
 // TODO: this will not work properly if run in subdir of workspace,
 // as `path` will then refer to a deeper subdir
-pub fn command_lock<P: AsRef<Path>>(
+pub fn command_lock<P: AsRef<Path>, Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
     path: P,
     resolution_opts: ResolutionOptions,
     config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Pol>,
 ) -> Result<()> {
     assert!(path.as_ref().is_relative(), "{}", path.as_ref().display());
     let ResolutionOptions {
@@ -83,6 +85,7 @@ pub fn command_lock<P: AsRef<Path>>(
             Some(client),
             index_urls,
             runtime,
+            auth_policy,
         ),
     );
 

@@ -7,6 +7,7 @@ use anyhow::Result;
 
 use sysand_core::{
     add::do_add,
+    auth::HTTPAuthentication,
     config::Config,
     lock::Lock,
     project::{local_src::LocalSrcProject, utils::wrapfs},
@@ -16,7 +17,7 @@ use crate::{CliError, cli::ResolutionOptions, command_sync};
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
-pub fn command_add<S: AsRef<str>>(
+pub fn command_add<S: AsRef<str>, Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
     iri: S,
     versions_constraint: Option<String>,
     no_lock: bool,
@@ -26,6 +27,7 @@ pub fn command_add<S: AsRef<str>>(
     current_project: Option<LocalSrcProject>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Pol>,
 ) -> Result<()> {
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path();
@@ -50,6 +52,7 @@ pub fn command_add<S: AsRef<str>>(
             config,
             client.clone(),
             runtime.clone(),
+            auth_policy.clone(),
         )?;
 
         if !no_sync {
@@ -64,6 +67,7 @@ pub fn command_add<S: AsRef<str>>(
                 client,
                 &provided_iris,
                 runtime,
+                auth_policy,
             )?;
         }
     }

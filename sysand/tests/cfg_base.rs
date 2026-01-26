@@ -32,6 +32,7 @@ fn cfg_set_quiet() -> Result<(), Box<dyn std::error::Error>> {
         quiet: Some(true),
         verbose: None,
         index: None,
+        auth: None,
     })?;
 
     let out_quiet_local_config =

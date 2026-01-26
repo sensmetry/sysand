@@ -12,6 +12,7 @@ use std::{
 };
 
 use sysand_core::{
+    auth::HTTPAuthentication,
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
     config::Config,
     discover::discover_project,
@@ -39,7 +40,7 @@ pub enum ProjectLocator {
 
 /// Clones project from `locator` to `target` directory.
 #[allow(clippy::too_many_arguments)]
-pub fn command_clone(
+pub fn command_clone<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
     locator: ProjectLocatorArgs,
     version: Option<String>,
     target: Option<String>,
@@ -48,6 +49,7 @@ pub fn command_clone(
     config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Pol>,
 ) -> Result<()> {
     let ResolutionOptions {
         index,
@@ -129,6 +131,7 @@ pub fn command_clone(
         Some(client.clone()),
         index_urls,
         runtime.clone(),
+        auth_policy.clone(),
     );
     match locator {
         ProjectLocator::Iri(iri) => {
@@ -226,6 +229,7 @@ pub fn command_clone(
             client,
             &provided_iris,
             runtime,
+            auth_policy,
         )?;
     }
 

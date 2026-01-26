@@ -14,6 +14,7 @@ use std::{
 use anyhow::{Result, bail};
 
 use sysand_core::{
+    auth::StandardHTTPAuthenticationBuilder,
     config::{
         Config,
         local_fs::{get_config, load_configs},
@@ -101,6 +102,56 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     let _runtime_keepalive = runtime.clone();
 
+    // FIXME: This is a temporary implementation to provide credentials until
+    //        https://github.com/sensmetry/sysand/pull/157
+    //        gets merged.
+    let mut basic_auth_patterns = HashMap::new();
+    let mut basic_auth_users = HashMap::new();
+    let mut basic_auth_passwords = HashMap::new();
+
+    for (key, value) in std::env::vars() {
+        if let Some(key_rest) = key.strip_prefix("SYSAND_CRED_") {
+            if let Some(key_name) = key_rest.strip_suffix("_BASIC_USER") {
+                basic_auth_users.insert(key_name.to_owned(), value);
+            } else if let Some(key_name) = key_rest.strip_suffix("_BASIC_PASS") {
+                basic_auth_passwords.insert(key_name.to_owned(), value);
+            } else {
+                basic_auth_patterns.insert(key_rest.to_owned(), value);
+            }
+        }
+    }
+
+    let mut basic_auth_pattern_names = HashSet::new();
+    for x in [
+        &basic_auth_patterns,
+        &basic_auth_users,
+        &basic_auth_passwords,
+    ] {
+        for k in x.keys() {
+            basic_auth_pattern_names.insert(k);
+        }
+    }
+
+    let mut basic_auths_builder: StandardHTTPAuthenticationBuilder =
+        StandardHTTPAuthenticationBuilder::new();
+    for k in basic_auth_pattern_names {
+        match (
+            basic_auth_patterns.get(k),
+            basic_auth_users.get(k),
+            basic_auth_passwords.get(k),
+        ) {
+            (Some(pattern), Some(username), Some(password)) => {
+                basic_auths_builder.add_basic_auth(pattern, username, password);
+            }
+            _ => {
+                anyhow::bail!(
+                    "Please specify all of SYSAND_CRED_{k}, SYSAND_CRED_{k}_BASIC_USER, SYSAND_CRED_{k}_BASIC_PASS"
+                );
+            }
+        }
+    }
+    let basic_auth_policy = Arc::new(basic_auths_builder.build()?);
+
     match args.command {
         cli::Command::Init {
             path,
@@ -139,6 +190,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         project_root,
                         client,
                         runtime,
+                        basic_auth_policy,
                     )
                 } else {
                     command_env_install(
@@ -150,6 +202,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         project_root,
                         client,
                         runtime,
+                        basic_auth_policy,
                     )
                 }
             }
@@ -188,8 +241,15 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         },
         cli::Command::Lock { resolution_opts } => {
             if project_root.is_some() {
-                crate::commands::lock::command_lock(".", resolution_opts, &config, client, runtime)
-                    .map(|_| ())
+                crate::commands::lock::command_lock(
+                    ".",
+                    resolution_opts,
+                    &config,
+                    client,
+                    runtime,
+                    basic_auth_policy,
+                )
+                .map(|_| ())
             } else {
                 bail!("not inside a project")
             }
@@ -216,6 +276,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     &config,
                     client.clone(),
                     runtime.clone(),
+                    basic_auth_policy.clone(),
                 )?;
             }
             let lock = Lock::from_str(&wrapfs::read_to_string(lockfile)?)?;
@@ -226,6 +287,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 client,
                 &provided_iris,
                 runtime,
+                basic_auth_policy,
             )
         }
         cli::Command::PrintRoot => command_print_root(cwd),
@@ -362,6 +424,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     index_urls,
                     &excluded_iris,
                     runtime,
+                    basic_auth_policy,
                 ),
                 (Location::Iri(iri), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
@@ -373,6 +436,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         client,
                         index_urls,
                         runtime,
+                        basic_auth_policy,
                     )
                 }
                 (Location::Path(path), None) => command_info_path(Path::new(&path), &excluded_iris),
@@ -399,6 +463,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             current_project,
             client,
             runtime,
+            basic_auth_policy,
         ),
         cli::Command::Remove { iri } => command_remove(iri, current_project),
         cli::Command::Include {
@@ -474,6 +539,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             &config,
             client,
             runtime,
+            basic_auth_policy,
         ),
     }
 }

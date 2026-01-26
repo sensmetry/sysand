@@ -14,6 +14,7 @@ use pyo3::{
 use semver::{Version, VersionReq};
 use sysand_core::{
     add::do_add,
+    auth::Unauthenticated,
     build::{KParBuildError, do_build_kpar},
     commands::{
         env::{EnvError, do_env_local_dir},
@@ -141,6 +142,8 @@ fn do_info_py(
             Some(client),
             index_url,
             runtime,
+            // FIXME: Add Python support for authentication
+            Arc::new(Unauthenticated {}),
         );
 
         match do_info(&uri, &combined_resolver) {

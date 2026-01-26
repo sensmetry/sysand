@@ -6,13 +6,16 @@ use std::{
     marker::{Send, Unpin},
     pin::Pin,
     string::String,
+    sync::Arc,
 };
 
 use futures::{Stream, TryStreamExt};
+use reqwest_middleware::ClientWithMiddleware;
 use sha2::Sha256;
 use thiserror::Error;
 
 use crate::{
+    auth::{HTTPAuthentication, StandardHTTPAuthentication},
     env::{
         AsSyncEnvironmentTokio, ReadEnvironmentAsync,
         local_directory::{ENTRIES_PATH, VERSIONS_PATH},
@@ -26,11 +29,12 @@ use crate::{
 
 use futures::{AsyncBufReadExt as _, StreamExt as _};
 
-pub type HTTPEnvironment = AsSyncEnvironmentTokio<HTTPEnvironmentAsync>;
+pub type HTTPEnvironment = AsSyncEnvironmentTokio<HTTPEnvironmentAsync<StandardHTTPAuthentication>>;
 
 #[derive(Debug)]
-pub struct HTTPEnvironmentAsync {
+pub struct HTTPEnvironmentAsync<Pol> {
     pub client: reqwest_middleware::ClientWithMiddleware,
+    pub auth_policy: Arc<Pol>,
     pub base_url: reqwest::Url,
     pub prefer_src: bool,
     // Currently no async implementation of ranged
@@ -55,7 +59,7 @@ pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> std::vec::IntoIter<String> {
     segment_uri_generic::<S, Sha256>(uri)
 }
 
-impl HTTPEnvironmentAsync {
+impl<Pol: HTTPAuthentication> HTTPEnvironmentAsync<Pol> {
     pub fn root_url(&self) -> url::Url {
         let mut result = self.base_url.clone();
 
@@ -75,12 +79,6 @@ impl HTTPEnvironmentAsync {
 
     pub fn entries_url(&self) -> Result<url::Url, HTTPEnvironmentError> {
         Self::url_join(&self.root_url(), ENTRIES_PATH)
-    }
-
-    pub fn get_entries_request(
-        &self,
-    ) -> Result<reqwest_middleware::RequestBuilder, HTTPEnvironmentError> {
-        Ok(self.client.get(self.entries_url()?))
     }
 
     pub fn iri_url<S: AsRef<str>>(&self, iri: S) -> Result<url::Url, HTTPEnvironmentError> {
@@ -107,13 +105,6 @@ impl HTTPEnvironmentAsync {
         self.iri_url_join(iri, VERSIONS_PATH)
     }
 
-    pub fn get_versions_request<S: AsRef<str>>(
-        &self,
-        iri: S,
-    ) -> Result<reqwest_middleware::RequestBuilder, HTTPEnvironmentError> {
-        Ok(self.client.get(self.versions_url(iri)?))
-    }
-
     pub fn project_kpar_url<S: AsRef<str>, T: AsRef<str>>(
         &self,
         iri: S,
@@ -136,20 +127,23 @@ impl HTTPEnvironmentAsync {
         &self,
         uri: S,
         version: T,
-    ) -> Result<Option<HTTPProjectAsync>, HTTPEnvironmentError> {
+    ) -> Result<Option<HTTPProjectAsync<Pol>>, HTTPEnvironmentError> {
         let project_url = self.project_src_url(uri, version)?;
         let src_project_url = Self::url_join(&project_url, ".project.json")?;
 
-        if !self
-            .client
-            .head(src_project_url.clone())
-            .header("ACCEPT", "application/json, text/plain")
-            .send()
+        let this_url = src_project_url.clone();
+        let src_project_request = move |client: &ClientWithMiddleware| {
+            client
+                .head(this_url.clone())
+                .header("ACCEPT", "application/json, text/plain")
+        };
+        let src_project_response = self
+            .auth_policy
+            .with_authentication(&self.client, &src_project_request)
             .await
-            .map_err(|e| HTTPEnvironmentError::HTTPRequest(src_project_url.as_str().into(), e))?
-            .status()
-            .is_success()
-        {
+            .map_err(|e| HTTPEnvironmentError::HTTPRequest(src_project_url.as_str().into(), e))?;
+
+        if !src_project_response.status().is_success() {
             return Ok(None);
         }
 
@@ -157,6 +151,7 @@ impl HTTPEnvironmentAsync {
             ReqwestSrcProjectAsync {
                 client: self.client.clone(),
                 url: src_project_url,
+                auth_policy: self.auth_policy.clone(),
             },
         )))
     }
@@ -165,15 +160,21 @@ impl HTTPEnvironmentAsync {
         &self,
         uri: S,
         version: T,
-    ) -> Result<Option<HTTPProjectAsync>, HTTPEnvironmentError> {
+    ) -> Result<Option<HTTPProjectAsync<Pol>>, HTTPEnvironmentError> {
         let kpar_project_url = self.project_kpar_url(&uri, &version)?;
 
-        if !self
-            .client
-            .head(kpar_project_url.clone())
-            .header("ACCEPT", "application/zip, application/octet-stream")
-            .send()
-            .await
+        let this_url = kpar_project_url.clone();
+        let kpar_project_request = move |client: &ClientWithMiddleware| {
+            client
+                .head(this_url.clone())
+                .header("ACCEPT", "application/zip, application/octet-stream")
+        };
+        let kpar_project_response = self
+            .auth_policy
+            .with_authentication(&self.client, &kpar_project_request)
+            .await;
+
+        if !kpar_project_response
             .map_err(|e| HTTPEnvironmentError::HTTPRequest(kpar_project_url.as_str().into(), e))?
             .status()
             .is_success()
@@ -185,6 +186,7 @@ impl HTTPEnvironmentAsync {
             ReqwestKparDownloadedProject::new_guess_root(
                 &self.project_kpar_url(&uri, &version)?,
                 self.client.clone(),
+                self.auth_policy.clone(),
             )
             .expect("internal IO error"),
         )))
@@ -229,7 +231,9 @@ fn trim_line<E>(line: Result<String, E>) -> Result<String, E> {
     Ok(line?.trim().to_string())
 }
 
-impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
+impl<Pol: HTTPAuthentication + std::fmt::Debug + 'static> ReadEnvironmentAsync
+    for HTTPEnvironmentAsync<Pol>
+{
     type ReadError = HTTPEnvironmentError;
 
     // This can be made more concrete, but the type is humongous
@@ -238,9 +242,15 @@ impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
     >;
 
     async fn uris_async(&self) -> Result<Self::UriStream, Self::ReadError> {
-        let response = self.get_entries_request()?.send().await.map_err(|e| {
-            HTTPEnvironmentError::HTTPRequest(self.entries_url().unwrap().as_str().into(), e)
-        })?;
+        let this_url = self.entries_url()?;
+
+        let response = self
+            .auth_policy
+            .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
+            .await
+            .map_err(|e| {
+                HTTPEnvironmentError::HTTPRequest(self.entries_url().unwrap().as_str().into(), e)
+            })?;
 
         let inner = if response.status().is_success() {
             Some(
@@ -268,9 +278,17 @@ impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
         &self,
         uri: S,
     ) -> Result<Self::VersionStream, Self::ReadError> {
-        let response = self.get_versions_request(&uri)?.send().await.map_err(|e| {
-            HTTPEnvironmentError::HTTPRequest(self.versions_url(uri).unwrap().as_str().into(), e)
-        })?;
+        let this_url = self.versions_url(uri.as_ref())?;
+        let response = self
+            .auth_policy
+            .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
+            .await
+            .map_err(|e| {
+                HTTPEnvironmentError::HTTPRequest(
+                    self.versions_url(uri).unwrap().as_str().into(),
+                    e,
+                )
+            })?;
 
         let inner = if response.status().is_success() {
             Some(
@@ -290,7 +308,7 @@ impl ReadEnvironmentAsync for HTTPEnvironmentAsync {
         Ok(Optionally { inner })
     }
 
-    type InterchangeProjectRead = HTTPProjectAsync;
+    type InterchangeProjectRead = HTTPProjectAsync<Pol>;
 
     async fn get_project_async<S: AsRef<str>, T: AsRef<str>>(
         &self,
@@ -326,6 +344,7 @@ mod test {
     use std::sync::Arc;
 
     use crate::{
+        auth::Unauthenticated,
         env::{ReadEnvironment, ReadEnvironmentAsync},
         resolve::reqwest_http::HTTPProjectAsync,
     };
@@ -336,6 +355,7 @@ mod test {
             client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse("https://www.example.com/a/b")?,
             prefer_src: true,
+            auth_policy: Arc::new(Unauthenticated {}),
             // try_ranged: false,
         };
 
@@ -370,6 +390,7 @@ mod test {
             client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
+            auth_policy: Arc::new(Unauthenticated {}),
             //try_ranged: false,
         }
         .to_tokio_sync(Arc::new(
@@ -442,6 +463,7 @@ mod test {
             client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
+            auth_policy: Arc::new(Unauthenticated {}),
             //try_ranged: false,
         }
         .to_tokio_sync(Arc::new(
@@ -481,6 +503,7 @@ mod test {
             client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse(&host)?,
             prefer_src: false,
+            auth_policy: Arc::new(Unauthenticated {}),
             //try_ranged: false,
         }
         .to_tokio_sync(Arc::new(
@@ -520,6 +543,7 @@ mod test {
             client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse(&host)?,
             prefer_src: false,
+            auth_policy: Arc::new(Unauthenticated {}),
             //try_ranged: false,
         }
         .to_tokio_sync(Arc::new(
@@ -571,6 +595,7 @@ mod test {
             client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
+            auth_policy: Arc::new(Unauthenticated {}),
             //try_ranged: false,
         }
         .to_tokio_sync(Arc::new(

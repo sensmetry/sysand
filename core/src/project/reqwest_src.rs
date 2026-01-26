@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{io, marker::Send, pin::Pin};
+use std::{io, marker::Send, pin::Pin, sync::Arc};
 
 use futures::{TryStreamExt, join};
+use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
 /// This module implements accessing interchanged projects stored remotely over HTTP.
 /// It is currently written using the blocking Reqwest client. Once sysand functionality
@@ -12,6 +13,7 @@ use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
 use crate::{
+    auth::HTTPAuthentication,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::ProjectReadAsync,
 };
@@ -27,14 +29,15 @@ use crate::{
 /// is accessed by
 /// GET https://www.example.com/project/M%C3%ABkan%C3%AFk/K%C3%B6mmand%C3%B6h.sysml
 #[derive(Clone, Debug)]
-pub struct ReqwestSrcProjectAsync {
+pub struct ReqwestSrcProjectAsync<Pol> {
     /// (reqwest) HTTP client to use for GET requests
     pub client: reqwest_middleware::ClientWithMiddleware, // Internally an Arc
     /// Base-url of the project
     pub url: reqwest::Url,
+    pub auth_policy: Arc<Pol>,
 }
 
-impl ReqwestSrcProjectAsync {
+impl<Pol> ReqwestSrcProjectAsync<Pol> {
     pub fn info_url(&self) -> reqwest::Url {
         self.url.join(".project.json").expect("internal URL error")
     }
@@ -49,29 +52,29 @@ impl ReqwestSrcProjectAsync {
             .expect("internal URL error")
     }
 
-    pub fn head_info(&self) -> reqwest_middleware::RequestBuilder {
-        self.client
-            .head(self.info_url())
-            .header(reqwest::header::ACCEPT, "application/json")
-    }
+    // pub fn head_info(&self) -> reqwest_middleware::RequestBuilder {
+    //     self.client
+    //         .head(self.info_url())
+    //         .header(reqwest::header::ACCEPT, "application/json")
+    // }
 
-    pub fn head_meta(&self) -> reqwest_middleware::RequestBuilder {
-        self.client
-            .head(self.meta_url())
-            .header(reqwest::header::ACCEPT, "application/json")
-    }
+    // pub fn head_meta(&self) -> reqwest_middleware::RequestBuilder {
+    //     self.client
+    //         .head(self.meta_url())
+    //         .header(reqwest::header::ACCEPT, "application/json")
+    // }
 
-    pub fn get_info(&self) -> reqwest_middleware::RequestBuilder {
-        self.client
-            .get(self.info_url())
-            .header(reqwest::header::ACCEPT, "application/json")
-    }
+    // pub fn get_info(&self) -> reqwest_middleware::RequestBuilder {
+    //     self.client
+    //         .get(self.info_url())
+    //         .header(reqwest::header::ACCEPT, "application/json")
+    // }
 
-    pub fn get_meta(&self) -> reqwest_middleware::RequestBuilder {
-        self.client
-            .get(self.meta_url())
-            .header(reqwest::header::ACCEPT, "application/json")
-    }
+    // pub fn get_meta(&self) -> reqwest_middleware::RequestBuilder {
+    //     self.client
+    //         .get(self.meta_url())
+    //         .header(reqwest::header::ACCEPT, "application/json")
+    // }
 
     pub fn reqwest_src<P: AsRef<Utf8UnixPath>>(
         &self,
@@ -93,7 +96,7 @@ pub enum ReqwestSrcError {
     BadStatus(Box<str>, reqwest::StatusCode),
 }
 
-impl ProjectReadAsync for ReqwestSrcProjectAsync {
+impl<Pol: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol> {
     type Error = ReqwestSrcError;
 
     async fn get_project_async(
@@ -111,9 +114,10 @@ impl ProjectReadAsync for ReqwestSrcProjectAsync {
     }
 
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        let this_url = self.info_url();
         let info_resp = self
-            .get_info()
-            .send()
+            .auth_policy
+            .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
             .await
             .map_err(|e| ReqwestSrcError::Reqwest(self.info_url().into(), e))?;
 
@@ -129,9 +133,10 @@ impl ProjectReadAsync for ReqwestSrcProjectAsync {
     }
 
     async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        let this_url = self.meta_url();
         let meta_resp = self
-            .get_meta()
-            .send()
+            .auth_policy
+            .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
             .await
             .map_err(|e| ReqwestSrcError::Reqwest(self.meta_url().into(), e))?;
 
@@ -180,7 +185,19 @@ impl ProjectReadAsync for ReqwestSrcProjectAsync {
     }
 
     async fn is_definitely_invalid_async(&self) -> bool {
-        match join!(self.head_info().send(), self.head_meta().send()) {
+        let info_url = self.info_url();
+        let info_request = move |client: &ClientWithMiddleware| client.head(info_url.clone());
+        let info_resp = self
+            .auth_policy
+            .with_authentication(&self.client, &info_request);
+
+        let meta_url = self.meta_url();
+        let var_name = move |client: &ClientWithMiddleware| client.head(meta_url.clone());
+        let meta_resp = self
+            .auth_policy
+            .with_authentication(&self.client, &var_name);
+
+        match join!(info_resp, meta_resp) {
             (Ok(info_head), Ok(meta_head)) => {
                 !info_head.status().is_success() || !meta_head.status().is_success()
             }
@@ -201,7 +218,10 @@ mod tests {
 
     use typed_path::Utf8UnixPath;
 
-    use crate::project::{ProjectRead, ProjectReadAsync, reqwest_src::ReqwestSrcProjectAsync};
+    use crate::{
+        auth::Unauthenticated,
+        project::{ProjectRead, ProjectReadAsync, reqwest_src::ReqwestSrcProjectAsync},
+    };
 
     #[test]
     fn empty_remote_definitely_invalid_http_src() -> Result<(), Box<dyn std::error::Error>> {
@@ -213,7 +233,12 @@ mod tests {
             reqwest_middleware::ClientBuilder::new(reqwest::ClientBuilder::new().build().unwrap())
                 .build();
 
-        let project = ReqwestSrcProjectAsync { client, url }.to_tokio_sync(Arc::new(
+        let project = ReqwestSrcProjectAsync {
+            client,
+            url,
+            auth_policy: Arc::new(Unauthenticated {}),
+        }
+        .to_tokio_sync(Arc::new(
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?,
@@ -258,7 +283,12 @@ mod tests {
             reqwest_middleware::ClientBuilder::new(reqwest::ClientBuilder::new().build().unwrap())
                 .build();
 
-        let project = ReqwestSrcProjectAsync { client, url }.to_tokio_sync(Arc::new(
+        let project = ReqwestSrcProjectAsync {
+            client,
+            url,
+            auth_policy: Arc::new(Unauthenticated {}),
+        }
+        .to_tokio_sync(Arc::new(
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?,

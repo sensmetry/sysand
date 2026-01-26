@@ -12,6 +12,7 @@ use anyhow::{Result, anyhow, bail};
 
 use fluent_uri::Iri;
 use sysand_core::{
+    auth::HTTPAuthentication,
     commands::{env::do_env_local_dir, lock::LockOutcome},
     config::Config,
     env::local_directory::LocalDirectoryEnvironment,
@@ -41,7 +42,7 @@ pub fn command_env<P: AsRef<Path>>(path: P) -> Result<LocalDirectoryEnvironment>
 
 // TODO: Factor out provided_iris logic
 #[allow(clippy::too_many_arguments)]
-pub fn command_env_install(
+pub fn command_env_install<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
     iri: Iri<String>,
     version: Option<String>,
     install_opts: InstallOptions,
@@ -50,6 +51,7 @@ pub fn command_env_install(
     project_root: Option<PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Pol>,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
@@ -100,6 +102,7 @@ pub fn command_env_install(
             Some(client.clone()),
             index_urls,
             runtime.clone(),
+            auth_policy.clone(),
         ),
     );
 
@@ -143,6 +146,7 @@ pub fn command_env_install(
             client,
             &provided_iris,
             runtime,
+            auth_policy,
         )?;
     }
 
@@ -151,7 +155,10 @@ pub fn command_env_install(
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
-pub fn command_env_install_path<S: AsRef<str>>(
+pub fn command_env_install_path<
+    S: AsRef<str>,
+    Pol: HTTPAuthentication + std::fmt::Debug + 'static,
+>(
     iri: S,
     version: Option<String>,
     path: String,
@@ -161,6 +168,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
     project_root: Option<PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Pol>,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
@@ -243,6 +251,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
                 Some(client.clone()),
                 index_urls,
                 runtime.clone(),
+                auth_policy.clone(),
             ),
         );
         let LockOutcome {
@@ -256,6 +265,7 @@ pub fn command_env_install_path<S: AsRef<str>>(
             client,
             &provided_iris,
             runtime,
+            auth_policy,
         )?;
     }
 

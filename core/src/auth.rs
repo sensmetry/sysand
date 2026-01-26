@@ -4,34 +4,33 @@
 /// This module includes utilities for creating and using authentication policies for requests.
 ///
 use globset::{GlobBuilder, GlobSetBuilder};
-use reqwest::{Request, Response};
+use reqwest::Response;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 
 pub trait HTTPAuthentication {
     /// Tries to execute a request with some authentication policy. The request might be retried
     /// multiple times and it may generate auxiliary requests (using the provided client).
     fn with_authentication<F>(
-        &mut self,
+        &self,
         client: &ClientWithMiddleware,
         renew_request: &F,
     ) -> impl Future<Output = Result<Response, reqwest_middleware::Error>>
     where
-        F: Fn() -> Request + 'static,
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
         async {
-            self.request_with_authentication(client, renew_request(), renew_request)
+            self.request_with_authentication(renew_request(client), renew_request)
                 .await
         }
     }
 
     fn request_with_authentication<F>(
-        &mut self,
-        client: &ClientWithMiddleware,
-        request: Request,
+        &self,
+        request: RequestBuilder,
         renew_request: &F,
     ) -> impl Future<Output = Result<Response, reqwest_middleware::Error>>
     where
-        F: Fn() -> Request + 'static;
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static;
 }
 
 /// Authentication policy that does no authentication
@@ -39,16 +38,27 @@ pub trait HTTPAuthentication {
 pub struct Unauthenticated {}
 
 impl HTTPAuthentication for Unauthenticated {
-    fn request_with_authentication<F>(
-        &mut self,
-        client: &ClientWithMiddleware,
-        request: Request,
+    async fn request_with_authentication<F>(
+        &self,
+        request: RequestBuilder,
         _renew_request: &F,
-    ) -> impl Future<Output = Result<Response, reqwest_middleware::Error>>
+    ) -> Result<Response, reqwest_middleware::Error>
     where
-        F: Fn() -> Request + 'static,
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        async move { client.execute(request).await }
+        request.send().await
+    }
+
+    async fn with_authentication<F>(
+        &self,
+        client: &ClientWithMiddleware,
+        renew_request: &F,
+    ) -> Result<Response, reqwest_middleware::Error>
+    where
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
+    {
+        self.request_with_authentication(renew_request(client), renew_request)
+            .await
     }
 }
 
@@ -60,24 +70,30 @@ pub struct ForceHTTPBasicAuth {
 }
 
 impl HTTPAuthentication for ForceHTTPBasicAuth {
-    fn request_with_authentication<F>(
-        &mut self,
-        client: &ClientWithMiddleware,
-        request: Request,
+    async fn request_with_authentication<F>(
+        &self,
+        request: RequestBuilder,
         _renew_request: &F,
-    ) -> impl Future<Output = Result<Response, reqwest_middleware::Error>>
+    ) -> Result<Response, reqwest_middleware::Error>
     where
-        F: Fn() -> Request + 'static,
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        async move {
-            client
-                .execute(
-                    RequestBuilder::from_parts(client.clone(), request)
-                        .basic_auth(self.username.clone(), Some(self.password.clone()))
-                        .build()?,
-                )
-                .await
-        }
+        request
+            .basic_auth(self.username.clone(), Some(self.password.clone()))
+            .send()
+            .await
+    }
+
+    async fn with_authentication<F>(
+        &self,
+        client: &ClientWithMiddleware,
+        renew_request: &F,
+    ) -> Result<Response, reqwest_middleware::Error>
+    where
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
+    {
+        self.request_with_authentication(renew_request(client), renew_request)
+            .await
     }
 }
 
@@ -93,31 +109,34 @@ pub struct SequenceAuthentication<Higher, Lower> {
 impl<Higher: HTTPAuthentication, Lower: HTTPAuthentication> HTTPAuthentication
     for SequenceAuthentication<Higher, Lower>
 {
-    fn request_with_authentication<F>(
-        &mut self,
-        client: &ClientWithMiddleware,
-        request: Request,
+    async fn request_with_authentication<F>(
+        &self,
+        request: RequestBuilder,
         renew_request: &F,
-    ) -> impl Future<Output = Result<Response, reqwest_middleware::Error>>
+    ) -> Result<Response, reqwest_middleware::Error>
     where
-        F: Fn() -> Request + 'static,
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        async move {
-            // Always try without authentication first
-            let initial_response = self
-                .higher
-                .request_with_authentication(client, request, renew_request)
-                .await?;
+        let (client, current_request_result) = request.build_split();
+        let current_request = current_request_result?;
 
-            // Many servers (e.g. GitLab pages) generate a 404 instead of a 401 or 403 in response
-            // to lack of authentication.
-            if initial_response.status().is_client_error() {
-                self.lower
-                    .request_with_authentication(client, renew_request(), renew_request)
-                    .await
-            } else {
-                Ok(initial_response)
-            }
+        // Always try without authentication first
+        let initial_response = self
+            .higher
+            .request_with_authentication(
+                RequestBuilder::from_parts(client.clone(), current_request),
+                renew_request,
+            )
+            .await?;
+
+        // Many servers (e.g. GitLab pages) generate a 404 instead of a 401 or 403 in response
+        // to lack of authentication.
+        if initial_response.status().is_client_error() {
+            self.lower
+                .request_with_authentication(renew_request(&client), renew_request)
+                .await
+        } else {
+            Ok(initial_response)
         }
     }
 }
@@ -135,12 +154,18 @@ pub struct GlobMap<T> {
     globset: globset::GlobSet,
 }
 
-impl<T> GlobMapBuilder<T> {
-    pub fn new() -> Self {
+impl<T> Default for GlobMapBuilder<T> {
+    fn default() -> Self {
         GlobMapBuilder {
             keys: vec![],
             values: vec![],
         }
+    }
+}
+
+impl<T> GlobMapBuilder<T> {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn add<S: AsRef<str>>(&mut self, globstr: S, value: T) {
@@ -162,6 +187,16 @@ impl<T> GlobMapBuilder<T> {
 }
 
 #[derive(Debug)]
+pub enum GlobMapResult<'a, T> {
+    /// A unique matching pattern
+    Found(String, &'a T),
+    /// No matching pattern
+    NotFound,
+    /// Multiple matching patterns
+    Ambiguous(Vec<(String, &'a T)>),
+}
+
+#[derive(Debug)]
 pub enum GlobMapResultMut<'a, T> {
     /// A unique matching pattern
     Found(String, &'a mut T),
@@ -172,9 +207,30 @@ pub enum GlobMapResultMut<'a, T> {
 }
 
 impl<T> GlobMap<T> {
+    pub fn lookup<'a>(&'a self, key: &str) -> GlobMapResult<'a, T> {
+        let outcome = self.globset.matches(key);
+        if outcome.is_empty() {
+            GlobMapResult::NotFound
+        } else if outcome.len() == 1 {
+            GlobMapResult::Found(self.keys[0].clone(), &self.values[outcome[0]])
+        } else {
+            // Need to do some magic to keep multiple (disjoint) references into a mutable array
+            let mut result = Vec::with_capacity(outcome.len());
+            let mut values_iter = self.values.iter();
+
+            let mut base = 0;
+            for idx in outcome {
+                result.push((self.keys[idx].clone(), values_iter.nth(idx - base).unwrap()));
+                base = idx + 1;
+            }
+
+            GlobMapResult::Ambiguous(result)
+        }
+    }
+
     pub fn lookup_mut<'a>(&'a mut self, key: &str) -> GlobMapResultMut<'a, T> {
         let outcome = self.globset.matches(key);
-        if outcome.len() == 0 {
+        if outcome.is_empty() {
             GlobMapResultMut::NotFound
         } else if outcome.len() == 1 {
             GlobMapResultMut::Found(self.keys[0].clone(), &mut self.values[outcome[0]])
@@ -197,6 +253,7 @@ impl<T> GlobMap<T> {
     }
 }
 
+#[derive(Debug, Clone)]
 /// Uses `restricted` authentication only on urls matching one of specified globs,
 /// otherwise use `unrestricted`. For an ambiguous match a warning is generated and the
 /// ambiguous options are tried, in order, until a non-4xx response is generated. If no
@@ -209,47 +266,56 @@ pub struct RestrictAuthentication<Restricted, Unrestricted> {
 impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthentication
     for RestrictAuthentication<Restricted, Unrestricted>
 {
-    fn request_with_authentication<F>(
-        &mut self,
-        client: &ClientWithMiddleware,
-        request: Request,
+    async fn request_with_authentication<F>(
+        &self,
+        request: RequestBuilder,
         renew_request: &F,
-    ) -> impl Future<Output = Result<Response, reqwest_middleware::Error>>
+    ) -> Result<Response, reqwest_middleware::Error>
     where
-        F: Fn() -> Request + 'static,
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        async move {
-            let url = request.url();
-            match self.restricted.lookup_mut(url.as_str()) {
-                GlobMapResultMut::Found(_, restricted) => {
-                    restricted
-                        .request_with_authentication(client, request, renew_request)
-                        .await
-                }
-                GlobMapResultMut::NotFound => {
-                    self.unrestricted
-                        .request_with_authentication(client, request, renew_request)
-                        .await
-                }
-                GlobMapResultMut::Ambiguous(items) => {
-                    let mut items = items.into_iter();
-                    let (_, first_restricted) = items.next().unwrap();
-                    let first_response = first_restricted
-                        .request_with_authentication(client, request, renew_request)
-                        .await?;
-                    if !first_response.status().is_client_error() {
-                        return Ok(first_response);
-                    } else {
-                        for (_, other_restricted) in items {
-                            let other_resonse = other_restricted
-                                .with_authentication(client, renew_request)
-                                .await?;
-                            if !other_resonse.status().is_client_error() {
-                                return Ok(other_resonse);
-                            }
+        let (client, current_request_result) = request.build_split();
+        let current_request = current_request_result?;
+
+        let url = current_request.url();
+        match self.restricted.lookup(url.as_str()) {
+            GlobMapResult::Found(_, restricted) => {
+                restricted
+                    .request_with_authentication(
+                        RequestBuilder::from_parts(client.clone(), current_request),
+                        renew_request,
+                    )
+                    .await
+            }
+            GlobMapResult::NotFound => {
+                self.unrestricted
+                    .request_with_authentication(
+                        RequestBuilder::from_parts(client.clone(), current_request),
+                        renew_request,
+                    )
+                    .await
+            }
+            GlobMapResult::Ambiguous(items) => {
+                let mut items = items.into_iter();
+                let (_, first_restricted) = items.next().unwrap();
+                let first_response = first_restricted
+                    .request_with_authentication(
+                        RequestBuilder::from_parts(client.clone(), current_request),
+                        renew_request,
+                    )
+                    .await?;
+                if !first_response.status().is_client_error() {
+                    Ok(first_response)
+                } else {
+                    for (_, other_restricted) in items {
+                        let other_resonse = other_restricted
+                            .with_authentication(&client, renew_request)
+                            .await?;
+                        if !other_resonse.status().is_client_error() {
+                            return Ok(other_resonse);
                         }
-                        return Ok(first_response);
                     }
+                    Ok(first_response)
                 }
             }
         }
@@ -272,11 +338,16 @@ pub type StandardHTTPAuthentication = RestrictAuthentication<
 >;
 
 /// Utility to simplify construction of `StandardHTTPAuthentication`
+#[derive(Debug, Default, Clone)]
 pub struct StandardHTTPAuthenticationBuilder {
     partial: GlobMapBuilder<SequenceAuthentication<Unauthenticated, ForceHTTPBasicAuth>>,
 }
 
 impl StandardHTTPAuthenticationBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn build(self) -> Result<StandardHTTPAuthentication, globset::Error> {
         Ok(StandardHTTPAuthentication {
             restricted: self.partial.build()?,
@@ -303,7 +374,7 @@ impl StandardHTTPAuthenticationBuilder {
     }
 
     // TODO: For other authentication schemes
-    // pub fn add_..._auth<S: AsRef<str>, ...>(&mut self, globstr: S, ...)
+    // pub fn add_..._auth<S: AsRef<str>, ...>(&self, globstr: S, ...)
 }
 
 // pub struct GlobsetAuth
