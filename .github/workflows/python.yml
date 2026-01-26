@@ -14,7 +14,8 @@ on:
       - 'core/**'
       - 'sysand/**'
       - 'Cargo.*'
-      - '.github/**'
+      - '.github/workflows/python.yml'
+      - '.github/scripts/*'
   pull_request:
     branches: [ "main" ]
     paths:
@@ -22,7 +23,8 @@ on:
       - 'core/**'
       - 'sysand/**'
       - 'Cargo.*'
-      - '.github/**'
+      - '.github/workflows/python.yml'
+      - '.github/scripts/*'
   workflow_dispatch:
 
 permissions:
