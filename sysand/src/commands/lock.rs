@@ -4,9 +4,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use camino::Utf8Path;
-use pubgrub::Reporter as _;
 
 use sysand_core::{
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
@@ -56,7 +55,7 @@ pub fn command_lock<P: AsRef<Utf8Path>>(
         w.projects()
             .iter()
             .find(|p| Utf8Path::new(&p.path) == path.as_ref())
-            .map(|p| p.iris)
+            .map(|p| p.iris.clone())
     } else {
         None
     };
@@ -115,7 +114,7 @@ pub fn create_resolver<P: AsRef<Utf8Path>>(
             projects: memory_projects,
         },
         standard_resolver(
-            cwd,
+            Some(cwd),
             if local_env_path.is_dir() {
                 Some(local_env_path)
             } else {

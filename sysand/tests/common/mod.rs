@@ -7,10 +7,8 @@ use camino_tempfile::Utf8TempDir;
 use rexpect::session::{PtySession, spawn_command};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::process::ExitStatusExt;
-use std::path::{Path, PathBuf};
 use std::{
     error::Error,
-    io::Write,
     process::{Command, Output},
 };
 

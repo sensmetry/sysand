@@ -289,7 +289,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 Ok(l) => match Lock::from_str(&l) {
                     Ok(l) => l,
                     // Include file path in errors
-                    Err(e) => bail!("invalid lockfile `{}`:\n{e}", lockfile.display()),
+                    Err(e) => bail!("invalid lockfile `{lockfile}`:\n{e}"),
                 },
                 Err(e) => {
                     if let ErrorKind::NotFound = e.kind() {
@@ -302,7 +302,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                             runtime.clone(),
                         )?
                     } else {
-                        bail!("failed to read lockfile `{}`: {e}", lockfile.display())
+                        bail!("failed to read lockfile `{lockfile}`: {e}")
                     }
                 }
             };

@@ -5,6 +5,7 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::Result;
 
+use camino::Utf8Path;
 use fluent_uri::Iri;
 use sysand_core::{
     add::do_add,
@@ -87,7 +88,7 @@ pub fn command_add(
 }
 
 #[expect(clippy::too_many_arguments)]
-fn resolve_deps<P: AsRef<Path>>(
+fn resolve_deps<P: AsRef<Utf8Path>>(
     no_sync: bool,
     resolution_opts: ResolutionOptions,
     config: &Config,

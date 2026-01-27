@@ -3,7 +3,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use semver::Version;
 
-use std::{collections::HashMap, fs, io::ErrorKind, mem, sync::Arc};
+use std::{collections::HashMap, fs, io::ErrorKind, sync::Arc};
 
 use sysand_core::{
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
@@ -43,13 +43,6 @@ pub fn command_clone(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
-    let ResolutionOptions {
-        index,
-        default_index,
-        no_index,
-        include_std,
-    } = resolution_opts;
-
     let target: Utf8PathBuf = target.unwrap_or_else(|| ".".into());
     let project_path = {
         // Canonicalization is performed only for better error messages
@@ -156,7 +149,7 @@ fn obtain_project(
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
-    project_path: PathBuf,
+    project_path: Utf8PathBuf,
 ) -> Result<
     (
         bool,
@@ -361,10 +354,10 @@ pub fn get_project_version<R: ResolveRead>(
 /// Removes all files in the directory.
 /// All errors are ignored.
 fn clean_dir<P: AsRef<Utf8Path>>(path: P) {
-    let Ok(entries) = fs::read_dir(&path) else {
+    let Ok(entries) = fs::read_dir(path.as_ref()) else {
         return;
     };
-    log::debug!("clearing contents of dir `{}`", path.as_ref().display());
+    log::debug!("clearing contents of dir `{}`", path.as_ref());
 
     for entry in entries {
         let Ok(entry) = entry else { continue };

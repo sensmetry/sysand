@@ -1,4 +1,4 @@
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 
 #[cfg(feature = "python")]
@@ -63,7 +63,7 @@ pub enum WorkspaceReadError {
     #[error("failed to deserialize `.workspace.json`: {0}")]
     Deserialize(#[from] WorkspaceDeserializationError),
     #[error("invalid workspace configuration in `{0}`: {1}")]
-    Validation(PathBuf, WorkspaceValidationError),
+    Validation(Utf8PathBuf, WorkspaceValidationError),
 }
 
 #[derive(Debug, Error)]
