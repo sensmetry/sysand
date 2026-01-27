@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
-
+use camino::Utf8PathBuf;
 use fluent_uri::Iri;
+
 #[cfg(feature = "python")]
 use pyo3::{FromPyObject, IntoPyObject};
 use serde::{Deserialize, Serialize};
@@ -80,13 +80,13 @@ impl WorkspaceDeserializationError {
 }
 
 pub struct Workspace {
-    root_dir: PathBuf,
+    root_dir: Utf8PathBuf,
     info: WorkspaceInfo,
 }
 
 impl Workspace {
     /// Read and parse workspace info file `.workspace.json` residing in `root_dir`
-    pub fn new(root_dir: PathBuf) -> Result<Self, WorkspaceReadError> {
+    pub fn new(root_dir: Utf8PathBuf) -> Result<Self, WorkspaceReadError> {
         let info_path = root_dir.join(".workspace.json");
         let raw_info: WorkspaceInfoRaw = serde_json::from_reader(wrapfs::File::open(&info_path)?)
             .map_err(|e| {
@@ -98,11 +98,11 @@ impl Workspace {
         }
     }
 
-    pub fn root_path(&self) -> &Path {
+    pub fn root_path(&self) -> &Utf8Path {
         &self.root_dir
     }
 
-    pub fn info_path(&self) -> PathBuf {
+    pub fn info_path(&self) -> Utf8PathBuf {
         self.root_dir.join(".workspace.json")
     }
 

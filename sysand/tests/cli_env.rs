@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use assert_cmd::prelude::*;
+use camino::Utf8Path;
 use mockito::Server;
 use predicates::prelude::*;
 use sysand_core::env::local_directory::DEFAULT_ENV_NAME;
@@ -55,7 +56,7 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
 
     let test_path = fixture_path("test_lib");
 
-    let env_path = Path::new(DEFAULT_ENV_NAME);
+    let env_path = Utf8Path::new(DEFAULT_ENV_NAME);
 
     let out = run_sysand_in(
         &cwd,
@@ -64,7 +65,7 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
             "install",
             "urn:kpar:test",
             "--path",
-            test_path.to_str().unwrap(),
+            test_path.as_str(),
         ],
         None,
     )?;
@@ -139,7 +140,7 @@ fn env_install_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
 
     let test_path = fixture_path("test_lib.kpar");
 
-    let env_path = Path::new(DEFAULT_ENV_NAME);
+    let env_path = Utf8Path::new(DEFAULT_ENV_NAME);
 
     let mut server = Server::new();
 
@@ -213,7 +214,7 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
             "install",
             "urn:kpar:test",
             "--path",
-            test_path.to_str().unwrap(),
+            test_path.as_str(),
         ],
         None,
     )?;
@@ -229,7 +230,7 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
             "install",
             "urn:kpar:test",
             "--path",
-            test_path.to_str().unwrap(),
+            test_path.as_str(),
         ],
         None,
     )?;
@@ -245,7 +246,7 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
             "install",
             "urn:kpar:test",
             "--path",
-            test_path.to_str().unwrap(),
+            test_path.as_str(),
             "--allow-overwrite",
         ],
         None,

@@ -1,16 +1,15 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::Path;
-
 use anyhow::Result;
+use camino::Utf8Path;
 use sysand_core::{
     build::{do_build_kpar, do_build_workspace_kpars},
     project::local_src::LocalSrcProject,
     workspace::Workspace,
 };
 
-pub fn command_build_for_project<P: AsRef<Path>>(
+pub fn command_build_for_project<P: AsRef<Utf8Path>>(
     path: P,
     current_project: LocalSrcProject,
 ) -> Result<()> {
@@ -19,7 +18,10 @@ pub fn command_build_for_project<P: AsRef<Path>>(
     Ok(())
 }
 
-pub fn command_build_for_workspace<P: AsRef<Path>>(path: P, workspace: Workspace) -> Result<()> {
+pub fn command_build_for_workspace<P: AsRef<Utf8Path>>(
+    path: P,
+    workspace: Workspace,
+) -> Result<()> {
     log::warn!(
         "Workspaces are an experimental feature\n\
         and their behavior may change even with minor\n\

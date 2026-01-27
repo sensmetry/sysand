@@ -109,9 +109,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
             "install",
             "urn:kpar:add_and_remove_with_lock_preinstall_dep",
             "--path",
-            cwd_dep
-                .to_str()
-                .expect("internal test error: invalid temp path"),
+            cwd_dep.as_str(),
         ],
         None,
     )?

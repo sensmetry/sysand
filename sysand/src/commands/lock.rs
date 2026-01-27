@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
+use camino::Utf8Path;
+use pubgrub::Reporter as _;
 
 use sysand_core::{
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
     config::Config,
+    env::local_directory::DEFAULT_ENV_NAME,
     project::{memory::InMemoryProject, utils::wrapfs},
     resolve::{
         memory::{AcceptAll, MemoryResolver},
@@ -26,7 +28,7 @@ use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 /// `path` must be relative to workspace root.
 // TODO: this will not work properly if run in subdir of workspace,
 // as `path` will then refer to a deeper subdir
-pub fn command_lock<P: AsRef<Path>>(
+pub fn command_lock<P: AsRef<Utf8Path>>(
     path: P,
     current_workspace: Option<Workspace>,
     resolution_opts: ResolutionOptions,
@@ -34,7 +36,7 @@ pub fn command_lock<P: AsRef<Path>>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<sysand_core::lock::Lock> {
-    assert!(path.as_ref().is_relative(), "{}", path.as_ref().display());
+    assert!(path.as_ref().is_relative(), "{}", path.as_ref());
 
     let provided_iris = if !resolution_opts.include_std {
         known_std_libs()
@@ -53,8 +55,8 @@ pub fn command_lock<P: AsRef<Path>>(
     let alias_iris = if let Some(w) = current_workspace {
         w.projects()
             .iter()
-            .find(|p| Path::new(&p.path) == path.as_ref())
-            .map(|p| p.iris.to_owned())
+            .find(|p| Utf8Path::new(&p.path) == path.as_ref())
+            .map(|p| p.iris)
     } else {
         None
     };
@@ -72,7 +74,7 @@ pub fn command_lock<P: AsRef<Path>>(
     Ok(canonical)
 }
 
-pub fn create_resolver<P: AsRef<Path>>(
+pub fn create_resolver<P: AsRef<Utf8Path>>(
     path: &P,
     resolution_opts: ResolutionOptions,
     config: &Config,
@@ -91,9 +93,8 @@ pub fn create_resolver<P: AsRef<Path>>(
     } = resolution_opts;
 
     let cwd = wrapfs::current_dir()?;
-    let local_env_path = path
-        .as_ref()
-        .join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+
+    let local_env_path = path.as_ref().join(DEFAULT_ENV_NAME);
 
     let index_urls = if no_index {
         None
@@ -114,7 +115,7 @@ pub fn create_resolver<P: AsRef<Path>>(
             projects: memory_projects,
         },
         standard_resolver(
-            Some(cwd),
+            cwd,
             if local_env_path.is_dir() {
                 Some(local_env_path)
             } else {

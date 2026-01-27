@@ -1,5 +1,5 @@
-use std::path::Path;
-
+#[cfg(feature = "filesystem")]
+use camino::Utf8Path;
 use thiserror::Error;
 
 use crate::{
@@ -116,7 +116,7 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
 }
 
 #[cfg(feature = "filesystem")]
-pub fn do_build_kpar<P: AsRef<Path>, Pr: ProjectRead>(
+pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
     canonicalise: bool,
@@ -125,10 +125,7 @@ pub fn do_build_kpar<P: AsRef<Path>, Pr: ProjectRead>(
 
     let building = "Building";
     let header = crate::style::get_style_config().header;
-    log::info!(
-        "{header}{building:>12}{header:#} kpar `{}`",
-        path.as_ref().display()
-    );
+    log::info!("{header}{building:>12}{header:#} kpar `{}`", path.as_ref());
 
     let (_tmp, mut local_project) = LocalSrcProject::temporary_from_project(project)?;
 
@@ -149,7 +146,7 @@ pub fn do_build_kpar<P: AsRef<Path>, Pr: ProjectRead>(
 }
 
 #[cfg(feature = "filesystem")]
-pub fn do_build_workspace_kpars<P: AsRef<Path>>(
+pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &Workspace,
     path: P,
     canonicalise: bool,

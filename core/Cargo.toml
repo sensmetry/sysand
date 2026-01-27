@@ -20,12 +20,14 @@ lenient_checks = []
 # Binding support (but not binding libraries themselves)
 python = ["dep:pyo3"]
 js = ["dep:wasm-bindgen"]
-filesystem = ["dep:tempfile", "dep:dirs", "dep:zip"]
+filesystem = ["dep:camino-tempfile", "dep:dirs", "dep:zip"]
 networking = ["dep:reqwest", "dep:gix"] # "dep:reqwest-middleware", "dep:partialzip"
 alltests = []
 
 [dependencies]
 # General
+camino.workspace = true
+camino-tempfile = { version = "1.4", optional = true }
 anstyle = { version = "1.0.13", default-features = false }
 borrow-or-share = { version = "0.2.4", default-features = false }
 chrono = { version = "0.4.43", features = ["now", "serde"] }

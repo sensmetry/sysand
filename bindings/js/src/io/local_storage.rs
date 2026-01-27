@@ -128,7 +128,7 @@ impl ProjectRead for ProjectLocalBrowserStorage {
 
     fn sources(&self) -> Vec<lock::Source> {
         vec![sysand_core::lock::Source::LocalSrc {
-            src_path: self.root_path.to_string(),
+            src_path: self.root_path.as_str().into(),
         }]
     }
 }

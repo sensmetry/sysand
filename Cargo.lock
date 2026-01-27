@@ -250,6 +250,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "camino"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e629a66d692cb9ff1a1c664e41771b3dcaf961985a9774c0eb0bd1b51cf60a48"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
+name = "camino-tempfile"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64308c4c82a5c38679945ddf88738dc1483dcc563bbb5780755ae9f8497d2b20"
+dependencies = [
+ "camino",
+ "tempfile",
+]
+
+[[package]]
 name = "cast"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3331,6 +3350,8 @@ dependencies = [
  "anstream",
  "anyhow",
  "assert_cmd",
+ "camino",
+ "camino-tempfile",
  "clap",
  "env_logger",
  "fluent-uri",
@@ -3364,6 +3385,8 @@ dependencies = [
  "assert_cmd",
  "borrow-or-share",
  "bytes",
+ "camino",
+ "camino-tempfile",
  "chrono",
  "digest",
  "dirs",
@@ -3401,6 +3424,7 @@ dependencies = [
 name = "sysand-java"
 version = "0.0.8"
 dependencies = [
+ "camino",
  "indexmap",
  "jni",
  "reqwest",
@@ -3416,6 +3440,7 @@ dependencies = [
 name = "sysand-js"
 version = "0.0.8"
 dependencies = [
+ "camino",
  "console_error_panic_hook",
  "console_log",
  "log",
@@ -3436,6 +3461,7 @@ dependencies = [
 name = "sysand-py"
 version = "0.0.8"
 dependencies = [
+ "camino",
  "predicates",
  "pyo3",
  "pyo3-log",

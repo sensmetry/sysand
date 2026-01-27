@@ -8,18 +8,22 @@ mod filesystem_tests {
         path::Path,
     };
 
+    use camino::Utf8Path;
+    use camino_tempfile::tempdir;
     use chrono::DateTime;
     use indexmap::IndexMap;
     use semver::Version;
     use sysand_core::{
         commands::env::do_env_local_dir,
-        env::{ReadEnvironment, WriteEnvironment, utils::clone_project},
+        env::{
+            ReadEnvironment, WriteEnvironment, local_directory::DEFAULT_ENV_NAME,
+            utils::clone_project,
+        },
         info::do_info,
         model::{InterchangeProjectInfo, InterchangeProjectMetadata},
         project::{ProjectMut, ProjectRead, memory::InMemoryProject},
         resolve::env::EnvResolver,
     };
-    use tempfile::TempDir;
     use typed_path::Utf8UnixPath;
 
     fn ls_dir<P: AsRef<Path>>(path: P) -> Vec<String> {
@@ -48,8 +52,8 @@ mod filesystem_tests {
 
     #[test]
     fn env_basic() -> Result<(), Box<dyn std::error::Error>> {
-        let cwd = TempDir::new()?;
-        let env_path = Path::new(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+        let cwd = tempdir()?;
+        let env_path = Utf8Path::new(DEFAULT_ENV_NAME);
         let directory_environment = do_env_local_dir(cwd.path().join(env_path))?;
 
         for entry in std::fs::read_dir(cwd.path())? {
@@ -83,8 +87,8 @@ mod filesystem_tests {
 
     #[test]
     fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
-        let cwd = TempDir::new()?;
-        let env_path = Path::new(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+        let cwd = tempdir()?;
+        let env_path = Utf8Path::new(DEFAULT_ENV_NAME);
         let mut directory_environment = do_env_local_dir(cwd.path().join(env_path))?;
 
         let info = InterchangeProjectInfo {

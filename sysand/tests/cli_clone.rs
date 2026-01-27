@@ -4,13 +4,14 @@
 use std::path::Path;
 
 use assert_cmd::prelude::*;
+use camino::Utf8Path;
+use camino_tempfile::tempdir;
 use predicates::prelude::*;
 use sysand_core::{env::local_directory::DEFAULT_ENV_NAME, project::utils::wrapfs};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
-use tempfile::TempDir;
 
 // TODO: add to test data:
 // - invalid project (e.g. missing included file)
@@ -49,7 +50,7 @@ fn file_url_from_path(p: impl AsRef<Path>) -> String {
 }
 
 /// Assert that the given path is an empty dir
-fn assert_dir_empty(p: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error>> {
+fn assert_dir_empty(p: impl AsRef<Utf8Path>) -> Result<(), Box<dyn std::error::Error>> {
     let mut dir_it = wrapfs::read_dir(p)?;
     assert!(dir_it.next().is_none());
     Ok(())
@@ -62,7 +63,7 @@ fn assert_dir_empty(p: impl AsRef<Path>) -> Result<(), Box<dyn std::error::Error
 #[test]
 fn clone_project_default_target() -> Result<(), Box<dyn std::error::Error>> {
     let test_path = fixture_path("test_lib");
-    let test_path_str = test_path.to_str().unwrap();
+    let test_path_str = test_path.as_str();
     // auto path form locator
     let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str], None)?;
 
@@ -110,7 +111,7 @@ fn clone_project_default_target() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn clone_wrong_version() -> Result<(), Box<dyn std::error::Error>> {
     let test_path = fixture_path("test_lib");
-    let test_path_str = test_path.to_str().unwrap();
+    let test_path_str = test_path.as_str();
     // auto path form locator
     let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str, "--version", "0.0.2"], None)?;
 
@@ -156,7 +157,7 @@ fn clone_wrong_version() -> Result<(), Box<dyn std::error::Error>> {
 fn clone_not_found() -> Result<(), Box<dyn std::error::Error>> {
     // Directory exists, but does not contain project
     let test_path = fixture_path("");
-    let test_path_str = test_path.to_str().unwrap();
+    let test_path_str = test_path.as_str();
     // auto path form locator
     let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str], None)?;
 
@@ -197,7 +198,7 @@ fn clone_not_found() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn clone_no_deps() -> Result<(), Box<dyn std::error::Error>> {
     let test_path = fixture_path("test_lib");
-    let test_path_str = test_path.to_str().unwrap();
+    let test_path_str = test_path.as_str();
     // auto path form locator
     let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str, "--no-deps"], None)?;
 
@@ -244,7 +245,7 @@ fn clone_no_deps() -> Result<(), Box<dyn std::error::Error>> {
 // target contents are untouched
 #[test]
 fn clone_non_empty_target() -> Result<(), Box<dyn std::error::Error>> {
-    let tmp = TempDir::new()?;
+    let tmp = tempdir()?;
     let path = tmp.path();
     let file = path.join("test.txt");
     wrapfs::write(&file, "abc123")?;
@@ -262,7 +263,7 @@ fn clone_non_empty_target() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn clone_nonexsitent_nested_target() -> Result<(), Box<dyn std::error::Error>> {
     let test_path = fixture_path("test_lib");
-    let test_path_str = test_path.to_str().unwrap();
+    let test_path_str = test_path.as_str();
     let target = "path/to/target/dir";
     // auto path form locator
     let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str, "--target", target], None)?;

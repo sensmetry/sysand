@@ -7,8 +7,8 @@ use std::{
     pin::Pin,
 };
 
+use camino_tempfile::tempdir;
 use futures::AsyncRead;
-use tempfile::tempdir;
 use thiserror::Error;
 
 use crate::project::{
@@ -16,7 +16,7 @@ use crate::project::{
     local_kpar::{LocalKParError, LocalKParProject},
 };
 
-use super::utils::{FsIoError, ToPathBuf, wrapfs};
+use super::utils::{FsIoError, wrapfs};
 
 /// Project stored at a remote URL such as https://www.example.com/project.kpar.
 /// The URL is expected to resolve to a kpar-archive (ZIP-file) (at least) if
@@ -104,11 +104,11 @@ impl ReqwestKparDownloadedProject {
         while let Some(bytes) = bytes_stream.next().await {
             let bytes = bytes.map_err(ReqwestKparDownloadedError::Reqwest)?;
             file.write_all(&bytes)
-                .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_path_buf(), e))?;
+                .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
         }
 
         file.sync_data()
-            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_path_buf(), e))?;
+            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
 
         Ok(())
     }

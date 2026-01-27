@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::project::ProjectRead;
 
@@ -15,17 +15,17 @@ use crate::project::ProjectRead;
 pub struct EditableProject<P: GetPath> {
     inner: P,
     /// Must be relative to workspace root
-    nominal_path: PathBuf,
+    nominal_path: Utf8PathBuf,
     include_original_sources: bool,
 }
 
 pub trait GetPath {
     // TODO: use camino path
-    fn get_path(&self) -> impl AsRef<str>;
+    fn get_path(&self) -> impl AsRef<Utf8Path>;
 }
 
 impl<P: GetPath> EditableProject<P> {
-    pub fn new(nominal_path: PathBuf, project: P) -> EditableProject<P> {
+    pub fn new(nominal_path: Utf8PathBuf, project: P) -> EditableProject<P> {
         debug_assert!(nominal_path.is_relative());
         EditableProject {
             inner: project,
@@ -76,8 +76,7 @@ impl<P: ProjectRead + GetPath> ProjectRead for EditableProject<P> {
         inner_sources.insert(
             0,
             crate::lock::Source::Editable {
-                // TODO: fix this when migrating to camino
-                editable: self.nominal_path.to_str().unwrap().to_owned(),
+                editable: self.nominal_path.as_str().into(),
             },
         );
 

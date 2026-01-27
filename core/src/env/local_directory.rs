@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use camino::{Utf8Path, Utf8PathBuf};
+use camino_tempfile::NamedUtf8TempFile;
 use sha2::Sha256;
 use std::{
     fs,
     io::{self, BufRead, BufReader, Read, Write},
-    path::{Path, PathBuf},
 };
 
 use crate::{
@@ -18,12 +19,11 @@ use crate::{
     },
 };
 
-use tempfile::{NamedTempFile, TempDir};
 use thiserror::Error;
 
 #[derive(Clone, Debug)]
 pub struct LocalDirectoryEnvironment {
-    pub environment_path: PathBuf,
+    pub environment_path: Utf8PathBuf,
 }
 
 pub const DEFAULT_ENV_NAME: &str = "sysand_env";
@@ -32,8 +32,8 @@ pub const ENTRIES_PATH: &str = "entries.txt";
 pub const VERSIONS_PATH: &str = "versions.txt";
 
 /// Get a relative path corresponding to the given `uri`
-pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> PathBuf {
-    let mut result = PathBuf::new();
+pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> Utf8PathBuf {
+    let mut result = Utf8PathBuf::new();
     for segment in segment_uri_generic::<S, Sha256>(uri) {
         result.push(segment);
     }
@@ -41,19 +41,23 @@ pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> PathBuf {
     result
 }
 
-pub fn remove_dir_if_empty<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
-    match std::fs::remove_dir(&path) {
+pub fn remove_dir_if_empty<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
+    match fs::remove_dir(path.as_ref()) {
         Err(err) if err.kind() == io::ErrorKind::DirectoryNotEmpty => Ok(()),
         r => r.map_err(|e| FsIoError::RmDir(path.to_path_buf(), e)),
     }
 }
 
-pub fn remove_empty_dirs<P: AsRef<Path>>(path: P) -> Result<(), FsIoError> {
-    let mut dirs: Vec<_> = walkdir::WalkDir::new(&path)
+pub fn remove_empty_dirs<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
+    let mut dirs: Vec<_> = walkdir::WalkDir::new(path.as_ref())
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_dir())
-        .map(|e| e.into_path())
+        .filter_map(|e| {
+            e.file_type()
+                .is_dir()
+                .then(|| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+                .flatten()
+        })
         .collect();
 
     dirs.sort_by(|a, b| b.cmp(a));
@@ -78,15 +82,17 @@ pub enum TryMoveError {
     },
 }
 
-fn try_remove_files<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> Result<(), TryMoveError> {
-    let tempdir = tempfile::TempDir::new()
+fn try_remove_files<P: AsRef<Utf8Path>, I: Iterator<Item = P>>(
+    paths: I,
+) -> Result<(), TryMoveError> {
+    let tempdir = camino_tempfile::tempdir()
         .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
-    let mut moved: Vec<PathBuf> = vec![];
+    let mut moved: Vec<Utf8PathBuf> = vec![];
 
     for (i, path) in paths.enumerate() {
         match move_fs_item(&path, tempdir.path().join(i.to_string())) {
             Ok(_) => {
-                moved.push(path.as_ref().to_path_buf());
+                moved.push(path.to_path_buf());
             }
             Err(cause) => {
                 // NOTE: This dance is to bypass the fact that std::io::error is not Clone-eable...
@@ -112,7 +118,7 @@ fn try_remove_files<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> Result<(
 
 // Recursively copy a directory from `src` to `dst`.
 // Assumes that all parents of `dst` exist.
-fn copy_dir_recursive<P: AsRef<Path>, Q: AsRef<Path>>(
+fn copy_dir_recursive<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     src: P,
     dst: Q,
 ) -> Result<(), Box<FsIoError>> {
@@ -129,7 +135,7 @@ fn copy_dir_recursive<P: AsRef<Path>, Q: AsRef<Path>>(
         if file_type.is_dir() {
             copy_dir_recursive(src_path, dst_path)?;
         } else {
-            wrapfs::copy(&src_path, &dst_path)?;
+            wrapfs::copy(src_path, dst_path)?;
         }
     }
 
@@ -137,8 +143,11 @@ fn copy_dir_recursive<P: AsRef<Path>, Q: AsRef<Path>>(
 }
 
 // Rename/move a file or directory from `src` to `dst`.
-fn move_fs_item<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Result<(), Box<FsIoError>> {
-    match fs::rename(&src, &dst) {
+fn move_fs_item<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+    src: P,
+    dst: Q,
+) -> Result<(), Box<FsIoError>> {
+    match fs::rename(src.as_ref(), dst.as_ref()) {
         Ok(_) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
             let metadata = wrapfs::metadata(&src)?;
@@ -155,8 +164,8 @@ fn move_fs_item<P: AsRef<Path>, Q: AsRef<Path>>(src: P, dst: Q) -> Result<(), Bo
     }
 }
 
-fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
-    let tempdir = tempfile::TempDir::new()
+fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMoveError> {
+    let tempdir = camino_tempfile::tempdir()
         .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
 
     let mut last_err = None;
@@ -274,25 +283,25 @@ fn try_move_files(paths: &Vec<(&Path, &Path)>) -> Result<(), TryMoveError> {
 }
 
 impl LocalDirectoryEnvironment {
-    pub fn root_path(&self) -> PathBuf {
+    pub fn root_path(&self) -> Utf8PathBuf {
         self.environment_path.clone()
     }
 
-    pub fn entries_path(&self) -> PathBuf {
+    pub fn entries_path(&self) -> Utf8PathBuf {
         self.environment_path.join(ENTRIES_PATH)
     }
 
-    pub fn uri_path<S: AsRef<str>>(&self, uri: S) -> PathBuf {
+    pub fn uri_path<S: AsRef<str>>(&self, uri: S) -> Utf8PathBuf {
         self.environment_path.join(path_encode_uri(uri))
     }
 
-    pub fn versions_path<S: AsRef<str>>(&self, uri: S) -> PathBuf {
+    pub fn versions_path<S: AsRef<str>>(&self, uri: S) -> Utf8PathBuf {
         let mut p = self.uri_path(uri);
         p.push(VERSIONS_PATH);
         p
     }
 
-    pub fn project_path<S: AsRef<str>, T: AsRef<str>>(&self, uri: S, version: T) -> PathBuf {
+    pub fn project_path<S: AsRef<str>, T: AsRef<str>>(&self, uri: S, version: T) -> Utf8PathBuf {
         let mut p = self.uri_path(uri);
         p.push(format!("{}.kpar", version.as_ref()));
         p
@@ -422,22 +431,21 @@ impl From<LocalSrcError> for LocalWriteError {
 fn add_line_temp<R: Read, S: AsRef<str>>(
     reader: R,
     line: S,
-) -> Result<NamedTempFile, LocalWriteError> {
-    let mut temp_file = NamedTempFile::new().map_err(FsIoError::CreateTempFile)?;
+) -> Result<NamedUtf8TempFile, LocalWriteError> {
+    let mut temp_file = NamedUtf8TempFile::new().map_err(FsIoError::CreateTempFile)?;
 
     let mut line_added = false;
     for this_line in BufReader::new(reader).lines() {
-        let this_line =
-            this_line.map_err(|e| FsIoError::ReadFile(temp_file.path().to_path_buf(), e))?;
+        let this_line = this_line.map_err(|e| FsIoError::ReadFile(temp_file.to_path_buf(), e))?;
 
         if !line_added && line.as_ref() < this_line.as_str() {
             writeln!(temp_file, "{}", line.as_ref())
-                .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
+                .map_err(|e| FsIoError::WriteFile(temp_file.path().into(), e))?;
             line_added = true;
         }
 
         writeln!(temp_file, "{}", this_line)
-            .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
+            .map_err(|e| FsIoError::WriteFile(temp_file.path().into(), e))?;
 
         if line.as_ref() == this_line {
             line_added = true;
@@ -446,17 +454,17 @@ fn add_line_temp<R: Read, S: AsRef<str>>(
 
     if !line_added {
         writeln!(temp_file, "{}", line.as_ref())
-            .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
+            .map_err(|e| FsIoError::WriteFile(temp_file.path().into(), e))?;
     }
 
     Ok(temp_file)
 }
 
-fn singleton_line_temp<S: AsRef<str>>(line: S) -> Result<NamedTempFile, LocalWriteError> {
-    let mut temp_file = NamedTempFile::new().map_err(FsIoError::CreateTempFile)?;
+fn singleton_line_temp<S: AsRef<str>>(line: S) -> Result<NamedUtf8TempFile, LocalWriteError> {
+    let mut temp_file = NamedUtf8TempFile::new().map_err(FsIoError::CreateTempFile)?;
 
     writeln!(temp_file, "{}", line.as_ref())
-        .map_err(|e| FsIoError::WriteFile(temp_file.path().to_path_buf(), e))?;
+        .map_err(|e| FsIoError::WriteFile(temp_file.path().into(), e))?;
 
     Ok(temp_file)
 }
@@ -491,8 +499,8 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             add_line_temp(current_versions_f, version.as_ref())
         }?;
 
-        let project_temp: TempDir =
-            TempDir::new().map_err(|e| LocalWriteError::from(FsIoError::MkTempDir(e)))?;
+        let project_temp = camino_tempfile::tempdir()
+            .map_err(|e| LocalWriteError::from(FsIoError::MkTempDir(e)))?;
 
         let mut tentative_project = LocalSrcProject {
             project_path: project_temp.path().to_path_buf(),
@@ -526,7 +534,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         version: T,
     ) -> Result<(), Self::WriteError> {
         let mut versions_temp =
-            NamedTempFile::with_suffix("versions.txt").map_err(FsIoError::CreateTempFile)?;
+            NamedUtf8TempFile::with_suffix("versions.txt").map_err(FsIoError::CreateTempFile)?;
 
         let versions_path = self.versions_path(&uri);
         let mut found = false;
@@ -542,7 +550,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
 
                 if version.as_ref() != version_line {
                     writeln!(versions_temp, "{}", version_line)
-                        .map_err(|e| FsIoError::WriteFile(versions_path.to_path_buf(), e))?;
+                        .map_err(|e| FsIoError::WriteFile(versions_path.clone(), e))?;
 
                     empty = false;
                 } else {
@@ -587,7 +595,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                             .map_err(|e| FsIoError::WriteFile(entries_path.clone(), e))?;
                     }
                 }
-                wrapfs::remove_file(self.versions_path(&uri))?;
+                wrapfs::remove_file(versions_path)?;
                 remove_dir_if_empty(self.uri_path(&uri))?;
             }
         }

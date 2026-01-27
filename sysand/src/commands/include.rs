@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use anyhow::Result;
+use camino::Utf8PathBuf;
 // use glob::glob;
 use sysand_core::{include::do_include, project::local_src::LocalSrcProject};
 
 use crate::CliError;
 
 pub fn command_include(
-    files: Vec<String>,
+    files: Vec<Utf8PathBuf>,
     compute_checksum: bool,
     index_symbols: bool,
     current_project: Option<LocalSrcProject>,

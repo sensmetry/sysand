@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
+use camino::Utf8Path;
 use url::ParseError;
 
 use sysand_core::{
@@ -16,7 +17,7 @@ use sysand_core::{
     },
 };
 
-pub fn command_sync<P: AsRef<Path>>(
+pub fn command_sync<P: AsRef<Utf8Path>>(
     lock: &Lock,
     project_root: P,
     env: &mut LocalDirectoryEnvironment,
@@ -27,7 +28,7 @@ pub fn command_sync<P: AsRef<Path>>(
     sysand_core::commands::sync::do_sync(
         lock,
         env,
-        Some(|src_path: String| LocalSrcProject {
+        Some(|src_path: &Utf8Path| LocalSrcProject {
             project_path: project_root.as_ref().join(src_path),
         }),
         Some(
@@ -40,7 +41,7 @@ pub fn command_sync<P: AsRef<Path>>(
             },
         ),
         // TODO: Fix error handling here
-        Some(|kpar_path: String| LocalKParProject::new_guess_root(kpar_path).unwrap()),
+        Some(|kpar_path: &Utf8Path| LocalKParProject::new_guess_root(kpar_path).unwrap()),
         Some(
             |remote_kpar: String| -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject>, ParseError> {
                 Ok(

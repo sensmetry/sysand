@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+#[cfg(feature = "filesystem")]
+use camino::Utf8PathBuf;
 use semver::Version;
 use spdx;
 
@@ -12,8 +14,6 @@ use crate::{
 
 #[cfg(feature = "filesystem")]
 use crate::project::local_src::LocalSrcProject;
-#[cfg(feature = "filesystem")]
-use std::path::Path;
 
 use thiserror::Error;
 
@@ -100,15 +100,13 @@ pub fn do_init_memory(
 }
 
 #[cfg(feature = "filesystem")]
-pub fn do_init_local_file<P: AsRef<Path>>(
+pub fn do_init_local_file(
     name: String,
     version: String,
     license: Option<String>,
-    path: P,
+    path: Utf8PathBuf,
 ) -> Result<LocalSrcProject, InitError<crate::project::local_src::LocalSrcError>> {
-    let mut storage = LocalSrcProject {
-        project_path: path.as_ref().to_path_buf(),
-    };
+    let mut storage = LocalSrcProject { project_path: path };
 
     do_init(name, version, license, &mut storage)?;
 
