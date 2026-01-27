@@ -4,11 +4,11 @@
 
 import sys
 
-import sysand._sysand_core as sysand_rs  # type: ignore
+from sysand._sysand_core import _run_cli  # type: ignore
 
 
 def main() -> int:
-    is_success = sysand_rs._run_cli(["sysand"] + sys.argv[1:])
+    is_success = _run_cli(["sysand"] + sys.argv[1:])
     return 0 if is_success else 1
 
 

@@ -121,21 +121,31 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     path: P,
     canonicalise: bool,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
-    use crate::{model::InterchangeProjectMetadataRaw, project::local_src::LocalSrcProject};
+    use crate::project::local_src::LocalSrcProject;
 
     let building = "Building";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{building:>12}{header:#} kpar `{}`", path.as_ref());
 
-    let (_tmp, mut local_project) = LocalSrcProject::temporary_from_project(project)?;
+    let (_tmp, mut local_project, info, meta) = LocalSrcProject::temporary_from_project(project)?;
+    match semver::Version::parse(&info.version) {
+        Ok(_) => (),
+        Err(e) => log::warn!(
+            "project's version `{}` is not a valid SemVer version: {e}",
+            info.version
+        ),
+    }
+    if let Some(l) = info.license {
+        match spdx::Expression::parse(&l) {
+            Ok(_) => (),
+            Err(e) => {
+                log::warn!("project's license `{l}` is not a valid SPDX license expression:\n{e}")
+            }
+        }
+    }
 
     if canonicalise {
-        for path in local_project
-            .get_meta()?
-            .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank)
-            .validate()?
-            .source_paths(true)
-        {
+        for path in meta.validate()?.source_paths(true) {
             use crate::include::do_include;
 
             do_include(&mut local_project, &path, true, true, None)?;

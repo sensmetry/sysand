@@ -201,17 +201,26 @@ impl LocalSrcProject {
         Ok(result)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn temporary_from_project<Pr: ProjectRead>(
         project: &Pr,
-    ) -> Result<(camino_tempfile::Utf8TempDir, Self), CloneError<Pr::Error, LocalSrcError>> {
+    ) -> Result<
+        (
+            camino_tempfile::Utf8TempDir,
+            Self,
+            InterchangeProjectInfoRaw,
+            InterchangeProjectMetadataRaw,
+        ),
+        CloneError<Pr::Error, LocalSrcError>,
+    > {
         let tmp = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
         let mut tmp_project = Self {
             project_path: wrapfs::canonicalize(tmp.path())?,
         };
 
-        clone_project(project, &mut tmp_project, true)?;
+        let (info, meta) = clone_project(project, &mut tmp_project, true)?;
 
-        Ok((tmp, tmp_project))
+        Ok((tmp, tmp_project, info, meta))
     }
 
     // pub fn source_paths(&self) -> &str {
