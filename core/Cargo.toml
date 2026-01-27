@@ -20,12 +20,14 @@ lenient_checks = []
 # Binding support (but not binding libraries themselves)
 python = ["dep:pyo3"]
 js = ["dep:wasm-bindgen"]
-filesystem = ["dep:tempfile", "dep:dirs", "dep:zip"]
+filesystem = ["dep:camino-tempfile", "dep:dirs", "dep:zip"]
 networking = ["dep:reqwest", "dep:gix"] # "dep:reqwest-middleware", "dep:partialzip"
 alltests = []
 
 [dependencies]
 # General
+camino.workspace = true
+camino-tempfile = { version = "1.4", optional = true }
 anstyle = { version = "1.0.13", default-features = false }
 borrow-or-share = { version = "0.2.4", default-features = false }
 chrono = { version = "0.4.42", features = ["now", "serde"] }
@@ -44,7 +46,6 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", default-features = false, features = ["preserve_order"] }
 sha2 = { version = "0.10.9", default-features = false }
 spdx = "0.13.2"
-tempfile = { version = "3.23.0", default-features = false, optional = true }
 thiserror = { version = "2.0.17", default-features = false }
 toml = "0.9.8"
 typed-path = { version = "0.12.0", default-features = false }

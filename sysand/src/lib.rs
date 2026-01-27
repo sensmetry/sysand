@@ -8,7 +8,6 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
     panic,
-    path::Path,
     process::ExitCode,
     str::FromStr,
     sync::Arc,
@@ -17,7 +16,9 @@ use std::{
 use anstream::{eprint, eprintln};
 use anyhow::{Result, bail};
 
+use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
+
 use sysand_core::{
     config::{
         Config,
@@ -124,7 +125,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let auto_config = if args.global_opts.no_config {
         Config::default()
     } else {
-        load_configs(project_root.as_deref().unwrap_or(Path::new(".")))?
+        load_configs(project_root.as_deref().unwrap_or(Utf8Path::new(".")))?
     };
 
     let mut config = if let Some(config_file) = &args.global_opts.config_file {
@@ -327,7 +328,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             enum Location {
                 WorkDir,
                 Iri(fluent_uri::Iri<String>),
-                Path(String),
+                Path(Utf8PathBuf),
             }
 
             let location = if let Some(auto_location) = auto_location {
@@ -337,13 +338,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 if let Ok(iri) = fluent_uri::Iri::parse(auto_location.clone()) {
                     Location::Iri(iri)
                 } else {
-                    Location::Path(auto_location)
+                    Location::Path(auto_location.into())
                 }
             } else if let Some(path) = path {
                 debug_assert!(auto_location.is_none());
                 debug_assert!(iri.is_none());
 
-                Location::Path(path)
+                Location::Path(path.into())
             } else if let Some(iri) = iri {
                 debug_assert!(path.is_none());
                 debug_assert!(auto_location.is_none());
@@ -428,11 +429,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         runtime,
                     )
                 }
-                (Location::Path(path), None) => command_info_path(Path::new(&path), &excluded_iris),
+                (Location::Path(path), None) => command_info_path(&path, &excluded_iris),
                 (Location::Path(path), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
 
-                    command_info_verb_path(Path::new(&path), subcommand.as_verb(), numbered)
+                    command_info_verb_path(&path, subcommand.as_verb(), numbered)
                 }
             }
         }
@@ -531,7 +532,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     }
 }
 
-pub fn get_env(project_root: impl AsRef<Path>) -> Option<LocalDirectoryEnvironment> {
+pub fn get_env(project_root: impl AsRef<Utf8Path>) -> Option<LocalDirectoryEnvironment> {
     let environment_path = project_root.as_ref().join(DEFAULT_ENV_NAME);
     if !environment_path.is_dir() {
         None
@@ -540,7 +541,7 @@ pub fn get_env(project_root: impl AsRef<Path>) -> Option<LocalDirectoryEnvironme
     }
 }
 
-pub fn get_or_create_env(project_root: impl AsRef<Path>) -> Result<LocalDirectoryEnvironment> {
+pub fn get_or_create_env(project_root: impl AsRef<Utf8Path>) -> Result<LocalDirectoryEnvironment> {
     let project_root = project_root.as_ref();
     match get_env(project_root) {
         Some(env) => Ok(env),

@@ -13,3 +13,6 @@ repository = "https://github.com/sensmetry/sysand"
 description = "A package manager for SysML v2 and KerML"
 documentation = "https://docs.sysand.org"
 homepage = "https://beta.sysand.org"
+
+[workspace.dependencies]
+camino = { version = "1.2", features = ["serde1"] }

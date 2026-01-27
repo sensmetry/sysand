@@ -24,7 +24,7 @@ fn discover_basic() -> Result<(), Box<dyn std::error::Error>> {
     out_1
         .assert()
         .success()
-        .stdout(predicate::str::contains(cwd.display().to_string()));
+        .stdout(predicate::str::contains(cwd));
 
     Ok(())
 }

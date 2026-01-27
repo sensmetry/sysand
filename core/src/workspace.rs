@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-
+use camino::Utf8PathBuf;
 #[cfg(feature = "python")]
 use pyo3::{FromPyObject, IntoPyObject};
 use serde::{Deserialize, Serialize};
@@ -47,15 +46,15 @@ impl WorkspaceDeserializationError {
 }
 
 pub struct Workspace {
-    pub workspace_path: PathBuf,
+    pub workspace_path: Utf8PathBuf,
 }
 
 impl Workspace {
-    pub fn root_path(&self) -> PathBuf {
+    pub fn root_path(&self) -> Utf8PathBuf {
         self.workspace_path.clone()
     }
 
-    pub fn info_path(&self) -> PathBuf {
+    pub fn info_path(&self) -> Utf8PathBuf {
         self.workspace_path.join(".workspace.json")
     }
 

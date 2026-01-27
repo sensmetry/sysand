@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use camino::Utf8Path;
 use thiserror::Error;
 
 use crate::{
@@ -82,11 +83,11 @@ pub fn do_sync<
 ) -> Result<(), SyncError<UrlParseError>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
-    CreateSrcPathStorage: Fn(String) -> SrcPathStorage,
+    CreateSrcPathStorage: Fn(&Utf8Path) -> SrcPathStorage,
     SrcPathStorage: ProjectRead,
     CreateRemoteSrcStorage: Fn(String) -> Result<RemoteSrcStorage, UrlParseError>,
     RemoteSrcStorage: ProjectRead,
-    CreateKParPathStorage: Fn(String) -> KParPathStorage,
+    CreateKParPathStorage: Fn(&Utf8Path) -> KParPathStorage,
     KParPathStorage: ProjectRead,
     CreateRemoteKParStorage: Fn(String) -> Result<RemoteKParStorage, UrlParseError>,
     RemoteKParStorage: ProjectRead,
@@ -164,7 +165,7 @@ where
                     let src_path_storage = src_path_storage
                         .as_ref()
                         .ok_or_else(|| SyncError::MissingSrcPathStorage(uri.as_str().into()))?;
-                    let storage = src_path_storage(src_path.clone());
+                    let storage = src_path_storage(src_path.as_str().into());
                     log::debug!("trying to install `{uri}` from src_path `{src_path}`");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
@@ -188,7 +189,7 @@ where
                     let kpar_path_storage = kpar_path_storage.as_ref().ok_or_else(|| {
                         SyncError::MissingLocalKparStorage(kpar_path.as_str().into())
                     })?;
-                    let storage = kpar_path_storage(kpar_path.clone());
+                    let storage = kpar_path_storage(kpar_path.as_str().into());
                     log::debug!("trying to install `{uri}` from kpar_path: {kpar_path}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
@@ -260,11 +261,11 @@ fn try_install<
     E: ReadEnvironment + WriteEnvironment,
     P: ProjectRead,
     U: ErrorBound,
-    Str1: AsRef<str>,
-    Str2: AsRef<str>,
+    S1: AsRef<str>,
+    S2: AsRef<str>,
 >(
-    uri: Str1,
-    checksum: Str2,
+    uri: S1,
+    checksum: S2,
     storage: P,
     env: &mut E,
 ) -> Result<(), SyncError<U>> {

@@ -127,6 +127,7 @@ impl<R: ResolveReadAsync> ResolveReadAsync for SequentialResolver<R> {
 mod tests {
     use std::collections::HashMap;
 
+    use fluent_uri::Iri;
     use indexmap::IndexMap;
 
     use crate::{
@@ -143,9 +144,9 @@ mod tests {
         uri: S,
         name: T,
         version: V,
-    ) -> (fluent_uri::Iri<String>, InMemoryProject) {
+    ) -> (Iri<String>, InMemoryProject) {
         (
-            fluent_uri::Iri::parse(uri.as_ref().to_string()).unwrap(),
+            Iri::parse(uri.as_ref().to_string()).unwrap(),
             InMemoryProject {
                 info: Some(InterchangeProjectInfoRaw {
                     name: name.as_ref().to_string(),
@@ -171,7 +172,7 @@ mod tests {
         )
     }
 
-    fn mock_resolver<I: IntoIterator<Item = (fluent_uri::Iri<String>, InMemoryProject)>>(
+    fn mock_resolver<I: IntoIterator<Item = (Iri<String>, InMemoryProject)>>(
         projects: I,
     ) -> MemoryResolver<AcceptAll, InMemoryProject> {
         MemoryResolver {

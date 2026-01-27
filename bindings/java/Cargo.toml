@@ -16,8 +16,9 @@ name = "sysand"
 crate-type = ["cdylib"]
 
 [dependencies]
-jni = "0.21.1"
 sysand-core = { path = "../../core", features = ["std", "filesystem", "networking"] }
+camino.workspace = true
+jni = "0.21.1"
 indexmap = { version = "2.12.1", default-features = false, features = ["serde"] }
 url = { version = "2.5.7", default-features = false }
 tokio = { version = "1.48.0", default-features = false, features = ["rt"] }

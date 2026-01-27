@@ -5,9 +5,9 @@ use std::{
     convert::Infallible,
     ffi::OsStr,
     fmt::{Display, Write},
-    path::PathBuf,
 };
 
+use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use semver::VersionReq;
 
@@ -113,7 +113,7 @@ pub enum Command {
         /// Path to clone the project into. If already exists, must
         /// be an empty directory. Defaults to current directory
         #[arg(long, short, default_value = None, verbatim_doc_comment)]
-        target: Option<String>,
+        target: Option<Utf8PathBuf>,
         /// Version of the project to clone. Defaults to the latest
         /// version according to SemVer 2.0
         #[arg(long, short = 'V', verbatim_doc_comment)]
@@ -129,7 +129,7 @@ pub enum Command {
     Include {
         /// File(s) to include in the project.
         #[arg(num_args = 1..)]
-        paths: Vec<String>,
+        paths: Vec<Utf8PathBuf>,
         /// Compute and add each file's (current) SHA256 checksum
         // TODO: will it ever be automatically updated?
         //       Maybe only when building a kpar?
@@ -157,7 +157,7 @@ pub enum Command {
         /// `<current-project>/output/<project name>-<version>.kpar` depending
         /// on whether the current project belongs to a workspace or not).
         #[clap(verbatim_doc_comment)]
-        path: Option<PathBuf>,
+        path: Option<Utf8PathBuf>,
     },
     /// Create or update lockfile
     Lock {
@@ -1168,7 +1168,7 @@ pub enum EnvCommand {
         version: Option<String>,
         /// Path to interchange project
         #[arg(long, default_value = None)]
-        path: Option<String>,
+        path: Option<Utf8PathBuf>,
 
         #[command(flatten)]
         install_opts: InstallOptions,

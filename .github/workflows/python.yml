@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github --pytest --manifest-path bindings/py/Cargo.toml
 #
-name: Build/test/publish python packages
+name: Python
 
 on:
   push:
