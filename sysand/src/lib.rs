@@ -141,7 +141,16 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     } else {
         get_config_verbose_quiet(&config)
     };
-    logger::init(get_log_level(verbose, quiet)?);
+    let log_level = get_log_level(verbose, quiet);
+    if logger::init(log_level).is_err() {
+        let warn = style::WARN;
+        eprintln!(
+            "{warn}warning{warn:#}: failed to set up logger because it has already been set up;\n\
+            {:>8} log messages may not be formatted properly",
+            ' '
+        );
+        log::set_max_level(log_level);
+    }
 
     let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
 
@@ -556,11 +565,11 @@ fn get_config_verbose_quiet(config: &Config) -> (bool, bool) {
     )
 }
 
-fn get_log_level(verbose: bool, quiet: bool) -> Result<log::LevelFilter> {
+fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
     match (verbose, quiet) {
         (true, true) => unreachable!(),
-        (true, false) => Ok(log::LevelFilter::Debug),
-        (false, true) => Ok(log::LevelFilter::Error),
-        (false, false) => Ok(log::LevelFilter::Info),
+        (true, false) => log::LevelFilter::Debug,
+        (false, true) => log::LevelFilter::Error,
+        (false, false) => log::LevelFilter::Info,
     }
 }

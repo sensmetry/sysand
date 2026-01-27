@@ -56,6 +56,12 @@ fn do_new_py_local_file(
     path: String,
     license: Option<String>,
 ) -> PyResult<()> {
+    // Initialize logger in each function independently to avoid setting up a
+    // logger before `run_cli()` is called (CLI sets up its own logger). This
+    // can't be put into pymodule definition, since importing any part of the
+    // library from python runs it
+    let _ = pyo3_log::try_init();
+
     do_init_local_file(name, version, license, Utf8PathBuf::from(path)).map_err(
         |err| match err {
             InitError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
@@ -78,6 +84,8 @@ fn do_new_py_local_file(
     signature = (path),
 )]
 fn do_env_py_local_dir(path: String) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     do_env_local_dir(Utf8Path::new(&path)).map_err(|err| match err {
         EnvError::AlreadyExists(path_buf) => PyFileExistsError::new_err(path_buf.into_string()),
         EnvError::Write(werr) => match werr {
@@ -101,6 +109,8 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
 fn do_info_py_path(
     path: String,
 ) -> PyResult<Option<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>> {
+    let _ = pyo3_log::try_init();
+
     let project = LocalSrcProject {
         project_path: path.into(),
     };
@@ -118,6 +128,8 @@ fn do_info_py(
     relative_file_root: String,
     index_urls: Option<Vec<String>>,
 ) -> PyResult<Vec<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>> {
+    let _ = pyo3_log::try_init();
+
     py.detach(|| {
         let mut results = vec![];
         let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
@@ -163,6 +175,8 @@ fn do_info_py(
     signature = (output_path, project_path),
 )]
 fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let Some(current_project_path) = project_path else {
         return Err(pyo3::exceptions::PyNotImplementedError::new_err("TODO"));
     };
@@ -200,6 +214,8 @@ pub fn do_sources_env_py(
     include_deps: bool,
     include_std: bool,
 ) -> PyResult<Vec<String>> {
+    let _ = pyo3_log::try_init();
+
     let provided_iris = if !include_std {
         known_std_libs()
     } else {
@@ -312,6 +328,8 @@ pub fn do_sources_project_py(
     env_path: Option<String>,
     include_std: bool,
 ) -> PyResult<Vec<String>> {
+    let _ = pyo3_log::try_init();
+
     let mut result = vec![];
 
     let current_project = LocalSrcProject {
@@ -376,6 +394,8 @@ pub fn do_sources_project_py(
     signature = (path, iri, version),
 )]
 fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let mut project = LocalSrcProject {
         project_path: path.into(),
     };
@@ -388,6 +408,8 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
     signature = (path, iri),
 )]
 fn do_remove_py(path: String, iri: String) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let mut project = LocalSrcProject {
         project_path: path.into(),
     };
@@ -408,6 +430,8 @@ fn do_include_py(
     index_symbols: bool,
     force_format: Option<String>,
 ) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let mut project = LocalSrcProject {
         project_path: path.into(),
     };
@@ -440,6 +464,8 @@ fn do_include_py(
     signature = (path, src_path),
 )]
 fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let mut project = LocalSrcProject {
         project_path: path.into(),
     };
@@ -454,6 +480,8 @@ fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
     signature = (env_path, iri, location),
 )]
 fn do_env_install_path_py(env_path: String, iri: String, location: String) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let location: Utf8PathBuf = location.into();
 
     let mut env = LocalDirectoryEnvironment {
@@ -509,8 +537,6 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
 
 #[pymodule(name = "_sysand_core")]
 pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    pyo3_log::init();
-
     m.add_function(wrap_pyfunction!(run_cli, m)?)?;
     m.add_function(wrap_pyfunction!(do_new_py_local_file, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_py_local_dir, m)?)?;

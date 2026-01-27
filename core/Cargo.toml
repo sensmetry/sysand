@@ -65,7 +65,7 @@ toml_edit = { version = "0.23.9", features = ["serde"] }
 [target.'cfg(any(target_os = "windows", target_vendor = "apple"))'.dependencies]
 reqwest = { version = "0.13.1", optional = true, default-features = false, features = ["native-tls", "http2", "system-proxy", "stream"] }
 [target.'cfg(not(any(target_os = "windows", target_vendor = "apple")))'.dependencies]
-reqwest = { version = "0.13.1", features = ["rustls", "stream"] }
+reqwest = { version = "0.13.1", optional = true, features = ["rustls", "stream"] }
 
 [dev-dependencies]
 assert_cmd = "2.1.1"

@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use env_logger::{Builder, Target, fmt::Formatter};
-use log::{LevelFilter, Record};
+use log::{LevelFilter, Record, SetLoggerError};
 use std::io::{self, Write};
 
 use crate::style;
 
-pub fn init(level: LevelFilter) {
+pub fn init(level: LevelFilter) -> Result<(), SetLoggerError> {
     Builder::new()
         .filter_module("pubgrub", LevelFilter::Warn)
         .filter_level(level)
         .format(format)
         .target(Target::Stderr)
-        .init();
+        .try_init()
 }
 
 fn format(buf: &mut Formatter, record: &Record<'_>) -> Result<(), io::Error> {
