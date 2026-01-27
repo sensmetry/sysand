@@ -9,7 +9,6 @@ use rexpect::session::{PtySession, spawn_command};
 use std::os::unix::process::ExitStatusExt;
 use std::{
     error::Error,
-    io::Write,
     process::{Command, Output},
 };
 
@@ -28,9 +27,8 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
 ) -> Result<Command, Box<dyn Error>> {
     let cfg_args = if let Some(config) = cfg {
         let config_path = cwd.join("sysand.toml");
-        let mut config_file = std::fs::File::create_new(&config_path)?;
-        config_file.write_all(config.as_bytes())?;
-        vec!["--config-file".to_string(), config_path.to_string()]
+        std::fs::write(&config_path, config.as_bytes())?;
+        vec!["--config-file".to_string(), config_path.into_string()]
     } else {
         vec![]
     };

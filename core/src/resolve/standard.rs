@@ -94,7 +94,7 @@ pub fn standard_index_resolver(
     SequentialResolver::new(urls.into_iter().map(|url| EnvResolver {
         env: HTTPEnvironmentAsync {
             client: client.clone(),
-            base_url: url.clone(),
+            base_url: url,
             prefer_src: true,
             //try_ranged: true,
         },

@@ -83,10 +83,12 @@ impl ReqwestSrcProjectAsync {
 
 #[derive(Error, Debug)]
 pub enum ReqwestSrcError {
-    #[error("HTTP request to `{0}` failed: {1}")]
-    Reqwest(String, reqwest_middleware::Error),
-    #[error("failed to decode response body from HTTP request to `{0}`: {1}")]
-    ResponseDecode(String, reqwest::Error),
+    #[error("error making an HTTP request:\n{0:#?}")]
+    ReqwestMiddleware(reqwest_middleware::Error),
+    #[error("error making an HTTP request:\n{0:#?}")]
+    Reqwest(reqwest::Error),
+    // #[error("failed to decode response body from HTTP request: {0:#?}")]
+    // ResponseDecode(reqwest::Error),
     #[error("HTTP request to\n  `{0}`\n  returned malformed data: {1}")]
     Deserialize(String, serde_json::Error),
     #[error("HTTP request to `{0}` returned unexpected status code {1}")]
@@ -115,13 +117,10 @@ impl ProjectReadAsync for ReqwestSrcProjectAsync {
             .get_info()
             .send()
             .await
-            .map_err(|e| ReqwestSrcError::Reqwest(self.info_url().into(), e))?;
+            .map_err(ReqwestSrcError::ReqwestMiddleware)?;
 
         Ok(if info_resp.status().is_success() {
-            let rep = info_resp
-                .text()
-                .await
-                .map_err(|e| ReqwestSrcError::Reqwest(self.info_url().into(), e.into()))?;
+            let rep = info_resp.text().await.map_err(ReqwestSrcError::Reqwest)?;
             Some(serde_json::from_str(&rep).map_err(|e| ReqwestSrcError::Deserialize(rep, e))?)
         } else {
             None
@@ -133,13 +132,10 @@ impl ProjectReadAsync for ReqwestSrcProjectAsync {
             .get_meta()
             .send()
             .await
-            .map_err(|e| ReqwestSrcError::Reqwest(self.meta_url().into(), e))?;
+            .map_err(ReqwestSrcError::ReqwestMiddleware)?;
 
         Ok(if meta_resp.status().is_success() {
-            let rep = meta_resp
-                .text()
-                .await
-                .map_err(|e| ReqwestSrcError::Reqwest(self.meta_url().into(), e.into()))?;
+            let rep = meta_resp.text().await.map_err(ReqwestSrcError::Reqwest)?;
             Some(serde_json::from_str(&rep).map_err(|e| ReqwestSrcError::Deserialize(rep, e))?)
         } else {
             None
@@ -163,7 +159,7 @@ impl ProjectReadAsync for ReqwestSrcProjectAsync {
             .reqwest_src(&path)
             .send()
             .await
-            .map_err(|e| ReqwestSrcError::Reqwest(self.src_url(&path).into(), e))?;
+            .map_err(ReqwestSrcError::ReqwestMiddleware)?;
 
         if resp.status().is_success() {
             Ok(resp
