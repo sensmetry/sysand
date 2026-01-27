@@ -56,6 +56,10 @@ fn do_new_py_local_file(
     path: String,
     license: Option<String>,
 ) -> PyResult<()> {
+    // Initialize logger in each function independently to avoid setting up a
+    // logger before `run_cli()` is called (CLI sets up its own logger). This
+    // can't be put into pymodule definition, since importing any part of the
+    // library from python runs it
     let _ = pyo3_log::try_init();
 
     do_init_local_file(name, version, license, Utf8PathBuf::from(path)).map_err(
