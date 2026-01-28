@@ -4,6 +4,8 @@
 use std::io::Write;
 
 use assert_cmd::prelude::*;
+use indexmap::IndexMap;
+use mockito::Matcher;
 use predicates::prelude::*;
 use sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME;
 
@@ -144,6 +146,218 @@ sources = [
     out.assert()
         .success()
         .stderr(predicate::str::contains("env is already up to date"));
+
+    Ok(())
+}
+
+#[test]
+fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+
+    let mut server = mockito::Server::new();
+
+    let info_mock = server
+        .mock("GET", "/.project.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
+        .expect(4) // TODO: Reduce this to 1
+        .create();
+
+    let info_mock_auth = server
+        .mock("GET", "/.project.json")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
+        .expect(4) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock = server
+        .mock("GET", "/.meta.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(4) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock_auth = server
+        .mock("GET", "/.meta.json")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(4) // TODO: Reduce this to 1
+        .create();
+
+    let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+
+    lockfile.write_all(
+        format!(
+            r#"lock_version = "0.2"
+
+[[project]]
+name = "sync_to_remote"
+version = "1.2.3"
+identifiers = ["urn:kpar:sync_to_remote"]
+checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
+sources = [
+    {{ remote_src = "{}" }},
+]
+"#,
+            &server.url()
+        )
+        .as_bytes(),
+    )?;
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["sync"],
+        None,
+        &IndexMap::from([
+            (
+                "SYSAND_CRED_TEST".to_string(),
+                format!("http://{}/**", server.host_with_port()),
+            ),
+            (
+                "SYSAND_CRED_TEST_BASIC_USER".to_string(),
+                "user_1234".to_string(),
+            ),
+            (
+                "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
+                "pass_4321".to_string(),
+            ),
+        ]),
+    )?;
+
+    info_mock.assert();
+    info_mock_auth.assert();
+    meta_mock.assert();
+    meta_mock_auth.assert();
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("Creating"))
+        .stderr(predicate::str::contains("Syncing"))
+        .stderr(predicate::str::contains("Installing"));
+
+    let out = run_sysand_in(&cwd, ["env", "list"], None)?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("`urn:kpar:sync_to_remote` 1.2.3"));
+
+    let out = run_sysand_in(&cwd, ["sync"], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("env is already up to date"));
+
+    Ok(())
+}
+
+#[test]
+fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+
+    let mut server = mockito::Server::new();
+
+    let info_mock = server
+        .mock("GET", "/.project.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
+        .expect(2) // TODO: Reduce this to 1
+        .create();
+
+    let info_mock_auth = server
+        .mock("GET", "/.project.json")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
+        .expect(0) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock = server
+        .mock("GET", "/.meta.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(2) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock_auth = server
+        .mock("GET", "/.meta.json")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(0) // TODO: Reduce this to 1
+        .create();
+
+    let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+
+    lockfile.write_all(
+        format!(
+            r#"lock_version = "0.2"
+
+[[project]]
+name = "sync_to_remote"
+version = "1.2.3"
+identifiers = ["urn:kpar:sync_to_remote"]
+checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
+sources = [
+    {{ remote_src = "{}" }},
+]
+"#,
+            &server.url()
+        )
+        .as_bytes(),
+    )?;
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["sync"],
+        None,
+        &IndexMap::from([
+            (
+                "SYSAND_CRED_TEST".to_string(),
+                "http://127.0.0.1:80/**".to_string(),
+            ),
+            (
+                "SYSAND_CRED_TEST_BASIC_USER".to_string(),
+                "user_1234".to_string(),
+            ),
+            (
+                "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
+                "pass_4321".to_string(),
+            ),
+        ]),
+    )?;
+
+    info_mock.assert();
+    info_mock_auth.assert();
+    meta_mock.assert();
+    meta_mock_auth.assert();
+
+    out.assert().failure();
 
     Ok(())
 }

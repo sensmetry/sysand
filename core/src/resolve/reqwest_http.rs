@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{convert::Infallible, io, pin::Pin};
+use std::{convert::Infallible, io, pin::Pin, sync::Arc};
 
 use fluent_uri::component::Scheme;
 use futures::AsyncRead;
 use thiserror::Error;
 
 use crate::{
+    auth::HTTPAuthentication,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectRead, ProjectReadAsync, reqwest_kpar_download::ReqwestKparDownloadedProject,
@@ -18,9 +19,10 @@ use crate::{
 
 /// Tries to resolve http(s) URLs as direct (resolvable) links to interchange projects.
 #[derive(Debug)]
-pub struct HTTPResolverAsync {
+pub struct HTTPResolverAsync<Pol> {
     pub client: reqwest_middleware::ClientWithMiddleware,
     pub lax: bool,
+    pub auth_policy: Arc<Pol>,
     //pub prefer_ranged: bool,
 }
 
@@ -28,29 +30,29 @@ pub const SCHEME_HTTP: &Scheme = Scheme::new_or_panic("http");
 pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 
 #[derive(Debug)]
-pub enum HTTPProjectAsync {
-    HTTPSrcProject(ReqwestSrcProjectAsync),
+pub enum HTTPProjectAsync<Pol> {
+    HTTPSrcProject(ReqwestSrcProjectAsync<Pol>),
     // HTTPKParProjectRanged(ReqwestKparRangedProject),
-    HTTPKParProjectDownloaded(ReqwestKparDownloadedProject),
+    HTTPKParProjectDownloaded(ReqwestKparDownloadedProject<Pol>),
 }
 
 #[derive(Error, Debug)]
-pub enum HTTPProjectError {
+pub enum HTTPProjectError<Pol: HTTPAuthentication> {
     #[error(transparent)]
-    SrcProject(<ReqwestSrcProjectAsync as ProjectReadAsync>::Error),
+    SrcProject(<ReqwestSrcProjectAsync<Pol> as ProjectReadAsync>::Error),
     // #[error(transparent)]
     // KParRanged(<ReqwestKparRangedProject as ProjectRead>::Error),
     #[error(transparent)]
-    KparDownloaded(<ReqwestKparDownloadedProject as ProjectReadAsync>::Error),
+    KparDownloaded(<ReqwestKparDownloadedProject<Pol> as ProjectReadAsync>::Error),
 }
 
-pub enum HTTPProjectAsyncReader<'a> {
-    SrcProjectReader(<ReqwestSrcProjectAsync as ProjectReadAsync>::SourceReader<'a>),
+pub enum HTTPProjectAsyncReader<'a, Pol: HTTPAuthentication + 'a> {
+    SrcProjectReader(<ReqwestSrcProjectAsync<Pol> as ProjectReadAsync>::SourceReader<'a>),
     //KParRangedReader(<ReqwestKparRangedProject as ProjectRead>::SourceReader<'a>),
-    KparDownloadedReader(<ReqwestKparDownloadedProject as ProjectReadAsync>::SourceReader<'a>),
+    KparDownloadedReader(<ReqwestKparDownloadedProject<Pol> as ProjectReadAsync>::SourceReader<'a>),
 }
 
-impl AsyncRead for HTTPProjectAsyncReader<'_> {
+impl<Pol: HTTPAuthentication> AsyncRead for HTTPProjectAsyncReader<'_, Pol> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -64,8 +66,10 @@ impl AsyncRead for HTTPProjectAsyncReader<'_> {
     }
 }
 
-impl ProjectReadAsync for HTTPProjectAsync {
-    type Error = HTTPProjectError;
+impl<Pol: HTTPAuthentication + std::fmt::Debug + 'static> ProjectReadAsync
+    for HTTPProjectAsync<Pol>
+{
+    type Error = HTTPProjectError<Pol>;
 
     async fn get_project_async(
         &self,
@@ -92,7 +96,7 @@ impl ProjectReadAsync for HTTPProjectAsync {
     }
 
     type SourceReader<'a>
-        = HTTPProjectAsyncReader<'a>
+        = HTTPProjectAsyncReader<'a, Pol>
     where
         Self: 'a;
 
@@ -135,18 +139,19 @@ impl ProjectReadAsync for HTTPProjectAsync {
     }
 }
 
-pub struct HTTPProjects {
+pub struct HTTPProjects<Pol> {
     client: reqwest_middleware::ClientWithMiddleware,
     url: reqwest::Url,
     src_done: bool,
     kpar_done: bool,
     // See the comments in `try_resolve_as_src`.
     lax: bool,
+    auth_policy: Arc<Pol>,
     //prefer_ranged: bool,
 }
 
-impl HTTPProjects {
-    pub fn try_resolve_as_kpar(&self) -> Option<HTTPProjectAsync> {
+impl<Pol: HTTPAuthentication> HTTPProjects<Pol> {
+    pub fn try_resolve_as_kpar(&self) -> Option<HTTPProjectAsync<Pol>> {
         // TODO: Decide a policy for KPar vs Src urls
         let url = if self.url.path() == "" || !self.url.path().ends_with("/") {
             self.url.clone()
@@ -172,12 +177,16 @@ impl HTTPProjects {
         // }
 
         Some(HTTPProjectAsync::HTTPKParProjectDownloaded(
-            ReqwestKparDownloadedProject::new_guess_root(&url, self.client.clone())
-                .expect("internal IO error"),
+            ReqwestKparDownloadedProject::new_guess_root(
+                &url,
+                self.client.clone(),
+                self.auth_policy.clone(),
+            )
+            .expect("internal IO error"),
         ))
     }
 
-    pub fn try_resolve_as_src(&self) -> Option<HTTPProjectAsync> {
+    pub fn try_resolve_as_src(&self, auth_policy: Arc<Pol>) -> Option<HTTPProjectAsync<Pol>> {
         // These URLs should technically have a path that ends (explicitly or implicitly)
         // with a slash, due to the way relative references are treated in HTTP. E.g.:
         // resolving `bar` relative to `http://www.example.com/foo` gives `http://www.example.com/bar`
@@ -186,6 +195,7 @@ impl HTTPProjects {
             Some(HTTPProjectAsync::HTTPSrcProject(ReqwestSrcProjectAsync {
                 client: self.client.clone(), // Already internally an Rc
                 url: self.url.clone(),
+                auth_policy: auth_policy.clone(),
             }))
         // If the resolver is set to be lax, try forcing the terminal slash
         } else if self.lax {
@@ -197,6 +207,7 @@ impl HTTPProjects {
             Some(HTTPProjectAsync::HTTPSrcProject(ReqwestSrcProjectAsync {
                 client: self.client.clone(), // Already internally an Rc
                 url: lax_url,
+                auth_policy,
             }))
         } else {
             None
@@ -204,14 +215,14 @@ impl HTTPProjects {
     }
 }
 
-impl Iterator for HTTPProjects {
-    type Item = Result<HTTPProjectAsync, Infallible>;
+impl<Pol: HTTPAuthentication> Iterator for HTTPProjects<Pol> {
+    type Item = Result<HTTPProjectAsync<Pol>, Infallible>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.src_done {
             self.src_done = true;
 
-            if let Some(proj) = self.try_resolve_as_src() {
+            if let Some(proj) = self.try_resolve_as_src(self.auth_policy.clone()) {
                 return Some(Ok(proj));
             }
         }
@@ -235,12 +246,14 @@ impl Iterator for HTTPProjects {
 /// appears to support HTTP Range requests. If successful, it uses `HTTPKparProjectRanged`
 /// instead of `HTTPKparProjectDownloaded`. In case of *any* failure, or if `prefer_ranged`
 /// is false, `HTTPKparProjectDownloaded` is used instead.
-impl ResolveReadAsync for HTTPResolverAsync {
+impl<Pol: HTTPAuthentication + std::fmt::Debug + 'static> ResolveReadAsync
+    for HTTPResolverAsync<Pol>
+{
     type Error = Infallible;
 
-    type ProjectStorage = HTTPProjectAsync;
+    type ProjectStorage = HTTPProjectAsync<Pol>;
 
-    type ResolvedStorages = futures::stream::Iter<HTTPProjects>;
+    type ResolvedStorages = futures::stream::Iter<HTTPProjects<Pol>>;
 
     async fn resolve_read_async(
         &self,
@@ -256,6 +269,7 @@ impl ResolveReadAsync for HTTPResolverAsync {
                         src_done: false,
                         kpar_done: false,
                         lax: self.lax,
+                        auth_policy: self.auth_policy.clone(),
                         // prefer_ranged: self.prefer_ranged,
                     }))
                 } else {
@@ -275,6 +289,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::{
+        auth::Unauthenticated,
         project::ProjectRead,
         resolve::{ResolutionOutcome, ResolveRead, ResolveReadAsync},
     };
@@ -304,7 +319,7 @@ mod tests {
         let resolver = super::HTTPResolverAsync {
             client,
             lax: false,
-            //prefer_ranged: true,
+            auth_policy: Arc::new(Unauthenticated {}), //prefer_ranged: true,
         }
         .to_tokio_sync(Arc::new(
             tokio::runtime::Builder::new_current_thread()
@@ -345,7 +360,7 @@ mod tests {
         let resolver = super::HTTPResolverAsync {
             client,
             lax: true,
-            //prefer_ranged,
+            auth_policy: Arc::new(Unauthenticated {}), //prefer_ranged,
         }
         .to_tokio_sync(Arc::new(
             tokio::runtime::Builder::new_current_thread()
@@ -363,7 +378,7 @@ mod tests {
         let ResolutionOutcome::Resolved(projects) = resolver.resolve_read_raw(url)? else {
             panic!()
         };
-        let projects: Vec<super::HTTPProjectAsync> =
+        let projects: Vec<super::HTTPProjectAsync<Unauthenticated>> =
             projects.into_iter().map(|x| x.unwrap().inner).collect();
 
         assert_eq!(projects.len(), 2);

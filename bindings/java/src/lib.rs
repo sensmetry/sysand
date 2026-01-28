@@ -10,6 +10,7 @@ use jni::{
     objects::{JClass, JObject, JObjectArray, JString},
 };
 use sysand_core::{
+    auth::Unauthenticated,
     build::KParBuildError,
     commands,
     env::local_directory::{self, LocalWriteError},
@@ -226,6 +227,8 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
         Some(client),
         index_base_url.map(|x| vec![x]),
         runtime,
+        // FIXME: Add Java support for authentication
+        Arc::new(Unauthenticated {}),
     );
 
     let results = match commands::info::do_info(&uri, &combined_resolver) {
