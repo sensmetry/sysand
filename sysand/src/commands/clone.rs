@@ -28,7 +28,7 @@ use crate::{
 
 pub enum ProjectLocator {
     Iri(Iri<String>),
-    Path(String),
+    Path(Utf8PathBuf),
 }
 
 /// Clones project from `locator` to `target` directory.
@@ -98,7 +98,7 @@ pub fn command_clone(
     let locator = if let Some(auto_location) = auto_location {
         match fluent_uri::Iri::parse(auto_location) {
             Ok(iri) => ProjectLocator::Iri(iri),
-            Err((_e, path)) => ProjectLocator::Path(path),
+            Err((_e, path)) => ProjectLocator::Path(path.into()),
         }
     } else if let Some(path) = path {
         ProjectLocator::Path(path)
@@ -138,9 +138,7 @@ pub fn command_clone(
             );
         }
         ProjectLocator::Path(path) => {
-            let remote_project = LocalSrcProject {
-                project_path: path.into(),
-            };
+            let remote_project = LocalSrcProject { project_path: path };
             if let Some(version) = version {
                 let project_version = remote_project
                     .get_info()?

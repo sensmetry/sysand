@@ -355,7 +355,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 debug_assert!(auto_location.is_none());
                 debug_assert!(iri.is_none());
 
-                Location::Path(path.into())
+                Location::Path(path)
             } else if let Some(iri) = iri {
                 debug_assert!(path.is_none());
                 debug_assert!(auto_location.is_none());
@@ -455,20 +455,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_sync,
             resolution_opts,
         } => {
-            let iri = {
-                if let Some(iri) = locator.iri {
-                    iri
-                } else {
-                    let Some(path) = locator.path else {
-                        unreachable!()
-                    };
-                    let abs_path = wrapfs::canonicalize(&path)?;
-                    let url: String = Url::from_file_path(abs_path)
-                        .map_err(|()| anyhow!("unsupported path type of `{path}`"))?
-                        .into();
-                    Iri::parse(url).unwrap()
-                }
-            };
+            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
             command_add(
                 iri,
                 version_constraint,
@@ -481,7 +468,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 runtime,
             )
         }
-        cli::Command::Remove { iri } => command_remove(iri, current_project),
+        cli::Command::Remove { locator } => {
+            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
+            command_remove(iri, current_project)
+        }
         cli::Command::Include {
             paths,
             compute_checksum: add_checksum,
@@ -560,6 +550,23 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             runtime,
         ),
     }
+}
+
+fn iri_or_path_to_iri(
+    iri: Option<Iri<String>>,
+    path: Option<Utf8PathBuf>,
+) -> Result<Iri<String>, anyhow::Error> {
+    Ok(if let Some(iri) = iri {
+        iri
+    } else {
+        let Some(path) = path else { unreachable!() };
+        let abs_path = wrapfs::canonicalize(&path)?;
+        let url: String = Url::from_file_path(abs_path)
+            .map_err(|()| anyhow!("unsupported path type of `{path}`"))?
+            .into();
+        // TODO: can this fail?
+        Iri::parse(url).unwrap()
+    })
 }
 
 pub fn get_env(project_root: impl AsRef<Utf8Path>) -> Option<LocalDirectoryEnvironment> {

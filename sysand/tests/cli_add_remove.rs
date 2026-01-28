@@ -61,6 +61,86 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Add and remove usages with `--path <path>`
+#[test]
+fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir1, cwd1, out1) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "add_and_remove_path1",
+        ],
+        None,
+    )?;
+    let (_temp_dir2, cwd2, out2) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "add_and_remove_path2",
+        ],
+        None,
+    )?;
+    let file_url = file_url_from_path(&cwd2);
+
+    out1.assert().success();
+    out2.assert().success();
+
+    let out = run_sysand_in(&cwd1, ["add", "--no-lock", "--path", cwd2.as_str()], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(format!(
+            "Adding usage: `{file_url}`",
+        )));
+
+    let info_json = std::fs::read_to_string(cwd1.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        format!(
+            r#"{{
+  "name": "add_and_remove_path1",
+  "version": "1.2.3",
+  "usage": [
+    {{
+      "resource": "{}"
+    }}
+  ]
+}}
+"#,
+            file_url
+        )
+    );
+
+    let out = run_sysand_in(&cwd1, ["remove", "--path", cwd2.as_str()], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(format!(
+            r#"Removing `{}` from usages
+     Removed `{}`"#,
+            file_url, file_url
+        )));
+
+    let info_json = std::fs::read_to_string(cwd1.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_and_remove_path1",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
+    );
+
+    Ok(())
+}
+
 #[test]
 fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir_dep, cwd_dep, out) = run_sysand(

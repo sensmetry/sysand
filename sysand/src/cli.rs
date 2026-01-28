@@ -104,8 +104,8 @@ pub enum Command {
     /// Remove usage from project information
     #[clap(alias = "rm")]
     Remove {
-        /// IRI identifying the project usage to be removed
-        iri: fluent_uri::Iri<String>,
+        #[clap(flatten)]
+        locator: RemoveProjectLocatorArgs,
     },
     /// Clone a project to a specified directory.
     /// Equivalent to manually downloading, extracting the
@@ -190,7 +190,7 @@ pub enum Command {
     Info {
         /// Use the project at the given path instead of the current project
         #[arg(short = 'p', long, group = "location")]
-        path: Option<String>,
+        path: Option<Utf8PathBuf>,
         /// Use the project with the given IRI/URI/URL instead of the current project
         #[arg(
             short = 'i',
@@ -247,7 +247,24 @@ pub struct AddProjectLocatorArgs {
         default_value = None,
         verbatim_doc_comment
     )]
-    pub path: Option<String>,
+    pub path: Option<Utf8PathBuf>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
+pub struct RemoveProjectLocatorArgs {
+    /// IRI identifying the project usage to be removed
+    #[clap(default_value = None, value_parser = parse_iri_suggest_path)]
+    pub iri: Option<fluent_uri::Iri<String>>,
+    /// Path to the project to be removed from usages. Since every usage is
+    /// identified by an IRI, the path will be transformed into a `file://` URL
+    #[arg(
+        long,
+        short = 'p',
+        default_value = None,
+        verbatim_doc_comment
+    )]
+    pub path: Option<Utf8PathBuf>,
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -273,7 +290,7 @@ pub struct CloneProjectLocatorArgs {
         default_value = None,
         verbatim_doc_comment
     )]
-    pub path: Option<String>,
+    pub path: Option<Utf8PathBuf>,
 }
 
 #[derive(Clone, Debug)]

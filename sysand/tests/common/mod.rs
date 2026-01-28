@@ -10,8 +10,14 @@ use std::os::unix::process::ExitStatusExt;
 use std::{
     error::Error,
     io::Write,
+    path::Path,
     process::{Command, Output},
 };
+
+/// `p` must be absolute OS-native path
+pub fn file_url_from_path(p: impl AsRef<Path>) -> String {
+    url::Url::from_file_path(p).unwrap().to_string()
+}
 
 pub fn fixture_path(name: &str) -> Utf8PathBuf {
     let mut path = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"));
