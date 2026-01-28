@@ -866,7 +866,7 @@ pub trait ProjectMut: ProjectRead {
         })
     }
 
-    fn merge_index<S: AsRef<str>, P: AsRef<str>, I: Iterator<Item = (S, P)>>(
+    fn merge_index<S: AsRef<str>, P: AsRef<Utf8UnixPath>, I: Iterator<Item = (S, P)>>(
         &mut self,
         symbols: I,
         overwrite: bool,
@@ -956,7 +956,7 @@ impl<T: ProjectMut> ProjectMut for &mut T {
         (**self).exclude_source(path)
     }
 
-    fn merge_index<S: AsRef<str>, P: AsRef<str>, I: Iterator<Item = (S, P)>>(
+    fn merge_index<S: AsRef<str>, P: AsRef<Utf8UnixPath>, I: Iterator<Item = (S, P)>>(
         &mut self,
         symbols: I,
         overwrite: bool,

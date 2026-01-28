@@ -1,15 +1,11 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    str::FromStr,
-    sync::Arc,
-};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 
+use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use sysand_core::{
     auth::HTTPAuthentication,
@@ -36,7 +32,7 @@ use crate::{
     commands::sync::command_sync,
 };
 
-pub fn command_env<P: AsRef<Path>>(path: P) -> Result<LocalDirectoryEnvironment> {
+pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironment> {
     Ok(do_env_local_dir(path)?)
 }
 
@@ -48,7 +44,7 @@ pub fn command_env_install<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
     install_opts: InstallOptions,
     resolution_opts: ResolutionOptions,
     config: &Config,
-    project_root: Option<PathBuf>,
+    project_root: Option<Utf8PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Pol>,
@@ -161,11 +157,11 @@ pub fn command_env_install_path<
 >(
     iri: S,
     version: Option<String>,
-    path: String,
+    path: Utf8PathBuf,
     install_opts: InstallOptions,
     resolution_opts: ResolutionOptions,
     config: &Config,
-    project_root: Option<PathBuf>,
+    project_root: Option<Utf8PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Pol>,
@@ -232,7 +228,7 @@ pub fn command_env_install_path<
         allow_multiple,
     )?;
     if !no_deps {
-        let project = EditableProject::new(PathBuf::new(), project);
+        let project = EditableProject::new(Utf8PathBuf::new(), project);
 
         let mut memory_projects = HashMap::default();
         for (k, v) in provided_iris.iter() {
@@ -246,7 +242,7 @@ pub fn command_env_install_path<
                 projects: memory_projects,
             },
             standard_resolver(
-                Some(PathBuf::from(path)),
+                Some(path),
                 None,
                 Some(client.clone()),
                 index_urls,

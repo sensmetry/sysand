@@ -4,7 +4,7 @@
 
 Requirements:
 
-- Rust 1.85 or later
+- Rust version given in `rust-version` in [Cargo.toml](../../Cargo.toml) or later
 - npm
 - [wasm-pack](https://github.com/drager/wasm-pack) (can be installed with e. g.
 `cargo install wasm-pack`)

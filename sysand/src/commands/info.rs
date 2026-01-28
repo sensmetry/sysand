@@ -8,19 +8,21 @@ use crate::{
         SetMetaVerb, SetVerb,
     },
 };
+use camino::Utf8Path;
 use sysand_core::{
     auth::HTTPAuthentication,
+    env::local_directory::DEFAULT_ENV_NAME,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     },
-    project::{ProjectMut, ProjectRead},
+    project::{ProjectMut, ProjectRead, utils::ToPathBuf},
     resolve::{file::FileResolverProject, standard::standard_resolver},
 };
 
 use anstream::{print, println};
 use anyhow::{Result, bail};
 use fluent_uri::Iri;
-use std::{collections::HashSet, path::Path, sync::Arc};
+use std::{collections::HashSet, sync::Arc};
 use sysand_core::{
     info::{do_info, do_info_project},
     project::utils::wrapfs,
@@ -68,21 +70,23 @@ pub fn pprint_interchange_project(
     }
 }
 
-fn interpret_project_path<P: AsRef<Path>>(path: P) -> Result<FileResolverProject> {
+fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverProject> {
     Ok(if path.as_ref().is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path.as_ref())?)
+        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path)?)
     } else if path.as_ref().is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
-            project_path: path.as_ref().to_path_buf(),
+            project_path: path.to_path_buf(),
         })
     } else {
-        bail!(CliError::NoResolve(
-            path.as_ref().to_string_lossy().to_string()
-        ));
+        // TODO: NoResolve is for IRIs, this is a path
+        bail!(CliError::NoResolve(path.as_ref().to_string()));
     })
 }
 
-pub fn command_info_path<P: AsRef<Path>>(path: P, excluded_iris: &HashSet<String>) -> Result<()> {
+pub fn command_info_path<P: AsRef<Utf8Path>>(
+    path: P,
+    excluded_iris: &HashSet<String>,
+) -> Result<()> {
     let project = interpret_project_path(&path)?;
 
     match do_info_project(&project) {
@@ -91,9 +95,7 @@ pub fn command_info_path<P: AsRef<Path>>(path: P, excluded_iris: &HashSet<String
 
             Ok(())
         }
-        None => bail!(CliError::NoResolve(
-            path.as_ref().to_string_lossy().to_string()
-        )),
+        None => bail!(CliError::NoResolve(path.as_ref().to_string())),
     }
 }
 
@@ -108,7 +110,7 @@ pub fn command_info_uri<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
 ) -> Result<()> {
     let cwd = wrapfs::current_dir().ok();
 
-    let local_env_path = Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+    let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
 
     let combined_resolver = standard_resolver(
         cwd,
@@ -159,7 +161,7 @@ fn print_output(output: Option<Vec<String>>, numbered: bool) {
     }
 }
 
-pub fn command_info_verb_path<P: AsRef<Path>>(
+pub fn command_info_verb_path<P: AsRef<Utf8Path>>(
     path: P,
     verb: InfoCommandVerb,
     numbered: bool,
@@ -199,8 +201,7 @@ pub fn command_info_verb_uri<Pol: HTTPAuthentication + std::fmt::Debug + 'static
         InfoCommandVerb::Get(get_verb) => {
             let cwd = wrapfs::current_dir().ok();
 
-            let local_env_path =
-                Path::new(".").join(sysand_core::env::local_directory::DEFAULT_ENV_NAME);
+            let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
 
             let combined_resolver = standard_resolver(
                 cwd,

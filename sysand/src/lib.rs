@@ -6,12 +6,18 @@ compile_error!("`std` feature is currently required to build `sysand`");
 
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    ffi::OsString,
+    panic,
+    process::ExitCode,
     str::FromStr,
     sync::Arc,
 };
 
+use anstream::{eprint, eprintln};
 use anyhow::{Result, bail};
+
+use camino::{Utf8Path, Utf8PathBuf};
+use clap::Parser;
 
 use sysand_core::{
     auth::StandardHTTPAuthenticationBuilder,
@@ -26,22 +32,25 @@ use sysand_core::{
     stdlib::known_std_libs,
 };
 
-use crate::commands::{
-    add::command_add,
-    build::{command_build_for_project, command_build_for_workspace},
-    env::{
-        command_env, command_env_install, command_env_install_path, command_env_list,
-        command_env_uninstall,
+use crate::{
+    cli::Args,
+    commands::{
+        add::command_add,
+        build::{command_build_for_project, command_build_for_workspace},
+        env::{
+            command_env, command_env_install, command_env_install_path, command_env_list,
+            command_env_uninstall,
+        },
+        exclude::command_exclude,
+        include::command_include,
+        info::{command_info_current_project, command_info_path, command_info_verb_path},
+        init::command_init,
+        lock::command_lock,
+        print_root::command_print_root,
+        remove::command_remove,
+        sources::{command_sources_env, command_sources_project},
+        sync::command_sync,
     },
-    exclude::command_exclude,
-    include::command_include,
-    info::{command_info_current_project, command_info_path, command_info_verb_path},
-    init::command_init,
-    lock::command_lock,
-    print_root::command_print_root,
-    remove::command_remove,
-    sources::{command_sources_env, command_sources_project},
-    sync::command_sync,
 };
 
 pub const DEFAULT_INDEX_URL: &str = "https://beta.sysand.org";
@@ -54,6 +63,51 @@ pub mod style;
 
 mod error;
 pub use error::CliError;
+
+pub fn lib_main<I, T>(args: I) -> ExitCode
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    set_panic_hook();
+
+    match Args::try_parse_from(args) {
+        Ok(args) => {
+            if let Err(err) = run_cli(args) {
+                let style = style::ERROR;
+                eprint!("{style}error{style:#}: ");
+                for cause in err.chain() {
+                    eprintln!("{}", cause);
+                }
+                return ExitCode::FAILURE;
+            }
+        }
+        Err(err) => {
+            err.print().expect("failed to write Clap error");
+            return ExitCode::from(err.exit_code() as u8);
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn set_panic_hook() {
+    // TODO: use `panic::update_hook()` once it's stable
+    //       also set bactrace style once it's stable, but take
+    //       into account the current level
+    let default_hook = panic::take_hook();
+    // panic::set_backtrace_style(panic::BacktraceStyle::Short);
+    panic::set_hook(Box::new(move |panic_info| {
+        std::eprintln!(
+            "Sysand crashed. This is a bug. We would appreciate a bug report at either\n\
+            Sysand's issue tracker: https://github.com/sensmetry/sysand/issues\n\
+            or Sensmetry forum: https://forum.sensmetry.com/c/sysand/24\n\
+            or via email: sysand@sensmetry.com\n\
+            \n\
+            Below are details of the crash. It would be helpful to include them in the bug report."
+        );
+        default_hook(panic_info);
+    }));
+}
 
 pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
@@ -72,7 +126,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let auto_config = if args.global_opts.no_config {
         Config::default()
     } else {
-        load_configs(project_root.as_deref().unwrap_or(Path::new(".")))?
+        load_configs(project_root.as_deref().unwrap_or(Utf8Path::new(".")))?
     };
 
     let mut config = if let Some(config_file) = &args.global_opts.config_file {
@@ -88,7 +142,16 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     } else {
         get_config_verbose_quiet(&config)
     };
-    logger::init(get_log_level(verbose, quiet)?);
+    let log_level = get_log_level(verbose, quiet);
+    if logger::init(log_level).is_err() {
+        let warn = style::WARN;
+        eprintln!(
+            "{warn}warning{warn:#}: failed to set up logger because it has already been set up;\n\
+            {:>8} log messages may not be formatted properly",
+            ' '
+        );
+        log::set_max_level(log_level);
+    }
 
     let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
 
@@ -336,7 +399,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             enum Location {
                 WorkDir,
                 Iri(fluent_uri::Iri<String>),
-                Path(String),
+                Path(Utf8PathBuf),
             }
 
             let location = if let Some(auto_location) = auto_location {
@@ -346,13 +409,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 if let Ok(iri) = fluent_uri::Iri::parse(auto_location.clone()) {
                     Location::Iri(iri)
                 } else {
-                    Location::Path(auto_location)
+                    Location::Path(auto_location.into())
                 }
             } else if let Some(path) = path {
                 debug_assert!(auto_location.is_none());
                 debug_assert!(iri.is_none());
 
-                Location::Path(path)
+                Location::Path(path.into())
             } else if let Some(iri) = iri {
                 debug_assert!(path.is_none());
                 debug_assert!(auto_location.is_none());
@@ -439,11 +502,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         basic_auth_policy,
                     )
                 }
-                (Location::Path(path), None) => command_info_path(Path::new(&path), &excluded_iris),
+                (Location::Path(path), None) => command_info_path(&path, &excluded_iris),
                 (Location::Path(path), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
 
-                    command_info_verb_path(Path::new(&path), subcommand.as_verb(), numbered)
+                    command_info_verb_path(&path, subcommand.as_verb(), numbered)
                 }
             }
         }
@@ -544,7 +607,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     }
 }
 
-pub fn get_env(project_root: impl AsRef<Path>) -> Option<LocalDirectoryEnvironment> {
+pub fn get_env(project_root: impl AsRef<Utf8Path>) -> Option<LocalDirectoryEnvironment> {
     let environment_path = project_root.as_ref().join(DEFAULT_ENV_NAME);
     if !environment_path.is_dir() {
         None
@@ -553,7 +616,7 @@ pub fn get_env(project_root: impl AsRef<Path>) -> Option<LocalDirectoryEnvironme
     }
 }
 
-pub fn get_or_create_env(project_root: impl AsRef<Path>) -> Result<LocalDirectoryEnvironment> {
+pub fn get_or_create_env(project_root: impl AsRef<Utf8Path>) -> Result<LocalDirectoryEnvironment> {
     let project_root = project_root.as_ref();
     match get_env(project_root) {
         Some(env) => Ok(env),
@@ -568,11 +631,11 @@ fn get_config_verbose_quiet(config: &Config) -> (bool, bool) {
     )
 }
 
-fn get_log_level(verbose: bool, quiet: bool) -> Result<log::LevelFilter> {
+fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
     match (verbose, quiet) {
         (true, true) => unreachable!(),
-        (true, false) => Ok(log::LevelFilter::Debug),
-        (false, true) => Ok(log::LevelFilter::Error),
-        (false, false) => Ok(log::LevelFilter::Info),
+        (true, false) => log::LevelFilter::Debug,
+        (false, true) => log::LevelFilter::Error,
+        (false, false) => log::LevelFilter::Info,
     }
 }

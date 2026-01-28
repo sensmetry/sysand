@@ -15,18 +15,24 @@ homepage.workspace = true
 default = ["extension-module", "abi3"]
 extension-module = ["pyo3/extension-module"]
 abi3 = ["pyo3/abi3", "pyo3/abi3-py38"]
-vendored_tls = ["reqwest/native-tls-vendored"]
 
 [dependencies]
 sysand-core = { path = "../../core", features = ["python", "filesystem", "networking"] }
+sysand = { path = "../../sysand" }
+camino.workspace = true
 pyo3 = { version = "0.27.2", default-features = false, features = ["macros"] }
 pyo3-log = "0.13.2"
 semver = { version = "1.0.27", default-features = false }
 typed-path = { version = "0.12.0", default-features = false, features= ["std"] }
 url = { version = "2.5.7", default-features = false }
-reqwest-middleware = "0.4.2"
-reqwest = "0.12.25"
+reqwest-middleware = { version = "0.5.0" }
 tokio = { version = "1.48.0", default-features = false, features = ["rt"] }
+
+# Use native TLS only on Windows and Apple OSs
+[target.'cfg(any(target_os = "windows", target_vendor = "apple"))'.dependencies]
+reqwest = { version = "0.13.1", default-features = false, features = ["native-tls", "http2", "system-proxy"] }
+[target.'cfg(not(any(target_os = "windows", target_vendor = "apple")))'.dependencies]
+reqwest = { version = "0.13.1", features = ["rustls"] }
 
 [dev-dependencies]
 predicates = "3.1.3"

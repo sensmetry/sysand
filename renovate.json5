@@ -1,25 +1,26 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended",
+    "config:best-practices",
     "schedule:earlyMondays"
   ],
   "packageRules": [
     {
       "groupName": "all non-major dependencies",
       "groupSlug": "all-minor-patch",
-      "matchPackageNames": [
-        "*"
-      ],
+      "matchPackageNames": ["*"],
       "matchUpdateTypes": ["minor", "patch"],
+      // Only upgrade deps with version >=1
       "matchCurrentVersion": "!/^0/"
     },
+    // pyo3 packages have interdependencies on each other
     {
       "groupName": "all pyo3 packages",
       "groupSlug": "all-pyo3",
       "matchDatasources": ["crate"],
       "matchPackageNames": ["pyo3*"]
     },
+    // We upgrade python versions in CI manually
     {
       "matchManagers": ["github-actions"],
       "matchDepNames": ["python"],

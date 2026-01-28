@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::fs::canonicalize;
+
 use assert_cmd::prelude::*;
-//use predicates::prelude::*;
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -38,7 +39,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
             "install",
             "urn:kpar:list_sources_dep",
             "--path",
-            dep_path.to_str().unwrap(),
+            dep_path.as_str(),
         ],
         None,
     )?;
@@ -57,24 +58,25 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     out.assert().success();
 
-    let mut expected_path = path.join("src.sysml").to_str().unwrap().to_string();
-    expected_path.push('\n');
-    let mut dep_expected_path = path
+    let expected_path = path.join("src.sysml");
+    let dep_expected_path = path
         .join("sysand_env")
         .join("585221b9a7b5e0baeeb2c12946f85975f843982d15e7aba9bcf712c83a4a9be9")
         .join("1.2.3.kpar")
-        .join("dep_src.sysml")
-        .to_str()
-        .unwrap()
-        .to_string();
-    dep_expected_path.push('\n');
-    let mut combined_path = "".to_string();
-    combined_path.push_str(&expected_path);
-    combined_path.push_str(&dep_expected_path);
+        .join("dep_src.sysml");
+    let combined_path = [&expected_path, &dep_expected_path];
 
     let out = run_sysand_in(&path, ["sources", "--no-deps"], None)?;
 
-    out.assert().success().stdout(expected_path);
+    let p = String::from_utf8(
+        out.assert()
+            .success()
+            .get_output()
+            .stdout
+            .trim_ascii_end()
+            .to_owned(),
+    )?;
+    assert_eq!(canonicalize(p)?, expected_path);
 
     let out = run_sysand_in(
         &path,
@@ -82,11 +84,29 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    out.assert().success().stdout(dep_expected_path);
+    let p = String::from_utf8(
+        out.assert()
+            .success()
+            .get_output()
+            .stdout
+            .trim_ascii_end()
+            .to_owned(),
+    )?;
+    assert_eq!(canonicalize(p)?, dep_expected_path);
 
     let out = run_sysand_in(&path, ["sources"], None)?;
 
-    out.assert().success().stdout(combined_path);
+    let p = String::from_utf8(
+        out.assert()
+            .success()
+            .get_output()
+            .stdout
+            .trim_ascii_end()
+            .to_owned(),
+    )?;
+    for (actual, expected) in p.split('\n').zip(combined_path) {
+        assert_eq!(canonicalize(actual)?, expected.as_path());
+    }
 
     Ok(())
 }
@@ -159,7 +179,7 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
             "install",
             "urn:kpar:sources_without_std_dep",
             "--path",
-            path_dep.to_str().unwrap(),
+            path_dep.as_str(),
         ],
         None,
     )?;

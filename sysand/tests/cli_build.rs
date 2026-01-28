@@ -36,11 +36,7 @@ fn test_project_build() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &cwd,
-        [
-            "info",
-            "--path",
-            &cwd.join("test_build.kpar").to_string_lossy(),
-        ],
+        ["info", "--path", cwd.join("test_build.kpar").as_str()],
         None,
     )?;
 
@@ -96,10 +92,10 @@ fn test_workspace_build() -> Result<(), Box<dyn std::error::Error>> {
 
     for project_cwd in [&project1_cwd, &project2_cwd, &project3_cwd] {
         std::fs::create_dir(project_cwd)?;
-        let project_name = project_cwd.file_name().unwrap().to_string_lossy();
+        let project_name = project_cwd.file_name().unwrap();
         let out = run_sysand_in(
             project_cwd,
-            ["init", "--version", "1.2.3", "--name", &project_name],
+            ["init", "--version", "1.2.3", "--name", project_name],
             None,
         )?;
         out.assert().success();
@@ -126,10 +122,10 @@ fn test_workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         assert!(
             kpar_path.is_file(),
             "kpar file does not exist: {}",
-            kpar_path.display()
+            kpar_path
         );
 
-        let out = run_sysand_in(&cwd, ["info", "--path", &kpar_path.to_string_lossy()], None)?;
+        let out = run_sysand_in(&cwd, ["info", "--path", kpar_path.as_str()], None)?;
 
         out.assert()
             .success()

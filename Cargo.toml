@@ -3,7 +3,7 @@ resolver = "3"
 members = ["sysand", "core", "bindings/py", "bindings/js", "bindings/java"]
 
 [workspace.package]
-version = "0.0.7"
+version = "0.0.8"
 edition = "2024"
 rust-version = "1.85"
 publish = false
@@ -13,3 +13,6 @@ repository = "https://github.com/sensmetry/sysand"
 description = "A package manager for SysML v2 and KerML"
 documentation = "https://docs.sysand.org"
 homepage = "https://beta.sysand.org"
+
+[workspace.dependencies]
+camino = { version = "1.2", features = ["serde1"] }

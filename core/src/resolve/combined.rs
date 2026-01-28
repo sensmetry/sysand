@@ -588,6 +588,7 @@ impl<
 mod tests {
     use std::collections::HashMap;
 
+    use fluent_uri::Iri;
     use indexmap::IndexMap;
 
     use crate::{
@@ -639,7 +640,7 @@ mod tests {
         uri: S,
         project: InMemoryProject,
     ) -> Option<MemoryResolver<AcceptAll, InMemoryProject>> {
-        let uri = fluent_uri::Iri::parse(uri.as_ref().to_string()).unwrap();
+        let uri = Iri::parse(uri.as_ref().to_string()).unwrap();
 
         let mut projects = HashMap::new();
 

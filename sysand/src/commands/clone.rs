@@ -1,15 +1,9 @@
 use anyhow::{Result, anyhow, bail};
+use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use semver::Version;
 
-use std::{
-    collections::HashMap,
-    fs,
-    io::ErrorKind,
-    mem,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{collections::HashMap, fs, io::ErrorKind, mem, sync::Arc};
 
 use sysand_core::{
     auth::HTTPAuthentication,
@@ -43,7 +37,7 @@ pub enum ProjectLocator {
 pub fn command_clone<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
     locator: ProjectLocatorArgs,
     version: Option<String>,
-    target: Option<String>,
+    target: Option<Utf8PathBuf>,
     no_deps: bool,
     resolution_opts: ResolutionOptions,
     config: &Config,
@@ -58,14 +52,14 @@ pub fn command_clone<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
         include_std,
     } = resolution_opts;
 
-    let target: PathBuf = target.unwrap_or_else(|| ".".into()).into();
+    let target: Utf8PathBuf = target.unwrap_or_else(|| ".".into());
     let (project_path, cleaner) = {
         // Canonicalization is performed only for better error messages
         let canonical = wrapfs::absolute(&target)?;
         match fs::read_dir(&target) {
             Ok(mut dir_it) => {
                 if dir_it.next().is_some() {
-                    bail!("target directory not empty: `{}`", canonical.display())
+                    bail!("target directory not empty: `{}`", canonical)
                 }
             }
             Err(e) => match e.kind() {
@@ -73,14 +67,10 @@ pub fn command_clone<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
                     wrapfs::create_dir_all(&canonical)?;
                 }
                 ErrorKind::NotADirectory => {
-                    bail!("target path `{}` is not a directory", canonical.display())
+                    bail!("target path `{}` is not a directory", canonical)
                 }
                 e => {
-                    bail!(
-                        "failed to get metadata for `{}`: {}",
-                        canonical.display(),
-                        e
-                    );
+                    bail!("failed to get metadata for `{}`: {}", canonical, e);
                 }
             },
         }
@@ -91,7 +81,7 @@ pub fn command_clone<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
             "found an existing project in one of target path's parent\n\
             {:>8} directories `{}`",
             ' ',
-            existing_project.project_path.display()
+            existing_project.project_path
         );
     }
 
@@ -140,7 +130,7 @@ pub fn command_clone<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
                 {:>12} `{}`",
                 iri,
                 ' ',
-                local_project.project_path.display(),
+                local_project.project_path,
             );
             let (_version, storage) = get_project_version(&iri, version, &std_resolver)?;
             let (info, _meta) = clone_project(&storage, &mut local_project, true)?;
@@ -168,9 +158,9 @@ pub fn command_clone<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
             log::info!(
                 "{header}{cloning:>12}{header:#} project from `{}` to\n\
                 {:>12} `{}`",
-                wrapfs::canonicalize(&remote_project.project_path)?.display(),
+                wrapfs::canonicalize(&remote_project.project_path)?,
                 ' ',
-                local_project.project_path.display(),
+                local_project.project_path,
             );
             let (info, _meta) = clone_project(&remote_project, &mut local_project, true)?;
             log::info!(
@@ -331,14 +321,14 @@ pub fn get_project_version<R: ResolveRead>(
 /// Removes all files in the directory on drop. Directory itself
 /// is not touched. Use `std::mem::forget()` to prevent drop.
 /// This doesn't own `Drop` values, so memory won't be leaked.
-struct DirCleaner<'a>(&'a Path);
+struct DirCleaner<'a>(&'a Utf8Path);
 
 impl Drop for DirCleaner<'_> {
     fn drop(&mut self) {
         let Ok(entries) = fs::read_dir(self.0) else {
             return;
         };
-        log::debug!("drop: clearing contents of dir `{}`", self.0.display());
+        log::debug!("drop: clearing contents of dir `{}`", self.0);
 
         for entry in entries {
             let Ok(entry) = entry else { continue };

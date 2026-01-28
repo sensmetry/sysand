@@ -8,9 +8,9 @@ use std::{
     sync::Arc,
 };
 
+use camino_tempfile::tempdir;
 use futures::AsyncRead;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
-use tempfile::tempdir;
 use thiserror::Error;
 
 use crate::{
@@ -21,7 +21,7 @@ use crate::{
     },
 };
 
-use super::utils::{FsIoError, ToPathBuf, wrapfs};
+use super::utils::{FsIoError, wrapfs};
 
 /// Project stored at a remote URL such as https://www.example.com/project.kpar.
 /// The URL is expected to resolve to a kpar-archive (ZIP-file) (at least) if
@@ -122,11 +122,11 @@ impl<Pol: HTTPAuthentication> ReqwestKparDownloadedProject<Pol> {
                 ReqwestKparDownloadedError::Reqwest(self.url.as_str().to_string().into(), e.into())
             })?;
             file.write_all(&bytes)
-                .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_path_buf(), e))?;
+                .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
         }
 
         file.flush()
-            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.to_path_buf(), e))?;
+            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
 
         Ok(())
     }

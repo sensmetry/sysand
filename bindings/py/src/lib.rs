@@ -1,12 +1,9 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{collections::HashMap, process::ExitCode, sync::Arc};
 
+use camino::{Utf8Path, Utf8PathBuf};
 use pyo3::{
     exceptions::{PyFileExistsError, PyIOError, PyRuntimeError, PyValueError},
     prelude::*,
@@ -44,6 +41,12 @@ use sysand_core::{
     symbols::Language,
 };
 
+#[pyfunction(name = "_run_cli")]
+fn run_cli(args: Vec<String>) -> PyResult<bool> {
+    let exit_code = sysand::lib_main(args);
+    Ok(exit_code == ExitCode::SUCCESS)
+}
+
 #[pyfunction(name = "do_new_py_local_file")]
 #[pyo3(
     signature = (name, version, path, license=None),
@@ -54,17 +57,25 @@ fn do_new_py_local_file(
     path: String,
     license: Option<String>,
 ) -> PyResult<()> {
-    do_init_local_file(name, version, license, Path::new(&path)).map_err(|err| match err {
-        InitError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
-        InitError::SPDXLicenseParse(..) => PyValueError::new_err(err.to_string()),
-        InitError::Project(err) => match err {
-            LocalSrcError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
-            LocalSrcError::Deserialize(error) => PyValueError::new_err(error.to_string()),
-            LocalSrcError::Io(error) => PyIOError::new_err(error.to_string()),
-            LocalSrcError::Path(error) => PyIOError::new_err(error.to_string()),
-            LocalSrcError::Serialize(error) => PyValueError::new_err(error.to_string()),
+    // Initialize logger in each function independently to avoid setting up a
+    // logger before `run_cli()` is called (CLI sets up its own logger). This
+    // can't be put into pymodule definition, since importing any part of the
+    // library from python runs it
+    let _ = pyo3_log::try_init();
+
+    do_init_local_file(name, version, license, Utf8PathBuf::from(path)).map_err(
+        |err| match err {
+            InitError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
+            InitError::SPDXLicenseParse(..) => PyValueError::new_err(err.to_string()),
+            InitError::Project(err) => match err {
+                LocalSrcError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
+                LocalSrcError::Deserialize(error) => PyValueError::new_err(error.to_string()),
+                LocalSrcError::Io(error) => PyIOError::new_err(error.to_string()),
+                LocalSrcError::Path(error) => PyIOError::new_err(error.to_string()),
+                LocalSrcError::Serialize(error) => PyValueError::new_err(error.to_string()),
+            },
         },
-    })?;
+    )?;
 
     Ok(())
 }
@@ -74,10 +85,10 @@ fn do_new_py_local_file(
     signature = (path),
 )]
 fn do_env_py_local_dir(path: String) -> PyResult<()> {
-    do_env_local_dir(Path::new(&path)).map_err(|err| match err {
-        EnvError::AlreadyExists(path_buf) => {
-            PyFileExistsError::new_err(format!("{}", path_buf.display()))
-        }
+    let _ = pyo3_log::try_init();
+
+    do_env_local_dir(Utf8Path::new(&path)).map_err(|err| match err {
+        EnvError::AlreadyExists(path_buf) => PyFileExistsError::new_err(path_buf.into_string()),
         EnvError::Write(werr) => match werr {
             LocalWriteError::Io(error) => PyIOError::new_err(error.to_string()),
             LocalWriteError::Deserialize(error) => PyValueError::new_err(error.to_string()),
@@ -99,8 +110,10 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
 fn do_info_py_path(
     path: String,
 ) -> PyResult<Option<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>> {
+    let _ = pyo3_log::try_init();
+
     let project = LocalSrcProject {
-        project_path: Path::new(&path).to_path_buf(),
+        project_path: path.into(),
     };
 
     Ok(do_info_project(&project))
@@ -116,6 +129,8 @@ fn do_info_py(
     relative_file_root: String,
     index_urls: Option<Vec<String>>,
 ) -> PyResult<Vec<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>> {
+    let _ = pyo3_log::try_init();
+
     py.detach(|| {
         let mut results = vec![];
         let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
@@ -137,7 +152,7 @@ fn do_info_py(
             .map_err(|err| PyValueError::new_err(err.to_string()))?;
 
         let combined_resolver = standard_resolver(
-            Some(Path::new(&relative_file_root).to_path_buf()),
+            Some(relative_file_root.into()),
             None,
             Some(client),
             index_url,
@@ -163,11 +178,13 @@ fn do_info_py(
     signature = (output_path, project_path),
 )]
 fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let Some(current_project_path) = project_path else {
         return Err(pyo3::exceptions::PyNotImplementedError::new_err("TODO"));
     };
     let project = LocalSrcProject {
-        project_path: Path::new(&current_project_path).to_path_buf(),
+        project_path: current_project_path.into(),
     };
 
     do_build_kpar(&project, &output_path, true)
@@ -200,6 +217,8 @@ pub fn do_sources_env_py(
     include_deps: bool,
     include_std: bool,
 ) -> PyResult<Vec<String>> {
+    let _ = pyo3_log::try_init();
+
     let provided_iris = if !include_std {
         known_std_libs()
     } else {
@@ -269,12 +288,7 @@ pub fn do_sources_env_py(
     for src_path in do_sources_local_src_project_no_deps(&project, true)
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
     {
-        result.push(
-            src_path
-                .to_str()
-                .ok_or_else(|| PyRuntimeError::new_err("invalid path".to_string()))?
-                .to_string(),
-        );
+        result.push(src_path.into_string());
     }
 
     if include_deps {
@@ -299,12 +313,7 @@ pub fn do_sources_env_py(
             for src_path in do_sources_local_src_project_no_deps(&dep, true)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
             {
-                result.push(
-                    src_path
-                        .to_str()
-                        .ok_or_else(|| PyRuntimeError::new_err("invalid path".to_string()))?
-                        .to_string(),
-                );
+                result.push(src_path.into_string());
             }
         }
     }
@@ -322,6 +331,8 @@ pub fn do_sources_project_py(
     env_path: Option<String>,
     include_std: bool,
 ) -> PyResult<Vec<String>> {
+    let _ = pyo3_log::try_init();
+
     let mut result = vec![];
 
     let current_project = LocalSrcProject {
@@ -331,12 +342,7 @@ pub fn do_sources_project_py(
     for src_path in do_sources_local_src_project_no_deps(&current_project, true)
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
     {
-        result.push(
-            src_path
-                .to_str()
-                .ok_or_else(|| PyRuntimeError::new_err("invalid path".to_string()))?
-                .to_string(),
-        );
+        result.push(src_path.into_string());
     }
 
     if include_deps {
@@ -378,12 +384,7 @@ pub fn do_sources_project_py(
             for src_path in do_sources_local_src_project_no_deps(&dep, true)
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
             {
-                result.push(
-                    src_path
-                        .to_str()
-                        .ok_or_else(|| PyRuntimeError::new_err("invalid path".to_string()))?
-                        .to_string(),
-                );
+                result.push(src_path.into_string());
             }
         }
     }
@@ -396,8 +397,10 @@ pub fn do_sources_project_py(
     signature = (path, iri, version),
 )]
 fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let mut project = LocalSrcProject {
-        project_path: Path::new(&path).to_path_buf(),
+        project_path: path.into(),
     };
 
     do_add(&mut project, iri, version).map_err(|e| PyRuntimeError::new_err(e.to_string()))
@@ -408,8 +411,10 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
     signature = (path, iri),
 )]
 fn do_remove_py(path: String, iri: String) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let mut project = LocalSrcProject {
-        project_path: Path::new(&path).to_path_buf(),
+        project_path: path.into(),
     };
 
     do_remove(&mut project, iri).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -428,8 +433,10 @@ fn do_include_py(
     index_symbols: bool,
     force_format: Option<String>,
 ) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let mut project = LocalSrcProject {
-        project_path: Path::new(&path).to_path_buf(),
+        project_path: path.into(),
     };
 
     let force_format = match force_format {
@@ -460,8 +467,10 @@ fn do_include_py(
     signature = (path, src_path),
 )]
 fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
+
     let mut project = LocalSrcProject {
-        project_path: Path::new(&path).to_path_buf(),
+        project_path: path.into(),
     };
 
     do_exclude(&mut project, src_path).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -474,15 +483,16 @@ fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
     signature = (env_path, iri, location),
 )]
 fn do_env_install_path_py(env_path: String, iri: String, location: String) -> PyResult<()> {
-    // TODO: remove this useless clone when migrating to camino
-    let project_path: PathBuf = location.clone().into();
+    let _ = pyo3_log::try_init();
+
+    let location: Utf8PathBuf = location.into();
 
     let mut env = LocalDirectoryEnvironment {
         environment_path: env_path.into(),
     };
 
-    if project_path.is_file() {
-        let project = LocalKParProject::new_guess_root(project_path)
+    if location.is_file() {
+        let project = LocalKParProject::new_guess_root(&location)
             .map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))?;
 
         let Some(version) = project
@@ -490,7 +500,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
         else {
             return Err(PyRuntimeError::new_err(format!(
-                "project at {} lacks project information",
+                "project at `{}` lacks project information",
                 location
             )));
         };
@@ -499,8 +509,10 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             clone_project(&project, to, true).map(|_| ())
         })
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-    } else if project_path.is_dir() {
-        let project = LocalSrcProject { project_path };
+    } else if location.is_dir() {
+        let project = LocalSrcProject {
+            project_path: location,
+        };
 
         let Some(version) = project
             .version()
@@ -508,7 +520,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
         else {
             return Err(PyRuntimeError::new_err(format!(
                 "project at {} lacks project information",
-                location
+                project.project_path
             )));
         };
 
@@ -528,8 +540,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
 
 #[pymodule(name = "_sysand_core")]
 pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    pyo3_log::init();
-
+    m.add_function(wrap_pyfunction!(run_cli, m)?)?;
     m.add_function(wrap_pyfunction!(do_new_py_local_file, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_py_local_dir, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py_path, m)?)?;

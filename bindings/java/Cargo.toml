@@ -16,12 +16,18 @@ name = "sysand"
 crate-type = ["cdylib"]
 
 [dependencies]
-jni = "0.21.1"
 sysand-core = { path = "../../core", features = ["std", "filesystem", "networking"] }
+camino.workspace = true
+jni = "0.21.1"
 indexmap = { version = "2.12.1", default-features = false, features = ["serde"] }
-reqwest = { version = "0.12.25", default-features = false }
 url = { version = "2.5.7", default-features = false }
 tokio = { version = "1.48.0", default-features = false, features = ["rt"] }
-reqwest-middleware = { version = "0.4.2", default-features = false }
+reqwest-middleware = { version = "0.5.0" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", default-features = false, features = ["preserve_order"] }
+
+# Use native TLS only on Windows and Apple OSs
+[target.'cfg(any(target_os = "windows", target_vendor = "apple"))'.dependencies]
+reqwest = { version = "0.13.1", default-features = false, features = ["native-tls", "http2", "system-proxy"] }
+[target.'cfg(not(any(target_os = "windows", target_vendor = "apple")))'.dependencies]
+reqwest = { version = "0.13.1", features = ["rustls"] }

@@ -44,7 +44,7 @@ follows:
 
 Requirements:
 
-- Rust 1.85 or later
+- Rust version given in `rust-version` in [Cargo.toml](../../Cargo.toml) or later
 - Java 8 or later
 - maven
 - Python 3 (executable named `python3`)

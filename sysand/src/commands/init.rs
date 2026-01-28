@@ -1,10 +1,9 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::{Path, PathBuf};
-
 use crate::CliError;
 use anyhow::Result;
+use camino::{Utf8Path, Utf8PathBuf};
 use sysand_core::project::utils::wrapfs;
 
 pub fn command_init(
@@ -21,7 +20,7 @@ pub fn command_init(
 
             p.into()
         }
-        None => PathBuf::from("."),
+        None => Utf8PathBuf::from("."),
     };
     let version = version.unwrap_or_else(|| "0.0.1".to_string());
     let name = match name {
@@ -40,21 +39,11 @@ pub fn command_init(
     Ok(())
 }
 
-fn default_name_from_path<P: AsRef<Path>>(path: P) -> Result<String> {
+fn default_name_from_path<P: AsRef<Utf8Path>>(path: P) -> Result<String> {
     Ok(wrapfs::canonicalize(&path)?
         .file_name()
         .ok_or_else(|| {
-            CliError::InvalidDirectory(format!(
-                "path `{}` is not a directory",
-                path.as_ref().display()
-            ))
-        })?
-        .to_str()
-        .ok_or_else(|| {
-            CliError::InvalidDirectory(format!(
-                "directory name `{:?}` is not valid Unicode",
-                path.as_ref()
-            ))
+            CliError::InvalidDirectory(format!("path `{}` is not a directory", path.as_ref()))
         })?
         .to_string())
 }

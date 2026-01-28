@@ -18,6 +18,8 @@ alltests = []
 
 [dependencies]
 # General
+camino.workspace = true
+camino-tempfile = "1.4"
 anstream = "0.6.21"
 anyhow = "1.0.100"
 clap = { version = "4.5.53", default-features = false, features = ["derive", "unicode", "help", "cargo", "color", "env", "suggestions", "usage"] }
@@ -31,14 +33,19 @@ serde_json = { version = "1.0.145", default-features = false }
 spdx = "0.13.2"
 fluent-uri = { version = "0.4.1", default-features = false }
 typed-path = { version = "0.12.0", default-features = false }
-reqwest = { version = "0.12.25", features = ["blocking"] }
 url = { version = "2.5.7", default-features = false }
 # Enables a bunch of additional compression/encryption features not enabled by default in sysand-core
 zip = { version = "6.0.0" }
 pubgrub = { version = "0.3.0", default-features = false }
 indexmap = "2.12.1"
 tokio = { version = "1.48.0", default-features = false }
-reqwest-middleware = { version = "0.4.2", default-features = false }
+reqwest-middleware = { version = "0.5.0" }
+
+# Use native TLS only on Windows and Apple OSs
+[target.'cfg(any(target_os = "windows", target_vendor = "apple"))'.dependencies]
+reqwest = { version = "0.13.1", default-features = false, features = ["native-tls", "http2", "system-proxy", "blocking"] }
+[target.'cfg(not(any(target_os = "windows", target_vendor = "apple")))'.dependencies]
+reqwest = { version = "0.13.1", features = ["rustls", "blocking"] }
 
 [dev-dependencies]
 assert_cmd = "2.1.1"

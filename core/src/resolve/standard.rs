@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{fmt, path::PathBuf, result::Result, sync::Arc};
+use std::{fmt, result::Result, sync::Arc};
 
 use crate::{
     auth::HTTPAuthentication,
@@ -17,6 +17,7 @@ use crate::{
         sequential::SequentialResolver,
     },
 };
+use camino::Utf8PathBuf;
 use reqwest_middleware::ClientWithMiddleware;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
@@ -53,7 +54,7 @@ impl<Pol: HTTPAuthentication + std::fmt::Debug + 'static> ResolveRead for Standa
     }
 }
 
-pub fn standard_file_resolver(cwd: Option<PathBuf>) -> FileResolver {
+pub fn standard_file_resolver(cwd: Option<Utf8PathBuf>) -> FileResolver {
     FileResolver {
         sandbox_roots: None,
         relative_path_root: cwd,
@@ -79,7 +80,7 @@ pub fn standard_remote_resolver<Pol: HTTPAuthentication + std::fmt::Debug + 'sta
     }
 }
 
-pub fn standard_local_resolver(local_env_path: PathBuf) -> LocalEnvResolver {
+pub fn standard_local_resolver(local_env_path: Utf8PathBuf) -> LocalEnvResolver {
     EnvResolver {
         env: LocalDirectoryEnvironment {
             environment_path: local_env_path,
@@ -107,8 +108,8 @@ pub fn standard_index_resolver<Pol: HTTPAuthentication + std::fmt::Debug + 'stat
 
 // TODO: Replace most of these arguments by some general CLIOptions object
 pub fn standard_resolver<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
-    cwd: Option<PathBuf>,
-    local_env_path: Option<PathBuf>,
+    cwd: Option<Utf8PathBuf>,
+    local_env_path: Option<Utf8PathBuf>,
     client: Option<ClientWithMiddleware>,
     index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,

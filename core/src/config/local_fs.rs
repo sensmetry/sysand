@@ -1,12 +1,13 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::path::Path;
+use std::{fs, path::Path};
 
+use camino::Utf8Path;
 use thiserror::Error;
 
 use super::Config;
-use crate::project::utils::{FsIoError, wrapfs};
+use crate::project::utils::FsIoError;
 
 pub const CONFIG_DIR: &str = "sysand";
 pub const CONFIG_FILE: &str = "sysand.toml";
@@ -14,7 +15,7 @@ pub const CONFIG_FILE: &str = "sysand.toml";
 #[derive(Error, Debug)]
 pub enum ConfigReadError {
     #[error("failed to deserialize TOML file `{0}`: {1}")]
-    Toml(Box<Path>, toml::de::Error),
+    Toml(Box<Utf8Path>, toml::de::Error),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
@@ -27,17 +28,23 @@ impl From<FsIoError> for ConfigReadError {
 
 pub fn get_config<P: AsRef<Path>>(path: P) -> Result<Config, ConfigReadError> {
     if path.as_ref().is_file() {
-        let contents = wrapfs::read_to_string(&path)?;
-        Ok(
-            toml::from_str(&contents)
-                .map_err(|e| ConfigReadError::Toml(path.as_ref().into(), e))?,
-        )
+        let contents = {
+            fs::read_to_string(path.as_ref()).map_err(|e| {
+                Box::new(FsIoError::ReadFile(
+                    path.as_ref().to_string_lossy().into_owned().into(),
+                    e,
+                ))
+            })
+        }?;
+        Ok(toml::from_str(&contents).map_err(|e| {
+            ConfigReadError::Toml(Utf8Path::new(&path.as_ref().to_string_lossy()).into(), e)
+        })?)
     } else {
         Ok(Config::default())
     }
 }
 
-pub fn load_configs<P: AsRef<Path>>(working_dir: P) -> Result<Config, ConfigReadError> {
+pub fn load_configs<P: AsRef<Utf8Path>>(working_dir: P) -> Result<Config, ConfigReadError> {
     let mut config = dirs::config_dir().map_or_else(
         || Ok(Config::default()),
         |mut path| {
@@ -56,7 +63,7 @@ mod tests {
     use std::io::Write;
 
     use crate::config::{Config, Index, local_fs};
-    use tempfile::tempdir;
+    use camino_tempfile::tempdir;
 
     #[test]
     fn load_configs() {
