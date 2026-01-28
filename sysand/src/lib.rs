@@ -318,8 +318,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )?)
             };
             let excluded_iris: HashSet<_> = if !include_std {
-                // Only print std warning when command is to print usages
-                // It's the only case where stdlib usages affect output
+                // Only print std warning when command is to print usages,
+                // it's the only case where stdlib usages affect output
                 use cli::InfoCommand::*;
                 if let Some(Usage {
                     clear: None,
@@ -386,7 +386,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                     cli::InfoCommand::License {
                                         ref set, no_spdx, ..
                                     } => {
-                                        if !no_spdx && Some(l) = set {
+                                        if !no_spdx && let Some(l) = set {
                                             spdx::Expression::parse(l).map_err(|e| {
                                                 InitError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
                                             })?;

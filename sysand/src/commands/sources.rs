@@ -31,16 +31,16 @@ pub fn command_sources_env<S: AsRef<str>>(
     let mut projects = env.candidate_projects(&iri)?.into_iter();
 
     let Some(project) = (match &version {
+        // No version constraints, so choose the first candidate
         None => projects.next(),
         Some(vr) => loop {
             if let Some(candidate) = projects.next() {
                 if let Some(v) = candidate
                     .version()?
                     .and_then(|x| semver::Version::parse(&x).ok())
+                    && vr.matches(&v)
                 {
-                    if vr.matches(&v) {
-                        break Some(candidate);
-                    }
+                    break Some(candidate);
                 }
             } else {
                 break None;

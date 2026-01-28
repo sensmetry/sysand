@@ -275,10 +275,10 @@ pub fn get_project_version<R: ResolveRead>(
                         continue;
                     }
                 };
-                if let Some(version) = &requested_version {
-                    if &candidate_version != version {
-                        continue;
-                    }
+                if let Some(version) = &requested_version
+                    && &candidate_version != version
+                {
+                    continue;
                 }
                 candidates.push((candidate_version, candidate_project));
             }

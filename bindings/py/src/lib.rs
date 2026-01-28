@@ -257,10 +257,9 @@ pub fn do_sources_env_py(
                     .version()
                     .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
                     .and_then(|x| Version::parse(&x).ok())
+                    && vr.matches(&v)
                 {
-                    if vr.matches(&v) {
-                        break Some(candidate);
-                    }
+                    break Some(candidate);
                 }
             } else {
                 break None;
