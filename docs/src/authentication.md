@@ -42,3 +42,8 @@ https://projects.example.com/projects/myproject/versions.txt
 
 In the wildcard pattern, `?` matches any single letter, `*` matches any sequence of characters
 not containing `/`, and `**` matches any sequence of characters possibly including `/`.
+
+Credentials will *only* be sent to URLs matching the pattern, and even then only if an 
+unauthenticated response produces a status in the 4xx range. If multiple patterns match, they will
+be tried in an arbitrary order, after the initial unauthenticated attempt, until one results in a
+response not in the 4xx range.
