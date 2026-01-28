@@ -374,32 +374,22 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                     cli::InfoCommand::Version {
                                         ref set, no_semver, ..
                                     } => {
-                                        // TODO(MSRV 1.88):
-                                        // if let Some(v) = set
-                                        //     && !no_semver
-                                        if !no_semver {
-                                            if let Some(v) = set {
-                                                semver::Version::parse(v).map_err(|e| {
+                                        if !no_semver && let Some(v) = set {
+                                            semver::Version::parse(v).map_err(|e| {
                                                 InitError::<std::convert::Infallible>::SemVerParse(
                                                     v.as_str().into(),
                                                     e,
                                                 )
                                             })?;
-                                            }
                                         }
                                     }
                                     cli::InfoCommand::License {
                                         ref set, no_spdx, ..
                                     } => {
-                                        // TODO(MSRV 1.88):
-                                        // if let Some(v) = set
-                                        //     && !no_spdx
-                                        if !no_spdx {
-                                            if let Some(l) = set {
-                                                spdx::Expression::parse(l).map_err(|e| {
+                                        if !no_spdx && Some(l) = set {
+                                            spdx::Expression::parse(l).map_err(|e| {
                                                 InitError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)
                                             })?;
-                                            }
                                         }
                                     }
                                     _ => (),
