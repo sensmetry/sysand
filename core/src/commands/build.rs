@@ -46,6 +46,13 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     Zip(#[from] ZipArchiveError),
     #[error("project serialization error: {0}: {1}")]
     Serialize(&'static str, serde_json::Error),
+    #[error(
+        "project includes a path usage `{0}`,\n\
+        which is unlikely to be available on other computers at the same path\n\
+        \n\
+        to build anyway, pass `--allow-path-usage`"
+    )]
+    PathUsage(String),
     #[error("internal error: {0}")]
     InternalError(&'static str),
 }
@@ -120,6 +127,7 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
     canonicalise: bool,
+    allow_path_usage: bool,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
 
@@ -144,6 +152,18 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
+    if let Some(u) = info.usage.iter().find(|x| x.resource.starts_with("file:")) {
+        if allow_path_usage {
+            log::warn!(
+                "project includes a path usage `{}`,\n\
+            which is unlikely to be available on other computers at the same path",
+                u.resource
+            );
+        } else {
+            return Err(KParBuildError::PathUsage(u.resource.clone()));
+        }
+    }
+
     if canonicalise {
         for path in meta.validate()?.source_paths(true) {
             use crate::include::do_include;
@@ -160,12 +180,13 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &Workspace,
     path: P,
     canonicalise: bool,
+    allow_path_usage: bool,
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
     let mut result = Vec::new();
     let Some(projects) = workspace.get_projects()? else {
-        // The caller should have already checked that the .workspace.json file
-        // exists.
-        return Err(KParBuildError::InternalError("missing .workspace.json."));
+        // Workspace file exists, unless it was deleted after workspace was constructed
+        // TODO: make workspace contain all its info
+        return Err(KParBuildError::InternalError("missing `.workspace.json.`"));
     };
     for project in projects {
         let project = LocalSrcProject {
@@ -173,7 +194,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
         };
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);
-        let kpar_project = do_build_kpar(&project, &output_path, canonicalise)?;
+        let kpar_project = do_build_kpar(&project, &output_path, canonicalise, allow_path_usage)?;
         result.push(kpar_project);
     }
     Ok(result)

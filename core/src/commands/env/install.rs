@@ -43,23 +43,23 @@ fn check_install<S: AsRef<str>, P: ProjectRead, E: ReadEnvironment>(
         return Ok(());
     }
 
-    if let Some(version) = storage.version().map_err(CheckInstallError::ProjectRead)? {
-        if env.has(&uri).map_err(CheckInstallError::EnvRead)? {
-            let version_present = env
-                .has_version(&uri, &version)
-                .map_err(CheckInstallError::EnvRead)?;
+    if let Some(version) = storage.version().map_err(CheckInstallError::ProjectRead)?
+        && env.has(&uri).map_err(CheckInstallError::EnvRead)?
+    {
+        let version_present = env
+            .has_version(&uri, &version)
+            .map_err(CheckInstallError::EnvRead)?;
 
-            if !allow_overwrite && version_present {
-                return Err(CheckInstallError::AlreadyInstalledVersion(
-                    uri.as_ref().into(),
-                    version,
-                ));
-            }
-            if !allow_multiple && !version_present {
-                return Err(CheckInstallError::AlreadyInstalledUnknownVersion(
-                    uri.as_ref().into(),
-                ));
-            }
+        if !allow_overwrite && version_present {
+            return Err(CheckInstallError::AlreadyInstalledVersion(
+                uri.as_ref().into(),
+                version,
+            ));
+        }
+        if !allow_multiple && !version_present {
+            return Err(CheckInstallError::AlreadyInstalledUnknownVersion(
+                uri.as_ref().into(),
+            ));
         }
     }
 

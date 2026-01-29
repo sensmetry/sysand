@@ -197,11 +197,10 @@ impl Lock {
                     .map_err(ResolutionError::CandidateProjects)?
                 {
                     if let Ok(Some(candidate_checksum)) = candidate_project.checksum_canonical_hex()
+                        && candidate_checksum == *checksum
                     {
-                        if candidate_checksum == *checksum {
-                            resolved_project = Some(candidate_project);
-                            break 'outer;
-                        }
+                        resolved_project = Some(candidate_project);
+                        break 'outer;
                     }
                 }
             }
@@ -300,14 +299,13 @@ impl Lock {
                         })
                         .ok();
                     if let (Some(version_constraint), Some(version)) = (version_constraint, version)
+                        && !version_constraint.matches(version)
                     {
-                        if !version_constraint.matches(version) {
-                            return Err(ValidationError::UnsatisfiedUsageVersion {
-                                usage: usage.to_toml().to_string(),
-                                version: version.to_string(),
-                                project_with_name: project_with(project.name.clone()),
-                            });
-                        }
+                        return Err(ValidationError::UnsatisfiedUsageVersion {
+                            usage: usage.to_toml().to_string(),
+                            version: version.to_string(),
+                            project_with_name: project_with(project.name.clone()),
+                        });
                     }
                 }
             }

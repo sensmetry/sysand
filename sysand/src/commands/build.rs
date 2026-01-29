@@ -12,8 +12,9 @@ use sysand_core::{
 pub fn command_build_for_project<P: AsRef<Utf8Path>>(
     path: P,
     current_project: LocalSrcProject,
+    allow_path_usage: bool,
 ) -> Result<()> {
-    do_build_kpar(&current_project, &path, true)?;
+    do_build_kpar(&current_project, &path, true, allow_path_usage)?;
 
     Ok(())
 }
@@ -21,6 +22,7 @@ pub fn command_build_for_project<P: AsRef<Utf8Path>>(
 pub fn command_build_for_workspace<P: AsRef<Utf8Path>>(
     path: P,
     workspace: Workspace,
+    allow_path_usage: bool,
 ) -> Result<()> {
     log::warn!(
         "Workspaces are an experimental feature\n\
@@ -28,7 +30,7 @@ pub fn command_build_for_workspace<P: AsRef<Utf8Path>>(
         releases. For the status of this feature, see\n\
         https://github.com/sensmetry/sysand/issues/101."
     );
-    do_build_workspace_kpars(&workspace, &path, true)?;
+    do_build_workspace_kpars(&workspace, &path, true, allow_path_usage)?;
 
     Ok(())
 }

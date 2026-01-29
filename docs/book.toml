@@ -5,3 +5,7 @@ language = "en"
 
 [build]
 build-dir = "book"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/sensmetry/sysand"
