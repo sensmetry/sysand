@@ -81,6 +81,12 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
     let contents = if config_path.as_ref().is_file() {
         wrapfs::read_to_string(&config_path)?
     } else {
+        let creating = "Creating";
+        let header = crate::style::get_style_config().header;
+        log::info!(
+            "{header}{creating:>12}{header:#} configuration file at `{}`",
+            config_path.as_ref(),
+        );
         String::new()
     };
     let mut config = DocumentMut::from_str(&contents)?;
@@ -111,6 +117,14 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
 
         projects.push(project);
     }
+
+    let adding = "Adding";
+    let header = crate::style::get_style_config().header;
+    log::info!(
+        "{header}{adding:>12}{header:#} source for `{}` to configuration file at `{}`",
+        iri.as_ref(),
+        config_path.as_ref(),
+    );
 
     wrapfs::write(&config_path, config.to_string())?;
 
@@ -144,9 +158,29 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
             })
     });
 
+    let removing = "Removing";
+    let header = crate::style::get_style_config().header;
+    log::info!(
+        "{header}{removing:>12}{header:#} source for `{}` from configuration file at `{}`",
+        iri.as_ref(),
+        config_path.as_ref(),
+    );
+
     if let Some(index) = remove_index {
         projects.remove(index);
-        wrapfs::write(&config_path, config.to_string())?;
+        let contents = config.to_string();
+
+        if contents.is_empty() {
+            let removing = "Removing";
+            log::info!(
+                "{header}{removing:>12}{header:#} empty configuration file at `{}`",
+                config_path.as_ref(),
+            );
+            wrapfs::remove_file(config_path)?;
+        } else {
+            wrapfs::write(config_path, contents)?;
+        }
+
         return Ok(true);
     }
 
@@ -240,15 +274,7 @@ mod tests {
 
         local_fs::remove_project_source_from_config(&config_path, iri)?;
 
-        assert_eq!(
-            Config {
-                quiet: None,
-                verbose: None,
-                index: None,
-                projects: vec![]
-            },
-            toml::from_str(wrapfs::read_to_string(config_path)?.as_str())?,
-        );
+        assert!(!config_path.is_file());
 
         Ok(())
     }
