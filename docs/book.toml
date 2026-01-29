@@ -8,5 +8,4 @@ build-dir = "book"
 create-missing = false
 
 [output.html]
-additional-css = ["theme/style.css"]
 git-repository-url = "https://github.com/sensmetry/sysand"
