@@ -7,6 +7,7 @@ use anyhow::{Result, anyhow, bail};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
+
 use sysand_core::{
     commands::{env::do_env_local_dir, lock::LockOutcome},
     config::Config,
@@ -14,8 +15,8 @@ use sysand_core::{
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
-        ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
-        local_src::LocalSrcProject, utils::wrapfs,
+        ProjectRead, any::AnyProject, editable::EditableProject, local_kpar::LocalKParProject,
+        local_src::LocalSrcProject, reference::ProjectReference, utils::wrapfs,
     },
     resolve::{
         file::FileResolverProject,
@@ -79,17 +80,36 @@ pub fn command_env_install(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
+    let mut overrides = Vec::new();
+    for config_project in &config.projects {
+        for identifier in &config_project.identifiers {
+            let mut projects = Vec::new();
+            for source in &config_project.sources {
+                projects.push(ProjectReference::new(AnyProject::try_from_source(
+                    source.clone(),
+                    project_root.clone(),
+                    client.clone(),
+                    runtime.clone(),
+                )?));
+            }
+            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+        }
+    }
+
     let mut memory_projects = HashMap::default();
     for (k, v) in &provided_iris {
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
     }
-
-    // TODO: Move out the runtime
-    let resolver = PriorityResolver::new(
+    let override_resolver = PriorityResolver::new(
+        MemoryResolver::from(overrides),
         MemoryResolver {
             iri_predicate: AcceptAll {},
             projects: memory_projects,
         },
+    );
+    // TODO: Move out the runtime
+    let resolver = PriorityResolver::new(
+        override_resolver,
         standard_resolver(
             None,
             None,
@@ -172,13 +192,16 @@ pub fn command_env_install_path<S: AsRef<str>>(
         include_std,
     } = resolution_opts;
 
-    let m = wrapfs::metadata(&path)?;
-    let project = if m.is_dir() {
+    let metadata = wrapfs::metadata(&path)?;
+    let project = if metadata.is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
+            nominal_path: Some(path.as_str().into()),
             project_path: path.as_str().into(),
         })
-    } else if m.is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(&path)?)
+    } else if metadata.is_file() {
+        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root_nominal(
+            &path, &path,
+        )?)
     } else {
         bail!("path `{path}` is neither a directory nor a file");
     };
@@ -199,6 +222,22 @@ pub fn command_env_install_path<S: AsRef<str>>(
     } else {
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
+
+    let mut overrides = Vec::new();
+    for config_project in &config.projects {
+        for identifier in &config_project.identifiers {
+            let mut projects = Vec::new();
+            for source in &config_project.sources {
+                projects.push(ProjectReference::new(AnyProject::try_from_source(
+                    source.clone(),
+                    project_root.clone(),
+                    client.clone(),
+                    runtime.clone(),
+                )?));
+            }
+            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+        }
+    }
 
     if let Some(version) = version {
         let project_version = project
@@ -226,13 +265,16 @@ pub fn command_env_install_path<S: AsRef<str>>(
         for (k, v) in provided_iris.iter() {
             memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
         }
-
-        // TODO: Move out the runtime
-        let resolver = PriorityResolver::new(
+        let override_resolver = PriorityResolver::new(
+            MemoryResolver::from(overrides),
             MemoryResolver {
                 iri_predicate: AcceptAll {},
                 projects: memory_projects,
             },
+        );
+        // TODO: Move out the runtime
+        let resolver = PriorityResolver::new(
+            override_resolver,
             standard_resolver(
                 Some(path),
                 None,

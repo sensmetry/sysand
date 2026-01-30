@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use url::Url;
 
+use crate::lock::Source;
+
 #[cfg(feature = "filesystem")]
 pub mod local_fs;
 
@@ -11,14 +13,32 @@ pub mod local_fs;
 pub struct Config {
     pub quiet: Option<bool>,
     pub verbose: Option<bool>,
-    pub index: Option<Vec<Index>>,
+    #[serde(rename = "index", skip_serializing_if = "Vec::is_empty", default)]
+    pub indexes: Vec<Index>,
+    #[serde(rename = "project", skip_serializing_if = "Vec::is_empty", default)]
+    pub projects: Vec<ConfigProject>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfigProject {
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub identifiers: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub sources: Vec<Source>,
 }
 
 impl Config {
     pub fn merge(&mut self, config: Config) {
-        self.quiet = self.quiet.or(config.quiet);
-        self.verbose = self.verbose.or(config.verbose);
-        extend_option_vec(&mut self.index, config.index);
+        let Config {
+            quiet,
+            verbose,
+            mut indexes,
+            mut projects,
+        } = config;
+        self.quiet = self.quiet.or(quiet);
+        self.verbose = self.verbose.or(verbose);
+        self.indexes.append(&mut indexes);
+        self.projects.append(&mut projects);
     }
 
     pub fn index_urls(
@@ -39,7 +59,7 @@ impl Config {
         index_urls: Vec<String>,
         default_urls: Vec<String>,
     ) -> Result<Vec<Url>, url::ParseError> {
-        let mut indexes: Vec<_> = self.index.iter().flat_map(|v| v.iter()).collect();
+        let mut indexes = self.indexes.clone();
 
         indexes.sort_by_key(|i| i.default.unwrap_or(false));
 
@@ -48,11 +68,7 @@ impl Config {
             .and_then(|index| index.default)
             .unwrap_or(false);
 
-        let end: Vec<String> = if has_default {
-            std::iter::empty::<String>().collect()
-        } else {
-            default_urls
-        };
+        let end = if has_default { vec![] } else { default_urls };
 
         index_urls
             .iter()
@@ -72,21 +88,14 @@ impl Config {
             .iter()
             .map(|url| url.as_str())
             .chain(
-                self.index
+                self.indexes
                     .iter()
-                    .flat_map(|v| v.iter())
                     .filter(|i| !i.default.unwrap_or(false))
                     .map(|i| i.url.as_str()),
             )
             .chain(default_urls.iter().map(|url| url.as_str()))
             .map(Url::parse)
             .collect()
-    }
-}
-
-fn extend_option_vec<T>(target: &mut Option<Vec<T>>, src: Option<Vec<T>>) {
-    if let Some(mut src_vec) = src {
-        target.get_or_insert_with(Vec::new).append(&mut src_vec);
     }
 }
 
@@ -102,7 +111,10 @@ pub struct Index {
 mod tests {
     use url::Url;
 
-    use crate::config::{Config, Index};
+    use crate::{
+        config::{Config, ConfigProject, Index},
+        lock::Source,
+    };
 
     #[test]
     fn default_config() {
@@ -110,7 +122,8 @@ mod tests {
 
         assert_eq!(config.quiet, None);
         assert_eq!(config.verbose, None);
-        assert_eq!(config.index, None);
+        assert_eq!(config.indexes, vec![]);
+        assert_eq!(config.projects, vec![]);
     }
 
     #[test]
@@ -129,10 +142,16 @@ mod tests {
         let config = Config {
             quiet: Some(true),
             verbose: Some(false),
-            index: Some(vec![Index {
+            indexes: vec![Index {
                 url: "http://www.example.com".to_string(),
                 ..Default::default()
-            }]),
+            }],
+            projects: vec![ConfigProject {
+                identifiers: vec!["urn:kpar:test".to_string()],
+                sources: vec![Source::LocalSrc {
+                    src_path: "./path/to project".into(),
+                }],
+            }],
         };
         defaults.merge(config.clone());
 
@@ -142,10 +161,10 @@ mod tests {
     #[test]
     fn index_urls_without_default() {
         let config = Config {
-            index: Some(vec![Index {
+            indexes: vec![Index {
                 url: "http://www.index.com".to_string(),
                 ..Default::default()
-            }]),
+            }],
             ..Default::default()
         };
         let index = vec!["http://www.extra-index.com".to_string()];
@@ -169,7 +188,7 @@ mod tests {
     #[test]
     fn index_urls_with_default() {
         let config = Config {
-            index: Some(vec![
+            indexes: vec![
                 Index {
                     url: "http://www.config-default.com".to_string(),
                     default: Some(true),
@@ -179,7 +198,7 @@ mod tests {
                     url: "http://www.index.com".to_string(),
                     ..Default::default()
                 },
-            ]),
+            ],
             ..Default::default()
         };
         let index = vec!["http://www.extra-index.com".to_string()];
@@ -203,7 +222,7 @@ mod tests {
     #[test]
     fn index_urls_with_override() {
         let config = Config {
-            index: Some(vec![
+            indexes: vec![
                 Index {
                     url: "http://www.config-default.com".to_string(),
                     default: Some(true),
@@ -213,7 +232,7 @@ mod tests {
                     url: "http://www.index.com".to_string(),
                     ..Default::default()
                 },
-            ]),
+            ],
             ..Default::default()
         };
         let index = vec!["http://www.extra-index.com".to_string()];

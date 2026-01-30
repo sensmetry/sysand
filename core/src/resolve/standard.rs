@@ -3,6 +3,9 @@
 
 use std::{fmt, result::Result, sync::Arc};
 
+use camino::Utf8PathBuf;
+use reqwest_middleware::ClientWithMiddleware;
+
 use crate::{
     env::{local_directory::LocalDirectoryEnvironment, reqwest_http::HTTPEnvironmentAsync},
     resolve::{
@@ -16,8 +19,6 @@ use crate::{
         sequential::SequentialResolver,
     },
 };
-use camino::Utf8PathBuf;
-use reqwest_middleware::ClientWithMiddleware;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
@@ -111,10 +112,10 @@ pub fn standard_resolver(
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> StandardResolver {
     let file_resolver = standard_file_resolver(cwd);
+    let local_resolver = local_env_path.map(standard_local_resolver);
     let remote_resolver = client
         .clone()
         .map(|x| standard_remote_resolver(x, runtime.clone()));
-    let local_resolver = local_env_path.map(standard_local_resolver);
     let index_resolver = client
         .zip(index_urls)
         .map(|(client, urls)| standard_index_resolver(client, urls, runtime));

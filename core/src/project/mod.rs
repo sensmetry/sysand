@@ -18,10 +18,15 @@ use std::{
     sync::Arc,
 };
 use thiserror::Error;
-use typed_path::Utf8UnixPath;
 use utils::FsIoError;
 
+pub use sysand_macros::ProjectMut;
+pub use sysand_macros::ProjectRead;
+pub use typed_path::Utf8UnixPath;
+
 // Implementations
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod any;
 pub mod editable;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod gix_git_download;
@@ -38,6 +43,10 @@ pub mod reqwest_kpar_download;
 // pub mod reqwest_kpar_ranged;
 #[cfg(feature = "networking")]
 pub mod reqwest_src;
+
+// Generic implementations
+pub mod cached;
+pub mod reference;
 
 pub mod utils;
 
@@ -1170,5 +1179,56 @@ mod tests {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod macro_tests {
+    use crate::project::{ProjectMut, ProjectRead, memory::InMemoryProject};
+
+    // Have to have these in scope for ProjectRead
+    // TODO: Find a better solution (that works both inside and outside sysand_core)
+    use crate::lock::Source;
+    use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
+    use typed_path::Utf8UnixPath;
+
+    #[derive(ProjectRead)]
+    enum NonGenericProjectRead {
+        Variant(InMemoryProject),
+    }
+
+    #[test]
+    fn test_macro_read() {
+        let _project = NonGenericProjectRead::Variant(InMemoryProject::new());
+    }
+
+    #[derive(ProjectRead, ProjectMut)]
+    enum NonGenericProjectMut {
+        Variant(InMemoryProject),
+    }
+
+    #[test]
+    fn test_macro_mut() {
+        let _project = NonGenericProjectMut::Variant(InMemoryProject::new());
+    }
+
+    #[derive(ProjectRead)]
+    enum GenericProjectRead<SomeProject: ProjectRead> {
+        Variant(SomeProject),
+    }
+
+    #[test]
+    fn test_macro_generic_read() {
+        let _project = GenericProjectRead::<InMemoryProject>::Variant(InMemoryProject::new());
+    }
+
+    #[derive(ProjectRead, ProjectMut)]
+    enum GenericProjectMut<SomeProject: ProjectRead + ProjectMut> {
+        Variant(SomeProject),
+    }
+
+    #[test]
+    fn test_macro_generic_mut() {
+        let _project = GenericProjectMut::<InMemoryProject>::Variant(InMemoryProject::new());
     }
 }

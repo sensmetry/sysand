@@ -281,6 +281,7 @@ impl ResolveRead for FileResolver {
         Ok(match self.resolve_general(uri)? {
             ResolutionOutcome::Resolved(path) => ResolutionOutcome::Resolved(vec![
                 Ok(FileResolverProject::LocalSrcProject(LocalSrcProject {
+                    nominal_path: None,
                     project_path: path.clone(),
                 })),
                 Ok(FileResolverProject::LocalKParProject(
