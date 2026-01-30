@@ -207,10 +207,10 @@ mod tests {
         let config = Config {
             quiet: Some(true),
             verbose: Some(false),
-            index: Some(vec![Index {
+            indexes: vec![Index {
                 url: "http://www.example.com".to_string(),
                 ..Default::default()
-            }]),
+            }],
             projects: vec![],
         };
         config_file.write_all(toml::to_string_pretty(&config)?.as_bytes())?;
@@ -236,7 +236,7 @@ mod tests {
         let config = Config {
             quiet: None,
             verbose: None,
-            index: None,
+            indexes: vec![],
             projects: vec![ConfigProject {
                 identifiers: vec![iri.to_string()],
                 sources: vec![source],
@@ -263,7 +263,7 @@ mod tests {
         let config = Config {
             quiet: None,
             verbose: None,
-            index: None,
+            indexes: vec![],
             projects: vec![ConfigProject {
                 identifiers: vec![iri.to_string()],
                 sources: vec![source],

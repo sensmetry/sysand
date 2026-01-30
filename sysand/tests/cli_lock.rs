@@ -72,7 +72,7 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = toml::to_string(&sysand_core::config::Config {
         quiet: Some(true),
         verbose: None,
-        index: None,
+        indexes: vec![],
         projects: vec![sysand_core::config::ConfigProject {
             identifiers: vec!["urn:kpar:local_dep".to_string()],
             sources: vec![sysand_core::lock::Source::LocalSrc {
