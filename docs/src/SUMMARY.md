@@ -22,5 +22,6 @@
   - [sysand info](commands/info.md)
   - [sysand sources](commands/sources.md)
   - [sysand print-root](commands/root.md)
+- [Self-hosting a project index](hosting_index.md)
 - [Configuration](config.md)
   - [Indexes](config/indexes.md)
