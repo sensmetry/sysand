@@ -12,7 +12,7 @@ use std::{
 
 use thiserror::Error;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct MemoryStorageEnvironment<Project: Clone> {
     pub projects: HashMap<String, HashMap<String, Project>>,
 }
