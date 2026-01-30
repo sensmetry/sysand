@@ -31,7 +31,7 @@ fn cfg_set_quiet() -> Result<(), Box<dyn std::error::Error>> {
     let quiet_cfg = toml::to_string(&sysand_core::config::Config {
         quiet: Some(true),
         verbose: None,
-        index: None,
+        indexes: vec![],
         projects: vec![],
         // auth: None,
     })?;
