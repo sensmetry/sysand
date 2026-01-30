@@ -47,7 +47,7 @@ Currently, the project has no usages (dependencies) and no source files of its o
 For a project to be useful, it needs to have some `.sysml`/`.kerml` files of its
 own. Create a `MyProject.sysml` file with the following contents:
 
-```plain
+```text
 package MyProject;
 ```
 
