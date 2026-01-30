@@ -16,7 +16,7 @@ the code as free software.
 The text accepted by signing the commit, is the widely adopted DCO, maintained
 by the Linux Foundation, the full text of which is reproduced below.
 
-```plain
+```text
 Developer Certificate of Origin
 Version 1.1
 

@@ -180,13 +180,13 @@ Rules to follow:
 
 ### Markdown
 
-Rules for markdown (Rust doc comments, `.md` files):
+Rules for markdown (Rust doc comments, Markdown (`.md`) files):
 
 - always include a language specifier in fenced code blocks,
-  use `plain` if no language is appropriate:
+  use `text` if no language is appropriate:
 
   ````md
-  ```plain
+  ```text
   ```
   ````
 

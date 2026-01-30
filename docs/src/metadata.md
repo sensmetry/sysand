@@ -66,7 +66,7 @@ an IRI. For this reason, elsewhere in this documentation IRI, URI and URL are
 used interchangeably and mean IRI, unless specified otherwise.
 
 IRIs are not required to be resolvable (i.e. be URLs that have a well-defined
-way of obtaining the identifed resource).
+way of obtaining the identified resource).
 So Sysand tries to obtain each project using a variety of methods. The first
 method that successfully obtains the project is chosen. The order in which
 different methods are tried is unspecified and may change in the future.
@@ -152,7 +152,7 @@ major/minor/patch component is the same. This is different from
 SemVer which considers [all pre-1.0.0 packages to be incompatible][semver-0].
 
 Examples:
-```plain
+```text
 ^1.2.3  := 1.2.3 := >=1.2.3, <2.0.0
 ^1.2    := 1.2   := >=1.2.0, <2.0.0
 ^1      := 1     := >=1.0.0, <2.0.0
@@ -171,7 +171,7 @@ version is specified, only patch-level changes are allowed. If only a major
 version is given, then minor- and patch-level changes are allowed.
 
 Examples:
-```plain
+```text
 ~1.2.3  := >=1.2.3, <1.3.0
 ~1.2    := >=1.2.0, <1.3.0
 ~1      := >=1.0.0, <2.0.0
@@ -183,7 +183,7 @@ Wildcard operator (`*`) allows for any version where the wildcard is
 positioned.
 
 Examples:
-```plain
+```text
 *     := >=0.0.0
 1.*   := >=1.0.0, <2.0.0
 1.2.* := >=1.2.0, <1.3.0
@@ -196,7 +196,7 @@ Since the version in a comparator may be partial, only the
 parts specified are required to match exactly.
 
 Examples:
-```plain
+```text
 =1.2.3 := >=1.2.3, <1.2.4
 =1.2   := >=1.2.0, <1.3.0
 =1     := >=1.0.0, <2.0.0
@@ -211,7 +211,7 @@ comparison operator is given, the allowed versions range has
 no opposite end.
 
 Examples:
-```plain
+```text
 >=1.2.0
 >1      := >=2.0.0
 <2      :=  <2.0.0
