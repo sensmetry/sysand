@@ -6,13 +6,13 @@ use camino_tempfile::Utf8TempDir;
 use indexmap::IndexMap;
 #[cfg(not(target_os = "windows"))]
 use rexpect::session::{PtySession, spawn_command};
-#[cfg(not(target_os = "windows"))]
-use std::os::unix::process::ExitStatusExt;
 use std::{
     error::Error,
     io::Write,
     process::{Command, Output},
 };
+#[cfg(not(target_os = "windows"))]
+use std::{ffi::OsStr, os::unix::process::ExitStatusExt};
 
 pub fn fixture_path(name: &str) -> Utf8PathBuf {
     let mut path = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -26,7 +26,7 @@ pub fn sysand_cmd_in_with<'a, I: IntoIterator<Item = &'a str>>(
     cwd: &Utf8Path,
     args: I,
     cfg: Option<&str>,
-    env: &IndexMap<String, String>,
+    env: &IndexMap<impl AsRef<OsStr>, impl AsRef<OsStr>>,
 ) -> Result<Command, Box<dyn Error>> {
     let cfg_args = if let Some(config) = cfg {
         let config_path = cwd.join("sysand.toml");
@@ -60,7 +60,7 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
 ) -> Result<Command, Box<dyn Error>> {
-    sysand_cmd_in_with(cwd, args, cfg, &IndexMap::default())
+    sysand_cmd_in_with(cwd, args, cfg, &IndexMap::<&str, &str>::default())
 }
 
 /// Creates a temporary directory and returns the tuple of the temporary
@@ -78,7 +78,7 @@ pub fn new_temp_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
 pub fn sysand_cmd<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
-    env: &IndexMap<String, String>,
+    env: &IndexMap<impl AsRef<OsStr>, impl AsRef<OsStr>>,
 ) -> Result<(Utf8TempDir, Utf8PathBuf, Command), Box<dyn Error>> {
     // NOTE had trouble getting test-temp-dir crate working, but would be better
     let (temp_dir, cwd) = new_temp_cwd()?;
@@ -91,7 +91,7 @@ pub fn run_sysand_in_with<'a, I: IntoIterator<Item = &'a str>>(
     cwd: &Utf8Path,
     args: I,
     cfg: Option<&str>,
-    env: &IndexMap<String, String>,
+    env: &IndexMap<impl AsRef<OsStr>, impl AsRef<OsStr>>,
 ) -> Result<Output, Box<dyn Error>> {
     Ok(sysand_cmd_in_with(cwd, args, cfg, env)?.output()?)
 }
@@ -107,7 +107,7 @@ pub fn run_sysand_in<'a, I: IntoIterator<Item = &'a str>>(
 pub fn run_sysand_with<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
-    env: &IndexMap<String, String>,
+    env: &IndexMap<impl AsRef<OsStr>, impl AsRef<OsStr>>,
 ) -> Result<(Utf8TempDir, Utf8PathBuf, Output), Box<dyn Error>> {
     let (temp_dir, cwd, mut cmd) = sysand_cmd(args /*, stdin*/, cfg, env)?;
 
@@ -118,7 +118,7 @@ pub fn run_sysand<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     cfg: Option<&str>,
 ) -> Result<(Utf8TempDir, Utf8PathBuf, Output), Box<dyn Error>> {
-    run_sysand_with(args, cfg, &IndexMap::default())
+    run_sysand_with(args, cfg, &IndexMap::<&str, &str>::default())
 }
 
 // TODO: Figure out how to do interactive tests on Windows.
@@ -140,7 +140,7 @@ pub fn run_sysand_interactive_with<'a, I: IntoIterator<Item = &'a str>>(
     args: I,
     timeout_ms: Option<u64>,
     cfg: Option<&str>,
-    env: &IndexMap<String, String>,
+    env: &IndexMap<impl AsRef<OsStr>, impl AsRef<OsStr>>,
 ) -> Result<(Utf8TempDir, Utf8PathBuf, PtySession), Box<dyn Error>> {
     let (temp_dir, cwd, cmd) = sysand_cmd(args, cfg, env)?;
 
@@ -153,7 +153,7 @@ pub fn run_sysand_interactive<'a, I: IntoIterator<Item = &'a str>>(
     timeout_ms: Option<u64>,
     cfg: Option<&str>,
 ) -> Result<(Utf8TempDir, Utf8PathBuf, PtySession), Box<dyn Error>> {
-    run_sysand_interactive_with(args, timeout_ms, cfg, &IndexMap::default())
+    run_sysand_interactive_with(args, timeout_ms, cfg, &IndexMap::<&str, &str>::default())
 }
 
 // TODO: Figure out how to do interactive tests on Windows.

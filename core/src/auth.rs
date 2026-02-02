@@ -47,18 +47,6 @@ impl HTTPAuthentication for Unauthenticated {
     {
         request.send().await
     }
-
-    async fn with_authentication<F>(
-        &self,
-        client: &ClientWithMiddleware,
-        renew_request: &F,
-    ) -> Result<Response, reqwest_middleware::Error>
-    where
-        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
-    {
-        self.request_with_authentication(renew_request(client), renew_request)
-            .await
-    }
 }
 
 /// Authentication policy that *always* sends a username/password pair

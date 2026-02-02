@@ -12,7 +12,7 @@ pub struct Config {
     pub quiet: Option<bool>,
     pub verbose: Option<bool>,
     pub index: Option<Vec<Index>>,
-    pub auth: Option<Vec<AuthSource>>,
+    // pub auth: Option<Vec<AuthSource>>,
 }
 
 impl Config {
@@ -21,9 +21,9 @@ impl Config {
         self.verbose = self.verbose.or(config.verbose);
         extend_option_vec(&mut self.index, config.index);
 
-        if let Some(auth) = config.auth {
-            self.auth = Some(auth.clone());
-        }
+        // if let Some(auth) = config.auth {
+        //     self.auth = Some(auth.clone());
+        // }
     }
 
     pub fn index_urls(
@@ -144,7 +144,7 @@ mod tests {
                 url: "http://www.example.com".to_string(),
                 ..Default::default()
             }]),
-            auth: None,
+            // auth: None,
         };
         defaults.merge(config.clone());
 

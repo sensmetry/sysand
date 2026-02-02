@@ -330,18 +330,9 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         ["info", "--iri", &server.url()],
         None,
         &IndexMap::from([
-            (
-                "SYSAND_CRED_TEST".to_string(),
-                "http://127.0.0.1:*/**".to_string(),
-            ),
-            (
-                "SYSAND_CRED_TEST_BASIC_USER".to_string(),
-                "user_1234".to_string(),
-            ),
-            (
-                "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
-                "pass_4321".to_string(),
-            ),
+            ("SYSAND_CRED_TEST", "http://127.0.0.1:*/**"),
+            ("SYSAND_CRED_TEST_BASIC_USER", "user_1234"),
+            ("SYSAND_CRED_TEST_BASIC_PASS", "pass_4321"),
         ]),
     )?;
 
@@ -870,19 +861,11 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
         .expect(2) // TODO: Reduce this to 1
         .create();
 
+    let server_pattern = format!("http://{}/**", server.host_with_port());
     let auth_env = IndexMap::from([
-        (
-            "SYSAND_CRED_TEST".to_string(),
-            format!("http://{}/**", server.host_with_port()),
-        ),
-        (
-            "SYSAND_CRED_TEST_BASIC_USER".to_string(),
-            "user_1234".to_string(),
-        ),
-        (
-            "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
-            "pass_4321".to_string(),
-        ),
+        ("SYSAND_CRED_TEST", server_pattern.as_ref()),
+        ("SYSAND_CRED_TEST_BASIC_USER", "user_1234"),
+        ("SYSAND_CRED_TEST_BASIC_PASS", "pass_4321"),
     ]);
 
     let (_, _, out) = run_sysand_with(
