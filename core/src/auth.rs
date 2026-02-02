@@ -33,7 +33,7 @@ pub trait HTTPAuthentication: std::fmt::Debug + 'static {
 }
 
 /// Authentication policy that does no authentication
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Unauthenticated {}
 
 impl HTTPAuthentication for Unauthenticated {
@@ -119,7 +119,6 @@ impl<Higher: HTTPAuthentication, Lower: HTTPAuthentication> HTTPAuthentication
         let (client, current_request_result) = request.build_split();
         let current_request = current_request_result?;
 
-        // Always try without authentication first
         let initial_response = self
             .higher
             .request_with_authentication(
@@ -295,6 +294,17 @@ impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthe
                     .await
             }
             GlobMapResult::Ambiguous(items) => {
+                let items: Vec<_> = items.into_iter().collect();
+
+                let matched_patterns = items
+                    .iter()
+                    .fold(String::new(), |acc, (p, _)| acc + "\n" + p);
+                log::warn!(
+                    "URL {} matches multiple authentication patterns: {}",
+                    url.as_str(),
+                    matched_patterns
+                );
+
                 let mut items = items.into_iter();
                 let (_, first_restricted) = items.next().unwrap();
                 let first_response = first_restricted
