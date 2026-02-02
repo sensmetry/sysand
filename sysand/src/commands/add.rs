@@ -17,7 +17,7 @@ use crate::{CliError, cli::ResolutionOptions, command_sync};
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
-pub fn command_add<S: AsRef<str>, Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
+pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     iri: S,
     versions_constraint: Option<String>,
     no_lock: bool,
@@ -27,7 +27,7 @@ pub fn command_add<S: AsRef<str>, Pol: HTTPAuthentication + std::fmt::Debug + 's
     current_project: Option<LocalSrcProject>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Pol>,
+    auth_policy: Arc<Policy>,
 ) -> Result<()> {
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path();

@@ -31,13 +31,13 @@ use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 /// `path` must be relative to workspace root.
 // TODO: this will not work properly if run in subdir of workspace,
 // as `path` will then refer to a deeper subdir
-pub fn command_lock<P: AsRef<Utf8Path>, Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
+pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     path: P,
     resolution_opts: ResolutionOptions,
     config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Pol>,
+    auth_policy: Arc<Policy>,
 ) -> Result<()> {
     assert!(path.as_ref().is_relative(), "{}", path.as_ref());
     let ResolutionOptions {

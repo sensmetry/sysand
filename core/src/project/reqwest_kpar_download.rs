@@ -63,11 +63,11 @@ impl From<FsIoError> for ReqwestKparDownloadedError {
     }
 }
 
-impl<Pol: HTTPAuthentication> ReqwestKparDownloadedProject<Pol> {
+impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
     pub fn new_guess_root<S: AsRef<str>>(
         url: S,
         client: reqwest_middleware::ClientWithMiddleware,
-        auth_policy: Arc<Pol>,
+        auth_policy: Arc<Policy>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
         let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
 
@@ -147,7 +147,7 @@ impl<T: io::Read + Unpin> AsyncRead for AsAsyncRead<T> {
     }
 }
 
-impl<Pol: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProject<Pol> {
+impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProject<Policy> {
     type Error = ReqwestKparDownloadedError;
 
     async fn get_project_async(

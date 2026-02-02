@@ -38,7 +38,7 @@ pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironm
 
 // TODO: Factor out provided_iris logic
 #[allow(clippy::too_many_arguments)]
-pub fn command_env_install<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
+pub fn command_env_install<Policy: HTTPAuthentication>(
     iri: Iri<String>,
     version: Option<String>,
     install_opts: InstallOptions,
@@ -47,7 +47,7 @@ pub fn command_env_install<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
     project_root: Option<Utf8PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Pol>,
+    auth_policy: Arc<Policy>,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
@@ -151,10 +151,7 @@ pub fn command_env_install<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
-pub fn command_env_install_path<
-    S: AsRef<str>,
-    Pol: HTTPAuthentication + std::fmt::Debug + 'static,
->(
+pub fn command_env_install_path<S: AsRef<str>, Policy: HTTPAuthentication>(
     iri: S,
     version: Option<String>,
     path: Utf8PathBuf,
@@ -164,7 +161,7 @@ pub fn command_env_install_path<
     project_root: Option<Utf8PathBuf>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Pol>,
+    auth_policy: Arc<Policy>,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;

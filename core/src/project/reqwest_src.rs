@@ -96,7 +96,7 @@ pub enum ReqwestSrcError {
     BadStatus(Box<str>, reqwest::StatusCode),
 }
 
-impl<Pol: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol> {
+impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Policy> {
     type Error = ReqwestSrcError;
 
     async fn get_project_async(

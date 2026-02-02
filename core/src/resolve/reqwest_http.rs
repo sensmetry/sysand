@@ -37,22 +37,24 @@ pub enum HTTPProjectAsync<Pol> {
 }
 
 #[derive(Error, Debug)]
-pub enum HTTPProjectError<Pol: HTTPAuthentication> {
+pub enum HTTPProjectError<Policy: HTTPAuthentication> {
     #[error(transparent)]
-    SrcProject(<ReqwestSrcProjectAsync<Pol> as ProjectReadAsync>::Error),
+    SrcProject(<ReqwestSrcProjectAsync<Policy> as ProjectReadAsync>::Error),
     // #[error(transparent)]
     // KParRanged(<ReqwestKparRangedProject as ProjectRead>::Error),
     #[error(transparent)]
-    KparDownloaded(<ReqwestKparDownloadedProject<Pol> as ProjectReadAsync>::Error),
+    KparDownloaded(<ReqwestKparDownloadedProject<Policy> as ProjectReadAsync>::Error),
 }
 
-pub enum HTTPProjectAsyncReader<'a, Pol: HTTPAuthentication + 'a> {
-    SrcProjectReader(<ReqwestSrcProjectAsync<Pol> as ProjectReadAsync>::SourceReader<'a>),
+pub enum HTTPProjectAsyncReader<'a, Policy: HTTPAuthentication> {
+    SrcProjectReader(<ReqwestSrcProjectAsync<Policy> as ProjectReadAsync>::SourceReader<'a>),
     //KParRangedReader(<ReqwestKparRangedProject as ProjectRead>::SourceReader<'a>),
-    KparDownloadedReader(<ReqwestKparDownloadedProject<Pol> as ProjectReadAsync>::SourceReader<'a>),
+    KparDownloadedReader(
+        <ReqwestKparDownloadedProject<Policy> as ProjectReadAsync>::SourceReader<'a>,
+    ),
 }
 
-impl<Pol: HTTPAuthentication> AsyncRead for HTTPProjectAsyncReader<'_, Pol> {
+impl<Policy: HTTPAuthentication> AsyncRead for HTTPProjectAsyncReader<'_, Policy> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -66,10 +68,8 @@ impl<Pol: HTTPAuthentication> AsyncRead for HTTPProjectAsyncReader<'_, Pol> {
     }
 }
 
-impl<Pol: HTTPAuthentication + std::fmt::Debug + 'static> ProjectReadAsync
-    for HTTPProjectAsync<Pol>
-{
-    type Error = HTTPProjectError<Pol>;
+impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
+    type Error = HTTPProjectError<Policy>;
 
     async fn get_project_async(
         &self,
@@ -96,7 +96,7 @@ impl<Pol: HTTPAuthentication + std::fmt::Debug + 'static> ProjectReadAsync
     }
 
     type SourceReader<'a>
-        = HTTPProjectAsyncReader<'a, Pol>
+        = HTTPProjectAsyncReader<'a, Policy>
     where
         Self: 'a;
 
@@ -150,8 +150,8 @@ pub struct HTTPProjects<Pol> {
     //prefer_ranged: bool,
 }
 
-impl<Pol: HTTPAuthentication> HTTPProjects<Pol> {
-    pub fn try_resolve_as_kpar(&self) -> Option<HTTPProjectAsync<Pol>> {
+impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
+    pub fn try_resolve_as_kpar(&self) -> Option<HTTPProjectAsync<Policy>> {
         // TODO: Decide a policy for KPar vs Src urls
         let url = if self.url.path() == "" || !self.url.path().ends_with("/") {
             self.url.clone()
@@ -186,7 +186,7 @@ impl<Pol: HTTPAuthentication> HTTPProjects<Pol> {
         ))
     }
 
-    pub fn try_resolve_as_src(&self, auth_policy: Arc<Pol>) -> Option<HTTPProjectAsync<Pol>> {
+    pub fn try_resolve_as_src(&self, auth_policy: Arc<Policy>) -> Option<HTTPProjectAsync<Policy>> {
         // These URLs should technically have a path that ends (explicitly or implicitly)
         // with a slash, due to the way relative references are treated in HTTP. E.g.:
         // resolving `bar` relative to `http://www.example.com/foo` gives `http://www.example.com/bar`
@@ -215,8 +215,8 @@ impl<Pol: HTTPAuthentication> HTTPProjects<Pol> {
     }
 }
 
-impl<Pol: HTTPAuthentication> Iterator for HTTPProjects<Pol> {
-    type Item = Result<HTTPProjectAsync<Pol>, Infallible>;
+impl<Policy: HTTPAuthentication> Iterator for HTTPProjects<Policy> {
+    type Item = Result<HTTPProjectAsync<Policy>, Infallible>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if !self.src_done {
@@ -246,14 +246,12 @@ impl<Pol: HTTPAuthentication> Iterator for HTTPProjects<Pol> {
 /// appears to support HTTP Range requests. If successful, it uses `HTTPKparProjectRanged`
 /// instead of `HTTPKparProjectDownloaded`. In case of *any* failure, or if `prefer_ranged`
 /// is false, `HTTPKparProjectDownloaded` is used instead.
-impl<Pol: HTTPAuthentication + std::fmt::Debug + 'static> ResolveReadAsync
-    for HTTPResolverAsync<Pol>
-{
+impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> {
     type Error = Infallible;
 
-    type ProjectStorage = HTTPProjectAsync<Pol>;
+    type ProjectStorage = HTTPProjectAsync<Policy>;
 
-    type ResolvedStorages = futures::stream::Iter<HTTPProjects<Pol>>;
+    type ResolvedStorages = futures::stream::Iter<HTTPProjects<Policy>>;
 
     async fn resolve_read_async(
         &self,

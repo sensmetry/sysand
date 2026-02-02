@@ -34,7 +34,7 @@ pub enum ProjectLocator {
 
 /// Clones project from `locator` to `target` directory.
 #[allow(clippy::too_many_arguments)]
-pub fn command_clone<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
+pub fn command_clone<Policy: HTTPAuthentication>(
     locator: ProjectLocatorArgs,
     version: Option<String>,
     target: Option<Utf8PathBuf>,
@@ -43,7 +43,7 @@ pub fn command_clone<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
     config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Pol>,
+    auth_policy: Arc<Policy>,
 ) -> Result<()> {
     let ResolutionOptions {
         index,

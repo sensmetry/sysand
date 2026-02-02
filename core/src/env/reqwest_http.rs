@@ -59,7 +59,7 @@ pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> std::vec::IntoIter<String> {
     segment_uri_generic::<S, Sha256>(uri)
 }
 
-impl<Pol: HTTPAuthentication> HTTPEnvironmentAsync<Pol> {
+impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
     pub fn root_url(&self) -> url::Url {
         let mut result = self.base_url.clone();
 
@@ -127,7 +127,7 @@ impl<Pol: HTTPAuthentication> HTTPEnvironmentAsync<Pol> {
         &self,
         uri: S,
         version: T,
-    ) -> Result<Option<HTTPProjectAsync<Pol>>, HTTPEnvironmentError> {
+    ) -> Result<Option<HTTPProjectAsync<Policy>>, HTTPEnvironmentError> {
         let project_url = self.project_src_url(uri, version)?;
         let src_project_url = Self::url_join(&project_url, ".project.json")?;
 
@@ -160,7 +160,7 @@ impl<Pol: HTTPAuthentication> HTTPEnvironmentAsync<Pol> {
         &self,
         uri: S,
         version: T,
-    ) -> Result<Option<HTTPProjectAsync<Pol>>, HTTPEnvironmentError> {
+    ) -> Result<Option<HTTPProjectAsync<Policy>>, HTTPEnvironmentError> {
         let kpar_project_url = self.project_kpar_url(&uri, &version)?;
 
         let this_url = kpar_project_url.clone();
@@ -231,9 +231,7 @@ fn trim_line<E>(line: Result<String, E>) -> Result<String, E> {
     Ok(line?.trim().to_string())
 }
 
-impl<Pol: HTTPAuthentication + std::fmt::Debug + 'static> ReadEnvironmentAsync
-    for HTTPEnvironmentAsync<Pol>
-{
+impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for HTTPEnvironmentAsync<Policy> {
     type ReadError = HTTPEnvironmentError;
 
     // This can be made more concrete, but the type is humongous
@@ -308,7 +306,7 @@ impl<Pol: HTTPAuthentication + std::fmt::Debug + 'static> ReadEnvironmentAsync
         Ok(Optionally { inner })
     }
 
-    type InterchangeProjectRead = HTTPProjectAsync<Pol>;
+    type InterchangeProjectRead = HTTPProjectAsync<Policy>;
 
     async fn get_project_async<S: AsRef<str>, T: AsRef<str>>(
         &self,

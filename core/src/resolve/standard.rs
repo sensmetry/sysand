@@ -33,18 +33,18 @@ type StandardResolverInner<Pol> = CombinedResolver<
 
 pub struct StandardResolver<Pol>(StandardResolverInner<Pol>);
 
-impl<Pol: fmt::Debug> fmt::Debug for StandardResolver<Pol> {
+impl<Policy: fmt::Debug> fmt::Debug for StandardResolver<Policy> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("CliResolver").field(&self.0).finish()
     }
 }
 
-impl<Pol: HTTPAuthentication + std::fmt::Debug + 'static> ResolveRead for StandardResolver<Pol> {
-    type Error = <StandardResolverInner<Pol> as ResolveRead>::Error;
+impl<Policy: HTTPAuthentication> ResolveRead for StandardResolver<Policy> {
+    type Error = <StandardResolverInner<Policy> as ResolveRead>::Error;
 
-    type ProjectStorage = <StandardResolverInner<Pol> as ResolveRead>::ProjectStorage;
+    type ProjectStorage = <StandardResolverInner<Policy> as ResolveRead>::ProjectStorage;
 
-    type ResolvedStorages = <StandardResolverInner<Pol> as ResolveRead>::ResolvedStorages;
+    type ResolvedStorages = <StandardResolverInner<Policy> as ResolveRead>::ResolvedStorages;
 
     fn resolve_read(
         &self,
@@ -61,11 +61,11 @@ pub fn standard_file_resolver(cwd: Option<Utf8PathBuf>) -> FileResolver {
     }
 }
 
-pub fn standard_remote_resolver<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
+pub fn standard_remote_resolver<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Pol>,
-) -> RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Pol>>, GitResolver> {
+    auth_policy: Arc<Policy>,
+) -> RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Policy>>, GitResolver> {
     RemoteResolver {
         http_resolver: Some(
             HTTPResolverAsync {
@@ -88,12 +88,12 @@ pub fn standard_local_resolver(local_env_path: Utf8PathBuf) -> LocalEnvResolver 
     }
 }
 
-pub fn standard_index_resolver<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
+pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
     urls: Vec<url::Url>,
     runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Pol>,
-) -> AsSyncResolveTokio<RemoteIndexResolver<Pol>> {
+    auth_policy: Arc<Policy>,
+) -> AsSyncResolveTokio<RemoteIndexResolver<Policy>> {
     SequentialResolver::new(urls.into_iter().map(|url| EnvResolver {
         env: HTTPEnvironmentAsync {
             client: client.clone(),
@@ -107,14 +107,14 @@ pub fn standard_index_resolver<Pol: HTTPAuthentication + std::fmt::Debug + 'stat
 }
 
 // TODO: Replace most of these arguments by some general CLIOptions object
-pub fn standard_resolver<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
+pub fn standard_resolver<Policy: HTTPAuthentication>(
     cwd: Option<Utf8PathBuf>,
     local_env_path: Option<Utf8PathBuf>,
     client: Option<ClientWithMiddleware>,
     index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Pol>,
-) -> StandardResolver<Pol> {
+    auth_policy: Arc<Policy>,
+) -> StandardResolver<Policy> {
     let file_resolver = standard_file_resolver(cwd);
     let remote_resolver = client
         .clone()

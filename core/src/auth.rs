@@ -1,13 +1,12 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-/// This module includes utilities for creating and using authentication policies for requests.
-///
+//! This module includes utilities for creating and using authentication policies for requests.
 use globset::{GlobBuilder, GlobSetBuilder};
 use reqwest::Response;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 
-pub trait HTTPAuthentication {
+pub trait HTTPAuthentication: std::fmt::Debug + 'static {
     /// Tries to execute a request with some authentication policy. The request might be retried
     /// multiple times and it may generate auxiliary requests (using the provided client).
     fn with_authentication<F>(

@@ -99,14 +99,14 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
     }
 }
 
-pub fn command_info_uri<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
+pub fn command_info_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     _normalise: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
     excluded_iris: &HashSet<String>,
     runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Pol>,
+    auth_policy: Arc<Policy>,
 ) -> Result<()> {
     let cwd = wrapfs::current_dir().ok();
 
@@ -188,14 +188,14 @@ pub fn command_info_verb_path<P: AsRef<Utf8Path>>(
     }
 }
 
-pub fn command_info_verb_uri<Pol: HTTPAuthentication + std::fmt::Debug + 'static>(
+pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     verb: InfoCommandVerb,
     numbered: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
-    auth_policy: Arc<Pol>,
+    auth_policy: Arc<Policy>,
 ) -> Result<()> {
     match verb {
         InfoCommandVerb::Get(get_verb) => {
