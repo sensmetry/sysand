@@ -342,7 +342,7 @@ impl<
                         match remote_projects.peek() {
                             Some(Err(err)) => {
                                 log::debug!(
-                                    "Remote resolver skipping projrect for IRI {} due to: {}",
+                                    "Remote resolver skipping project for IRI {} due to: {}",
                                     uri,
                                     err
                                 );
@@ -366,14 +366,14 @@ impl<
                                     }
                                     Ok(_) => {
                                         log::debug!(
-                                            "Remote resolver skipping projrect for IRI {} due to missing info/meta",
+                                            "Remote resolver skipping project for IRI {} due to missing info/meta",
                                             uri
                                         );
                                         remote_projects.next();
                                     }
                                     Err(err) => {
                                         log::debug!(
-                                            "Remote resolver skipping projrect for IRI {} due to: {:?}",
+                                            "Remote resolver skipping project for IRI {} due to: {:?}",
                                             uri,
                                             err
                                         );
