@@ -56,7 +56,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
             })
         } else if metadata.is_file() {
             Some(sysand_core::lock::Source::LocalKpar {
-                kpar_path: path.into(),
+                kpar_path: get_relative(path, &project_root)?.as_str().into(),
             })
         } else {
             bail!("path `{path}` is neither a directory nor a file");

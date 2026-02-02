@@ -13,9 +13,9 @@ these should be sources of the exact same project as determined by it's
 checksum, as otherwise you are likely to run into problems when syncing against
 a lockfile.
 
-Below we describe we describe how add overriding sources directly to the
-configuration file, but it is also possible to do through the command line
-interface with the [`sysand add`](../commands/add.md) command.
+Below we describe how add overriding sources directly to the configuration
+file, but it is also possible to do through the command line interface with the
+[`sysand add`](../commands/add.md) command.
 
 ## Local projects
 

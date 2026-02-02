@@ -158,15 +158,15 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
             })
     });
 
-    let removing = "Removing";
-    let header = crate::style::get_style_config().header;
-    log::info!(
-        "{header}{removing:>12}{header:#} source for `{}` from configuration file at `{}`",
-        iri.as_ref(),
-        config_path.as_ref(),
-    );
-
     if let Some(index) = remove_index {
+        let removing = "Removing";
+        let header = crate::style::get_style_config().header;
+        log::info!(
+            "{header}{removing:>12}{header:#} source for `{}` from configuration file at `{}`",
+            iri.as_ref(),
+            config_path.as_ref(),
+        );
+
         projects.remove(index);
         let contents = config.to_string();
 
