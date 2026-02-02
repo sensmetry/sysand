@@ -32,7 +32,7 @@ use futures::{AsyncBufReadExt as _, StreamExt as _};
 pub type HTTPEnvironment = AsSyncEnvironmentTokio<HTTPEnvironmentAsync<StandardHTTPAuthentication>>;
 
 #[derive(Debug)]
-pub struct HTTPEnvironmentAsync<Pol> {
+pub struct HTTPEnvironmentAsync<Policy> {
     pub client: reqwest_middleware::ClientWithMiddleware,
     pub auth_policy: Arc<Pol>,
     pub base_url: reqwest::Url,
