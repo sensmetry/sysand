@@ -6,15 +6,17 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use camino::Utf8Path;
+use fluent_uri::Iri;
 use pubgrub::Reporter as _;
 
+use sysand_core::project::utils::ToPathBuf;
 use sysand_core::{
     commands::lock::{
         DEFAULT_LOCKFILE_NAME, LockError, LockOutcome, LockProjectError, do_lock_local_editable,
     },
     config::Config,
     env::local_directory::DEFAULT_ENV_NAME,
-    project::utils::wrapfs,
+    project::{any::AnyProject, reference::ProjectReference, utils::wrapfs},
     resolve::{
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
@@ -30,10 +32,11 @@ use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 /// `path` must be relative to workspace root.
 // TODO: this will not work properly if run in subdir of workspace,
 // as `path` will then refer to a deeper subdir
-pub fn command_lock<P: AsRef<Utf8Path>>(
+pub fn command_lock<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
     path: P,
     resolution_opts: ResolutionOptions,
     config: &Config,
+    project_root: R,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
@@ -45,8 +48,6 @@ pub fn command_lock<P: AsRef<Utf8Path>>(
         include_std,
     } = resolution_opts;
 
-    let cwd = wrapfs::current_dir().ok();
-
     let local_env_path = path.as_ref().join(DEFAULT_ENV_NAME);
 
     let index_urls = if no_index {
@@ -54,6 +55,22 @@ pub fn command_lock<P: AsRef<Utf8Path>>(
     } else {
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
+
+    let mut overrides = Vec::new();
+    for config_project in &config.projects {
+        for identifier in &config_project.identifiers {
+            let mut projects = Vec::new();
+            for source in &config_project.sources {
+                projects.push(ProjectReference::new(AnyProject::try_from_source(
+                    source.clone(),
+                    &project_root,
+                    client.clone(),
+                    runtime.clone(),
+                )?));
+            }
+            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+        }
+    }
 
     let provided_iris = if !include_std {
         known_std_libs()
@@ -67,13 +84,17 @@ pub fn command_lock<P: AsRef<Utf8Path>>(
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
     }
 
-    let wrapped_resolver = PriorityResolver::new(
+    let override_resolver = PriorityResolver::new(
+        MemoryResolver::from(overrides),
         MemoryResolver {
             iri_predicate: AcceptAll {},
             projects: memory_projects,
         },
+    );
+    let wrapped_resolver = PriorityResolver::new(
+        override_resolver,
         standard_resolver(
-            cwd,
+            Some(project_root.to_path_buf()),
             if local_env_path.is_dir() {
                 Some(local_env_path)
             } else {
@@ -88,7 +109,7 @@ pub fn command_lock<P: AsRef<Utf8Path>>(
     let LockOutcome {
         lock,
         dependencies: _dependencies,
-    } = match do_lock_local_editable(&path, wrapped_resolver) {
+    } = match do_lock_local_editable(&path, &project_root, wrapped_resolver) {
         Ok(lock_outcome) => lock_outcome,
         Err(LockProjectError::LockError(lock_error)) => {
             if let LockError::Solver(solver_error) = lock_error {

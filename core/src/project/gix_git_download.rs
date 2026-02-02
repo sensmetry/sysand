@@ -70,6 +70,7 @@ impl GixDownloadedProject {
             url: gix::url::parse(url.as_ref().into())
                 .map_err(|e| GixDownloadedError::UrlParse(url.as_ref().into(), Box::new(e)))?,
             inner: LocalSrcProject {
+                nominal_path: None,
                 project_path: wrapfs::canonicalize(tmp_dir.path())?,
             },
             tmp_dir,

@@ -14,8 +14,11 @@ use sysand_core::{
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     },
-    project::{ProjectMut, ProjectRead, utils::ToPathBuf},
-    resolve::{file::FileResolverProject, standard::standard_resolver},
+    project::{ProjectMut, ProjectRead, any::OverrideProject},
+    resolve::{
+        file::FileResolverProject, memory::MemoryResolver, priority::PriorityResolver,
+        standard::standard_resolver,
+    },
 };
 
 use anstream::{print, println};
@@ -74,7 +77,8 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverPro
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path)?)
     } else if path.as_ref().is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
-            project_path: path.to_path_buf(),
+            nominal_path: None,
+            project_path: path.as_ref().as_str().into(),
         })
     } else {
         // TODO: NoResolve is for IRIs, this is a path
@@ -104,22 +108,26 @@ pub fn command_info_uri(
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
     excluded_iris: &HashSet<String>,
+    overrides: Vec<(Iri<String>, Vec<OverrideProject>)>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     let cwd = wrapfs::current_dir().ok();
 
     let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
 
-    let combined_resolver = standard_resolver(
-        cwd,
-        if local_env_path.is_dir() {
-            Some(local_env_path)
-        } else {
-            None
-        },
-        Some(client),
-        index_urls,
-        runtime,
+    let combined_resolver = PriorityResolver::new(
+        MemoryResolver::from(overrides),
+        standard_resolver(
+            cwd,
+            if local_env_path.is_dir() {
+                Some(local_env_path)
+            } else {
+                None
+            },
+            Some(client),
+            index_urls,
+            runtime,
+        ),
     );
 
     let mut found = false;
@@ -191,6 +199,7 @@ pub fn command_info_verb_uri(
     numbered: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
+    overrides: Vec<(Iri<String>, Vec<OverrideProject>)>,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     match verb {
@@ -199,16 +208,19 @@ pub fn command_info_verb_uri(
 
             let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
 
-            let combined_resolver = standard_resolver(
-                cwd,
-                if local_env_path.is_dir() {
-                    Some(local_env_path)
-                } else {
-                    None
-                },
-                Some(client),
-                index_urls,
-                runtime,
+            let combined_resolver = PriorityResolver::new(
+                MemoryResolver::from(overrides),
+                standard_resolver(
+                    cwd,
+                    if local_env_path.is_dir() {
+                        Some(local_env_path)
+                    } else {
+                        None
+                    },
+                    Some(client),
+                    index_urls,
+                    runtime,
+                ),
             );
 
             let mut found = false;

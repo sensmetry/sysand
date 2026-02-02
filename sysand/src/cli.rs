@@ -96,6 +96,8 @@ pub enum Command {
 
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
+        #[command(flatten)]
+        source_opts: ProjectSourceOptions,
     },
     /// Remove usage from project information
     #[clap(alias = "rm")]
@@ -1267,6 +1269,22 @@ pub struct ResolutionOptions {
         help_heading = "Resolution options"
     )]
     pub include_std: bool,
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ProjectSourceOptions {
+    /// Path to local editable interchange project
+    #[arg(long, group = "source")]
+    pub editable: Option<String>,
+    /// Path to local interchange project
+    #[arg(long, group = "source")]
+    pub path: Option<String>,
+    /// URL to remote interchange project
+    #[arg(long, group = "source")]
+    pub url_src: Option<String>,
+    /// URL to remote interchange project archive (KPAR)
+    #[arg(long, group = "source")]
+    pub url_kpar: Option<String>,
 }
 
 #[derive(clap::Args, Debug, Clone)]
