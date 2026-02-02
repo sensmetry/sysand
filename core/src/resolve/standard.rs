@@ -22,7 +22,8 @@ use reqwest_middleware::ClientWithMiddleware;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
-pub type RemoteIndexResolver<Policy> = SequentialResolver<EnvResolver<HTTPEnvironmentAsync<Policy>>>;
+pub type RemoteIndexResolver<Policy> =
+    SequentialResolver<EnvResolver<HTTPEnvironmentAsync<Policy>>>;
 
 type StandardResolverInner<Policy> = CombinedResolver<
     FileResolver,
