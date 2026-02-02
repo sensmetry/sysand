@@ -22,16 +22,16 @@ use reqwest_middleware::ClientWithMiddleware;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
-pub type RemoteIndexResolver<Pol> = SequentialResolver<EnvResolver<HTTPEnvironmentAsync<Pol>>>;
+pub type RemoteIndexResolver<Policy> = SequentialResolver<EnvResolver<HTTPEnvironmentAsync<Policy>>>;
 
-type StandardResolverInner<Pol> = CombinedResolver<
+type StandardResolverInner<Policy> = CombinedResolver<
     FileResolver,
     LocalEnvResolver,
-    RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Pol>>, GitResolver>,
-    AsSyncResolveTokio<RemoteIndexResolver<Pol>>,
+    RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Policy>>, GitResolver>,
+    AsSyncResolveTokio<RemoteIndexResolver<Policy>>,
 >;
 
-pub struct StandardResolver<Pol>(StandardResolverInner<Pol>);
+pub struct StandardResolver<Policy>(StandardResolverInner<Policy>);
 
 impl<Policy: fmt::Debug> fmt::Debug for StandardResolver<Policy> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

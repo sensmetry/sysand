@@ -19,10 +19,10 @@ use crate::{
 
 /// Tries to resolve http(s) URLs as direct (resolvable) links to interchange projects.
 #[derive(Debug)]
-pub struct HTTPResolverAsync<Pol> {
+pub struct HTTPResolverAsync<Policy> {
     pub client: reqwest_middleware::ClientWithMiddleware,
     pub lax: bool,
-    pub auth_policy: Arc<Pol>,
+    pub auth_policy: Arc<Policy>,
     //pub prefer_ranged: bool,
 }
 
@@ -30,10 +30,10 @@ pub const SCHEME_HTTP: &Scheme = Scheme::new_or_panic("http");
 pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 
 #[derive(Debug)]
-pub enum HTTPProjectAsync<Pol> {
-    HTTPSrcProject(ReqwestSrcProjectAsync<Pol>),
+pub enum HTTPProjectAsync<Policy> {
+    HTTPSrcProject(ReqwestSrcProjectAsync<Policy>),
     // HTTPKParProjectRanged(ReqwestKparRangedProject),
-    HTTPKParProjectDownloaded(ReqwestKparDownloadedProject<Pol>),
+    HTTPKParProjectDownloaded(ReqwestKparDownloadedProject<Policy>),
 }
 
 #[derive(Error, Debug)]
@@ -139,14 +139,14 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
     }
 }
 
-pub struct HTTPProjects<Pol> {
+pub struct HTTPProjects<Policy> {
     client: reqwest_middleware::ClientWithMiddleware,
     url: reqwest::Url,
     src_done: bool,
     kpar_done: bool,
     // See the comments in `try_resolve_as_src`.
     lax: bool,
-    auth_policy: Arc<Pol>,
+    auth_policy: Arc<Policy>,
     //prefer_ranged: bool,
 }
 

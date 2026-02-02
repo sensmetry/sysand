@@ -29,15 +29,15 @@ use crate::{
 /// is accessed by
 /// GET https://www.example.com/project/M%C3%ABkan%C3%AFk/K%C3%B6mmand%C3%B6h.sysml
 #[derive(Clone, Debug)]
-pub struct ReqwestSrcProjectAsync<Pol> {
+pub struct ReqwestSrcProjectAsync<Policy> {
     /// (reqwest) HTTP client to use for GET requests
     pub client: reqwest_middleware::ClientWithMiddleware, // Internally an Arc
     /// Base-url of the project
     pub url: reqwest::Url,
-    pub auth_policy: Arc<Pol>,
+    pub auth_policy: Arc<Policy>,
 }
 
-impl<Pol> ReqwestSrcProjectAsync<Pol> {
+impl<Policy> ReqwestSrcProjectAsync<Policy> {
     pub fn info_url(&self) -> reqwest::Url {
         self.url.join(".project.json").expect("internal URL error")
     }

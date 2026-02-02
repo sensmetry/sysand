@@ -34,7 +34,7 @@ pub type HTTPEnvironment = AsSyncEnvironmentTokio<HTTPEnvironmentAsync<StandardH
 #[derive(Debug)]
 pub struct HTTPEnvironmentAsync<Policy> {
     pub client: reqwest_middleware::ClientWithMiddleware,
-    pub auth_policy: Arc<Pol>,
+    pub auth_policy: Arc<Policy>,
     pub base_url: reqwest::Url,
     pub prefer_src: bool,
     // Currently no async implementation of ranged

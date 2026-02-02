@@ -32,11 +32,11 @@ use super::utils::{FsIoError, wrapfs};
 /// Downloads the full archive to a temporary directory and then accesses it using
 /// `LocalKParProject`.
 #[derive(Debug)]
-pub struct ReqwestKparDownloadedProject<Pol> {
+pub struct ReqwestKparDownloadedProject<Policy> {
     pub url: reqwest::Url,
     pub client: reqwest_middleware::ClientWithMiddleware,
     pub inner: LocalKParProject,
-    pub auth_policy: Arc<Pol>,
+    pub auth_policy: Arc<Policy>,
 }
 
 #[derive(Error, Debug)]
