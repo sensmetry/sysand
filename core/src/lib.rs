@@ -8,6 +8,8 @@ pub use commands::*;
 
 pub mod model;
 
+#[cfg(feature = "networking")]
+pub mod auth;
 pub mod config;
 pub mod env;
 pub mod lock;

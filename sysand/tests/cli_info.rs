@@ -8,6 +8,8 @@ use std::{error::Error, io::Write as _};
 
 use assert_cmd::prelude::*;
 use camino::Utf8PathBuf;
+use indexmap::IndexMap;
+use mockito::Matcher;
 use predicates::prelude::*;
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -131,13 +133,13 @@ fn info_basic_iri_auto() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn info_basic_http_url() -> Result<(), Box<dyn Error>> {
+fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
 
     let git_mock = server
         .mock("GET", "/info/refs?service=git-upload-pack")
         .with_status(404)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let kpar_range_probe = server
@@ -157,6 +159,7 @@ fn info_basic_http_url() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(1) // TODO: Reduce this
         .create();
 
     let info_mock = server
@@ -164,7 +167,7 @@ fn info_basic_http_url() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(3) // TODO: Reduce this to 1 after caching
+        .expect_at_most(3) // TODO: Reduce this to 1
         .create();
 
     let meta_mock_head = server
@@ -172,6 +175,7 @@ fn info_basic_http_url() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect_at_most(1)
         .create();
 
     let meta_mock = server
@@ -179,7 +183,7 @@ fn info_basic_http_url() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(3) // TODO: Reduce this to 1 after caching
+        .expect_at_most(3) // TODO: Reduce this to 1
         .create();
 
     let (_, _, out) = run_sysand(["info", "--iri", &server.url()], None)?;
@@ -199,6 +203,160 @@ fn info_basic_http_url() -> Result<(), Box<dyn Error>> {
 
     info_mock.assert();
     meta_mock.assert();
+
+    Ok(())
+}
+
+#[test]
+fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
+    let mut server = mockito::Server::new();
+
+    let git_mock = server
+        .mock("GET", "/info/refs?service=git-upload-pack")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .expect(2) // TODO: Reduce this to 1
+        .create();
+
+    // let kpar_range_probe = server
+    //     .mock("HEAD", "/")
+    //     .match_header("authorization", Matcher::Missing)
+    //     .with_status(404)
+    //     .expect(1)
+    //     .create();
+
+    let kpar_download_try = server
+        .mock("GET", "/")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .expect(1)
+        .create();
+
+    let kpar_download_try_auth = server
+        .mock("GET", "/")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
+        .with_status(404)
+        .expect(1)
+        .create();
+
+    let info_mock_head = server
+        .mock("HEAD", "/.project.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect(1) // TODO: Reduce this
+        .create();
+
+    let info_mock_head_auth = server
+        .mock("HEAD", "/.project.json")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect(1) // TODO: Reduce this
+        .create();
+
+    let info_mock = server
+        .mock("GET", "/.project.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect(3) // TODO: Reduce this to 1
+        .create();
+
+    let info_mock_auth = server
+        .mock("GET", "/.project.json")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect(3) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock_head = server
+        .mock("HEAD", "/.meta.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(1)
+        .create();
+
+    let meta_mock_head_auth = server
+        .mock("HEAD", "/.meta.json")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(1)
+        .create();
+
+    let meta_mock = server
+        .mock("GET", "/.meta.json")
+        .with_status(404)
+        .match_header("authorization", Matcher::Missing)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(3) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock_auth = server
+        .mock("GET", "/.meta.json")
+        .with_status(200)
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(3) // TODO: Reduce this to 1
+        .create();
+
+    let (_, _, out) = run_sysand_with(
+        ["info", "--iri", &server.url()],
+        None,
+        &IndexMap::from([
+            ("SYSAND_CRED_TEST", "http://127.0.0.1:*/**"),
+            ("SYSAND_CRED_TEST_BASIC_USER", "user_1234"),
+            ("SYSAND_CRED_TEST_BASIC_PASS", "pass_4321"),
+        ]),
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: info_basic_http_url"))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    git_mock.assert();
+
+    info_mock_head.assert();
+    info_mock_head_auth.assert();
+    meta_mock_head.assert();
+    meta_mock_head_auth.assert();
+
+    // kpar_range_probe.assert();
+    kpar_download_try.assert();
+    kpar_download_try_auth.assert();
+
+    info_mock.assert();
+    info_mock_auth.assert();
+
+    meta_mock.assert();
+    meta_mock_auth.assert();
 
     Ok(())
 }
@@ -389,7 +547,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_index_url","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock = server
@@ -397,7 +555,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let (_, _, out) = run_sysand(
@@ -440,7 +598,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn info_multi_index_url() -> Result<(), Box<dyn Error>> {
+fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
 
@@ -468,7 +626,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock = server
@@ -476,7 +634,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let versions_alt_mock = server_alt
@@ -503,7 +661,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_multi_index_url_alt","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let meta_alt_mock = server_alt
@@ -511,7 +669,7 @@ fn info_multi_index_url() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let (_, _, out) = run_sysand(
@@ -579,6 +737,209 @@ fn info_multi_index_url() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
+    let mut server = mockito::Server::new();
+    let mut server_alt = mockito::Server::new();
+
+    let versions_mock = server
+        .mock(
+            "GET",
+            "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/versions.txt",
+        )
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "text/plain")
+        .with_body("1.2.3\n")
+        .expect(1)
+        .create();
+
+    let versions_mock_auth = server
+        .mock(
+            "GET",
+            "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/versions.txt",
+        )
+        .match_header(
+            "authorization",
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "text/plain")
+        .with_body("1.2.3\n")
+        .expect(1)
+        .create();
+
+    let project_mock_head = server
+        .mock("HEAD", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
+        .expect(1)
+        .create();
+
+    let project_mock_head_auth = server
+        .mock("HEAD", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
+        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
+        .expect(1)
+        .create();
+
+    let project_mock = server
+        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
+        .expect(2) // TODO: Reduce this to 1
+        .create();
+
+    let project_mock_auth = server
+        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
+        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
+        .expect(2) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock = server
+        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.meta.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(2) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock_auth = server
+        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.meta.json")
+        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(2) // TODO: Reduce this to 1
+        .create();
+
+    let versions_alt_mock = server_alt
+        .mock(
+            "GET",
+            "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/versions.txt",
+        )
+        .match_header("authorization", Matcher::Missing)
+        .with_status(200)
+        .with_header("content-type", "text/plain")
+        .with_body("1.2.3\n")
+        .expect(1)
+        .create();
+
+    let project_alt_mock_head = server_alt
+        .mock("HEAD", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.project.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url_alt","version":"1.2.3","usage":[]}"#)
+        .expect(1)
+        .create();
+
+    let project_alt_mock = server_alt
+        .mock("GET", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.project.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_multi_index_url_alt","version":"1.2.3","usage":[]}"#)
+        .expect(2) // TODO: Reduce this to 1
+        .create();
+
+    let meta_alt_mock = server_alt
+        .mock("GET", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.meta.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(2) // TODO: Reduce this to 1
+        .create();
+
+    let server_pattern = format!("http://{}/**", server.host_with_port());
+    let auth_env = IndexMap::from([
+        ("SYSAND_CRED_TEST", server_pattern.as_ref()),
+        ("SYSAND_CRED_TEST_BASIC_USER", "user_1234"),
+        ("SYSAND_CRED_TEST_BASIC_PASS", "pass_4321"),
+    ]);
+
+    let (_, _, out) = run_sysand_with(
+        [
+            "info",
+            "--iri",
+            "urn:kpar:info_multi_index_url",
+            "--index",
+            &server.url(),
+            "--default-index",
+            &server_alt.url(),
+        ],
+        None,
+        &auth_env,
+    )?;
+
+    versions_mock.assert();
+    versions_mock_auth.assert();
+    project_mock_head.assert();
+    project_mock_head_auth.assert();
+    project_mock.assert();
+    project_mock_auth.assert();
+    meta_mock.assert();
+    meta_mock_auth.assert();
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: info_multi_index_url"))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    let (_, _, out) = run_sysand_with(
+        [
+            "info",
+            "--iri",
+            "urn:kpar:info_multi_index_url_alt",
+            "--index",
+            &server.url(),
+            "--default-index",
+            &server_alt.url(),
+        ],
+        None,
+        &auth_env,
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: info_multi_index_url_alt"))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    versions_alt_mock.assert();
+    project_alt_mock_head.assert();
+    project_alt_mock.assert();
+    meta_alt_mock.assert();
+
+    let (_, _, out) = run_sysand_with(
+        [
+            "info",
+            "--iri",
+            "urn:kpar:other",
+            "--default-index",
+            &server.url(),
+        ],
+        None,
+        &auth_env,
+    )?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "unable to find interchange project 'urn:kpar:other'",
+    ));
+
+    Ok(())
+}
+
+#[test]
 fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
@@ -607,7 +968,7 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_multi_index_url_config","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock = server
@@ -615,7 +976,7 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let versions_alt_mock = server_alt
@@ -642,7 +1003,7 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_multi_index_url_config_alt","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let meta_alt_mock = server_alt
@@ -650,7 +1011,7 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1 after caching
+        .expect_at_most(2) // TODO: Reduce this to 1
         .create();
 
     let cfg = format!(
@@ -908,6 +1269,8 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
+    let _ = env_logger::try_init();
+
     let (_tmp, cwd, out) = run_sysand(
         ["init", "info_custom_metamodel", "--version", "1.2.3"],
         None,

@@ -4,6 +4,7 @@
 use std::{fmt, result::Result, sync::Arc};
 
 use crate::{
+    auth::HTTPAuthentication,
     env::{local_directory::LocalDirectoryEnvironment, reqwest_http::HTTPEnvironmentAsync},
     resolve::{
         AsSyncResolveTokio, ResolveRead, ResolveReadAsync,
@@ -21,29 +22,30 @@ use reqwest_middleware::ClientWithMiddleware;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
-pub type RemoteIndexResolver = SequentialResolver<EnvResolver<HTTPEnvironmentAsync>>;
+pub type RemoteIndexResolver<Policy> =
+    SequentialResolver<EnvResolver<HTTPEnvironmentAsync<Policy>>>;
 
-type StandardResolverInner = CombinedResolver<
+type StandardResolverInner<Policy> = CombinedResolver<
     FileResolver,
     LocalEnvResolver,
-    RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync>, GitResolver>,
-    AsSyncResolveTokio<RemoteIndexResolver>,
+    RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Policy>>, GitResolver>,
+    AsSyncResolveTokio<RemoteIndexResolver<Policy>>,
 >;
 
-pub struct StandardResolver(StandardResolverInner);
+pub struct StandardResolver<Policy>(StandardResolverInner<Policy>);
 
-impl fmt::Debug for StandardResolver {
+impl<Policy: fmt::Debug> fmt::Debug for StandardResolver<Policy> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("CliResolver").field(&self.0).finish()
     }
 }
 
-impl ResolveRead for StandardResolver {
-    type Error = <StandardResolverInner as ResolveRead>::Error;
+impl<Policy: HTTPAuthentication> ResolveRead for StandardResolver<Policy> {
+    type Error = <StandardResolverInner<Policy> as ResolveRead>::Error;
 
-    type ProjectStorage = <StandardResolverInner as ResolveRead>::ProjectStorage;
+    type ProjectStorage = <StandardResolverInner<Policy> as ResolveRead>::ProjectStorage;
 
-    type ResolvedStorages = <StandardResolverInner as ResolveRead>::ResolvedStorages;
+    type ResolvedStorages = <StandardResolverInner<Policy> as ResolveRead>::ResolvedStorages;
 
     fn resolve_read(
         &self,
@@ -60,16 +62,17 @@ pub fn standard_file_resolver(cwd: Option<Utf8PathBuf>) -> FileResolver {
     }
 }
 
-pub fn standard_remote_resolver(
+pub fn standard_remote_resolver<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
-) -> RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync>, GitResolver> {
+    auth_policy: Arc<Policy>,
+) -> RemoteResolver<AsSyncResolveTokio<HTTPResolverAsync<Policy>>, GitResolver> {
     RemoteResolver {
         http_resolver: Some(
             HTTPResolverAsync {
                 client,
                 lax: true,
-                //prefer_ranged: true,
+                auth_policy, //prefer_ranged: true,
             }
             .to_tokio_sync(runtime),
         ),
@@ -86,16 +89,18 @@ pub fn standard_local_resolver(local_env_path: Utf8PathBuf) -> LocalEnvResolver 
     }
 }
 
-pub fn standard_index_resolver(
+pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
     urls: Vec<url::Url>,
     runtime: Arc<tokio::runtime::Runtime>,
-) -> AsSyncResolveTokio<RemoteIndexResolver> {
+    auth_policy: Arc<Policy>,
+) -> AsSyncResolveTokio<RemoteIndexResolver<Policy>> {
     SequentialResolver::new(urls.into_iter().map(|url| EnvResolver {
         env: HTTPEnvironmentAsync {
             client: client.clone(),
             base_url: url.clone(),
             prefer_src: true,
+            auth_policy: auth_policy.clone(),
             //try_ranged: true,
         },
     }))
@@ -103,21 +108,22 @@ pub fn standard_index_resolver(
 }
 
 // TODO: Replace most of these arguments by some general CLIOptions object
-pub fn standard_resolver(
+pub fn standard_resolver<Policy: HTTPAuthentication>(
     cwd: Option<Utf8PathBuf>,
     local_env_path: Option<Utf8PathBuf>,
     client: Option<ClientWithMiddleware>,
     index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
-) -> StandardResolver {
+    auth_policy: Arc<Policy>,
+) -> StandardResolver<Policy> {
     let file_resolver = standard_file_resolver(cwd);
     let remote_resolver = client
         .clone()
-        .map(|x| standard_remote_resolver(x, runtime.clone()));
+        .map(|x| standard_remote_resolver(x, runtime.clone(), auth_policy.clone()));
     let local_resolver = local_env_path.map(standard_local_resolver);
     let index_resolver = client
         .zip(index_urls)
-        .map(|(client, urls)| standard_index_resolver(client, urls, runtime));
+        .map(|(client, urls)| standard_index_resolver(client, urls, runtime, auth_policy));
 
     StandardResolver(CombinedResolver {
         file_resolver: Some(file_resolver),

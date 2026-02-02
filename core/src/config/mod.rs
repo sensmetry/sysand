@@ -12,6 +12,7 @@ pub struct Config {
     pub quiet: Option<bool>,
     pub verbose: Option<bool>,
     pub index: Option<Vec<Index>>,
+    // pub auth: Option<Vec<AuthSource>>,
 }
 
 impl Config {
@@ -19,6 +20,10 @@ impl Config {
         self.quiet = self.quiet.or(config.quiet);
         self.verbose = self.verbose.or(config.verbose);
         extend_option_vec(&mut self.index, config.index);
+
+        // if let Some(auth) = config.auth {
+        //     self.auth = Some(auth.clone());
+        // }
     }
 
     pub fn index_urls(
@@ -98,6 +103,12 @@ pub struct Index {
     pub default: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AuthSource {
+    EnvVar,
+    Keyring,
+}
+
 #[cfg(test)]
 mod tests {
     use url::Url;
@@ -133,6 +144,7 @@ mod tests {
                 url: "http://www.example.com".to_string(),
                 ..Default::default()
             }]),
+            // auth: None,
         };
         defaults.merge(config.clone());
 
