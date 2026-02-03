@@ -33,7 +33,7 @@ use sysand_core::{
 };
 
 use crate::{
-    cli::Args,
+    cli::{Args, InfoCommand},
     commands::{
         add::command_add,
         build::{command_build_for_project, command_build_for_workspace},
@@ -408,18 +408,19 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )?)
             };
             let excluded_iris: HashSet<_> = if !include_std {
-                // Only print std warning when command is to print usages
-                // It's the only case where stdlib usages affect output
-                use cli::InfoCommand::*;
-                if let Some(Usage {
-                    clear: None,
-                    add: None,
-                    set: None,
-                    remove: None,
-                    numbered: _,
-                }) = subcommand
-                {
-                    crate::logger::warn_std_deps()
+                // Only print std warning when command is to print all info
+                // or just usages.
+                // These are the only cases where stdlib usages affect output
+                match subcommand {
+                    None
+                    | Some(InfoCommand::Usage {
+                        clear: None,
+                        add: None,
+                        set: None,
+                        remove: None,
+                        numbered: _,
+                    }) => crate::logger::warn_std_deps(),
+                    _ => (),
                 }
                 known_std_libs().keys().cloned().collect()
             } else {
