@@ -100,7 +100,7 @@ jobs:
           cd bindings/py
           cargo test --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
       - name: Install uv
-        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # 7.2.0
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # 7.2.1
       - name: pytest
         shell: bash
         run: |
@@ -217,7 +217,7 @@ jobs:
         with:
           python-version: 3.14
       - name: Install uv
-        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # 7.2.0
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # 7.2.1
       - name: pytest (native)
         # TODO: run tests on x86_32. Currently skipped because no containers are used here
         # and run-on-arch-action does not support x86_32
@@ -282,7 +282,7 @@ jobs:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # 7.2.0
+        uses: astral-sh/setup-uv@803947b9bd8e9f986429fa0c5a41c367cd732b41 # 7.2.1
       - name: pytest
         run: |
           /bin/bash .github/scripts/run-pytest.sh
@@ -324,7 +324,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
       - name: Generate artifact attestation
         id: attest
-        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v3.1.0
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-path: 'wheels-*/*'
       - name: Prepare attestations for uv
