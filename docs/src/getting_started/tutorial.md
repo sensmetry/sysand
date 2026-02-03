@@ -68,9 +68,10 @@ $ sysand sources
 ## Add usages (dependencies)
 
 KerML (and by extension SysML v2) specification calls a project dependency a
-"usage". All projects will have at least one dependency on the SysML v2 standard library itself (TODO: link to standard packages section in index), and many will have
-dependencies on more SysML v2 projects. The key benefit of Sysand is that it can
-automatically manage project dependencies for you.
+"usage". All SysML v2 projects will have at least one dependency on the SysML
+v2 standard library itself, and many will have dependencies on more SysML v2
+projects. The key benefit of Sysand is that it can automatically manage project
+dependencies for you.
 
 Each usage is identified by an [Internationalized Resource Identifier][iri]
 (IRI) with an optional version constraint. To add dependencies, use the `sysand
@@ -89,19 +90,12 @@ Install usage `SYSMOD` from Sysand Package Index:
 sysand add urn:kpar:sysmod
 ```
 
-Install usage from URL (TODO: where to link? only std lib is a reputable source of kpars;
-linking to direct links in the index would look bad):
-
-```sh
-sysand add https://www.omg.org/spec/KerML/20250201/Function-Library.kpar
-```
-
-This may take a few seconds to run, as Sysand needs to download the
-linked project (and its usages as well) into a new local environment.
-Once finished, a file `sysand-lock.toml` and a directory `sysand_env`
-will be created. The former records the precise versions of the external
-projects installed, so that the same installation can be reproduced later.
-The latter directory stores the added project and its usages.
+This may take a few seconds to run, as Sysand needs to download the project
+(and its usages as well) into a new local environment. Once finished, a file
+`sysand-lock.toml` and a directory `sysand_env` will be created. The former
+records the precise versions of the external projects installed, so that the
+same installation can be reproduced later. The latter directory stores the added
+project and its usages.
 
 ```console
 $ sysand info
@@ -109,10 +103,9 @@ Name: my_project
 Version: 0.0.1
 Usages:
     urn:kpar:sysmod
-    TODO: add second usage from URL here
 ```
 
-Running `sysand sources` again will list all the `.sysml files` from both the
+Running `sysand sources` again will list all the `.sysml` files from both the
 current project and its (transitive) dependencies.
 
 ```console
@@ -127,7 +120,7 @@ warning: SysML v2/KerML standard library packages are omitted by default.
 > SysML v2 and KerML standard libraries are usually provided by the tooling
 > used to develop the models. For this reason Sysand will not install or show
 > standard libraries (or their files) in its output, unless specifically
-> requested with `--include-std`
+> requested with `--include-std` for a given command
 
 > [!tip]
 > `sysand-lock.toml` is sufficient to reproduce `sysand_env` on any computer;
@@ -155,9 +148,9 @@ $ sysand env list
 > automatically removed from the environment, so it may contain projects that
 > are no longer used by the current project.
 
-If you want to recreate (required part of) the environment on a new machine,
-make sure you have not only your project files, but also `sysand-lock.toml`
-and execute the following command:
+If you want to recreate (the required part of) the environment on a new machine,
+make sure you have not only your project files, but also `sysand-lock.toml` and
+execute the following command:
 
 ```console
 $ sysand sync
@@ -170,9 +163,9 @@ warning: Direct or transitive usages of SysML v2/KerML standard library packages
 
 ## Package the project
 
-After the project reaches some maturity level, there might be a need to
-package it to a `.kpar` file for sharing with others (either through
-the Sysand Package Index or otherwise). The `.kpar` file can be built by running:
+After the project reaches some maturity level, there might be a need to package
+it to a `.kpar` file for sharing with others (either through the Sysand Package
+Index or otherwise). The `.kpar` file can be built by running:
 
 ```console
 $ sysand build

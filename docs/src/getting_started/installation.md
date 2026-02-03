@@ -2,16 +2,74 @@
 
 There are a few ways to download Sysand:
 
-- From the Sysand website
 - From PyPI
+- From this page
 - From GitHub releases
 - Compile from source
 
+## PyPI
+
+Sysand is [published to PyPI](https://pypi.org/project/sysand/) and includes
+both the CLI and Sysand Python library.
+
+We recommend installing from PyPI into an isolated (virtual) environment. This
+can be done with [pipx](https://pipx.pypa.io/stable/installation/):
+
+```sh
+pipx install sysand
+```
+
+Or with [uv](https://docs.astral.sh/uv/):
+```sh
+uv tool install sysand
+```
+
+> [!note]
+> `pipx`/`uv tool` will make only the CLI part of the package accessible
+
+Both Sysand CLI and Python library can be installed with
+[pip](https://pip.pypa.io/en/stable/installation/):
+
+```sh
+pip install sysand
+```
+
+> [!tip]
+> `pip` is sometimes called `pip3`, so if `pip` command is not available, try `pip3`
+
+Or with `uv` (run inside a virtual environment):
+
+```sh
+uv pip install sysand
+```
+
+
 ## Download latest release
 
-Latest official Sysand CLI release can be downloaded from [beta.sysand.org][dl].
+Latest official Sysand CLI release can be downloaded below
 or from [latest GitHub release][gh_rel].
-
+<!-- markdownlint-disable MD033 MD013 -->
+<table>
+  <tr>
+    <th></th>
+    <th><i class="fab fa-windows"></i> Windows</th>
+    <th><i class="fab fa-apple"></i> macOS</th>
+    <th><i class="fab fa-linux"></i> Linux</th>
+  </tr>
+  <tr>
+    <td><strong>x86_x64</strong></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-windows-x86_64.exe"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-macos-x86_64"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-x86_64"><button><i class="fas fa-download"></i> Download</button></a></td>
+  </tr>
+  <tr>
+    <td><strong>ARM64</strong></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-windows-arm64.exe"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-macos-arm64"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-arm64"><button><i class="fas fa-download"></i> Download</button></a></td>
+  </tr>
+</table>
+<!-- markdownlint-enable MD033 MD013 -->
 After downloading the appropriate file, installation depends on your platform:
 
 - [Windows (both x86_64 and ARM64)](#windows)
@@ -54,7 +112,7 @@ mkdir "$env:LOCALAPPDATA\Programs\Sysand" -Force
 mv sysand-windows-arm64.exe "$env:LOCALAPPDATA\Programs\Sysand\sysand.exe"
 ```
 
-3. Then run:
+3. Add folder to `PATH`:
 
 ```powershell
 # Add to PATH
@@ -118,12 +176,10 @@ source ~/.zshrc
 
 ```sh
 # For x86_64 systems
-wget https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-x86_64
 chmod +x sysand-linux-x86_64
 sudo mv sysand-linux-x86_64 /usr/local/bin/sysand
 
 # For ARM64 systems
-wget https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-arm64
 chmod +x sysand-linux-arm64
 sudo mv sysand-linux-arm64 /usr/local/bin/sysand
 ```
@@ -158,24 +214,6 @@ sysand --version
 
 You should see an output similar to: `sysand X.Y.Z` 
 
-
-## PyPI
-
-Sysand is [published on PyPI](https://pypi.org/project/sysand/) and includes both
-the CLI and Sysand Python library.
-
-It can be installed using [pip](https://pip.pypa.io/en/stable/). Run the following
-in the terminal:
-
-```sh
-pip install sysand
-```
-
-Alternatively, [uv](https://docs.astral.sh/uv/) can be used for this:
-
-```sh
-uv pip install sysand
-```
 
 ## Download development version
 

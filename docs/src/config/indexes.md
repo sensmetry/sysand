@@ -23,14 +23,14 @@ To add an index with the URL `https://index.example.org` simple add the followin
 entry to your `sysand.toml`:
 
 ```toml
-[index]
+[[index]]
 url = "https://index.example.org"
 ```
 
 To override the default index add `default = true`:
 
 ```toml
-[index]
+[[index]]
 url = "https://index.example.org"
 default = true
 ```
