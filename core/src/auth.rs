@@ -293,11 +293,11 @@ impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthe
                     Ok(first_response)
                 } else {
                     for (_, other_restricted) in items {
-                        let other_resonse = other_restricted
+                        let other_response = other_restricted
                             .with_authentication(&client, renew_request)
                             .await?;
-                        if !other_resonse.status().is_client_error() {
-                            return Ok(other_resonse);
+                        if !other_response.status().is_client_error() {
+                            return Ok(other_response);
                         }
                     }
                     Ok(first_response)
@@ -318,7 +318,7 @@ pub type StandardHTTPAuthentication = RestrictAuthentication<
         // FIXME: Replace by a more general type as more authentication schemes are added
         ForceHTTPBasicAuth,
     >,
-    // For all other domains use unauthenticated acceess.
+    // For all other domains use unauthenticated access.
     Unauthenticated,
 >;
 
