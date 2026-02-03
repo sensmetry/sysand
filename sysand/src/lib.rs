@@ -168,9 +168,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     // FIXME: This is a temporary implementation to provide credentials until
     //        https://github.com/sensmetry/sysand/pull/157
     //        gets merged.
-    let mut basic_auth_patterns = HashMap::new();
+    let mut auth_patterns = HashMap::new();
     let mut basic_auth_users = HashMap::new();
     let mut basic_auth_passwords = HashMap::new();
+    let mut bearer_auth_tokens = HashMap::new();
 
     for (key, value) in std::env::vars() {
         if let Some(key_rest) = key.strip_prefix("SYSAND_CRED_") {
@@ -178,42 +179,71 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 basic_auth_users.insert(key_name.to_owned(), value);
             } else if let Some(key_name) = key_rest.strip_suffix("_BASIC_PASS") {
                 basic_auth_passwords.insert(key_name.to_owned(), value);
+            } else if let Some(key_name) = key_rest.strip_suffix("_BEARER_TOKEN") {
+                bearer_auth_tokens.insert(key_name.to_owned(), value);
             } else {
-                basic_auth_patterns.insert(key_rest.to_owned(), value);
+                auth_patterns.insert(key_rest.to_owned(), value);
             }
         }
     }
 
     let mut basic_auth_pattern_names = HashSet::new();
     for x in [
-        &basic_auth_patterns,
+        &auth_patterns,
         &basic_auth_users,
         &basic_auth_passwords,
+        &bearer_auth_tokens,
     ] {
         for k in x.keys() {
             basic_auth_pattern_names.insert(k);
         }
     }
 
-    let mut basic_auths_builder: StandardHTTPAuthenticationBuilder =
+    let mut auths_builder: StandardHTTPAuthenticationBuilder =
         StandardHTTPAuthenticationBuilder::new();
     for k in basic_auth_pattern_names {
         match (
-            basic_auth_patterns.get(k),
+            auth_patterns.get(k),
             basic_auth_users.get(k),
             basic_auth_passwords.get(k),
+            bearer_auth_tokens.get(k),
         ) {
-            (Some(pattern), Some(username), Some(password)) => {
-                basic_auths_builder.add_basic_auth(pattern, username, password);
-            }
-            _ => {
+            (Some(_), None, None, None) => {
                 anyhow::bail!(
-                    "Please specify all of SYSAND_CRED_{k}, SYSAND_CRED_{k}_BASIC_USER, SYSAND_CRED_{k}_BASIC_PASS"
+                    "SYSAND_CRED_{k} has no matching authentication scheme, please specify SYSAND_CRED_{k}_BASIC_USER/SYSAND_CRED_{k}_BASIC_PASS or SYSAND_CRED_{k}_BEARER_TOKEN"
                 );
+            }
+            (Some(pattern), maybe_username, maybe_password, maybe_token) => {
+                let mut matched_schemes = 0;
+
+                match (maybe_username, maybe_password) {
+                    (Some(username), Some(password)) => {
+                        matched_schemes += 1;
+                        auths_builder.add_basic_auth(pattern, username, password)
+                    }
+                    (None, None) => {}
+                    (_, _) => {
+                        anyhow::bail!(
+                            "Please specify both (or neither) of SYSAND_CRED_{k}_BASIC_USER and SYSAND_CRED_{k}_BASIC_PASS"
+                        );
+                    }
+                }
+
+                if let Some(token) = maybe_token {
+                    matched_schemes += 1;
+                    auths_builder.add_bearer_auth(pattern, token);
+                }
+
+                if matched_schemes > 1 {
+                    log::warn!("SYSAND_CRED_{k} has multiple authentication schemes!");
+                }
+            }
+            (None, _, _, _) => {
+                anyhow::bail!("please specify URL pattern SYSAND_CRED_{k} for credential");
             }
         }
     }
-    let basic_auth_policy = Arc::new(basic_auths_builder.build()?);
+    let basic_auth_policy = Arc::new(auths_builder.build()?);
 
     match args.command {
         cli::Command::Init {
