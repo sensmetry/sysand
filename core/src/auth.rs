@@ -72,6 +72,57 @@ impl HTTPAuthentication for ForceHTTPBasicAuth {
     }
 }
 
+/// Authentication policy that *always* includes a given header
+#[derive(Debug, Clone)]
+struct HeaderAuth {
+    pub header: String,
+    pub value: String,
+}
+
+impl HTTPAuthentication for HeaderAuth {
+    async fn request_with_authentication<F>(
+        &self,
+        request: RequestBuilder,
+        _renew_request: &F,
+    ) -> Result<Response, reqwest_middleware::Error>
+    where
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
+    {
+        request
+            .header(self.header.clone(), self.value.clone())
+            .send()
+            .await
+    }
+}
+
+/// Authentication policy that *always* includes a bearer token
+#[derive(Debug, Clone)]
+pub struct ForceBearerAuth(HeaderAuth);
+
+impl ForceBearerAuth {
+    pub fn new<S: AsRef<str>>(token: S) -> ForceBearerAuth {
+        ForceBearerAuth(HeaderAuth {
+            header: "Authorization".to_string(),
+            value: format!("Bearer {}", token.as_ref()),
+        })
+    }
+}
+
+impl HTTPAuthentication for ForceBearerAuth {
+    async fn request_with_authentication<F>(
+        &self,
+        request: RequestBuilder,
+        renew_request: &F,
+    ) -> Result<Response, reqwest_middleware::Error>
+    where
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
+    {
+        self.0
+            .request_with_authentication(request, renew_request)
+            .await
+    }
+}
+
 /// First tries `Higher` priority authentication and then the
 /// `Lower` priority one in case the first request results in
 /// a response in the 4xx range.
@@ -307,6 +358,36 @@ impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthe
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum StandardInnerAuthentication {
+    HTTPBasicAuth(ForceHTTPBasicAuth),
+    BearerAuth(ForceBearerAuth),
+}
+
+impl HTTPAuthentication for StandardInnerAuthentication {
+    async fn request_with_authentication<F>(
+        &self,
+        request: RequestBuilder,
+        renew_request: &F,
+    ) -> Result<Response, reqwest_middleware::Error>
+    where
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
+    {
+        match self {
+            StandardInnerAuthentication::HTTPBasicAuth(inner) => {
+                inner
+                    .request_with_authentication(request, renew_request)
+                    .await
+            }
+            StandardInnerAuthentication::BearerAuth(inner) => {
+                inner
+                    .request_with_authentication(request, renew_request)
+                    .await
+            }
+        }
+    }
+}
+
 /// Standard HTTP authentication policy where a restricted set of domains/paths have
 /// BasicAuth username/password pairs specified, but they are sent only in response to a
 /// 4xx status code.
@@ -316,7 +397,7 @@ pub type StandardHTTPAuthentication = RestrictAuthentication<
         Unauthenticated,
         // ... but send username/password in response to 4xx.
         // FIXME: Replace by a more general type as more authentication schemes are added
-        ForceHTTPBasicAuth,
+        StandardInnerAuthentication,
     >,
     // For all other domains use unauthenticated acceess.
     Unauthenticated,
@@ -325,7 +406,7 @@ pub type StandardHTTPAuthentication = RestrictAuthentication<
 /// Utility to simplify construction of `StandardHTTPAuthentication`
 #[derive(Debug, Default, Clone)]
 pub struct StandardHTTPAuthenticationBuilder {
-    partial: GlobMapBuilder<SequenceAuthentication<Unauthenticated, ForceHTTPBasicAuth>>,
+    partial: GlobMapBuilder<SequenceAuthentication<Unauthenticated, StandardInnerAuthentication>>,
 }
 
 impl StandardHTTPAuthenticationBuilder {
@@ -350,10 +431,20 @@ impl StandardHTTPAuthenticationBuilder {
             globstr,
             SequenceAuthentication {
                 higher: Unauthenticated {},
-                lower: ForceHTTPBasicAuth {
+                lower: StandardInnerAuthentication::HTTPBasicAuth(ForceHTTPBasicAuth {
                     username: username.as_ref().to_string(),
                     password: password.as_ref().to_string(),
-                },
+                }),
+            },
+        );
+    }
+
+    pub fn add_bearer_auth<S: AsRef<str>, T: AsRef<str>>(&mut self, globstr: S, token: T) {
+        self.partial.add(
+            globstr,
+            SequenceAuthentication {
+                higher: Unauthenticated {},
+                lower: StandardInnerAuthentication::BearerAuth(ForceBearerAuth::new(token)),
             },
         );
     }

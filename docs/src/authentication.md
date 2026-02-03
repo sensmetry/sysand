@@ -4,16 +4,18 @@ Project indices and remotely stored project KPARs (or sources) may require authe
 to get authorised access. Sysand currently supports this for:
 
 - HTTP(S) using the [basic access authentication scheme](https://en.wikipedia.org/wiki/Basic_access_authentication)
+- HTTP(S) using (fixed) bearer tokens (used by, for example, private GitLab pages)
 
 Support is planned for:
 
-- HTTP(S) with digest access, (fixed) bearer token, and OAuth2 device authentication
+- HTTP(S) with digest access and OAuth2 device authentication
 - Git with private-key and basic access authentication
 
 ## Configuring
 
 At the time of writing, authentication can only be configured through environment variables.
-Providing credentials is done by setting environment variables following the pattern
+
+Providing credentials for the Basic authentication scheme is done by setting environment variables following the pattern
 
 ```text
 SYSAND_CRED_<X> = <PATTERN>
@@ -47,3 +49,12 @@ Credentials will *only* be sent to URLs matching the pattern, and even then only
 unauthenticated response produces a status in the 4xx range. If multiple patterns match, they will
 be tried in an arbitrary order, after the initial unauthenticated attempt, until one results in a
 response not in the 4xx range.
+
+Authentication by a (fixed) bearer token works similarly, using the pattern
+```text
+SYSAND_CRED_<X> = <PATTERN>
+SYSAND_CRED_<X>_BEARER_TOKEN = <TOKEN>
+```
+
+With the above the Sysand client will send `Authorization: Bearer <TOKEN>`
+in response to 4xx statuses when accessing URLs maching `<PATTERN>`.

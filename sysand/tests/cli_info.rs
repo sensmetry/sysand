@@ -361,6 +361,159 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[test]
+fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
+    let mut server = mockito::Server::new();
+
+    let git_mock = server
+        .mock("GET", "/info/refs?service=git-upload-pack")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .expect(2) // TODO: Reduce this to 1
+        .create();
+
+    // let kpar_range_probe = server
+    //     .mock("HEAD", "/")
+    //     .match_header("authorization", Matcher::Missing)
+    //     .with_status(404)
+    //     .expect(1)
+    //     .create();
+
+    let kpar_download_try = server
+        .mock("GET", "/")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .expect(1)
+        .create();
+
+    let kpar_download_try_auth = server
+        .mock("GET", "/")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Bearer this_is_a_token".to_string()),
+        )
+        .with_status(404)
+        .expect(1)
+        .create();
+
+    let info_mock_head = server
+        .mock("HEAD", "/.project.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect(1) // TODO: Reduce this
+        .create();
+
+    let info_mock_head_auth = server
+        .mock("HEAD", "/.project.json")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Bearer this_is_a_token".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect(1) // TODO: Reduce this
+        .create();
+
+    let info_mock = server
+        .mock("GET", "/.project.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect(3) // TODO: Reduce this to 1
+        .create();
+
+    let info_mock_auth = server
+        .mock("GET", "/.project.json")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Bearer this_is_a_token".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect(3) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock_head = server
+        .mock("HEAD", "/.meta.json")
+        .match_header("authorization", Matcher::Missing)
+        .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(1)
+        .create();
+
+    let meta_mock_head_auth = server
+        .mock("HEAD", "/.meta.json")
+        .match_header(
+            "authorization",
+            Matcher::Exact("Bearer this_is_a_token".to_string()),
+        )
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(1)
+        .create();
+
+    let meta_mock = server
+        .mock("GET", "/.meta.json")
+        .with_status(404)
+        .match_header("authorization", Matcher::Missing)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(3) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock_auth = server
+        .mock("GET", "/.meta.json")
+        .with_status(200)
+        .match_header(
+            "authorization",
+            Matcher::Exact("Bearer this_is_a_token".to_string()),
+        )
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(3) // TODO: Reduce this to 1
+        .create();
+
+    let (_, _, out) = run_sysand_with(
+        ["info", "--iri", &server.url()],
+        None,
+        &IndexMap::from([
+            ("SYSAND_CRED_TEST", "http://127.0.0.1:*/**"),
+            ("SYSAND_CRED_TEST_BEARER_TOKEN", "this_is_a_token"),
+        ]),
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: info_basic_http_url"))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    git_mock.assert();
+
+    info_mock_head.assert();
+    info_mock_head_auth.assert();
+    meta_mock_head.assert();
+    meta_mock_head_auth.assert();
+
+    // kpar_range_probe.assert();
+    kpar_download_try.assert();
+    kpar_download_try_auth.assert();
+
+    info_mock.assert();
+    info_mock_auth.assert();
+
+    meta_mock.assert();
+    meta_mock_auth.assert();
+
+    Ok(())
+}
+
 // #[test]
 // fn info_non_ranged_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
 //     let buf = {
