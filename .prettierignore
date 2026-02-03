@@ -1,0 +1,7 @@
+target
+bindings/js/browser_dist
+bindings/js/browser_pkg
+bindings/js/browser_test_dist
+bindings/js/node_modules
+bindings/py/.pytest_cache
+bindings/py/.venv

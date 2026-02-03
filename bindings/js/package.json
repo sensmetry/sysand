@@ -4,16 +4,23 @@
   "type": "module",
   "description": "Sysand for JavaScript",
   "scripts": {
+    "prettier:check": "npx prettier --check \"**/*.{js,mjs,cjs}\"",
+    "prettier:format": "npx prettier --write \"**/*.{js,mjs,cjs}\"",
+    "lint": "npx eslint",
     "build:browser": "npx webpack -c webpack-browser.config.cjs",
     "test:browser": "npm run build:browser && npx webpack -c webpack-browser-test.config.cjs && npx jasmine-browser-runner runSpecs",
     "test:serve": "npm run build:browser && npx webpack -c webpack-browser-test.config.cjs && npx jasmine-browser-runner serve"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@wasm-tool/wasm-pack-plugin": "^1.7.0",
     "copy-webpack-plugin": "^13.0.1",
+    "eslint": "^9.39.2",
     "glob": "^13.0.0",
+    "globals": "^17.3.0",
     "jasmine-browser-runner": "^3.0.0",
     "jasmine-core": "^5.12.1",
+    "prettier": "3.8.1",
     "webpack": "^5.102.1",
     "webpack-cli": "^6.0.1"
   }

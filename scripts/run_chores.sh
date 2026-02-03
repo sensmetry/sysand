@@ -6,12 +6,19 @@ set -eu
 SCRIPT_DIR=$(dirname "$(realpath "$0")")
 ROOT_DIR=$(dirname "$SCRIPT_DIR")
 
-"$ROOT_DIR"/core/scripts/run_chores.sh
+# "$ROOT_DIR"/core/scripts/run_chores.sh
 
-"$ROOT_DIR"/sysand/scripts/run_chores.sh
+# "$ROOT_DIR"/sysand/scripts/run_chores.sh
 
-"$ROOT_DIR"/bindings/py/scripts/run_chores.sh
+# "$ROOT_DIR"/bindings/py/scripts/run_chores.sh
 
-"$ROOT_DIR"/bindings/js/scripts/run_chores.sh
+# "$ROOT_DIR"/bindings/js/scripts/run_chores.sh
 
-"$ROOT_DIR"/bindings/java/scripts/run_chores.sh
+# "$ROOT_DIR"/bindings/java/scripts/run_chores.sh
+
+cd "$ROOT_DIR"
+
+npm --prefix ./bindings/js install
+npm --prefix ./bindings/js exec prettier -- --write "**/*.md" # --ignore-path .gitignore
+
+markdownlint-cli2 "**/*.md"
