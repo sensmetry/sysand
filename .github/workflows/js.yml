@@ -23,14 +23,20 @@ jobs:
         with:
           node-version: 23
 
-      - name: Prettier
+      - name: NPM install
         run: |
           cd bindings/js
           npm install
+
+      - name: Prettier
+        run: |
+          cd bindings/js
           npm run prettier:check
 
       - name: ESLint
-        run: npm run lint
+        run: |
+          cd bindings/js
+          npm run lint
 
       - name: Test in Firefox
         run: |
@@ -47,5 +53,4 @@ jobs:
       - name: Build for Node.js and test
         run: |
           cd bindings/js
-          npm install
           npm run test:browser
