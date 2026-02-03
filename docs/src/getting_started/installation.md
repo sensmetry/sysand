@@ -78,12 +78,12 @@ After downloading the appropriate file, installation depends on your platform:
 
 It is recommended to then [verify the installation](#verify-the-installation).
 
-## Windows
+### Windows
 
 The downloaded binary can either be installed manually or by running
 a few PowerShell commands.
 
-### Manual installation
+#### Manual installation
 
 1. Move the downloaded `.exe` file to `%LOCALAPPDATA%\Programs\Sysand\sysand.exe`
 2. Add to `PATH` via Environment Variables:
@@ -93,7 +93,7 @@ a few PowerShell commands.
     3. Click "New" and add `%LOCALAPPDATA%\Programs\Sysand`
     4. Click "Ok" to save
 
-### PowerShell installation
+#### PowerShell installation
 
 1. Open PowerShell
 2. Run these commands:
@@ -127,9 +127,9 @@ if ($currentPath -notlike "*$newPath*") {
 > Restart your terminal after installation for `PATH` changes to take effect.
 
 
-## macOS
+### macOS
 
-### System installation (requires `sudo`)
+#### System installation (requires `sudo`)
 
 1. Open Terminal
 2. Make the binary executable and move to a folder in `PATH` by running the
@@ -145,7 +145,7 @@ chmod +x ~/Downloads/sysand-macos-arm64
 sudo mv ~/Downloads/sysand-macos-arm64 /usr/local/bin/sysand
 ```
 
-### Alternative: user installation (no `sudo` required)
+#### Alternative: user installation (no `sudo` required)
 
 It is also possible to install without `sudo` rights, but that requires
 additional steps.
@@ -166,9 +166,9 @@ source ~/.zshrc
     but instead of `/usr/local/bin/sysand` move to `~/.local/bin/sysand`.
 
 
-## Linux
+### Linux
 
-### System installation (requires `sudo`)
+#### System installation (requires `sudo`)
 
 1. Open a terminal
 2. Make the binary executable and move to a folder in `PATH` by running the
@@ -184,7 +184,7 @@ chmod +x sysand-linux-arm64
 sudo mv sysand-linux-arm64 /usr/local/bin/sysand
 ```
 
-### Alternative: user installation (no `sudo` required)
+#### Alternative: user installation (no `sudo` required)
 
 It is also possible to install without `sudo` rights, but that requires
 additional steps.
@@ -204,7 +204,7 @@ source ~/.bashrc
     but instead of `/usr/local/bin/sysand` move to `~/.local/bin/sysand`.
 
 
-## Verify the installation
+### Verify the installation
 
 Run in a terminal:
 
@@ -232,6 +232,5 @@ If you have it, run the following command in the terminal:
 cargo install sysand --git=https://github.com/sensmetry/sysand.git
 ```
 
-[dl]: https://beta.sysand.org/download.html
 [gh_rel]: https://github.com/sensmetry/sysand/releases/latest
 [gh_rel_all]: https://github.com/sensmetry/sysand/releases/
