@@ -35,8 +35,8 @@ Rust/"native" tests must be run without the `extension-module` feature:
 cargo test --no-default-features
 ```
 
-If this is run inside a venv and does not work, look in `scripts/run_tests.sh` for fixes.
-
+If this is run inside a venv and does not work, look in `scripts/run_tests.sh`
+for fixes.
 
 ## Formatting and linting
 
@@ -50,7 +50,9 @@ Format Rust and Python code and run linters for both:
 
 Python version used by default for venvs is specified in `.python-version`.
 If you change the version there, you should run
+
 ```sh
 cargo clean -p pyo3-build-config
 ```
+
 to ensure that no references to previously used Python version remain in build cache.

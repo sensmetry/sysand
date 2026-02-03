@@ -170,7 +170,7 @@ $ sysand sources
 ### Environments
 
 When we executed `sysand add` in the previous subsection, it implicitly created
-and synchronized an *environment* for us. For users familiar with Python, Sysand
+and synchronized an _environment_ for us. For users familiar with Python, Sysand
 environments serve the same purpose as Python virtual environments: they store
 dependencies needed for a specific project.
 
@@ -227,7 +227,7 @@ Serving HTTP on 0.0.0.0 port 8080 (http://0.0.0.0:8080/) ...
 ```
 
 > [!important]
-> Python's built-in `http.server` module is *not* intended for production use.
+> Python's built-in `http.server` module is _not_ intended for production use.
 
 Any project in the above `sysand_env` can now be used in `sysand add`, `sysand sync`,
 `sysand env install`, etc., as long as the flag `--use-index http://localhost:8080`
@@ -239,7 +239,7 @@ create a fresh `sysand_env`.
 ```console
 $ mkdir my_index
 $ cd my_index
-$ sysand env 
+$ sysand env
     Creating env
 ```
 
@@ -286,7 +286,7 @@ For contributors' guidelines regarding legal matters, please see the
 ## Licensing
 
 The implementation is dual-licensed under the MIT and Apache-2.0 licenses,
-meaning users may choose to use the code under *either* license. Contributors
+meaning users may choose to use the code under _either_ license. Contributors
 agree to provide contributed code under **both** licenses.
 
 Sysand is maintained by [Sensmetry](https://www.sensmetry.com), with

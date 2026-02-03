@@ -18,7 +18,8 @@ typically shipped with your language implementation.
 
 ## Arguments
 
-- `<IRI>`: IRI of the (already installed) project for which to enumerate source files
+- `<IRI>`: IRI of the (already installed) project for which to enumerate source
+  files
 - `[VERSION]`: Version of project to list sources for
 
 {{#include ../partials/source_opts.md}}

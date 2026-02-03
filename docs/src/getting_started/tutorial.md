@@ -134,7 +134,7 @@ $ sysand sources
 ## Environments
 
 When we executed `sysand add` in the previous subsection, it implicitly created
-and synchronized an *environment* for us. For users familiar with Python, Sysand
+and synchronized an _environment_ for us. For users familiar with Python, Sysand
 environments serve the same purpose as Python virtual environments: they store
 dependencies needed for a specific project.
 
