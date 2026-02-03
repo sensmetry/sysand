@@ -208,6 +208,89 @@ fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn info_basic_http_url_irrelevant_auth() -> Result<(), Box<dyn Error>> {
+    let mut server = mockito::Server::new();
+
+    let git_mock = server
+        .mock("GET", "/info/refs?service=git-upload-pack")
+        .with_status(404)
+        .expect_at_most(2) // TODO: Reduce this to 1
+        .create();
+
+    let kpar_range_probe = server
+        .mock("HEAD", "/")
+        .with_status(404)
+        .expect_at_most(1)
+        .create();
+
+    let kpar_download_try = server
+        .mock("GET", "/")
+        .with_status(404)
+        .expect_at_most(1)
+        .create();
+
+    let info_mock_head = server
+        .mock("HEAD", "/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(1) // TODO: Reduce this
+        .create();
+
+    let info_mock = server
+        .mock("GET", "/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .expect_at_most(3) // TODO: Reduce this to 1
+        .create();
+
+    let meta_mock_head = server
+        .mock("HEAD", "/.meta.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect_at_most(1)
+        .create();
+
+    let meta_mock = server
+        .mock("GET", "/.meta.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect_at_most(3) // TODO: Reduce this to 1
+        .create();
+
+    let (_, _, out) = run_sysand_with(
+        ["info", "--iri", &server.url()],
+        None,
+        &IndexMap::from([
+            ("SYSAND_CRED_TEST", "http://irrelevant.example.com:*/**"),
+            ("SYSAND_CRED_TEST_BASIC_USER", "user_1234"),
+            ("SYSAND_CRED_TEST_BASIC_PASS", "pass_4321"),
+        ]),
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: info_basic_http_url"))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    git_mock.assert();
+
+    info_mock_head.assert();
+    meta_mock_head.assert();
+
+    kpar_range_probe.assert();
+    kpar_download_try.assert();
+
+    info_mock.assert();
+    meta_mock.assert();
+
+    Ok(())
+}
+
+#[test]
 fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
 

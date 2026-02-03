@@ -88,10 +88,7 @@ impl HTTPAuthentication for HeaderAuth {
     where
         F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        request
-            .header(self.header.clone(), self.value.clone())
-            .send()
-            .await
+        request.header(&self.header, &self.value).send().await
     }
 }
 

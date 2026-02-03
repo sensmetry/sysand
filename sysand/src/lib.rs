@@ -214,8 +214,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 );
             }
             (Some(pattern), maybe_username, maybe_password, maybe_token) => {
+                let mut matched_schemes = 0;
+
                 match (maybe_username, maybe_password) {
                     (Some(username), Some(password)) => {
+                        matched_schemes += 1;
                         auths_builder.add_basic_auth(pattern, username, password)
                     }
                     (None, None) => {}
@@ -227,7 +230,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 }
 
                 if let Some(token) = maybe_token {
+                    matched_schemes += 1;
                     auths_builder.add_bearer_auth(pattern, token);
+                }
+
+                if matched_schemes > 1 {
+                    log::warn!("SYSAND_CRED_{k} has multiple authentication schemes!");
                 }
             }
             (None, _, _, _) => {

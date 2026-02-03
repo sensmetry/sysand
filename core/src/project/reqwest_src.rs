@@ -76,12 +76,12 @@ impl<Policy> ReqwestSrcProjectAsync<Policy> {
     //         .header(reqwest::header::ACCEPT, "application/json")
     // }
 
-    pub fn reqwest_src<P: AsRef<Utf8UnixPath>>(
-        &self,
-        path: P,
-    ) -> reqwest_middleware::RequestBuilder {
-        self.client.get(self.src_url(path))
-    }
+    // pub fn reqwest_src<P: AsRef<Utf8UnixPath>>(
+    //     &self,
+    //     path: P,
+    // ) -> reqwest_middleware::RequestBuilder {
+    //     self.client.get(self.src_url(path))
+    // }
 }
 
 #[derive(Error, Debug)]
@@ -164,11 +164,13 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         use futures::StreamExt as _;
 
+        let this_url = self.src_url(path);
+
         let resp = self
-            .reqwest_src(&path)
-            .send()
+            .auth_policy
+            .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
             .await
-            .map_err(|e| ReqwestSrcError::Reqwest(self.src_url(&path).into(), e))?;
+            .map_err(|e| ReqwestSrcError::Reqwest(self.meta_url().into(), e))?;
 
         if resp.status().is_success() {
             Ok(resp
