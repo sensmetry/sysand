@@ -174,8 +174,9 @@ pub enum Command {
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
     },
-    /// Describe or modify the current project or resolve
-    /// and describe a project at a specified path or IRI/URL
+    /// Describe or modify a local project (either the current one
+    /// or one at a given path) or resolve and describe a project
+    /// at a specified path or IRI/URL
     #[clap(verbatim_doc_comment)]
     Info {
         /// Use the project at the given path instead of the current project

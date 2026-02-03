@@ -32,11 +32,10 @@ Directory structure:
 Development is done on Linux (including WSL) or macOS. For Sysand core and CLI
 development, you need to [install Rust](https://rust-lang.org/tools/install/)
 specified in `rust-version` field of [Cargo.toml](Cargo.toml) or later
-and [uv](https://docs.astral.sh/uv/). It is also recommended
-to use [`rust-analyzer`](https://github.com/rust-lang/rust-analyzer).
-It has an [extension for VS
-Code](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyze
-r) and many other code editors can use it via
+and [uv](https://docs.astral.sh/uv/). It is also recommended to use
+[`rust-analyzer`](https://github.com/rust-lang/rust-analyzer). It has an
+[extension for VS Code](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+and many other code editors can use it via
 [LSP](https://microsoft.github.io/language-server-protocol/).
 Other useful VS Code extensions can be found in
 [`.vscode/extensions.json`](.vscode/extensions.json).
@@ -112,9 +111,11 @@ Format and lint all Rust and bindings code (requires bindings dependencies):
 ## Commits and pull requests
 
 Committing your changes:
+
 ```sh
 git commit -sm "your commit message"
 ```
+
 The `-s` flag signs the commit, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Pull requests must pass CI and be reviewed by a maintainer to be
@@ -123,20 +124,47 @@ merged. The project uses GitHub Actions CI, its configuration is in
 as [`./scripts/run_tests.sh`](scripts/run_tests.sh). Therefore it is recommended
 to make sure that all tests pass locally before submitting a pull request.
 
+
+## Documentation
+
+The "Sysand User Guide" is currently a work in progress. It is located in `docs/`.
+Official version is hosted at [docs.sysand.org](https://docs.sysand.org/).
+To preview it locally, make sure you have [`mdbook`](https://github.com/rust-lang/mdBook)
+installed (`cargo install mdbook`), then either run
+
+```sh
+mdbook build docs/
+```
+
+and open `docs/book/index.html`, or run
+
+```sh
+mdbook serve docs/
+```
+
+and open [localhost:3000](http://localhost:3000/).
+
+
 ## Text formatting guide
 
+Rules for formatting messages intended for the user and general
+documentation.
+
 ### Log/error messages
+
+This applies to messages printed to the user. It includes general
+information, but also warnings and errors.
 
 Rules to follow:
 
 - error messages are both for users and developers,
   so should be comprehensible and useful to both
-- always quote user input (paths, file/dir names, arbitrary strings, IRIs, etc.)
-  using backticks (``)
-- messages start on a lowercase letter (if any)
+- if possible, provide user input (paths, file/dir names, arbitrary strings, IRIs, etc.)
+  that caused the warning/error or is relevant to it; always quote user input using
+  backticks (``)
 - include as much information as reasonable, do not hide underlying errors
-- for multiline warning log messages, indent subsequent lines
-  to align with the first:
+- messages generally start on a lowercase letter
+- for multiline warnings, indent subsequent lines to align with the first, e.g.:
 
   ```rust
   const SP: char = ' ';
@@ -148,11 +176,11 @@ Rules to follow:
   ```
 
 - include explicit newlines in messages that are long or
-  include potentially long interpolated values (previous example)
+  include potentially long interpolated values (see above example)
 
 ### Markdown
 
-Rules for markdown (Rust doc comments, `.md` files):
+Rules for markdown (Rust doc comments, Markdown (`.md`) files):
 
 - always include a language specifier in fenced code blocks,
   use `text` if no language is appropriate:
