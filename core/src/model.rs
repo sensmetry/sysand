@@ -61,6 +61,17 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
     }
 }
 
+impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>>
+    for InterchangeProjectUsageG<String, semver::VersionReq>
+{
+    fn from(value: InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>) -> Self {
+        InterchangeProjectUsageG {
+            resource: value.resource.to_string(),
+            version_constraint: value.version_constraint,
+        }
+    }
+}
+
 impl TryFrom<InterchangeProjectUsageRaw> for InterchangeProjectUsage {
     type Error = InterchangeProjectValidationError;
 
@@ -142,21 +153,20 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
     //     });
     // }
 
+    /// Remove and return all occurrences of `resource` in project usages.
+    /// Note that sysand will never add multiple usages of the same resource
+    /// to the project, but it does tolerate such usages.
+    // TODO: the spec does not say anything about this and should be clarified
     pub fn pop_usage(&mut self, resource: &Iri) -> Vec<InterchangeProjectUsageG<Iri, VersionReq>> {
         // TODO(MSRV >=1.87):
         // self.usage.extract_if(.., |InterchangeProjectUsageG { resource: this_resource, .. }| this_resource == resource).collect()
 
-        let (removed, kept): (Vec<_>, Vec<_>) = self
-            .usage
-            .iter()
-            .cloned()
-            .partition(
-                |InterchangeProjectUsageG {
-                     resource: this_resource,
-                     ..
-                 }| this_resource == resource,
-            )
-            .to_owned();
+        let (removed, kept): (Vec<_>, Vec<_>) = self.usage.iter().cloned().partition(
+            |InterchangeProjectUsageG {
+                 resource: this_resource,
+                 ..
+             }| this_resource == resource,
+        );
 
         self.usage = kept;
 
@@ -401,22 +411,22 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
         InterchangeProjectMetadataRaw {
             index: value
                 .index
-                .iter()
-                .map(|(k, v)| (k.to_owned(), v.to_string()))
+                .into_iter()
+                .map(|(k, v)| (k, v.into_string()))
                 .collect(),
             created: value
                 .created
                 .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
-            metamodel: value.metamodel.map(|iri| iri.to_string()),
+            metamodel: value.metamodel.map(|iri| iri.into_string()),
             includes_derived: value.includes_derived,
             includes_implied: value.includes_implied,
             checksum: value.checksum.map(|m| {
-                m.iter()
+                m.into_iter()
                     .map(|(k, v)| {
                         (
-                            k.to_string(),
+                            k.into_string(),
                             InterchangeProjectChecksumRaw {
-                                value: v.value.clone(),
+                                value: v.value,
                                 algorithm: v.algorithm.to_string(),
                             },
                         )
@@ -437,6 +447,8 @@ pub enum InterchangeProjectValidationError {
     SemVerConstraintParse(String, semver::Error),
     #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
     DatetimeParse(Box<str>, chrono::ParseError),
+    #[error("file `{0}` is present in symbol index, but absent in file checksums")]
+    MissingFileInChecksum(Box<str>),
     #[error(
         "invalid file checksum algorithm `{0}`, expected one of:\n\
         SHA1, SHA224, SHA256, SHA-384, SHA3-256, SHA3-384, SHA3-512\n\
@@ -472,6 +484,16 @@ impl InterchangeProjectMetadataRaw {
         &self,
     ) -> Result<InterchangeProjectMetadata, InterchangeProjectValidationError> {
         let checksum = if let Some(checksum) = &self.checksum {
+            // Checksum must include all the files mentioned in index,
+            // but index may mention less files than checksum.
+            for path in self.index.values() {
+                if !checksum.contains_key(path) {
+                    return Err(InterchangeProjectValidationError::MissingFileInChecksum(
+                        path.as_str().into(),
+                    ));
+                }
+            }
+
             let mut res = IndexMap::with_capacity(checksum.len());
             for (k, v) in checksum {
                 let k = Utf8UnixPath::new(k).to_path_buf();
@@ -498,16 +520,19 @@ impl InterchangeProjectMetadataRaw {
                 };
                 res.insert(k, InterchangeProjectChecksum { value, algorithm });
             }
+
             Some(res)
         } else {
             None
         };
+
         Ok(InterchangeProjectMetadata {
             index: self
                 .index
                 .iter()
                 .map(|(k, v)| (k.to_owned(), Utf8UnixPath::new(v).to_path_buf()))
                 .collect(),
+            // TODO: this is not strictly correct, as RFC3339 only partially overlaps with ISO8601
             created: chrono::DateTime::parse_from_rfc3339(&self.created)
                 .map_err(|e| {
                     InterchangeProjectValidationError::DatetimeParse(

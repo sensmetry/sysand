@@ -827,7 +827,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "unable to find interchange project 'urn:kpar:other'",
+        "failed to resolve IRI `urn:kpar:other`: no resolver was able to resolve the IRI",
     ));
 
     Ok(())
@@ -966,7 +966,7 @@ fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "unable to find interchange project 'urn:kpar:other'",
+        "failed to resolve IRI `urn:kpar:other`: no resolver was able to resolve the IRI",
     ));
 
     Ok(())
@@ -1605,21 +1605,21 @@ fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
             "--release-custom",
             "123",
         ],
-        Err("the argument '--release <YYYYMMDD>' cannot be used with '--release-custom"),
+        Err("the argument '--release <YYYYMMXX>' cannot be used with '--release-custom"),
     )?;
     try_set(
         &["--release", "20250201", "--release-custom", "123"],
-        Err("the argument '--release <YYYYMMDD>' cannot be used with '--release-custom"),
+        Err("the argument '--release <YYYYMMXX>' cannot be used with '--release-custom"),
     )?;
     try_set(
         &["--set-custom", "abc123", "--release-custom", "123"],
         Err(
-            "the argument '--set-custom <METAMODEL>' cannot be used with '--release-custom <YYYYMMDD>'",
+            "the argument '--set-custom <METAMODEL>' cannot be used with '--release-custom <YYYYMMXX>'",
         ),
     )?;
     try_set(
         &["--set-custom", "abc123", "--release", "20250201"],
-        Err("the argument '--set-custom <METAMODEL>' cannot be used with '--release <YYYYMMDD>'"),
+        Err("the argument '--set-custom <METAMODEL>' cannot be used with '--release <YYYYMMXX>'"),
     )?;
 
     Ok(())
