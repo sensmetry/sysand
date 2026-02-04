@@ -42,7 +42,7 @@ pub fn open_environment_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
 
     if !result.vfs.exists(result.entries_path())? {
         return Err(Error::InvalidEnvironment(
-            "missing 'entries.txt'".to_string(),
+            "missing `entries.txt`".to_string(),
         ));
     }
 

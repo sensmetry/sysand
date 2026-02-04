@@ -19,12 +19,12 @@ crate-type = ["cdylib"]
 sysand-core = { path = "../../core", features = ["std", "filesystem", "networking"] }
 camino.workspace = true
 jni = "0.21.1"
-indexmap = { version = "2.12.1", default-features = false, features = ["serde"] }
-url = { version = "2.5.7", default-features = false }
-tokio = { version = "1.48.0", default-features = false, features = ["rt"] }
 reqwest-middleware = { version = "0.5.0" }
+indexmap = { version = "2.13.0", default-features = false, features = ["serde"] }
+url = { version = "2.5.8", default-features = false }
+tokio = { version = "1.49.0", default-features = false, features = ["rt"] }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.145", default-features = false, features = ["preserve_order"] }
+serde_json = { version = "1.0.149", default-features = false, features = ["preserve_order"] }
 
 # Use native TLS only on Windows and Apple OSs
 [target.'cfg(any(target_os = "windows", target_vendor = "apple"))'.dependencies]

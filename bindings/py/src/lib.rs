@@ -28,7 +28,7 @@ use sysand_core::{
     include::do_include,
     info::{InfoError, do_info, do_info_project},
     init::InitError,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw},
     project::{
         ProjectRead as _,
         local_kpar::LocalKParProject,
@@ -163,8 +163,8 @@ fn do_info_py(
 
         match do_info(&uri, &combined_resolver) {
             Ok(matches) => results.extend(matches),
-            Err(InfoError::NoResolve(_)) => {}
-            Err(e @ InfoError::Resolution(_)) => {
+            Err(InfoError::NoResolve(..)) => {}
+            Err(e @ (InfoError::UnsupportedIri(..) | InfoError::Resolution(_))) => {
                 return Err(PyRuntimeError::new_err(e.to_string()));
             }
         };
@@ -403,7 +403,14 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
         project_path: path.into(),
     };
 
-    do_add(&mut project, iri, version).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    do_add(
+        &mut project,
+        &InterchangeProjectUsageRaw {
+            resource: iri,
+            version_constraint: version,
+        },
+    )
+    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
 #[pyfunction(name = "do_remove_py")]

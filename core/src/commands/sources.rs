@@ -46,8 +46,7 @@ pub fn do_sources_project_no_deps<Pr: ProjectRead>(
     Ok(meta
         .validate()?
         .source_paths(include_index)
-        .iter()
-        .cloned()
+        .into_iter()
         .collect())
 }
 

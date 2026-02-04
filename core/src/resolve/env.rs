@@ -25,13 +25,21 @@ impl<Env: ReadEnvironment> ResolveRead for EnvResolver<Env> {
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let versions = self.env.versions(uri)?;
 
-        let projects = versions.into_iter().map(
-            |version| -> Result<Env::InterchangeProjectRead, Env::ReadError> {
-                self.env.get_project(uri.clone(), version?)
-            },
-        );
-
-        Ok(ResolutionOutcome::Resolved(projects.collect()))
+        let projects: Self::ResolvedStorages = versions
+            .into_iter()
+            .map(
+                |version| -> Result<Env::InterchangeProjectRead, Env::ReadError> {
+                    self.env.get_project(uri.clone(), version?)
+                },
+            )
+            .collect();
+        if projects.is_empty() {
+            Ok(ResolutionOutcome::Unresolvable(format!(
+                "no versions of `{uri}` found in environment"
+            )))
+        } else {
+            Ok(ResolutionOutcome::Resolved(projects))
+        }
     }
 }
 
@@ -56,6 +64,11 @@ impl<Env: ReadEnvironmentAsync> ResolveReadAsync for EnvResolver<Env> {
         use futures::StreamExt as _;
 
         let versions: Vec<Result<String, _>> = self.env.versions_async(uri).await?.collect().await;
+        if versions.is_empty() {
+            return Ok(ResolutionOutcome::Unresolvable(format!(
+                "no versions of `{uri}` found in environment"
+            )));
+        }
 
         let projects = futures::future::join_all(
             versions

@@ -27,10 +27,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    {
-        let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
-        sysml_file.write_all(b"package P;\n")?;
-    }
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -86,10 +83,7 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    {
-        let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
-        sysml_file.write_all(b"package P;\n")?;
-    }
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -132,10 +126,7 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    {
-        let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
-        sysml_file.write_all(b"package P;\n")?;
-    }
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -186,8 +177,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
-    sysml_file.write_all(b"")?;
-    sysml_file.flush()?;
+    sysml_file.sync_data()?;
 
     out.assert().success();
 
@@ -213,7 +203,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     sysml_file.write_all(b"package P;\n")?;
-    sysml_file.flush()?;
+    sysml_file.sync_data()?;
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml", "--compute-checksum"], None)?;
 
@@ -255,15 +245,9 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    {
-        let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
-        sysml_file.write_all(b"package P;\n")?;
-
-        std::fs::create_dir(cwd.join("extra"))?;
-
-        let mut sysml_file = std::fs::File::create(cwd.join("extra").join("test.sysml"))?;
-        sysml_file.write_all(b"package Extra;\n")?;
-    }
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    std::fs::create_dir(cwd.join("extra"))?;
+    std::fs::write(cwd.join("extra").join("test.sysml"), b"package Extra;\n")?;
 
     out.assert().success();
 
@@ -343,15 +327,11 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
         None,
     )?;
 
-    {
-        let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
-        sysml_file.write_all(b"package P;\n")?;
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
-        std::fs::create_dir(cwd.join("extra"))?;
+    std::fs::create_dir(cwd.join("extra"))?;
 
-        let mut sysml_file = std::fs::File::create(cwd.join("extra").join("test.sysml"))?;
-        sysml_file.write_all(b"package Extra;\n")?;
-    }
+    std::fs::write(cwd.join("extra").join("test.sysml"), b"package Extra;\n")?;
 
     out.assert().success();
 

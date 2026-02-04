@@ -98,7 +98,7 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     SequentialResolver::new(urls.into_iter().map(|url| EnvResolver {
         env: HTTPEnvironmentAsync {
             client: client.clone(),
-            base_url: url.clone(),
+            base_url: url,
             prefer_src: true,
             auth_policy: auth_policy.clone(),
             //try_ranged: true,
