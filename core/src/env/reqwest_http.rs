@@ -160,7 +160,8 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
         uri: S,
         version: T,
     ) -> Result<Option<HTTPProjectAsync<Policy>>, HTTPEnvironmentError> {
-        let this_url = self.project_kpar_url(&uri, &version)?;
+        let project_kpar_url = self.project_kpar_url(&uri, &version)?;
+        let this_url = project_kpar_url.clone();
         let kpar_project_request = move |client: &ClientWithMiddleware| {
             client
                 .head(this_url.clone())
@@ -177,7 +178,7 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
 
         Ok(Some(HTTPProjectAsync::HTTPKParProjectDownloaded(
             ReqwestKparDownloadedProject::new_guess_root(
-                &this_url,
+                &project_kpar_url,
                 self.client.clone(),
                 self.auth_policy.clone(),
             )
