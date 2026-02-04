@@ -9,9 +9,7 @@ use camino::Utf8Path;
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::lock::{
-        DEFAULT_LOCKFILE_NAME, LockError, LockOutcome, LockProjectError, do_lock_local_editable,
-    },
+    commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
     config::Config,
     env::local_directory::DEFAULT_ENV_NAME,
     project::{memory::InMemoryProject, utils::wrapfs},
@@ -53,6 +51,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         provided_iris,
         client,
         runtime,
+        auth_policy,
     )?;
 
     let alias_iris = if let Some(w) = current_workspace {
@@ -77,15 +76,16 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     Ok(canonical)
 }
 
-pub fn create_resolver<P: AsRef<Utf8Path>>(
+pub fn create_resolver<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     path: &P,
     resolution_opts: ResolutionOptions,
     config: &Config,
     provided_iris: HashMap<String, Vec<InMemoryProject>>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
 ) -> Result<
-    PriorityResolver<MemoryResolver<AcceptAll, InMemoryProject>, StandardResolver>,
+    PriorityResolver<MemoryResolver<AcceptAll, InMemoryProject>, StandardResolver<Policy>>,
     anyhow::Error,
 > {
     let ResolutionOptions {

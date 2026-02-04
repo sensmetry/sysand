@@ -190,7 +190,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
 
     let provided_iris = if !include_std {
         let sysml_std = crate::known_std_libs();
-        if sysml_std.contains_key(&iri) {
+        if sysml_std.contains_key(iri.as_ref()) {
             crate::logger::warn_std(&iri);
             return Ok(());
         }
