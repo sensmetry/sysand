@@ -106,8 +106,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
                     client.get(this_url.clone())
                 },
             )
-            .await
-        ?;
+            .await?;
 
         if !resp.status().is_success() {
             return Err(ReqwestKparDownloadedError::BadHttpStatus(
