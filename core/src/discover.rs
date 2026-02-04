@@ -8,9 +8,10 @@ use crate::{
         local_src::LocalSrcProject,
         utils::{FsIoError, ToPathBuf, wrapfs},
     },
-    workspace::Workspace,
+    workspace::{Workspace, WorkspaceReadError},
 };
 
+/// If current directory is known by caller, consider using `discover_project`
 pub fn current_project() -> Result<Option<LocalSrcProject>, Box<FsIoError>> {
     discover_project(wrapfs::current_dir()?)
 }
@@ -29,23 +30,29 @@ pub fn discover_project<P: AsRef<Utf8Path>>(
     Ok(project)
 }
 
-pub fn current_workspace() -> Result<Option<Workspace>, Box<FsIoError>> {
-    discover_workspace(wrapfs::current_dir()?)
+// TODO: don't use multiple Results here
+/// If current directory is known by caller, consider using `discover_workspace`
+pub fn current_workspace() -> Result<Result<Option<Workspace>, WorkspaceReadError>, Box<FsIoError>>
+{
+    Ok(discover_workspace(wrapfs::current_dir()?))
 }
 
+/// Tries to find workspace in `working_directory` or its ancestors.
+/// If found, returns result of reading the workspace info file
 pub fn discover_workspace<P: AsRef<Utf8Path>>(
     working_directory: P,
-) -> Result<Option<Workspace>, Box<FsIoError>> {
-    let workspace = discover(working_directory, |path| {
+) -> Result<Option<Workspace>, WorkspaceReadError> {
+    let path = match discover(working_directory, |path| {
         wrapfs::is_file(path.join(".workspace.json"))
-    })?
-    .map(|path| Workspace {
-        workspace_path: path,
-    });
-    Ok(workspace)
+    })? {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    Some(Workspace::new(path)).transpose()
 }
 
-// TODO: Improve the logic here, this is probably too simple
+/// Discover a directory that satisfies `predicate`. Tries
+/// `working_directory` and all its ancestors.
 fn discover<P: AsRef<Utf8Path>, F: Fn(&Utf8Path) -> Result<bool, Box<FsIoError>>>(
     working_directory: P,
     predicate: F,

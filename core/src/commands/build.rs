@@ -162,12 +162,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     canonicalise: bool,
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
     let mut result = Vec::new();
-    let Some(projects) = workspace.get_projects()? else {
-        // The caller should have already checked that the .workspace.json file
-        // exists.
-        return Err(KParBuildError::InternalError("missing .workspace.json."));
-    };
-    for project in projects {
+    for project in workspace.projects() {
         let project = LocalSrcProject {
             nominal_path: None,
             project_path: workspace.root_path().join(&project.path),
