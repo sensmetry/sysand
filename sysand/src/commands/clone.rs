@@ -22,20 +22,20 @@ use sysand_core::{
 
 use crate::{
     CliError, DEFAULT_INDEX_URL,
-    cli::{ProjectLocatorArgs, ResolutionOptions},
+    cli::{CloneProjectLocatorArgs, ResolutionOptions},
     commands::sync::command_sync,
     get_or_create_env,
 };
 
 pub enum ProjectLocator {
     Iri(Iri<String>),
-    Path(String),
+    Path(Utf8PathBuf),
 }
 
 /// Clones project from `locator` to `target` directory.
 #[allow(clippy::too_many_arguments)]
 pub fn command_clone<Policy: HTTPAuthentication>(
-    locator: ProjectLocatorArgs,
+    locator: CloneProjectLocatorArgs,
     version: Option<String>,
     target: Option<Utf8PathBuf>,
     no_deps: bool,
@@ -91,7 +91,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
-    let ProjectLocatorArgs {
+    let CloneProjectLocatorArgs {
         auto_location,
         iri,
         path,
@@ -100,7 +100,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     let locator = if let Some(auto_location) = auto_location {
         match fluent_uri::Iri::parse(auto_location) {
             Ok(iri) => ProjectLocator::Iri(iri),
-            Err((_e, path)) => ProjectLocator::Path(path),
+            Err((_e, path)) => ProjectLocator::Path(path.into()),
         }
     } else if let Some(path) = path {
         ProjectLocator::Path(path)
@@ -141,9 +141,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             );
         }
         ProjectLocator::Path(path) => {
-            let remote_project = LocalSrcProject {
-                project_path: path.into(),
-            };
+            let remote_project = LocalSrcProject { project_path: path };
             if let Some(version) = version {
                 let project_version = remote_project
                     .get_info()?
@@ -281,10 +279,10 @@ pub fn get_project_version<R: ResolveRead>(
                         continue;
                     }
                 };
-                if let Some(version) = &requested_version {
-                    if &candidate_version != version {
-                        continue;
-                    }
+                if let Some(version) = &requested_version
+                    && &candidate_version != version
+                {
+                    continue;
                 }
                 candidates.push((candidate_version, candidate_project));
             }

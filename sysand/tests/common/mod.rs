@@ -6,15 +6,20 @@ use camino_tempfile::Utf8TempDir;
 use indexmap::IndexMap;
 #[cfg(not(target_os = "windows"))]
 use rexpect::session::{PtySession, spawn_command};
+use std::ffi::OsStr;
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::process::ExitStatusExt;
 use std::{
     error::Error,
     io::Write,
+    path::Path,
     process::{Command, Output},
 };
 
-use std::ffi::OsStr;
+/// `p` must be absolute OS-native path
+pub fn file_url_from_path(p: impl AsRef<Path>) -> String {
+    url::Url::from_file_path(p).unwrap().to_string()
+}
 
 pub fn fixture_path(name: &str) -> Utf8PathBuf {
     let mut path = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"));

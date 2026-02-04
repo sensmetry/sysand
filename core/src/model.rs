@@ -143,24 +143,15 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
     // }
 
     pub fn pop_usage(&mut self, resource: &Iri) -> Vec<InterchangeProjectUsageG<Iri, VersionReq>> {
-        // TODO(MSRV >=1.87):
-        // self.usage.extract_if(.., |InterchangeProjectUsageG { resource: this_resource, .. }| this_resource == resource).collect()
-
-        let (removed, kept): (Vec<_>, Vec<_>) = self
-            .usage
-            .iter()
-            .cloned()
-            .partition(
+        self.usage
+            .extract_if(
+                ..,
                 |InterchangeProjectUsageG {
                      resource: this_resource,
                      ..
                  }| this_resource == resource,
             )
-            .to_owned();
-
-        self.usage = kept;
-
-        removed
+            .collect()
     }
 }
 
@@ -456,8 +447,8 @@ pub enum InterchangeProjectValidationError {
     NonHexChecksumChars { cksum: Box<str> },
 }
 
-impl InterchangeProjectMetadataRaw {
-    pub fn generate_blank() -> Self {
+impl Default for InterchangeProjectMetadataRaw {
+    fn default() -> Self {
         InterchangeProjectMetadataRaw {
             index: IndexMap::default(),
             created: chrono::Utc::now().to_rfc3339(),
@@ -467,7 +458,9 @@ impl InterchangeProjectMetadataRaw {
             checksum: None,
         }
     }
+}
 
+impl InterchangeProjectMetadataRaw {
     pub fn validate(
         &self,
     ) -> Result<InterchangeProjectMetadata, InterchangeProjectValidationError> {

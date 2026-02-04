@@ -317,6 +317,15 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
         KParBuildError::InternalError(error) => {
             env.throw_exception(ExceptionKind::SysandException, error);
         }
+        KParBuildError::PathUsage(usage) => {
+            env.throw_exception(
+                ExceptionKind::SysandException,
+                format!(
+                    "project includes a path usage `{usage}`,\n\
+        which is unlikely to be available on other computers at the same path"
+                ),
+            );
+        }
     }
 }
 
@@ -336,7 +345,8 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     let project = LocalSrcProject {
         project_path: Utf8PathBuf::from(project_path),
     };
-    let command_result = sysand_core::commands::build::do_build_kpar(&project, &output_path, true);
+    let command_result =
+        sysand_core::commands::build::do_build_kpar(&project, &output_path, true, false);
     match command_result {
         Ok(_) => {}
         Err(error) => handle_build_error(&mut env, error),
@@ -366,8 +376,12 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
             return;
         }
     }
-    let command_result =
-        sysand_core::commands::build::do_build_workspace_kpars(&workspace, &output_path, true);
+    let command_result = sysand_core::commands::build::do_build_workspace_kpars(
+        &workspace,
+        &output_path,
+        true,
+        false,
+    );
     match command_result {
         Ok(_) => {}
         Err(error) => handle_build_error(&mut env, error),

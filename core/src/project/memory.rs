@@ -97,13 +97,11 @@ impl ProjectMut for InMemoryProject {
     ) -> Result<(), InMemoryError> {
         let file_entry = self.files.entry(path.as_ref().to_owned());
 
-        if let Entry::Occupied(_) = file_entry {
-            if !overwrite {
-                return Err(InMemoryError::AlreadyExists(format!(
-                    "`{}` already exists",
-                    path.as_ref()
-                )));
-            }
+        if !overwrite && let Entry::Occupied(_) = file_entry {
+            return Err(InMemoryError::AlreadyExists(format!(
+                "`{}` already exists",
+                path.as_ref()
+            )));
         }
 
         let mut buf = String::new();

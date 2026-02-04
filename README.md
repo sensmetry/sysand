@@ -18,7 +18,6 @@ Sysand can be used as a standalone tool through its command line interface (CLI)
 or be integrated into other tools through one of its APIs (currently, Python and
 Java are supported).
 
-
 ## Documentation
 
 Sysand usage documentation is provided in User Guide at
