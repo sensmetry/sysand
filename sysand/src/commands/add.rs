@@ -41,7 +41,7 @@ use crate::{CliError, cli::ResolutionOptions, command_sync, commands::lock::crea
 #[allow(clippy::too_many_arguments)]
 pub fn command_add<Policy: HTTPAuthentication>(
     iri: Iri<String>,
-    versions_constraint: Option<String>,
+    version_constraint: Option<String>,
     no_lock: bool,
     no_sync: bool,
     resolution_opts: ResolutionOptions,
@@ -241,6 +241,7 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         provided_iris.clone(),
         client.clone(),
         runtime.clone(),
+        auth_policy.clone(),
     )?;
     let LockOutcome { lock, .. } =
         do_lock_local_editable(&project_root, project_identifiers, resolver)?;
