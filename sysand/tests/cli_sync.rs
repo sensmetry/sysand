@@ -190,11 +190,10 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .expect(4) // TODO: Reduce this to 1
         .create();
 
-    let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
-
-    lockfile.write_all(
+    std::fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.2"
+            r#"lock_version = "0.3"
 
 [[project]]
 name = "sync_to_remote"
@@ -216,17 +215,11 @@ sources = [
         None,
         &IndexMap::from([
             (
-                "SYSAND_CRED_TEST".to_string(),
-                format!("http://{}/**", server.host_with_port()),
+                "SYSAND_CRED_TEST",
+                format!("http://{}/**", server.host_with_port()).as_str(),
             ),
-            (
-                "SYSAND_CRED_TEST_BASIC_USER".to_string(),
-                "user_1234".to_string(),
-            ),
-            (
-                "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
-                "pass_4321".to_string(),
-            ),
+            ("SYSAND_CRED_TEST_BASIC_USER", "user_1234"),
+            ("SYSAND_CRED_TEST_BASIC_PASS", "pass_4321"),
         ]),
     )?;
 
@@ -304,11 +297,10 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .expect(0) // TODO: Reduce this to 1
         .create();
 
-    let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
-
-    lockfile.write_all(
+    std::fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.2"
+            r#"lock_version = "0.3"
 
 [[project]]
 name = "sync_to_remote"
@@ -320,8 +312,7 @@ sources = [
 ]
 "#,
             &server.url()
-        )
-        .as_bytes(),
+        ),
     )?;
 
     let out = run_sysand_in_with(
@@ -329,18 +320,9 @@ sources = [
         ["sync"],
         None,
         &IndexMap::from([
-            (
-                "SYSAND_CRED_TEST".to_string(),
-                "http://127.0.0.1:80/**".to_string(),
-            ),
-            (
-                "SYSAND_CRED_TEST_BASIC_USER".to_string(),
-                "user_1234".to_string(),
-            ),
-            (
-                "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
-                "pass_4321".to_string(),
-            ),
+            ("SYSAND_CRED_TEST", "http://127.0.0.1:80/**"),
+            ("SYSAND_CRED_TEST_BASIC_USER", "user_1234"),
+            ("SYSAND_CRED_TEST_BASIC_PASS", "pass_4321"),
         ]),
     )?;
 

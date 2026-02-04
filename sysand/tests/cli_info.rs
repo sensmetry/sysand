@@ -1169,7 +1169,7 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "unable to find interchange project 'urn:kpar:other'",
+        "failed to resolve IRI `urn:kpar:other`",
     ));
 
     Ok(())

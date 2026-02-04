@@ -16,7 +16,7 @@ use sysand_core::{
         ResolutionOutcome, ResolveRead,
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
-        standard::standard_resolver,
+        standard::{StandardResolver, standard_resolver},
     },
 };
 
@@ -77,7 +77,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         config,
         &client,
         &runtime,
-        auth_policy,
+        auth_policy.clone(),
         project_path,
     ) {
         Ok(ret) => ret,
@@ -146,7 +146,8 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     Ok(())
 }
 
-fn obtain_project(
+#[expect(clippy::too_many_arguments)]
+fn obtain_project<Policy: HTTPAuthentication>(
     locator: ProjectLocatorArgs,
     version: Option<String>,
     resolution_opts: ResolutionOptions,
@@ -160,7 +161,7 @@ fn obtain_project(
         bool,
         ProjectLocator,
         LocalSrcProject,
-        sysand_core::resolve::standard::StandardResolver,
+        StandardResolver<Policy>,
     ),
     anyhow::Error,
 > {
