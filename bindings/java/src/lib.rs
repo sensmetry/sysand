@@ -233,8 +233,8 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
 
     let results = match commands::info::do_info(&uri, &combined_resolver) {
         Ok(matches) => matches,
-        Err(InfoError::NoResolve(_)) => Vec::new(),
-        Err(e @ InfoError::Resolution(_)) => {
+        Err(InfoError::NoResolve(..)) => Vec::new(),
+        Err(e @ (InfoError::UnsupportedIri(..) | InfoError::Resolution(_))) => {
             env.throw_exception(ExceptionKind::ResolutionError, e.to_string());
             return JObjectArray::default();
         }
@@ -356,8 +356,12 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
     let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
         return;
     };
-    let workspace = Workspace {
-        workspace_path: Utf8PathBuf::from(workspace_path),
+    let workspace = match Workspace::new(workspace_path.into()) {
+        Ok(w) => w,
+        Err(e) => {
+            env.throw_exception(ExceptionKind::InvalidWorkspace, e.to_string());
+            return;
+        }
     };
     match wrapfs::create_dir_all(&output_path) {
         Ok(_) => {}

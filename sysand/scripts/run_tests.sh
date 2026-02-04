@@ -8,4 +8,4 @@ PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 
 cd "$PACKAGE_DIR"
 
-cargo test --features alltests $@
+cargo test --features alltests --bins --tests $@

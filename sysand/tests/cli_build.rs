@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::io::Write;
-
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
 use sysand_core::{
@@ -19,10 +17,7 @@ fn test_project_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
         run_sysand(["init", "--version", "1.2.3", "--name", "test_build"], None)?;
 
-    {
-        let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
-        sysml_file.write_all(b"package P;\n")?;
-    }
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -78,17 +73,14 @@ fn test_workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     let project3_cwd = cwd.join("project3");
 
     // Create .workspace.json file
-    {
-        let workspace_path = cwd.join(".workspace.json");
-        let mut workspace_file = std::fs::File::create(workspace_path)?;
-        workspace_file.write_all(
-            br#"{"projects": [
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{"projects": [
             {"path": "subgroup/project1", "iris": ["urn:kpar:project1"]},
             {"path": "subgroup/project2", "iris": ["urn:kpar:project2"]},
             {"path": "project3", "iris": ["urn:kpar:project3"]}
             ]}"#,
-        )?;
-    }
+    )?;
 
     for project_cwd in [&project1_cwd, &project2_cwd, &project3_cwd] {
         std::fs::create_dir(project_cwd)?;
@@ -99,10 +91,8 @@ fn test_workspace_build() -> Result<(), Box<dyn std::error::Error>> {
             None,
         )?;
         out.assert().success();
-        {
-            let mut sysml_file = std::fs::File::create(project_cwd.join("test.sysml"))?;
-            sysml_file.write_all(b"package P;\n")?;
-        }
+
+        std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
         let out = run_sysand_in(
             project_cwd,
             ["include", "--no-index-symbols", "test.sysml"],
