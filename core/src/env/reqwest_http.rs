@@ -140,8 +140,7 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
         let src_project_response = self
             .auth_policy
             .with_authentication(&self.client, &src_project_request)
-            .await
-            ?;
+            .await?;
 
         if !src_project_response.status().is_success() {
             return Ok(None);
@@ -172,10 +171,7 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
             .with_authentication(&self.client, &kpar_project_request)
             .await?;
 
-        if !kpar_project_response
-            .status()
-            .is_success()
-        {
+        if !kpar_project_response.status().is_success() {
             return Ok(None);
         }
 
@@ -242,8 +238,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for HTTPEnvironmentAsync<P
         let response = self
             .auth_policy
             .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
-            .await
-            ?;
+            .await?;
 
         let inner = if response.status().is_success() {
             Some(
@@ -275,8 +270,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for HTTPEnvironmentAsync<P
         let response = self
             .auth_policy
             .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
-            .await
-        ?;
+            .await?;
 
         let inner = if response.status().is_success() {
             Some(
