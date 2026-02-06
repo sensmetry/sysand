@@ -54,7 +54,7 @@ serde_json = { version = "1.0.149", default-features = false, features = ["prese
 sysand-macros = { path = "../macros"}
 spdx = "0.13.4"
 thiserror = { version = "2.0.18", default-features = false }
-toml = "1.0.6"
+toml = { version = "1.0.6", features = ["fast_hash"] }
 typed-path = { version = "0.12.3", default-features = false }
 walkdir = "2.5.0"
 # unicode-normalization = { version = "0.1.24", default-features = false }
