@@ -47,7 +47,7 @@ serde_json = { version = "1.0.145", default-features = false, features = ["prese
 sha2 = { version = "0.10.9", default-features = false }
 spdx = "0.13.2"
 thiserror = { version = "2.0.17", default-features = false }
-toml = "0.9.8"
+toml = { version = "0.9.8", features = ["fast_hash"] }
 typed-path = { version = "0.12.0", default-features = false }
 walkdir = "2.5.0"
 # unicode-normalization = { version = "0.1.24", default-features = false }

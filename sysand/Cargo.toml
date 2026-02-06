@@ -27,7 +27,7 @@ env_logger = "0.11.8"
 log = { version = "0.4.29", default-features = false }
 sysand-core = { path = "../core", features = ["std", "filesystem", "networking"] }
 thiserror = "2.0.17"
-toml = { version = "0.9.8", default-features = false }
+toml = { version = "0.9.8", default-features = false, features = ["fast_hash"] }
 semver = "1.0.27"
 serde_json = { version = "1.0.145", default-features = false }
 spdx = "0.13.2"
