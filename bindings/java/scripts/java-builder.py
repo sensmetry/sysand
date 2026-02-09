@@ -71,6 +71,13 @@ def parse_args() -> argparse.Namespace:
     _create_version_file_parser = subparsers.add_parser(
         "create-version-file", help="Create the version file."
     )
+    _lint_parser = subparsers.add_parser("lint", help="Lint the Java library.")
+    format_parser = subparsers.add_parser("format", help="Format the Java library.")
+    format_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Check if the code is formatted correctly without applying changes.",
+    )
     return parser.parse_args()
 
 
@@ -367,6 +374,39 @@ def test(version: str, release_jar_version: bool) -> None:
     execute([mvn_executable(), "test"], cwd=TEST_DIR)
 
 
+def lint() -> None:
+    print("Linting the Java library...")
+    try:
+        execute([mvn_executable(), "-f", "java/pom.xml", "checkstyle:check"])
+        execute(
+            [mvn_executable(), "-f", "java-deploy-test/pom.xml", "checkstyle:check"]
+        )
+        execute([mvn_executable(), "-f", "java-test/pom.xml", "checkstyle:check"])
+        execute([mvn_executable(), "-f", "plugin/pom.xml", "checkstyle:check"])
+    except subprocess.CalledProcessError:
+        pass
+
+
+def format(check: bool) -> None:
+    if check:
+        print("Checking if the code is formatted correctly...")
+        try:
+            execute([mvn_executable(), "-f", "java/pom.xml", "spotless:check"])
+            execute(
+                [mvn_executable(), "-f", "java-deploy-test/pom.xml", "spotless:check"]
+            )
+            execute([mvn_executable(), "-f", "java-test/pom.xml", "spotless:check"])
+            execute([mvn_executable(), "-f", "plugin/pom.xml", "spotless:check"])
+        except subprocess.CalledProcessError:
+            pass
+    else:
+        print("Formatting the code...")
+        execute([mvn_executable(), "-f", "java/pom.xml", "spotless:apply"])
+        execute([mvn_executable(), "-f", "java-deploy-test/pom.xml", "spotless:apply"])
+        execute([mvn_executable(), "-f", "java-test/pom.xml", "spotless:apply"])
+        execute([mvn_executable(), "-f", "plugin/pom.xml", "spotless:apply"])
+
+
 def main() -> None:
     args = parse_args()
     release_jar_version = args.release_jar_version
@@ -397,6 +437,10 @@ def main() -> None:
         deploy()
     elif args.command == "create-version-file":
         create_version_file(version)
+    elif args.command == "lint":
+        lint()
+    elif args.command == "format":
+        format(args.check)
 
 
 if __name__ == "__main__":

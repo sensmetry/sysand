@@ -2,7 +2,7 @@ name: Java
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "ci/linters-and-formatters" ]
   pull_request:
     branches: [ "main" ]
 
