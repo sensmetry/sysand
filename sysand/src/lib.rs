@@ -113,6 +113,17 @@ fn set_panic_hook() {
 pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
+    let log_level = get_log_level(args.global_opts.verbose, args.global_opts.quiet);
+    if logger::init(log_level).is_err() {
+        let warn = style::WARN;
+        eprintln!(
+            "{warn}warning{warn:#}: failed to set up logger because it has already been set up;\n\
+            {:>8} log messages may not be formatted properly",
+            ' '
+        );
+        log::set_max_level(log_level);
+    }
+
     let current_workspace = sysand_core::discover::current_workspace()?;
     let current_project = sysand_core::discover::current_project()?;
     let cwd = wrapfs::current_dir()?;
@@ -137,22 +148,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     };
 
     config.merge(auto_config);
-
-    let (verbose, quiet) = if args.global_opts.sets_log_level() {
-        (args.global_opts.verbose, args.global_opts.quiet)
-    } else {
-        get_config_verbose_quiet(&config)
-    };
-    let log_level = get_log_level(verbose, quiet);
-    if logger::init(log_level).is_err() {
-        let warn = style::WARN;
-        eprintln!(
-            "{warn}warning{warn:#}: failed to set up logger because it has already been set up;\n\
-            {:>8} log messages may not be formatted properly",
-            ' '
-        );
-        log::set_max_level(log_level);
-    }
 
     let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
 
@@ -685,13 +680,6 @@ pub fn get_or_create_env(project_root: impl AsRef<Utf8Path>) -> Result<LocalDire
         Some(env) => Ok(env),
         None => command_env(project_root.join(DEFAULT_ENV_NAME)),
     }
-}
-
-fn get_config_verbose_quiet(config: &Config) -> (bool, bool) {
-    (
-        config.verbose.unwrap_or_default(),
-        config.quiet.unwrap_or_default(),
-    )
 }
 
 fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {

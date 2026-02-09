@@ -205,8 +205,6 @@ mod tests {
         let config_path = dir.path().join(local_fs::CONFIG_FILE);
         let mut config_file = wrapfs::File::create(config_path)?;
         let config = Config {
-            quiet: Some(true),
-            verbose: Some(false),
             indexes: vec![Index {
                 url: "http://www.example.com".to_string(),
                 ..Default::default()
@@ -235,8 +233,6 @@ mod tests {
         local_fs::add_project_source_to_config(&config_path, iri, &source)?;
 
         let config = Config {
-            quiet: None,
-            verbose: None,
             indexes: vec![],
             projects: vec![ConfigProject {
                 identifiers: vec![iri.to_string()],
@@ -262,8 +258,6 @@ mod tests {
             src_path: "local/test".into(),
         };
         let config = Config {
-            quiet: None,
-            verbose: None,
             indexes: vec![],
             projects: vec![ConfigProject {
                 identifiers: vec![iri.to_string()],

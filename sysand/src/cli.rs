@@ -1329,12 +1329,6 @@ pub struct GlobalOptions {
     pub help: Option<bool>,
 }
 
-impl GlobalOptions {
-    pub fn sets_log_level(&self) -> bool {
-        self.verbose || self.quiet
-    }
-}
-
 /// Parse an IRI. Tolerates missing IRI scheme, uses
 /// `https://` scheme in that case.
 fn parse_https_iri(s: &str) -> Result<fluent_uri::Iri<String>, fluent_uri::ParseError> {
