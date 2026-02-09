@@ -6,7 +6,7 @@ package com.sensmetry.sysand.exceptions;
 
 public class ProjectAlreadyExists extends SysandException {
 
-    public ProjectAlreadyExists(String message) {
-        super(message);
-    }
+  public ProjectAlreadyExists(String message) {
+    super(message);
+  }
 }

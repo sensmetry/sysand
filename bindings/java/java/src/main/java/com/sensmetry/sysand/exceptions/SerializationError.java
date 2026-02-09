@@ -6,8 +6,7 @@ package com.sensmetry.sysand.exceptions;
 
 public class SerializationError extends SysandException {
 
-    public SerializationError(String message) {
-        super(message);
-    }
-
+  public SerializationError(String message) {
+    super(message);
+  }
 }

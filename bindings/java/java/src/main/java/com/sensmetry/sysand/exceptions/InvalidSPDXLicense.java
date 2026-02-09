@@ -6,8 +6,7 @@ package com.sensmetry.sysand.exceptions;
 
 public class InvalidSPDXLicense extends SysandException {
 
-    public InvalidSPDXLicense(String message) {
-        super(message);
-    }
-
+  public InvalidSPDXLicense(String message) {
+    super(message);
+  }
 }

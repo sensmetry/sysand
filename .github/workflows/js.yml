@@ -2,7 +2,7 @@ name: Javascript/WASM
 
 on:
   push:
-    branches: [ "main", "ci/linters-and-formatters" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 

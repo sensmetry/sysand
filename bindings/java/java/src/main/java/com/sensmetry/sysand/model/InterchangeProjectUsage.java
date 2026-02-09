@@ -6,19 +6,19 @@ package com.sensmetry.sysand.model;
 
 public class InterchangeProjectUsage {
 
-    private String resource;
-    private String versionConstraint;
+  private String resource;
+  private String versionConstraint;
 
-    public InterchangeProjectUsage(String resource, String versionConstraint) {
-        this.resource = resource;
-        this.versionConstraint = versionConstraint;
-    }
+  public InterchangeProjectUsage(String resource, String versionConstraint) {
+    this.resource = resource;
+    this.versionConstraint = versionConstraint;
+  }
 
-    public String getResource() {
-        return resource;
-    }
+  public String getResource() {
+    return resource;
+  }
 
-    public String getVersionConstraint() {
-        return versionConstraint;
-    }
+  public String getVersionConstraint() {
+    return versionConstraint;
+  }
 }

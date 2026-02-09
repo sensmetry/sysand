@@ -6,8 +6,7 @@ package com.sensmetry.sysand.exceptions;
 
 public class ResolutionError extends SysandException {
 
-    public ResolutionError(String message) {
-        super(message);
-    }
-
+  public ResolutionError(String message) {
+    super(message);
+  }
 }

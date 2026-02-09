@@ -1,267 +1,265 @@
-<!--
-SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
-
-SPDX-License-Identifier: MIT OR Apache-2.0
--->
+<!-- SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com> 
+	SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>com.sensmetry</groupId>
-  <artifactId>sysand-maven-plugin</artifactId>
-  <version>VERSION</version>
-  <packaging>maven-plugin</packaging>
-  <name>${project.groupId}:${project.artifactId}</name>
-  <description>Maven plugin for using Sysand.</description>
-  <url>https://sysand.org/</url>
-  <licenses>
-    <license>
-      <name>The Apache License, Version 2.0</name>
-      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
-    </license>
-    <license>
-      <name>MIT License</name>
-      <url>https://opensource.org/license/mit</url>
-    </license>
-  </licenses>
-  <developers>
-    <developer>
-      <name>Sensmetry</name>
-      <email>opensource@sensmetry.com</email>
-      <organization>Sensmetry</organization>
-      <organizationUrl>https://sensmetry.com/</organizationUrl>
-    </developer>
-  </developers>
-  <scm>
-    <connection>scm:git:https://github.com/sensmetry/sysand</connection>
-    <developerConnection>scm:git:ssh://git@github.com/sensmetry/sysand.git</developerConnection>
-    <url>https://github.com/sensmetry/sysand/tree/main</url>
-  </scm>
-  <properties>
-    <maven.compiler.source>1.8</maven.compiler.source>
-    <maven.compiler.target>1.8</maven.compiler.target>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.plugin.tools.version>3.15.2</maven.plugin.tools.version>
-    <maven.api.version>3.9.12</maven.api.version>
-  </properties>
-  <profiles>
-    <!-- maven.compiler.release is only available in Java 9+, but it is required
-    to disallow usage of Java >8 APIs when building with Java >8 -->
-    <profile>
-      <id>java-8-api</id>
-      <activation>
-        <jdk>[9,)</jdk>
-      </activation>
-      <properties>
-        <maven.compiler.release>8</maven.compiler.release>
-      </properties>
-    </profile>
-  </profiles>
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>com.sensmetry</groupId>
+	<artifactId>sysand-maven-plugin</artifactId>
+	<version>VERSION</version>
+	<packaging>maven-plugin</packaging>
+	<name>${project.groupId}:${project.artifactId}</name>
+	<description>Maven plugin for using Sysand.</description>
+	<url>https://sysand.org/</url>
+	<licenses>
+		<license>
+			<name>The Apache License, Version 2.0</name>
+			<url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+		</license>
+		<license>
+			<name>MIT License</name>
+			<url>https://opensource.org/license/mit</url>
+		</license>
+	</licenses>
+	<developers>
+		<developer>
+			<name>Sensmetry</name>
+			<email>opensource@sensmetry.com</email>
+			<organization>Sensmetry</organization>
+			<organizationUrl>https://sensmetry.com/</organizationUrl>
+		</developer>
+	</developers>
+	<scm>
+		<connection>scm:git:https://github.com/sensmetry/sysand</connection>
+		<developerConnection>scm:git:ssh://git@github.com/sensmetry/sysand.git</developerConnection>
+		<url>https://github.com/sensmetry/sysand/tree/main</url>
+	</scm>
+	<properties>
+		<maven.compiler.source>1.8</maven.compiler.source>
+		<maven.compiler.target>1.8</maven.compiler.target>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<maven.plugin.tools.version>3.15.2</maven.plugin.tools.version>
+		<maven.api.version>3.9.12</maven.api.version>
+	</properties>
+	<profiles>
+		<!-- maven.compiler.release is only available in Java 9+, but it is required 
+			to disallow usage of Java >8 APIs when building with Java >8 -->
+		<profile>
+			<id>java-8-api</id>
+			<activation>
+				<jdk>[9,)</jdk>
+			</activation>
+			<properties>
+				<maven.compiler.release>8</maven.compiler.release>
+			</properties>
+		</profile>
+	</profiles>
 
-  <dependencies>
-    <!-- Depend on the sysand Java library that provides com.sensmetry.sysand.Sysand -->
-    <dependency>
-      <groupId>com.sensmetry</groupId>
-      <artifactId>sysand</artifactId>
-      <version>VERSION</version>
-    </dependency>
+	<dependencies>
+		<!-- Depend on the sysand Java library that provides com.sensmetry.sysand.Sysand -->
+		<dependency>
+			<groupId>com.sensmetry</groupId>
+			<artifactId>sysand</artifactId>
+			<version>VERSION</version>
+		</dependency>
 
-    <!-- Maven Plugin API for AbstractMojo, MojoExecutionException -->
-    <dependency>
-      <groupId>org.apache.maven</groupId>
-      <artifactId>maven-plugin-api</artifactId>
-      <version>${maven.api.version}</version>
-      <scope>provided</scope>
-    </dependency>
+		<!-- Maven Plugin API for AbstractMojo, MojoExecutionException -->
+		<dependency>
+			<groupId>org.apache.maven</groupId>
+			<artifactId>maven-plugin-api</artifactId>
+			<version>${maven.api.version}</version>
+			<scope>provided</scope>
+		</dependency>
 
-    <!-- Annotations for Mojo (@Mojo, @Parameter) -->
-    <dependency>
-      <groupId>org.apache.maven.plugin-tools</groupId>
-      <artifactId>maven-plugin-annotations</artifactId>
-      <version>${maven.plugin.tools.version}</version>
-      <scope>provided</scope>
-    </dependency>
-  </dependencies>
+		<!-- Annotations for Mojo (@Mojo, @Parameter) -->
+		<dependency>
+			<groupId>org.apache.maven.plugin-tools</groupId>
+			<artifactId>maven-plugin-annotations</artifactId>
+			<version>${maven.plugin.tools.version}</version>
+			<scope>provided</scope>
+		</dependency>
+	</dependencies>
 
-  <build>
-    <plugins>
-      <!-- Ensure plugin descriptor is generated from annotations -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-plugin-plugin</artifactId>
-        <version>${maven.plugin.tools.version}</version>
-        <configuration>
-          <skipErrorNoDescriptorsFound>false</skipErrorNoDescriptorsFound>
-        </configuration>
-        <executions>
-          <execution>
-            <id>default-descriptor</id>
-            <goals>
-              <goal>descriptor</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <!-- Run integration tests using Maven Invoker Plugin -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-invoker-plugin</artifactId>
-        <version>3.9.1</version>
-        <configuration>
-          <projectsDirectory>src/it</projectsDirectory>
-          <cloneProjectsTo>${project.build.directory}/it</cloneProjectsTo>
-          <showVersion>true</showVersion>
-          <streamLogs>true</streamLogs>
-          <filterPom>true</filterPom>
-        </configuration>
-        <executions>
-          <execution>
-            <id>run-it</id>
-            <phase>verify</phase>
-            <goals>
-              <goal>install</goal>
-              <goal>integration-test</goal>
-              <goal>verify</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <!-- Install this plugin artifact into the local repo BEFORE running integration tests -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-install-plugin</artifactId>
-        <version>3.1.4</version>
-        <executions>
-          <execution>
-            <id>install-plugin-early</id>
-            <phase>pre-integration-test</phase>
-            <goals>
-              <goal>install</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <!-- Attach -sources.jar -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-source-plugin</artifactId>
-        <version>3.4.0</version>
-        <executions>
-          <execution>
-            <id>attach-sources</id>
-            <goals>
-              <goal>jar</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <!-- Attach -javadoc.jar -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-javadoc-plugin</artifactId>
-        <version>3.12.0</version>
-        <executions>
-          <execution>
-            <id>attach-javadoc</id>
-            <goals>
-              <goal>jar</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <!-- Sign with gpg -->
-      <plugin>
-        <artifactId>maven-gpg-plugin</artifactId>
-        <version>3.2.8</version>
-        <executions>
-          <execution>
-            <id>sign-artifacts</id>
-            <phase>verify</phase>
-            <goals>
-              <goal>sign</goal>
-            </goals>
-            <configuration>
-              <gpgArguments>
-                <arg>--pinentry-mode</arg>
-                <arg>loopback</arg>
-              </gpgArguments>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-      <!--   Publish to Maven Central via Central Portal   -->
-      <plugin>
-        <groupId>org.sonatype.central</groupId>
-        <artifactId>central-publishing-maven-plugin</artifactId>
-        <version>0.10.0</version>
-        <extensions>true</extensions>
-        <configuration>
-          <publishingServerId>central</publishingServerId>
-          <autoPublish>false</autoPublish>
-        </configuration>
-      </plugin>
-      <!-- Format with Spotless-->
-      <plugin>
-        <groupId>com.diffplug.spotless</groupId>
-        <artifactId>spotless-maven-plugin</artifactId>
-        <version>2.43.0</version>
-        <configuration>
-          <java>
-            <googleJavaFormat>
-              <version>1.22.0</version>
-            </googleJavaFormat>
-          </java>
-          <formats>
-            <format>
-              <includes>
-                <include>**/*.xml</include>
-              </includes>
-              <eclipseWtp>
-                <type>XML</type>
-              </eclipseWtp>
-            </format>
-          </formats>
-        </configuration>
-        <executions>
-          <execution>
-            <id>spotless-check</id>
-            <phase>verify</phase>
-            <goals>
-              <goal>check</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <!-- Lint with Checkstyle -->
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-checkstyle-plugin</artifactId>
-        <version>3.6.0</version>
-        <!-- override to 13.1.0 so google_checks-style config works -->
-        <dependencies>
-          <dependency>
-            <groupId>com.puppycrawl.tools</groupId>
-            <artifactId>checkstyle</artifactId>
-            <version>13.1.0</version>
-          </dependency>
-        </dependencies>
-        <configuration>
-          <configLocation>${project.basedir}/../checkstyle.xml</configLocation>
-          <encoding>${project.build.sourceEncoding}</encoding>
-          <consoleOutput>true</consoleOutput>
-          <failsOnError>true</failsOnError>
-        </configuration>
-        <executions>
-          <execution>
-            <id>checkstyle</id>
-            <phase>verify</phase>
-            <goals>
-              <goal>check</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-    </plugins>
-  </build>
+	<build>
+		<plugins>
+			<!-- Ensure plugin descriptor is generated from annotations -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-plugin-plugin</artifactId>
+				<version>${maven.plugin.tools.version}</version>
+				<configuration>
+					<skipErrorNoDescriptorsFound>false</skipErrorNoDescriptorsFound>
+				</configuration>
+				<executions>
+					<execution>
+						<id>default-descriptor</id>
+						<goals>
+							<goal>descriptor</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Run integration tests using Maven Invoker Plugin -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-invoker-plugin</artifactId>
+				<version>3.9.1</version>
+				<configuration>
+					<projectsDirectory>src/it</projectsDirectory>
+					<cloneProjectsTo>${project.build.directory}/it</cloneProjectsTo>
+					<showVersion>true</showVersion>
+					<streamLogs>true</streamLogs>
+					<filterPom>true</filterPom>
+				</configuration>
+				<executions>
+					<execution>
+						<id>run-it</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>install</goal>
+							<goal>integration-test</goal>
+							<goal>verify</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Install this plugin artifact into the local repo BEFORE running integration 
+				tests -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-install-plugin</artifactId>
+				<version>3.1.4</version>
+				<executions>
+					<execution>
+						<id>install-plugin-early</id>
+						<phase>pre-integration-test</phase>
+						<goals>
+							<goal>install</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Attach -sources.jar -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-source-plugin</artifactId>
+				<version>3.4.0</version>
+				<executions>
+					<execution>
+						<id>attach-sources</id>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Attach -javadoc.jar -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-javadoc-plugin</artifactId>
+				<version>3.12.0</version>
+				<executions>
+					<execution>
+						<id>attach-javadoc</id>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Sign with gpg -->
+			<plugin>
+				<artifactId>maven-gpg-plugin</artifactId>
+				<version>3.2.8</version>
+				<executions>
+					<execution>
+						<id>sign-artifacts</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>sign</goal>
+						</goals>
+						<configuration>
+							<gpgArguments>
+								<arg>--pinentry-mode</arg>
+								<arg>loopback</arg>
+							</gpgArguments>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Publish to Maven Central via Central Portal -->
+			<plugin>
+				<groupId>org.sonatype.central</groupId>
+				<artifactId>central-publishing-maven-plugin</artifactId>
+				<version>0.10.0</version>
+				<extensions>true</extensions>
+				<configuration>
+					<publishingServerId>central</publishingServerId>
+					<autoPublish>false</autoPublish>
+				</configuration>
+			</plugin>
+			<!-- Format with Spotless -->
+			<plugin>
+				<groupId>com.diffplug.spotless</groupId>
+				<artifactId>spotless-maven-plugin</artifactId>
+				<version>3.2.1</version>
+				<configuration>
+					<java>
+						<googleJavaFormat>
+							<version>1.34.1</version>
+						</googleJavaFormat>
+					</java>
+					<formats>
+						<format>
+							<includes>
+								<include>**/*.xml</include>
+							</includes>
+							<eclipseWtp>
+								<type>XML</type>
+							</eclipseWtp>
+						</format>
+					</formats>
+				</configuration>
+				<executions>
+					<execution>
+						<id>spotless-check</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Lint with Checkstyle -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-checkstyle-plugin</artifactId>
+				<version>3.6.0</version>
+				<!-- override to 13.1.0 so google_checks-style config works -->
+				<dependencies>
+					<dependency>
+						<groupId>com.puppycrawl.tools</groupId>
+						<artifactId>checkstyle</artifactId>
+						<version>13.1.0</version>
+					</dependency>
+				</dependencies>
+				<configuration>
+					<configLocation>${project.basedir}/../checkstyle.xml</configLocation>
+					<encoding>${project.build.sourceEncoding}</encoding>
+					<consoleOutput>true</consoleOutput>
+					<failsOnError>true</failsOnError>
+				</configuration>
+				<executions>
+					<execution>
+						<id>checkstyle</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
 </project>

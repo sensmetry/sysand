@@ -10,3 +10,5 @@ cd "$PACKAGE_DIR"
 
 cargo fmt
 cargo clippy --all-targets -- --deny warnings
+python3 scripts/java-builder.py format
+python3 scripts/java-builder.py lint

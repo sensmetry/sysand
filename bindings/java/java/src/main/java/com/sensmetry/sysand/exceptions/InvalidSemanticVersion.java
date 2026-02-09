@@ -6,8 +6,7 @@ package com.sensmetry.sysand.exceptions;
 
 public class InvalidSemanticVersion extends SysandException {
 
-    public InvalidSemanticVersion(String message) {
-        super(message);
-    }
-
+  public InvalidSemanticVersion(String message) {
+    super(message);
+  }
 }

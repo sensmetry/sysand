@@ -6,20 +6,19 @@ package com.sensmetry.sysand.model;
 
 public class InterchangeProjectChecksum {
 
-    private String value;
-    private String algorithm;
+  private String value;
+  private String algorithm;
 
-    public InterchangeProjectChecksum(String value, String algorithm) {
-        this.value = value;
-        this.algorithm = algorithm;
-    }
+  public InterchangeProjectChecksum(String value, String algorithm) {
+    this.value = value;
+    this.algorithm = algorithm;
+  }
 
-    public String getValue() {
-        return value;
-    }
+  public String getValue() {
+    return value;
+  }
 
-    public String getAlgorithm() {
-        return algorithm;
-    }
-
+  public String getAlgorithm() {
+    return algorithm;
+  }
 }

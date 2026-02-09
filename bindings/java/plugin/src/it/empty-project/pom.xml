@@ -1,53 +1,50 @@
-<!--
-SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
-
-SPDX-License-Identifier: MIT OR Apache-2.0
--->
+<!-- SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com> 
+	SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>com.sensmetry.sysand.it</groupId>
-  <artifactId>empty-project</artifactId>
-  <version>1.0.0</version>
-  <packaging>jar</packaging>
-  <name>empty-project</name>
-  <properties>
-    <maven.compiler.source>1.8</maven.compiler.source>
-    <maven.compiler.target>1.8</maven.compiler.target>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-  </properties>
-  <profiles>
-    <!-- maven.compiler.release is only available in Java 9+, but it is required
-    to disallow usage of Java >8 APIs when building with Java >8 -->
-    <profile>
-      <id>java-8-api</id>
-      <activation>
-        <jdk>[9,)</jdk>
-      </activation>
-      <properties>
-        <maven.compiler.release>8</maven.compiler.release>
-      </properties>
-    </profile>
-  </profiles>
-  <build>
-    <plugins>
-      <plugin>
-        <groupId>com.sensmetry</groupId>
-        <artifactId>sysand-maven-plugin</artifactId>
-        <version>@project.version@</version>
-        <executions>
-          <execution>
-            <goals>
-              <goal>info-path</goal>
-            </goals>
-          </execution>
-        </executions>
-        <configuration>
-          <infoPath>${project.basedir}</infoPath>
-        </configuration>
-      </plugin>
-    </plugins>
-  </build>
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<groupId>com.sensmetry.sysand.it</groupId>
+	<artifactId>empty-project</artifactId>
+	<version>1.0.0</version>
+	<packaging>jar</packaging>
+	<name>empty-project</name>
+	<properties>
+		<maven.compiler.source>1.8</maven.compiler.source>
+		<maven.compiler.target>1.8</maven.compiler.target>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+	</properties>
+	<profiles>
+		<!-- maven.compiler.release is only available in Java 9+, but it is required 
+			to disallow usage of Java >8 APIs when building with Java >8 -->
+		<profile>
+			<id>java-8-api</id>
+			<activation>
+				<jdk>[9,)</jdk>
+			</activation>
+			<properties>
+				<maven.compiler.release>8</maven.compiler.release>
+			</properties>
+		</profile>
+	</profiles>
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>com.sensmetry</groupId>
+				<artifactId>sysand-maven-plugin</artifactId>
+				<version>@project.version@</version>
+				<executions>
+					<execution>
+						<goals>
+							<goal>info-path</goal>
+						</goals>
+					</execution>
+				</executions>
+				<configuration>
+					<infoPath>${project.basedir}</infoPath>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
 </project>

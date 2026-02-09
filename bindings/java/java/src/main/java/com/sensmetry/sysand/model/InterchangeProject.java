@@ -6,12 +6,11 @@ package com.sensmetry.sysand.model;
 
 public class InterchangeProject {
 
-    public InterchangeProjectInfo info;
-    public InterchangeProjectMetadata metadata;
+  public InterchangeProjectInfo info;
+  public InterchangeProjectMetadata metadata;
 
-    public InterchangeProject(InterchangeProjectInfo info, InterchangeProjectMetadata metadata) {
-        this.info = info;
-        this.metadata = metadata;
-    }
-
+  public InterchangeProject(InterchangeProjectInfo info, InterchangeProjectMetadata metadata) {
+    this.info = info;
+    this.metadata = metadata;
+  }
 }
