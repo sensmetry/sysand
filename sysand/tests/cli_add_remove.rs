@@ -78,7 +78,7 @@ fn add_and_remove_with_editable() -> Result<(), Box<dyn std::error::Error>> {
             "add",
             "--no-lock",
             "urn:kpar:test",
-            "--editable",
+            "--as-editable",
             "local/test",
         ],
         Some(config_path.as_str()),
@@ -169,7 +169,13 @@ fn add_and_remove_with_local_src() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &cwd,
-        ["add", "--no-lock", "urn:kpar:test", "--path", "local/test"],
+        [
+            "add",
+            "--no-lock",
+            "urn:kpar:test",
+            "--as-path",
+            "local/test",
+        ],
         Some(config_path.as_str()),
     )?;
 
@@ -263,7 +269,7 @@ fn add_and_remove_with_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
             "add",
             "--no-lock",
             "urn:kpar:test",
-            "--path",
+            "--as-path",
             "local/test.kpar",
         ],
         Some(config_path.as_str()),
@@ -356,7 +362,7 @@ fn add_and_remove_with_remote_src() -> Result<(), Box<dyn std::error::Error>> {
             "add",
             "--no-lock",
             "urn:kpar:test",
-            "--url-src",
+            "--as-url-src",
             "www.example.com/test",
         ],
         Some(config_path.as_str()),
@@ -449,7 +455,7 @@ fn add_and_remove_with_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
             "add",
             "--no-lock",
             "urn:kpar:test",
-            "--url-kpar",
+            "--as-url-kpar",
             "www.example.com/test.kpar",
         ],
         Some(config_path.as_str()),

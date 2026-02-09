@@ -48,7 +48,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         .or((!no_config).then(|| project_root.join(CONFIG_FILE)));
 
     #[allow(clippy::manual_map)] // For readability and compactness
-    let source = if let Some(path) = source_opts.path {
+    let source = if let Some(path) = source_opts.as_path {
         let metadata = wrapfs::metadata(&path)?;
         if metadata.is_dir() {
             Some(sysand_core::lock::Source::LocalSrc {
@@ -61,13 +61,13 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         } else {
             bail!("path `{path}` is neither a directory nor a file");
         }
-    } else if let Some(editable) = source_opts.editable {
+    } else if let Some(editable) = source_opts.as_editable {
         Some(sysand_core::lock::Source::Editable {
             editable: get_relative(editable, &project_root)?.as_str().into(),
         })
-    } else if let Some(remote_src) = source_opts.url_src {
+    } else if let Some(remote_src) = source_opts.as_url_src {
         Some(sysand_core::lock::Source::RemoteSrc { remote_src })
-    } else if let Some(remote_kpar) = source_opts.url_kpar {
+    } else if let Some(remote_kpar) = source_opts.as_url_kpar {
         Some(sysand_core::lock::Source::RemoteKpar {
             remote_kpar,
             remote_kpar_size: None,
