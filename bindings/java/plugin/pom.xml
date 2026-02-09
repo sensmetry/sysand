@@ -215,6 +215,9 @@
 							<includes>
 								<include>**/*.xml</include>
 							</includes>
+							<excludes>
+								<exclude>**/target/**</exclude>
+							</excludes>
 							<eclipseWtp>
 								<type>XML</type>
 							</eclipseWtp>

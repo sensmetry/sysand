@@ -263,6 +263,9 @@ def build(
     target_pom_data = pom_data.replace("VERSION", full_version)
     target_pom_path.write_text(target_pom_data)
 
+    print("Copying the checkstyle.xml to the target directory...")
+    shutil.copy(ROOT_DIR / "bindings" / "java" / "checkstyle.xml", TARGET_DIR / "checkstyle.xml")
+
     print("Building the JAR...")
     mvn_args = [
         mvn_executable(),

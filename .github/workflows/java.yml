@@ -91,6 +91,12 @@ jobs:
     - name: Debugging
       shell: bash
       run: ls -la native-bindings/*
+    - name: Check Java formatting
+      shell: bash
+      run: python bindings/java/scripts/java-builder.py format --check
+    - name: Lint Java code
+      shell: bash
+      run: python bindings/java/scripts/java-builder.py lint
     - name: Build JAR
       shell: bash
       run: python bindings/java/scripts/java-builder.py build --use-existing-native-libs native-bindings --use-release-build --sign-artifacts
