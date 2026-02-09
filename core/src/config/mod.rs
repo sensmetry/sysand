@@ -11,8 +11,6 @@ pub mod local_fs;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
-    pub quiet: Option<bool>,
-    pub verbose: Option<bool>,
     #[serde(rename = "index", skip_serializing_if = "Vec::is_empty", default)]
     pub indexes: Vec<Index>,
     #[serde(rename = "project", skip_serializing_if = "Vec::is_empty", default)]
@@ -31,13 +29,9 @@ pub struct ConfigProject {
 impl Config {
     pub fn merge(&mut self, config: Config) {
         let Config {
-            quiet,
-            verbose,
             mut indexes,
             mut projects,
         } = config;
-        self.quiet = self.quiet.or(quiet);
-        self.verbose = self.verbose.or(verbose);
         self.indexes.append(&mut indexes);
         self.projects.append(&mut projects);
 
@@ -131,8 +125,6 @@ mod tests {
     fn default_config() {
         let config = Config::default();
 
-        assert_eq!(config.quiet, None);
-        assert_eq!(config.verbose, None);
         assert_eq!(config.indexes, vec![]);
         assert_eq!(config.projects, vec![]);
     }
@@ -151,8 +143,6 @@ mod tests {
     fn merge() {
         let mut defaults = Config::default();
         let config = Config {
-            quiet: Some(true),
-            verbose: Some(false),
             indexes: vec![Index {
                 url: "http://www.example.com".to_string(),
                 ..Default::default()
