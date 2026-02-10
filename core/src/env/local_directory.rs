@@ -664,11 +664,17 @@ impl Lock {
                 .filter_map(|usage| indices.get(&usage.resource))
                 .copied()
                 .collect();
+            let purl = project.get_package_url();
+            let publisher = purl
+                .as_ref()
+                .and_then(|p| p.namespace().map(|ns| ns.to_owned()));
+            let name = purl.as_ref().map(|p| p.name().to_owned()).or(project.name);
 
             if let Some(storage) = storage {
                 let directory = storage.root_path();
                 projects.push(ResolvedProject {
-                    name: project.name,
+                    publisher,
+                    name,
                     location: ResolvedLocation::Directory(directory),
                     usages,
                 });
@@ -681,7 +687,8 @@ impl Lock {
                     .into_iter()
                     .collect();
                 projects.push(ResolvedProject {
-                    name: project.name,
+                    publisher,
+                    name,
                     location: ResolvedLocation::Files(files),
                     usages,
                 });
@@ -724,6 +731,7 @@ pub enum ResolvedLocation {
 
 #[derive(Debug)]
 pub struct ResolvedProject {
+    pub publisher: Option<String>,
     pub name: Option<String>,
     pub location: ResolvedLocation,
     pub usages: Vec<i64>,
@@ -732,6 +740,9 @@ pub struct ResolvedProject {
 impl ResolvedProject {
     pub fn to_toml(&self) -> Table {
         let mut table = Table::new();
+        if let Some(publisher) = &self.publisher {
+            table.insert("publisher", value(publisher));
+        }
         if let Some(name) = &self.name {
             table.insert("name", value(name));
         }

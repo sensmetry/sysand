@@ -8,6 +8,7 @@ use std::{
     str::FromStr,
 };
 
+use packageurl::PackageUrl;
 use semver::{Version, VersionReq};
 use serde::Deserialize;
 use thiserror::Error;
@@ -437,6 +438,13 @@ impl Project {
         }
         table.insert("checksum", value(&self.checksum));
         table
+    }
+
+    // Simple stopgap solution for now
+    pub fn get_package_url<'a>(&self) -> Option<PackageUrl<'a>> {
+        self.identifiers
+            .first()
+            .and_then(|id| PackageUrl::from_str(id.as_str()).ok())
     }
 }
 
