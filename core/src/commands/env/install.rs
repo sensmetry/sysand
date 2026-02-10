@@ -92,9 +92,9 @@ impl<EnvReadError, ProjectReadError, I> From<CheckInstallError<EnvReadError, Pro
 {
     fn from(value: CheckInstallError<EnvReadError, ProjectReadError>) -> Self {
         match value {
-            CheckInstallError::AlreadyInstalled(s) => EnvInstallError::AlreadyInstalled(s),
-            CheckInstallError::EnvRead(e) => EnvInstallError::EnvRead(e),
-            CheckInstallError::ProjectRead(e) => EnvInstallError::ProjectRead(e),
+            CheckInstallError::AlreadyInstalled(s) => Self::AlreadyInstalled(s),
+            CheckInstallError::EnvRead(e) => Self::EnvRead(e),
+            CheckInstallError::ProjectRead(e) => Self::ProjectRead(e),
             CheckInstallError::AlreadyInstalledVersion(iri, version) => {
                 Self::AlreadyInstalledVersion(iri, version)
             }
