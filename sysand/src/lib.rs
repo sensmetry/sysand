@@ -59,6 +59,7 @@ use crate::{
         init::command_init,
         lock::command_lock,
         print_root::command_print_root,
+        publish::command_publish,
         remove::command_remove,
         sources::{command_sources_env, command_sources_project},
         sync::command_sync,
@@ -221,6 +222,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     let mut auths_builder: StandardHTTPAuthenticationBuilder =
         StandardHTTPAuthenticationBuilder::new();
+    let mut publish_auths_builder: StandardHTTPAuthenticationBuilder =
+        StandardHTTPAuthenticationBuilder::new();
     for k in basic_auth_pattern_names {
         match (
             auth_patterns.get(k),
@@ -254,6 +257,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     matched_schemes += 1;
                     log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
                     auths_builder.add_bearer_auth(pattern, token);
+                    publish_auths_builder.add_bearer_auth(pattern, token);
                 }
 
                 if matched_schemes > 1 {
@@ -267,7 +271,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
     }
-    let basic_auth_policy = Arc::new(auths_builder.build()?);
+    let basic_or_bearer_auth_policy = Arc::new(auths_builder.build()?);
+    let bearer_only_auth_policy = Arc::new(publish_auths_builder.build()?);
 
     match args.command {
         Command::Init {
@@ -309,7 +314,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         project_root,
                         client,
                         runtime,
-                        basic_auth_policy,
+                        basic_or_bearer_auth_policy,
                         ctx,
                     )
                 } else {
@@ -322,7 +327,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         project_root,
                         client,
                         runtime,
-                        basic_auth_policy,
+                        basic_or_bearer_auth_policy,
                         ctx,
                     )
                 }
@@ -369,7 +374,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     project_root,
                     client,
                     runtime,
-                    basic_auth_policy,
+                    basic_or_bearer_auth_policy,
                     &ctx,
                 )
                 .map(|_| ())
@@ -414,7 +419,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                             &project_root,
                             client.clone(),
                             runtime.clone(),
-                            basic_auth_policy.clone(),
+                            basic_or_bearer_auth_policy.clone(),
                             &ctx,
                         )?
                     } else {
@@ -429,7 +434,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 client,
                 &provided_iris,
                 runtime,
-                basic_auth_policy,
+                basic_or_bearer_auth_policy,
                 &ctx,
             )
         }
@@ -483,7 +488,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &project_root,
                 &client,
                 runtime.clone(),
-                basic_auth_policy.clone(),
+                basic_or_bearer_auth_policy.clone(),
             )?;
 
             enum Location {
@@ -568,7 +573,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     &excluded_iris,
                     overrides,
                     runtime,
-                    basic_auth_policy,
+                    basic_or_bearer_auth_policy,
                 ),
                 (Location::Iri(iri), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
@@ -581,7 +586,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         index_urls,
                         overrides,
                         runtime,
-                        basic_auth_policy,
+                        basic_or_bearer_auth_policy,
                     )
                 }
                 (Location::Path(path), None) => command_info_path(&path, &excluded_iris),
@@ -614,7 +619,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 ctx,
                 client,
                 runtime,
-                basic_auth_policy,
+                basic_or_bearer_auth_policy,
             )
         }
         Command::Remove { locator } => {
@@ -681,6 +686,15 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         }
+        cli::Command::Publish { path, index } => command_publish(
+            path,
+            index,
+            &ctx,
+            &config,
+            bearer_only_auth_policy,
+            client,
+            runtime,
+        ),
         Command::Sources { sources_opts } => {
             let cli::SourcesOptions {
                 no_deps,
@@ -711,7 +725,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             &config,
             client,
             runtime,
-            basic_auth_policy,
+            basic_or_bearer_auth_policy,
         ),
     }
 }

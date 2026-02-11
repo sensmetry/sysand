@@ -181,6 +181,20 @@ pub enum Command {
         #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
         allow_path_usage: bool,
     },
+    /// Publish a KPAR to the sysand package index
+    Publish {
+        /// Path to the KPAR file to publish. If not provided, will look
+        /// for a KPAR in the output directory with the current project's
+        /// name and version
+        #[clap(verbatim_doc_comment)]
+        path: Option<Utf8PathBuf>,
+
+        /// URL of the package index to publish to. Defaults to the
+        /// configured default index URL, otherwise the first configured
+        /// index URL, or https://beta.sysand.org
+        #[arg(long, verbatim_doc_comment)]
+        index: Option<String>,
+    },
     /// Create or update lockfile
     Lock {
         #[command(flatten)]
