@@ -1,0 +1,100 @@
+// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
+use std::sync::Arc;
+
+use anyhow::{Result, bail};
+use camino::Utf8PathBuf;
+use sysand_core::{
+    auth::{GlobMapResult, StandardHTTPAuthentication},
+    build::default_kpar_file_name,
+    commands::publish::{build_upload_url, do_publish},
+    context::ProjectContext,
+    project::utils::wrapfs,
+};
+use url::Url;
+
+use crate::CliError;
+
+pub fn command_publish(
+    path: Option<Utf8PathBuf>,
+    index: Url,
+    ctx: &ProjectContext,
+    auth_policy: Arc<StandardHTTPAuthentication>,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+) -> Result<()> {
+    let kpar_path = resolve_publish_kpar_path(path, ctx)?;
+    if !wrapfs::is_file(&kpar_path)? {
+        bail!("KPAR file not found at `{kpar_path}`, run `sysand build` first");
+    }
+    let bearer_map = Arc::unwrap_or_clone(auth_policy).try_into_publish_bearer_auth_map()?;
+
+    // Match credentials against the concrete upload endpoint, not the index root,
+    // so users can scope patterns to `/api/v1/upload` when needed.
+    let upload_url = build_upload_url(&index)?;
+    let bearer = match bearer_map.lookup(upload_url.as_str()) {
+        GlobMapResult::Found(_, token) => token.clone(),
+        GlobMapResult::Ambiguous(candidates) => {
+            bail!(
+                "multiple bearer token credentials configured for publish URL `{upload_url}`; \
+                 refine SYSAND_CRED_<X> URL patterns so exactly one bearer token matches ({} candidates found)",
+                candidates.len()
+            );
+        }
+        GlobMapResult::NotFound => {
+            bail!(
+                "no bearer token credentials configured for publish URL `{upload_url}`; \
+                 set SYSAND_CRED_<X> and SYSAND_CRED_<X>_BEARER_TOKEN with a matching URL pattern"
+            );
+        }
+    };
+
+    let response = do_publish(kpar_path, index, bearer, client, runtime)?;
+
+    let header = sysand_core::style::get_style_config().header;
+    if response.is_new_project {
+        log::info!(
+            "{header}{:>12}{header:#} new project successfully",
+            "Published"
+        );
+    } else {
+        log::info!(
+            "{header}{:>12}{header:#} new release successfully",
+            "Published"
+        );
+    }
+
+    Ok(())
+}
+
+fn resolve_publish_kpar_path(
+    path: Option<Utf8PathBuf>,
+    ctx: &ProjectContext,
+) -> Result<Utf8PathBuf> {
+    Ok(if let Some(path) = path {
+        path
+    } else {
+        // Without an explicit path, publish must resolve one concrete project artifact.
+        // From workspace root this is ambiguous, so require `[PATH]` there.
+        let current_project = if let Some(current_project) = ctx.current_project.as_ref() {
+            current_project
+        } else if ctx.current_workspace.is_some() {
+            bail!(
+                "`sysand publish` without [PATH] is not supported from a workspace root; \
+                 run the command from a project directory or pass an explicit .kpar path"
+            );
+        } else {
+            return Err(CliError::MissingProjectCurrentDir.into());
+        };
+        let mut output_dir = ctx
+            .current_workspace
+            .as_ref()
+            .map(|workspace| workspace.root_path())
+            .unwrap_or(&current_project.project_path)
+            .join("output");
+        let name = default_kpar_file_name(current_project)?;
+        output_dir.push(name);
+        output_dir
+    })
+}
