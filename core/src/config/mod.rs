@@ -101,6 +101,9 @@ impl Config {
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Index {
     pub name: Option<String>,
+    // url is declared a String, but would ideally be declared an Url. However,
+    // that would come with challenges as Url provides no Default impl, which
+    // makes it impossible to use #[derive(Default)] on this struct.
     pub url: String,
     // pub explicit: Option<bool>,
     pub default: Option<bool>,
