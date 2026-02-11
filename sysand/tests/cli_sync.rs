@@ -53,6 +53,7 @@ name = "sync_to_current"
 files = [
     "{}/test.sysml",
 ]
+usages = []
 "#,
             cwd
         )
@@ -131,6 +132,7 @@ sources = [
             r#"[[project]]
 name = "sync_to_local"
 directory = "{}/{DEFAULT_ENV_NAME}/5ddc0a2e8aaa88ac2bfc71aa0a8d08e020bceac4a90a4b72d8fb7f97ec5bfcc5/1.2.3.kpar"
+usages = []
 "#,
             cwd
         )
@@ -212,6 +214,7 @@ sources = [
             r#"[[project]]
 name = "sync_to_remote"
 directory = "{}/{DEFAULT_ENV_NAME}/2b95cb7c6d6c08695b0e7c4b7e9d836c21de37fb9c72b0cfa26f53fd84a1b459/1.2.3.kpar"
+usages = []
 "#,
             cwd
         )
