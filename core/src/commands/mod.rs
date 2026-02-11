@@ -10,6 +10,8 @@ pub mod include;
 pub mod info;
 pub mod init;
 pub mod lock;
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod publish;
 pub mod remove;
 #[cfg(feature = "filesystem")]
 pub mod root;

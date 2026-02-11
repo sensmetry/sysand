@@ -13,6 +13,7 @@
   - [sysand include](commands/include.md)
   - [sysand exclude](commands/exclude.md)
   - [sysand build](commands/build.md)
+  - [sysand publish](commands/publish.md)
   - [sysand lock](commands/lock.md)
   - [sysand env](commands/env.md)
     - [sysand env install](commands/env/install.md)

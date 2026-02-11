@@ -145,6 +145,19 @@ pub enum Command {
         #[arg(num_args = 1..)]
         paths: Vec<String>,
     },
+    /// Publish a KPAR to the sysand package index
+    Publish {
+        /// Path to the KPAR file to publish. If not provided, will look
+        /// for a KPAR in the output directory with the current project's
+        /// name and version
+        #[clap(verbatim_doc_comment)]
+        path: Option<Utf8PathBuf>,
+
+        /// URL of the package index to publish to. Defaults to the
+        /// first index URL from configuration or https://beta.sysand.org
+        #[arg(long, verbatim_doc_comment)]
+        index: Option<String>,
+    },
     /// Build a KerML Project Archive (KPAR). If executed in a workspace
     /// outside of a project, builds all projects in the workspace.
     #[clap(verbatim_doc_comment)]

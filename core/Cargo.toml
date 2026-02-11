@@ -40,7 +40,7 @@ log = { version = "0.4.29", default-features = false }
 pubgrub = { version = "0.3.0", default-features = false }
 # partialzip = { version = "5.0.0", default-features = false, optional = true }
 pyo3 = { version = "0.27.2", default-features = false, features = ["macros", "chrono", "indexmap"], optional = true }
-reqwest-middleware = { version = "0.5.0" }
+reqwest-middleware = { version = "0.5.0", features = ["multipart"] }
 semver = { version = "1.0.27", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", default-features = false, features = ["preserve_order"] }
@@ -64,9 +64,9 @@ globset = { version = "0.4.18", default-features = false }
 
 # Use native TLS only on Windows and Apple OSs
 [target.'cfg(any(target_os = "windows", target_vendor = "apple"))'.dependencies]
-reqwest = { version = "0.13.1", optional = true, default-features = false, features = ["native-tls", "http2", "system-proxy", "stream"] }
+reqwest = { version = "0.13.1", optional = true, default-features = false, features = ["native-tls", "http2", "system-proxy", "stream", "multipart"] }
 [target.'cfg(not(any(target_os = "windows", target_vendor = "apple")))'.dependencies]
-reqwest = { version = "0.13.1", optional = true, features = ["rustls", "stream"] }
+reqwest = { version = "0.13.1", optional = true, features = ["rustls", "stream", "multipart"] }
 
 [dev-dependencies]
 assert_cmd = "2.1.1"
