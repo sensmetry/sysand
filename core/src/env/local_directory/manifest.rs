@@ -143,20 +143,16 @@ impl ResolvedProject {
                 table.insert("directory", value(dir.as_str()));
             }
             ResolvedLocation::Files(files) => {
+                let file_iter = files.iter().map(|f| Value::from(f.as_str()));
                 if !files.is_empty() {
-                    table.insert(
-                        "files",
-                        value(multiline_array(
-                            files.iter().map(|f| Value::from(f.as_str())),
-                        )),
-                    );
+                    table.insert("files", value(multiline_array(file_iter)));
+                } else {
+                    table.insert("files", value(Array::from_iter(file_iter)));
                 }
             }
         }
-        if !self.usages.is_empty() {
-            let usages = Array::from_iter(self.usages.iter().copied().map(Value::from));
-            table.insert("usages", value(usages));
-        }
+        let usages = Array::from_iter(self.usages.iter().copied().map(Value::from));
+        table.insert("usages", value(usages));
         table
     }
 }
