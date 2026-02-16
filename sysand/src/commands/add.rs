@@ -41,11 +41,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
-    let project_root = current_project.root_path();
-
-    let config_path = config_file
-        .map(Utf8PathBuf::from)
-        .or((!no_config).then(|| project_root.join(CONFIG_FILE)));
+    let project_root = current_project.root_path().clone();
 
     #[allow(clippy::manual_map)] // For readability and compactness
     let source = if let Some(path) = source_opts.as_local {
@@ -77,6 +73,10 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     };
 
     if let Some(source) = source {
+        let config_path = config_file
+            .map(Utf8PathBuf::from)
+            .or((!no_config).then(|| project_root.join(CONFIG_FILE)));
+
         if let Some(path) = config_path {
             add_project_source_to_config(&path, &iri, &source)?;
 
@@ -133,12 +133,12 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     Ok(())
 }
 
-fn get_relative<P: Into<Utf8PathBuf>>(src_path: P, project_root: &Utf8Path) -> Result<Utf8PathBuf> {
-    let src_path = if wrapfs::current_dir()? != project_root {
-        let path = relativize(
-            &Utf8Path::new(&src_path.into()).canonicalize_utf8()?,
-            project_root,
-        );
+fn get_relative<P: Into<Utf8PathBuf> + AsRef<Utf8Path>>(
+    src_path: P,
+    project_root: &Utf8Path,
+) -> Result<Utf8PathBuf> {
+    let src_path = if src_path.as_ref().is_absolute() || wrapfs::current_dir()? != project_root {
+        let path = relativize(src_path.as_ref(), project_root)?;
         if path.is_absolute() {
             bail!(
                 "unable to find relative path from project root to `{}`",
@@ -152,10 +152,13 @@ fn get_relative<P: Into<Utf8PathBuf>>(src_path: P, project_root: &Utf8Path) -> R
     Ok(src_path)
 }
 
-fn relativize(path: &Utf8Path, root: &Utf8Path) -> Utf8PathBuf {
+fn relativize(path: &Utf8Path, root: &Utf8Path) -> Result<Utf8PathBuf> {
+    let path = path.canonicalize_utf8()?;
+    let root = root.canonicalize_utf8()?;
+
     // If prefixes (e.g. C: vs D: on Windows) differ, no relative path is possible.
     if path.components().next() != root.components().next() {
-        return path.to_path_buf();
+        return Ok(path);
     }
 
     let mut path_iter = path.components().peekable();
@@ -186,5 +189,5 @@ fn relativize(path: &Utf8Path, root: &Utf8Path) -> Utf8PathBuf {
         result.push(".");
     }
 
-    result
+    Ok(result)
 }

@@ -59,13 +59,12 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
     ) -> Result<Self, TryFromSourceError> {
         match source {
             Source::Editable { editable } => {
-                let nominal_path = editable.to_path_buf();
                 let project = LocalSrcProject {
-                    nominal_path: Some(nominal_path.to_string().into()),
-                    project_path: project_root.as_ref().join(nominal_path.as_str()),
+                    nominal_path: Some(editable.to_string().into()),
+                    project_path: project_root.as_ref().join(editable.as_str()),
                 };
                 Ok(AnyProject::Editable(
-                    EditableProject::<LocalSrcProject>::new(nominal_path.as_str().into(), project),
+                    EditableProject::<LocalSrcProject>::new(editable.as_str().into(), project),
                 ))
             }
             Source::LocalKpar { kpar_path } => Ok(AnyProject::LocalKpar(
@@ -76,7 +75,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 .map_err(TryFromSourceError::LocalKpar)?,
             )),
             Source::LocalSrc { src_path } => {
-                let nominal_path = src_path.as_str().into();
+                let nominal_path = src_path.into_string().into();
                 let project_path = project_root.as_ref().join(&nominal_path);
                 Ok(AnyProject::LocalSrc(LocalSrcProject {
                     nominal_path: Some(nominal_path),
@@ -103,10 +102,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 }
                 .to_tokio_sync(runtime),
             )),
-            _ => Err(TryFromSourceError::UnsupportedSource(format!(
-                "{:?}",
-                source
-            ))),
+            _ => Err(TryFromSourceError::UnsupportedSource(format!("{source:?}"))),
         }
     }
 }

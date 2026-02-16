@@ -21,7 +21,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
 
 use sysand_core::{
-    auth::StandardHTTPAuthenticationBuilder,
+    auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder},
     config::{
         Config,
         local_fs::{get_config, load_configs},
@@ -29,7 +29,11 @@ use sysand_core::{
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     init::InitError,
     lock::Lock,
-    project::{any::AnyProject, reference::ProjectReference, utils::wrapfs},
+    project::{
+        any::{AnyProject, OverrideProject},
+        reference::ProjectReference,
+        utils::wrapfs,
+    },
     stdlib::known_std_libs,
 };
 
@@ -128,7 +132,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let current_project = sysand_core::discover::current_project()?;
     let cwd = wrapfs::current_dir()?;
 
-    let project_root = current_project.clone().map(|p| p.root_path()).clone();
+    let project_root = current_project.clone().map(|p| p.root_path().clone());
 
     let current_environment = {
         let dir = project_root.as_ref().unwrap_or(&cwd);
@@ -426,22 +430,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             };
 
             let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
-            let mut overrides = Vec::new();
-            for config_project in &config.projects {
-                for identifier in &config_project.identifiers {
-                    let mut projects = Vec::new();
-                    for source in &config_project.sources {
-                        projects.push(ProjectReference::new(AnyProject::try_from_source(
-                            source.clone(),
-                            &project_root,
-                            basic_auth_policy.clone(),
-                            client.clone(),
-                            runtime.clone(),
-                        )?));
-                    }
-                    overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
-                }
-            }
+            let overrides = get_overrides(
+                &config,
+                &project_root,
+                &client,
+                runtime.clone(),
+                basic_auth_policy.clone(),
+            )?;
 
             enum Location {
                 WorkDir,
@@ -689,4 +684,32 @@ fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
         (false, true) => log::LevelFilter::Error,
         (false, false) => log::LevelFilter::Info,
     }
+}
+
+pub type Overrides<Policy> = Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>;
+
+pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+    config: &Config,
+    project_root: P,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+) -> Result<Overrides<Policy>> {
+    let mut overrides = Vec::new();
+    for config_project in &config.projects {
+        for identifier in &config_project.identifiers {
+            let mut projects = Vec::new();
+            for source in &config_project.sources {
+                projects.push(ProjectReference::new(AnyProject::try_from_source(
+                    source.clone(),
+                    &project_root,
+                    auth_policy.clone(),
+                    client.clone(),
+                    runtime.clone(),
+                )?));
+            }
+            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+        }
+    }
+    Ok(overrides)
 }

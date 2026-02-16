@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use camino::Utf8Path;
-use fluent_uri::Iri;
 use pubgrub::Reporter as _;
 
 use sysand_core::project::utils::ToPathBuf;
@@ -17,7 +16,7 @@ use sysand_core::{
     },
     config::Config,
     env::local_directory::DEFAULT_ENV_NAME,
-    project::{any::AnyProject, reference::ProjectReference, utils::wrapfs},
+    project::utils::wrapfs,
     resolve::{
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
@@ -27,7 +26,7 @@ use sysand_core::{
     stdlib::known_std_libs,
 };
 
-use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
+use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions, get_overrides};
 
 /// Generate a lockfile for project at `path`.
 /// `path` must be relative to workspace root.
@@ -58,22 +57,13 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
-    let mut overrides = Vec::new();
-    for config_project in &config.projects {
-        for identifier in &config_project.identifiers {
-            let mut projects = Vec::new();
-            for source in &config_project.sources {
-                projects.push(ProjectReference::new(AnyProject::try_from_source(
-                    source.clone(),
-                    &project_root,
-                    auth_policy.clone(),
-                    client.clone(),
-                    runtime.clone(),
-                )?));
-            }
-            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
-        }
-    }
+    let overrides = get_overrides(
+        config,
+        &project_root,
+        &client,
+        runtime.clone(),
+        auth_policy.clone(),
+    )?;
 
     let provided_iris = if !include_std {
         known_std_libs()

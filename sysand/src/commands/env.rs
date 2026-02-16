@@ -16,8 +16,8 @@ use sysand_core::{
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
-        ProjectRead, any::AnyProject, editable::EditableProject, local_kpar::LocalKParProject,
-        local_src::LocalSrcProject, reference::ProjectReference, utils::wrapfs,
+        ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
+        local_src::LocalSrcProject, utils::wrapfs,
     },
     resolve::{
         file::FileResolverProject,
@@ -31,6 +31,7 @@ use crate::{
     DEFAULT_INDEX_URL,
     cli::{InstallOptions, ResolutionOptions},
     commands::sync::command_sync,
+    get_overrides,
 };
 
 pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironment> {
@@ -82,22 +83,13 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
-    let mut overrides = Vec::new();
-    for config_project in &config.projects {
-        for identifier in &config_project.identifiers {
-            let mut projects = Vec::new();
-            for source in &config_project.sources {
-                projects.push(ProjectReference::new(AnyProject::try_from_source(
-                    source.clone(),
-                    project_root.clone(),
-                    auth_policy.clone(),
-                    client.clone(),
-                    runtime.clone(),
-                )?));
-            }
-            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
-        }
-    }
+    let overrides = get_overrides(
+        config,
+        &project_root,
+        &client,
+        runtime.clone(),
+        auth_policy.clone(),
+    )?;
 
     let mut memory_projects = HashMap::default();
     for (k, v) in &provided_iris {
@@ -229,23 +221,6 @@ pub fn command_env_install_path<S: AsRef<str>, Policy: HTTPAuthentication>(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
-    let mut overrides = Vec::new();
-    for config_project in &config.projects {
-        for identifier in &config_project.identifiers {
-            let mut projects = Vec::new();
-            for source in &config_project.sources {
-                projects.push(ProjectReference::new(AnyProject::try_from_source(
-                    source.clone(),
-                    project_root.clone(),
-                    auth_policy.clone(),
-                    client.clone(),
-                    runtime.clone(),
-                )?));
-            }
-            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
-        }
-    }
-
     if let Some(version) = version {
         let project_version = project
             .get_info()?
@@ -267,6 +242,14 @@ pub fn command_env_install_path<S: AsRef<str>, Policy: HTTPAuthentication>(
     )?;
     if !no_deps {
         let project = EditableProject::new(Utf8PathBuf::new(), project);
+
+        let overrides = get_overrides(
+            config,
+            &project_root,
+            &client,
+            runtime.clone(),
+            auth_policy.clone(),
+        )?;
 
         let mut memory_projects = HashMap::default();
         for (k, v) in provided_iris.iter() {
