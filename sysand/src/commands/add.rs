@@ -48,7 +48,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         .or((!no_config).then(|| project_root.join(CONFIG_FILE)));
 
     #[allow(clippy::manual_map)] // For readability and compactness
-    let source = if let Some(path) = source_opts.as_path {
+    let source = if let Some(path) = source_opts.as_local {
         let metadata = wrapfs::metadata(&path)?;
         if metadata.is_dir() {
             Some(sysand_core::lock::Source::LocalSrc {

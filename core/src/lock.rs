@@ -404,19 +404,19 @@ impl Project {
             table.insert("name", value(name));
         }
         table.insert("version", value(&self.version));
-        let exports = multiline_list(self.exports.iter().map(Value::from));
+        let exports = multiline_array(self.exports.iter().map(Value::from));
         if !exports.is_empty() {
             table.insert("exports", value(exports));
         }
-        let identifiers = multiline_list(self.identifiers.iter().map(Value::from));
+        let identifiers = multiline_array(self.identifiers.iter().map(Value::from));
         if !identifiers.is_empty() {
             table.insert("identifiers", value(identifiers));
         }
-        let usages = multiline_list(self.usages.iter().map(|u| u.to_toml()));
+        let usages = multiline_array(self.usages.iter().map(|u| u.to_toml()));
         if !usages.is_empty() {
             table.insert("usages", value(usages));
         }
-        let sources = multiline_list(self.sources.iter().map(|s| s.to_toml()));
+        let sources = multiline_array(self.sources.iter().map(|s| s.to_toml()));
         if !sources.is_empty() {
             table.insert("sources", value(sources));
         }
@@ -576,7 +576,7 @@ impl From<crate::model::InterchangeProjectUsage> for Usage {
     }
 }
 
-pub fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
+pub fn multiline_array(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
     let mut array: Array = elements
         .map(|item| {
             let mut value = item.into();

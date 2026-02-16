@@ -115,7 +115,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     let header = sysand_core::style::get_style_config().header;
 
     let mut local_project = LocalSrcProject {
-        nominal_path: Some(project_path.clone()),
+        nominal_path: None,
         project_path,
     };
     let std_resolver = standard_resolver(
@@ -145,7 +145,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
         ProjectLocator::Path(path) => {
             let remote_project = LocalSrcProject {
-                nominal_path: Some(path.clone().into()),
+                nominal_path: None,
                 project_path: path.into(),
             };
             if let Some(version) = version {

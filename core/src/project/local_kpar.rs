@@ -23,7 +23,7 @@ use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
 /// guessed based on the location of the `.project.json`-file.
 ///
 /// Paths used in the archive are expected to match those used in the metadata
-/// manifest (.meta.json)! Sysand *MAY* try to normalise paths in order
+/// manifest (.meta.json)! Sysand *MAY* try to normalize paths in order
 /// to match filenames, but no guarantees are made.
 ///
 /// Use `LocalKParProject::new_guess_root` to guess `root` based on the
@@ -32,9 +32,18 @@ use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
 /// The archive is read directly without extracting it.
 #[derive(Debug)]
 pub struct LocalKParProject {
-    pub tmp_dir: Utf8TempDir,
+    /// Temporary directory for unpacking files in archive.
+    tmp_dir: Utf8TempDir,
+    /// Path used in `Source::LocalSrc` returned by `.sources()`.
+    /// If `None` no source will be given.
+    /// E.g. if used in lockfile would be the path relative to the lockfile.
+    // TODO: Consider removing this and replacing it with some way of
+    // relativizing `archive_path` at the call site of .sources().
     pub nominal_path: Option<Utf8PathBuf>,
+    /// Path used when locating the project archive internally.
+    /// Should be absolute.
     pub archive_path: Utf8PathBuf,
+    /// Optionally specify name of root directory inside archive.
     pub root: Option<Utf8PathBuf>,
 }
 
@@ -172,6 +181,20 @@ impl LocalKParProject {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
             nominal_path: Some(nominal.to_path_buf()),
             archive_path: path.to_path_buf(),
+            root: None,
+        })
+    }
+
+    pub fn new_temporary() -> Result<Self, Box<FsIoError>> {
+        let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
+        Ok(LocalKParProject {
+            nominal_path: None,
+            archive_path: {
+                let mut p = wrapfs::canonicalize(tmp_dir.path())?;
+                p.push("project.kpar");
+                p
+            },
+            tmp_dir,
             root: None,
         })
     }
