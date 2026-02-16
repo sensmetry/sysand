@@ -90,8 +90,8 @@ fn relativise_path<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
 }
 
 impl LocalSrcProject {
-    pub fn root_path(&self) -> Utf8PathBuf {
-        self.project_path.clone()
+    pub fn root_path(&self) -> &Utf8PathBuf {
+        &self.project_path
     }
 
     pub fn info_path(&self) -> Utf8PathBuf {
@@ -117,7 +117,7 @@ impl LocalSrcProject {
         let root_path = self.root_path();
         let project_path = root_path
             .canonicalize_utf8()
-            .map_err(|e| UnixPathError::Canonicalize(root_path, e))?;
+            .map_err(|e| UnixPathError::Canonicalize(root_path.clone(), e))?;
 
         let path = relativise_path(&path, project_path)
             .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
@@ -154,7 +154,7 @@ impl LocalSrcProject {
 
         assert!(utf_path.is_relative());
 
-        let mut final_path = self.root_path();
+        let mut final_path = self.root_path().clone();
         let mut added_components = 0;
         for component in utf_path.components() {
             match component {

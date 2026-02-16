@@ -50,8 +50,8 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn root_path(&self) -> Utf8PathBuf {
-        self.workspace_path.clone()
+    pub fn root_path(&self) -> &Utf8PathBuf {
+        &self.workspace_path
     }
 
     pub fn info_path(&self) -> Utf8PathBuf {
