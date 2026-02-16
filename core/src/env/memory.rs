@@ -49,7 +49,7 @@ impl<Project: ProjectRead + Clone> MemoryStorageEnvironment<Project> {
 pub enum TryFromError<Project: ProjectRead> {
     #[error(transparent)]
     Read(Project::Error),
-    #[error("missing version for project with IRI '{0}'")]
+    #[error("missing version for project with IRI `{0}`")]
     MissingVersion(String),
 }
 

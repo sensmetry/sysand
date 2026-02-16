@@ -201,7 +201,7 @@ pub fn command_env_install_path<S: AsRef<str>, Policy: HTTPAuthentication>(
     let metadata = wrapfs::metadata(&path)?;
     let project = if metadata.is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
-            nominal_path: Some(path.as_str().into()),
+            nominal_path: None,
             project_path: path.as_str().into(),
         })
     } else if metadata.is_file() {

@@ -8,7 +8,6 @@ use std::{
     sync::Arc,
 };
 
-use camino_tempfile::tempdir;
 use futures::AsyncRead;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 use thiserror::Error;
@@ -69,21 +68,10 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
-        let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
-
         Ok(ReqwestKparDownloadedProject {
             url: reqwest::Url::parse(url.as_ref())
                 .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?,
-            inner: LocalKParProject {
-                nominal_path: None,
-                archive_path: {
-                    let mut p = wrapfs::canonicalize(tmp_dir.path())?;
-                    p.push("project.kpar");
-                    p
-                },
-                tmp_dir,
-                root: None,
-            },
+            inner: LocalKParProject::new_temporary()?,
             client,
             auth_policy,
         })

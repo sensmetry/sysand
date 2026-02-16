@@ -9,7 +9,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
 use super::Config;
 use crate::{
-    lock::{Source, multiline_list},
+    lock::{Source, multiline_array},
     project::utils::{FsIoError, wrapfs},
 };
 
@@ -77,7 +77,7 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
     iri: S,
     source: &Source,
 ) -> Result<(), ConfigProjectSourceError> {
-    let sources = multiline_list(std::iter::once(source.to_toml()));
+    let sources = multiline_array(std::iter::once(source.to_toml()));
     let contents = if config_path.as_ref().is_file() {
         wrapfs::read_to_string(&config_path)?
     } else {
@@ -112,7 +112,7 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
     } else {
         let mut project = Table::new();
         project["identifiers"] =
-            toml_edit::value(multiline_list(std::iter::once(Value::from(iri.as_ref()))));
+            toml_edit::value(multiline_array(std::iter::once(Value::from(iri.as_ref()))));
         project["sources"] = toml_edit::value(sources);
 
         projects.push(project);

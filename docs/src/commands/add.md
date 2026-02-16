@@ -34,10 +34,14 @@ source will be configured so future syncing will not take this into account.
 
 - `--no-lock`: Do not automatically resolve usages (and generate lockfile)
 - `--no-sync`: Do not automatically install dependencies
-- `--editable <EDITABLE>`: Path to local editable interchange project
-- `--path <PATH>`: Path to local interchange project
-- `--url-src <URL_SRC>`: URL to remote interchange project
-- `--url-kpar <URL_KPAR>`: URL to remote interchange project archive (KPAR)
+- `--as-editable <PATH>`: Add usage as editable interchange project at PATH and
+  update configuration file with appropriate source
+- `--as-local <PATH>`: Add usage as local interchange project at PATH and
+  update configuration file with appropriate source
+- `--as-url-src <URL>`: Add usage as interchange project at URL and
+  update configuration file with appropriate source
+- `--as-url-kpar <URL>`: Add usage as interchange project archive at URL and
+  update configuration file with appropriate source
 
 {{#include ./partials/resolution_opts.md}}
 

@@ -24,11 +24,18 @@ use thiserror::Error;
 use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError};
 
 /// Project stored in a local directory as an extracted kpar archive.
-/// Source file paths with (unix) segments `segment1/.../segmentn` are
+/// Source file paths with (unix) segments `segment1/.../segmentN` are
 /// re-interpreted as filesystem-native paths relative to `project_path`.
 #[derive(Clone, Debug)]
 pub struct LocalSrcProject {
+    /// Path used in `Source::LocalSrc` returned by `.sources()`.
+    /// If `None` no source will be given.
+    /// E.g. if used in lockfile would be the path relative to the lockfile.
+    // TODO: Consider removing this and replacing it with some way of
+    // relativizing `project_path` at the call site of .sources().
     pub nominal_path: Option<Utf8PathBuf>,
+    /// Path used when locating the project internally.
+    /// Should be absolute.
     pub project_path: Utf8PathBuf,
 }
 
