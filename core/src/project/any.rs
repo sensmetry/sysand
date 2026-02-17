@@ -16,6 +16,7 @@ use crate::{
     project::{
         AsSyncProjectTokio, ProjectRead, ProjectReadAsync,
         editable::EditableProject,
+        gix_git_download::{GixDownloadedError, GixDownloadedProject},
         local_kpar::LocalKParProject,
         local_src::LocalSrcProject,
         reference::ProjectReference,
@@ -33,6 +34,7 @@ pub enum AnyProject<Policy: HTTPAuthentication> {
     LocalKpar(LocalKParProject),
     RemoteSrc(AsSyncProjectTokio<ReqwestSrcProjectAsync<Policy>>),
     RemoteKpar(AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>),
+    RemoteGit(GixDownloadedProject),
 }
 
 #[derive(Error, Debug)]
@@ -45,10 +47,11 @@ pub enum TryFromSourceError {
     RemoteKpar(ReqwestKparDownloadedError),
     #[error(transparent)]
     RemoteSrc(url::ParseError),
+    #[error(transparent)]
+    RemoteGit(GixDownloadedError),
 }
 
 // TODO: Find a better solution going from source to project.
-// Preferably one that can also be used when syncing.
 impl<Policy: HTTPAuthentication> AnyProject<Policy> {
     pub fn try_from_source<P: AsRef<Utf8Path>>(
         source: Source,
@@ -101,6 +104,9 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     auth_policy,
                 }
                 .to_tokio_sync(runtime),
+            )),
+            Source::RemoteGit { remote_git } => Ok(AnyProject::RemoteGit(
+                GixDownloadedProject::new(remote_git).map_err(TryFromSourceError::RemoteGit)?,
             )),
             _ => Err(TryFromSourceError::UnsupportedSource(format!("{source:?}"))),
         }

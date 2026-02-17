@@ -72,9 +72,24 @@ sources = [
 
 to your `sysand.toml`.
 
-## Remote projects and KPARs
+## Remote projects
 
-To specify a remote project as a source, add
+Remote project are those available through URLs, and similar to local projects
+the way to specify them as sources depends on which format they come in.
+
+To specify a KPAR available at a URL as a source, add
+
+```toml
+[[project]]
+identifiers = [
+    "urn:kpar:remote-kpar-project",
+]
+sources = [
+    { remote_kpar = "https://www.example.com/path/to/project.kpar" },
+]
+```
+
+to your `sysand.toml`. For projects that are not packaged you can either use
 
 ```toml
 [[project]]
@@ -86,14 +101,18 @@ sources = [
 ]
 ```
 
-to your `sysand.toml`, or for a remote KPAR you add
+or, if the project is hosted on a Git forge like GitHub, GitLab etc. use
 
 ```toml
 [[project]]
 identifiers = [
-    "urn:kpar:remote-kpar-project",
+    "urn:kpar:remote-git-project",
 ]
 sources = [
-    { remote_kpar = "https://www.example.com/path/to/project.kpar" },
+    { remote_git = "https://github.com/my_user/project.git" },
 ]
 ```
+
+> [!note]
+> Currently there is no way to specify a particular git reference like e.g. a
+> branch, tag or commit.

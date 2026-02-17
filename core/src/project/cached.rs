@@ -5,7 +5,7 @@ use crate::project::{ProjectRead, Utf8UnixPath};
 
 /// Pair of project storages where `local` and `remote` contain the same project
 /// content, while `local` is easier and faster to access. The CachedProject is
-/// to be used in place of `remote` (in particular they return the same sources
+/// to be used in place of `remote` (in particular they return the same sources,
 /// unlike `local`) but faster access.
 #[derive(Clone, Debug)]
 pub struct CachedProject<Local: ProjectRead, Remote: ProjectRead> {

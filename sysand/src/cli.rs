@@ -1290,6 +1290,10 @@ pub struct ProjectSourceOptions {
     /// update configuration file with appropriate source
     #[arg(long, value_name = "URL", group = "source")]
     pub as_url_kpar: Option<String>,
+    /// Add usage as interchange project git repo at URL and
+    /// update configuration file with appropriate source
+    #[arg(long, value_name = "URL", group = "source")]
+    pub as_url_git: Option<String>,
 }
 
 #[derive(clap::Args, Debug, Clone)]

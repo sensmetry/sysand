@@ -14,7 +14,7 @@ Adds IRI and optional version constraint to list of usages in the project
 information file `.project.json`. By default this will also update the lockfile
 and sync the local environment (creating one if not already present).
 
-When adding a usage with a path or URL the configuration file will be
+When adding a usage with one of the `--as-*` flags the configuration file will be
 automatically updated with the appropriate project source override as described
 in [Dependencies](../config/dependencies.md). The configuration file updated
 will either be the one given with `--config-file` or (if `--no-config` is not
@@ -41,6 +41,8 @@ source will be configured so future syncing will not take this into account.
 - `--as-url-src <URL>`: Add usage as interchange project at URL and
   update configuration file with appropriate source
 - `--as-url-kpar <URL>`: Add usage as interchange project archive at URL and
+  update configuration file with appropriate source
+- `--as-url-git <URL>`: Add usage as interchange project git repo at URL and
   update configuration file with appropriate source
 
 {{#include ./partials/resolution_opts.md}}

@@ -68,6 +68,8 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
             remote_kpar,
             remote_kpar_size: None,
         })
+    } else if let Some(remote_git) = source_opts.as_url_git {
+        Some(sysand_core::lock::Source::RemoteGit { remote_git })
     } else {
         None
     };
