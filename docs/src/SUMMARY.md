@@ -8,6 +8,7 @@
 - [Workspaces](workspaces.md)
 - [Commands](commands.md)
   - [sysand init](commands/init.md)
+  - [sysand clone](commands/clone.md)
   - [sysand add](commands/add.md)
   - [sysand remove](commands/remove.md)
   - [sysand include](commands/include.md)
