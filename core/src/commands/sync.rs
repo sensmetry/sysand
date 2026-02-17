@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[derive(Error, Debug)]
-pub enum SyncError<UrlParseError: ErrorBound> {
+pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
     #[error("incorrect checksum for project with IRI `{0}` in lockfile")]
     BadChecksum(String),
     #[error("project with IRI `{0}` is missing `.project.json` or `.meta.json`")]
@@ -29,6 +29,8 @@ pub enum SyncError<UrlParseError: ErrorBound> {
     MissingIriLocalKparPath(Box<str>),
     #[error("no IRI given for project with remote_kpar = `{0}` in lockfile")]
     MissingIriRemoteKparPath(Box<str>),
+    #[error("no IRI given for project with remote_git = `{0}` in lockfile")]
+    MissingIriRemoteGitPath(Box<str>),
     #[error(
         "cannot handle project with IRI `{0}` residing in local file (type `local_src`) storage"
     )]
@@ -43,6 +45,12 @@ pub enum SyncError<UrlParseError: ErrorBound> {
         "cannot handle project with IRI `{0}` residing in remote kpar (type `remote_kpar`) storage"
     )]
     MissingRemoteKparStorage(Box<str>),
+    #[error(
+        "cannot handle project with IRI `{0}` residing in remote git repo (type `remote_git`) storage"
+    )]
+    MissingRemoteGitStorage(Box<str>),
+    #[error("failed to download git project from {0}: {1}")]
+    GitDownload(Box<str>, GitError),
     #[error("invalid remote source URL `{0}`:\n{1}")]
     InvalidRemoteSource(Box<str>, UrlParseError),
     #[error("no supported sources for project with IRI `{0}`")]
@@ -61,6 +69,8 @@ pub enum SyncError<UrlParseError: ErrorBound> {
     ProjectRead(String),
 }
 
+// TODO: Use AnyProject::try_from_source to avoid having so many arguments
+#[allow(clippy::too_many_arguments)]
 pub fn do_sync<
     Environment,
     CreateSrcPathStorage,
@@ -72,6 +82,9 @@ pub fn do_sync<
     CreateRemoteKParStorage,
     RemoteKParStorage,
     UrlParseError: ErrorBound,
+    CreateRemoteGitStorage,
+    RemoteGitStorage,
+    GitError: ErrorBound,
 >(
     lockfile: &Lock,
     env: &mut Environment,
@@ -79,8 +92,9 @@ pub fn do_sync<
     remote_src_storage: Option<CreateRemoteSrcStorage>,
     kpar_path_storage: Option<CreateKParPathStorage>,
     remote_kpar_storage: Option<CreateRemoteKParStorage>,
+    remote_git_storage: Option<CreateRemoteGitStorage>,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
-) -> Result<(), SyncError<UrlParseError>>
+) -> Result<(), SyncError<UrlParseError, GitError>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
     CreateSrcPathStorage: Fn(&Utf8Path) -> SrcPathStorage,
@@ -91,6 +105,8 @@ where
     KParPathStorage: ProjectRead,
     CreateRemoteKParStorage: Fn(String) -> Result<RemoteKParStorage, UrlParseError>,
     RemoteKParStorage: ProjectRead,
+    CreateRemoteGitStorage: Fn(String) -> Result<RemoteGitStorage, GitError>,
+    RemoteGitStorage: ProjectRead,
 {
     let syncing = "Syncing";
     let header = crate::style::get_style_config().header;
@@ -209,6 +225,18 @@ where
                     log::debug!("trying to install `{uri}` from remote_kpar: {remote_kpar}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
+                Source::RemoteGit { remote_git } => {
+                    let uri = main_uri.as_ref().ok_or_else(|| {
+                        SyncError::MissingIriRemoteGitPath(remote_git.as_str().into())
+                    })?;
+                    let remote_git_storage = remote_git_storage.as_ref().ok_or_else(|| {
+                        SyncError::MissingRemoteGitStorage(remote_git.as_str().into())
+                    })?;
+                    let storage = remote_git_storage(remote_git.clone())
+                        .map_err(|e| SyncError::GitDownload(remote_git.as_str().into(), e))?;
+                    log::debug!("trying to install `{uri}` from remote_git: {remote_git}");
+                    try_install(uri, &project.checksum, storage, env)?;
+                }
                 _ => supported = false,
             }
             if supported {
@@ -228,11 +256,11 @@ where
     Ok(())
 }
 
-fn is_installed<E: ReadEnvironment, U: ErrorBound, S: AsRef<str>, P: AsRef<str>>(
+fn is_installed<E: ReadEnvironment, U: ErrorBound, G: ErrorBound, S: AsRef<str>, P: AsRef<str>>(
     uri: S,
     checksum: P,
     env: &E,
-) -> Result<bool, SyncError<U>> {
+) -> Result<bool, SyncError<U, G>> {
     if !env
         .has(&uri)
         .map_err(|e| SyncError::ProjectRead(e.to_string()))?
@@ -261,6 +289,7 @@ fn try_install<
     E: ReadEnvironment + WriteEnvironment,
     P: ProjectRead,
     U: ErrorBound,
+    G: ErrorBound,
     S1: AsRef<str>,
     S2: AsRef<str>,
 >(
@@ -268,7 +297,7 @@ fn try_install<
     checksum: S2,
     storage: P,
     env: &mut E,
-) -> Result<(), SyncError<U>> {
+) -> Result<(), SyncError<U, G>> {
     let project_checksum = storage
         .checksum_canonical_hex()
         .map_err(|e| SyncError::ProjectRead(e.to_string()))?
@@ -347,7 +376,7 @@ mod tests {
         let env = MemoryStorageEnvironment::new();
 
         assert!(
-            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, _, _>(
+            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, Infallible, _, _>(
                 uri, checksum, &env
             )
             .unwrap()
@@ -367,21 +396,21 @@ mod tests {
         .unwrap();
 
         assert!(
-            is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, _, _>(
+            is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, Infallible, _, _>(
                 uri, &checksum, &env
             )
             .unwrap()
         );
 
         assert!(
-            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, _, _>(
+            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, Infallible, _, _>(
                 uri, "00", &env
             )
             .unwrap()
         );
 
         assert!(
-            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, _, _>(
+            !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, Infallible, _, _>(
                 "not_uri", &checksum, &env
             )
             .unwrap()
@@ -396,9 +425,14 @@ mod tests {
         let checksum = storage.checksum_noncanonical_hex().unwrap().unwrap();
         let mut env = MemoryStorageEnvironment::new();
 
-        try_install::<MemoryStorageEnvironment<InMemoryProject>, InMemoryProject, Infallible, _, _>(
-            uri, &checksum, storage, &mut env,
-        )
+        try_install::<
+            MemoryStorageEnvironment<InMemoryProject>,
+            InMemoryProject,
+            Infallible,
+            Infallible,
+            _,
+            _,
+        >(uri, &checksum, storage, &mut env)
         .unwrap();
 
         let uris = env.uris().unwrap();
@@ -423,6 +457,7 @@ mod tests {
         let SyncError::BadChecksum(msg) = try_install::<
             MemoryStorageEnvironment<InMemoryProject>,
             InMemoryProject,
+            Infallible,
             Infallible,
             _,
             _,

@@ -532,6 +532,99 @@ sources = [
 }
 
 #[test]
+fn add_and_remove_with_remote_git() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        None,
+    )?;
+
+    out.assert().success();
+
+    let config_path = cwd.join("sysand.toml");
+
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "urn:kpar:test",
+            "--as-url-git",
+            "www.example.com/test.git",
+        ],
+        Some(config_path.as_str()),
+    )?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(format!(
+            r#"Creating configuration file at `{config_path}`
+      Adding source for `urn:kpar:test` to configuration file at `{config_path}`
+      Adding usage: `urn:kpar:test`"#
+        )));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_and_remove",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "resource": "urn:kpar:test"
+    }
+  ]
+}
+"#
+    );
+
+    let config = std::fs::read_to_string(&config_path)?;
+
+    assert_eq!(
+        config,
+        r#"[[project]]
+identifiers = [
+    "urn:kpar:test",
+]
+sources = [
+    { remote_git = "www.example.com/test.git" },
+]
+"#
+    );
+
+    let out = run_sysand_in(
+        &cwd,
+        ["remove", "urn:kpar:test"],
+        Some(config_path.as_str()),
+    )?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(format!(
+            r#"Removing source for `urn:kpar:test` from configuration file at `{config_path}`
+    Removing empty configuration file at `{config_path}`
+    Removing `urn:kpar:test` from usages
+     Removed `urn:kpar:test`"#
+        )));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_and_remove",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
+    );
+
+    assert!(!config_path.is_file());
+
+    Ok(())
+}
+
+#[test]
 fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir_dep, cwd_dep, out) = run_sysand(
         [
