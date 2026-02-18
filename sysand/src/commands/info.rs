@@ -15,8 +15,11 @@ use sysand_core::{
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     },
-    project::{ProjectMut, ProjectRead, utils::ToPathBuf},
-    resolve::{file::FileResolverProject, standard::standard_resolver},
+    project::{ProjectMut, ProjectRead, any::OverrideProject},
+    resolve::{
+        file::FileResolverProject, memory::MemoryResolver, priority::PriorityResolver,
+        standard::standard_resolver,
+    },
 };
 
 use anstream::{print, println};
@@ -75,7 +78,8 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverPro
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path)?)
     } else if path.as_ref().is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
-            project_path: path.to_path_buf(),
+            nominal_path: None,
+            project_path: path.as_ref().as_str().into(),
         })
     } else {
         // TODO: NoResolve is for IRIs, this is a path
@@ -99,12 +103,14 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn command_info_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     _normalise: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
     excluded_iris: &HashSet<String>,
+    overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
@@ -112,17 +118,20 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
 
     let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
 
-    let combined_resolver = standard_resolver(
-        cwd,
-        if local_env_path.is_dir() {
-            Some(local_env_path)
-        } else {
-            None
-        },
-        Some(client),
-        index_urls,
-        runtime,
-        auth_policy,
+    let combined_resolver = PriorityResolver::new(
+        MemoryResolver::from(overrides),
+        standard_resolver(
+            cwd,
+            if local_env_path.is_dir() {
+                Some(local_env_path)
+            } else {
+                None
+            },
+            Some(client),
+            index_urls,
+            runtime,
+            auth_policy,
+        ),
     );
 
     let mut found = false;
@@ -188,12 +197,14 @@ pub fn command_info_verb_path<P: AsRef<Utf8Path>>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     verb: InfoCommandVerb,
     numbered: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
+    overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
@@ -203,17 +214,20 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
 
             let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
 
-            let combined_resolver = standard_resolver(
-                cwd,
-                if local_env_path.is_dir() {
-                    Some(local_env_path)
-                } else {
-                    None
-                },
-                Some(client),
-                index_urls,
-                runtime,
-                auth_policy,
+            let combined_resolver = PriorityResolver::new(
+                MemoryResolver::from(overrides),
+                standard_resolver(
+                    cwd,
+                    if local_env_path.is_dir() {
+                        Some(local_env_path)
+                    } else {
+                        None
+                    },
+                    Some(client),
+                    index_urls,
+                    runtime,
+                    auth_policy,
+                ),
             );
 
             let mut found = false;

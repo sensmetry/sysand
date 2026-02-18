@@ -24,10 +24,18 @@ use thiserror::Error;
 use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError};
 
 /// Project stored in a local directory as an extracted kpar archive.
-/// Source file paths with (unix) segments `segment1/.../segmentn` are
+/// Source file paths with (unix) segments `segment1/.../segmentN` are
 /// re-interpreted as filesystem-native paths relative to `project_path`.
 #[derive(Clone, Debug)]
 pub struct LocalSrcProject {
+    /// Path used in `Source::LocalSrc` returned by `.sources()`.
+    /// If `None` no source will be given.
+    /// E.g. if used in lockfile would be the path relative to the lockfile.
+    // TODO: Consider removing this and replacing it with some way of
+    // relativizing `project_path` at the call site of .sources().
+    pub nominal_path: Option<Utf8PathBuf>,
+    /// Path used when locating the project internally.
+    /// Should be absolute.
     pub project_path: Utf8PathBuf,
 }
 
@@ -82,8 +90,8 @@ fn relativise_path<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
 }
 
 impl LocalSrcProject {
-    pub fn root_path(&self) -> Utf8PathBuf {
-        self.project_path.clone()
+    pub fn root_path(&self) -> &Utf8PathBuf {
+        &self.project_path
     }
 
     pub fn info_path(&self) -> Utf8PathBuf {
@@ -109,7 +117,7 @@ impl LocalSrcProject {
         let root_path = self.root_path();
         let project_path = root_path
             .canonicalize_utf8()
-            .map_err(|e| UnixPathError::Canonicalize(root_path, e))?;
+            .map_err(|e| UnixPathError::Canonicalize(root_path.clone(), e))?;
 
         let path = relativise_path(&path, project_path)
             .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
@@ -146,7 +154,7 @@ impl LocalSrcProject {
 
         assert!(utf_path.is_relative());
 
-        let mut final_path = self.root_path();
+        let mut final_path = self.root_path().clone();
         let mut added_components = 0;
         for component in utf_path.components() {
             match component {
@@ -215,6 +223,7 @@ impl LocalSrcProject {
     > {
         let tmp = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
         let mut tmp_project = Self {
+            nominal_path: None,
             project_path: wrapfs::canonicalize(tmp.path())?,
         };
 
@@ -402,8 +411,11 @@ impl ProjectRead for LocalSrcProject {
     }
 
     fn sources(&self) -> Vec<crate::lock::Source> {
-        vec![crate::lock::Source::LocalSrc {
-            src_path: self.project_path.as_str().into(),
-        }]
+        match self.nominal_path.as_ref().map(|p| p.as_str()) {
+            Some(path_str) => vec![crate::lock::Source::LocalSrc {
+                src_path: path_str.into(),
+            }],
+            None => vec![],
+        }
     }
 }

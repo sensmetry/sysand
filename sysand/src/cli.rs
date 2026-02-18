@@ -96,6 +96,8 @@ pub enum Command {
 
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
+        #[command(flatten)]
+        source_opts: ProjectSourceOptions,
     },
     /// Remove usage from project information
     #[clap(alias = "rm")]
@@ -1271,6 +1273,30 @@ pub struct ResolutionOptions {
 }
 
 #[derive(clap::Args, Debug, Clone)]
+pub struct ProjectSourceOptions {
+    /// Add usage as editable interchange project at PATH and
+    /// update configuration file with appropriate source
+    #[arg(long, value_name = "PATH", group = "source")]
+    pub as_editable: Option<String>,
+    /// Add usage as local interchange project at PATH and
+    /// update configuration file with appropriate source
+    #[arg(long, value_name = "PATH", group = "source")]
+    pub as_local: Option<String>,
+    /// Add usage as interchange project at URL and
+    /// update configuration file with appropriate source
+    #[arg(long, value_name = "URL", group = "source")]
+    pub as_url_src: Option<String>,
+    /// Add usage as interchange project archive at URL and
+    /// update configuration file with appropriate source
+    #[arg(long, value_name = "URL", group = "source")]
+    pub as_url_kpar: Option<String>,
+    /// Add usage as interchange project git repo at URL and
+    /// update configuration file with appropriate source
+    #[arg(long, value_name = "URL", group = "source")]
+    pub as_url_git: Option<String>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
     /// Do not include sources for dependencies
     #[arg(long, default_value = "false", conflicts_with = "include_std")]
@@ -1309,12 +1335,6 @@ pub struct GlobalOptions {
     /// Print help
     #[arg(long, short, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
     pub help: Option<bool>,
-}
-
-impl GlobalOptions {
-    pub fn sets_log_level(&self) -> bool {
-        self.verbose || self.quiet
-    }
 }
 
 /// Parse an IRI. Tolerates missing IRI scheme, uses

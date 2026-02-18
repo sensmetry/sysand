@@ -7,6 +7,7 @@ use anyhow::{Result, anyhow, bail};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
+
 use sysand_core::{
     auth::HTTPAuthentication,
     commands::{env::do_env_local_dir, lock::LockOutcome},
@@ -30,6 +31,7 @@ use crate::{
     DEFAULT_INDEX_URL,
     cli::{InstallOptions, ResolutionOptions},
     commands::sync::command_sync,
+    get_overrides,
 };
 
 pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironment> {
@@ -81,17 +83,28 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
+    let overrides = get_overrides(
+        config,
+        &project_root,
+        &client,
+        runtime.clone(),
+        auth_policy.clone(),
+    )?;
+
     let mut memory_projects = HashMap::default();
     for (k, v) in &provided_iris {
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
     }
-
-    // TODO: Move out the runtime
-    let resolver = PriorityResolver::new(
+    let override_resolver = PriorityResolver::new(
+        MemoryResolver::from(overrides),
         MemoryResolver {
             iri_predicate: AcceptAll {},
             projects: memory_projects,
         },
+    );
+    // TODO: Move out the runtime
+    let resolver = PriorityResolver::new(
+        override_resolver,
         standard_resolver(
             None,
             None,
@@ -177,13 +190,16 @@ pub fn command_env_install_path<S: AsRef<str>, Policy: HTTPAuthentication>(
         include_std,
     } = resolution_opts;
 
-    let m = wrapfs::metadata(&path)?;
-    let project = if m.is_dir() {
+    let metadata = wrapfs::metadata(&path)?;
+    let project = if metadata.is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
+            nominal_path: None,
             project_path: path.as_str().into(),
         })
-    } else if m.is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(&path)?)
+    } else if metadata.is_file() {
+        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root_nominal(
+            &path, &path,
+        )?)
     } else {
         bail!("path `{path}` is neither a directory nor a file");
     };
@@ -227,17 +243,28 @@ pub fn command_env_install_path<S: AsRef<str>, Policy: HTTPAuthentication>(
     if !no_deps {
         let project = EditableProject::new(Utf8PathBuf::new(), project);
 
+        let overrides = get_overrides(
+            config,
+            &project_root,
+            &client,
+            runtime.clone(),
+            auth_policy.clone(),
+        )?;
+
         let mut memory_projects = HashMap::default();
         for (k, v) in provided_iris.iter() {
             memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
         }
-
-        // TODO: Move out the runtime
-        let resolver = PriorityResolver::new(
+        let override_resolver = PriorityResolver::new(
+            MemoryResolver::from(overrides),
             MemoryResolver {
                 iri_predicate: AcceptAll {},
                 projects: memory_projects,
             },
+        );
+        // TODO: Move out the runtime
+        let resolver = PriorityResolver::new(
+            override_resolver,
             standard_resolver(
                 Some(path),
                 None,

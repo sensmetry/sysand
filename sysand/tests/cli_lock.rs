@@ -52,6 +52,49 @@ fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[test]
+fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--name", "lock_local_source", "--version", "1.2.3"],
+        None,
+    )?;
+
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let out = run_sysand_in(&cwd, ["init", "--version", "1.0.0", "local_dep"], None)?;
+
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let out = run_sysand_in(&cwd, ["add", "urn:kpar:local_dep", "--no-lock"], None)?;
+
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let cfg = toml::to_string(&sysand_core::config::Config {
+        indexes: vec![],
+        projects: vec![sysand_core::config::ConfigProject {
+            identifiers: vec!["urn:kpar:local_dep".to_string()],
+            sources: vec![sysand_core::lock::Source::LocalSrc {
+                src_path: cwd.join("local_dep").as_str().into(),
+            }],
+        }],
+    })?;
+
+    let cfg_path = cwd.join(sysand_core::config::local_fs::CONFIG_FILE);
+    std::fs::write(&cfg_path, cfg)?;
+
+    let out = run_sysand_in(&cwd, ["lock"], Some(cfg_path.as_str()))?;
+
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let lock_file: Lock =
+        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let projects = lock_file.projects;
+
+    assert_eq!(projects.len(), 2);
+
+    Ok(())
+}
+
 fn mock_project<
     P: AsRef<str>,
     N: AsRef<str>,

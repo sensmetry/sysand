@@ -9,7 +9,7 @@ use std::{
 };
 
 use semver::{Version, VersionReq};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml_edit::{
     Array, ArrayOfTables, DocumentMut, Formatted, InlineTable, Item, Table, Value, value,
@@ -404,19 +404,19 @@ impl Project {
             table.insert("name", value(name));
         }
         table.insert("version", value(&self.version));
-        let exports = multiline_list(self.exports.iter().map(Value::from));
+        let exports = multiline_array(self.exports.iter().map(Value::from));
         if !exports.is_empty() {
             table.insert("exports", value(exports));
         }
-        let identifiers = multiline_list(self.identifiers.iter().map(Value::from));
+        let identifiers = multiline_array(self.identifiers.iter().map(Value::from));
         if !identifiers.is_empty() {
             table.insert("identifiers", value(identifiers));
         }
-        let usages = multiline_list(self.usages.iter().map(|u| u.to_toml()));
+        let usages = multiline_array(self.usages.iter().map(|u| u.to_toml()));
         if !usages.is_empty() {
             table.insert("usages", value(usages));
         }
-        let sources = multiline_list(self.sources.iter().map(|s| s.to_toml()));
+        let sources = multiline_array(self.sources.iter().map(|s| s.to_toml()));
         if !sources.is_empty() {
             table.insert("sources", value(sources));
         }
@@ -437,20 +437,29 @@ const SOURCE_ENTRIES: &[&str] = &[
     "remote_api",
 ];
 
-#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(untagged)]
 pub enum Source {
     // Path must be a Unix path relative to workspace root
     Editable {
-        #[serde(deserialize_with = "parse_unix_path")]
+        #[serde(
+            deserialize_with = "parse_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
         editable: Utf8UnixPathBuf,
     },
     LocalSrc {
-        #[serde(deserialize_with = "parse_unix_path")]
+        #[serde(
+            deserialize_with = "parse_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
         src_path: Utf8UnixPathBuf,
     },
     LocalKpar {
-        #[serde(deserialize_with = "parse_unix_path")]
+        #[serde(
+            deserialize_with = "parse_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
         kpar_path: Utf8UnixPathBuf,
     },
     Registry {
@@ -469,6 +478,13 @@ pub enum Source {
     RemoteApi {
         remote_api: String,
     },
+}
+
+fn serialize_unix_path<S>(x: &Utf8UnixPathBuf, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_str(x.as_str())
 }
 
 fn parse_unix_path<'de, D>(deserializer: D) -> Result<Utf8UnixPathBuf, D::Error>
@@ -560,7 +576,7 @@ impl From<crate::model::InterchangeProjectUsage> for Usage {
     }
 }
 
-fn multiline_list(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
+pub fn multiline_array(elements: impl Iterator<Item = impl Into<Value>>) -> Array {
     let mut array: Array = elements
         .map(|item| {
             let mut value = item.into();

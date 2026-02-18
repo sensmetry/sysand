@@ -1,14 +1,17 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::env::{
-    memory::{MemoryStorageEnvironment, MemoryWriteError},
-    utils::ErrorBound,
-};
 #[cfg(feature = "filesystem")]
 use crate::{
     env::local_directory::{ENTRIES_PATH, LocalDirectoryEnvironment, LocalWriteError},
     project::utils::{ToPathBuf, wrapfs},
+};
+use crate::{
+    env::{
+        memory::{MemoryStorageEnvironment, MemoryWriteError},
+        utils::ErrorBound,
+    },
+    project::memory::InMemoryProject,
 };
 
 #[cfg(feature = "filesystem")]
@@ -33,7 +36,8 @@ pub enum EnvError<WriteError: ErrorBound> {
     Write(#[from] WriteError),
 }
 
-pub fn do_env_memory() -> Result<MemoryStorageEnvironment, EnvError<MemoryWriteError>> {
+pub fn do_env_memory()
+-> Result<MemoryStorageEnvironment<InMemoryProject>, EnvError<MemoryWriteError>> {
     Ok(MemoryStorageEnvironment::default())
 }
 

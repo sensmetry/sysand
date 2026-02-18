@@ -15,12 +15,13 @@ use std::{
 
 use anstream::{eprint, eprintln};
 use anyhow::{Result, bail};
+use fluent_uri::Iri;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
 
 use sysand_core::{
-    auth::StandardHTTPAuthenticationBuilder,
+    auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder},
     config::{
         Config,
         local_fs::{get_config, load_configs},
@@ -28,7 +29,11 @@ use sysand_core::{
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     init::InitError,
     lock::Lock,
-    project::utils::wrapfs,
+    project::{
+        any::{AnyProject, OverrideProject},
+        reference::ProjectReference,
+        utils::wrapfs,
+    },
     stdlib::known_std_libs,
 };
 
@@ -112,11 +117,22 @@ fn set_panic_hook() {
 pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
+    let log_level = get_log_level(args.global_opts.verbose, args.global_opts.quiet);
+    if logger::init(log_level).is_err() {
+        let warn = style::WARN;
+        eprintln!(
+            "{warn}warning{warn:#}: failed to set up logger because it has already been set up;\n\
+            {:>8} log messages may not be formatted properly",
+            ' '
+        );
+        log::set_max_level(log_level);
+    }
+
     let current_workspace = sysand_core::discover::current_workspace()?;
     let current_project = sysand_core::discover::current_project()?;
     let cwd = wrapfs::current_dir()?;
 
-    let project_root = current_project.clone().map(|p| p.root_path()).clone();
+    let project_root = current_project.clone().map(|p| p.root_path().clone());
 
     let current_environment = {
         let dir = project_root.as_ref().unwrap_or(&cwd);
@@ -136,22 +152,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     };
 
     config.merge(auto_config);
-
-    let (verbose, quiet) = if args.global_opts.sets_log_level() {
-        (args.global_opts.verbose, args.global_opts.quiet)
-    } else {
-        get_config_verbose_quiet(&config)
-    };
-    let log_level = get_log_level(verbose, quiet);
-    if logger::init(log_level).is_err() {
-        let warn = style::WARN;
-        eprintln!(
-            "{warn}warning{warn:#}: failed to set up logger because it has already been set up;\n\
-            {:>8} log messages may not be formatted properly",
-            ' '
-        );
-        log::set_max_level(log_level);
-    }
 
     let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
 
@@ -333,11 +333,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         },
         cli::Command::Lock { resolution_opts } => {
-            if project_root.is_some() {
+            if let Some(project_root) = project_root {
                 crate::commands::lock::command_lock(
                     ".",
                     resolution_opts,
                     &config,
+                    project_root,
                     client,
                     runtime,
                     basic_auth_policy,
@@ -367,6 +368,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     ".",
                     resolution_opts,
                     &config,
+                    project_root.clone(),
                     client.clone(),
                     runtime.clone(),
                     basic_auth_policy.clone(),
@@ -426,6 +428,15 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } else {
                 HashSet::default()
             };
+
+            let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
+            let overrides = get_overrides(
+                &config,
+                &project_root,
+                &client,
+                runtime.clone(),
+                basic_auth_policy.clone(),
+            )?;
 
             enum Location {
                 WorkDir,
@@ -517,6 +528,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     client,
                     index_urls,
                     &excluded_iris,
+                    overrides,
                     runtime,
                     basic_auth_policy,
                 ),
@@ -529,6 +541,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         numbered,
                         client,
                         index_urls,
+                        overrides,
                         runtime,
                         basic_auth_policy,
                     )
@@ -547,19 +560,28 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_lock,
             no_sync,
             resolution_opts,
+            source_opts,
         } => command_add(
             iri,
             version_constraint,
             no_lock,
             no_sync,
             resolution_opts,
-            &config,
+            source_opts,
+            config,
+            args.global_opts.config_file,
+            args.global_opts.no_config,
             current_project,
             client,
             runtime,
             basic_auth_policy,
         ),
-        cli::Command::Remove { iri } => command_remove(iri, current_project),
+        cli::Command::Remove { iri } => command_remove(
+            iri,
+            current_project,
+            args.global_opts.config_file,
+            args.global_opts.no_config,
+        ),
         cli::Command::Include {
             paths,
             compute_checksum: add_checksum,
@@ -655,13 +677,6 @@ pub fn get_or_create_env(project_root: impl AsRef<Utf8Path>) -> Result<LocalDire
     }
 }
 
-fn get_config_verbose_quiet(config: &Config) -> (bool, bool) {
-    (
-        config.verbose.unwrap_or_default(),
-        config.quiet.unwrap_or_default(),
-    )
-}
-
 fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
     match (verbose, quiet) {
         (true, true) => unreachable!(),
@@ -669,4 +684,32 @@ fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
         (false, true) => log::LevelFilter::Error,
         (false, false) => log::LevelFilter::Info,
     }
+}
+
+pub type Overrides<Policy> = Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>;
+
+pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+    config: &Config,
+    project_root: P,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+) -> Result<Overrides<Policy>> {
+    let mut overrides = Vec::new();
+    for config_project in &config.projects {
+        for identifier in &config_project.identifiers {
+            let mut projects = Vec::new();
+            for source in &config_project.sources {
+                projects.push(ProjectReference::new(AnyProject::try_from_source(
+                    source.clone(),
+                    &project_root,
+                    auth_policy.clone(),
+                    client.clone(),
+                    runtime.clone(),
+                )?));
+            }
+            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+        }
+    }
+    Ok(overrides)
 }

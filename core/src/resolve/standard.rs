@@ -3,6 +3,9 @@
 
 use std::{fmt, result::Result, sync::Arc};
 
+use camino::Utf8PathBuf;
+use reqwest_middleware::ClientWithMiddleware;
+
 use crate::{
     auth::HTTPAuthentication,
     env::{local_directory::LocalDirectoryEnvironment, reqwest_http::HTTPEnvironmentAsync},
@@ -17,8 +20,6 @@ use crate::{
         sequential::SequentialResolver,
     },
 };
-use camino::Utf8PathBuf;
-use reqwest_middleware::ClientWithMiddleware;
 
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
@@ -32,9 +33,9 @@ type StandardResolverInner<Policy> = CombinedResolver<
     AsSyncResolveTokio<RemoteIndexResolver<Policy>>,
 >;
 
-pub struct StandardResolver<Policy>(StandardResolverInner<Policy>);
+pub struct StandardResolver<Policy: HTTPAuthentication>(StandardResolverInner<Policy>);
 
-impl<Policy: fmt::Debug> fmt::Debug for StandardResolver<Policy> {
+impl<Policy: HTTPAuthentication> fmt::Debug for StandardResolver<Policy> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("CliResolver").field(&self.0).finish()
     }
@@ -117,10 +118,10 @@ pub fn standard_resolver<Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
 ) -> StandardResolver<Policy> {
     let file_resolver = standard_file_resolver(cwd);
+    let local_resolver = local_env_path.map(standard_local_resolver);
     let remote_resolver = client
         .clone()
         .map(|x| standard_remote_resolver(x, runtime.clone(), auth_policy.clone()));
-    let local_resolver = local_env_path.map(standard_local_resolver);
     let index_resolver = client
         .zip(index_urls)
         .map(|(client, urls)| standard_index_resolver(client, urls, runtime, auth_policy));
