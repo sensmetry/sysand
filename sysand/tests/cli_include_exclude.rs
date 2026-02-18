@@ -27,12 +27,12 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
+    out.assert().success();
+
     {
         let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
         sysml_file.write_all(b"package P;\n")?;
     }
-
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml", "--compute-checksum"], None)?;
 

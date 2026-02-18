@@ -138,6 +138,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             project_root,
+            false,
             &mut env,
             client,
             &provided_iris,
@@ -254,6 +255,7 @@ pub fn command_env_install_path<S: AsRef<str>, Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             project_root,
+            false,
             &mut env,
             client,
             &provided_iris,

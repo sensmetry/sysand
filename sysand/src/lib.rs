@@ -376,6 +376,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             command_sync(
                 &lock,
                 project_root,
+                true,
                 &mut local_environment,
                 client,
                 &provided_iris,

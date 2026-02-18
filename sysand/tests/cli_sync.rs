@@ -7,11 +7,68 @@ use assert_cmd::prelude::*;
 use indexmap::IndexMap;
 use mockito::Matcher;
 use predicates::prelude::*;
-use sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME;
+use sysand_core::{
+    commands::lock::DEFAULT_LOCKFILE_NAME,
+    env::local_directory::{DEFAULT_ENV_NAME, DEFAULT_MANIFEST_NAME, ENTRIES_PATH},
+};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
+
+#[test]
+fn sync_to_current() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "sync_to_current"],
+        None,
+    )?;
+
+    out.assert().success();
+
+    {
+        let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
+        sysml_file.write_all(b"package P;\n")?;
+    }
+
+    let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["sync"], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("Creating"))
+        .stderr(predicate::str::contains("Syncing"));
+
+    let env_path = cwd.join(DEFAULT_ENV_NAME);
+
+    let manifest = std::fs::read_to_string(env_path.join(DEFAULT_MANIFEST_NAME))?;
+
+    assert_eq!(
+        manifest,
+        format!(
+            r#"[[project]]
+name = "sync_to_current"
+files = [
+    "{}/test.sysml",
+]
+usages = []
+"#,
+            cwd
+        )
+    );
+
+    let entries = std::fs::read_dir(env_path)?.collect::<Result<Vec<_>, _>>()?;
+
+    assert_eq!(entries.len(), 2);
+
+    assert_eq!(entries[0].file_name(), DEFAULT_MANIFEST_NAME);
+
+    assert_eq!(entries[1].file_name(), ENTRIES_PATH);
+
+    Ok(())
+}
 
 #[test]
 fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
@@ -66,6 +123,20 @@ sources = [
         .stderr(predicate::str::contains("Creating"))
         .stderr(predicate::str::contains("Syncing"))
         .stderr(predicate::str::contains("Installing"));
+
+    let manifest = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(DEFAULT_MANIFEST_NAME))?;
+
+    assert_eq!(
+        manifest,
+        format!(
+            r#"[[project]]
+name = "sync_to_local"
+directory = "{}/{DEFAULT_ENV_NAME}/5ddc0a2e8aaa88ac2bfc71aa0a8d08e020bceac4a90a4b72d8fb7f97ec5bfcc5/1.2.3.kpar"
+usages = []
+"#,
+            cwd
+        )
+    );
 
     let out = run_sysand_in(&cwd, ["env", "list"], None)?;
 
@@ -134,6 +205,20 @@ sources = [
 
     info_mock.assert();
     meta_mock.assert();
+
+    let manifest = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(DEFAULT_MANIFEST_NAME))?;
+
+    assert_eq!(
+        manifest,
+        format!(
+            r#"[[project]]
+name = "sync_to_remote"
+directory = "{}/{DEFAULT_ENV_NAME}/2b95cb7c6d6c08695b0e7c4b7e9d836c21de37fb9c72b0cfa26f53fd84a1b459/1.2.3.kpar"
+usages = []
+"#,
+            cwd
+        )
+    );
 
     let out = run_sysand_in(&cwd, ["env", "list"], None)?;
 
