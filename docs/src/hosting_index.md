@@ -131,7 +131,7 @@ through GitHub's access management.
 > solution might not be ideal for hosting big indices, as GitHub can rate-limit
 > access to `raw.githubusercontent.com` without prior notice.
 
-Sensmetry have a [public GitHub repository][github_repo] implementing this
+Sensmetry has a [public GitHub repository][github_repo] implementing this
 approach. It is licensed under the Creative Commons Zero license and can be
 freely forked and used in any setting.
 
@@ -146,7 +146,7 @@ There are two important branches in the repository:
   This branch is exposed to the Sysand client as the index. It contains an
   auto-generated file structure and always uses `git reset --hard` and `git push
   --force` to avoid exploding the size of the git repository. Ideally, branch
-  rules would be set up that would only allow the automated bot to make changes
+  rules should be set up that would only allow the automated bot to make changes
   to the `index` branch.
 
 Other branches can also be used, e.g. to allow reviews of the projects before
@@ -156,9 +156,9 @@ the `main` branch.
 
 ### GitHub Workflow
 
-A GitHub Workflow can be found in the `.github/workflows/ci.yml` file on the
-`main` branch. This workflow is triggered on every commit to the `main` branch,
-at which point it:
+A GitHub Workflow can be found in the
+[`.github/workflows/ci.yml`][github_workflow] file on the `main` branch. This
+workflow is triggered on every commit to the `main` branch, at which point it:
 
 1. Installs Sysand client
 2. Creates a Sysand environment, and installs all `.kpar` projects from the
@@ -183,7 +183,7 @@ and `REPO` is specific to where you created the project and how you named it. To
 test it, create a new SysML v2 project in another directory by following the
 [User Guide](tutorial.md).
 
-Before you can use the index when adding usages, you need to tell Sysand how to
+Before you can use the index for adding usages, you need to tell Sysand how to
 authenticate with your index. You can do this by setting the following
 environment variables. See [Authentication](authentication.md) for details.
 
@@ -213,7 +213,7 @@ Pages instance. This allows you to host an index without needing to ask your IT
 department to set up a server for you, while also allowing simple access control
 through GitLab's access management.
 
-Sensmetry have a [public GitLab repository][gitlab_repo] implementing this
+Sensmetry has a [public GitLab repository][gitlab_repo] implementing this
 approach. It is licensed under the Creative Commons Zero license and can be
 freely forked and used in any setting.
 
@@ -229,9 +229,9 @@ publishes the index only on the `main` branch.
 
 ### CI/CD Pipeline
 
-A CI/CD Pipeline can be found in the `.gitlab-ci.yml` file on the `main` branch.
-This pipeline is triggered on every commit to the `main` branch, at which point
-it:
+A CI/CD Pipeline can be found in the [`.gitlab-ci.yml`][gitlab_pipeline] file on
+the `main` branch. This pipeline is triggered on every commit to the `main`
+branch, at which point it:
 
 1. Installs Sysand client
 2. Creates a Sysand environment, and installs all `.kpar` projects from the
@@ -253,7 +253,7 @@ You should now be able to access the package index through
 create a new SysML v2 project in another directory by following the [User
 Guide](tutorial.md).
 
-Before you can use the index when adding usages, you need to tell Sysand how to
+Before you can use the index for adding usages, you need to tell Sysand how to
 authenticate with your index. You can do this by setting the following
 environment variables. See [Authentication](authentication.md) for details.
 
@@ -276,6 +276,8 @@ An alternative to `--index` argument is defining the custom index in
 
 [sysand_index]: https://beta.sysand.org/
 [github_repo]: https://github.com/sensmetry/sysand-private-index
+[github_workflow]: https://github.com/sensmetry/sysand-private-index/blob/main/.github/workflows/ci.yml
 [github_pat]: https://github.com/settings/personal-access-tokens
 [gitlab_repo]: https://gitlab.com/sensmetry/public/sysand-private-index
+[gitlab_pipeline]: https://gitlab.com/sensmetry/public/sysand-private-index/-/blob/main/.gitlab-ci.yml?ref_type=heads
 [gitlab_pat]: https://gitlab.com/-/user_settings/personal_access_tokens
