@@ -214,10 +214,14 @@ fn resolve_candidates<R: ResolveRead>(
                 .map_err(InternalSolverError::Resolution)?
             {
                 crate::resolve::ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    return Err(InternalSolverError::UnsupportedIriType(msg));
+                    return Err(InternalSolverError::UnsupportedIriType(format!(
+                        "unsupported IRI type of `{uri}`: {msg}"
+                    )));
                 }
                 crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
-                    return Err(InternalSolverError::NotResolvable(msg));
+                    return Err(InternalSolverError::NotResolvable(format!(
+                        "project with IRI `{uri}` not found: {msg}"
+                    )));
                 }
                 crate::resolve::ResolutionOutcome::Resolved(alternatives) => {
                     for alternative in alternatives {
@@ -275,7 +279,7 @@ fn resolve_candidates<R: ResolveRead>(
     }
 }
 
-fn compute_deps<R: ResolveRead>(
+fn compute_deps<R: ResolveRead + fmt::Debug>(
     resolver: &R,
     usages: &Vec<InterchangeProjectUsage>,
     cache: &mut ResolvedCandidates<R::ProjectStorage>,
@@ -380,7 +384,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
                     write!(f, "failed to retrieve project(s): {source}")
                 }
                 DependencyIdentifier::Remote(iri) => {
-                    write!(f, "failed to retrieve `{iri}`: {source}")
+                    write!(f, "failed to retrieve usages of `{iri}`: {source}")
                 }
             },
             pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => match package {
@@ -410,7 +414,7 @@ pub enum InternalSolverError<R: ResolveRead> {
     // InvalidProject,
     /// Project not found by current resolver
     /// Value is the formatted error message
-    #[error("IRI is not resolvable: {0}")]
+    #[error("{0}")]
     NotResolvable(String),
     /// Project not found by current resolver
     /// Value is the formatted error message

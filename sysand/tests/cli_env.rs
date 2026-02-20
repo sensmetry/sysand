@@ -276,9 +276,9 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(&cwd, ["add", "urn:kpar:install_nonexistent"], None)?;
 
-    out.assert()
-        .failure()
-        .stderr(predicate::str::contains("IRI is not resolvable"));
+    out.assert().failure().stderr(predicate::str::contains(
+        "no resolver was able to resolve the IRI",
+    ));
 
     Ok(())
 }

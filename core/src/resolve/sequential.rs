@@ -2,8 +2,6 @@ use crate::resolve::{ResolutionOutcome, ResolveRead, ResolveReadAsync};
 use futures::StreamExt as _;
 use std::iter::Flatten;
 
-use super::ResolutionOutcome;
-
 /// Takes a sequence of similar resolvers, and tries them in sequence.
 /// First resolves all versions in the first environment, then all
 /// in the second, ...
