@@ -99,7 +99,7 @@ where
     let mut updated = false;
     'main_loop: for project in lockfile.projects.iter() {
         // TODO: We need a proper way to treat multiple IRIs here
-        let main_uri = project.identifiers.first().cloned();
+        let main_uri = project.identifiers.first();
 
         for iri in &project.identifiers {
             let excluded_versions = if let Ok(parsed_iri) = fluent_uri::Iri::parse(iri.clone()) {
@@ -217,7 +217,9 @@ where
         }
         if no_supported {
             return Err(SyncError::UnsupportedSources(
-                main_uri.unwrap_or("project without IRI".to_string()),
+                main_uri
+                    .cloned()
+                    .unwrap_or_else(|| "project without IRI".to_string()),
             ));
         }
         updated = true;

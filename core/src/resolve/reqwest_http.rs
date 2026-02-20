@@ -17,6 +17,8 @@ use crate::{
     resolve::ResolveReadAsync,
 };
 
+use super::ResolutionOutcome;
+
 /// Tries to resolve http(s) URLs as direct (resolvable) links to interchange projects.
 #[derive(Debug)]
 pub struct HTTPResolverAsync<Policy> {
@@ -256,12 +258,12 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
     async fn resolve_read_async(
         &self,
         uri: &fluent_uri::Iri<String>,
-    ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+    ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         // Try to resolve as a HTTP src project.
         Ok(
             if uri.scheme() == SCHEME_HTTP || uri.scheme() == SCHEME_HTTPS {
                 if let Ok(url) = reqwest::Url::parse(uri.as_str()) {
-                    super::ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
+                    ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
                         client: self.client.clone(),
                         url,
                         src_done: false,
@@ -271,10 +273,10 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
                         // prefer_ranged: self.prefer_ranged,
                     }))
                 } else {
-                    super::ResolutionOutcome::UnsupportedIRIType("invalid http(s) URL".to_string())
+                    ResolutionOutcome::UnsupportedIRIType("invalid http(s) URL".to_string())
                 }
             } else {
-                super::ResolutionOutcome::UnsupportedIRIType("not an http(s) URL".to_string())
+                ResolutionOutcome::UnsupportedIRIType("not an http(s) URL".to_string())
             },
         )
     }

@@ -7,6 +7,8 @@ compile_error!("`std` feature is currently required to build `sysand`");
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
+    fs,
+    io::ErrorKind,
     panic,
     process::ExitCode,
     str::FromStr,
@@ -21,6 +23,7 @@ use clap::Parser;
 
 use sysand_core::{
     auth::StandardHTTPAuthenticationBuilder,
+    commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{
         Config,
         local_fs::{get_config, load_configs},
@@ -30,6 +33,7 @@ use sysand_core::{
     lock::Lock,
     project::utils::wrapfs,
     stdlib::known_std_libs,
+    workspace::Workspace,
 };
 
 use crate::{
@@ -98,7 +102,8 @@ fn set_panic_hook() {
     // panic::set_backtrace_style(panic::BacktraceStyle::Short);
     panic::set_hook(Box::new(move |panic_info| {
         std::eprintln!(
-            "Sysand crashed. This is a bug. We would appreciate a bug report at either\n\
+            "\n\n\
+            Sysand crashed. This is likely a bug. We would appreciate a bug report at either\n\
             Sysand's issue tracker: https://github.com/sensmetry/sysand/issues\n\
             or Sensmetry forum: https://forum.sensmetry.com/c/sysand/24\n\
             or via email: sysand@sensmetry.com\n\
@@ -112,11 +117,11 @@ fn set_panic_hook() {
 pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
-    let current_workspace = sysand_core::discover::current_workspace()?;
-    let current_project = sysand_core::discover::current_project()?;
     let cwd = wrapfs::current_dir()?;
+    let current_workspace = sysand_core::discover::discover_workspace(&cwd)?;
+    let current_project = sysand_core::discover::discover_project(&cwd);
 
-    let project_root = current_project.clone().map(|p| p.root_path()).clone();
+    let project_root = current_project.as_ref().map(|p| p.root_path());
 
     let current_environment = {
         let dir = project_root.as_ref().unwrap_or(&cwd);
@@ -334,8 +339,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         },
         cli::Command::Lock { resolution_opts } => {
             if project_root.is_some() {
-                crate::commands::lock::command_lock(
+                command_lock(
                     ".",
+                    current_workspace,
                     resolution_opts,
                     &config,
                     client,
@@ -344,35 +350,48 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
                 .map(|_| ())
             } else {
-                bail!("not inside a project")
+                bail!(
+                    "not inside a project - neither current nor any of the parent directories contain a SysML v2 or KerML project"
+                )
             }
         }
         cli::Command::Sync { resolution_opts } => {
-            let cli::ResolutionOptions { include_std, .. } = resolution_opts.clone();
             let mut local_environment = match current_environment {
                 Some(env) => env,
                 None => command_env(project_root.as_ref().unwrap_or(&cwd).join(DEFAULT_ENV_NAME))?,
             };
 
-            let provided_iris = if !include_std {
+            let provided_iris = if !resolution_opts.include_std {
                 crate::logger::warn_std_deps();
                 known_std_libs()
             } else {
                 HashMap::default()
             };
+
             let project_root = project_root.unwrap_or(cwd);
-            let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
-            if !lockfile.is_file() {
-                command_lock(
-                    ".",
-                    resolution_opts,
-                    &config,
-                    client.clone(),
-                    runtime.clone(),
-                    basic_auth_policy.clone(),
-                )?;
-            }
-            let lock = Lock::from_str(&wrapfs::read_to_string(lockfile)?)?;
+            let lockfile = project_root.join(DEFAULT_LOCKFILE_NAME);
+            let lock = match fs::read_to_string(&lockfile) {
+                Ok(l) => match Lock::from_str(&l) {
+                    Ok(l) => l,
+                    // Include file path in errors
+                    Err(e) => bail!("invalid lockfile `{lockfile}`:\n{e}"),
+                },
+                Err(e) => {
+                    if e.kind() == ErrorKind::NotFound {
+                        command_lock(
+                            ".",
+                            current_workspace,
+                            resolution_opts,
+                            &config,
+                            client.clone(),
+                            runtime.clone(),
+                            basic_auth_policy.clone(),
+                        )?
+                    } else {
+                        bail!("failed to read lockfile `{lockfile}`: {e}")
+                    }
+                }
+            };
             command_sync(
                 &lock,
                 project_root,
@@ -422,7 +441,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     }) => crate::logger::warn_std_deps(),
                     _ => (),
                 }
-                known_std_libs().keys().cloned().collect()
+                known_std_libs().into_keys().collect()
             } else {
                 HashSet::default()
             };
@@ -458,7 +477,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
             match (location, subcommand) {
                 (Location::WorkDir, subcommand) => {
-                    if let Some(current_project) = sysand_core::discover::current_project()? {
+                    if let Some(current_project) = current_project {
                         match subcommand {
                             Some(subcommand) => {
                                 match subcommand {
@@ -555,6 +574,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             resolution_opts,
             &config,
             current_project,
+            current_workspace,
             client,
             runtime,
             basic_auth_policy,
@@ -574,7 +594,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 } else {
                     let mut output_dir = current_workspace
                         .as_ref()
-                        .map(|workspace| &workspace.workspace_path)
+                        .map(Workspace::root_path)
                         .unwrap_or_else(|| &current_project.project_path)
                         .join("output");
                     let name = sysand_core::build::default_kpar_file_name(&current_project)?;
@@ -592,7 +612,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let current_workspace =
                     current_workspace.ok_or(CliError::MissingProjectCurrentDir)?;
                 let output_dir =
-                    path.unwrap_or_else(|| current_workspace.workspace_path.join("output"));
+                    path.unwrap_or_else(|| current_workspace.root_path().join("output"));
                 if !output_dir.is_dir() {
                     wrapfs::create_dir(&output_dir)?;
                 }
