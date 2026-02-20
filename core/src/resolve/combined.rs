@@ -465,7 +465,7 @@ impl<
                 .map_err(CombinedResolverError::Remote)?
             {
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("remote resolver rejects IRI `{}`: {}", uri, msg);
+                    log::debug!("remote resolver rejected IRI `{}`: {}", uri, msg);
                 }
                 ResolutionOutcome::Unresolvable(msg) => {
                     at_least_one_supports = true;

@@ -102,7 +102,8 @@ fn set_panic_hook() {
     // panic::set_backtrace_style(panic::BacktraceStyle::Short);
     panic::set_hook(Box::new(move |panic_info| {
         std::eprintln!(
-            "Sysand crashed. This is a bug. We would appreciate a bug report at either\n\
+            "\n\n\
+            Sysand crashed. This is likely a bug. We would appreciate a bug report at either\n\
             Sysand's issue tracker: https://github.com/sensmetry/sysand/issues\n\
             or Sensmetry forum: https://forum.sensmetry.com/c/sysand/24\n\
             or via email: sysand@sensmetry.com\n\
