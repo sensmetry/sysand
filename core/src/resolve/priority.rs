@@ -7,6 +7,8 @@ use thiserror::Error;
 
 use crate::{env::utils::ErrorBound, project::ProjectRead, resolve::ResolveRead};
 
+use super::ResolutionOutcome;
+
 /// Resolver that overrides the resolution of some underlying (lower priority)
 /// resolver by that of another (higher priority) resolver.
 #[derive(Debug)]
@@ -161,15 +163,23 @@ impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<H
     fn resolve_read(
         &self,
         uri: &fluent_uri::Iri<String>,
-    ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        if let super::ResolutionOutcome::Resolved(resolved) = self
+    ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+        match self
             .higher
             .resolve_read(uri)
             .map_err(PriorityError::Higher)?
         {
-            return Ok(super::ResolutionOutcome::Resolved(
-                PriorityIterator::HigherIterator(resolved.into_iter()),
-            ));
+            ResolutionOutcome::Resolved(resolved) => {
+                return Ok(ResolutionOutcome::Resolved(
+                    PriorityIterator::HigherIterator(resolved.into_iter()),
+                ));
+            }
+            ResolutionOutcome::UnsupportedIRIType(msg) => {
+                log::debug!("higher priority resolver rejected IRI: {msg}")
+            }
+            ResolutionOutcome::Unresolvable(msg) => {
+                log::debug!("higher priority resolver failed to resolve IRI: {msg}")
+            }
         };
 
         Ok(self

@@ -1,6 +1,8 @@
-use crate::resolve::{ResolveRead, ResolveReadAsync};
+use crate::resolve::{ResolutionOutcome, ResolveRead, ResolveReadAsync};
 use futures::StreamExt as _;
 use std::iter::Flatten;
+
+use super::ResolutionOutcome;
 
 /// Takes a sequence of similar resolvers, and tries them in sequence.
 /// First resolves all versions in the first environment, then all
@@ -28,21 +30,21 @@ impl<R: ResolveRead> ResolveRead for SequentialResolver<R> {
     fn resolve_read(
         &self,
         uri: &fluent_uri::Iri<String>,
-    ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+    ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let mut iters = vec![];
         let mut any_supported = false;
         let mut msgs = vec![];
 
         for resolver in &self.inner {
             match resolver.resolve_read(uri)? {
-                crate::resolve::ResolutionOutcome::Resolved(storages) => {
+                ResolutionOutcome::Resolved(storages) => {
                     any_supported = true;
                     iters.push(storages)
                 }
-                crate::resolve::ResolutionOutcome::UnsupportedIRIType(msg) => {
+                ResolutionOutcome::UnsupportedIRIType(msg) => {
                     msgs.push(msg);
                 }
-                crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
+                ResolutionOutcome::Unresolvable(msg) => {
                     any_supported = true;
                     msgs.push(msg);
                 }
@@ -50,18 +52,17 @@ impl<R: ResolveRead> ResolveRead for SequentialResolver<R> {
         }
 
         if !iters.is_empty() {
-            Ok(crate::resolve::ResolutionOutcome::Resolved(
-                iters.into_iter().flatten(),
-            ))
+            Ok(ResolutionOutcome::Resolved(iters.into_iter().flatten()))
         } else if any_supported {
-            Ok(crate::resolve::ResolutionOutcome::Unresolvable(format!(
+            Ok(ResolutionOutcome::Unresolvable(format!(
                 "unresolvable: {:?}",
                 msgs
             )))
         } else {
-            Ok(crate::resolve::ResolutionOutcome::UnsupportedIRIType(
-                format!("unsupported IRI: {:?}", msgs),
-            ))
+            Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+                "unsupported IRI: {:?}",
+                msgs
+            )))
         }
     }
 }
@@ -78,7 +79,7 @@ impl<R: ResolveReadAsync> ResolveReadAsync for SequentialResolver<R> {
     async fn resolve_read_async(
         &self,
         uri: &fluent_uri::Iri<String>,
-    ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+    ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let outcomes = futures::future::join_all(
             self.inner
                 .iter()
@@ -92,14 +93,14 @@ impl<R: ResolveReadAsync> ResolveReadAsync for SequentialResolver<R> {
 
         for outcome in outcomes {
             match outcome? {
-                crate::resolve::ResolutionOutcome::Resolved(storages) => {
+                ResolutionOutcome::Resolved(storages) => {
                     any_supported = true;
                     streams.push(storages)
                 }
-                crate::resolve::ResolutionOutcome::UnsupportedIRIType(msg) => {
+                ResolutionOutcome::UnsupportedIRIType(msg) => {
                     msgs.push(msg);
                 }
-                crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
+                ResolutionOutcome::Unresolvable(msg) => {
                     any_supported = true;
                     msgs.push(msg);
                 }
@@ -107,18 +108,19 @@ impl<R: ResolveReadAsync> ResolveReadAsync for SequentialResolver<R> {
         }
 
         if !streams.is_empty() {
-            Ok(crate::resolve::ResolutionOutcome::Resolved(
+            Ok(ResolutionOutcome::Resolved(
                 futures::stream::iter(streams).flatten(),
             ))
         } else if any_supported {
-            Ok(crate::resolve::ResolutionOutcome::Unresolvable(format!(
+            Ok(ResolutionOutcome::Unresolvable(format!(
                 "unresolvable: {:?}",
                 msgs
             )))
         } else {
-            Ok(crate::resolve::ResolutionOutcome::UnsupportedIRIType(
-                format!("unsupported IRI: {:?}", msgs),
-            ))
+            Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+                "unsupported IRI: {:?}",
+                msgs
+            )))
         }
     }
 }

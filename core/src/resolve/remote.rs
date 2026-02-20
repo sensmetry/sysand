@@ -7,6 +7,8 @@ use crate::{
     resolve::{ResolveRead, null::NullResolver},
 };
 
+use super::ResolutionOutcome;
+
 #[derive(Debug, Clone, Copy)]
 pub enum RemotePriority {
     PreferGit,
@@ -206,28 +208,40 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> ResolveRead
     fn resolve_read(
         &self,
         uri: &fluent_uri::Iri<String>,
-    ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+    ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let resolved_http = if let Some(http_resolver) = &self.http_resolver {
-            if let super::ResolutionOutcome::Resolved(resolved) = http_resolver
+            match http_resolver
                 .resolve_read(uri)
                 .map_err(RemoteResolverError::HTTPResolver)?
             {
-                Some(resolved.into_iter())
-            } else {
-                None
+                ResolutionOutcome::Resolved(resolved) => Some(resolved.into_iter()),
+                ResolutionOutcome::UnsupportedIRIType(msg) => {
+                    log::debug!("HTTP resolver rejected IRI: {msg}");
+                    None
+                }
+                ResolutionOutcome::Unresolvable(msg) => {
+                    log::debug!("HTTP resolver failed to resolve IRI: {msg}");
+                    None
+                }
             }
         } else {
             None
         };
 
         let resolved_git = if let Some(git_resolver) = &self.git_resolver {
-            if let super::ResolutionOutcome::Resolved(resolved) = git_resolver
+            match git_resolver
                 .resolve_read(uri)
                 .map_err(RemoteResolverError::GitResolver)?
             {
-                Some(resolved.into_iter())
-            } else {
-                None
+                ResolutionOutcome::Resolved(resolved) => Some(resolved.into_iter()),
+                ResolutionOutcome::UnsupportedIRIType(msg) => {
+                    log::debug!("git resolver rejected IRI: {msg}");
+                    None
+                }
+                ResolutionOutcome::Unresolvable(msg) => {
+                    log::debug!("git resolver failed to resolve IRI: {msg}");
+                    None
+                }
             }
         } else {
             None
