@@ -11,6 +11,7 @@ pub mod info;
 pub mod init;
 pub mod lock;
 pub mod print_root;
+pub mod publish;
 pub mod remove;
 pub mod sources;
 pub mod sync;

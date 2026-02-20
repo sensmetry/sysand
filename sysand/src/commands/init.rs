@@ -8,6 +8,7 @@ use sysand_core::project::utils::wrapfs;
 
 pub fn command_init(
     name: Option<String>,
+    publisher: Option<String>,
     version: Option<String>,
     no_semver: bool,
     license: Option<String>,
@@ -30,6 +31,7 @@ pub fn command_init(
 
     sysand_core::init::do_init_ext(
         name,
+        publisher,
         version,
         no_semver,
         license,
