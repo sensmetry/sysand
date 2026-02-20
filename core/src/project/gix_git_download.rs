@@ -1,5 +1,7 @@
+use std::num::NonZero;
+
 use camino::Utf8PathBuf;
-use gix::prepare_clone;
+use gix::{prepare_clone, remote::fetch::Shallow};
 use thiserror::Error;
 
 use crate::{
@@ -78,10 +80,11 @@ impl GixDownloadedProject {
 
     fn ensure_downloaded(&self) -> Result<(), GixDownloadedError> {
         if !self.tmp_dir.path().join(".git").is_dir() {
-            let mut prepared_clone = prepare_clone(self.url.clone(), self.tmp_dir.path())
+            let prepared_clone = prepare_clone(self.url.clone(), self.tmp_dir.path())
                 .map_err(|e| GixDownloadedError::Clone(self.url.to_string(), Box::new(e)))?;
 
             let (mut prepare_checkout, _) = prepared_clone
+                .with_shallow(Shallow::DepthAtRemote(NonZero::new(1).unwrap()))
                 .fetch_then_checkout(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
                 .map_err(|e| GixDownloadedError::Fetch(self.url.to_string(), Box::new(e)))?;
             let (_repo, _) = prepare_checkout
