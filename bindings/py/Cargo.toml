@@ -20,10 +20,10 @@ abi3 = ["pyo3/abi3", "pyo3/abi3-py38"]
 sysand-core = { path = "../../core", features = ["python", "filesystem", "networking"] }
 sysand = { path = "../../sysand" }
 camino.workspace = true
-pyo3 = { version = "0.27.2", default-features = false, features = ["macros"] }
-pyo3-log = "0.13.2"
+pyo3 = { version = "0.28.2", default-features = false, features = ["macros"] }
+pyo3-log = "0.13.3"
 semver = { version = "1.0.27", default-features = false }
-typed-path = { version = "0.12.2", default-features = false, features= ["std"] }
+typed-path = { version = "0.12.3", default-features = false, features= ["std"] }
 url = { version = "2.5.8", default-features = false }
 reqwest-middleware = "0.5.1"
 tokio = { version = "1.49.0", default-features = false, features = ["rt"] }
@@ -35,5 +35,5 @@ reqwest = { version = "0.13.2", default-features = false, features = ["native-tl
 reqwest = { version = "0.13.2", features = ["rustls"] }
 
 [dev-dependencies]
-predicates = "3.1.3"
+predicates = "3.1.4"
 tempfile = "3.25.0"
