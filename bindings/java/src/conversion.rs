@@ -17,7 +17,7 @@ pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: &str =
     "com/sensmetry/sysand/model/InterchangeProjectUsage";
 pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS: &str =
     "com/sensmetry/sysand/model/InterchangeProjectInfo";
-pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS_CONSTRUCTOR: &str = "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Lcom/sensmetry/sysand/model/InterchangeProjectUsage;)V";
+pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS_CONSTRUCTOR: &str = "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Lcom/sensmetry/sysand/model/InterchangeProjectUsage;)V";
 pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS: &str =
     "com/sensmetry/sysand/model/InterchangeProjectMetadata";
 pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS_CONSTRUCTOR: &str = "(Ljava/util/LinkedHashMap;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/util/LinkedHashMap;)V";
@@ -260,6 +260,7 @@ impl ToJObject for Vec<InterchangeProjectUsageRaw> {
 impl ToJObject for InterchangeProjectInfoRaw {
     fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
         let name = self.name.to_jobject(env)?;
+        let publisher = self.publisher.to_jobject(env)?;
         let description = self.description.to_jobject(env)?;
         let version = self.version.to_jobject(env)?;
         let license = self.license.to_jobject(env)?;
@@ -272,6 +273,7 @@ impl ToJObject for InterchangeProjectInfoRaw {
             INTERCHANGE_PROJECT_INFO_CLASS_CONSTRUCTOR,
             &[
                 JValue::from(&name),
+                JValue::from(&publisher),
                 JValue::from(&description),
                 JValue::from(&version),
                 JValue::from(&license),
