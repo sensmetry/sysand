@@ -77,6 +77,11 @@ Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
   containing `.project.json`/`.meta.json`.
 - `file`: can point to either a KPAR file or to a directory containing
   the project.
+- `urn:kpar`: this is by convention used by all projects in the
+  [Sysand index](https://beta.sysand.org/), but otherwise has no special meaning
+
+These schemes are currently only supported in [`clone` command](commands/clone.md):
+
 - `ssh`: note that currently only git repositories are supported for this type.
   SSH repository URLs supported by git have to be translated to use standard ssh
   syntax to be accepted by sysand. For example:
@@ -93,8 +98,6 @@ Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
   but explicitly identify that the destination is a git repository and should
   be treated as such. This is a way to force Sysand to only use git resolver
   to obtain the project.
-- `urn:kpar`: this is by convention used by all projects in the
-  [Sysand index](https://beta.sysand.org/), but otherwise has no special meaning
 
 Projects in HTTP(S) indexes can use any IRI schemes (including the ones mentioned
 above), since scheme is not taken into account when trying to obtain a project
