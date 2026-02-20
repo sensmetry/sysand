@@ -272,7 +272,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
 
 /// Obtains a project identified by `iri` via `resolver`. If
 /// version is given, obtains exactly that version. If not,
-/// obtains the latest version (including prerelase versions)
+/// obtains the latest version (including prerelease versions)
 pub fn get_project_version<R: ResolveRead>(
     iri: &Iri<String>,
     version: Option<String>,
