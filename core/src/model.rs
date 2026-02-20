@@ -3,7 +3,7 @@
 
 use std::{clone::Clone, collections::HashSet, fmt::Display, hash::Hash};
 
-#[allow(deprecated)] // will change when `digest` 0.11 is released
+#[allow(deprecated)] // will change when `sha2` 0.11 is released
 use digest::{generic_array::GenericArray, typenum};
 use indexmap::IndexMap;
 #[cfg(feature = "python")]
@@ -219,7 +219,7 @@ impl TryFrom<InterchangeProjectInfoRaw> for InterchangeProjectInfo {
 // TODO: why is SHA512 missing? Also SHA256 vs SHA-384
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(try_from = "String", into = "&str")]
-#[cfg_attr(feature = "python", pyclass(eq, eq_int))]
+#[cfg_attr(feature = "python", pyclass(eq, eq_int, from_py_object))]
 pub enum KerMlChecksumAlg {
     /// No checksum. Non-standard, must not be used in published
     /// versions of a project.
@@ -662,7 +662,7 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
     }
 }
 
-#[allow(deprecated)] // will change when `digest` 0.11 is released
+#[allow(deprecated)] // will change when `sha2` 0.11 is released
 pub type ProjectHash = GenericArray<u8, typenum::U32>;
 
 pub fn project_hash_str<S: AsRef<str>, T: AsRef<str>>(info: S, meta: T) -> ProjectHash {
