@@ -7,6 +7,7 @@ package com.sensmetry.sysand.model;
 public class InterchangeProjectInfo {
 
     private String name;
+    private String publisher;
     private String description;
     private String version;
     private String license;
@@ -17,6 +18,7 @@ public class InterchangeProjectInfo {
 
     public InterchangeProjectInfo(
         String name,
+        String publisher,
         String description,
         String version,
         String license,
@@ -26,6 +28,7 @@ public class InterchangeProjectInfo {
         InterchangeProjectUsage[] usage
     ) {
         this.name = name;
+        this.publisher = publisher;
         this.description = description;
         this.version = version;
         this.license = license;
@@ -37,6 +40,10 @@ public class InterchangeProjectInfo {
 
     public String getName() {
         return name;
+    }
+
+    public String getPublisher() {
+        return publisher;
     }
 
     public String getDescription() {

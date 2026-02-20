@@ -58,6 +58,7 @@ mod browser_tests {
             info,
             InterchangeProjectInfo {
                 name: "test_basic_new".to_string(),
+                publisher: None,
                 description: None,
                 version: Version::parse("1.2.3")?,
                 license: Some("MIT OR Apache-2.0".to_string()),

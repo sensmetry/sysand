@@ -250,11 +250,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         cli::Command::Init {
             path,
             name,
+            publisher,
             version,
             no_semver,
             license,
             no_spdx,
-        } => command_init(name, version, no_semver, license, no_spdx, path),
+        } => command_init(name, publisher, version, no_semver, license, no_spdx, path),
         cli::Command::Env { command } => match command {
             None => {
                 let env_dir = {

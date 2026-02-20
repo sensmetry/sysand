@@ -315,6 +315,7 @@ mod tests {
             .put_project(
                 &InterchangeProjectInfo {
                     name: "install_test".to_string(),
+                    publisher: None,
                     description: None,
                     version: Version::new(1, 2, 3),
                     license: None,

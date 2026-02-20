@@ -150,6 +150,7 @@ mod tests {
             InMemoryProject {
                 info: Some(InterchangeProjectInfoRaw {
                     name: name.as_ref().to_string(),
+                    publisher: None,
                     description: None,
                     version: version.as_ref().to_string(),
                     license: None,

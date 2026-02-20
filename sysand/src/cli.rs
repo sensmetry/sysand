@@ -62,6 +62,9 @@ pub enum Command {
         /// The name of the project. Defaults to the directory name
         #[arg(long)]
         name: Option<String>,
+        /// Set the publisher of the project
+        #[arg(long)]
+        publisher: Option<String>,
         /// Set the version in SemVer 2.0 format. Defaults to `0.0.1`
         #[arg(long)]
         version: Option<String>,

@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::{
     auth::HTTPAuthentication,
+    model::normalize_for_id,
     project::{ProjectRead, local_kpar::LocalKParProject},
 };
 
@@ -24,6 +25,9 @@ pub enum PublishError {
 
     #[error("missing project metadata in kpar")]
     MissingMeta,
+
+    #[error("missing publisher in project info (required for publishing)")]
+    MissingPublisher,
 
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest_middleware::Error),
@@ -69,9 +73,12 @@ pub fn do_publish_kpar<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     let info = info.ok_or(PublishError::MissingInfo)?;
     let _meta = meta.ok_or(PublishError::MissingMeta)?;
 
+    let publisher = info.publisher.as_deref().ok_or(PublishError::MissingPublisher)?;
     let name = &info.name;
     let version = &info.version;
-    let purl = format!("pkg:sysand/{name}@{version}");
+    let normalized_publisher = normalize_for_id(publisher);
+    let normalized_name = normalize_for_id(name);
+    let purl = format!("pkg:sysand/{normalized_publisher}/{normalized_name}@{version}");
 
     let publishing = "Publishing";
     log::info!("{header}{publishing:>12}{header:#} `{name}` {version} to {index_url}");

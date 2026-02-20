@@ -18,6 +18,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
         memory_storage.info.unwrap(),
         InterchangeProjectInfo {
             name: "init_basic".to_string(),
+            publisher: None,
             description: None,
             version: Version::parse("1.2.3").unwrap(),
             license: Some("Apache-2.0".to_string()),

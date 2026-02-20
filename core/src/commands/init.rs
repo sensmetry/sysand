@@ -29,6 +29,7 @@ pub enum InitError<ProjectError: ErrorBound> {
 
 pub fn do_init_ext<S: ProjectMut>(
     name: String,
+    publisher: Option<String>,
     version: String,
     no_semver: bool,
     license: Option<String>,
@@ -55,6 +56,7 @@ pub fn do_init_ext<S: ProjectMut>(
     storage.put_project(
         &InterchangeProjectInfoRaw {
             name,
+            publisher,
             description: None,
             version,
             license,
@@ -84,7 +86,7 @@ pub fn do_init<S: ProjectMut>(
     license: Option<String>,
     storage: &mut S,
 ) -> Result<(), InitError<S::Error>> {
-    do_init_ext(name, version, false, license, false, storage)
+    do_init_ext(name, None, version, false, license, false, storage)
 }
 
 pub fn do_init_memory(

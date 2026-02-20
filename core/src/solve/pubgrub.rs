@@ -517,6 +517,7 @@ mod tests {
         InMemoryProject {
             info: Some(InterchangeProjectInfoRaw {
                 name: name.to_string(),
+                publisher: None,
                 description: None,
                 version: version.to_string(),
                 license: None,
