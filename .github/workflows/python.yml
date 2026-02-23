@@ -85,7 +85,7 @@ jobs:
           python-version: ${{ matrix.python.version }}
           architecture: ${{ matrix.platform.target }}
       - name: Build wheels
-        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021 # 1.50.0
         with:
           target: ${{ matrix.platform.rust_target }}
           args: --release --out dist --compatibility pypi --manifest-path bindings/py/Cargo.toml${{ matrix.python.args_suffix }}
@@ -100,7 +100,7 @@ jobs:
           cd bindings/py
           cargo test --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
       - name: Install uv
-        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # 7.2.0
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # 7.3.0
       - name: pytest
         shell: bash
         run: |
@@ -130,14 +130,14 @@ jobs:
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
       - name: Build wheels
-        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021 # 1.50.0
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --compatibility pypi --manifest-path bindings/py/Cargo.toml
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
       - name: Build free-threaded wheels
-        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021 # 1.50.0
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --compatibility pypi --manifest-path bindings/py/Cargo.toml --interpreter python3.13t --interpreter python3.14t
@@ -195,14 +195,14 @@ jobs:
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
       - name: Build wheels
-        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021 # 1.50.0
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --compatibility pypi --manifest-path bindings/py/Cargo.toml
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: manylinux2014
       - name: Build free-threaded wheels
-        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021 # 1.50.0
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --compatibility pypi --manifest-path bindings/py/Cargo.toml --interpreter python3.13t --interpreter python3.14t
@@ -217,7 +217,7 @@ jobs:
         with:
           python-version: 3.14
       - name: Install uv
-        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # 7.2.0
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # 7.3.0
       - name: pytest (native)
         # TODO: run tests on x86_32. Currently skipped because no containers are used here
         # and run-on-arch-action does not support x86_32
@@ -265,13 +265,13 @@ jobs:
       - name: Run Rust tests for Python bindings
         run: cargo test --package sysand-py --verbose --no-default-features
       - name: Build wheels
-        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021 # 1.50.0
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --compatibility pypi --manifest-path bindings/py/Cargo.toml
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Build free-threaded wheels
-        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021 # 1.50.0
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --compatibility pypi --manifest-path bindings/py/Cargo.toml --interpreter python3.13t --interpreter python3.14t
@@ -282,7 +282,7 @@ jobs:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
       - name: Install uv
-        uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # 7.2.0
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # 7.3.0
       - name: pytest
         run: |
           /bin/bash .github/scripts/run-pytest.sh
@@ -297,7 +297,7 @@ jobs:
         # TODO: fix maturin so that this isn't needed
         run: rm rust-toolchain.toml
       - name: Build sdist
-        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        uses: PyO3/maturin-action@b1bd829e37fef14c63f19162034228a2f3dc1021 # 1.50.0
         with:
           command: sdist
           args: --out dist --manifest-path bindings/py/Cargo.toml
@@ -324,7 +324,7 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
       - name: Generate artifact attestation
         id: attest
-        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v3.1.0
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-path: 'wheels-*/*'
       - name: Prepare attestations for uv
