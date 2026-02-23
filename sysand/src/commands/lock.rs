@@ -88,7 +88,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
         override_resolver,
         standard_resolver(
             Some(project_root.to_path_buf()),
-            if local_env_path.is_dir() {
+            if wrapfs::is_dir(&local_env_path)? {
                 Some(local_env_path)
             } else {
                 None

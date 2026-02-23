@@ -74,9 +74,9 @@ pub fn pprint_interchange_project(
 }
 
 fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverProject> {
-    Ok(if path.as_ref().is_file() {
+    Ok(if wrapfs::is_file(&path)? {
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path)?)
-    } else if path.as_ref().is_dir() {
+    } else if wrapfs::is_dir(&path)? {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
             nominal_path: None,
             project_path: path.as_ref().as_str().into(),
@@ -122,7 +122,7 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
         MemoryResolver::from(overrides),
         standard_resolver(
             cwd,
-            if local_env_path.is_dir() {
+            if wrapfs::is_dir(&local_env_path)? {
                 Some(local_env_path)
             } else {
                 None
@@ -218,7 +218,7 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
                 MemoryResolver::from(overrides),
                 standard_resolver(
                     cwd,
-                    if local_env_path.is_dir() {
+                    if wrapfs::is_dir(&local_env_path)? {
                         Some(local_env_path)
                     } else {
                         None

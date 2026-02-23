@@ -93,6 +93,7 @@ pub mod wrapfs {
 
     use std::fs;
     use std::io;
+    use std::io::ErrorKind;
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
@@ -202,6 +203,58 @@ pub mod wrapfs {
                     .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
             })
             .map_err(|e| Box::new(FsIoError::CurrentDir(e)))
+    }
+
+    /// Returns `true` if the given path exists and is a regular file.
+    ///
+    /// This function attempts to retrieve the metadata for `path` and checks
+    /// whether it represents a regular file.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(true)` if the path exists and is a regular file.
+    /// - `Ok(false)` if the path does not exist or it is not a regular file.
+    /// - `Err(_)` if an I/O error occurs while retrieving metadata for reasons
+    ///   other than the path not being found (e.g., permission denied).
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`FsIoError`] if metadata retrieval fails for any reason
+    /// other than [`std::io::ErrorKind::NotFound`].
+    pub fn is_file<P: AsRef<Utf8Path>>(path: P) -> Result<bool, Box<FsIoError>> {
+        match metadata(path) {
+            Ok(metadata) => Ok(metadata.is_file()),
+            Err(err) if matches!(err.as_ref(), FsIoError::Metadata(_, e) if e.kind() == ErrorKind::NotFound) => {
+                Ok(false)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Returns `true` if the given path exists and is a directory.
+    ///
+    /// This function attempts to retrieve the metadata for `path` and checks
+    /// whether it represents a directory.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(true)` if the path exists and is a directory.
+    /// - `Ok(false)` if the path does not exist or it is not a directory.
+    /// - `Err(_)` if an I/O error occurs while retrieving metadata for reasons
+    ///   other than the path not being found (e.g., permission denied).
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`FsIoError`] if metadata retrieval fails for any reason
+    /// other than [`std::io::ErrorKind::NotFound`].
+    pub fn is_dir<P: AsRef<Utf8Path>>(path: P) -> Result<bool, Box<FsIoError>> {
+        match metadata(path) {
+            Ok(metadata) => Ok(metadata.is_dir()),
+            Err(err) if matches!(err.as_ref(), FsIoError::Metadata(_, e) if e.kind() == ErrorKind::NotFound) => {
+                Ok(false)
+            }
+            Err(err) => Err(err),
+        }
     }
 }
 

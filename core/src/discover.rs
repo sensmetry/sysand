@@ -12,58 +12,65 @@ use crate::{
 };
 
 pub fn current_project() -> Result<Option<LocalSrcProject>, Box<FsIoError>> {
-    Ok(discover_project(wrapfs::current_dir()?))
+    discover_project(wrapfs::current_dir()?)
 }
 
-pub fn discover_project<P: AsRef<Utf8Path>>(working_directory: P) -> Option<LocalSrcProject> {
-    let path = discover(working_directory, |path| {
-        path.join(".project.json").is_file() || path.join(".meta.json").is_file()
-    })?;
-    Some(LocalSrcProject {
+fn is_project_file(path: &Utf8Path) -> Result<bool, Box<FsIoError>> {
+    Ok(wrapfs::is_file(path.join(".project.json"))? || wrapfs::is_file(path.join(".meta.json"))?)
+}
+
+pub fn discover_project<P: AsRef<Utf8Path>>(
+    working_directory: P,
+) -> Result<Option<LocalSrcProject>, Box<FsIoError>> {
+    let project = discover(working_directory, is_project_file)?.map(|path| LocalSrcProject {
         nominal_path: Some(Utf8PathBuf::from(".")),
         project_path: path,
-    })
+    });
+    Ok(project)
 }
 
 pub fn current_workspace() -> Result<Option<Workspace>, Box<FsIoError>> {
-    Ok(discover_workspace(wrapfs::current_dir()?))
+    discover_workspace(wrapfs::current_dir()?)
 }
 
-pub fn discover_workspace<P: AsRef<Utf8Path>>(working_directory: P) -> Option<Workspace> {
-    let path = discover(working_directory, |path| {
-        path.join(".workspace.json").is_file()
-    })?;
-    Some(Workspace {
+pub fn discover_workspace<P: AsRef<Utf8Path>>(
+    working_directory: P,
+) -> Result<Option<Workspace>, Box<FsIoError>> {
+    let workspace = discover(working_directory, |path| {
+        wrapfs::is_file(path.join(".workspace.json"))
+    })?
+    .map(|path| Workspace {
         workspace_path: path,
-    })
+    });
+    Ok(workspace)
 }
 
 // TODO: Improve the logic here, this is probably too simple
-fn discover<P: AsRef<Utf8Path>, F: Fn(&Utf8Path) -> bool>(
+fn discover<P: AsRef<Utf8Path>, F: Fn(&Utf8Path) -> Result<bool, Box<FsIoError>>>(
     working_directory: P,
     predicate: F,
-) -> Option<Utf8PathBuf> {
+) -> Result<Option<Utf8PathBuf>, Box<FsIoError>> {
     let mut current = working_directory.to_path_buf();
 
     log::debug!("trying to discover project in `{}`", current);
 
-    while !predicate(&current) {
+    while !predicate(&current)? {
         match current.parent() {
             Some(parent) if parent.as_str().is_empty() => {
-                log::debug!("hit empty relative path, trying to canonicalise");
+                log::debug!("hit empty relative path, trying to canonicalize");
                 match current.canonicalize_utf8() {
                     Ok(current_canonical) => match current_canonical.parent() {
                         Some(parent_canonical) => current = parent_canonical.to_path_buf(),
                         None => {
                             log::debug!(
-                                "canonicalised path `{}` has no parent either",
+                                "canonicalized path `{}` has no parent either",
                                 current_canonical
                             );
-                            return None;
+                            return Ok(None);
                         }
                     },
                     Err(e) => {
-                        log::debug!("unable to canonicalise path `{}`: {e}", current);
+                        log::debug!("unable to canonicalize path `{}`: {e}", current);
                     }
                 }
             }
@@ -72,10 +79,10 @@ fn discover<P: AsRef<Utf8Path>, F: Fn(&Utf8Path) -> bool>(
                 current = parent.to_path_buf();
             }
             None => {
-                return None;
+                return Ok(None);
             }
         }
     }
 
-    Some(current)
+    Ok(Some(current))
 }

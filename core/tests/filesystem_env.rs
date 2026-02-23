@@ -64,7 +64,6 @@ mod filesystem_tests {
             if path.is_dir() {
                 assert_eq!(path.strip_prefix(&cwd)?, env_path);
             } else {
-                // if path.is_file()
                 assert_eq!(path.strip_prefix(&cwd)?, env_path.join("entries.txt"));
             }
         }

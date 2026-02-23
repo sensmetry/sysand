@@ -76,7 +76,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
         (canonical, DirCleaner(&target))
     };
-    if let Some(existing_project) = discover_project(&project_path) {
+    if let Some(existing_project) = discover_project(&project_path)? {
         log::warn!(
             "found an existing project in one of target path's parent\n\
             {:>8} directories `{}`",

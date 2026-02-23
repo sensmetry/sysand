@@ -136,7 +136,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     let current_environment = {
         let dir = project_root.as_ref().unwrap_or(&cwd);
-        crate::get_env(dir)
+        crate::get_env(dir)?
     };
 
     let auto_config = if args.global_opts.no_config {
@@ -363,7 +363,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             };
             let project_root = project_root.unwrap_or(cwd);
             let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
-            if !lockfile.is_file() {
+            if !wrapfs::is_file(&lockfile)? {
                 command_lock(
                     ".",
                     resolution_opts,
@@ -600,7 +600,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         .unwrap_or_else(|| &current_project.project_path)
                         .join("output");
                     let name = sysand_core::build::default_kpar_file_name(&current_project)?;
-                    if !output_dir.is_dir() {
+                    if !wrapfs::is_dir(&output_dir)? {
                         wrapfs::create_dir(&output_dir)?;
                     }
                     output_dir.push(name);
@@ -615,7 +615,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     current_workspace.ok_or(CliError::MissingProjectCurrentDir)?;
                 let output_dir =
                     path.unwrap_or_else(|| current_workspace.workspace_path.join("output"));
-                if !output_dir.is_dir() {
+                if !wrapfs::is_dir(&output_dir)? {
                     wrapfs::create_dir(&output_dir)?;
                 }
                 command_build_for_workspace(output_dir, current_workspace)
@@ -660,18 +660,16 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     }
 }
 
-pub fn get_env(project_root: impl AsRef<Utf8Path>) -> Option<LocalDirectoryEnvironment> {
+pub fn get_env(project_root: impl AsRef<Utf8Path>) -> Result<Option<LocalDirectoryEnvironment>> {
     let environment_path = project_root.as_ref().join(DEFAULT_ENV_NAME);
-    if !environment_path.is_dir() {
-        None
-    } else {
-        Some(LocalDirectoryEnvironment { environment_path })
-    }
+    let env = wrapfs::is_dir(&environment_path)?
+        .then_some(LocalDirectoryEnvironment { environment_path });
+    Ok(env)
 }
 
 pub fn get_or_create_env(project_root: impl AsRef<Utf8Path>) -> Result<LocalDirectoryEnvironment> {
     let project_root = project_root.as_ref();
-    match get_env(project_root) {
+    match get_env(project_root)? {
         Some(env) => Ok(env),
         None => command_env(project_root.join(DEFAULT_ENV_NAME)),
     }

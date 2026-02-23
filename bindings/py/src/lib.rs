@@ -33,6 +33,7 @@ use sysand_core::{
         ProjectRead as _,
         local_kpar::LocalKParProject,
         local_src::{LocalSrcError, LocalSrcProject},
+        utils::wrapfs,
     },
     remove::do_remove,
     resolve::standard::standard_resolver,
@@ -498,7 +499,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
         environment_path: env_path.into(),
     };
 
-    if location.is_file() {
+    if wrapfs::is_file(&location).map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))? {
         let project = LocalKParProject::new_guess_root(&location)
             .map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))?;
 
@@ -516,7 +517,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             clone_project(&project, to, true).map(|_| ())
         })
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-    } else if location.is_dir() {
+    } else if wrapfs::is_dir(&location).map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))? {
         let project = LocalSrcProject {
             nominal_path: None,
             project_path: location,

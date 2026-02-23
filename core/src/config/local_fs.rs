@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{fs, path::Path, str::FromStr};
+use std::{fs, io::ErrorKind, str::FromStr};
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
@@ -30,19 +30,14 @@ impl From<FsIoError> for ConfigReadError {
     }
 }
 
-pub fn get_config<P: AsRef<Path>>(path: P) -> Result<Config, ConfigReadError> {
-    if path.as_ref().is_file() {
+pub fn get_config<P: AsRef<Utf8Path>>(path: P) -> Result<Config, ConfigReadError> {
+    if wrapfs::is_file(path.as_ref())? {
         let contents = {
-            fs::read_to_string(path.as_ref()).map_err(|e| {
-                Box::new(FsIoError::ReadFile(
-                    path.as_ref().to_string_lossy().into_owned().into(),
-                    e,
-                ))
-            })
+            fs::read_to_string(path.as_ref())
+                .map_err(|e| Box::new(FsIoError::ReadFile(path.as_ref().to_owned(), e)))
         }?;
-        Ok(toml::from_str(&contents).map_err(|e| {
-            ConfigReadError::Toml(Utf8Path::new(&path.as_ref().to_string_lossy()).into(), e)
-        })?)
+        Ok(toml::from_str(&contents)
+            .map_err(|e| ConfigReadError::Toml(path.as_ref().to_owned().into(), e))?)
     } else {
         Ok(Config::default())
     }
@@ -54,7 +49,7 @@ pub fn load_configs<P: AsRef<Utf8Path>>(working_dir: P) -> Result<Config, Config
         |mut path| {
             path.push(CONFIG_DIR);
             path.push(CONFIG_FILE);
-            get_config(path)
+            get_config(Utf8PathBuf::from_path_buf(path).unwrap())
         },
     )?;
     config.merge(get_config(working_dir.as_ref().join(CONFIG_FILE))?);
@@ -66,6 +61,8 @@ pub fn load_configs<P: AsRef<Utf8Path>>(working_dir: P) -> Result<Config, Config
 pub enum ConfigProjectSourceError {
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
+    #[error("{0} is not a file")]
+    NotAFile(String),
     #[error("failed to parse configuration file")]
     TomlEdit(#[from] toml_edit::TomlError),
     #[error("{0}")]
@@ -78,16 +75,24 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
     source: &Source,
 ) -> Result<(), ConfigProjectSourceError> {
     let sources = multiline_array(std::iter::once(source.to_toml()));
-    let contents = if config_path.as_ref().is_file() {
-        wrapfs::read_to_string(&config_path)?
-    } else {
-        let creating = "Creating";
-        let header = crate::style::get_style_config().header;
-        log::info!(
-            "{header}{creating:>12}{header:#} configuration file at `{}`",
-            config_path.as_ref(),
-        );
-        String::new()
+    let contents = match wrapfs::metadata(&config_path) {
+        Ok(metadata) if metadata.is_file() => wrapfs::read_to_string(&config_path)?,
+        Ok(_) => {
+            return Err(ConfigProjectSourceError::NotAFile(
+                config_path.as_ref().to_string(),
+            ));
+        }
+        Err(err) if matches!(err.as_ref(), FsIoError::Metadata(_, e) if e.kind() == ErrorKind::NotFound) =>
+        {
+            let creating = "Creating";
+            let header = crate::style::get_style_config().header;
+            log::info!(
+                "{header}{creating:>12}{header:#} configuration file at `{}`",
+                config_path.as_ref(),
+            );
+            String::new()
+        }
+        Err(err) => return Err(ConfigProjectSourceError::Io(err)),
     };
     let mut config = DocumentMut::from_str(&contents)?;
     let projects = config
@@ -135,10 +140,19 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
     config_path: P,
     iri: S,
 ) -> Result<bool, ConfigProjectSourceError> {
-    if !config_path.as_ref().is_file() {
-        return Ok(false);
-    }
-    let contents = wrapfs::read_to_string(&config_path)?;
+    let contents = match wrapfs::metadata(&config_path) {
+        Ok(metadata) if metadata.is_file() => wrapfs::read_to_string(&config_path)?,
+        Ok(_) => {
+            return Err(ConfigProjectSourceError::NotAFile(
+                config_path.as_ref().to_string(),
+            ));
+        }
+        Err(err) if matches!(err.as_ref(), FsIoError::Metadata(_, e) if e.kind() == ErrorKind::NotFound) =>
+        {
+            return Ok(false);
+        }
+        Err(err) => return Err(ConfigProjectSourceError::Io(err)),
+    };
     let mut config = DocumentMut::from_str(&contents)?;
     let Some(projects) = config
         .as_table_mut()
