@@ -1274,26 +1274,40 @@ pub struct ResolutionOptions {
 
 #[derive(clap::Args, Debug, Clone)]
 pub struct ProjectSourceOptions {
-    /// Add usage as editable interchange project at PATH and
+    /// Add usage as a local interchange project at PATH and
+    /// update configuration file attempting to guess the
+    /// source from the PATH
+    #[arg(long, value_name = "PATH", group = "source")]
+    pub from_path: Option<String>,
+    /// Add usage as a remote interchange project at URL and
+    /// update configuration file attempting to guess the
+    /// source from the URL
+    #[arg(long, value_name = "URL", group = "source")]
+    pub from_url: Option<String>,
+    /// Add usage as an editable interchange project at PATH and
     /// update configuration file with appropriate source
     #[arg(long, value_name = "PATH", group = "source")]
     pub as_editable: Option<String>,
-    /// Add usage as local interchange project at PATH and
+    /// Add usage as a local interchange project at PATH and
     /// update configuration file with appropriate source
     #[arg(long, value_name = "PATH", group = "source")]
-    pub as_local: Option<String>,
-    /// Add usage as interchange project at URL and
+    pub as_local_src: Option<String>,
+    /// Add usage as a local interchange project archive at PATH
+    /// and update configuration file with appropriate source
+    #[arg(long, value_name = "PATH", group = "source")]
+    pub as_local_kpar: Option<String>,
+    /// Add usage as a remote interchange project at URL and
     /// update configuration file with appropriate source
     #[arg(long, value_name = "URL", group = "source")]
-    pub as_url_src: Option<String>,
-    /// Add usage as interchange project archive at URL and
+    pub as_remote_src: Option<String>,
+    /// Add usage as a remote interchange project archive at URL
+    /// and update configuration file with appropriate source
+    #[arg(long, value_name = "URL", group = "source")]
+    pub as_remote_kpar: Option<String>,
+    /// Add usage as a remote git interchange project at URL and
     /// update configuration file with appropriate source
     #[arg(long, value_name = "URL", group = "source")]
-    pub as_url_kpar: Option<String>,
-    /// Add usage as interchange project git repo at URL and
-    /// update configuration file with appropriate source
-    #[arg(long, value_name = "URL", group = "source")]
-    pub as_url_git: Option<String>,
+    pub as_remote_git: Option<String>,
 }
 
 #[derive(clap::Args, Debug, Clone)]

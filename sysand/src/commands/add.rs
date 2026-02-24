@@ -14,11 +14,12 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     lock::Lock,
-    project::{local_src::LocalSrcProject, utils::wrapfs},
+    project::{ProjectRead, local_src::LocalSrcProject, utils::wrapfs},
+    resolve::{ResolutionOutcome, ResolveRead, standard::standard_resolver},
 };
 
 use crate::{
-    CliError,
+    CliError, DEFAULT_INDEX_URL,
     cli::{ProjectSourceOptions, ResolutionOptions},
     command_sync,
 };
@@ -44,7 +45,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     let project_root = current_project.root_path().clone();
 
     #[allow(clippy::manual_map)] // For readability and compactness
-    let source = if let Some(path) = source_opts.as_local {
+    let source = if let Some(path) = source_opts.from_path {
         let metadata = wrapfs::metadata(&path)?;
         if metadata.is_dir() {
             Some(sysand_core::lock::Source::LocalSrc {
@@ -57,18 +58,74 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         } else {
             bail!("path `{path}` is neither a directory nor a file");
         }
+    } else if let Some(url) = source_opts.from_url {
+        let ResolutionOptions {
+            index,
+            default_index,
+            no_index,
+            include_std: _,
+        } = resolution_opts.clone();
+
+        let index_urls = if no_index {
+            None
+        } else {
+            Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
+        };
+        let std_resolver = standard_resolver(
+            None,
+            None,
+            Some(client.clone()),
+            index_urls,
+            runtime.clone(),
+            auth_policy.clone(),
+        );
+        let outcome = std_resolver.resolve_read_raw(&url)?;
+        let mut source = None;
+        match outcome {
+            ResolutionOutcome::Resolved(alternatives) => {
+                for candidate in alternatives {
+                    match candidate {
+                        Ok(project) => {
+                            source = project.sources().first().cloned();
+                            if source.is_some() {
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            log::debug!("skipping candidate project: {err}");
+                        }
+                    }
+                }
+            }
+            ResolutionOutcome::UnsupportedIRIType(e) => bail!("unsupported {url}: {e}"),
+            ResolutionOutcome::Unresolvable(e) => {
+                bail!("failed to resolve URL `{url}`: {e}")
+            }
+        }
+        if source.is_none() {
+            bail!("unable to find project at {url}")
+        }
+        source
     } else if let Some(editable) = source_opts.as_editable {
         Some(sysand_core::lock::Source::Editable {
             editable: get_relative(editable, &project_root)?.as_str().into(),
         })
-    } else if let Some(remote_src) = source_opts.as_url_src {
+    } else if let Some(src_path) = source_opts.as_local_src {
+        Some(sysand_core::lock::Source::LocalSrc {
+            src_path: get_relative(src_path, &project_root)?.as_str().into(),
+        })
+    } else if let Some(kpar_path) = source_opts.as_local_kpar {
+        Some(sysand_core::lock::Source::LocalKpar {
+            kpar_path: get_relative(kpar_path, &project_root)?.as_str().into(),
+        })
+    } else if let Some(remote_src) = source_opts.as_remote_src {
         Some(sysand_core::lock::Source::RemoteSrc { remote_src })
-    } else if let Some(remote_kpar) = source_opts.as_url_kpar {
+    } else if let Some(remote_kpar) = source_opts.as_remote_kpar {
         Some(sysand_core::lock::Source::RemoteKpar {
             remote_kpar,
             remote_kpar_size: None,
         })
-    } else if let Some(remote_git) = source_opts.as_url_git {
+    } else if let Some(remote_git) = source_opts.as_remote_git {
         Some(sysand_core::lock::Source::RemoteGit { remote_git })
     } else {
         None
