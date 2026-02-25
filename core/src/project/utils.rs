@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 #[cfg(feature = "filesystem")]
 use zip::{self, result::ZipError};
@@ -302,4 +302,184 @@ pub enum ZipArchiveError {
     Write(Box<Utf8Path>, ZipError),
     #[error("failed to finish creating zip archive at `{0}`: {1}")]
     Finish(Box<Utf8Path>, ZipError),
+}
+
+#[derive(Debug, Error)]
+pub enum RelativizePathError {
+    #[error("path `{0}` is not absolute")]
+    RelativePath(Utf8PathBuf),
+    #[error("root `{0}` is not absolute")]
+    RelativeRoot(Utf8PathBuf),
+    #[error("path `{0}` contains invalid components (`.` or `..`)")]
+    NonCanonicalPath(Utf8PathBuf),
+    #[error("root `{0}` contains invalid components (`.` or `..`)")]
+    NonCanonicalRoot(Utf8PathBuf),
+    #[error("unable to relativize path `{path}` with respect to `{root}`")]
+    NoCommonPrefix {
+        path: Utf8PathBuf,
+        root: Utf8PathBuf,
+    },
+}
+
+fn contains_non_canonical_components(path: &Utf8Path) -> bool {
+    path.components()
+        .any(|c| matches!(c, Utf8Component::CurDir | Utf8Component::ParentDir))
+}
+
+/// Computes the relative path from `root` to `path`.
+///
+/// Both `path` and `root` must be absolute and structurally canonical:
+///
+/// - They must be absolute paths.
+/// - They must not contain `.` (`CurDir`) components.
+/// - They must not contain `..` (`ParentDir`) components.
+/// - They must share the same path prefix (e.g., drive letter on Windows).
+///
+/// This function performs purely syntactic path manipulation. It does **not**
+/// access the filesystem and does not resolve symlinks. Callers are expected
+/// to pass paths that have been canonicalized beforehand (e.g., via
+/// [`wrapfs::canonicalize`] or equivalent).
+///
+/// # Returns
+///
+/// - `Ok(relative_path)` if a relative path from `root` to `path` can be computed.
+/// - `Err(RelativizePathError)` if:
+///   - Either input path is relative.
+///   - Either input contains `.` or `..` components.
+///   - The paths do not share a common prefix.
+///
+/// If `path` and `root` are identical, a `Utf8PathBuf` with a single `.` component
+/// is returned.
+///
+/// # Examples
+///
+/// ```rust
+/// # use camino::Utf8Path;
+/// # use sysand_core::project::utils::relativize_path;
+/// let path = Utf8Path::new("/a/b/c");
+/// let root = Utf8Path::new("/a/b");
+///
+/// let relative = relativize_path(path, root).unwrap();
+/// assert_eq!(relative, "c");
+/// ```
+///
+/// ```rust
+/// # use camino::Utf8Path;
+/// # use sysand_core::project::utils::relativize_path;
+/// let path = Utf8Path::new("/a/b");
+/// let root = Utf8Path::new("/a/b/c");
+///
+/// let relative = relativize_path(path, root).unwrap();
+/// assert_eq!(relative, "..");
+/// ```
+pub fn relativize_path<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
+    path: P,
+    root: R,
+) -> Result<Utf8PathBuf, RelativizePathError> {
+    let path = path.as_ref();
+    let root = root.as_ref();
+
+    if path.is_relative() {
+        return Err(RelativizePathError::RelativePath(path.to_path_buf()));
+    }
+    if root.is_relative() {
+        return Err(RelativizePathError::RelativeRoot(root.to_path_buf()));
+    }
+
+    if contains_non_canonical_components(path) {
+        return Err(RelativizePathError::NonCanonicalPath(path.to_path_buf()));
+    }
+
+    if contains_non_canonical_components(root) {
+        return Err(RelativizePathError::NonCanonicalRoot(root.to_path_buf()));
+    }
+
+    let mut path_iter = path.components().peekable();
+    let mut root_iter = root.components().peekable();
+
+    // If prefixes (e.g. C: vs D: on Windows) differ, no relative path is possible.
+    match (path_iter.peek(), root_iter.peek()) {
+        (Some(p0), Some(r0)) if p0 == r0 => {
+            path_iter.next();
+            root_iter.next();
+        }
+        _ => {
+            return Err(RelativizePathError::NoCommonPrefix {
+                path: path.to_path_buf(),
+                root: root.to_path_buf(),
+            });
+        }
+    }
+
+    while let (Some(p), Some(r)) = (path_iter.peek(), root_iter.peek()) {
+        if p == r {
+            path_iter.next();
+            root_iter.next();
+        } else {
+            break;
+        }
+    }
+
+    let mut result = Utf8PathBuf::new();
+
+    for r in root_iter {
+        if let Utf8Component::Normal(_) = r {
+            result.push("..");
+        }
+    }
+
+    for p in path_iter {
+        result.push(p.as_str());
+    }
+
+    if result.as_str().is_empty() {
+        result.push(".");
+    }
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use typed_path::Utf8UnixPath;
+
+    use crate::project::utils::{ToPathBuf, relativize_path};
+
+    #[test]
+    fn simple_relativize_path() -> Result<(), Box<dyn Error>> {
+        let path = Utf8UnixPath::new("/a/b/c");
+        let root = Utf8UnixPath::new("/");
+        let relative = Utf8UnixPath::new("a/b/c");
+        assert_eq!(
+            relativize_path(path.as_str().to_path_buf(), root.as_str().to_path_buf())?,
+            relative.as_str()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn backtracking_relativize_path() -> Result<(), Box<dyn Error>> {
+        let path = Utf8UnixPath::new("/a/b/c");
+        let root = Utf8UnixPath::new("/d/e/f");
+        let relative = Utf8UnixPath::new("../../../a/b/c");
+        assert_eq!(
+            relativize_path(path.as_str().to_path_buf(), root.as_str().to_path_buf())?,
+            relative.as_str()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn trivial_relativize_path() -> Result<(), Box<dyn Error>> {
+        let path = Utf8UnixPath::new("/a/b/c");
+        let root = Utf8UnixPath::new("/a/b/c");
+        let relative = Utf8UnixPath::new(".");
+        assert_eq!(
+            relativize_path(path.as_str().to_path_buf(), root.as_str().to_path_buf())?,
+            relative.as_str()
+        );
+        Ok(())
+    }
 }

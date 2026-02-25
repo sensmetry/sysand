@@ -4,7 +4,7 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use anyhow::{Result, bail};
-use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
+use camino::{Utf8Path, Utf8PathBuf};
 
 use sysand_core::{
     add::do_add,
@@ -14,7 +14,11 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     lock::Lock,
-    project::{ProjectRead, local_src::LocalSrcProject, utils::wrapfs},
+    project::{
+        ProjectRead,
+        local_src::LocalSrcProject,
+        utils::{relativize_path, wrapfs},
+    },
     resolve::{ResolutionOutcome, ResolveRead, standard::standard_resolver},
 };
 
@@ -197,56 +201,13 @@ fn get_relative<P: Into<Utf8PathBuf> + AsRef<Utf8Path>>(
     project_root: &Utf8Path,
 ) -> Result<Utf8PathBuf> {
     let src_path = if src_path.as_ref().is_absolute() || wrapfs::current_dir()? != project_root {
-        let path = relativize(src_path.as_ref(), project_root)?;
-        if path.is_absolute() {
-            bail!(
-                "unable to find relative path from project root to `{}`",
-                path,
-            );
+        let path = relativize_path(wrapfs::canonicalize(src_path.as_ref())?, project_root)?;
+        if path == "." {
+            bail!("cannot add project root as usage`");
         }
         path
     } else {
         src_path.into()
     };
     Ok(src_path)
-}
-
-fn relativize(path: &Utf8Path, root: &Utf8Path) -> Result<Utf8PathBuf> {
-    let path = path.canonicalize_utf8()?;
-    let root = root.canonicalize_utf8()?;
-
-    // If prefixes (e.g. C: vs D: on Windows) differ, no relative path is possible.
-    if path.components().next() != root.components().next() {
-        return Ok(path);
-    }
-
-    let mut path_iter = path.components().peekable();
-    let mut root_iter = root.components().peekable();
-
-    while let (Some(p), Some(r)) = (path_iter.peek(), root_iter.peek()) {
-        if p == r {
-            path_iter.next();
-            root_iter.next();
-        } else {
-            break;
-        }
-    }
-
-    let mut result = Utf8PathBuf::new();
-
-    for r in root_iter {
-        if let Utf8Component::Normal(_) = r {
-            result.push("..");
-        }
-    }
-
-    for p in path_iter {
-        result.push(p.as_str());
-    }
-
-    if result.as_str().is_empty() {
-        result.push(".");
-    }
-
-    Ok(result)
 }
