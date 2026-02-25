@@ -356,8 +356,16 @@ fn contains_non_canonical_components(path: &Utf8Path) -> bool {
 /// ```rust
 /// # use camino::Utf8Path;
 /// # use sysand_core::project::utils::relativize_path;
-/// let path = Utf8Path::new("/a/b/c");
-/// let root = Utf8Path::new("/a/b");
+/// let path = if cfg!(windows) {
+///     Utf8Path::new(r"C:\a\b\c")
+/// } else {
+///     Utf8Path::new("/a/b/c")
+/// };
+/// let root = if cfg!(windows) {
+///     Utf8Path::new(r"C:\a\b")
+/// } else {
+///     Utf8Path::new("/a/b")
+/// };
 ///
 /// let relative = relativize_path(path, root).unwrap();
 /// assert_eq!(relative, "c");
@@ -366,8 +374,16 @@ fn contains_non_canonical_components(path: &Utf8Path) -> bool {
 /// ```rust
 /// # use camino::Utf8Path;
 /// # use sysand_core::project::utils::relativize_path;
-/// let path = Utf8Path::new("/a/b");
-/// let root = Utf8Path::new("/a/b/c");
+/// let path = if cfg!(windows) {
+///     Utf8Path::new(r"C:\a\b")
+/// } else {
+///     Utf8Path::new("/a/b")
+/// };
+/// let root = if cfg!(windows) {
+///     Utf8Path::new(r"C:\a\b\c")
+/// } else {
+///     Utf8Path::new("/a/b/c")
+/// };
 ///
 /// let relative = relativize_path(path, root).unwrap();
 /// assert_eq!(relative, "..");
@@ -443,15 +459,27 @@ pub fn relativize_path<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
 mod tests {
     use std::error::Error;
 
-    use typed_path::Utf8UnixPath;
+    use camino::Utf8Path;
 
     use crate::project::utils::{ToPathBuf, relativize_path};
 
     #[test]
     fn simple_relativize_path() -> Result<(), Box<dyn Error>> {
-        let path = Utf8UnixPath::new("/a/b/c");
-        let root = Utf8UnixPath::new("/");
-        let relative = Utf8UnixPath::new("a/b/c");
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\")
+        } else {
+            Utf8Path::new("/")
+        };
+        let relative = if cfg!(windows) {
+            Utf8Path::new(r"a\b\c")
+        } else {
+            Utf8Path::new("a/b/c")
+        };
         assert_eq!(
             relativize_path(path.as_str().to_path_buf(), root.as_str().to_path_buf())?,
             relative.as_str()
@@ -461,9 +489,21 @@ mod tests {
 
     #[test]
     fn backtracking_relativize_path() -> Result<(), Box<dyn Error>> {
-        let path = Utf8UnixPath::new("/a/b/c");
-        let root = Utf8UnixPath::new("/d/e/f");
-        let relative = Utf8UnixPath::new("../../../a/b/c");
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\d\e\f")
+        } else {
+            Utf8Path::new("/d/e/f")
+        };
+        let relative = if cfg!(windows) {
+            Utf8Path::new(r"..\..\..\a\b\c")
+        } else {
+            Utf8Path::new("../../../a/b/c")
+        };
         assert_eq!(
             relativize_path(path.as_str().to_path_buf(), root.as_str().to_path_buf())?,
             relative.as_str()
@@ -473,9 +513,17 @@ mod tests {
 
     #[test]
     fn trivial_relativize_path() -> Result<(), Box<dyn Error>> {
-        let path = Utf8UnixPath::new("/a/b/c");
-        let root = Utf8UnixPath::new("/a/b/c");
-        let relative = Utf8UnixPath::new(".");
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let relative = Utf8Path::new(".");
         assert_eq!(
             relativize_path(path.as_str().to_path_buf(), root.as_str().to_path_buf())?,
             relative.as_str()
