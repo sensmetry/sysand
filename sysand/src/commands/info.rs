@@ -74,9 +74,10 @@ pub fn pprint_interchange_project(
 }
 
 fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverProject> {
-    Ok(if wrapfs::is_file(&path)? {
+    let metadata = wrapfs::metadata(&path)?;
+    Ok(if metadata.is_file() {
         FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path)?)
-    } else if wrapfs::is_dir(&path)? {
+    } else if metadata.is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
             nominal_path: None,
             project_path: path.as_ref().as_str().into(),

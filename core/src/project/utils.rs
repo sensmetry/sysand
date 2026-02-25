@@ -85,6 +85,10 @@ pub enum FsIoError {
     RmDir(Utf8PathBuf, io::Error),
     #[error("failed to get path to current directory:\n  {0}")]
     CurrentDir(io::Error),
+    #[error("failed to get metadata to determine if\n  `{0}` is a regular file:\n  {1}")]
+    IsFile(Utf8PathBuf, io::Error),
+    #[error("failed to get metadata to determine if\n  `{0}` is a directory:\n  {1}")]
+    IsDir(Utf8PathBuf, io::Error),
 }
 
 /// Wrappers for filesystem I/O functions to return `FsIoError`.
@@ -222,12 +226,10 @@ pub mod wrapfs {
     /// Returns an [`FsIoError`] if metadata retrieval fails for any reason
     /// other than [`std::io::ErrorKind::NotFound`].
     pub fn is_file<P: AsRef<Utf8Path>>(path: P) -> Result<bool, Box<FsIoError>> {
-        match metadata(path) {
+        match fs::metadata(path.as_ref()) {
             Ok(metadata) => Ok(metadata.is_file()),
-            Err(err) if matches!(err.as_ref(), FsIoError::Metadata(_, e) if e.kind() == ErrorKind::NotFound) => {
-                Ok(false)
-            }
-            Err(err) => Err(err),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(Box::new(FsIoError::IsFile(path.as_ref().into(), err))),
         }
     }
 
@@ -248,12 +250,10 @@ pub mod wrapfs {
     /// Returns an [`FsIoError`] if metadata retrieval fails for any reason
     /// other than [`std::io::ErrorKind::NotFound`].
     pub fn is_dir<P: AsRef<Utf8Path>>(path: P) -> Result<bool, Box<FsIoError>> {
-        match metadata(path) {
+        match fs::metadata(path.as_ref()) {
             Ok(metadata) => Ok(metadata.is_dir()),
-            Err(err) if matches!(err.as_ref(), FsIoError::Metadata(_, e) if e.kind() == ErrorKind::NotFound) => {
-                Ok(false)
-            }
-            Err(err) => Err(err),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(Box::new(FsIoError::IsFile(path.as_ref().into(), err))),
         }
     }
 }

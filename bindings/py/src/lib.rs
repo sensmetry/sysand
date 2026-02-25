@@ -499,7 +499,9 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
         environment_path: env_path.into(),
     };
 
-    if wrapfs::is_file(&location).map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))? {
+    let metadata =
+        wrapfs::metadata(&location).map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))?;
+    if metadata.is_file() {
         let project = LocalKParProject::new_guess_root(&location)
             .map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))?;
 
@@ -517,7 +519,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             clone_project(&project, to, true).map(|_| ())
         })
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-    } else if wrapfs::is_dir(&location).map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))? {
+    } else if metadata.is_dir() {
         let project = LocalSrcProject {
             nominal_path: None,
             project_path: location,

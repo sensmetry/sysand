@@ -283,7 +283,7 @@ fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMoveErro
 }
 
 impl LocalDirectoryEnvironment {
-    pub fn root_path(&self) -> &Utf8PathBuf {
+    pub fn root_path(&self) -> &Utf8Path {
         &self.environment_path
     }
 

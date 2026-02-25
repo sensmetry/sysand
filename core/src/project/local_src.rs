@@ -90,7 +90,7 @@ fn relativise_path<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
 }
 
 impl LocalSrcProject {
-    pub fn root_path(&self) -> &Utf8PathBuf {
+    pub fn root_path(&self) -> &Utf8Path {
         &self.project_path
     }
 
@@ -117,7 +117,7 @@ impl LocalSrcProject {
         let root_path = self.root_path();
         let project_path = root_path
             .canonicalize_utf8()
-            .map_err(|e| UnixPathError::Canonicalize(root_path.clone(), e))?;
+            .map_err(|e| UnixPathError::Canonicalize(root_path.to_owned(), e))?;
 
         let path = relativise_path(&path, project_path)
             .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
@@ -139,22 +139,22 @@ impl LocalSrcProject {
         &self,
         path: P,
     ) -> Result<Utf8PathBuf, PathError> {
-        let utf_path = if path.as_ref().is_absolute() {
+        let path = path.as_ref();
+        let utf_path = if path.is_absolute() {
             if !cfg!(feature = "lenient_checks") {
-                return Err(PathError::AbsolutePath(path.as_ref().to_owned()));
+                return Err(PathError::AbsolutePath(path.to_owned()));
             }
             // This should never fail, as the only way for a Unix path to be absolute is to begin
             // at root /.
-            path.as_ref()
-                .strip_prefix("/")
+            path.strip_prefix("/")
                 .expect("internal path processing error")
         } else {
-            path.as_ref()
+            path
         };
 
         assert!(utf_path.is_relative());
 
-        let mut final_path = self.root_path().clone();
+        let mut final_path = self.root_path().to_owned();
         let mut added_components = 0;
         for component in utf_path.components() {
             match component {

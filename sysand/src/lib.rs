@@ -132,7 +132,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let current_project = sysand_core::discover::current_project()?;
     let cwd = wrapfs::current_dir()?;
 
-    let project_root = current_project.clone().map(|p| p.root_path().clone());
+    let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
 
     let current_environment = {
         let dir = project_root.as_ref().unwrap_or(&cwd);
@@ -596,7 +596,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 } else {
                     let mut output_dir = current_workspace
                         .as_ref()
-                        .map(|workspace| &workspace.workspace_path)
+                        .map(|workspace| workspace.root_path())
                         .unwrap_or_else(|| &current_project.project_path)
                         .join("output");
                     let name = sysand_core::build::default_kpar_file_name(&current_project)?;
@@ -614,7 +614,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let current_workspace =
                     current_workspace.ok_or(CliError::MissingProjectCurrentDir)?;
                 let output_dir =
-                    path.unwrap_or_else(|| current_workspace.workspace_path.join("output"));
+                    path.unwrap_or_else(|| current_workspace.root_path().join("output"));
                 if !wrapfs::is_dir(&output_dir)? {
                     wrapfs::create_dir(&output_dir)?;
                 }

@@ -46,7 +46,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
-    let project_root = current_project.root_path().clone();
+    let project_root = current_project.root_path().to_owned();
 
     #[allow(clippy::manual_map)] // For readability and compactness
     let source = if let Some(path) = source_opts.from_path {
@@ -177,7 +177,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         )?;
 
         if !no_sync {
-            let mut env = crate::get_or_create_env(project_root.as_path())?;
+            let mut env = crate::get_or_create_env(&project_root)?;
             let lock = Lock::from_str(&wrapfs::read_to_string(
                 project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
             )?)?;
