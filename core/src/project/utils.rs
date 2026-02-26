@@ -321,6 +321,8 @@ pub enum RelativizePathError {
     },
 }
 
+// Note: `components()` ignores non-leading `CurDir` so paths like `/a/./b`
+// will not register as non-canonical.
 fn contains_non_canonical_components(path: &Utf8Path) -> bool {
     path.components()
         .any(|c| matches!(c, Utf8Component::CurDir | Utf8Component::ParentDir))
@@ -465,7 +467,7 @@ mod tests {
 
     use camino::Utf8Path;
 
-    use crate::project::utils::relativize_path;
+    use crate::project::utils::{RelativizePathError, relativize_path};
 
     #[test]
     fn simple_relativize_path() -> Result<(), Box<dyn Error>> {
@@ -523,6 +525,110 @@ mod tests {
         };
         let relative = Utf8Path::new(".");
         assert_eq!(relativize_path(path, root)?, relative.as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn relativize_path_error_relative_path() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"a\b\c")
+        } else {
+            Utf8Path::new("a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let Err(err) = relativize_path(path, root) else {
+            panic!("`relativize_path` did not return error");
+        };
+        let RelativizePathError::RelativePath(err_path) = err else {
+            panic!("expected `RelativizePathError::RelativePath` variant");
+        };
+        assert_eq!(err_path, path);
+        Ok(())
+    }
+
+    #[test]
+    fn relativize_path_error_relative_root() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"a\b\c")
+        } else {
+            Utf8Path::new("a/b/c")
+        };
+        let Err(err) = relativize_path(path, root) else {
+            panic!("`relativize_path` did not return error");
+        };
+        let RelativizePathError::RelativeRoot(err_root) = err else {
+            panic!("expected `RelativizePathError::RelativeRoot` variant");
+        };
+        assert_eq!(err_root, root);
+        Ok(())
+    }
+
+    #[test]
+    fn relativize_path_error_non_canonical() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\..\c")
+        } else {
+            Utf8Path::new("/a/../c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let Err(err) = relativize_path(path, root) else {
+            panic!("`relativize_path` did not return error");
+        };
+        let RelativizePathError::NonCanonicalPath(err_path) = err else {
+            panic!("expected `RelativizePathError::NonCanonicalPath` variant");
+        };
+        assert_eq!(err_path, path);
+        Ok(())
+    }
+
+    #[test]
+    fn relativize_path_error_non_canonical_root() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\..\c")
+        } else {
+            Utf8Path::new("/a/../c")
+        };
+        let Err(err) = relativize_path(path, root) else {
+            panic!("`relativize_path` did not return error");
+        };
+        let RelativizePathError::NonCanonicalRoot(err_root) = err else {
+            panic!("expected `RelativizePathError::NonCanonicalRoot` variant");
+        };
+        assert_eq!(err_root, root);
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn relativize_path_error_non_common_prefix() -> Result<(), Box<dyn Error>> {
+        let path = Utf8Path::new(r"C:\a\b\c");
+        let root = Utf8Path::new(r"D:\a\b\c");
+        let Err(err) = relativize_path(path, root) else {
+            panic!("`relativize_path` did not return error");
+        };
+        let RelativizePathError::NoCommonPrefix(err_path, err_root) = err else {
+            panic!("expected `RelativizePathError::NoCommonPrefix` variant");
+        };
+        assert_eq!(err_path, path);
+        assert_eq!(err_root, root);
         Ok(())
     }
 }
