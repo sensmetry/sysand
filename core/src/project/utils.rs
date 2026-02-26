@@ -413,7 +413,11 @@ pub fn relativize_path<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
     let mut path_iter = path.components().peekable();
     let mut root_iter = root.components().peekable();
 
-    // If prefixes (e.g. C: vs D: on Windows) differ, no relative path is possible.
+    // Both paths are absolute, so prefixes can only differ on Windows in the cases when:
+    // - paths point to different drives
+    // - path kinds differ (regular vs UNC vs DOS device paths)
+    // Failure should not be possible on Unix-like systems, since absolute
+    // paths all start with the common prefix `/`.
     match (path_iter.peek(), root_iter.peek()) {
         (Some(p0), Some(r0)) if p0 == r0 => {
             path_iter.next();

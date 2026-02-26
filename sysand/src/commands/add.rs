@@ -197,6 +197,8 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     Ok(())
 }
 
+/// `project_root` must be absolute. On Windows, its kind (DOS/UNC)
+/// must match the kind of `current_dir()`
 fn get_relative<P: Into<Utf8PathBuf> + AsRef<Utf8Path>>(
     src_path: P,
     project_root: &Utf8Path,
@@ -204,7 +206,7 @@ fn get_relative<P: Into<Utf8PathBuf> + AsRef<Utf8Path>>(
     let src_path = if src_path.as_ref().is_absolute() || wrapfs::current_dir()? != project_root {
         let path = relativize_path(wrapfs::canonicalize(src_path.as_ref())?, project_root)?;
         if path == "." {
-            bail!("cannot add project root as usage`");
+            bail!("cannot add current project as usage of itself`");
         }
         path
     } else {

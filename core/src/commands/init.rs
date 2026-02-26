@@ -13,7 +13,7 @@ use crate::{
 };
 
 #[cfg(feature = "filesystem")]
-use crate::project::local_src::LocalSrcProject;
+use crate::project::local_src::{LocalSrcError, LocalSrcProject};
 
 use thiserror::Error;
 
@@ -27,16 +27,18 @@ pub enum InitError<ProjectError: ErrorBound> {
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
 }
 
-pub fn do_init_ext<S: ProjectMut>(
-    name: String,
-    version: String,
+pub fn do_init_ext<N: AsRef<str>, V: AsRef<str>, P: ProjectMut>(
+    name: N,
+    version: V,
     no_semver: bool,
     license: Option<String>,
     no_spdx: bool,
-    storage: &mut S,
-) -> Result<(), InitError<S::Error>> {
+    storage: &mut P,
+) -> Result<(), InitError<P::Error>> {
+    let name = name.as_ref();
+    let version = version.as_ref();
     if !no_semver {
-        Version::parse(&version).map_err(|e| InitError::SemVerParse(version.as_str().into(), e))?;
+        Version::parse(version).map_err(|e| InitError::SemVerParse(version.into(), e))?;
     }
     let license = if let Some(l) = license {
         if !no_spdx {
@@ -54,9 +56,9 @@ pub fn do_init_ext<S: ProjectMut>(
 
     storage.put_project(
         &InterchangeProjectInfoRaw {
-            name,
+            name: name.to_owned(),
             description: None,
-            version,
+            version: version.to_owned(),
             license,
             maintainer: vec![],
             topic: vec![],
@@ -78,18 +80,18 @@ pub fn do_init_ext<S: ProjectMut>(
     Ok(())
 }
 
-pub fn do_init<S: ProjectMut>(
-    name: String,
-    version: String,
+pub fn do_init<N: AsRef<str>, V: AsRef<str>, P: ProjectMut>(
+    name: N,
+    version: V,
     license: Option<String>,
-    storage: &mut S,
-) -> Result<(), InitError<S::Error>> {
+    storage: &mut P,
+) -> Result<(), InitError<P::Error>> {
     do_init_ext(name, version, false, license, false, storage)
 }
 
-pub fn do_init_memory(
-    name: String,
-    version: String,
+pub fn do_init_memory<N: AsRef<str>, V: AsRef<str>>(
+    name: N,
+    version: V,
     license: Option<String>,
 ) -> Result<InMemoryProject, InitError<crate::project::memory::InMemoryError>> {
     let mut storage = InMemoryProject::default();
@@ -100,12 +102,12 @@ pub fn do_init_memory(
 }
 
 #[cfg(feature = "filesystem")]
-pub fn do_init_local_file(
-    name: String,
-    version: String,
+pub fn do_init_local_file<N: AsRef<str>, V: AsRef<str>>(
+    name: N,
+    version: V,
     license: Option<String>,
     path: Utf8PathBuf,
-) -> Result<LocalSrcProject, InitError<crate::project::local_src::LocalSrcError>> {
+) -> Result<LocalSrcProject, InitError<LocalSrcError>> {
     let mut storage = LocalSrcProject {
         nominal_path: None,
         project_path: path,

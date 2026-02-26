@@ -8,11 +8,7 @@ use sysand_core::{commands::init::do_init, init::do_init_memory, model::Intercha
 /// and .meta.json files in the current working directory. (Non-interactive use)
 #[test]
 fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let memory_storage = do_init_memory(
-        "init_basic".to_string(),
-        "1.2.3".to_string(),
-        Some("Apache-2.0".to_string()),
-    )?;
+    let memory_storage = do_init_memory("init_basic", "1.2.3", Some("Apache-2.0".to_string()))?;
 
     assert_eq!(
         memory_storage.info.unwrap(),
@@ -59,8 +55,8 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     let mut memory_storage = do_init_memory(
-        "init_fail_on_double_init".to_string(),
-        "1.2.3".to_string(),
+        "init_fail_on_double_init",
+        "1.2.3",
         Some("Apache-2.0 OR MIT".to_string()),
     )?;
 
@@ -68,8 +64,8 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     let original_meta = memory_storage.meta.clone();
 
     let second_result = do_init(
-        "init_fail_on_double_init".to_string(),
-        "1.2.3".to_string(),
+        "init_fail_on_double_init",
+        "1.2.3",
         Some("Apache-2.0 OR MIT".to_string()),
         &mut memory_storage,
     );

@@ -129,3 +129,4 @@ respectively.
 > [!note]
 > Currently there is no way to specify a particular git reference like e.g. a
 > branch, tag or commit.
+> It is also currently not possible to specify a project path in a repository.

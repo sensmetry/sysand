@@ -15,14 +15,14 @@ information file `.project.json`. By default this will also update the lockfile
 and sync the local environment (creating one if not already present).
 
 When adding a usage with one of the `--from-*` or `--as-*` flags the
-configuration file will be automatically updated with the a project source
-override as described in [Dependencies](../config/dependencies.md). If using
-one of the `--from-*` flags, then Sysand will attempt to guess which type of
-project source, while the `--as_*` flags let you specify the type explicitly.
-Sysand cannot determine if a project is to be editable so for that you need to
+configuration file will be automatically updated with a project source
+override as described in [Dependencies](../config/dependencies.md). If one of
+the `--from-*` flags are used, Sysand will attempt to guess the type of
+project source, while the `--as-*` flags let you specify the type explicitly.
+Sysand cannot determine if a project is to be editable, so for that you need to
 specify the path with the `--as-editable` flag.
 
-The configuration file updated will either be the one given with
+The affected configuration file will either be the one given with
 `--config-file` or (if `--no-config` is not present) the `sysand.toml` at the
 root of the project. If no configuration file is given and `--no-config` is set
 the usage will be added to the project but no source will be configured so

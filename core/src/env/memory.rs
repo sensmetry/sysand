@@ -53,6 +53,43 @@ pub enum TryFromError<Project: ProjectRead> {
     MissingVersion(String),
 }
 
+/// Try to construct a `MemoryStorageEnvironment` from an array of pairs of IRIs
+/// and project storages.
+///
+/// All projects must have versions.
+///
+/// # Returns
+///
+/// - `Ok(env)` where `env` is a `MemoryStorageEnvironment<Project>` with all
+///   projects given.
+/// - `Err(error)` where `error` is
+///   - `TryFromError<Project>::Read` if cannot be read
+///   - `TryFromError<Project>::MissingVersion` if version is `None`
+///
+/// # Example
+///
+/// ```rust
+/// # use sysand_core::commands::init::do_init_memory;
+/// # use sysand_core::env::memory::MemoryStorageEnvironment;
+/// # use sysand_core::env::ReadEnvironment;
+/// # use sysand_core::project::memory::InMemoryProject;
+/// let project1 = do_init_memory("First", "0.0.1", None).unwrap();
+/// let project2 = do_init_memory("First", "0.1.0", None).unwrap();
+/// let env = MemoryStorageEnvironment::<InMemoryProject>::try_from([
+///     ("urn:kpar:first".into(), project1.clone()),
+///     ("urn:kpar:first".into(), project2.clone()),
+/// ])
+/// .unwrap();
+///
+/// assert_eq!(
+///     project1,
+///     env.get_project("urn:kpar:first", "0.0.1").unwrap()
+/// );
+/// assert_eq!(
+///     project2,
+///     env.get_project("urn:kpar:first", "0.1.0").unwrap()
+/// );
+/// ```
 impl<Project: ProjectRead + Clone, const N: usize> TryFrom<[(String, Project); N]>
     for MemoryStorageEnvironment<Project>
 {
@@ -63,6 +100,43 @@ impl<Project: ProjectRead + Clone, const N: usize> TryFrom<[(String, Project); N
     }
 }
 
+/// Try to construct a `MemoryStorageEnvironment` from a Vec of pairs of IRIs and
+/// project storages.
+///
+/// All projects must have versions.
+///
+/// # Returns
+///
+/// - `Ok(env)` where `env` is a `MemoryStorageEnvironment<Project>` with all
+///   projects given.
+/// - `Err(error)` where `error` is
+///   - `TryFromError<Project>::Read` if cannot be read
+///   - `TryFromError<Project>::MissingVersion` if version is `None`
+///
+/// # Example
+///
+/// ```rust
+/// # use sysand_core::commands::init::do_init_memory;
+/// # use sysand_core::env::memory::MemoryStorageEnvironment;
+/// # use sysand_core::env::ReadEnvironment;
+/// # use sysand_core::project::memory::InMemoryProject;
+/// let project1 = do_init_memory("First", "0.0.1", None).unwrap();
+/// let project2 = do_init_memory("First", "0.1.0", None).unwrap();
+/// let env = MemoryStorageEnvironment::<InMemoryProject>::try_from(vec![
+///     ("urn:kpar:first".into(), project1.clone()),
+///     ("urn:kpar:first".into(), project2.clone()),
+/// ])
+/// .unwrap();
+///
+/// assert_eq!(
+///     project1,
+///     env.get_project("urn:kpar:first", "0.0.1").unwrap()
+/// );
+/// assert_eq!(
+///     project2,
+///     env.get_project("urn:kpar:first", "0.1.0").unwrap()
+/// );
+/// ```
 impl<Project: ProjectRead + Clone> TryFrom<Vec<(String, Project)>>
     for MemoryStorageEnvironment<Project>
 {
@@ -85,6 +159,40 @@ impl<Project: ProjectRead + Clone> FromIterator<(String, String, Project)>
     }
 }
 
+/// Construct a `MemoryStorageEnvironment` from an array of triples of IRIs, versions
+/// and project storages.
+///
+/// All projects must have versions.
+///
+/// # Returns
+///
+/// A `MemoryStorageEnvironment<Project>` with all projects given.
+///
+/// # Example
+///
+/// ```rust
+/// # use sysand_core::commands::init::do_init_memory;
+/// # use sysand_core::env::memory::MemoryStorageEnvironment;
+/// # use sysand_core::env::ReadEnvironment;
+/// # use sysand_core::project::memory::InMemoryProject;
+/// let version1 = "0.0.1".to_string();
+/// let version2 = "0.1.0".to_string();
+/// let project1 = do_init_memory("First", &version1, None).unwrap();
+/// let project2 = do_init_memory("First", &version2, None).unwrap();
+/// let env = MemoryStorageEnvironment::<InMemoryProject>::from([
+///     ("urn:kpar:first".into(), version1.clone(), project1.clone()),
+///     ("urn:kpar:first".into(), version2.clone(), project2.clone()),
+/// ]);
+///
+/// assert_eq!(
+///     project1,
+///     env.get_project("urn:kpar:first", version1).unwrap()
+/// );
+/// assert_eq!(
+///     project2,
+///     env.get_project("urn:kpar:first", version2).unwrap()
+/// );
+/// ```
 impl<Project: ProjectRead + Clone, const N: usize> From<[(String, String, Project); N]>
     for MemoryStorageEnvironment<Project>
 {
@@ -93,6 +201,40 @@ impl<Project: ProjectRead + Clone, const N: usize> From<[(String, String, Projec
     }
 }
 
+/// Construct a `MemoryStorageEnvironment` from Vec of triples of IRIs, versions and
+/// project storages.
+///
+/// All projects must have versions.
+///
+/// # Returns
+///
+/// A `MemoryStorageEnvironment<Project>` with all projects given.
+///
+/// # Example
+///
+/// ```rust
+/// # use sysand_core::commands::init::do_init_memory;
+/// # use sysand_core::env::memory::MemoryStorageEnvironment;
+/// # use sysand_core::env::ReadEnvironment;
+/// # use sysand_core::project::memory::InMemoryProject;
+/// let version1 = "0.0.1".to_string();
+/// let version2 = "0.1.0".to_string();
+/// let project1 = do_init_memory("First", &version1, None).unwrap();
+/// let project2 = do_init_memory("First", &version2, None).unwrap();
+/// let env = MemoryStorageEnvironment::<InMemoryProject>::from(vec![
+///     ("urn:kpar:first".into(), version1.clone(), project1.clone()),
+///     ("urn:kpar:first".into(), version2.clone(), project2.clone()),
+/// ]);
+///
+/// assert_eq!(
+///     project1,
+///     env.get_project("urn:kpar:first", version1).unwrap()
+/// );
+/// assert_eq!(
+///     project2,
+///     env.get_project("urn:kpar:first", version2).unwrap()
+/// );
+/// ```
 impl<Project: ProjectRead + Clone> From<Vec<(String, String, Project)>>
     for MemoryStorageEnvironment<Project>
 {
@@ -230,8 +372,8 @@ mod test {
         let uri1 = "urn:kpar:first".to_string();
         let uri2 = "urn:kpar:second".to_string();
         let version = "0.0.1".to_string();
-        let project1 = do_init_memory("First".to_string(), version.clone(), None).unwrap();
-        let project2 = do_init_memory("Second".to_string(), version.clone(), None).unwrap();
+        let project1 = do_init_memory("First", &version, None).unwrap();
+        let project2 = do_init_memory("Second", &version, None).unwrap();
         let mut env = MemoryStorageEnvironment::<InMemoryProject>::new();
 
         env.put_project(&uri1, &version, |p| {
@@ -275,7 +417,7 @@ mod test {
     fn read_environment() {
         let iri = "urn:kpar:first".to_string();
         let version = "0.0.1".to_string();
-        let project = do_init_memory("First".to_string(), version.clone(), None).unwrap();
+        let project = do_init_memory("First", &version, None).unwrap();
         let env = MemoryStorageEnvironment {
             projects: HashMap::from([(
                 iri.clone(),
@@ -305,16 +447,44 @@ mod test {
     }
 
     #[test]
+    fn from() {
+        let version1 = "0.0.1".to_string();
+        let version2 = "0.1.0".to_string();
+        let version3 = "0.0.1".to_string();
+        let project1 = do_init_memory("First 0.0.1", &version1, None).unwrap();
+        let project2 = do_init_memory("First 0.1.0", &version2, None).unwrap();
+        let project3 = do_init_memory("Second", &version3, None).unwrap();
+        let env = MemoryStorageEnvironment::<InMemoryProject>::from([
+            ("urn:kpar:first".into(), version1.clone(), project1.clone()),
+            ("urn:kpar:first".into(), version2.clone(), project2.clone()),
+            ("urn:kpar:second".into(), version3.clone(), project3.clone()),
+        ]);
+
+        assert_eq!(
+            project1,
+            env.get_project("urn:kpar:first", version1).unwrap()
+        );
+        assert_eq!(
+            project2,
+            env.get_project("urn:kpar:first", version2).unwrap()
+        );
+        assert_eq!(
+            project3,
+            env.get_project("urn:kpar:second", version3).unwrap()
+        );
+        assert_eq!(env.projects.len(), 2);
+        assert_eq!(env.projects.get("urn:kpar:first").unwrap().len(), 2);
+    }
+
+    #[test]
     fn try_from() {
-        let project1 =
-            do_init_memory("First 0.0.1".to_string(), "0.0.1".to_string(), None).unwrap();
-        let project2 =
-            do_init_memory("First 0.1.0".to_string(), "0.1.0".to_string(), None).unwrap();
-        let project3 = do_init_memory("Second".to_string(), "0.0.1".to_string(), None).unwrap();
+        let project1 = do_init_memory("First 0.0.1", "0.0.1", None).unwrap();
+        let project2 = do_init_memory("First 0.1.0", "0.1.0", None).unwrap();
+        let project3 = do_init_memory("Second", "0.0.1", None).unwrap();
         let env = MemoryStorageEnvironment::<InMemoryProject>::try_from([
-            ("urn:kpar:first".to_string(), project1.clone()),
-            ("urn:kpar:first".to_string(), project2.clone()),
-            ("urn:kpar:second".to_string(), project3.clone()),
+            ("urn:kpar:first".into(), project1.clone()),
+            ("urn:kpar:first".into(), project2.clone()),
+            ("urn:kpar:second".into(), project3.clone()),
         ])
         .unwrap();
 

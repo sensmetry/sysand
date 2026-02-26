@@ -61,10 +61,10 @@ pub fn load_configs<P: AsRef<Utf8Path>>(working_dir: P) -> Result<Config, Config
 pub enum ConfigProjectSourceError {
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("{0} is not a file")]
+    #[error("`{0}` is not a file")]
     NotAFile(String),
-    #[error("failed to parse configuration file")]
-    TomlEdit(#[from] toml_edit::TomlError),
+    #[error("failed to parse configuration file at `{0}`:\n{1}")]
+    TomlEdit(Utf8PathBuf, toml_edit::TomlError),
     #[error("{0}")]
     InvalidProjects(String),
 }
@@ -74,13 +74,12 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
     iri: S,
     source: &Source,
 ) -> Result<(), ConfigProjectSourceError> {
+    let config_path = config_path.as_ref();
     let sources = multiline_array(std::iter::once(source.to_toml()));
-    let contents = match wrapfs::metadata(&config_path) {
-        Ok(metadata) if metadata.is_file() => wrapfs::read_to_string(&config_path)?,
+    let contents = match wrapfs::metadata(config_path) {
+        Ok(metadata) if metadata.is_file() => wrapfs::read_to_string(config_path)?,
         Ok(_) => {
-            return Err(ConfigProjectSourceError::NotAFile(
-                config_path.as_ref().to_string(),
-            ));
+            return Err(ConfigProjectSourceError::NotAFile(config_path.to_string()));
         }
         Err(err) if matches!(err.as_ref(), FsIoError::Metadata(_, e) if e.kind() == ErrorKind::NotFound) =>
         {
@@ -88,13 +87,14 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
             let header = crate::style::get_style_config().header;
             log::info!(
                 "{header}{creating:>12}{header:#} configuration file at `{}`",
-                config_path.as_ref(),
+                config_path,
             );
             String::new()
         }
         Err(err) => return Err(ConfigProjectSourceError::Io(err)),
     };
-    let mut config = DocumentMut::from_str(&contents)?;
+    let mut config = DocumentMut::from_str(&contents)
+        .map_err(|err| ConfigProjectSourceError::TomlEdit(config_path.to_owned(), err))?;
     let projects = config
         .as_table_mut()
         .entry("project")
@@ -128,10 +128,10 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
     log::info!(
         "{header}{adding:>12}{header:#} source for `{}` to configuration file at `{}`",
         iri.as_ref(),
-        config_path.as_ref(),
+        config_path,
     );
 
-    wrapfs::write(&config_path, config.to_string())?;
+    wrapfs::write(config_path, config.to_string())?;
 
     Ok(())
 }
@@ -140,12 +140,11 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
     config_path: P,
     iri: S,
 ) -> Result<bool, ConfigProjectSourceError> {
-    let contents = match wrapfs::metadata(&config_path) {
-        Ok(metadata) if metadata.is_file() => wrapfs::read_to_string(&config_path)?,
+    let config_path = config_path.as_ref();
+    let contents = match wrapfs::metadata(config_path) {
+        Ok(metadata) if metadata.is_file() => wrapfs::read_to_string(config_path)?,
         Ok(_) => {
-            return Err(ConfigProjectSourceError::NotAFile(
-                config_path.as_ref().to_string(),
-            ));
+            return Err(ConfigProjectSourceError::NotAFile(config_path.to_string()));
         }
         Err(err) if matches!(err.as_ref(), FsIoError::Metadata(_, e) if e.kind() == ErrorKind::NotFound) =>
         {
@@ -153,7 +152,8 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
         }
         Err(err) => return Err(ConfigProjectSourceError::Io(err)),
     };
-    let mut config = DocumentMut::from_str(&contents)?;
+    let mut config = DocumentMut::from_str(&contents)
+        .map_err(|err| ConfigProjectSourceError::TomlEdit(config_path.to_owned(), err))?;
     let Some(projects) = config
         .as_table_mut()
         .get_mut("project")
@@ -178,7 +178,7 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
         log::info!(
             "{header}{removing:>12}{header:#} source for `{}` from configuration file at `{}`",
             iri.as_ref(),
-            config_path.as_ref(),
+            config_path,
         );
 
         projects.remove(index);
@@ -188,7 +188,7 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
             let removing = "Removing";
             log::info!(
                 "{header}{removing:>12}{header:#} empty configuration file at `{}`",
-                config_path.as_ref(),
+                config_path,
             );
             wrapfs::remove_file(config_path)?;
         } else {
