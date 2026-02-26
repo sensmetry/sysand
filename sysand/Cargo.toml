@@ -21,21 +21,21 @@ alltests = []
 camino.workspace = true
 camino-tempfile = "1.4"
 anstream = "1.0.0"
-anyhow = "1.0.101"
-clap = { version = "4.5.59", default-features = false, features = ["derive", "unicode", "help", "cargo", "color", "env", "suggestions", "usage"] }
+anyhow = "1.0.102"
+clap = { version = "4.5.60", default-features = false, features = ["derive", "unicode", "help", "cargo", "color", "env", "suggestions", "usage"] }
 env_logger = "0.11.9"
 log = { version = "0.4.29", default-features = false }
 sysand-core = { path = "../core", features = ["std", "filesystem", "networking"] }
 thiserror = "2.0.18"
-toml = { version = "1.0.2", default-features = false }
+toml = { version = "1.0.3", default-features = false }
 semver = "1.0.27"
 serde_json = { version = "1.0.149", default-features = false }
-spdx = "0.13.3"
+spdx = "0.13.4"
 fluent-uri = { version = "0.4.1", default-features = false }
 typed-path = { version = "0.12.3", default-features = false }
 url = { version = "2.5.8", default-features = false }
 # Enables a bunch of additional compression/encryption features not enabled by default in sysand-core
-zip = { version = "8.1.0" }
+zip = { version = "7.2.0" }
 pubgrub = { version = "0.3.0", default-features = false }
 indexmap = "2.13.0"
 tokio = { version = "1.49.0", default-features = false }
@@ -52,9 +52,9 @@ assert_cmd = "2.1.2"
 glob = "0.3.3"
 mockito = "1.7.2"
 predicates = "3.1.4"
-tempfile = "3.25.0"
+tempfile = "3.26.0"
 url = "2.5.8"
-zip = "8.1.0"
+zip = "7.2.0"
 
 [target.'cfg(not(windows))'.dev-dependencies]
 rexpect = "0.6.3"
