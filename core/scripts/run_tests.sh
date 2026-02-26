@@ -8,6 +8,6 @@ PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 
 cd "$PACKAGE_DIR"
 
-cargo test --features filesystem,networking,alltests --bins --tests $@
-cargo test --features js --bins --tests $@
-cargo test --features python --bins --tests $@
+cargo test --features filesystem,networking,alltests $@
+cargo test --features js $@
+cargo test --features python $@

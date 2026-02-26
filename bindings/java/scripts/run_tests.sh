@@ -10,6 +10,6 @@ PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 
 cd "$PACKAGE_DIR"
 
-cargo test --bins --tests
+cargo test
 python3 scripts/java-builder.py build
 python3 scripts/java-builder.py test
