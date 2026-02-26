@@ -30,7 +30,7 @@ camino.workspace = true
 camino-tempfile = { version = "1.4", optional = true }
 anstyle = { version = "1.0.13", default-features = false }
 borrow-or-share = { version = "0.2.4", default-features = false }
-chrono = { version = "0.4.43", features = ["now", "serde"] }
+chrono = { version = "0.4.44", features = ["now", "serde"] }
 digest = { version = "0.10.7", default-features = false }
 dirs = { version = "6.0.0", optional = true}
 fluent-uri = { version = "0.4.1", features = ["serde"] }
@@ -45,21 +45,21 @@ semver = { version = "1.0.27", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149", default-features = false, features = ["preserve_order"] }
 sha2 = { version = "0.10.9", default-features = false }
-spdx = "0.13.3"
+spdx = "0.13.4"
 thiserror = { version = "2.0.18", default-features = false }
-toml = "1.0.2"
+toml = "1.0.3"
 typed-path = { version = "0.12.3", default-features = false }
 walkdir = "2.5.0"
 # unicode-normalization = { version = "0.1.24", default-features = false }
-wasm-bindgen = { version = "0.2.108", default-features = false, optional = true }
-zip = { version = "8.1.0", default-features = false, optional = true }
+wasm-bindgen = { version = "0.2.113", default-features = false, optional = true }
+zip = { version = "7.2.0", default-features = false, optional = true }
 url = { version = "2.5.8", default-features = false }
-gix = { version = "0.79.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation"] }
+gix = { version = "0.80.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation"] }
 logos = "0.16.1"
 futures = { version = "0.3.32", default-features = false, features = ["alloc", "async-await"] }
 tokio = { version = "1.49.0", default-features = false, features = ["rt", "io-util"] }
 bytes = { version = "1.11.1", default-features = false }
-toml_edit = { version = "0.25.2", features = ["serde"] }
+toml_edit = { version = "0.25.3", features = ["serde"] }
 globset = { version = "0.4.18", default-features = false }
 
 # Use native TLS only on Windows and Apple OSs
@@ -73,5 +73,5 @@ assert_cmd = "2.1.2"
 mockito = "1.7.2"
 port_check = "0.3.0"
 predicates = "3.1.4"
-tempfile = { version = "3.25.0", default-features = false }
-zip = "8.1.0"
+tempfile = { version = "3.26.0", default-features = false }
+zip = "7.2.0"
