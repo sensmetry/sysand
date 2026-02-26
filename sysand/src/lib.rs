@@ -37,6 +37,7 @@ use sysand_core::{
         reference::ProjectReference,
         utils::wrapfs,
     },
+    resolve::net_utils::create_reqwest_client,
     stdlib::known_std_libs,
     workspace::Workspace,
 };
@@ -163,7 +164,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     config.merge(auto_config);
 
-    let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+    let client = create_reqwest_client();
 
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()
