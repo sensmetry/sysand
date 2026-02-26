@@ -18,12 +18,19 @@ if none is found uses the current directory instead.
 
 ## Arguments
 
-- `[PATH]`: Path giving where to put the finished KPAR or KPARs. When building
-  a workspace, it is a path to the folder to write the KPARs to
+- `[PATH]`: Path for the finished KPAR or KPARs. When building a
+  workspace, it is a path to the folder to write the KPARs to
   (default: `<current-workspace>/output`). When building a single
   project, it is a path to the KPAR file to write (default
   `<current-workspace>/output/<project name>-<version>.kpar` or
   `<current-project>/output/<project name>-<version>.kpar` depending
   on whether the current project belongs to a workspace or not).
+
+## Options
+
+-  `-a`, `--allow-path-usage`  Allow usages of local paths (`file://`).
+  Warning: using this makes the project not portable between different
+  computers, as `file://` URL always contains an absolute path.
+  For multiple related projects, consider using a workspace instead
 
 {{#include ./partials/global_opts.md}}

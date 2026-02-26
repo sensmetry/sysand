@@ -26,6 +26,7 @@ pub fn current_workspace() -> Result<Option<Workspace>, Box<FsIoError>> {
     Ok(discover_workspace(wrapfs::current_dir()?))
 }
 
+// TODO: parse the workspace file here
 pub fn discover_workspace<P: AsRef<Utf8Path>>(working_directory: P) -> Option<Workspace> {
     let path = discover(working_directory, |path| {
         path.join(".workspace.json").is_file()

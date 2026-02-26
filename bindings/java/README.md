@@ -21,24 +21,25 @@ There are currently multiple ways to wrap a Rust library for Java:
 3. Since Java 22, there is a foreign function and memory API, which allows to
    call Rust functions from Java without using JNI (see [Project
    Panama](https://openjdk.org/projects/panama/)). Unfortunately, this approach
-   is not available on Java 21, which is used in the Pilot implementation.
+   is not available on Java 21, which is used in the [Pilot][pilot] implementation.
 
 We have decided to use the first approach because it should be the easiest to
 integrate for our end-users. We may want to migrate to the foreign function and
-memory API once Pilot updates to Java 22 or newer.
+memory API once [Pilot][pilot] updates to Java 22 or newer.
 
-Note: From JDK 22, Java throws a warning when loading a native Java module. This
-warning will become an error in JDK 24 and will require the user to explicitly
-allow native modules as described in [JEP
-472](https://openjdk.org/jeps/472#Description). Currently, the warning looks as
-follows:
+Note: From JDK 22, Java throws a warning when loading a native Java module, and
+it will become an error in the future. To fix this, user has to explicitly allow
+native modules as described in [JEP 472](https://openjdk.org/jeps/472#Description).
+Currently, the warning looks as follows:
 
    ```text
    WARNING: A restricted method in java.lang.System has been called
-   WARNING: java.lang.System::load has been called by com.sensmetry.sysand.NativeLoader in an unnamed module (file:.../sysand-0.0.4-SNAPSHOT.jar)
+   WARNING: java.lang.System::load has been called by com.sensmetry.sysand.NativeLoader in an unnamed module (file:.../sysand-X.Y.Z-SNAPSHOT.jar)
    WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
    WARNING: Restricted methods will be blocked in a future release unless native access is enabled
    ```
+
+[pilot]: https://github.com/Systems-Modeling/SysML-v2-Pilot-Implementation
 
 ## Building and testing
 

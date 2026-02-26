@@ -57,4 +57,4 @@ SYSAND_CRED_<X>_BEARER_TOKEN = <TOKEN>
 ```
 
 With the above the Sysand client will send `Authorization: Bearer <TOKEN>`
-in response to 4xx statuses when accessing URLs maching `<PATTERN>`.
+in response to 4xx statuses when accessing URLs matching `<PATTERN>`.

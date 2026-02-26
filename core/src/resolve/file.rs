@@ -62,6 +62,8 @@ fn try_file_uri_to_path(
     if uri.scheme() == SCHEME_FILE {
         let url = match url::Url::parse(uri.as_str()) {
             Ok(u) => u,
+            // This fails only in esoteric cases, such as if host is
+            // IPvFuture, which is allowed by IRI, but not WHATWG URL.
             Err(e) => return Err(FileResolverError::IriNotValidUrl(uri.to_string(), e)),
         };
 

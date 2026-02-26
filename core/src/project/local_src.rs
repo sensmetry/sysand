@@ -201,7 +201,7 @@ impl LocalSrcProject {
         Ok(result)
     }
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     pub fn temporary_from_project<Pr: ProjectRead>(
         project: &Pr,
     ) -> Result<
