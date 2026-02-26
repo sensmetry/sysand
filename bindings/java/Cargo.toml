@@ -25,9 +25,4 @@ tokio = { version = "1.48.0", default-features = false, features = ["rt"] }
 reqwest-middleware = { version = "0.5.0" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", default-features = false, features = ["preserve_order"] }
-
-# Use native TLS only on Windows and Apple OSs
-[target.'cfg(any(target_os = "windows", target_vendor = "apple"))'.dependencies]
-reqwest = { version = "0.13.1", default-features = false, features = ["native-tls", "http2", "system-proxy"] }
-[target.'cfg(not(any(target_os = "windows", target_vendor = "apple")))'.dependencies]
 reqwest = { version = "0.13.1", features = ["rustls"] }

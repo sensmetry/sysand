@@ -40,11 +40,6 @@ pubgrub = { version = "0.3.0", default-features = false }
 indexmap = "2.12.1"
 tokio = { version = "1.48.0", default-features = false }
 reqwest-middleware = { version = "0.5.0" }
-
-# Use native TLS only on Windows and Apple OSs
-[target.'cfg(any(target_os = "windows", target_vendor = "apple"))'.dependencies]
-reqwest = { version = "0.13.1", default-features = false, features = ["native-tls", "http2", "system-proxy", "blocking"] }
-[target.'cfg(not(any(target_os = "windows", target_vendor = "apple")))'.dependencies]
 reqwest = { version = "0.13.1", features = ["rustls", "blocking"] }
 
 [dev-dependencies]
