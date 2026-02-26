@@ -544,7 +544,10 @@ mod tests {
             panic!("`relativize_path` did not return error");
         };
         let RelativizePathError::RelativePath(err_path) = err else {
-            panic!("expected `RelativizePathError::RelativePath` variant");
+            panic!(
+                "expected `RelativizePathError::RelativePath`, got:\n{:?}",
+                err
+            );
         };
         assert_eq!(err_path, path);
         Ok(())
@@ -566,7 +569,10 @@ mod tests {
             panic!("`relativize_path` did not return error");
         };
         let RelativizePathError::RelativeRoot(err_root) = err else {
-            panic!("expected `RelativizePathError::RelativeRoot` variant");
+            panic!(
+                "expected `RelativizePathError::RelativeRoot`, got:\n{:?}",
+                err
+            );
         };
         assert_eq!(err_root, root);
         Ok(())
@@ -588,7 +594,10 @@ mod tests {
             panic!("`relativize_path` did not return error");
         };
         let RelativizePathError::NonCanonicalPath(err_path) = err else {
-            panic!("expected `RelativizePathError::NonCanonicalPath` variant");
+            panic!(
+                "expected `RelativizePathError::NonCanonicalPath`, got:\n{:?}",
+                err
+            );
         };
         assert_eq!(err_path, path);
         Ok(())
@@ -610,7 +619,10 @@ mod tests {
             panic!("`relativize_path` did not return error");
         };
         let RelativizePathError::NonCanonicalRoot(err_root) = err else {
-            panic!("expected `RelativizePathError::NonCanonicalRoot` variant");
+            panic!(
+                "expected `RelativizePathError::NonCanonicalRoot`, got:\n{:?}",
+                err
+            );
         };
         assert_eq!(err_root, root);
         Ok(())
@@ -624,8 +636,15 @@ mod tests {
         let Err(err) = relativize_path(path, root) else {
             panic!("`relativize_path` did not return error");
         };
-        let RelativizePathError::NoCommonPrefix(err_path, err_root) = err else {
-            panic!("expected `RelativizePathError::NoCommonPrefix` variant");
+        let RelativizePathError::NoCommonPrefix {
+            path: err_path,
+            root: err_root,
+        } = err
+        else {
+            panic!(
+                "expected `RelativizePathError::NoCommonPrefix`, got:\n{:?}",
+                err
+            );
         };
         assert_eq!(err_path, path);
         assert_eq!(err_root, root);
