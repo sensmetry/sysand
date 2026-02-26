@@ -11,6 +11,6 @@ cd "$PACKAGE_DIR"
 uv run maturin develop
 
 source ../../scripts/py_path.sh
-cargo test --no-default-features --bins --tests
+cargo test --no-default-features
 
 uv run pytest
