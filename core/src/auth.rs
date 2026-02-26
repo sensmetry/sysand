@@ -66,7 +66,7 @@ impl HTTPAuthentication for ForceHTTPBasicAuth {
         F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
         request
-            .basic_auth(self.username.clone(), Some(self.password.clone()))
+            .basic_auth(&self.username, Some(&self.password))
             .send()
             .await
     }
@@ -99,7 +99,7 @@ pub struct ForceBearerAuth(HeaderAuth);
 impl ForceBearerAuth {
     pub fn new<S: AsRef<str>>(token: S) -> ForceBearerAuth {
         ForceBearerAuth(HeaderAuth {
-            header: "Authorization".to_string(),
+            header: "Authorization".to_owned(),
             value: format!("Bearer {}", token.as_ref()),
         })
     }

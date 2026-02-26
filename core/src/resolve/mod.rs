@@ -17,6 +17,8 @@ pub mod file;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod gix_git;
 pub mod memory;
+#[cfg(feature = "networking")]
+pub mod net_utils;
 pub mod null;
 pub mod priority;
 pub mod remote;
