@@ -14,6 +14,8 @@ use thiserror::Error;
 
 use crate::{
     auth::HTTPAuthentication,
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectRead, ProjectReadAsync,
         local_kpar::{LocalKParError, LocalKParProject},
@@ -143,8 +145,8 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
@@ -169,8 +171,8 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         })
     }
 
-    async fn sources_async(&self) -> Vec<crate::lock::Source> {
-        vec![crate::lock::Source::RemoteKpar {
+    async fn sources_async(&self) -> Vec<Source> {
+        vec![Source::RemoteKpar {
             remote_kpar: self.url.to_string(),
             remote_kpar_size: self.inner.file_size().ok(),
         }]

@@ -1,19 +1,20 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::{
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{self, ProjectRead, editable::GetPath, utils::ZipArchiveError},
-};
 use std::io::Write as _;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::{Utf8TempDir, tempdir};
 use sha2::Digest as _;
-use typed_path::{Utf8Component, Utf8UnixPath};
-
 use thiserror::Error;
+use typed_path::{Utf8Component, Utf8UnixPath};
 use zip::ZipArchive;
+
+use crate::{
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{self, ProjectRead, editable::GetPath, utils::ZipArchiveError},
+};
 
 use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
 
@@ -189,11 +190,7 @@ impl LocalKParProject {
         let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
         Ok(LocalKParProject {
             nominal_path: None,
-            archive_path: {
-                let mut p = wrapfs::canonicalize(tmp_dir.path())?;
-                p.push("project.kpar");
-                p
-            },
+            archive_path: tmp_dir.path().join("project.kpar"),
             tmp_dir,
             root: None,
         })
@@ -328,15 +325,7 @@ impl ProjectRead for LocalKParProject {
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         let tmp_name = format!("{:X}", sha2::Sha256::digest(path.as_ref()));
-        let tmp_file_path = {
-            let mut p = self
-                .tmp_dir
-                .path()
-                .canonicalize_utf8()
-                .map_err(|e| FsIoError::Canonicalize(self.tmp_dir.to_path_buf(), e))?;
-            p.push(tmp_name);
-            p
-        };
+        let tmp_file_path = self.tmp_dir.path().join(tmp_name);
 
         if !tmp_file_path.is_file() {
             let mut tmp_file = wrapfs::File::create(&tmp_file_path)?;
@@ -360,13 +349,15 @@ impl ProjectRead for LocalKParProject {
         // Ok(KparFile { archive: archive, file: &mut archive.by_index(idx)? })
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
-        match self.nominal_path.as_ref().map(|p| p.as_str()) {
-            Some(path_str) => vec![crate::lock::Source::LocalKpar {
-                kpar_path: path_str.into(),
-            }],
-            None => vec![],
-        }
+    fn sources(&self) -> Vec<Source> {
+        self.nominal_path
+            .as_ref()
+            .map(|path| {
+                vec![Source::LocalKpar {
+                    kpar_path: path.as_str().into(),
+                }]
+            })
+            .expect("`LocalKparProject` without `nominal_path` does not have any project sources")
     }
 }
 

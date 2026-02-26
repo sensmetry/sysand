@@ -8,7 +8,12 @@ use std::{
     path::PathBuf,
 };
 
+use camino::{Utf8Path, Utf8PathBuf};
+use fluent_uri::component::Scheme;
+use thiserror::Error;
+
 use crate::{
+    lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         self, ProjectRead,
@@ -19,10 +24,6 @@ use crate::{
     },
     resolve::{ResolutionOutcome, ResolveRead},
 };
-
-use camino::{Utf8Path, Utf8PathBuf};
-use fluent_uri::component::Scheme;
-use thiserror::Error;
 
 /// Resolver for resolving `file://` URIs.
 #[derive(Debug)]
@@ -259,7 +260,7 @@ impl ProjectRead for FileResolverProject {
         }
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         match self {
             FileResolverProject::LocalSrcProject(proj) => proj.sources(),
             FileResolverProject::LocalKParProject(proj) => proj.sources(),

@@ -7,10 +7,14 @@ use std::{
     pin::Pin,
 };
 
-use crate::project::{ProjectRead, ProjectReadAsync};
-
 use futures::AsyncRead;
 use thiserror::Error;
+
+use crate::{
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{ProjectRead, ProjectReadAsync},
+};
 
 #[derive(Debug)]
 pub struct NullProject {
@@ -50,8 +54,8 @@ impl ProjectRead for NullProject {
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
@@ -70,7 +74,7 @@ impl ProjectRead for NullProject {
         match self.nothing {}
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         match self.nothing {}
     }
 }
@@ -82,8 +86,8 @@ impl ProjectReadAsync for NullProject {
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
@@ -102,7 +106,7 @@ impl ProjectReadAsync for NullProject {
         match self.nothing {}
     }
 
-    async fn sources_async(&self) -> Vec<crate::lock::Source> {
+    async fn sources_async(&self) -> Vec<Source> {
         match self.nothing {}
     }
 }

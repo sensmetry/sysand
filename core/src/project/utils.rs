@@ -461,7 +461,7 @@ mod tests {
 
     use camino::Utf8Path;
 
-    use crate::project::utils::{ToPathBuf, relativize_path};
+    use crate::project::utils::relativize_path;
 
     #[test]
     fn simple_relativize_path() -> Result<(), Box<dyn Error>> {
@@ -480,10 +480,7 @@ mod tests {
         } else {
             Utf8Path::new("a/b/c")
         };
-        assert_eq!(
-            relativize_path(path.as_str().to_path_buf(), root.as_str().to_path_buf())?,
-            relative.as_str()
-        );
+        assert_eq!(relativize_path(path, root)?, relative.as_str());
         Ok(())
     }
 
@@ -504,10 +501,7 @@ mod tests {
         } else {
             Utf8Path::new("../../../a/b/c")
         };
-        assert_eq!(
-            relativize_path(path.as_str().to_path_buf(), root.as_str().to_path_buf())?,
-            relative.as_str()
-        );
+        assert_eq!(relativize_path(path, root)?, relative.as_str());
         Ok(())
     }
 
@@ -524,10 +518,7 @@ mod tests {
             Utf8Path::new("/a/b/c")
         };
         let relative = Utf8Path::new(".");
-        assert_eq!(
-            relativize_path(path.as_str().to_path_buf(), root.as_str().to_path_buf())?,
-            relative.as_str()
-        );
+        assert_eq!(relativize_path(path, root)?, relative.as_str());
         Ok(())
     }
 }

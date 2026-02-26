@@ -1,13 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::{
-    env::utils::ErrorBound,
-    model::{
-        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
-    },
-};
 use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
@@ -23,6 +16,15 @@ use utils::FsIoError;
 pub use sysand_macros::ProjectMut;
 pub use sysand_macros::ProjectRead;
 pub use typed_path::Utf8UnixPath;
+
+use crate::{
+    env::utils::ErrorBound,
+    lock::Source,
+    model::{
+        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
+    },
+};
 
 // Implementations
 #[cfg(all(feature = "filesystem", feature = "networking"))]
@@ -145,8 +147,8 @@ pub trait ProjectRead {
     /// multiple ones are listed they should aim to be in
     /// some typical order of preference.
     ///
-    /// May be empty if no valid sources are known.
-    fn sources(&self) -> Vec<crate::lock::Source>;
+    /// Should panic if no sources are available.
+    fn sources(&self) -> Vec<Source>;
 
     // Optional and helpers
 
@@ -186,7 +188,7 @@ pub trait ProjectRead {
         Ok(self.get_meta()?.and_then(|meta| meta.checksum))
     }
 
-    /// Produces canonicalised project metadata, replacing all source file hashes by SHA256.
+    /// Produces canonicalized project metadata, replacing all source file hashes by SHA256.
     fn canonical_meta(
         &self,
     ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>> {
@@ -223,7 +225,7 @@ pub trait ProjectRead {
         Ok(Some(meta))
     }
 
-    /// Produces a project hash based on project information and the *non-canonicalised* metadata.
+    /// Produces a project hash based on project information and the *non-canonicalized* metadata.
     fn checksum_noncanonical_hex(&self) -> Result<Option<String>, Self::Error> {
         Ok(self
             .get_project()
@@ -231,7 +233,7 @@ pub trait ProjectRead {
             .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
     }
 
-    /// Produces a project hash based on project information and the *canonicalised* metadata.
+    /// Produces a project hash based on project information and the *canonicalized* metadata.
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalisationError<Self::Error>> {
         let info = self
             .get_info()
@@ -280,7 +282,7 @@ impl<T: ProjectRead> ProjectRead for &T {
         (*self).read_source(path)
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         (*self).sources()
     }
 
@@ -356,7 +358,7 @@ impl<T: ProjectRead> ProjectRead for &mut T {
         (**self).read_source(path)
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         (**self).sources()
     }
 
@@ -440,7 +442,7 @@ pub trait ProjectReadAsync {
     /// some typical order of preference.
     ///
     /// May be empty if no valid sources are known.
-    fn sources_async(&self) -> impl Future<Output = Vec<crate::lock::Source>>;
+    fn sources_async(&self) -> impl Future<Output = Vec<Source>>;
 
     // Optional and helpers
 
@@ -487,7 +489,7 @@ pub trait ProjectReadAsync {
         async { Ok(self.get_meta_async().await?.and_then(|meta| meta.checksum)) }
     }
 
-    /// Produces canonicalised project metadata, replacing all source file hashes by SHA256.
+    /// Produces canonicalized project metadata, replacing all source file hashes by SHA256.
     fn canonical_meta_async(
         &self,
     ) -> impl Future<
@@ -538,7 +540,7 @@ pub trait ProjectReadAsync {
         }
     }
 
-    /// Produces a project hash based on project information and the *non-canonicalised* metadata.
+    /// Produces a project hash based on project information and the *non-canonicalized* metadata.
     fn checksum_noncanonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
@@ -551,7 +553,7 @@ pub trait ProjectReadAsync {
         }
     }
 
-    /// Produces a project hash based on project information and the *canonicalised* metadata.
+    /// Produces a project hash based on project information and the *canonicalized* metadata.
     fn checksum_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, CanonicalisationError<Self::Error>>> {
@@ -609,7 +611,7 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
         (**self).read_source_async(path)
     }
 
-    fn sources_async(&self) -> impl Future<Output = Vec<crate::lock::Source>> {
+    fn sources_async(&self) -> impl Future<Output = Vec<Source>> {
         (**self).sources_async()
     }
 
@@ -700,7 +702,7 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
         (**self).read_source_async(path)
     }
 
-    fn sources_async(&self) -> impl Future<Output = Vec<crate::lock::Source>> {
+    fn sources_async(&self) -> impl Future<Output = Vec<Source>> {
         (**self).sources_async()
     }
 
@@ -1028,7 +1030,7 @@ where
         })
     }
 
-    async fn sources_async(&self) -> Vec<crate::lock::Source> {
+    async fn sources_async(&self) -> Vec<Source> {
         self.inner.sources()
     }
 }
@@ -1088,7 +1090,7 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
         })
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         self.runtime.block_on(self.inner.sources_async())
     }
 

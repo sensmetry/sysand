@@ -1,15 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::{
-    env::utils::{CloneError, clone_project},
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{
-        ProjectMut, ProjectRead,
-        editable::GetPath,
-        utils::{ToPathBuf, wrapfs},
-    },
-};
 use std::{
     collections::HashSet,
     fs::File,
@@ -17,9 +8,19 @@ use std::{
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
+use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
-use thiserror::Error;
+use crate::{
+    env::utils::{CloneError, clone_project},
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{
+        ProjectMut, ProjectRead,
+        editable::GetPath,
+        utils::{ToPathBuf, wrapfs},
+    },
+};
 
 use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError};
 
@@ -45,10 +46,10 @@ impl GetPath for LocalSrcProject {
     }
 }
 
-/// Tries to canonicalise the (longest possible) prefix of a path.
+/// Tries to canonicalize the (longest possible) prefix of a path.
 /// Useful if you have /path/to/file/that/does/not/exist
-/// but where some prefix, say, /path/to/file can be canonicalised.
-fn canonicalise_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
+/// but where some prefix, say, /path/to/file can be canonicalized.
+fn canonicalize_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
     let mut relative_part = Utf8PathBuf::new();
     let mut absolute_part = path.to_path_buf();
 
@@ -73,18 +74,18 @@ fn canonicalise_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
     absolute_part
 }
 
-fn relativise_path<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+fn relativize_path<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     path: P,
     relative_to: Q,
 ) -> Option<Utf8PathBuf> {
     let path = if !path.as_ref().is_absolute() {
         let path = camino::absolute_utf8(path.as_ref()).ok()?;
-        canonicalise_prefix(path)
+        canonicalize_prefix(path)
     } else {
-        canonicalise_prefix(path)
+        canonicalize_prefix(path)
     };
 
-    path.strip_prefix(canonicalise_prefix(relative_to))
+    path.strip_prefix(canonicalize_prefix(relative_to))
         .ok()
         .map(|x| x.to_path_buf())
 }
@@ -119,7 +120,7 @@ impl LocalSrcProject {
             .canonicalize_utf8()
             .map_err(|e| UnixPathError::Canonicalize(root_path.to_owned(), e))?;
 
-        let path = relativise_path(&path, project_path)
+        let path = relativize_path(&path, project_path)
             .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
 
         let mut unix_path = Utf8UnixPathBuf::new();
@@ -410,12 +411,14 @@ impl ProjectRead for LocalSrcProject {
         Ok(f)
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
-        match self.nominal_path.as_ref().map(|p| p.as_str()) {
-            Some(path_str) => vec![crate::lock::Source::LocalSrc {
-                src_path: path_str.into(),
-            }],
-            None => vec![],
-        }
+    fn sources(&self) -> Vec<Source> {
+        self.nominal_path
+            .as_ref()
+            .map(|path| {
+                vec![Source::LocalSrc {
+                    src_path: path.as_str().into(),
+                }]
+            })
+            .expect("`LocalSrcProject` without `nominal_path` does not have any project sources")
     }
 }

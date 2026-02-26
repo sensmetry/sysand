@@ -429,7 +429,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashSet::default()
             };
 
-            let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
+            let project_root = project_root.unwrap_or(cwd);
             let overrides = get_overrides(
                 &config,
                 &project_root,

@@ -8,7 +8,6 @@ use anyhow::{Result, bail};
 use camino::Utf8Path;
 use pubgrub::Reporter as _;
 
-use sysand_core::project::utils::ToPathBuf;
 use sysand_core::{
     auth::HTTPAuthentication,
     commands::lock::{
@@ -87,7 +86,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
     let wrapped_resolver = PriorityResolver::new(
         override_resolver,
         standard_resolver(
-            Some(project_root.to_path_buf()),
+            None,
             if wrapfs::is_dir(&local_env_path)? {
                 Some(local_env_path)
             } else {

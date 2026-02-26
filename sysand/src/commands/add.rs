@@ -45,6 +45,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
+    let iri = iri.as_ref();
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
     let project_root = current_project.root_path().to_owned();
 
@@ -101,13 +102,13 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
                     }
                 }
             }
-            ResolutionOutcome::UnsupportedIRIType(e) => bail!("unsupported {url}: {e}"),
+            ResolutionOutcome::UnsupportedIRIType(e) => bail!("unsupported URL: `{url}`\n{e}"),
             ResolutionOutcome::Unresolvable(e) => {
-                bail!("failed to resolve URL `{url}`: {e}")
+                bail!("failed to resolve URL: `{url}`: {e}")
             }
         }
         if source.is_none() {
-            bail!("unable to find project at {url}")
+            bail!("unable to find project at URL: `{url}`")
         }
         source
     } else if let Some(editable) = source_opts.as_editable {
@@ -141,20 +142,20 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
             .or((!no_config).then(|| project_root.join(CONFIG_FILE)));
 
         if let Some(path) = config_path {
-            add_project_source_to_config(&path, &iri, &source)?;
-
-            config.projects.push(ConfigProject {
-                identifiers: vec![iri.as_ref().to_string()],
-                sources: vec![source],
-            });
+            add_project_source_to_config(&path, iri, &source)?;
         } else {
-            bail!("must provide config file for specifying project source")
+            log::warn!("project source for `{iri}` not added to any config file");
         }
+
+        config.projects.push(ConfigProject {
+            identifiers: vec![iri.to_owned()],
+            sources: vec![source],
+        });
     }
 
     let provided_iris = if !resolution_opts.include_std {
         let sysml_std = crate::known_std_libs();
-        if sysml_std.contains_key(iri.as_ref()) {
+        if sysml_std.contains_key(iri) {
             crate::logger::warn_std(iri);
             return Ok(());
         }

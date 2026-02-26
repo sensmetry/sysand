@@ -3,7 +3,11 @@
 
 use std::sync::Arc;
 
-use crate::project::ProjectRead;
+use crate::{
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::ProjectRead,
+};
 
 // Arc wrapper around project to make cloning possible
 // (necessary for compatibility with ReadEnvironment)
@@ -35,8 +39,8 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
@@ -55,7 +59,7 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
         self.project.read_source(path)
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         self.project.sources()
     }
 }

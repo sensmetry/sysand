@@ -1,7 +1,11 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::project::{ProjectRead, Utf8UnixPath};
+use crate::{
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{ProjectRead, Utf8UnixPath},
+};
 
 /// Pair of project storages where `local` and `remote` contain the same project
 /// content, while `local` is easier and faster to access. The CachedProject is
@@ -27,8 +31,8 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
@@ -47,7 +51,7 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         self.local.read_source(path)
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         self.remote.sources()
     }
 

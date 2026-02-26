@@ -89,13 +89,16 @@ pub fn do_lock_projects<
             .map_err(LockProjectError::InputProjectCanonicalisationError)?
             .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
+        let sources = project.sources();
+        debug_assert!(!sources.is_empty());
+
         lock.projects.push(Project {
             name: Some(info.name),
             version: info.version,
             exports: meta.index.keys().cloned().collect(),
             identifiers: vec![],
             checksum: canonical_hash,
-            sources: project.sources(),
+            sources,
             usages: info.usage.iter().cloned().map(Usage::from).collect(),
         });
 
@@ -134,13 +137,16 @@ pub fn do_lock_extend<
             .map_err(LockError::DependencyProjectCanonicalisation)?
             .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
+        let sources = project.sources();
+        debug_assert!(!sources.is_empty());
+
         lock.projects.push(Project {
             name: Some(info.name),
             version: info.version.to_string(),
             exports: meta.index.keys().cloned().collect(),
             identifiers: vec![iri.to_string()],
             checksum: canonical_hash,
-            sources: project.sources(),
+            sources,
             usages: info.usage.iter().cloned().map(Usage::from).collect(),
         });
 

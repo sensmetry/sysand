@@ -3,7 +3,8 @@ use gix::prepare_clone;
 use thiserror::Error;
 
 use crate::{
-    lock,
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
@@ -103,8 +104,8 @@ impl ProjectRead for GixDownloadedProject {
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
@@ -127,8 +128,8 @@ impl ProjectRead for GixDownloadedProject {
         Ok(FileWithLifetime::new(self.inner.read_source(path)?))
     }
 
-    fn sources(&self) -> Vec<lock::Source> {
-        vec![lock::Source::RemoteGit {
+    fn sources(&self) -> Vec<Source> {
+        vec![Source::RemoteGit {
             remote_git: self.url.to_string(),
         }]
     }

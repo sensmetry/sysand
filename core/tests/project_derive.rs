@@ -106,10 +106,11 @@ fn test_macro_read_source() {
 }
 
 #[test]
+#[should_panic]
 fn test_macro_sources() {
     let project = OneVariantProjectRead::Variant(InMemoryProject::new());
 
-    assert_eq!(project.sources(), vec![]);
+    project.sources();
 }
 
 #[test]
