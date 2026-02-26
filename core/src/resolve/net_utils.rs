@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 use url::Url;
