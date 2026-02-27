@@ -1,22 +1,16 @@
 {
-    "projects": [
-        {
-            "path": "projectGroup1/project1",
-            "iris": [
-                "urn:kpar:project1"
-            ]
-        },
-        {
-            "path": "projectGroup1/project2",
-            "iris": [
-                "urn:kpar:project2"
-            ]
-        },
-        {
-            "path": "project3",
-            "iris": [
-                "urn:kpar:project3"
-            ]
-        }
-    ]
+  "projects": [
+    {
+      "path": "projectGroup1/project1",
+      "iris": ["urn:kpar:project1"]
+    },
+    {
+      "path": "projectGroup1/project2",
+      "iris": ["urn:kpar:project2"]
+    },
+    {
+      "path": "project3",
+      "iris": ["urn:kpar:project3"]
+    }
+  ]
 }
