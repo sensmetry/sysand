@@ -43,7 +43,7 @@ jobs:
         git config --global user.email "user@sysand.org"
         git config --global user.name "Test User"
     - name: Test Core
-      run: cargo test --package sysand-core --verbose --features filesystem,js,python,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
+      run: cargo test --package sysand-core --verbose --features filesystem,networking,js,python,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
     - name: Test CLI
       run: cargo test --package sysand --verbose --features alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
 
