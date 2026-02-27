@@ -138,7 +138,7 @@ mod filesystem_tests {
         assert_eq!(read_info, Some(info.clone()));
         assert_eq!(read_meta, Some(meta.clone()));
 
-        let mut read_source_code = "".to_string();
+        let mut read_source_code = String::new();
 
         target_project
             .read_source(source_path)?

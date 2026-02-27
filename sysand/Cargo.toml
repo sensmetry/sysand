@@ -15,7 +15,7 @@ homepage.workspace = true
 default = ["std"]
 std = ["anyhow/std", "clap/std", "fluent-uri/std", "log/std", "toml/std", "typed-path/std"]
 alltests = []
-# Different compression methods for creating kpar
+# Different compression methods for creating KPARs
 kpar-bzip2 = ["sysand-core/kpar-bzip2"]
 kpar-zstd = ["sysand-core/kpar-zstd"]
 kpar-xz = ["sysand-core/kpar-xz"]

@@ -1391,7 +1391,7 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
             if expected {
                 out.assert().success();
                 let skipped = index.parse::<usize>()? - 1;
-                let mut expected_output = "".to_string();
+                let mut expected_output = String::new();
                 for (i, line) in before.lines().enumerate() {
                     if i != skipped {
                         expected_output.push_str(line);
