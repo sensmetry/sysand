@@ -24,9 +24,9 @@ specify the path with the `--as-editable` flag.
 
 The affected configuration file will either be the one given with
 `--config-file` or (if `--no-config` is not present) the `sysand.toml` at the
-root of the project. If no configuration file is given and `--no-config` is set
-the usage will be added to the project but no source will be configured so
-future syncing will not take this into account.
+root of the project. If no configuration file is given and `--no-config` is
+set, the usage will be added to the project, but no source will be configured,
+so future syncing will not take this into account.
 
 ## Arguments
 

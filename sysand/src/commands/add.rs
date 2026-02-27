@@ -102,13 +102,13 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
                     }
                 }
             }
-            ResolutionOutcome::UnsupportedIRIType(e) => bail!("unsupported URL: `{url}`\n{e}"),
+            ResolutionOutcome::UnsupportedIRIType(e) => bail!("unsupported URL `{url}`:\n{e}"),
             ResolutionOutcome::Unresolvable(e) => {
-                bail!("failed to resolve URL: `{url}`: {e}")
+                bail!("failed to resolve URL `{url}`:\n{e}")
             }
         }
         if source.is_none() {
-            bail!("unable to find project at URL: `{url}`")
+            bail!("unable to find project at URL `{url}`")
         }
         source
     } else if let Some(editable) = source_opts.as_editable {
