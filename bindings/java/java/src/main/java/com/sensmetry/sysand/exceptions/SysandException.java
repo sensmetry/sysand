@@ -5,6 +5,7 @@
 package com.sensmetry.sysand.exceptions;
 
 public class SysandException extends Exception {
+
     public SysandException(String message) {
         super(message);
     }

@@ -3,10 +3,11 @@ SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 SPDX-License-Identifier: MIT OR Apache-2.0
 -->
-
-<project xmlns="http://maven.apache.org/POM/4.0.0"
+<project
+  xmlns="http://maven.apache.org/POM/4.0.0"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd"
+>
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.sensmetry</groupId>
   <artifactId>sysand</artifactId>
@@ -35,7 +36,8 @@ SPDX-License-Identifier: MIT OR Apache-2.0
   </developers>
   <scm>
     <connection>scm:git:https://github.com/sensmetry/sysand</connection>
-    <developerConnection>scm:git:ssh://git@github.com/sensmetry/sysand.git</developerConnection>
+    <developerConnection
+    >scm:git:ssh://git@github.com/sensmetry/sysand.git</developerConnection>
     <url>https://github.com/sensmetry/sysand/tree/main</url>
   </scm>
   <properties>
@@ -149,7 +151,8 @@ SPDX-License-Identifier: MIT OR Apache-2.0
               <goal>copy-resources</goal>
             </goals>
             <configuration>
-              <outputDirectory>${project.build.directory}/apidocs</outputDirectory>
+              <outputDirectory
+              >${project.build.directory}/apidocs</outputDirectory>
               <resources>
                 <resource>
                   <directory>${basedir}/src/main/javadoc</directory>

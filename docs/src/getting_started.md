@@ -12,4 +12,4 @@ Some useful resources related to Sysand:
 - [GitHub repository](https://github.com/sensmetry/sysand)
 - [Sysand community forum](https://forum.sensmetry.com/c/sysand/24/)
 - Reach out to [sysand@sensmetry.com](mailto:sysand@sensmetry.com) if you
-    have any questions
+  have any questions

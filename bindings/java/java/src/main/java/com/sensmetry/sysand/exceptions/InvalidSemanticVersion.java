@@ -9,5 +9,4 @@ public class InvalidSemanticVersion extends SysandException {
     public InvalidSemanticVersion(String message) {
         super(message);
     }
-
 }

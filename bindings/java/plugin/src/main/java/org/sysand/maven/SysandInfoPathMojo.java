@@ -13,7 +13,11 @@ import org.apache.maven.plugins.annotations.Parameter;
 /**
  * Mojo that calls {@code Sysand.info_path} during the package phase.
  */
-@Mojo(name = "info-path", defaultPhase = LifecyclePhase.PACKAGE, threadSafe = false)
+@Mojo(
+    name = "info-path",
+    defaultPhase = LifecyclePhase.PACKAGE,
+    threadSafe = false
+)
 public class SysandInfoPathMojo extends AbstractMojo {
 
     /**
@@ -27,7 +31,9 @@ public class SysandInfoPathMojo extends AbstractMojo {
     @Override
     public void execute() throws MojoExecutionException {
         if (infoPath == null || infoPath.trim().isEmpty()) {
-            throw new MojoExecutionException("Parameter 'infoPath' must be provided and non-empty");
+            throw new MojoExecutionException(
+                "Parameter 'infoPath' must be provided and non-empty"
+            );
         }
 
         getLog().info("Invoking Sysand.info_path on: " + infoPath);
@@ -36,9 +42,10 @@ public class SysandInfoPathMojo extends AbstractMojo {
             com.sensmetry.sysand.Sysand.infoPath(infoPath);
             getLog().info("Sysand.info_path completed successfully.");
         } catch (com.sensmetry.sysand.exceptions.SysandException e) {
-            throw new MojoExecutionException("Sysand.info_path failed: " + e.getMessage(), e);
+            throw new MojoExecutionException(
+                "Sysand.info_path failed: " + e.getMessage(),
+                e
+            );
         }
     }
 }
-
-

@@ -9,5 +9,4 @@ public class SerializationError extends SysandException {
     public SerializationError(String message) {
         super(message);
     }
-
 }

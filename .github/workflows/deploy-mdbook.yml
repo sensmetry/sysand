@@ -20,7 +20,7 @@ jobs:
       - name: Install mdBook
         uses: peaceiris/actions-mdbook@v2
         with:
-          mdbook-version: 'latest'
+          mdbook-version: "latest"
       - name: Build mdBook
         run: mdbook build docs
       - name: Upload Pages Artifact

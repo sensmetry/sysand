@@ -3,7 +3,6 @@
 This section will show a basic way of using Sysand CLI to manage SysML v2 projects.
 More detailed guides are coming soon.
 
-
 ## Initialize a new project using Sysand CLI
 
 A model interchange project is a collection of SysML v2 (`.sysml`) or KerML (`.kerml`)
@@ -20,7 +19,6 @@ a minimal interchange project, consisting of two files: `.project.json` and
 `.meta.json`. To instead create a new project in the current directory, omit
 the path (`my_project` in this case). In that case, the project's name will
 be the same as the current directory name.
-
 
 ## Inspect the project
 

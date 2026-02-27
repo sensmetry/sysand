@@ -9,9 +9,11 @@ public class InterchangeProject {
     public InterchangeProjectInfo info;
     public InterchangeProjectMetadata metadata;
 
-    public InterchangeProject(InterchangeProjectInfo info, InterchangeProjectMetadata metadata) {
+    public InterchangeProject(
+        InterchangeProjectInfo info,
+        InterchangeProjectMetadata metadata
+    ) {
         this.info = info;
         this.metadata = metadata;
     }
-
 }

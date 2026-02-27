@@ -10,7 +10,11 @@ import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 
-@Mojo(name = "build-kpar", defaultPhase = LifecyclePhase.PACKAGE, threadSafe = false)
+@Mojo(
+    name = "build-kpar",
+    defaultPhase = LifecyclePhase.PACKAGE,
+    threadSafe = false
+)
 public class SysandBuildKParMojo extends AbstractMojo {
 
     /**
@@ -40,26 +44,48 @@ public class SysandBuildKParMojo extends AbstractMojo {
     @Override
     public void execute() throws MojoExecutionException {
         if (projectPath == null && workspacePath == null) {
-            throw new MojoExecutionException("Parameter 'projectPath' or 'workspacePath' must be provided");
+            throw new MojoExecutionException(
+                "Parameter 'projectPath' or 'workspacePath' must be provided"
+            );
         }
 
         if (outputPath == null || outputPath.trim().isEmpty()) {
-            throw new MojoExecutionException("Parameter 'outputPath' must be provided and non-empty");
+            throw new MojoExecutionException(
+                "Parameter 'outputPath' must be provided and non-empty"
+            );
         }
 
         try {
             if (workspacePath == null) {
-                getLog().info("Invoking Sysand.buildProject on: " + projectPath + " to " + outputPath);
-                com.sensmetry.sysand.Sysand.buildProject(outputPath, projectPath);
+                getLog().info(
+                    "Invoking Sysand.buildProject on: " +
+                        projectPath +
+                        " to " +
+                        outputPath
+                );
+                com.sensmetry.sysand.Sysand.buildProject(
+                    outputPath,
+                    projectPath
+                );
                 getLog().info("Sysand.buildProject completed successfully.");
             } else {
-                getLog().info("Invoking Sysand.buildWorkspace on: " + workspacePath + " to " + outputPath);
-                com.sensmetry.sysand.Sysand.buildWorkspace(outputPath, workspacePath);
+                getLog().info(
+                    "Invoking Sysand.buildWorkspace on: " +
+                        workspacePath +
+                        " to " +
+                        outputPath
+                );
+                com.sensmetry.sysand.Sysand.buildWorkspace(
+                    outputPath,
+                    workspacePath
+                );
                 getLog().info("Sysand.buildWorkspace completed successfully.");
             }
         } catch (com.sensmetry.sysand.exceptions.SysandException e) {
-            throw new MojoExecutionException("Sysand.build failed: " + e.getMessage(), e);
+            throw new MojoExecutionException(
+                "Sysand.build failed: " + e.getMessage(),
+                e
+            );
         }
     }
-
 }

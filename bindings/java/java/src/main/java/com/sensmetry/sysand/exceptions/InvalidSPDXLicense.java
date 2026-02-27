@@ -9,5 +9,4 @@ public class InvalidSPDXLicense extends SysandException {
     public InvalidSPDXLicense(String message) {
         super(message);
     }
-
 }

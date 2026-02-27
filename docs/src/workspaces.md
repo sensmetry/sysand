@@ -49,25 +49,19 @@ An example `.workspace.json` file:
 
 ```json
 {
-    "projects": [
-        {
-            "path": "projectGroup1/project1",
-            "iris": [
-                "urn:local:project1"
-            ]
-        },
-        {
-            "path": "projectGroup1/project2",
-            "iris": [
-                "urn:local:project2"
-            ]
-        },
-        {
-            "path": "project3",
-            "iris": [
-                "urn:local:project3"
-            ]
-        }
-    ]
+  "projects": [
+    {
+      "path": "projectGroup1/project1",
+      "iris": ["urn:local:project1"]
+    },
+    {
+      "path": "projectGroup1/project2",
+      "iris": ["urn:local:project2"]
+    },
+    {
+      "path": "project3",
+      "iris": ["urn:local:project3"]
+    }
+  ]
 }
 ```

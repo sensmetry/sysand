@@ -9,5 +9,4 @@ public class IOError extends SysandException {
     public IOError(String message) {
         super(message);
     }
-
 }
