@@ -4,9 +4,7 @@ export default {
     //"**/*.js"
   ],
   specDir: "browser_test_dist",
-  specFiles: [
-    "bundle.js"
-  ],
+  specFiles: ["bundle.js"],
   helpers: [
     //"helpers/**/*.js"
   ],
@@ -15,7 +13,7 @@ export default {
     stopOnSpecFailure: false,
     random: true,
     // Fail if a suite contains multiple suites or specs with the same name.
-    forbidDuplicateNames: true
+    forbidDuplicateNames: true,
   },
 
   enableTopLevelAwait: true,
@@ -29,6 +27,6 @@ export default {
   hostname: "localhost",
 
   browser: {
-    name: "headlessFirefox"
-  }
+    name: "headlessFirefox",
+  },
 };
