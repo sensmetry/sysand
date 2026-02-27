@@ -1,0 +1,46 @@
+# pre-commit is a tool to perform a predefined set of tasks manually and/or
+# automatically before git commits are made.
+#
+# Config reference: https://pre-commit.com/#pre-commit-configyaml---top-level
+#
+# Common tasks
+#
+# - Run once on all files: pre-commit run --all-files
+# - Register git hooks:    pre-commit install --install-hooks
+#
+repos:
+  # Autoformat: python
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.4
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # Autoformat: markdown, yaml, json, js, xml, java
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.8.1
+    hooks:
+      - id: prettier
+        exclude: |
+          (?x)^(
+              .*stdlib_assets/.*|
+              .*Cargo\.lock|
+              .*uv.lock|
+              .*\.rs
+          )$
+        additional_dependencies:
+          # https://www.npmjs.com/package/prettier
+          - "prettier@3.8.1"
+          # https://www.npmjs.com/package/@prettier/plugin-xml
+          - "@prettier/plugin-xml@3.4.2"
+          # https://www.npmjs.com/package/prettier-plugin-java
+          - "prettier-plugin-java@2.8.1"
+
+# pre-commit.ci is a free automation service that can both run a validation job
+# and push commits with fixes to PRs, and keep the versions of configured
+# pre-commit hooks up to date by creating version bumping PRs.
+#
+# pre-commit.ci config reference: https://pre-commit.ci/#configuration
+ci:
+  autoupdate_schedule: monthly
