@@ -9,5 +9,4 @@ public class ResolutionError extends SysandException {
     public ResolutionError(String message) {
         super(message);
     }
-
 }

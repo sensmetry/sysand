@@ -9,5 +9,4 @@ public class InvalidValue extends SysandException {
     public InvalidValue(String message) {
         super(message);
     }
-
 }

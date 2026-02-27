@@ -13,8 +13,7 @@ import java.util.Locale;
 
 public final class NativeLoader {
 
-    private NativeLoader() {
-    }
+    private NativeLoader() {}
 
     public static void load(String baseName) {
         String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
@@ -39,10 +38,10 @@ public final class NativeLoader {
         }
 
         String[] candidates = new String[] {
-                "lib" + baseName + ext,
-                baseName + ext,
-                osName + "-" + archName + "/" + "lib" + baseName + ext,
-                osName + "-" + archName + "/" + baseName + ext,
+            "lib" + baseName + ext,
+            baseName + ext,
+            osName + "-" + archName + "/" + "lib" + baseName + ext,
+            osName + "-" + archName + "/" + baseName + ext,
         };
 
         UnsatisfiedLinkError lastError = null;
@@ -71,38 +70,54 @@ public final class NativeLoader {
         ClassLoader cl = NativeLoader.class.getClassLoader();
         try (InputStream in = cl.getResourceAsStream(resourceFilePath)) {
             if (in == null) {
-                throw new UnsatisfiedLinkError("Native library resource not found2: " + resourceFilePath);
+                throw new UnsatisfiedLinkError(
+                    "Native library resource not found2: " + resourceFilePath
+                );
             }
 
             int pathSeparatorIndex = resourceFilePath.lastIndexOf('/');
             String resourceFileName;
-            if (pathSeparatorIndex != -1 && pathSeparatorIndex < resourceFilePath.length() - 1) {
-                resourceFileName = resourceFilePath.substring(pathSeparatorIndex + 1);
+            if (
+                pathSeparatorIndex != -1 &&
+                pathSeparatorIndex < resourceFilePath.length() - 1
+            ) {
+                resourceFileName = resourceFilePath.substring(
+                    pathSeparatorIndex + 1
+                );
             } else {
                 resourceFileName = resourceFilePath;
             }
 
-            String prefix = resourceFileName.replace('.', '_').replace('-', '_');
+            String prefix = resourceFileName
+                .replace('.', '_')
+                .replace('-', '_');
             String suffix = null;
             int dot = resourceFileName.lastIndexOf('.');
             if (dot != -1 && dot < resourceFileName.length() - 1) {
-                prefix = resourceFileName.substring(0, dot).replace('.', '_').replace('-', '_');
+                prefix = resourceFileName
+                    .substring(0, dot)
+                    .replace('.', '_')
+                    .replace('-', '_');
                 suffix = resourceFileName.substring(dot);
             }
 
-            Path temp = Files.createTempFile(prefix + "_", suffix == null ? "" : suffix);
+            Path temp = Files.createTempFile(
+                prefix + "_",
+                suffix == null ? "" : suffix
+            );
             Files.copy(in, temp, StandardCopyOption.REPLACE_EXISTING);
             temp.toFile().deleteOnExit();
             // Ensure executable permissions if possible
             try {
                 temp.toFile().setReadable(true);
                 temp.toFile().setExecutable(true);
-            } catch (SecurityException ignored) {
-            }
+            } catch (SecurityException ignored) {}
 
             System.load(temp.toAbsolutePath().toString());
         } catch (IOException io) {
-            throw new UnsatisfiedLinkError("Failed to extract and load native library: " + io.getMessage());
+            throw new UnsatisfiedLinkError(
+                "Failed to extract and load native library: " + io.getMessage()
+            );
         }
     }
 }

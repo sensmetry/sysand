@@ -9,5 +9,4 @@ public class PathError extends SysandException {
     public PathError(String message) {
         super(message);
     }
-
 }
