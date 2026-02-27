@@ -283,7 +283,7 @@ impl From<ZipCompressionMethodCli> for ZipCompressionMethod{
         match value {
             ZipCompressionMethodCli::Stored => ZipCompressionMethod::Stored,
             ZipCompressionMethodCli::Deflated => ZipCompressionMethod::Deflated,
-            #[cfg(feature = "kpar-zstd")]
+            #[cfg(feature = "kpar-bzip2")]
             ZipCompressionMethodCli::Bzip2 => ZipCompressionMethod::Bzip2,
             #[cfg(feature = "kpar-zstd")]
             ZipCompressionMethodCli::Zstd => ZipCompressionMethod::Zstd,
@@ -302,7 +302,7 @@ impl From<ZipCompressionMethod> for ZipCompressionMethodCli {
         match value {
             ZipCompressionMethod::Stored => ZipCompressionMethodCli::Stored,
             ZipCompressionMethod::Deflated => ZipCompressionMethodCli::Deflated,
-            #[cfg(feature = "kpar-zstd")]
+            #[cfg(feature = "kpar-bzip2")]
             ZipCompressionMethod::Bzip2 => ZipCompressionMethodCli::Bzip2,
             #[cfg(feature = "kpar-zstd")]
             ZipCompressionMethod::Zstd => ZipCompressionMethodCli::Zstd,

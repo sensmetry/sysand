@@ -382,7 +382,7 @@ impl From<ZipCompressionMethod> for zip::CompressionMethod {
         match value {
             ZipCompressionMethod::Stored => zip::CompressionMethod::Stored,
             ZipCompressionMethod::Deflated => zip::CompressionMethod::Deflated,
-            #[cfg(feature = "kpar-zstd")]
+            #[cfg(feature = "kpar-bzip2")]
             ZipCompressionMethod::Bzip2 => zip::CompressionMethod::Bzip2,
             #[cfg(feature = "kpar-zstd")]
             ZipCompressionMethod::Zstd => zip::CompressionMethod::Zstd,
