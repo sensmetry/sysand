@@ -46,7 +46,7 @@ public class SysandBuildKParMojo extends AbstractMojo {
      * {@code <configuration><compressionMethod>...</compressionMethod></configuration>} or
      * via {@code -Dsysand.compressionMethod=...}.
      */
-    @Parameter(property = "sysand.compressionMethod", required = true)
+    @Parameter(property = "sysand.compressionMethod", required = false)
     private String compressionMethod;
 
     @Override
@@ -58,7 +58,8 @@ public class SysandBuildKParMojo extends AbstractMojo {
         if (outputPath == null || outputPath.trim().isEmpty()) {
             throw new MojoExecutionException("Parameter 'outputPath' must be provided and non-empty");
         }
-        CompressionMethod compression = CompressionMethod.valueOf(compressionMethod.toUpperCase());
+
+        CompressionMethod compression = compressionMethod == null ? CompressionMethod.DEFLATED : CompressionMethod.valueOf(compressionMethod.toUpperCase());
 
         try {
             if (workspacePath == null) {
