@@ -219,9 +219,7 @@ fn resolve_candidates<R: ResolveRead>(
                     )));
                 }
                 crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
-                    return Err(InternalSolverError::NotResolvable(format!(
-                        "project with IRI `{uri}` not found: {msg}"
-                    )));
+                    return Err(InternalSolverError::NotFound(uri.as_str().into(), msg));
                 }
                 crate::resolve::ResolutionOutcome::Resolved(alternatives) => {
                     for alternative in alternatives {
@@ -260,9 +258,7 @@ fn resolve_candidates<R: ResolveRead>(
                         found.push((validated_info, meta, project));
                     }
                     if found.is_empty() {
-                        return Err(InternalSolverError::NotResolvable(format!(
-                            "no valid candidates found for project `{uri}`"
-                        )));
+                        return Err(InternalSolverError::NoValidCandidates(uri.as_str().into()));
                     }
                 }
             }
@@ -414,8 +410,13 @@ pub enum InternalSolverError<R: ResolveRead> {
     // InvalidProject,
     /// Project not found by current resolver
     /// Value is the formatted error message
-    #[error("{0}")]
-    NotResolvable(String),
+    #[error("project with IRI `{0}` not found: {1}")]
+    NotFound(Box<str>, String),
+    /// Project candidates were found, but none of them were
+    /// valid.
+    /// Value is the formatted error message
+    #[error("no valid candidates found for project `{0}`")]
+    NoValidCandidates(Box<str>),
     /// Project not found by current resolver
     /// Value is the formatted error message
     #[error("IRI is of type not supported by this resolver: {0}")]
