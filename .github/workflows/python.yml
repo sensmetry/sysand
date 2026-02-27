@@ -7,24 +7,24 @@ name: Python
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     tags: ["*"]
     paths:
-      - 'bindings/py/**'
-      - 'core/**'
-      - 'sysand/**'
-      - 'Cargo.*'
-      - '.github/workflows/python.yml'
-      - '.github/scripts/*'
+      - "bindings/py/**"
+      - "core/**"
+      - "sysand/**"
+      - "Cargo.*"
+      - ".github/workflows/python.yml"
+      - ".github/scripts/*"
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'bindings/py/**'
-      - 'core/**'
-      - 'sysand/**'
-      - 'Cargo.*'
-      - '.github/workflows/python.yml'
-      - '.github/scripts/*'
+      - "bindings/py/**"
+      - "core/**"
+      - "sysand/**"
+      - "Cargo.*"
+      - ".github/workflows/python.yml"
+      - ".github/scripts/*"
   workflow_dispatch:
 
 permissions:
@@ -326,7 +326,7 @@ jobs:
         id: attest
         uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v3.1.0
         with:
-          subject-path: 'wheels-*/*'
+          subject-path: "wheels-*/*"
       - name: Prepare attestations for uv
         run: |
           # The action creates one attestation bundle for all artifacts, but

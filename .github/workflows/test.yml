@@ -2,9 +2,9 @@ name: CLI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 permissions:
   contents: read
@@ -18,67 +18,83 @@ jobs:
     strategy:
       matrix:
         # macos-15-intel is x86, macos-latest is arm64
-        os: [ubuntu-22.04, ubuntu-24.04-arm, windows-latest, windows-11-arm, macos-15-intel, macos-latest]
+        os:
+          [
+            ubuntu-22.04,
+            ubuntu-24.04-arm,
+            windows-latest,
+            windows-11-arm,
+            macos-15-intel,
+            macos-latest,
+          ]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v6
-    - name: Cache
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - uses: taiki-e/install-action@cargo-hack
-    - name: Clippy
-      run: cargo hack clippy --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
-    - name: Clippy for tests
-      run: cargo clippy --all-targets --all-features -- --deny warnings
-    - name: Format
-      run: cargo fmt --check
-    - name: Set up git user
-      run: |
-        git config --global user.email "user@sysand.org"
-        git config --global user.name "Test User"
-    - name: Test Core
-      run: cargo test --package sysand-core --verbose --features filesystem,js,python,alltests
-    - name: Test CLI
-      run: cargo test --package sysand --verbose --features alltests
+      - uses: actions/checkout@v6
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - uses: taiki-e/install-action@cargo-hack
+      - name: Clippy
+        run: cargo hack clippy --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
+      - name: Clippy for tests
+        run: cargo clippy --all-targets --all-features -- --deny warnings
+      - name: Format
+        run: cargo fmt --check
+      - name: Set up git user
+        run: |
+          git config --global user.email "user@sysand.org"
+          git config --global user.name "Test User"
+      - name: Test Core
+        run: cargo test --package sysand-core --verbose --features filesystem,js,python,alltests
+      - name: Test CLI
+        run: cargo test --package sysand --verbose --features alltests
 
   build:
     strategy:
       matrix:
         # macos-15-intel is x86, macos-latest is arm64
-        os: [ubuntu-22.04, ubuntu-24.04-arm, windows-latest, windows-11-arm, macos-15-intel, macos-latest]
+        os:
+          [
+            ubuntu-22.04,
+            ubuntu-24.04-arm,
+            windows-latest,
+            windows-11-arm,
+            macos-15-intel,
+            macos-latest,
+          ]
     runs-on: ${{ matrix.os }}
     needs: [test]
     steps:
-    - uses: actions/checkout@v6
-    - name: Cache
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    - name: Build
-      run: cargo build --bin sysand --release
-    - name: Create the distribution directory
-      run: mkdir -p dist
-    - name: Copy binaries
-      if: matrix.os == 'windows-latest' || matrix.os == 'windows-11-arm'
-      run: cp target/release/sysand.exe dist/sysand-${{ matrix.os }}.exe
-    - name: Copy binaries
-      if: matrix.os != 'windows-latest' && matrix.os != 'windows-11-arm'
-      run: cp target/release/sysand dist/sysand-${{ matrix.os }}
-    - name: Upload binaries
-      uses: actions/upload-artifact@v5
-      with:
-        name: sysand-cli-${{ matrix.os }}
-        path: dist/*
+      - uses: actions/checkout@v6
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build
+        run: cargo build --bin sysand --release
+      - name: Create the distribution directory
+        run: mkdir -p dist
+      - name: Copy binaries
+        if: matrix.os == 'windows-latest' || matrix.os == 'windows-11-arm'
+        run: cp target/release/sysand.exe dist/sysand-${{ matrix.os }}.exe
+      - name: Copy binaries
+        if: matrix.os != 'windows-latest' && matrix.os != 'windows-11-arm'
+        run: cp target/release/sysand dist/sysand-${{ matrix.os }}
+      - name: Upload binaries
+        uses: actions/upload-artifact@v5
+        with:
+          name: sysand-cli-${{ matrix.os }}
+          path: dist/*
 
   nightly-release:
     name: Nightly Release
@@ -100,7 +116,7 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: 'artifacts/*'
+          subject-path: "artifacts/*"
       - name: Rename artifacts
         shell: bash
         run: |
@@ -143,7 +159,7 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: 'artifacts/*'
+          subject-path: "artifacts/*"
       - name: Rename artifacts
         shell: bash
         run: |
