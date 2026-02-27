@@ -22,7 +22,7 @@ python = ["dep:pyo3"]
 js = ["dep:wasm-bindgen"]
 filesystem = ["dep:camino-tempfile", "dep:dirs", "dep:zip"]
 networking = ["dep:reqwest", "dep:gix"] # "dep:reqwest-middleware", "dep:partialzip"
-# Different compression methods for creating kpar
+# Different compression methods for creating KPARs
 kpar-bzip2 = ["zip?/bzip2"]
 kpar-zstd = ["zip?/zstd"]
 kpar-xz = ["zip?/xz"]

@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use assert_cmd::prelude::*;
 use clap::ValueEnum;
 use predicates::prelude::*;
-use sysand::cli::ZipCompressionMethodCli;
+use sysand::cli::KparCompressionMethodCli;
 use sysand_core::{
     model::{InterchangeProjectChecksumRaw, KerMlChecksumAlg},
     project::{ProjectRead, local_kpar::LocalKParProject},
@@ -161,7 +161,7 @@ fn test_workspace_build() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn test_compression_methods() -> Result<(), Box<dyn std::error::Error>> {
-    let compressions = ZipCompressionMethodCli::value_variants();
+    let compressions = KparCompressionMethodCli::value_variants();
     test_compression_method(None)?;
     for compression in compressions {
         test_compression_method(Some(compression.to_possible_value().unwrap().get_name()))?;
@@ -218,7 +218,7 @@ fn test_compression_method(compression: Option<&str>) -> Result<(), Box<dyn std:
     assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
     assert_eq!(meta.index.len(), 1);
     assert_eq!(meta.index.get("P").unwrap(), "test.sysml");
-    let mut src = "".to_string();
+    let mut src = String::new();
     kpar_project
         .read_source("test.sysml")?
         .read_to_string(&mut src)?;

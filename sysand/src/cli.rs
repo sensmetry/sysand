@@ -11,7 +11,7 @@ use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use fluent_uri::Iri;
 use semver::VersionReq;
-use sysand_core::model::ZipCompressionMethod;
+use sysand_core::model::KparCompressionMethod;
 
 use crate::env_vars;
 
@@ -163,9 +163,9 @@ pub enum Command {
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
         #[clap(verbatim_doc_comment)]
-        /// Method to compress the files in zip archive
+        /// Method to compress the files in the KPAR
         #[arg(short = 'c', long, default_value_t, value_enum)]
-        compression: ZipCompressionMethodCli,
+        compression: KparCompressionMethodCli,
     },
     /// Create or update lockfile
     Lock {
@@ -258,7 +258,7 @@ pub struct ProjectLocatorArgs {
 
 #[derive(clap::ValueEnum, Default, Copy, Clone, Debug)]
 #[clap(rename_all = "lowercase")]
-pub enum ZipCompressionMethodCli {
+pub enum KparCompressionMethodCli {
     /// Store the files as is
     Stored,
     /// Compress the files using Deflate
@@ -278,38 +278,38 @@ pub enum ZipCompressionMethodCli {
     Ppmd,
 }
 
-impl From<ZipCompressionMethodCli> for ZipCompressionMethod {
-    fn from(value: ZipCompressionMethodCli) -> Self {
+impl From<KparCompressionMethodCli> for KparCompressionMethod {
+    fn from(value: KparCompressionMethodCli) -> Self {
         match value {
-            ZipCompressionMethodCli::Stored => ZipCompressionMethod::Stored,
-            ZipCompressionMethodCli::Deflated => ZipCompressionMethod::Deflated,
+            KparCompressionMethodCli::Stored => KparCompressionMethod::Stored,
+            KparCompressionMethodCli::Deflated => KparCompressionMethod::Deflated,
             #[cfg(feature = "kpar-bzip2")]
-            ZipCompressionMethodCli::Bzip2 => ZipCompressionMethod::Bzip2,
+            KparCompressionMethodCli::Bzip2 => KparCompressionMethod::Bzip2,
             #[cfg(feature = "kpar-zstd")]
-            ZipCompressionMethodCli::Zstd => ZipCompressionMethod::Zstd,
+            KparCompressionMethodCli::Zstd => KparCompressionMethod::Zstd,
             #[cfg(feature = "kpar-xz")]
-            ZipCompressionMethodCli::Xz => ZipCompressionMethod::Xz,
+            KparCompressionMethodCli::Xz => KparCompressionMethod::Xz,
             #[cfg(feature = "kpar-ppmd")]
-            ZipCompressionMethodCli::Ppmd => ZipCompressionMethod::Ppmd,
+            KparCompressionMethodCli::Ppmd => KparCompressionMethod::Ppmd,
         }
     }
 }
 
-// This is implemented mainly so that if ZipCompressionMethod gets a new member
-// and ZipCompressionMethodCli isn't updated it would give a compilation error
-impl From<ZipCompressionMethod> for ZipCompressionMethodCli {
-    fn from(value: ZipCompressionMethod) -> Self {
+// This is implemented mainly so that if KparCompressionMethod gets a new member
+// and KparCompressionMethodCli isn't updated it would give a compilation error
+impl From<KparCompressionMethod> for KparCompressionMethodCli {
+    fn from(value: KparCompressionMethod) -> Self {
         match value {
-            ZipCompressionMethod::Stored => ZipCompressionMethodCli::Stored,
-            ZipCompressionMethod::Deflated => ZipCompressionMethodCli::Deflated,
+            KparCompressionMethod::Stored => KparCompressionMethodCli::Stored,
+            KparCompressionMethod::Deflated => KparCompressionMethodCli::Deflated,
             #[cfg(feature = "kpar-bzip2")]
-            ZipCompressionMethod::Bzip2 => ZipCompressionMethodCli::Bzip2,
+            KparCompressionMethod::Bzip2 => KparCompressionMethodCli::Bzip2,
             #[cfg(feature = "kpar-zstd")]
-            ZipCompressionMethod::Zstd => ZipCompressionMethodCli::Zstd,
+            KparCompressionMethod::Zstd => KparCompressionMethodCli::Zstd,
             #[cfg(feature = "kpar-xz")]
-            ZipCompressionMethod::Xz => ZipCompressionMethodCli::Xz,
+            KparCompressionMethod::Xz => KparCompressionMethodCli::Xz,
             #[cfg(feature = "kpar-ppmd")]
-            ZipCompressionMethod::Ppmd => ZipCompressionMethodCli::Ppmd,
+            KparCompressionMethod::Ppmd => KparCompressionMethodCli::Ppmd,
         }
     }
 }

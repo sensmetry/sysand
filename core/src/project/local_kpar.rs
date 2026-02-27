@@ -403,7 +403,7 @@ mod tests {
         assert_eq!(info.version, "1.2.3");
         assert_eq!(meta.created, "123");
 
-        let mut src = "".to_string();
+        let mut src = String::new();
         project
             .read_source("test.sysml")?
             .read_to_string(&mut src)?;
@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(info.version, "1.2.3");
         assert_eq!(meta.created, "123");
 
-        let mut src = "".to_string();
+        let mut src = String::new();
         project
             .read_source("test.sysml")?
             .read_to_string(&mut src)?;

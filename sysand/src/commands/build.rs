@@ -5,14 +5,14 @@ use anyhow::Result;
 use camino::Utf8Path;
 use sysand_core::{
     build::{do_build_kpar, do_build_workspace_kpars},
-    model::ZipCompressionMethod,
+    model::KparCompressionMethod,
     project::local_src::LocalSrcProject,
     workspace::Workspace,
 };
 
 pub fn command_build_for_project<P: AsRef<Utf8Path>>(
     path: P,
-    compression: ZipCompressionMethod,
+    compression: KparCompressionMethod,
     current_project: LocalSrcProject,
 ) -> Result<()> {
     do_build_kpar(&current_project, &path, compression, true)?;
@@ -22,7 +22,7 @@ pub fn command_build_for_project<P: AsRef<Utf8Path>>(
 
 pub fn command_build_for_workspace<P: AsRef<Utf8Path>>(
     path: P,
-    compression: ZipCompressionMethod,
+    compression: KparCompressionMethod,
     workspace: Workspace,
 ) -> Result<()> {
     log::warn!(

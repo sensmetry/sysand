@@ -15,7 +15,7 @@ use crate::{
 };
 #[cfg(feature = "filesystem")]
 use crate::{
-    model::ZipCompressionMethod, project::local_src::LocalSrcProject, workspace::Workspace,
+    model::KparCompressionMethod, project::local_src::LocalSrcProject, workspace::Workspace,
 };
 
 use super::include::IncludeError;
@@ -121,7 +121,7 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
 pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
-    compression: ZipCompressionMethod,
+    compression: KparCompressionMethod,
     canonicalise: bool,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
@@ -166,7 +166,7 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &Workspace,
     path: P,
-    compression: ZipCompressionMethod,
+    compression: KparCompressionMethod,
     canonicalise: bool,
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
     let mut result = Vec::new();

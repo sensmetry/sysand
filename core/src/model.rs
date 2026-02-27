@@ -356,7 +356,7 @@ impl KerMlChecksumAlg {
 // Python we use doesn't have pattern matching which ensures
 // all cases are covered
 // #[cfg_attr(feature = "python", pyclass(eq))]
-pub enum ZipCompressionMethod {
+pub enum KparCompressionMethod {
     /// Store the files as is
     Stored,
     /// Compress the files using Deflate
@@ -377,30 +377,37 @@ pub enum ZipCompressionMethod {
 }
 
 #[cfg(feature = "filesystem")]
-impl From<ZipCompressionMethod> for zip::CompressionMethod {
-    fn from(value: ZipCompressionMethod) -> Self {
+impl From<KparCompressionMethod> for zip::CompressionMethod {
+    fn from(value: KparCompressionMethod) -> Self {
         match value {
-            ZipCompressionMethod::Stored => zip::CompressionMethod::Stored,
-            ZipCompressionMethod::Deflated => zip::CompressionMethod::Deflated,
+            KparCompressionMethod::Stored => zip::CompressionMethod::Stored,
+            KparCompressionMethod::Deflated => zip::CompressionMethod::Deflated,
             #[cfg(feature = "kpar-bzip2")]
-            ZipCompressionMethod::Bzip2 => zip::CompressionMethod::Bzip2,
+            KparCompressionMethod::Bzip2 => zip::CompressionMethod::Bzip2,
             #[cfg(feature = "kpar-zstd")]
-            ZipCompressionMethod::Zstd => zip::CompressionMethod::Zstd,
+            KparCompressionMethod::Zstd => zip::CompressionMethod::Zstd,
             #[cfg(feature = "kpar-xz")]
-            ZipCompressionMethod::Xz => zip::CompressionMethod::Xz,
+            KparCompressionMethod::Xz => zip::CompressionMethod::Xz,
             #[cfg(feature = "kpar-ppmd")]
-            ZipCompressionMethod::Ppmd => zip::CompressionMethod::Ppmd,
+            KparCompressionMethod::Ppmd => zip::CompressionMethod::Ppmd,
         }
     }
 }
 
 #[cfg(feature = "filesystem")]
 #[derive(Debug, Error)]
-#[error("failed to parse checksum algorithm")]
-pub struct CompressionMethodParseError(pub String);
+pub enum CompressionMethodParseError {
+    #[error("Compile sysand with feature {feature} to use {compression} compression")]
+    SuggestFeature {
+        compression: String,
+        feature: String,
+    },
+    #[error("{0}")]
+    Invalid(String),
+}
 
 #[cfg(feature = "filesystem")]
-impl TryFrom<String> for ZipCompressionMethod {
+impl TryFrom<String> for KparCompressionMethod {
     type Error = CompressionMethodParseError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -409,38 +416,42 @@ impl TryFrom<String> for ZipCompressionMethod {
 }
 
 #[cfg(feature = "filesystem")]
-impl TryFrom<&str> for ZipCompressionMethod {
+impl TryFrom<&str> for KparCompressionMethod {
     type Error = CompressionMethodParseError;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "STORED" => Ok(ZipCompressionMethod::Stored),
-            "DEFLATED" => Ok(ZipCompressionMethod::Deflated),
+            "STORED" => Ok(KparCompressionMethod::Stored),
+            "DEFLATED" => Ok(KparCompressionMethod::Deflated),
             #[cfg(feature = "kpar-bzip2")]
-            "BZIP2" => Ok(ZipCompressionMethod::Bzip2),
+            "BZIP2" => Ok(KparCompressionMethod::Bzip2),
             #[cfg(not(feature = "kpar-bzip2"))]
-            "BZIP2" => Err(CompressionMethodParseError(
-                "Compile sysand with feature kpar-bzip2 to use BZIP2 compression".to_string(),
-            )),
+            "BZIP2" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-bzip2".into(),
+            }),
             #[cfg(feature = "kpar-zstd")]
-            "ZSTD" => Ok(ZipCompressionMethod::Zstd),
+            "ZSTD" => Ok(KparCompressionMethod::Zstd),
             #[cfg(not(feature = "kpar-zstd"))]
-            "ZSTD" => Err(CompressionMethodParseError(
-                "Compile sysand with feature kpar-zstd to use ZSTD compression".to_string(),
-            )),
+            "ZSTD" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-zstd".into(),
+            }),
             #[cfg(feature = "kpar-xz")]
-            "XZ" => Ok(ZipCompressionMethod::Xz),
+            "XZ" => Ok(KparCompressionMethod::Xz),
             #[cfg(not(feature = "kpar-xz"))]
-            "XZ" => Err(CompressionMethodParseError(
-                "Compile sysand with feature kpar-xz to use XZ compression".to_string(),
-            )),
+            "XZ" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-xz".into(),
+            }),
             #[cfg(feature = "kpar-ppmd")]
-            "PPMD" => Ok(ZipCompressionMethod::Ppmd),
+            "PPMD" => Ok(KparCompressionMethod::Ppmd),
             #[cfg(not(feature = "kpar-ppmd"))]
-            "PPMD" => Err(CompressionMethodParseError(
-                "Compile sysand with feature kpar-ppmd to use PPMD compression".to_string(),
-            )),
-            _ => Err(CompressionMethodParseError(format!(
-                "Compression method {value} is invalid"
+            "PPMD" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-ppmd".into(),
+            }),
+            _ => Err(CompressionMethodParseError::Invalid(format!(
+                "Compression method `{value}` is invalid"
             ))),
         }
     }

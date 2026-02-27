@@ -16,7 +16,7 @@ use sysand_core::{
     env::local_directory::{self, LocalWriteError},
     info::InfoError,
     init::InitError,
-    model::ZipCompressionMethod,
+    model::KparCompressionMethod,
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,
@@ -325,11 +325,11 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
 fn compression_from_java_string(
     env: &mut JNIEnv<'_>,
     compression: String,
-) -> Option<ZipCompressionMethod> {
-    match ZipCompressionMethod::try_from(compression) {
+) -> Option<KparCompressionMethod> {
+    match KparCompressionMethod::try_from(compression) {
         Ok(compression) => Some(compression),
         Err(err) => {
-            env.throw_exception(ExceptionKind::SysandException, err.0);
+            env.throw_exception(ExceptionKind::SysandException, err.to_string());
             None
         }
     }
