@@ -28,7 +28,7 @@ use sysand_core::{
     include::do_include,
     info::{InfoError, do_info, do_info_project},
     init::InitError,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, ZipCompressionMethod},
     project::{
         ProjectRead as _,
         local_kpar::LocalKParProject,
@@ -177,9 +177,9 @@ fn do_info_py(
 
 #[pyfunction(name = "do_build_py")]
 #[pyo3(
-    signature = (output_path, project_path),
+    signature = (output_path, project_path, compression),
 )]
-fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()> {
+fn do_build_py(output_path: String, project_path: Option<String>, compression: ZipCompressionMethod) -> PyResult<()> {
     let _ = pyo3_log::try_init();
 
     let Some(current_project_path) = project_path else {
@@ -190,7 +190,7 @@ fn do_build_py(output_path: String, project_path: Option<String>) -> PyResult<()
         project_path: current_project_path.into(),
     };
 
-    do_build_kpar(&project, &output_path, true)
+    do_build_kpar(&project, &output_path, compression, true)
         .map(|_| ())
         .map_err(|err| match err {
             KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),

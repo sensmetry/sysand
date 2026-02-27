@@ -327,6 +327,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     _class: JClass<'local>,
     output_path: JString<'local>,
     project_path: JString<'local>,
+    compression: JString<'local>
 ) {
     let Some(output_path) = env.get_str(&output_path, "outputPath") else {
         return;
@@ -338,7 +339,10 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
         nominal_path: None,
         project_path: Utf8PathBuf::from(project_path),
     };
-    let command_result = sysand_core::commands::build::do_build_kpar(&project, &output_path, true);
+    let Some(compression) = env.get_str(&compression, "compression") else {
+        return;
+    };
+    let command_result = sysand_core::commands::build::do_build_kpar(&project, &output_path, compression, true);
     match command_result {
         Ok(_) => {}
         Err(error) => handle_build_error(&mut env, error),

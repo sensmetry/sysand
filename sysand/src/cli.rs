@@ -11,6 +11,7 @@ use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use fluent_uri::Iri;
 use semver::VersionReq;
+use sysand_core::model::ZipCompressionMethod;
 
 use crate::env_vars;
 
@@ -161,6 +162,10 @@ pub enum Command {
         /// on whether the current project belongs to a workspace or not).
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
+        #[clap(verbatim_doc_comment)]
+        /// Method to compress the files in zip archive
+        #[arg(short = 'c', long, default_value_t, value_enum)]
+        compression: ZipCompressionMethodCli
     },
     /// Create or update lockfile
     Lock {
@@ -251,9 +256,67 @@ pub struct ProjectLocatorArgs {
     pub path: Option<String>,
 }
 
+#[derive(clap::ValueEnum, Default, Copy, Clone, Debug)]
+#[clap(rename_all = "lowercase")]
+pub enum ZipCompressionMethodCli {
+    /// Store the files as is
+    Stored,
+    /// Compress the files using Deflate
+    #[default]
+    Deflated,
+    /// Compress the files using BZIP2
+    #[cfg(feature = "kpar-bzip2")]
+    Bzip2,
+    /// Compress the files using ZStandard
+    #[cfg(feature = "kpar-zstd")]
+    Zstd,
+    /// Compress the files using XZ
+    #[cfg(feature = "kpar-xz")]
+    Xz,
+    /// Compress the files using PPMd
+    #[cfg(feature = "kpar-ppmd")]
+    Ppmd
+}
+
+impl From<ZipCompressionMethodCli> for ZipCompressionMethod{
+    fn from(value: ZipCompressionMethodCli) -> Self {
+        match value {
+            ZipCompressionMethodCli::Stored => ZipCompressionMethod::Stored,
+            ZipCompressionMethodCli::Deflated => ZipCompressionMethod::Deflated,
+            #[cfg(feature = "kpar-zstd")]
+            ZipCompressionMethodCli::Bzip2 => ZipCompressionMethod::Bzip2,
+            #[cfg(feature = "kpar-zstd")]
+            ZipCompressionMethodCli::Zstd => ZipCompressionMethod::Zstd,
+            #[cfg(feature = "kpar-xz")]
+            ZipCompressionMethodCli::Xz => ZipCompressionMethod::Xz,
+            #[cfg(feature = "kpar-ppmd")]
+            ZipCompressionMethodCli::Ppmd => ZipCompressionMethod::Ppmd
+        }
+    }
+}
+
+// This is implemented mainly so that if ZipCompressionMethod gets a new member
+// and ZipCompressionMethodCli isn't updated it would give a compilation error
+impl From<ZipCompressionMethod> for ZipCompressionMethodCli {
+    fn from(value: ZipCompressionMethod) -> Self {
+        match value {
+            ZipCompressionMethod::Stored => ZipCompressionMethodCli::Stored,
+            ZipCompressionMethod::Deflated => ZipCompressionMethodCli::Deflated,
+            #[cfg(feature = "kpar-zstd")]
+            ZipCompressionMethod::Bzip2 => ZipCompressionMethodCli::Bzip2,
+            #[cfg(feature = "kpar-zstd")]
+            ZipCompressionMethod::Zstd => ZipCompressionMethodCli::Zstd,
+            #[cfg(feature = "kpar-xz")]
+            ZipCompressionMethod::Xz => ZipCompressionMethodCli::Xz,
+            #[cfg(feature = "kpar-ppmd")]
+            ZipCompressionMethod::Ppmd => ZipCompressionMethodCli::Ppmd
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct InvalidCommand {
-    message: String,
+    message: String
 }
 
 fn invalid_command<S: AsRef<str>>(message: S) -> InvalidCommand {

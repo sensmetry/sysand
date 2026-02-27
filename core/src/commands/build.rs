@@ -14,7 +14,7 @@ use crate::{
     workspace::WorkspaceReadError,
 };
 #[cfg(feature = "filesystem")]
-use crate::{project::local_src::LocalSrcProject, workspace::Workspace};
+use crate::{model::ZipCompressionMethod, project::local_src::LocalSrcProject, workspace::Workspace};
 
 use super::include::IncludeError;
 
@@ -119,6 +119,7 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
 pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
+    compression: ZipCompressionMethod,
     canonicalise: bool,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
@@ -152,13 +153,14 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
-    Ok(LocalKParProject::from_project(&local_project, path)?)
+    Ok(LocalKParProject::from_project(&local_project, path, compression.into())?)
 }
 
 #[cfg(feature = "filesystem")]
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &Workspace,
     path: P,
+    compression: ZipCompressionMethod,
     canonicalise: bool,
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
     let mut result = Vec::new();
@@ -174,7 +176,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
         };
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);
-        let kpar_project = do_build_kpar(&project, &output_path, canonicalise)?;
+        let kpar_project = do_build_kpar(&project, &output_path, compression, canonicalise)?;
         result.push(kpar_project);
     }
     Ok(result)

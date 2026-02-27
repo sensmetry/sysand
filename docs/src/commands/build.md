@@ -26,4 +26,13 @@ if none is found uses the current directory instead.
   `<current-project>/output/<project name>-<version>.kpar` depending
   on whether the current project belongs to a workspace or not).
 
+## Options
+
+- `-c`, `--compression`: Method to compress the files in zip archive.  
+  Possible values:
+  - `stored`:   Store the files as is
+  - `deflated`: Compress the files using Deflate
+
+  [default: `deflated`]
+
 {{#include ./partials/global_opts.md}}

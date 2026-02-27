@@ -349,6 +349,48 @@ impl KerMlChecksumAlg {
     }
 }
 
+#[cfg(feature = "filesystem")]
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "python", pyclass(eq))]
+pub enum ZipCompressionMethod {
+    /// Store the files as is
+    Stored,
+    /// Compress the files using Deflate
+    #[default]
+    Deflated,
+    /// Compress the files using BZIP2
+    #[cfg(feature = "kpar-bzip2")]
+    Bzip2,
+    /// Compress the files using ZStandard
+    #[cfg(feature = "kpar-zstd")]
+    Zstd,
+    /// Compress the files using XZ
+    #[cfg(feature = "kpar-xz")]
+    Xz,
+    /// Compress the files using PPMd
+    #[cfg(feature = "kpar-ppmd")]
+    Ppmd
+}
+
+#[cfg(feature = "filesystem")]
+impl From<ZipCompressionMethod> for zip::CompressionMethod {
+    fn from(value: ZipCompressionMethod) -> Self {
+        match value {
+            ZipCompressionMethod::Stored => zip::CompressionMethod::Stored,
+            ZipCompressionMethod::Deflated => zip::CompressionMethod::Deflated,
+            #[cfg(feature = "kpar-zstd")]
+            ZipCompressionMethod::Bzip2 => zip::CompressionMethod::Bzip2,
+            #[cfg(feature = "kpar-zstd")]
+            ZipCompressionMethod::Zstd => zip::CompressionMethod::Zstd,
+            #[cfg(feature = "kpar-xz")]
+            ZipCompressionMethod::Xz => zip::CompressionMethod::Xz,
+            #[cfg(feature = "kpar-ppmd")]
+            ZipCompressionMethod::Ppmd => zip::CompressionMethod::Ppmd
+        }
+    }
+}
+
+
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
