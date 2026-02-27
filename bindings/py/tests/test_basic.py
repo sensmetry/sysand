@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 import re
 import os
-from typing import List
+from typing import List, Union
 
 import pytest
 from pytest_httpserver import HTTPServer
@@ -170,7 +170,10 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     assert meta["checksum"] is None
 
 
-def compare_sources(sources: List[str], expected_sources: List[str]) -> None:
+def compare_sources(
+    sources: Union[List[Path], List[str]],
+    expected_sources: Union[List[Path], List[str]],
+) -> None:
     assert len(sources) == len(expected_sources)
     for source, expected_source in zip(sources, expected_sources):
         assert os.path.samefile(source, expected_source), (
@@ -178,7 +181,7 @@ def compare_sources(sources: List[str], expected_sources: List[str]) -> None:
         )
 
 
-def test_end_to_end_install_sources():
+def test_end_to_end_install_sources() -> None:
     with tempfile.TemporaryDirectory() as tmp_main:
         with tempfile.TemporaryDirectory() as tmp_dep:
             tmp_main = Path(tmp_main).resolve()
@@ -242,3 +245,24 @@ def test_end_to_end_install_sources():
                     ),
                 ],
             )
+
+
+@pytest.mark.parametrize(
+    "compression",
+    [None, sysand.CompressionMethod.STORED, sysand.CompressionMethod.DEFLATED],
+)
+def test_build(compression: Union[sysand.CompressionMethod, None]) -> None:
+    with tempfile.TemporaryDirectory() as tmp_main:
+        tmp_main = Path(tmp_main).resolve()
+        sysand.new("test_build", "1.2.3", tmp_main)
+
+        with open(tmp_main / "src.sysml", "w") as f:
+            f.write("package Src;")
+
+        sysand.include(tmp_main, "src.sysml")
+
+        sysand.build(
+            output_path=tmp_main / "test_build.kpar",
+            project_path=tmp_main,
+            compression=compression,
+        )

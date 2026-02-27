@@ -86,7 +86,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(target_project.info, Some(info.clone()));
     assert_eq!(target_project.meta, Some(meta.clone()));
 
-    let mut read_source_code = "".to_string();
+    let mut read_source_code = String::new();
 
     target_project
         .read_source(source_path)?

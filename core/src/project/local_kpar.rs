@@ -199,12 +199,12 @@ impl LocalKParProject {
     pub fn from_project<Pr: ProjectRead, P: AsRef<Utf8Path>>(
         from: &Pr,
         path: P,
+        compression: zip::CompressionMethod,
     ) -> Result<Self, IntoKparError<Pr::Error>> {
         let file = wrapfs::File::create(&path)?;
         let mut zip = zip::ZipWriter::new(file);
 
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
+        let options = zip::write::SimpleFileOptions::default().compression_method(compression);
 
         let (info, meta) = from.get_project().map_err(IntoKparError::ProjectRead)?;
         let info = info.ok_or(IntoKparError::MissingInfo)?;
@@ -403,7 +403,7 @@ mod tests {
         assert_eq!(info.version, "1.2.3");
         assert_eq!(meta.created, "123");
 
-        let mut src = "".to_string();
+        let mut src = String::new();
         project
             .read_source("test.sysml")?
             .read_to_string(&mut src)?;
@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(info.version, "1.2.3");
         assert_eq!(meta.created, "123");
 
-        let mut src = "".to_string();
+        let mut src = String::new();
         project
             .read_source("test.sysml")?
             .read_to_string(&mut src)?;

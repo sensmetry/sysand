@@ -11,7 +11,7 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
-from typing import Any
+from typing import Any, Union
 
 
 ROOT_DIR = Path(__file__).absolute().parent.parent.parent.parent
@@ -131,7 +131,7 @@ def compute_full_version(version: str, release_jar_version: bool) -> str:
 
 def build(
     use_release_build: bool,
-    use_existing_native_libs: Path | None,
+    use_existing_native_libs: Union[Path, None],
     sign_artifacts: bool,
     release_jar_version: bool,
     version: str,

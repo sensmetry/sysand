@@ -15,6 +15,12 @@ homepage.workspace = true
 name = "sysand"
 crate-type = ["cdylib"]
 
+[features]
+kpar-bzip2 = ["sysand-core/kpar-bzip2"]
+kpar-zstd = ["sysand-core/kpar-zstd"]
+kpar-xz = ["sysand-core/kpar-xz"]
+kpar-ppmd = ["sysand-core/kpar-ppmd"]
+
 [dependencies]
 sysand-core = { path = "../../core", features = ["std", "filesystem", "networking"] }
 camino.workspace = true

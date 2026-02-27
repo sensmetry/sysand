@@ -11,6 +11,7 @@ use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use fluent_uri::Iri;
 use semver::VersionReq;
+use sysand_core::model::KparCompressionMethod;
 
 use crate::env_vars;
 
@@ -161,6 +162,10 @@ pub enum Command {
         /// on whether the current project belongs to a workspace or not).
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
+        #[clap(verbatim_doc_comment)]
+        /// Method to compress the files in the KPAR
+        #[arg(short = 'c', long, default_value_t, value_enum)]
+        compression: KparCompressionMethodCli,
     },
     /// Create or update lockfile
     Lock {
@@ -249,6 +254,64 @@ pub struct ProjectLocatorArgs {
         verbatim_doc_comment
     )]
     pub path: Option<String>,
+}
+
+#[derive(clap::ValueEnum, Default, Copy, Clone, Debug)]
+#[clap(rename_all = "lowercase")]
+pub enum KparCompressionMethodCli {
+    /// Store the files as is
+    Stored,
+    /// Compress the files using Deflate
+    #[default]
+    Deflated,
+    /// Compress the files using BZIP2
+    #[cfg(feature = "kpar-bzip2")]
+    Bzip2,
+    /// Compress the files using ZStandard
+    #[cfg(feature = "kpar-zstd")]
+    Zstd,
+    /// Compress the files using XZ
+    #[cfg(feature = "kpar-xz")]
+    Xz,
+    /// Compress the files using PPMd
+    #[cfg(feature = "kpar-ppmd")]
+    Ppmd,
+}
+
+impl From<KparCompressionMethodCli> for KparCompressionMethod {
+    fn from(value: KparCompressionMethodCli) -> Self {
+        match value {
+            KparCompressionMethodCli::Stored => KparCompressionMethod::Stored,
+            KparCompressionMethodCli::Deflated => KparCompressionMethod::Deflated,
+            #[cfg(feature = "kpar-bzip2")]
+            KparCompressionMethodCli::Bzip2 => KparCompressionMethod::Bzip2,
+            #[cfg(feature = "kpar-zstd")]
+            KparCompressionMethodCli::Zstd => KparCompressionMethod::Zstd,
+            #[cfg(feature = "kpar-xz")]
+            KparCompressionMethodCli::Xz => KparCompressionMethod::Xz,
+            #[cfg(feature = "kpar-ppmd")]
+            KparCompressionMethodCli::Ppmd => KparCompressionMethod::Ppmd,
+        }
+    }
+}
+
+// This is implemented mainly so that if KparCompressionMethod gets a new member
+// and KparCompressionMethodCli isn't updated it would give a compilation error
+impl From<KparCompressionMethod> for KparCompressionMethodCli {
+    fn from(value: KparCompressionMethod) -> Self {
+        match value {
+            KparCompressionMethod::Stored => KparCompressionMethodCli::Stored,
+            KparCompressionMethod::Deflated => KparCompressionMethodCli::Deflated,
+            #[cfg(feature = "kpar-bzip2")]
+            KparCompressionMethod::Bzip2 => KparCompressionMethodCli::Bzip2,
+            #[cfg(feature = "kpar-zstd")]
+            KparCompressionMethod::Zstd => KparCompressionMethodCli::Zstd,
+            #[cfg(feature = "kpar-xz")]
+            KparCompressionMethod::Xz => KparCompressionMethodCli::Xz,
+            #[cfg(feature = "kpar-ppmd")]
+            KparCompressionMethod::Ppmd => KparCompressionMethodCli::Ppmd,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

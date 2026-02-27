@@ -235,7 +235,7 @@ mod tests {
         assert_eq!(info.name, "basic_gix_access");
         assert_eq!(meta.created, "123");
 
-        let mut buf = "".to_string();
+        let mut buf = String::new();
         project
             .read_source("test.sysml")?
             .read_to_string(&mut buf)?;

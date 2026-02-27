@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::io::Write;
+use std::io::{Read, Write};
 
 use assert_cmd::prelude::*;
+use clap::ValueEnum;
 use predicates::prelude::*;
+use sysand::cli::KparCompressionMethodCli;
 use sysand_core::{
     model::{InterchangeProjectChecksumRaw, KerMlChecksumAlg},
     project::{ProjectRead, local_kpar::LocalKParProject},
@@ -154,5 +156,73 @@ fn test_workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(meta.index.get("P").unwrap(), "test.sysml");
     }
 
+    Ok(())
+}
+
+#[test]
+fn test_compression_methods() -> Result<(), Box<dyn std::error::Error>> {
+    let compressions = KparCompressionMethodCli::value_variants();
+    test_compression_method(None)?;
+    for compression in compressions {
+        test_compression_method(Some(compression.to_possible_value().unwrap().get_name()))?;
+    }
+    Ok(())
+}
+
+fn test_compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        run_sysand(["init", "--version", "1.2.3", "--name", "test_build"], None)?;
+
+    {
+        let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
+        sysml_file.write_all(b"package P;\n")?;
+    }
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+
+    out.assert().success();
+
+    let out = match compression {
+        Some(compression) => run_sysand_in(
+            &cwd,
+            ["build", "--compression", compression, "./test_build.kpar"],
+            None,
+        )?,
+        None => run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?,
+    };
+
+    out.assert().success();
+
+    let out = run_sysand_in(
+        &cwd,
+        ["info", "--path", cwd.join("test_build.kpar").as_str()],
+        None,
+    )?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: test_build"))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    let kpar_project = LocalKParProject::new_guess_root(cwd.join("test_build.kpar"))?;
+
+    let (Some(info), Some(meta)) = kpar_project.get_project()? else {
+        panic!("failed to get built project info/meta");
+    };
+
+    assert_eq!(info.name, "test_build");
+    assert_eq!(info.version, "1.2.3");
+
+    assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
+    assert_eq!(meta.index.len(), 1);
+    assert_eq!(meta.index.get("P").unwrap(), "test.sysml");
+    let mut src = String::new();
+    kpar_project
+        .read_source("test.sysml")?
+        .read_to_string(&mut src)?;
+
+    assert_eq!(src, "package P;\n");
     Ok(())
 }
