@@ -15,10 +15,10 @@ homepage.workspace = true
 default = ["extension-module", "abi3"]
 extension-module = ["pyo3/extension-module"]
 abi3 = ["pyo3/abi3", "pyo3/abi3-py38"]
-kpar-bzip2 = ["sysand-core/kpar-bzip2"]
-kpar-zstd = ["sysand-core/kpar-zstd"]
-kpar-xz = ["sysand-core/kpar-xz"]
-kpar-ppmd = ["sysand-core/kpar-ppmd"]
+kpar-bzip2 = ["sysand-core/kpar-bzip2", "sysand/kpar-bzip2"]
+kpar-zstd = ["sysand-core/kpar-zstd", "sysand/kpar-zstd"]
+kpar-xz = ["sysand-core/kpar-xz", "sysand/kpar-xz"]
+kpar-ppmd = ["sysand-core/kpar-ppmd", "sysand/kpar-ppmd"]
 
 [dependencies]
 sysand-core = { path = "../../core", features = ["python", "filesystem", "networking"] }
