@@ -90,8 +90,6 @@ pub enum ReqwestSrcError {
     ReqwestMiddleware(reqwest_middleware::Error),
     #[error("error making an HTTP request:\n{0:#?}")]
     Reqwest(reqwest::Error),
-    // #[error("failed to decode response body from HTTP request: {0:#?}")]
-    // ResponseDecode(reqwest::Error),
     #[error("HTTP request to\n  `{0}`\n  returned malformed data: {1}")]
     Deserialize(String, serde_json::Error),
     #[error("HTTP request to `{0}` returned unexpected status code {1}")]

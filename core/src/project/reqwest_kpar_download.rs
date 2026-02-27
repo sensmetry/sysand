@@ -49,8 +49,6 @@ pub enum ReqwestKparDownloadedError {
     // all the details, since they are not given in the Display impl
     #[error("error making an HTTP request:\n{0:#?}")]
     Reqwest(reqwest::Error),
-    // #[error("failed to decode data received from HTTP request `{0}`: {1}")]
-    // ResponseDecode(Box<str>, reqwest_middleware::Error),
     #[error("error making an HTTP request:\n{0:#?}")]
     ReqwestMiddleware(#[from] reqwest_middleware::Error),
     #[error(transparent)]
