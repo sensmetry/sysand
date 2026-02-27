@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use thiserror::Error;
 
-use crate::{model::InterchangeProjectValidationError, project::ProjectMut};
+use crate::{
+    model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError},
+    project::ProjectMut,
+};
 
 #[derive(Error, Debug)]
 pub enum AddError<ProjectError> {
@@ -19,19 +22,18 @@ pub fn do_add<P: ProjectMut, S: AsRef<str>>(
     iri: S,
     versions_constraint: Option<String>,
 ) -> Result<(), AddError<P::Error>> {
-    let usage: crate::model::InterchangeProjectUsageRaw =
-        crate::model::InterchangeProjectUsageRaw {
-            resource: iri.as_ref().to_owned(),
-            version_constraint: versions_constraint.clone(),
-        }
-        .validate()?
-        .into();
+    let iri = iri.as_ref();
+    let usage = InterchangeProjectUsageRaw {
+        resource: iri.to_owned(),
+        version_constraint: versions_constraint.clone(),
+    }
+    .validate()?
+    .into();
 
     let adding = "Adding";
     let header = crate::style::get_style_config().header;
     log::info!(
-        "{header}{adding:>12}{header:#} usage: `{}` {}",
-        iri.as_ref(),
+        "{header}{adding:>12}{header:#} usage: `{iri}` {}",
         versions_constraint
             .as_ref()
             .map(|vr| vr.to_string())

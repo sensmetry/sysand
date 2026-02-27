@@ -14,7 +14,7 @@ use crate::project::{editable::EditableProject, local_src::LocalSrcProject, util
 use crate::{
     lock::{Lock, Project, Usage},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
-    project::{CanonicalisationError, ProjectRead, utils::FsIoError},
+    project::{CanonicalizationError, ProjectRead, utils::FsIoError},
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
 };
@@ -24,7 +24,7 @@ pub enum LockProjectError<PI: ProjectRead, PD: ProjectRead, R: ResolveRead + Deb
     #[error(transparent)]
     InputProjectError(PI::Error),
     #[error(transparent)]
-    InputProjectCanonicalisationError(CanonicalisationError<PI::Error>),
+    InputProjectCanonicalizationError(CanonicalizationError<PI::Error>),
     #[error(transparent)]
     LockError(#[from] LockError<PD, R>),
 }
@@ -34,7 +34,7 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     DependencyProject(PD::Error),
     #[error(transparent)]
-    DependencyProjectCanonicalisation(CanonicalisationError<PD::Error>),
+    DependencyProjectCanonicalization(CanonicalizationError<PD::Error>),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("incomplete project{0}")]
@@ -86,7 +86,7 @@ pub fn do_lock_projects<
 
         let canonical_hash = project
             .checksum_canonical_hex()
-            .map_err(LockProjectError::InputProjectCanonicalisationError)?
+            .map_err(LockProjectError::InputProjectCanonicalizationError)?
             .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
         let sources = project.sources();
@@ -95,7 +95,7 @@ pub fn do_lock_projects<
         lock.projects.push(Project {
             name: Some(info.name),
             version: info.version,
-            exports: meta.index.keys().cloned().collect(),
+            exports: meta.index.into_keys().collect(),
             identifiers: vec![],
             checksum: canonical_hash,
             sources,
@@ -134,7 +134,7 @@ pub fn do_lock_extend<
     for (iri, (info, meta, project)) in solution {
         let canonical_hash = project
             .checksum_canonical_hex()
-            .map_err(LockError::DependencyProjectCanonicalisation)?
+            .map_err(LockError::DependencyProjectCanonicalization)?
             .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
         let sources = project.sources();
@@ -143,11 +143,11 @@ pub fn do_lock_extend<
         lock.projects.push(Project {
             name: Some(info.name),
             version: info.version.to_string(),
-            exports: meta.index.keys().cloned().collect(),
+            exports: meta.index.into_keys().collect(),
             identifiers: vec![iri.to_string()],
             checksum: canonical_hash,
             sources,
-            usages: info.usage.iter().cloned().map(Usage::from).collect(),
+            usages: info.usage.into_iter().map(Usage::from).collect(),
         });
 
         dependencies.push((iri, project));
@@ -178,12 +178,11 @@ pub fn do_lock_local_editable<
             nominal_path: Some(path.to_path_buf()),
             project_path: project_root
                 .as_ref()
-                .join(path.as_ref())
+                .join(&path)
                 .canonicalize_utf8()
                 .map_err(|e| {
                     LockError::Io(
-                        FsIoError::Canonicalize(project_root.to_path_buf().join(path.as_ref()), e)
-                            .into(),
+                        FsIoError::Canonicalize(project_root.as_ref().join(path), e).into(),
                     )
                 })?,
         },

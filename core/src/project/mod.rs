@@ -93,7 +93,7 @@ async fn hash_reader_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Proje
 }
 
 #[derive(Error, Debug)]
-pub enum CanonicalisationError<ReadError: ErrorBound> {
+pub enum CanonicalizationError<ReadError: ErrorBound> {
     #[error(transparent)]
     ProjectRead(ReadError),
     #[error("failed to read from file\n  `{0}`:\n  {1}")]
@@ -191,10 +191,10 @@ pub trait ProjectRead {
     /// Produces canonicalized project metadata, replacing all source file hashes by SHA256.
     fn canonical_meta(
         &self,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>> {
+    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>> {
         let Some(mut meta) = self
             .get_meta()
-            .map_err(CanonicalisationError::ProjectRead)?
+            .map_err(CanonicalizationError::ProjectRead)?
         else {
             return Ok(None);
         };
@@ -211,11 +211,11 @@ pub trait ProjectRead {
 
                 let mut src = self
                     .read_source(path)
-                    .map_err(CanonicalisationError::ProjectRead)?;
+                    .map_err(CanonicalizationError::ProjectRead)?;
                 checksum.value = format!(
                     "{:x}",
                     hash_reader(&mut src)
-                        .map_err(|e| CanonicalisationError::FileRead(path.as_str().into(), e))?
+                        .map_err(|e| CanonicalizationError::FileRead(path.as_str().into(), e))?
                 );
             } else {
                 checksum.value = checksum.value.to_lowercase();
@@ -226,7 +226,7 @@ pub trait ProjectRead {
     }
 
     /// Produces a project hash based on project information and the *non-canonicalized* metadata.
-    fn checksum_noncanonical_hex(&self) -> Result<Option<String>, Self::Error> {
+    fn checksum_non_canonical_hex(&self) -> Result<Option<String>, Self::Error> {
         Ok(self
             .get_project()
             .map(|(info, meta)| info.zip(meta))?
@@ -234,10 +234,10 @@ pub trait ProjectRead {
     }
 
     /// Produces a project hash based on project information and the *canonicalized* metadata.
-    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalisationError<Self::Error>> {
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         let info = self
             .get_info()
-            .map_err(CanonicalisationError::ProjectRead)?;
+            .map_err(CanonicalizationError::ProjectRead)?;
         let meta = self.canonical_meta()?;
 
         Ok(info
@@ -318,15 +318,15 @@ impl<T: ProjectRead> ProjectRead for &T {
 
     fn canonical_meta(
         &self,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>> {
+    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>> {
         (*self).canonical_meta()
     }
 
-    fn checksum_noncanonical_hex(&self) -> Result<Option<String>, Self::Error> {
-        (*self).checksum_noncanonical_hex()
+    fn checksum_non_canonical_hex(&self) -> Result<Option<String>, Self::Error> {
+        (*self).checksum_non_canonical_hex()
     }
 
-    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalisationError<Self::Error>> {
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         (*self).checksum_canonical_hex()
     }
 }
@@ -394,15 +394,15 @@ impl<T: ProjectRead> ProjectRead for &mut T {
 
     fn canonical_meta(
         &self,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>> {
+    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>> {
         (**self).canonical_meta()
     }
 
-    fn checksum_noncanonical_hex(&self) -> Result<Option<String>, Self::Error> {
-        (**self).checksum_noncanonical_hex()
+    fn checksum_non_canonical_hex(&self) -> Result<Option<String>, Self::Error> {
+        (**self).checksum_non_canonical_hex()
     }
 
-    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalisationError<Self::Error>> {
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         (**self).checksum_canonical_hex()
     }
 }
@@ -493,13 +493,13 @@ pub trait ProjectReadAsync {
     fn canonical_meta_async(
         &self,
     ) -> impl Future<
-        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>>,
+        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>>,
     > {
         async move {
             let Some(mut meta) = self
                 .get_meta_async()
                 .await
-                .map_err(CanonicalisationError::ProjectRead)?
+                .map_err(CanonicalizationError::ProjectRead)?
             else {
                 return Ok(None);
             };
@@ -513,11 +513,11 @@ pub trait ProjectReadAsync {
                         let mut src = self
                             .read_source_async(&path)
                             .await
-                            .map_err(CanonicalisationError::ProjectRead)?;
+                            .map_err(CanonicalizationError::ProjectRead)?;
                         checksum.value = format!(
                             "{:x}",
                             hash_reader_async(&mut src).await.map_err(|e| {
-                                CanonicalisationError::FileRead(path.to_string().into(), e)
+                                CanonicalizationError::FileRead(path.clone().into(), e)
                             })?
                         );
                     } else {
@@ -541,7 +541,7 @@ pub trait ProjectReadAsync {
     }
 
     /// Produces a project hash based on project information and the *non-canonicalized* metadata.
-    fn checksum_noncanonical_hex_async(
+    fn checksum_non_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
         async {
@@ -556,12 +556,12 @@ pub trait ProjectReadAsync {
     /// Produces a project hash based on project information and the *canonicalized* metadata.
     fn checksum_canonical_hex_async(
         &self,
-    ) -> impl Future<Output = Result<Option<String>, CanonicalisationError<Self::Error>>> {
+    ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
         async {
             let info = self
                 .get_info_async()
                 .await
-                .map_err(CanonicalisationError::ProjectRead)?;
+                .map_err(CanonicalizationError::ProjectRead)?;
             let meta = self.canonical_meta_async().await?;
 
             Ok(info
@@ -655,20 +655,20 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
     fn canonical_meta_async(
         &self,
     ) -> impl Future<
-        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>>,
+        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>>,
     > {
         (**self).canonical_meta_async()
     }
 
-    fn checksum_noncanonical_hex_async(
+    fn checksum_non_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
-        (**self).checksum_noncanonical_hex_async()
+        (**self).checksum_non_canonical_hex_async()
     }
 
     fn checksum_canonical_hex_async(
         &self,
-    ) -> impl Future<Output = Result<Option<String>, CanonicalisationError<Self::Error>>> {
+    ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
         (**self).checksum_canonical_hex_async()
     }
 }
@@ -746,20 +746,20 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
     fn canonical_meta_async(
         &self,
     ) -> impl Future<
-        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>>,
+        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>>,
     > {
         (**self).canonical_meta_async()
     }
 
-    fn checksum_noncanonical_hex_async(
+    fn checksum_non_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
-        (**self).checksum_noncanonical_hex_async()
+        (**self).checksum_non_canonical_hex_async()
     }
 
     fn checksum_canonical_hex_async(
         &self,
-    ) -> impl Future<Output = Result<Option<String>, CanonicalisationError<Self::Error>>> {
+    ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
         (**self).checksum_canonical_hex_async()
     }
 }
@@ -829,26 +829,27 @@ pub trait ProjectMut: ProjectRead {
         compute_checksum: bool,
         overwrite: bool,
     ) -> Result<(), ProjectOrIOError<Self::Error>> {
+        let path = path.as_ref();
         let mut meta = self
             .get_meta()
             .map_err(ProjectOrIOError::Project)?
             .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
 
         {
-            let mut reader = self.read_source(&path).map_err(ProjectOrIOError::Project)?;
+            let mut reader = self.read_source(path).map_err(ProjectOrIOError::Project)?;
 
             if compute_checksum {
                 let sha256_checksum = hash_reader(&mut reader)
-                    .map_err(|e| FsIoError::ReadFile(path.as_ref().as_str().into(), e))?;
+                    .map_err(|e| FsIoError::ReadFile(path.as_str().into(), e))?;
 
                 meta.add_checksum(
-                    &path,
+                    path,
                     KerMlChecksumAlg::Sha256,
                     format!("{:x}", sha256_checksum),
                     overwrite,
                 );
             } else {
-                meta.add_checksum(&path, KerMlChecksumAlg::None, "", overwrite);
+                meta.add_checksum(path, KerMlChecksumAlg::None, "", overwrite);
             }
         }
 
@@ -1129,10 +1130,10 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalisation_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
         let project = InMemoryProject {
             info: Some(InterchangeProjectInfoRaw {
-                name: "test_canonicalisation".to_string(),
+                name: "test_canonicalization".to_string(),
                 description: None,
                 version: "1.2.3".to_string(),
                 license: None,

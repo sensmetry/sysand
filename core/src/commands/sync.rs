@@ -133,15 +133,14 @@ where
                         project_version.checksum_canonical_hex().ok().flatten()
                     {
                         if checksum == &provided_checksum {
-                            log::debug!("`{}` is marked as provided, skipping installation", iri);
+                            log::debug!("`{iri}` is marked as provided, skipping installation");
                             continue 'main_loop;
                         }
 
                         provided.push(provided_checksum);
                     } else {
                         log::debug!(
-                            "failed to get checksum for provided project: {:?}",
-                            project_version
+                            "failed to get checksum for provided project: {project_version:?}"
                         );
                     }
                 }
@@ -162,7 +161,7 @@ where
 
         for uri in &project.identifiers {
             if is_installed(uri, &project.checksum, env)? {
-                log::debug!("{} found in sysand_env", &uri);
+                log::debug!("{uri} found in sysand_env");
                 continue 'main_loop;
             }
         }
@@ -275,7 +274,7 @@ fn is_installed<E: ReadEnvironment, U: ErrorBound, G: ErrorBound, S: AsRef<str>,
         let project_checksum = env
             .get_project(&uri, version)
             .map_err(|e| SyncError::ProjectRead(e.to_string()))?
-            .checksum_noncanonical_hex()
+            .checksum_non_canonical_hex()
             .map_err(|e| SyncError::ProjectRead(e.to_string()))?
             .ok_or_else(|| SyncError::BadProject(uri.as_ref().to_owned()))?;
         if checksum.as_ref() == project_checksum {
@@ -298,23 +297,25 @@ fn try_install<
     storage: P,
     env: &mut E,
 ) -> Result<(), SyncError<U, G>> {
+    let uri = uri.as_ref();
+    let checksum = checksum.as_ref();
     let project_checksum = storage
         .checksum_canonical_hex()
         .map_err(|e| SyncError::ProjectRead(e.to_string()))?
-        .ok_or_else(|| SyncError::BadProject(uri.as_ref().to_owned()))?;
-    if checksum.as_ref() == project_checksum {
+        .ok_or_else(|| SyncError::BadProject(uri.to_owned()))?;
+    if checksum == project_checksum {
         // TODO: Need to decide how to handle existing installations and possible flags to modify behavior
-        do_env_install_project(&uri, &storage, env, true, true).map_err(|e| {
+        do_env_install_project(uri, &storage, env, true, true).map_err(|e| {
             SyncError::InstallFail {
-                uri: uri.as_ref().into(),
+                uri: uri.into(),
                 cause: e.to_string(),
             }
         })?;
     } else {
-        log::debug!("incorrect checksum for `{}` in lockfile", uri.as_ref());
-        log::debug!("lockfile checksum = `{}`", checksum.as_ref());
-        log::debug!("project checksum = `{}`", project_checksum);
-        return Err(SyncError::BadChecksum(uri.as_ref().into()));
+        log::debug!("incorrect checksum for `{uri}` in lockfile");
+        log::debug!("lockfile checksum = `{checksum}`");
+        log::debug!("project checksum = `{project_checksum}`");
+        return Err(SyncError::BadChecksum(uri.into()));
     }
     Ok(())
 }
@@ -388,7 +389,7 @@ mod tests {
         let storage = storage_example();
 
         let uri = "urn:kpar:install_test";
-        let checksum = storage.checksum_noncanonical_hex().unwrap().unwrap();
+        let checksum = storage.checksum_non_canonical_hex().unwrap().unwrap();
         let mut env = MemoryStorageEnvironment::new();
         env.put_project(uri, "1,2,3", |p| {
             clone_project(&storage, p, true).map(|_| ())
@@ -422,7 +423,7 @@ mod tests {
         let storage = storage_example();
 
         let uri = "urn:kpar:install_test";
-        let checksum = storage.checksum_noncanonical_hex().unwrap().unwrap();
+        let checksum = storage.checksum_non_canonical_hex().unwrap().unwrap();
         let mut env = MemoryStorageEnvironment::new();
 
         try_install::<

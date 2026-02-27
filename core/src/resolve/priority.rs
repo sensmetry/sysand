@@ -5,7 +5,13 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{env::utils::ErrorBound, project::ProjectRead, resolve::ResolveRead};
+use crate::{
+    env::utils::ErrorBound,
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::ProjectRead,
+    resolve::ResolveRead,
+};
 
 /// Resolver that overrides the resolution of some underlying (lower priority)
 /// resolver by that of another (higher priority) resolver.
@@ -100,8 +106,8 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
@@ -136,7 +142,7 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         }
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         match self {
             PriorityProject::HigherProject(project) => project.sources(),
             PriorityProject::LowerProject(project) => project.sources(),
