@@ -42,7 +42,7 @@ public class SysandBuildKParMojo extends AbstractMojo {
     private String outputPath;
 
     /**
-     * Kpar compression method. Can be configured as 
+     * KPAR compression method. Can be configured as 
      * {@code <configuration><compressionMethod>...</compressionMethod></configuration>} or
      * via {@code -Dsysand.compressionMethod=...}.
      */
