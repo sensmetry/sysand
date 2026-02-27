@@ -36,7 +36,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     no_lock: bool,
     no_sync: bool,
     resolution_opts: ResolutionOptions,
-    source_opts: ProjectSourceOptions,
+    source_opts: Box<ProjectSourceOptions>,
     mut config: Config,
     config_file: Option<String>,
     no_config: bool,
@@ -124,14 +124,18 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
             kpar_path: get_relative(kpar_path, &project_root)?.as_str().into(),
         })
     } else if let Some(remote_src) = source_opts.as_remote_src {
-        Some(sysand_core::lock::Source::RemoteSrc { remote_src })
+        Some(sysand_core::lock::Source::RemoteSrc {
+            remote_src: remote_src.into_string(),
+        })
     } else if let Some(remote_kpar) = source_opts.as_remote_kpar {
         Some(sysand_core::lock::Source::RemoteKpar {
-            remote_kpar,
+            remote_kpar: remote_kpar.into_string(),
             remote_kpar_size: None,
         })
     } else if let Some(remote_git) = source_opts.as_remote_git {
-        Some(sysand_core::lock::Source::RemoteGit { remote_git })
+        Some(sysand_core::lock::Source::RemoteGit {
+            remote_git: remote_git.into_string(),
+        })
     } else {
         None
     };

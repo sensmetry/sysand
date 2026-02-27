@@ -358,7 +358,7 @@ fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
             "--no-lock",
             "urn:kpar:test",
             "--as-remote-src",
-            "www.example.com/test",
+            "https://www.example.com/test",
         ],
         Some(config_path.as_str()),
     )?;
@@ -396,7 +396,7 @@ identifiers = [
     "urn:kpar:test",
 ]
 sources = [
-    { remote_src = "www.example.com/test" },
+    { remote_src = "https://www.example.com/test" },
 ]
 "#
     );
@@ -451,7 +451,7 @@ fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
             "--no-lock",
             "urn:kpar:test",
             "--as-remote-kpar",
-            "www.example.com/test.kpar",
+            "https://www.example.com/test.kpar",
         ],
         Some(config_path.as_str()),
     )?;
@@ -489,7 +489,7 @@ identifiers = [
     "urn:kpar:test",
 ]
 sources = [
-    { remote_kpar = "www.example.com/test.kpar" },
+    { remote_kpar = "https://www.example.com/test.kpar" },
 ]
 "#
     );
@@ -544,7 +544,7 @@ fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
             "--no-lock",
             "urn:kpar:test",
             "--as-remote-git",
-            "www.example.com/test.git",
+            "https://www.example.com/test.git",
         ],
         Some(config_path.as_str()),
     )?;
@@ -582,7 +582,7 @@ identifiers = [
     "urn:kpar:test",
 ]
 sources = [
-    { remote_git = "www.example.com/test.git" },
+    { remote_git = "https://www.example.com/test.git" },
 ]
 "#
     );

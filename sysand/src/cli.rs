@@ -9,6 +9,7 @@ use std::{
 
 use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
+use fluent_uri::Iri;
 use semver::VersionReq;
 
 use crate::env_vars;
@@ -97,7 +98,7 @@ pub enum Command {
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
         #[command(flatten)]
-        source_opts: ProjectSourceOptions,
+        source_opts: Box<ProjectSourceOptions>,
     },
     /// Remove usage from project information
     #[clap(alias = "rm")]
@@ -1278,36 +1279,36 @@ pub struct ProjectSourceOptions {
     /// update configuration file attempting to guess the
     /// source from the PATH
     #[arg(long, value_name = "PATH", group = "source")]
-    pub from_path: Option<String>,
+    pub from_path: Option<Utf8PathBuf>,
     /// Add usage as a remote interchange project at URL and
     /// update configuration file attempting to guess the
     /// source from the URL
     #[arg(long, value_name = "URL", group = "source")]
-    pub from_url: Option<String>,
+    pub from_url: Option<Iri<String>>,
     /// Add usage as an editable interchange project at PATH and
     /// update configuration file with appropriate source
     #[arg(long, value_name = "PATH", group = "source")]
-    pub as_editable: Option<String>,
+    pub as_editable: Option<Utf8PathBuf>,
     /// Add usage as a local interchange project at PATH and
     /// update configuration file with appropriate source
     #[arg(long, value_name = "PATH", group = "source")]
-    pub as_local_src: Option<String>,
+    pub as_local_src: Option<Utf8PathBuf>,
     /// Add usage as a local interchange project archive at PATH
     /// and update configuration file with appropriate source
     #[arg(long, value_name = "PATH", group = "source")]
-    pub as_local_kpar: Option<String>,
+    pub as_local_kpar: Option<Utf8PathBuf>,
     /// Add usage as a remote interchange project at URL and
     /// update configuration file with appropriate source
     #[arg(long, value_name = "URL", group = "source")]
-    pub as_remote_src: Option<String>,
+    pub as_remote_src: Option<Iri<String>>,
     /// Add usage as a remote interchange project archive at URL
     /// and update configuration file with appropriate source
     #[arg(long, value_name = "URL", group = "source")]
-    pub as_remote_kpar: Option<String>,
+    pub as_remote_kpar: Option<Iri<String>>,
     /// Add usage as a remote git interchange project at URL and
     /// update configuration file with appropriate source
     #[arg(long, value_name = "URL", group = "source")]
-    pub as_remote_git: Option<String>,
+    pub as_remote_git: Option<Iri<String>>,
 }
 
 #[derive(clap::Args, Debug, Clone)]
