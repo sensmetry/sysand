@@ -23,7 +23,7 @@ SYSAND_CRED_<X>_BASIC_USER = <USER>
 SYSAND_CRED_<X>_BASIC_PASS = <PASSWORD>
 ```
 
-Where `<X>` is arbitrary, `<PATTERN>` is a wildcard (glob) pattern matching URLs, and 
+Where `<X>` is arbitrary, `<PATTERN>` is a wildcard (glob) pattern matching URLs, and
 `<USER>:<PASSWORD>` are credentials that may be used with URLs matching the pattern.
 
 Thus, for example,
@@ -34,7 +34,7 @@ SYSAND_CRED_TEST_BASIC_USER = "foo"
 SYSAND_CRED_TEST_BASIC_PASS = "bar"
 ```
 
-Would tell Sysand that it *may* use the credentials `foo:bar` with URLs such as
+Would tell Sysand that it _may_ use the credentials `foo:bar` with URLs such as
 
 ```text
 https://www.example.com/projects/project.kpar
@@ -45,12 +45,13 @@ https://projects.example.com/projects/myproject/versions.txt
 In the wildcard pattern, `?` matches any single letter, `*` matches any sequence of characters
 not containing `/`, and `**` matches any sequence of characters possibly including `/`.
 
-Credentials will *only* be sent to URLs matching the pattern, and even then only if an 
+Credentials will _only_ be sent to URLs matching the pattern, and even then only if an
 unauthenticated response produces a status in the 4xx range. If multiple patterns match, they will
 be tried in an arbitrary order, after the initial unauthenticated attempt, until one results in a
 response not in the 4xx range.
 
 Authentication by a (fixed) bearer token works similarly, using the pattern
+
 ```text
 SYSAND_CRED_<X> = <PATTERN>
 SYSAND_CRED_<X>_BEARER_TOKEN = <TOKEN>

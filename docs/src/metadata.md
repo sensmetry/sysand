@@ -80,7 +80,7 @@ Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
 - `ssh`: note that currently only git repositories are supported for this type.
   SSH repository URLs supported by git have to be translated to use standard ssh
   syntax to be accepted by sysand. For example:
-  
+
   `git@github.com:myuser/myrepo.git`
 
   translated into standard syntax becomes
@@ -89,6 +89,7 @@ Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
 
   See [git URL documentation][git_url] for
   details.
+
 - `git+file`/`git+http`/`git+https`/`git+ssh`: same as non-prefixed protocols,
   but explicitly identify that the destination is a git repository and should
   be treated as such. This is a way to force Sysand to only use git resolver
@@ -116,7 +117,6 @@ The usage resolution version selection mechanism is only implemented
 for semantic version constraints and semantic versions of used
 projects. Sysand will not be able to correctly (or at all) select
 versions for usages that do not adhere to SemVer.
-
 
 See below for details.
 
@@ -152,6 +152,7 @@ major/minor/patch component is the same. This is different from
 SemVer which considers [all pre-1.0.0 packages to be incompatible][semver-0].
 
 Examples:
+
 ```text
 ^1.2.3  := 1.2.3 := >=1.2.3, <2.0.0
 ^1.2    := 1.2   := >=1.2.0, <2.0.0
@@ -171,6 +172,7 @@ version is specified, only patch-level changes are allowed. If only a major
 version is given, then minor- and patch-level changes are allowed.
 
 Examples:
+
 ```text
 ~1.2.3  := >=1.2.3, <1.3.0
 ~1.2    := >=1.2.0, <1.3.0
@@ -183,6 +185,7 @@ Wildcard operator (`*`) allows for any version where the wildcard is
 positioned.
 
 Examples:
+
 ```text
 *     := >=0.0.0
 1.*   := >=1.0.0, <2.0.0
@@ -196,6 +199,7 @@ Since the version in a comparator may be partial, only the
 parts specified are required to match exactly.
 
 Examples:
+
 ```text
 =1.2.3 := >=1.2.3, <1.2.4
 =1.2   := >=1.2.0, <1.3.0
@@ -211,6 +215,7 @@ comparison operator is given, the allowed versions range has
 no opposite end.
 
 Examples:
+
 ```text
 >=1.2.0
 >1      := >=2.0.0
