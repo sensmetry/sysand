@@ -161,7 +161,7 @@ where
 
         for uri in &project.identifiers {
             if is_installed(uri, &project.checksum, env)? {
-                log::debug!("{uri} found in sysand_env");
+                log::debug!("`{uri}` found in sysand_env");
                 continue 'main_loop;
             }
         }
