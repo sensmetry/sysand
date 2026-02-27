@@ -383,7 +383,7 @@ impl<
                 .map_err(CombinedResolverError::File)?
             {
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("File resolver rejects IRI '{}' due to: {}", uri, msg);
+                    log::debug!("file resolver rejected IRI `{}`: {}", uri, msg);
                 } // Just continue
                 ResolutionOutcome::Resolved(r) => {
                     //at_least_one_supports = true;
@@ -419,7 +419,7 @@ impl<
                         match res {
                             Err(err) => {
                                 log::debug!(
-                                    "Local resolver rejected project with IRI {} due to: {:?}",
+                                    "local resolver rejected project with IRI `{}`: {}",
                                     uri,
                                     err
                                 );
@@ -430,13 +430,13 @@ impl<
                                 }
                                 Ok(_) => {
                                     log::debug!(
-                                        "Local resolver rejected project with IRI {} due to missing project/info",
+                                        "local resolver rejected project with IRI `{}` due to missing project/info",
                                         uri
                                     );
                                 }
                                 Err(err) => {
                                     log::debug!(
-                                        "Local resolver rejected project with IRI {} due to: {:?}",
+                                        "local resolver rejected project with IRI `{}`: {}",
                                         uri,
                                         err
                                     );
@@ -446,15 +446,11 @@ impl<
                     }
                 }
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("Local resolver rejected IRI {} due to: {}", uri, msg);
+                    log::debug!("local resolver rejected IRI `{}`: {}", uri, msg);
                 }
                 ResolutionOutcome::Unresolvable(msg) => {
                     at_least_one_supports = true;
-                    log::debug!(
-                        "Local resolver unable to resolve IRI {} due to: {}",
-                        uri,
-                        msg
-                    );
+                    log::debug!("local resolver unable to resolve IRI `{}`: {}", uri, msg);
                 }
             };
         }
@@ -469,15 +465,11 @@ impl<
                 .map_err(CombinedResolverError::Remote)?
             {
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("Remote resolver rejects IRI {} due to: {}", uri, msg);
+                    log::debug!("remote resolver rejected IRI `{}`: {}", uri, msg);
                 }
                 ResolutionOutcome::Unresolvable(msg) => {
                     at_least_one_supports = true;
-                    log::debug!(
-                        "Remote resolver unable to resolve IRI {} due to: {}",
-                        uri,
-                        msg
-                    );
+                    log::debug!("remote resolver unable to resolve IRI `{}`: {}", uri, msg);
                 }
                 ResolutionOutcome::Resolved(remote_projects) => {
                     at_least_one_supports = true;
@@ -488,7 +480,7 @@ impl<
                         match remote_projects.peek() {
                             Some(Err(err)) => {
                                 log::debug!(
-                                    "Remote resolver skipping projrect for IRI {} due to: {}",
+                                    "remote resolver skipping project for IRI `{}`: {}",
                                     uri,
                                     err
                                 );
@@ -512,14 +504,14 @@ impl<
                                     }
                                     Ok(_) => {
                                         log::debug!(
-                                            "Remote resolver skipping projrect for IRI {} due to missing info/meta",
+                                            "remote resolver skipping project for IRI `{}` due to missing info/meta",
                                             uri
                                         );
                                         remote_projects.next();
                                     }
                                     Err(err) => {
                                         log::debug!(
-                                            "Remote resolver skipping projrect for IRI {} due to: {:?}",
+                                            "remote resolver skipping project for IRI `{}`: {}",
                                             uri,
                                             err
                                         );
@@ -529,7 +521,7 @@ impl<
                             }
                             None => {
                                 log::debug!(
-                                    "Remote resolver unable to find valid project for IRI {}",
+                                    "remote resolver unable to find valid project for IRI `{}`",
                                     uri
                                 );
                                 break;
@@ -553,15 +545,11 @@ impl<
                     }));
                 }
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("Registry resolver rejects IRI {} due to: {}", uri, msg);
+                    log::debug!("registry resolver rejects IRI `{}`: {}", uri, msg);
                 }
                 ResolutionOutcome::Unresolvable(msg) => {
                     at_least_one_supports = true;
-                    log::debug!(
-                        "Registry resolver unable to resolve IRI {} due to: {}",
-                        uri,
-                        msg
-                    );
+                    log::debug!("registry resolver unable to resolve IRI `{}`: {}", uri, msg);
                 }
             };
         }
@@ -569,11 +557,11 @@ impl<
         // As a last resort, use only locally cached projects, if any were found
         if !at_least_one_supports {
             Ok(ResolutionOutcome::UnsupportedIRIType(
-                "No resolver accepted the IRI".to_string(),
+                "no resolver accepted the IRI".to_string(),
             ))
         } else if locals.is_empty() {
             Ok(ResolutionOutcome::Unresolvable(
-                "No resolver was able to resolve the IRI".to_string(),
+                "no resolver was able to resolve the IRI".to_string(),
             ))
         } else {
             Ok(ResolutionOutcome::Resolved(CombinedIterator {

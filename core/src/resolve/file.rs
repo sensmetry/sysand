@@ -127,8 +127,7 @@ impl FileResolver {
         match try_file_uri_to_path(uri)? {
             Some(path) => self.resolve_platform_path(path),
             None => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "`{}` is not a file URL",
-                &uri
+                "`{uri}` is not a file URL",
             ))),
         }
     }

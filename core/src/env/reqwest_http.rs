@@ -45,10 +45,10 @@ pub struct HTTPEnvironmentAsync<Policy> {
 pub enum HTTPEnvironmentError {
     #[error("failed to extend URL `{0}` with path `{1}`: {2}")]
     JoinURL(Box<str>, String, url::ParseError),
-    // TODO: include error.source(). Currently it gives no details what's gone
-    // wrong. Also it includes URL, so no need to have it separately
-    #[error("error making an HTTP request to '{0}':\n{1}")]
-    HTTPRequest(Box<str>, reqwest_middleware::Error),
+    // TODO: nicer formatting. Debug formating is used here to include
+    // all the details, since they are not given in the Display impl
+    #[error("error making an HTTP request:\n{0:#?}")]
+    HTTPRequest(#[from] reqwest_middleware::Error),
     #[error("failed to get project `{0}`, version `{1}` in source or kpar format")]
     InvalidURL(Box<str>, Box<str>),
     #[error("failed to read HTTP response: {0}")]
@@ -140,8 +140,7 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
         let src_project_response = self
             .auth_policy
             .with_authentication(&self.client, &src_project_request)
-            .await
-            .map_err(|e| HTTPEnvironmentError::HTTPRequest(src_project_url.as_str().into(), e))?;
+            .await?;
 
         if !src_project_response.status().is_success() {
             return Ok(None);
@@ -161,9 +160,8 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
         uri: S,
         version: T,
     ) -> Result<Option<HTTPProjectAsync<Policy>>, HTTPEnvironmentError> {
-        let kpar_project_url = self.project_kpar_url(&uri, &version)?;
-
-        let this_url = kpar_project_url.clone();
+        let project_kpar_url = self.project_kpar_url(&uri, &version)?;
+        let this_url = project_kpar_url.clone();
         let kpar_project_request = move |client: &ClientWithMiddleware| {
             client
                 .head(this_url.clone())
@@ -172,19 +170,15 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
         let kpar_project_response = self
             .auth_policy
             .with_authentication(&self.client, &kpar_project_request)
-            .await;
+            .await?;
 
-        if !kpar_project_response
-            .map_err(|e| HTTPEnvironmentError::HTTPRequest(kpar_project_url.as_str().into(), e))?
-            .status()
-            .is_success()
-        {
+        if !kpar_project_response.status().is_success() {
             return Ok(None);
         }
 
         Ok(Some(HTTPProjectAsync::HTTPKParProjectDownloaded(
             ReqwestKparDownloadedProject::new_guess_root(
-                &self.project_kpar_url(&uri, &version)?,
+                &project_kpar_url,
                 self.client.clone(),
                 self.auth_policy.clone(),
             )
@@ -245,10 +239,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for HTTPEnvironmentAsync<P
         let response = self
             .auth_policy
             .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
-            .await
-            .map_err(|e| {
-                HTTPEnvironmentError::HTTPRequest(self.entries_url().unwrap().as_str().into(), e)
-            })?;
+            .await?;
 
         let inner = if response.status().is_success() {
             Some(
@@ -280,13 +271,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for HTTPEnvironmentAsync<P
         let response = self
             .auth_policy
             .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
-            .await
-            .map_err(|e| {
-                HTTPEnvironmentError::HTTPRequest(
-                    self.versions_url(uri).unwrap().as_str().into(),
-                    e,
-                )
-            })?;
+            .await?;
 
         let inner = if response.status().is_success() {
             Some(

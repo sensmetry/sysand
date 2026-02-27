@@ -45,11 +45,11 @@ pub enum ReqwestKparDownloadedError {
     BadHttpStatus(reqwest::Url, reqwest::StatusCode),
     #[error("failed to parse URL `{0}`: {1}")]
     ParseUrl(Box<str>, url::ParseError),
-    #[error("HTTP request to `{0}` failed: {1}")]
-    Reqwest(Box<str>, reqwest_middleware::Error),
-    #[error("failed to decode data received from HTTP request `{0}`: {1}")]
-    ResponseDecode(Box<str>, reqwest_middleware::Error),
-    #[error(transparent)]
+    // TODO: nicer formatting. Debug formating is used here to include
+    // all the details, since they are not given in the Display impl
+    #[error("error making an HTTP request:\n{0:#?}")]
+    Reqwest(reqwest::Error),
+    #[error("error making an HTTP request:\n{0:#?}")]
     ReqwestMiddleware(#[from] reqwest_middleware::Error),
     #[error(transparent)]
     KPar(#[from] LocalKParError),
@@ -104,8 +104,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
                     client.get(this_url.clone())
                 },
             )
-            .await
-            .map_err(|e| ReqwestKparDownloadedError::Reqwest(self.url.as_str().into(), e))?;
+            .await?;
 
         if !resp.status().is_success() {
             return Err(ReqwestKparDownloadedError::BadHttpStatus(
@@ -118,14 +117,12 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         use futures::StreamExt as _;
 
         while let Some(bytes) = bytes_stream.next().await {
-            let bytes = bytes.map_err(|e| {
-                ReqwestKparDownloadedError::Reqwest(self.url.as_str().to_string().into(), e.into())
-            })?;
+            let bytes = bytes.map_err(ReqwestKparDownloadedError::Reqwest)?;
             file.write_all(&bytes)
                 .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
         }
 
-        file.flush()
+        file.sync_all()
             .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
 
         Ok(())

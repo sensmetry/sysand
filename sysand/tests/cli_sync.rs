@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::io::Write;
-
 use assert_cmd::prelude::*;
 use indexmap::IndexMap;
 use mockito::Matcher;
@@ -22,30 +20,27 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir(&lib_dir)?;
     let proj_dir = lib_dir.join("sync_to_local");
     std::fs::create_dir(&proj_dir)?;
-    let mut info_file = std::fs::File::create_new(proj_dir.join(".project.json"))?;
-    info_file.write_all(
+    std::fs::write(
+        proj_dir.join(".project.json"),
         r#"{
   "name": "sync_to_local",
   "version": "1.2.3",
   "usage": []
 }
-"#
-        .as_bytes(),
+"#,
     )?;
-    let mut meta_file = std::fs::File::create_new(proj_dir.join(".meta.json"))?;
-    meta_file.write_all(
+    std::fs::write(
+        proj_dir.join(".meta.json"),
         r#"{
   "index": {},
   "created": "2025-06-12T10:48:55.597880Z"
 }
-"#
-        .as_bytes(),
+"#,
     )?;
 
-    let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
-
-    lockfile.write_all(
-        r#"lock_version = "0.2"
+    std::fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
+        r#"lock_version = "0.3"
 
 [[project]]
 name = "sync_to_local"
@@ -55,8 +50,7 @@ checksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c"
 sources = [
     { src_path = "lib/sync_to_local" },
 ]
-"#
-        .as_bytes(),
+"#,
     )?;
 
     let out = run_sysand_in(&cwd, ["sync"], None)?;
@@ -104,11 +98,10 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
         .expect_at_most(4) // TODO: Reduce this to 1 after caching
         .create();
 
-    let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
-
-    lockfile.write_all(
+    std::fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.2"
+            r#"lock_version = "0.3"
 
 [[project]]
 name = "sync_to_remote"
@@ -120,8 +113,7 @@ sources = [
 ]
 "#,
             &server.url()
-        )
-        .as_bytes(),
+        ),
     )?;
 
     let out = run_sysand_in(&cwd, ["sync"], None)?;
@@ -198,11 +190,10 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .expect(4) // TODO: Reduce this to 1
         .create();
 
-    let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
-
-    lockfile.write_all(
+    std::fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.2"
+            r#"lock_version = "0.3"
 
 [[project]]
 name = "sync_to_remote"
@@ -224,17 +215,11 @@ sources = [
         None,
         &IndexMap::from([
             (
-                "SYSAND_CRED_TEST".to_string(),
-                format!("http://{}/**", server.host_with_port()),
+                "SYSAND_CRED_TEST",
+                format!("http://{}/**", server.host_with_port()).as_str(),
             ),
-            (
-                "SYSAND_CRED_TEST_BASIC_USER".to_string(),
-                "user_1234".to_string(),
-            ),
-            (
-                "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
-                "pass_4321".to_string(),
-            ),
+            ("SYSAND_CRED_TEST_BASIC_USER", "user_1234"),
+            ("SYSAND_CRED_TEST_BASIC_PASS", "pass_4321"),
         ]),
     )?;
 
@@ -312,11 +297,10 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .expect(0) // TODO: Reduce this to 1
         .create();
 
-    let mut lockfile = std::fs::File::create_new(cwd.join(DEFAULT_LOCKFILE_NAME))?;
-
-    lockfile.write_all(
+    std::fs::write(
+        cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.2"
+            r#"lock_version = "0.3"
 
 [[project]]
 name = "sync_to_remote"
@@ -328,8 +312,7 @@ sources = [
 ]
 "#,
             &server.url()
-        )
-        .as_bytes(),
+        ),
     )?;
 
     let out = run_sysand_in_with(
@@ -337,18 +320,9 @@ sources = [
         ["sync"],
         None,
         &IndexMap::from([
-            (
-                "SYSAND_CRED_TEST".to_string(),
-                "http://127.0.0.1:80/**".to_string(),
-            ),
-            (
-                "SYSAND_CRED_TEST_BASIC_USER".to_string(),
-                "user_1234".to_string(),
-            ),
-            (
-                "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
-                "pass_4321".to_string(),
-            ),
+            ("SYSAND_CRED_TEST", "http://127.0.0.1:80/**"),
+            ("SYSAND_CRED_TEST_BASIC_USER", "user_1234"),
+            ("SYSAND_CRED_TEST_BASIC_PASS", "pass_4321"),
         ]),
     )?;
 

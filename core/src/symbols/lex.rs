@@ -17,6 +17,7 @@ pub enum LexingError {
 
 // Block comments, strings, and quoted names are easier to handle manually, as
 // Logos regexes are too greedy.
+// TODO: with logos 0.16, regexes should no longer be too greedy
 fn lex_block_comment(lex: &mut Lexer<'_, Token>) -> Result<(), LexingError> {
     let rem = lex.remainder();
     let mut close_pos = rem.find("*/").ok_or(LexingError::Unterminated("/*"))?;
@@ -157,7 +158,14 @@ pub enum Token {
     #[token("//*", |lex| lex_block_comment(lex))]
     BlockComment,
 
-    #[regex(r"//[^\*][^\n]*", priority = 10)]
+    // TODO: do we need to explicitly ignore `//*` here? It adds
+    //       a lot of complexity
+    // What this does:
+    // - ignore `//*(\r?\n)?`
+    // - ignore `//*anything except newline(\r?\n)?`
+    // - match `//(\r?\n)?`
+    // - match `//anything except newline(\r?\n)?`
+    #[regex(r"//(?:[^\*\n][^\n]*)?(?:\n|$)", priority = 10)]
     LineComment,
 
     #[token("\"", |lex| lex_string(lex))]

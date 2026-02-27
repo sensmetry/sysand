@@ -4,50 +4,98 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use camino::Utf8Path;
-use pubgrub::Reporter as _;
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::lock::{
-        DEFAULT_LOCKFILE_NAME, LockError, LockOutcome, LockProjectError, do_lock_local_editable,
-    },
+    commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
     config::Config,
     env::local_directory::DEFAULT_ENV_NAME,
-    project::utils::wrapfs,
+    project::{memory::InMemoryProject, utils::wrapfs},
     resolve::{
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
-        standard::standard_resolver,
+        standard::{StandardResolver, standard_resolver},
     },
-    solve::pubgrub::{DependencyIdentifier, InternalSolverError},
     stdlib::known_std_libs,
+    workspace::Workspace,
 };
 
 use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
 
-/// Generate a lockfile for project at `path`.
+/// Generate a lockfile for `current_project`.
 /// `path` must be relative to workspace root.
 // TODO: this will not work properly if run in subdir of workspace,
 // as `path` will then refer to a deeper subdir
 pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     path: P,
+    current_workspace: Option<Workspace>,
     resolution_opts: ResolutionOptions,
     config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-) -> Result<()> {
+) -> Result<sysand_core::lock::Lock> {
     assert!(path.as_ref().is_relative(), "{}", path.as_ref());
+
+    let provided_iris = if !resolution_opts.include_std {
+        known_std_libs()
+    } else {
+        HashMap::default()
+    };
+    let wrapped_resolver = create_resolver(
+        &path,
+        resolution_opts,
+        config,
+        provided_iris,
+        client,
+        runtime,
+        auth_policy,
+    )?;
+
+    let alias_iris = if let Some(w) = current_workspace {
+        w.projects()
+            .iter()
+            .find(|p| Utf8Path::new(&p.path) == path.as_ref())
+            .map(|p| p.iris.clone())
+    } else {
+        None
+    };
+    let LockOutcome {
+        lock,
+        dependencies: _dependencies,
+    } = do_lock_local_editable(&path, alias_iris, wrapped_resolver)?;
+
+    let canonical = lock.canonicalize();
+    wrapfs::write(
+        path.as_ref().join(DEFAULT_LOCKFILE_NAME),
+        canonical.to_string(),
+    )?;
+
+    Ok(canonical)
+}
+
+pub fn create_resolver<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+    path: &P,
+    resolution_opts: ResolutionOptions,
+    config: &Config,
+    provided_iris: HashMap<String, Vec<InMemoryProject>>,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+) -> Result<
+    PriorityResolver<MemoryResolver<AcceptAll, InMemoryProject>, StandardResolver<Policy>>,
+    anyhow::Error,
+> {
     let ResolutionOptions {
         index,
         default_index,
         no_index,
-        include_std,
+        include_std: _,
     } = resolution_opts;
 
-    let cwd = wrapfs::current_dir().ok();
+    let cwd = wrapfs::current_dir()?;
 
     let local_env_path = path.as_ref().join(DEFAULT_ENV_NAME);
 
@@ -57,16 +105,11 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
-    let provided_iris = if !include_std {
-        known_std_libs()
-    } else {
-        HashMap::default()
-    };
-
+    // TODO: add fn next to known_std_libs() to get this structure directly
+    // it is created in most? all? places where `known_std_libs()` is used
     let mut memory_projects = HashMap::default();
-
     for (k, v) in provided_iris {
-        memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
+        memory_projects.insert(fluent_uri::Iri::parse(k).unwrap(), v);
     }
 
     let wrapped_resolver = PriorityResolver::new(
@@ -75,7 +118,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             projects: memory_projects,
         },
         standard_resolver(
-            cwd,
+            Some(cwd),
             if local_env_path.is_dir() {
                 Some(local_env_path)
             } else {
@@ -87,64 +130,5 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             auth_policy,
         ),
     );
-
-    let LockOutcome {
-        lock,
-        dependencies: _dependencies,
-    } = match do_lock_local_editable(&path, wrapped_resolver) {
-        Ok(lock_outcome) => lock_outcome,
-        Err(LockProjectError::LockError(lock_error)) => {
-            if let LockError::Solver(solver_error) = lock_error {
-                match *solver_error.inner {
-                    pubgrub::PubGrubError::NoSolution(mut derivation_tree) => {
-                        derivation_tree.collapse_no_versions();
-                        bail!(
-                            "Failed to satisfy usage constraints:\n{}",
-                            pubgrub::DefaultStringReporter::report(&derivation_tree)
-                        );
-                    }
-                    pubgrub::PubGrubError::ErrorRetrievingDependencies {
-                        package, source, ..
-                    } => match package {
-                        DependencyIdentifier::Requested(_) => {
-                            bail!("Unexpected internal error: {:?}", source)
-                        }
-                        DependencyIdentifier::Remote(iri) => {
-                            bail!("Failed to retrieve (transitive) usages of usage {}", iri)
-                        }
-                    },
-                    pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => {
-                        match package {
-                            DependencyIdentifier::Requested(_) => {
-                                bail!("Unexpected internal error: {:?}", source)
-                            }
-                            DependencyIdentifier::Remote(iri) => {
-                                bail!("Unable to select version of usage {}", iri)
-                            }
-                        }
-                    }
-                    pubgrub::PubGrubError::ErrorInShouldCancel(err) => match err {
-                        InternalSolverError::Resolution(err) => {
-                            bail! {"Resolution error: {:?}", err}
-                        }
-                        // InternalSolverError::InvalidProject => {
-                        //     bail!("Found invalid project during usage resolution")
-                        // }
-                        InternalSolverError::NotResolvable(iri) => {
-                            bail!("Unable to resolve usage '{}'", iri)
-                        }
-                    },
-                }
-            }
-            Err(lock_error)?
-        }
-        Err(err) => Err(err)?,
-    };
-
-    wrapfs::write(
-        path.as_ref().join(DEFAULT_LOCKFILE_NAME),
-        lock.canonicalize().to_string(),
-    )?;
-
-    Ok(())
+    Ok(wrapped_resolver)
 }
