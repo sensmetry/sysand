@@ -45,7 +45,7 @@ pub struct HTTPEnvironmentAsync<Policy> {
 pub enum HTTPEnvironmentError {
     #[error("failed to extend URL `{0}` with path `{1}`: {2}")]
     JoinURL(Box<str>, String, url::ParseError),
-    // TODO: nicer formatting. Debug formmating is used here to include
+    // TODO: nicer formatting. Debug formating is used here to include
     // all the details, since they are not given in the Display impl
     #[error("error making an HTTP request:\n{0:#?}")]
     HTTPRequest(#[from] reqwest_middleware::Error),

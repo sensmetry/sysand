@@ -46,7 +46,7 @@ pub enum ReqwestKparDownloadedError {
     BadHttpStatus(reqwest::Url, reqwest::StatusCode),
     #[error("failed to parse URL `{0}`: {1}")]
     ParseUrl(Box<str>, url::ParseError),
-    // TODO: nicer formatting. Debug formmating is used here to include
+    // TODO: nicer formatting. Debug formating is used here to include
     // all the details, since they are not given in the Display impl
     #[error("error making an HTTP request:\n{0:#?}")]
     Reqwest(reqwest::Error),
@@ -115,7 +115,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
                 .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
         }
 
-        file.sync_data()
+        file.sync_all()
             .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
 
         Ok(())

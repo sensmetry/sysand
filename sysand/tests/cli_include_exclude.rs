@@ -177,7 +177,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
-    sysml_file.sync_data()?;
+    sysml_file.sync_all()?;
 
     out.assert().success();
 
@@ -203,7 +203,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     sysml_file.write_all(b"package P;\n")?;
-    sysml_file.sync_data()?;
+    sysml_file.sync_all()?;
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml", "--compute-checksum"], None)?;
 
