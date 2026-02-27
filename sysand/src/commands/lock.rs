@@ -25,16 +25,17 @@ use sysand_core::{
     stdlib::known_std_libs,
 };
 
-use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions};
+use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions, get_overrides};
 
 /// Generate a lockfile for project at `path`.
 /// `path` must be relative to workspace root.
 // TODO: this will not work properly if run in subdir of workspace,
 // as `path` will then refer to a deeper subdir
-pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
     path: P,
     resolution_opts: ResolutionOptions,
     config: &Config,
+    project_root: R,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
@@ -47,8 +48,6 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         include_std,
     } = resolution_opts;
 
-    let cwd = wrapfs::current_dir().ok();
-
     let local_env_path = path.as_ref().join(DEFAULT_ENV_NAME);
 
     let index_urls = if no_index {
@@ -56,6 +55,14 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     } else {
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
+
+    let overrides = get_overrides(
+        config,
+        &project_root,
+        &client,
+        runtime.clone(),
+        auth_policy.clone(),
+    )?;
 
     let provided_iris = if !include_std {
         known_std_libs()
@@ -69,14 +76,18 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
     }
 
-    let wrapped_resolver = PriorityResolver::new(
+    let override_resolver = PriorityResolver::new(
+        MemoryResolver::from(overrides),
         MemoryResolver {
             iri_predicate: AcceptAll {},
             projects: memory_projects,
         },
+    );
+    let wrapped_resolver = PriorityResolver::new(
+        override_resolver,
         standard_resolver(
-            cwd,
-            if local_env_path.is_dir() {
+            None,
+            if wrapfs::is_dir(&local_env_path)? {
                 Some(local_env_path)
             } else {
                 None
@@ -91,7 +102,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     let LockOutcome {
         lock,
         dependencies: _dependencies,
-    } = match do_lock_local_editable(&path, wrapped_resolver) {
+    } = match do_lock_local_editable(&path, &project_root, wrapped_resolver) {
         Ok(lock_outcome) => lock_outcome,
         Err(LockProjectError::LockError(lock_error)) => {
             if let LockError::Solver(solver_error) = lock_error {

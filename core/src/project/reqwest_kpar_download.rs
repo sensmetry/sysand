@@ -8,13 +8,14 @@ use std::{
     sync::Arc,
 };
 
-use camino_tempfile::tempdir;
 use futures::AsyncRead;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 use thiserror::Error;
 
 use crate::{
     auth::HTTPAuthentication,
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectRead, ProjectReadAsync,
         local_kpar::{LocalKParError, LocalKParProject},
@@ -69,20 +70,10 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
-        let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
-
         Ok(ReqwestKparDownloadedProject {
             url: reqwest::Url::parse(url.as_ref())
                 .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?,
-            inner: LocalKParProject {
-                archive_path: {
-                    let mut p = wrapfs::canonicalize(tmp_dir.path())?;
-                    p.push("project.kpar");
-                    p
-                },
-                tmp_dir,
-                root: None,
-            },
+            inner: LocalKParProject::new_temporary()?,
             client,
             auth_policy,
         })
@@ -154,8 +145,8 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
@@ -180,8 +171,8 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         })
     }
 
-    async fn sources_async(&self) -> Vec<crate::lock::Source> {
-        vec![crate::lock::Source::RemoteKpar {
+    async fn sources_async(&self) -> Vec<Source> {
+        vec![Source::RemoteKpar {
             remote_kpar: self.url.to_string(),
             remote_kpar_size: self.inner.file_size().ok(),
         }]

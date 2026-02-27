@@ -3,7 +3,11 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::project::ProjectRead;
+use crate::{
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::ProjectRead,
+};
 
 #[derive(Debug)]
 /// Treat a project type `P` as an "Editable" project. This simply adds
@@ -46,8 +50,8 @@ impl<P: ProjectRead + GetPath> ProjectRead for EditableProject<P> {
         &self,
     ) -> Result<
         (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
         ),
         Self::Error,
     > {
@@ -66,7 +70,7 @@ impl<P: ProjectRead + GetPath> ProjectRead for EditableProject<P> {
         self.inner.read_source(path)
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         let mut inner_sources = if self.include_original_sources {
             self.inner.sources()
         } else {
@@ -75,7 +79,7 @@ impl<P: ProjectRead + GetPath> ProjectRead for EditableProject<P> {
 
         inner_sources.insert(
             0,
-            crate::lock::Source::Editable {
+            Source::Editable {
                 editable: self.nominal_path.as_str().into(),
             },
         );

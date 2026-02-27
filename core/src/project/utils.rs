@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 #[cfg(feature = "filesystem")]
 use zip::{self, result::ZipError};
@@ -85,6 +85,10 @@ pub enum FsIoError {
     RmDir(Utf8PathBuf, io::Error),
     #[error("failed to get path to current directory:\n  {0}")]
     CurrentDir(io::Error),
+    #[error("failed to get metadata to determine if\n  `{0}` is a regular file:\n  {1}")]
+    IsFile(Utf8PathBuf, io::Error),
+    #[error("failed to get metadata to determine if\n  `{0}` is a directory:\n  {1}")]
+    IsDir(Utf8PathBuf, io::Error),
 }
 
 /// Wrappers for filesystem I/O functions to return `FsIoError`.
@@ -93,6 +97,7 @@ pub mod wrapfs {
 
     use std::fs;
     use std::io;
+    use std::io::ErrorKind;
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
@@ -203,6 +208,54 @@ pub mod wrapfs {
             })
             .map_err(|e| Box::new(FsIoError::CurrentDir(e)))
     }
+
+    /// Returns `true` if the given path exists and is a regular file.
+    ///
+    /// This function attempts to retrieve the metadata for `path` and checks
+    /// whether it represents a regular file.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(true)` if the path exists and is a regular file.
+    /// - `Ok(false)` if the path does not exist or it is not a regular file.
+    /// - `Err(_)` if an I/O error occurs while retrieving metadata for reasons
+    ///   other than the path not being found (e.g., permission denied).
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`FsIoError`] if metadata retrieval fails for any reason
+    /// other than [`std::io::ErrorKind::NotFound`].
+    pub fn is_file<P: AsRef<Utf8Path>>(path: P) -> Result<bool, Box<FsIoError>> {
+        match fs::metadata(path.as_ref()) {
+            Ok(metadata) => Ok(metadata.is_file()),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(Box::new(FsIoError::IsFile(path.as_ref().into(), err))),
+        }
+    }
+
+    /// Returns `true` if the given path exists and is a directory.
+    ///
+    /// This function attempts to retrieve the metadata for `path` and checks
+    /// whether it represents a directory.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(true)` if the path exists and is a directory.
+    /// - `Ok(false)` if the path does not exist or it is not a directory.
+    /// - `Err(_)` if an I/O error occurs while retrieving metadata for reasons
+    ///   other than the path not being found (e.g., permission denied).
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`FsIoError`] if metadata retrieval fails for any reason
+    /// other than [`std::io::ErrorKind::NotFound`].
+    pub fn is_dir<P: AsRef<Utf8Path>>(path: P) -> Result<bool, Box<FsIoError>> {
+        match fs::metadata(path.as_ref()) {
+            Ok(metadata) => Ok(metadata.is_dir()),
+            Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
+            Err(err) => Err(Box::new(FsIoError::IsFile(path.as_ref().into(), err))),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -249,4 +302,352 @@ pub enum ZipArchiveError {
     Write(Box<Utf8Path>, ZipError),
     #[error("failed to finish creating zip archive at `{0}`: {1}")]
     Finish(Box<Utf8Path>, ZipError),
+}
+
+#[derive(Debug, Error)]
+pub enum RelativizePathError {
+    #[error("path `{0}` is not absolute")]
+    RelativePath(Utf8PathBuf),
+    #[error("root `{0}` is not absolute")]
+    RelativeRoot(Utf8PathBuf),
+    #[error("path `{0}` contains invalid components (`.` or `..`)")]
+    NonCanonicalPath(Utf8PathBuf),
+    #[error("root `{0}` contains invalid components (`.` or `..`)")]
+    NonCanonicalRoot(Utf8PathBuf),
+    #[error("unable to relativize path `{path}` with respect to `{root}`")]
+    NoCommonPrefix {
+        path: Utf8PathBuf,
+        root: Utf8PathBuf,
+    },
+}
+
+// Note: `components()` ignores non-leading `CurDir` so paths like `/a/./b`
+// will not register as non-canonical.
+fn contains_non_canonical_components(path: &Utf8Path) -> bool {
+    path.components()
+        .any(|c| matches!(c, Utf8Component::CurDir | Utf8Component::ParentDir))
+}
+
+/// Computes the relative path from `root` to `path`.
+///
+/// Both `path` and `root` must be absolute and structurally canonical:
+///
+/// - They must be absolute paths.
+/// - They must not contain `.` (`CurDir`) components.
+/// - They must not contain `..` (`ParentDir`) components.
+/// - They must share the same path prefix (e.g., drive letter on Windows).
+///
+/// This function performs purely syntactic path manipulation. It does **not**
+/// access the filesystem and does not resolve symlinks. Callers are expected
+/// to pass paths that have been canonicalized beforehand (e.g., via
+/// [`wrapfs::canonicalize`] or equivalent).
+///
+/// # Returns
+///
+/// - `Ok(relative_path)` if a relative path from `root` to `path` can be computed.
+/// - `Err(RelativizePathError)` if:
+///   - Either input path is relative.
+///   - Either input contains `.` or `..` components.
+///   - The paths do not share a common prefix.
+///
+/// If `path` and `root` are identical, a `Utf8PathBuf` with a single `.` component
+/// is returned.
+///
+/// # Examples
+///
+/// ```rust
+/// # use camino::Utf8Path;
+/// # use sysand_core::project::utils::relativize_path;
+/// let path = if cfg!(windows) {
+///     Utf8Path::new(r"C:\a\b\c")
+/// } else {
+///     Utf8Path::new("/a/b/c")
+/// };
+/// let root = if cfg!(windows) {
+///     Utf8Path::new(r"C:\a\b")
+/// } else {
+///     Utf8Path::new("/a/b")
+/// };
+///
+/// let relative = relativize_path(path, root).unwrap();
+/// assert_eq!(relative, "c");
+/// ```
+///
+/// ```rust
+/// # use camino::Utf8Path;
+/// # use sysand_core::project::utils::relativize_path;
+/// let path = if cfg!(windows) {
+///     Utf8Path::new(r"C:\a\b")
+/// } else {
+///     Utf8Path::new("/a/b")
+/// };
+/// let root = if cfg!(windows) {
+///     Utf8Path::new(r"C:\a\b\c")
+/// } else {
+///     Utf8Path::new("/a/b/c")
+/// };
+///
+/// let relative = relativize_path(path, root).unwrap();
+/// assert_eq!(relative, "..");
+/// ```
+pub fn relativize_path<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
+    path: P,
+    root: R,
+) -> Result<Utf8PathBuf, RelativizePathError> {
+    let path = path.as_ref();
+    let root = root.as_ref();
+
+    if path.is_relative() {
+        return Err(RelativizePathError::RelativePath(path.to_path_buf()));
+    }
+    if root.is_relative() {
+        return Err(RelativizePathError::RelativeRoot(root.to_path_buf()));
+    }
+
+    if contains_non_canonical_components(path) {
+        return Err(RelativizePathError::NonCanonicalPath(path.to_path_buf()));
+    }
+
+    if contains_non_canonical_components(root) {
+        return Err(RelativizePathError::NonCanonicalRoot(root.to_path_buf()));
+    }
+
+    let mut path_iter = path.components().peekable();
+    let mut root_iter = root.components().peekable();
+
+    // Both paths are absolute, so prefixes can only differ on Windows in the cases when:
+    // - paths point to different drives
+    // - path kinds differ (regular vs UNC vs DOS device paths)
+    // Failure should not be possible on Unix-like systems, since absolute
+    // paths all start with the common prefix `/`.
+    match (path_iter.peek(), root_iter.peek()) {
+        (Some(p0), Some(r0)) if p0 == r0 => {
+            path_iter.next();
+            root_iter.next();
+        }
+        _ => {
+            return Err(RelativizePathError::NoCommonPrefix {
+                path: path.to_path_buf(),
+                root: root.to_path_buf(),
+            });
+        }
+    }
+
+    while let (Some(p), Some(r)) = (path_iter.peek(), root_iter.peek()) {
+        if p == r {
+            path_iter.next();
+            root_iter.next();
+        } else {
+            break;
+        }
+    }
+
+    let mut result = Utf8PathBuf::new();
+
+    for r in root_iter {
+        if let Utf8Component::Normal(_) = r {
+            result.push("..");
+        }
+    }
+
+    for p in path_iter {
+        result.push(p.as_str());
+    }
+
+    if result.as_str().is_empty() {
+        result.push(".");
+    }
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use camino::Utf8Path;
+
+    use crate::project::utils::{RelativizePathError, relativize_path};
+
+    #[test]
+    fn simple_relativize_path() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\")
+        } else {
+            Utf8Path::new("/")
+        };
+        let relative = if cfg!(windows) {
+            Utf8Path::new(r"a\b\c")
+        } else {
+            Utf8Path::new("a/b/c")
+        };
+        assert_eq!(relativize_path(path, root)?, relative.as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn backtracking_relativize_path() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\d\e\f")
+        } else {
+            Utf8Path::new("/d/e/f")
+        };
+        let relative = if cfg!(windows) {
+            Utf8Path::new(r"..\..\..\a\b\c")
+        } else {
+            Utf8Path::new("../../../a/b/c")
+        };
+        assert_eq!(relativize_path(path, root)?, relative.as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn trivial_relativize_path() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let relative = Utf8Path::new(".");
+        assert_eq!(relativize_path(path, root)?, relative.as_str());
+        Ok(())
+    }
+
+    #[test]
+    fn relativize_path_error_relative_path() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"a\b\c")
+        } else {
+            Utf8Path::new("a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let Err(err) = relativize_path(path, root) else {
+            panic!("`relativize_path` did not return error");
+        };
+        let RelativizePathError::RelativePath(err_path) = err else {
+            panic!(
+                "expected `RelativizePathError::RelativePath`, got:\n{:?}",
+                err
+            );
+        };
+        assert_eq!(err_path, path);
+        Ok(())
+    }
+
+    #[test]
+    fn relativize_path_error_relative_root() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"a\b\c")
+        } else {
+            Utf8Path::new("a/b/c")
+        };
+        let Err(err) = relativize_path(path, root) else {
+            panic!("`relativize_path` did not return error");
+        };
+        let RelativizePathError::RelativeRoot(err_root) = err else {
+            panic!(
+                "expected `RelativizePathError::RelativeRoot`, got:\n{:?}",
+                err
+            );
+        };
+        assert_eq!(err_root, root);
+        Ok(())
+    }
+
+    #[test]
+    fn relativize_path_error_non_canonical() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\..\c")
+        } else {
+            Utf8Path::new("/a/../c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let Err(err) = relativize_path(path, root) else {
+            panic!("`relativize_path` did not return error");
+        };
+        let RelativizePathError::NonCanonicalPath(err_path) = err else {
+            panic!(
+                "expected `RelativizePathError::NonCanonicalPath`, got:\n{:?}",
+                err
+            );
+        };
+        assert_eq!(err_path, path);
+        Ok(())
+    }
+
+    #[test]
+    fn relativize_path_error_non_canonical_root() -> Result<(), Box<dyn Error>> {
+        let path = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\b\c")
+        } else {
+            Utf8Path::new("/a/b/c")
+        };
+        let root = if cfg!(windows) {
+            Utf8Path::new(r"C:\a\..\c")
+        } else {
+            Utf8Path::new("/a/../c")
+        };
+        let Err(err) = relativize_path(path, root) else {
+            panic!("`relativize_path` did not return error");
+        };
+        let RelativizePathError::NonCanonicalRoot(err_root) = err else {
+            panic!(
+                "expected `RelativizePathError::NonCanonicalRoot`, got:\n{:?}",
+                err
+            );
+        };
+        assert_eq!(err_root, root);
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn relativize_path_error_non_common_prefix() -> Result<(), Box<dyn Error>> {
+        let path = Utf8Path::new(r"C:\a\b\c");
+        let root = Utf8Path::new(r"D:\a\b\c");
+        let Err(err) = relativize_path(path, root) else {
+            panic!("`relativize_path` did not return error");
+        };
+        let RelativizePathError::NoCommonPrefix {
+            path: err_path,
+            root: err_root,
+        } = err
+        else {
+            panic!(
+                "expected `RelativizePathError::NoCommonPrefix`, got:\n{:?}",
+                err
+            );
+        };
+        assert_eq!(err_path, path);
+        assert_eq!(err_root, root);
+        Ok(())
+    }
 }

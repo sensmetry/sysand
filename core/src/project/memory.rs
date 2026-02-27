@@ -1,11 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::{
-    env::utils::{CloneError, clone_project},
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectMut, ProjectRead},
-};
 use std::{
     collections::{HashMap, hash_map::Entry},
     io::Read,
@@ -14,13 +9,20 @@ use std::{
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
+use crate::{
+    env::utils::{CloneError, clone_project},
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{ProjectMut, ProjectRead},
+};
+
 /// Project stored in a local directory
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Eq, Default, Debug, PartialEq)]
 pub struct InMemoryProject {
     pub info: Option<InterchangeProjectInfoRaw>,
     pub meta: Option<InterchangeProjectMetadataRaw>,
     pub files: HashMap<Utf8UnixPathBuf, String>,
-    pub nominal_sources: Vec<crate::lock::Source>,
+    pub nominal_sources: Vec<Source>,
 }
 
 impl InMemoryProject {
@@ -154,7 +156,7 @@ impl ProjectRead for InMemoryProject {
         Ok(contents.as_bytes())
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
-        vec![]
+    fn sources(&self) -> Vec<Source> {
+        panic!("`InMemoryProject` cannot have any project sources")
     }
 }

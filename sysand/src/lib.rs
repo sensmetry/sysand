@@ -15,12 +15,13 @@ use std::{
 
 use anstream::{eprint, eprintln};
 use anyhow::{Result, bail};
+use fluent_uri::Iri;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
 
 use sysand_core::{
-    auth::StandardHTTPAuthenticationBuilder,
+    auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder},
     config::{
         Config,
         local_fs::{get_config, load_configs},
@@ -28,7 +29,11 @@ use sysand_core::{
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     init::InitError,
     lock::Lock,
-    project::utils::wrapfs,
+    project::{
+        any::{AnyProject, OverrideProject},
+        reference::ProjectReference,
+        utils::wrapfs,
+    },
     stdlib::known_std_libs,
 };
 
@@ -112,15 +117,26 @@ fn set_panic_hook() {
 pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
+    let log_level = get_log_level(args.global_opts.verbose, args.global_opts.quiet);
+    if logger::init(log_level).is_err() {
+        let warn = style::WARN;
+        eprintln!(
+            "{warn}warning{warn:#}: failed to set up logger because it has already been set up;\n\
+            {:>8} log messages may not be formatted properly",
+            ' '
+        );
+        log::set_max_level(log_level);
+    }
+
     let current_workspace = sysand_core::discover::current_workspace()?;
     let current_project = sysand_core::discover::current_project()?;
     let cwd = wrapfs::current_dir()?;
 
-    let project_root = current_project.clone().map(|p| p.root_path()).clone();
+    let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
 
     let current_environment = {
         let dir = project_root.as_ref().unwrap_or(&cwd);
-        crate::get_env(dir)
+        crate::get_env(dir)?
     };
 
     let auto_config = if args.global_opts.no_config {
@@ -136,22 +152,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     };
 
     config.merge(auto_config);
-
-    let (verbose, quiet) = if args.global_opts.sets_log_level() {
-        (args.global_opts.verbose, args.global_opts.quiet)
-    } else {
-        get_config_verbose_quiet(&config)
-    };
-    let log_level = get_log_level(verbose, quiet);
-    if logger::init(log_level).is_err() {
-        let warn = style::WARN;
-        eprintln!(
-            "{warn}warning{warn:#}: failed to set up logger because it has already been set up;\n\
-            {:>8} log messages may not be formatted properly",
-            ' '
-        );
-        log::set_max_level(log_level);
-    }
 
     let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
 
@@ -333,11 +333,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         },
         cli::Command::Lock { resolution_opts } => {
-            if project_root.is_some() {
+            if let Some(project_root) = project_root {
                 crate::commands::lock::command_lock(
                     ".",
                     resolution_opts,
                     &config,
+                    project_root,
                     client,
                     runtime,
                     basic_auth_policy,
@@ -362,11 +363,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             };
             let project_root = project_root.unwrap_or(cwd);
             let lockfile = project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME);
-            if !lockfile.is_file() {
+            if !wrapfs::is_file(&lockfile)? {
                 command_lock(
                     ".",
                     resolution_opts,
                     &config,
+                    project_root.clone(),
                     client.clone(),
                     runtime.clone(),
                     basic_auth_policy.clone(),
@@ -426,6 +428,15 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             } else {
                 HashSet::default()
             };
+
+            let project_root = project_root.unwrap_or(cwd);
+            let overrides = get_overrides(
+                &config,
+                &project_root,
+                &client,
+                runtime.clone(),
+                basic_auth_policy.clone(),
+            )?;
 
             enum Location {
                 WorkDir,
@@ -517,6 +528,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     client,
                     index_urls,
                     &excluded_iris,
+                    overrides,
                     runtime,
                     basic_auth_policy,
                 ),
@@ -529,6 +541,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         numbered,
                         client,
                         index_urls,
+                        overrides,
                         runtime,
                         basic_auth_policy,
                     )
@@ -547,19 +560,28 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_lock,
             no_sync,
             resolution_opts,
+            source_opts,
         } => command_add(
             iri,
             version_constraint,
             no_lock,
             no_sync,
             resolution_opts,
-            &config,
+            source_opts,
+            config,
+            args.global_opts.config_file,
+            args.global_opts.no_config,
             current_project,
             client,
             runtime,
             basic_auth_policy,
         ),
-        cli::Command::Remove { iri } => command_remove(iri, current_project),
+        cli::Command::Remove { iri } => command_remove(
+            iri,
+            current_project,
+            args.global_opts.config_file,
+            args.global_opts.no_config,
+        ),
         cli::Command::Include {
             paths,
             compute_checksum: add_checksum,
@@ -574,11 +596,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 } else {
                     let mut output_dir = current_workspace
                         .as_ref()
-                        .map(|workspace| &workspace.workspace_path)
+                        .map(|workspace| workspace.root_path())
                         .unwrap_or_else(|| &current_project.project_path)
                         .join("output");
                     let name = sysand_core::build::default_kpar_file_name(&current_project)?;
-                    if !output_dir.is_dir() {
+                    if !wrapfs::is_dir(&output_dir)? {
                         wrapfs::create_dir(&output_dir)?;
                     }
                     output_dir.push(name);
@@ -592,8 +614,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let current_workspace =
                     current_workspace.ok_or(CliError::MissingProjectCurrentDir)?;
                 let output_dir =
-                    path.unwrap_or_else(|| current_workspace.workspace_path.join("output"));
-                if !output_dir.is_dir() {
+                    path.unwrap_or_else(|| current_workspace.root_path().join("output"));
+                if !wrapfs::is_dir(&output_dir)? {
                     wrapfs::create_dir(&output_dir)?;
                 }
                 command_build_for_workspace(output_dir, current_workspace)
@@ -638,28 +660,19 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     }
 }
 
-pub fn get_env(project_root: impl AsRef<Utf8Path>) -> Option<LocalDirectoryEnvironment> {
+pub fn get_env(project_root: impl AsRef<Utf8Path>) -> Result<Option<LocalDirectoryEnvironment>> {
     let environment_path = project_root.as_ref().join(DEFAULT_ENV_NAME);
-    if !environment_path.is_dir() {
-        None
-    } else {
-        Some(LocalDirectoryEnvironment { environment_path })
-    }
+    let env = wrapfs::is_dir(&environment_path)?
+        .then_some(LocalDirectoryEnvironment { environment_path });
+    Ok(env)
 }
 
 pub fn get_or_create_env(project_root: impl AsRef<Utf8Path>) -> Result<LocalDirectoryEnvironment> {
     let project_root = project_root.as_ref();
-    match get_env(project_root) {
+    match get_env(project_root)? {
         Some(env) => Ok(env),
         None => command_env(project_root.join(DEFAULT_ENV_NAME)),
     }
-}
-
-fn get_config_verbose_quiet(config: &Config) -> (bool, bool) {
-    (
-        config.verbose.unwrap_or_default(),
-        config.quiet.unwrap_or_default(),
-    )
 }
 
 fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
@@ -669,4 +682,32 @@ fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
         (false, true) => log::LevelFilter::Error,
         (false, false) => log::LevelFilter::Info,
     }
+}
+
+pub type Overrides<Policy> = Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>;
+
+pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+    config: &Config,
+    project_root: P,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+) -> Result<Overrides<Policy>> {
+    let mut overrides = Vec::new();
+    for config_project in &config.projects {
+        for identifier in &config_project.identifiers {
+            let mut projects = Vec::new();
+            for source in &config_project.sources {
+                projects.push(ProjectReference::new(AnyProject::try_from_source(
+                    source.clone(),
+                    &project_root,
+                    auth_policy.clone(),
+                    client.clone(),
+                    runtime.clone(),
+                )?));
+            }
+            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+        }
+    }
+    Ok(overrides)
 }

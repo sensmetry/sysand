@@ -1,17 +1,18 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{
-    io::{self, Read},
-    iter::Peekable,
-};
+use std::{fmt::Debug, iter::Peekable};
 
 use indexmap::IndexMap;
 use thiserror::Error;
+use typed_path::Utf8UnixPath;
 
 use crate::{
-    model::{ProjectHash, project_hash_raw},
-    project::ProjectRead,
+    lock::Source,
+    model::{
+        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, ProjectHash, project_hash_raw,
+    },
+    project::{ProjectRead, cached::CachedProject},
     resolve::{ResolutionOutcome, ResolveRead, null::NullResolver},
 };
 
@@ -70,169 +71,21 @@ pub enum CombinedResolverError<FileError, LocalError, RemoteError, RegistryError
     Registry(RegistryError),
 }
 
-#[derive(Error, Debug)]
-pub enum CombinedReadError<FileError, LocalError, RemoteError, RegistryError> {
-    #[error(transparent)]
-    File(FileError),
-    #[error(transparent)]
-    Local(LocalError),
-    #[error(transparent)]
-    Remote(RemoteError),
-    #[error(transparent)]
-    Registry(RegistryError),
-}
-
 /// Outcome of a standard resolution remembers the (resolver) source of the project.
 /// Can either be taken apart or used directly as a project storage.
-#[derive(Debug)]
+#[derive(Debug, ProjectRead)]
 pub enum CombinedProjectStorage<
-    FileProjectStorage,
-    LocalProjectStorage,
-    RemoteProjectStorage,
-    RegistryProjectStorage,
-> {
-    FileProject(FileProjectStorage),
-    RemoteProject(RemoteProjectStorage),
-    RegistryProject(RegistryProjectStorage),
-    CachedRemoteProject(LocalProjectStorage, RemoteProjectStorage),
-    CachedRegistryProject(LocalProjectStorage, RegistryProjectStorage),
-    DanglingLocalProject(LocalProjectStorage),
-}
-
-pub enum CombinedSourceReader<FileReader, LocalReader, RemoteReader, RegistryReader> {
-    FileProject(FileReader),
-    LocalProject(LocalReader),
-    RemoteProject(RemoteReader),
-    RegistryProject(RegistryReader),
-}
-
-impl<FileReader: Read, LocalReader: Read, RemoteReader: Read, RegistryReader: Read> Read
-    for CombinedSourceReader<FileReader, LocalReader, RemoteReader, RegistryReader>
-{
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            CombinedSourceReader::FileProject(reader) => reader.read(buf),
-            CombinedSourceReader::LocalProject(reader) => reader.read(buf),
-            CombinedSourceReader::RemoteProject(reader) => reader.read(buf),
-            CombinedSourceReader::RegistryProject(reader) => reader.read(buf),
-        }
-    }
-}
-
-impl<
     FileProjectStorage: ProjectRead,
     LocalProjectStorage: ProjectRead,
     RemoteProjectStorage: ProjectRead,
     RegistryProjectStorage: ProjectRead,
-> ProjectRead
-    for CombinedProjectStorage<
-        FileProjectStorage,
-        LocalProjectStorage,
-        RemoteProjectStorage,
-        RegistryProjectStorage,
-    >
-{
-    type Error = CombinedReadError<
-        FileProjectStorage::Error,
-        LocalProjectStorage::Error,
-        RemoteProjectStorage::Error,
-        RegistryProjectStorage::Error,
-    >;
-
-    fn get_project(
-        &self,
-    ) -> Result<
-        (
-            Option<crate::model::InterchangeProjectInfoRaw>,
-            Option<crate::model::InterchangeProjectMetadataRaw>,
-        ),
-        Self::Error,
-    > {
-        match self {
-            CombinedProjectStorage::FileProject(project) => {
-                project.get_project().map_err(CombinedReadError::File)
-            }
-            CombinedProjectStorage::RemoteProject(project) => {
-                project.get_project().map_err(CombinedReadError::Remote)
-            }
-            CombinedProjectStorage::RegistryProject(project) => {
-                project.get_project().map_err(CombinedReadError::Registry)
-            }
-            CombinedProjectStorage::CachedRemoteProject(project, _) => {
-                project.get_project().map_err(CombinedReadError::Local)
-            }
-            CombinedProjectStorage::CachedRegistryProject(project, _) => {
-                project.get_project().map_err(CombinedReadError::Local)
-            }
-            CombinedProjectStorage::DanglingLocalProject(project) => {
-                project.get_project().map_err(CombinedReadError::Local)
-            }
-        }
-    }
-
-    type SourceReader<'a>
-        = CombinedSourceReader<
-        FileProjectStorage::SourceReader<'a>,
-        LocalProjectStorage::SourceReader<'a>,
-        RemoteProjectStorage::SourceReader<'a>,
-        RegistryProjectStorage::SourceReader<'a>,
-    >
-    where
-        Self: 'a;
-
-    fn read_source<P: AsRef<typed_path::Utf8UnixPath>>(
-        &self,
-        path: P,
-    ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        match self {
-            CombinedProjectStorage::FileProject(project) => project
-                .read_source(path)
-                .map_err(CombinedReadError::File)
-                .map(CombinedSourceReader::FileProject),
-            CombinedProjectStorage::RemoteProject(project) => project
-                .read_source(path)
-                .map_err(CombinedReadError::Remote)
-                .map(CombinedSourceReader::RemoteProject),
-            CombinedProjectStorage::RegistryProject(project) => project
-                .read_source(path)
-                .map_err(CombinedReadError::Registry)
-                .map(CombinedSourceReader::RegistryProject),
-            CombinedProjectStorage::CachedRemoteProject(project, _) => project
-                .read_source(path)
-                .map_err(CombinedReadError::Local)
-                .map(CombinedSourceReader::LocalProject),
-            CombinedProjectStorage::CachedRegistryProject(project, _) => project
-                .read_source(path)
-                .map_err(CombinedReadError::Local)
-                .map(CombinedSourceReader::LocalProject),
-            CombinedProjectStorage::DanglingLocalProject(project) => project
-                .read_source(path)
-                .map_err(CombinedReadError::Local)
-                .map(CombinedSourceReader::LocalProject),
-        }
-    }
-
-    fn is_definitely_invalid(&self) -> bool {
-        match self {
-            CombinedProjectStorage::FileProject(proj) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::RemoteProject(proj) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::RegistryProject(proj) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::CachedRemoteProject(proj, _) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::CachedRegistryProject(proj, _) => proj.is_definitely_invalid(),
-            CombinedProjectStorage::DanglingLocalProject(proj) => proj.is_definitely_invalid(),
-        }
-    }
-
-    fn sources(&self) -> Vec<crate::lock::Source> {
-        match self {
-            CombinedProjectStorage::FileProject(proj) => proj.sources(),
-            CombinedProjectStorage::RemoteProject(proj) => proj.sources(),
-            CombinedProjectStorage::RegistryProject(proj) => proj.sources(),
-            CombinedProjectStorage::CachedRemoteProject(_, proj) => proj.sources(),
-            CombinedProjectStorage::CachedRegistryProject(_, proj) => proj.sources(),
-            CombinedProjectStorage::DanglingLocalProject(proj) => proj.sources(),
-        }
-    }
+> {
+    FileProject(FileProjectStorage),
+    RemoteProject(RemoteProjectStorage),
+    RegistryProject(RegistryProjectStorage),
+    CachedRemoteProject(CachedProject<LocalProjectStorage, RemoteProjectStorage>),
+    CachedRegistryProject(CachedProject<LocalProjectStorage, RegistryProjectStorage>),
+    DanglingLocalProject(LocalProjectStorage),
 }
 
 pub enum CombinedIteratorState<
@@ -307,7 +160,10 @@ impl<
                         });
 
                     if let Some(local_project) = cached {
-                        CombinedProjectStorage::CachedRemoteProject(local_project, project)
+                        CombinedProjectStorage::CachedRemoteProject(CachedProject::new(
+                            local_project,
+                            project,
+                        ))
                     } else {
                         CombinedProjectStorage::RemoteProject(project)
                     }
@@ -328,7 +184,10 @@ impl<
                         });
 
                     if let Some(local_project) = cached {
-                        CombinedProjectStorage::CachedRegistryProject(local_project, project)
+                        CombinedProjectStorage::CachedRegistryProject(CachedProject::new(
+                            local_project,
+                            project,
+                        ))
                     } else {
                         CombinedProjectStorage::RegistryProject(project)
                     }
@@ -377,13 +236,12 @@ impl<
         // use it.
         // TODO: autodetect git (and possibly other VCSs), and use appropriate (e.g. git) resolver for them.
         if let Some(file_resolver) = &self.file_resolver {
-            let mut rejected = vec![];
             match file_resolver
                 .resolve_read(uri)
                 .map_err(CombinedResolverError::File)?
             {
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("File resolver rejects IRI '{}' due to: {}", uri, msg);
+                    log::debug!("file resolver rejects IRI `{uri}` due to: {msg}");
                 } // Just continue
                 ResolutionOutcome::Resolved(r) => {
                     //at_least_one_supports = true;
@@ -393,15 +251,10 @@ impl<
                     }));
                 }
                 ResolutionOutcome::Unresolvable(msg) => {
-                    rejected.push(msg);
+                    return Ok(ResolutionOutcome::Unresolvable(format!(
+                        "failed to resolve as file: {msg}"
+                    )));
                 }
-            }
-
-            if !rejected.is_empty() {
-                return Ok(ResolutionOutcome::Unresolvable(format!(
-                    "failed to resolve as file: {:?}",
-                    rejected
-                )));
             }
         }
 
@@ -419,9 +272,7 @@ impl<
                         match res {
                             Err(err) => {
                                 log::debug!(
-                                    "Local resolver rejected project with IRI {} due to: {:?}",
-                                    uri,
-                                    err
+                                    "local resolver rejected project with IRI `{uri}` due to: {err}"
                                 );
                             }
                             Ok(project) => match project.get_project() {
@@ -430,15 +281,12 @@ impl<
                                 }
                                 Ok(_) => {
                                     log::debug!(
-                                        "Local resolver rejected project with IRI {} due to missing project/info",
-                                        uri
+                                        "local resolver rejected project with IRI `{uri}` due to missing project/info"
                                     );
                                 }
                                 Err(err) => {
                                     log::debug!(
-                                        "Local resolver rejected project with IRI {} due to: {:?}",
-                                        uri,
-                                        err
+                                        "local resolver rejected project with IRI `{uri}` due to: {err}"
                                     );
                                 }
                             },
@@ -446,15 +294,11 @@ impl<
                     }
                 }
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("Local resolver rejected IRI {} due to: {}", uri, msg);
+                    log::debug!("local resolver rejected IRI `{uri}` due to: {msg}");
                 }
                 ResolutionOutcome::Unresolvable(msg) => {
                     at_least_one_supports = true;
-                    log::debug!(
-                        "Local resolver unable to resolve IRI {} due to: {}",
-                        uri,
-                        msg
-                    );
+                    log::debug!("local resolver unable to resolve IRI `{uri}` due to: {msg}");
                 }
             };
         }
@@ -469,15 +313,11 @@ impl<
                 .map_err(CombinedResolverError::Remote)?
             {
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("Remote resolver rejects IRI {} due to: {}", uri, msg);
+                    log::debug!("remote resolver rejects IRI `{uri}` due to: {msg}");
                 }
                 ResolutionOutcome::Unresolvable(msg) => {
                     at_least_one_supports = true;
-                    log::debug!(
-                        "Remote resolver unable to resolve IRI {} due to: {}",
-                        uri,
-                        msg
-                    );
+                    log::debug!("remote resolver unable to resolve IRI `{uri}` due to: {msg}");
                 }
                 ResolutionOutcome::Resolved(remote_projects) => {
                     at_least_one_supports = true;
@@ -488,9 +328,7 @@ impl<
                         match remote_projects.peek() {
                             Some(Err(err)) => {
                                 log::debug!(
-                                    "Remote resolver skipping projrect for IRI {} due to: {}",
-                                    uri,
-                                    err
+                                    "remote resolver skipping project for IRI `{uri}` due to: {err}"
                                 );
                                 remote_projects.next();
                             }
@@ -512,16 +350,13 @@ impl<
                                     }
                                     Ok(_) => {
                                         log::debug!(
-                                            "Remote resolver skipping projrect for IRI {} due to missing info/meta",
-                                            uri
+                                            "remote resolver skipping project for IRI `{uri}` due to missing info/meta"
                                         );
                                         remote_projects.next();
                                     }
                                     Err(err) => {
                                         log::debug!(
-                                            "Remote resolver skipping projrect for IRI {} due to: {:?}",
-                                            uri,
-                                            err
+                                            "remote resolver skipping project for IRI `{uri}` due to: {err}"
                                         );
                                         remote_projects.next();
                                     }
@@ -529,8 +364,7 @@ impl<
                             }
                             None => {
                                 log::debug!(
-                                    "Remote resolver unable to find valid project for IRI {}",
-                                    uri
+                                    "remote resolver unable to find valid project for IRI `{uri}`"
                                 );
                                 break;
                             }
@@ -553,15 +387,11 @@ impl<
                     }));
                 }
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("Registry resolver rejects IRI {} due to: {}", uri, msg);
+                    log::debug!("registry resolver rejects IRI `{uri}` due to: {msg}");
                 }
                 ResolutionOutcome::Unresolvable(msg) => {
                     at_least_one_supports = true;
-                    log::debug!(
-                        "Registry resolver unable to resolve IRI {} due to: {}",
-                        uri,
-                        msg
-                    );
+                    log::debug!("registry resolver unable to resolve IRI `{uri}` due to: {msg}");
                 }
             };
         }
@@ -569,11 +399,11 @@ impl<
         // As a last resort, use only locally cached projects, if any were found
         if !at_least_one_supports {
             Ok(ResolutionOutcome::UnsupportedIRIType(
-                "No resolver accepted the IRI".to_string(),
+                "no resolver accepted the IRI".to_owned(),
             ))
         } else if locals.is_empty() {
             Ok(ResolutionOutcome::Unresolvable(
-                "No resolver was able to resolve the IRI".to_string(),
+                "no resolver was able to resolve the IRI".to_owned(),
             ))
         } else {
             Ok(ResolutionOutcome::Resolved(CombinedIterator {

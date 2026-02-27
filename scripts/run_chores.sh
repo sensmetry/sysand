@@ -8,6 +8,8 @@ ROOT_DIR=$(dirname "$SCRIPT_DIR")
 
 "$ROOT_DIR"/core/scripts/run_chores.sh
 
+"$ROOT_DIR"/macros/scripts/run_chores.sh
+
 "$ROOT_DIR"/sysand/scripts/run_chores.sh
 
 "$ROOT_DIR"/bindings/py/scripts/run_chores.sh

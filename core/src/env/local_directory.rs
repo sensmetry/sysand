@@ -283,8 +283,8 @@ fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMoveErro
 }
 
 impl LocalDirectoryEnvironment {
-    pub fn root_path(&self) -> Utf8PathBuf {
-        self.environment_path.clone()
+    pub fn root_path(&self) -> &Utf8Path {
+        &self.environment_path
     }
 
     pub fn entries_path(&self) -> Utf8PathBuf {
@@ -375,10 +375,18 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
         uri: S,
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
-        let path = self.project_path(uri, version);
+        let path = self.project_path(&uri, version);
         let project_path = wrapfs::canonicalize(path)?;
+        let root_path = wrapfs::canonicalize(self.root_path())?;
+        let nominal_path = root_path
+            .parent()
+            .and_then(|r| project_path.strip_prefix(r).ok())
+            .map(|p| p.to_path_buf());
 
-        Ok(LocalSrcProject { project_path })
+        Ok(LocalSrcProject {
+            nominal_path,
+            project_path,
+        })
     }
 }
 
@@ -503,6 +511,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             .map_err(|e| LocalWriteError::from(FsIoError::MkTempDir(e)))?;
 
         let mut tentative_project = LocalSrcProject {
+            nominal_path: None,
             project_path: project_temp.path().to_path_buf(),
         };
 
@@ -525,7 +534,13 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         ])
         .map_err(LocalWriteError::from)?;
 
-        Ok(LocalSrcProject { project_path })
+        Ok(LocalSrcProject {
+            nominal_path: project_path
+                .parent()
+                .and_then(|p| p.strip_prefix(self.root_path()).ok())
+                .map(|p| p.to_path_buf()),
+            project_path,
+        })
     }
 
     fn del_project_version<S: AsRef<str>, T: AsRef<str>>(

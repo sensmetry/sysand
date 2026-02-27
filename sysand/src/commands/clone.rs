@@ -76,7 +76,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
         (canonical, DirCleaner(&target))
     };
-    if let Some(existing_project) = discover_project(&project_path) {
+    if let Some(existing_project) = discover_project(&project_path)? {
         log::warn!(
             "found an existing project in one of target path's parent\n\
             {:>8} directories `{}`",
@@ -114,7 +114,10 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     let cloned = "Cloned";
     let header = sysand_core::style::get_style_config().header;
 
-    let mut local_project = LocalSrcProject { project_path };
+    let mut local_project = LocalSrcProject {
+        nominal_path: None,
+        project_path,
+    };
     let std_resolver = standard_resolver(
         None,
         None,
@@ -142,6 +145,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
         ProjectLocator::Path(path) => {
             let remote_project = LocalSrcProject {
+                nominal_path: None,
                 project_path: path.into(),
             };
             if let Some(version) = version {

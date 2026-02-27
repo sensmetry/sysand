@@ -1,4 +1,4 @@
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 #[cfg(feature = "python")]
 use pyo3::{FromPyObject, IntoPyObject};
 use serde::{Deserialize, Serialize};
@@ -50,8 +50,8 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn root_path(&self) -> Utf8PathBuf {
-        self.workspace_path.clone()
+    pub fn root_path(&self) -> &Utf8Path {
+        &self.workspace_path
     }
 
     pub fn info_path(&self) -> Utf8PathBuf {

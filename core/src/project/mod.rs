@@ -1,13 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::{
-    env::utils::ErrorBound,
-    model::{
-        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
-    },
-};
 use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
@@ -18,10 +11,24 @@ use std::{
     sync::Arc,
 };
 use thiserror::Error;
-use typed_path::Utf8UnixPath;
 use utils::FsIoError;
 
+pub use sysand_macros::ProjectMut;
+pub use sysand_macros::ProjectRead;
+pub use typed_path::Utf8UnixPath;
+
+use crate::{
+    env::utils::ErrorBound,
+    lock::Source,
+    model::{
+        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
+    },
+};
+
 // Implementations
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod any;
 pub mod editable;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod gix_git_download;
@@ -38,6 +45,10 @@ pub mod reqwest_kpar_download;
 // pub mod reqwest_kpar_ranged;
 #[cfg(feature = "networking")]
 pub mod reqwest_src;
+
+// Generic implementations
+pub mod cached;
+pub mod reference;
 
 pub mod utils;
 
@@ -82,7 +93,7 @@ async fn hash_reader_async<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Proje
 }
 
 #[derive(Error, Debug)]
-pub enum CanonicalisationError<ReadError: ErrorBound> {
+pub enum CanonicalizationError<ReadError: ErrorBound> {
     #[error(transparent)]
     ProjectRead(ReadError),
     #[error("failed to read from file\n  `{0}`:\n  {1}")]
@@ -136,8 +147,8 @@ pub trait ProjectRead {
     /// multiple ones are listed they should aim to be in
     /// some typical order of preference.
     ///
-    /// May be empty if no valid sources are known.
-    fn sources(&self) -> Vec<crate::lock::Source>;
+    /// Should panic if no sources are available.
+    fn sources(&self) -> Vec<Source>;
 
     // Optional and helpers
 
@@ -177,13 +188,13 @@ pub trait ProjectRead {
         Ok(self.get_meta()?.and_then(|meta| meta.checksum))
     }
 
-    /// Produces canonicalised project metadata, replacing all source file hashes by SHA256.
+    /// Produces canonicalized project metadata, replacing all source file hashes by SHA256.
     fn canonical_meta(
         &self,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>> {
+    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>> {
         let Some(mut meta) = self
             .get_meta()
-            .map_err(CanonicalisationError::ProjectRead)?
+            .map_err(CanonicalizationError::ProjectRead)?
         else {
             return Ok(None);
         };
@@ -200,11 +211,11 @@ pub trait ProjectRead {
 
                 let mut src = self
                     .read_source(path)
-                    .map_err(CanonicalisationError::ProjectRead)?;
+                    .map_err(CanonicalizationError::ProjectRead)?;
                 checksum.value = format!(
                     "{:x}",
                     hash_reader(&mut src)
-                        .map_err(|e| CanonicalisationError::FileRead(path.as_str().into(), e))?
+                        .map_err(|e| CanonicalizationError::FileRead(path.as_str().into(), e))?
                 );
             } else {
                 checksum.value = checksum.value.to_lowercase();
@@ -214,19 +225,19 @@ pub trait ProjectRead {
         Ok(Some(meta))
     }
 
-    /// Produces a project hash based on project information and the *non-canonicalised* metadata.
-    fn checksum_noncanonical_hex(&self) -> Result<Option<String>, Self::Error> {
+    /// Produces a project hash based on project information and the *non-canonicalized* metadata.
+    fn checksum_non_canonical_hex(&self) -> Result<Option<String>, Self::Error> {
         Ok(self
             .get_project()
             .map(|(info, meta)| info.zip(meta))?
             .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
     }
 
-    /// Produces a project hash based on project information and the *canonicalised* metadata.
-    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalisationError<Self::Error>> {
+    /// Produces a project hash based on project information and the *canonicalized* metadata.
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         let info = self
             .get_info()
-            .map_err(CanonicalisationError::ProjectRead)?;
+            .map_err(CanonicalizationError::ProjectRead)?;
         let meta = self.canonical_meta()?;
 
         Ok(info
@@ -271,7 +282,7 @@ impl<T: ProjectRead> ProjectRead for &T {
         (*self).read_source(path)
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         (*self).sources()
     }
 
@@ -307,15 +318,15 @@ impl<T: ProjectRead> ProjectRead for &T {
 
     fn canonical_meta(
         &self,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>> {
+    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>> {
         (*self).canonical_meta()
     }
 
-    fn checksum_noncanonical_hex(&self) -> Result<Option<String>, Self::Error> {
-        (*self).checksum_noncanonical_hex()
+    fn checksum_non_canonical_hex(&self) -> Result<Option<String>, Self::Error> {
+        (*self).checksum_non_canonical_hex()
     }
 
-    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalisationError<Self::Error>> {
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         (*self).checksum_canonical_hex()
     }
 }
@@ -347,7 +358,7 @@ impl<T: ProjectRead> ProjectRead for &mut T {
         (**self).read_source(path)
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         (**self).sources()
     }
 
@@ -383,15 +394,15 @@ impl<T: ProjectRead> ProjectRead for &mut T {
 
     fn canonical_meta(
         &self,
-    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>> {
+    ) -> Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>> {
         (**self).canonical_meta()
     }
 
-    fn checksum_noncanonical_hex(&self) -> Result<Option<String>, Self::Error> {
-        (**self).checksum_noncanonical_hex()
+    fn checksum_non_canonical_hex(&self) -> Result<Option<String>, Self::Error> {
+        (**self).checksum_non_canonical_hex()
     }
 
-    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalisationError<Self::Error>> {
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         (**self).checksum_canonical_hex()
     }
 }
@@ -431,7 +442,7 @@ pub trait ProjectReadAsync {
     /// some typical order of preference.
     ///
     /// May be empty if no valid sources are known.
-    fn sources_async(&self) -> impl Future<Output = Vec<crate::lock::Source>>;
+    fn sources_async(&self) -> impl Future<Output = Vec<Source>>;
 
     // Optional and helpers
 
@@ -478,17 +489,17 @@ pub trait ProjectReadAsync {
         async { Ok(self.get_meta_async().await?.and_then(|meta| meta.checksum)) }
     }
 
-    /// Produces canonicalised project metadata, replacing all source file hashes by SHA256.
+    /// Produces canonicalized project metadata, replacing all source file hashes by SHA256.
     fn canonical_meta_async(
         &self,
     ) -> impl Future<
-        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>>,
+        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>>,
     > {
         async move {
             let Some(mut meta) = self
                 .get_meta_async()
                 .await
-                .map_err(CanonicalisationError::ProjectRead)?
+                .map_err(CanonicalizationError::ProjectRead)?
             else {
                 return Ok(None);
             };
@@ -502,11 +513,11 @@ pub trait ProjectReadAsync {
                         let mut src = self
                             .read_source_async(&path)
                             .await
-                            .map_err(CanonicalisationError::ProjectRead)?;
+                            .map_err(CanonicalizationError::ProjectRead)?;
                         checksum.value = format!(
                             "{:x}",
                             hash_reader_async(&mut src).await.map_err(|e| {
-                                CanonicalisationError::FileRead(path.to_string().into(), e)
+                                CanonicalizationError::FileRead(path.clone().into(), e)
                             })?
                         );
                     } else {
@@ -529,8 +540,8 @@ pub trait ProjectReadAsync {
         }
     }
 
-    /// Produces a project hash based on project information and the *non-canonicalised* metadata.
-    fn checksum_noncanonical_hex_async(
+    /// Produces a project hash based on project information and the *non-canonicalized* metadata.
+    fn checksum_non_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
         async {
@@ -542,15 +553,15 @@ pub trait ProjectReadAsync {
         }
     }
 
-    /// Produces a project hash based on project information and the *canonicalised* metadata.
+    /// Produces a project hash based on project information and the *canonicalized* metadata.
     fn checksum_canonical_hex_async(
         &self,
-    ) -> impl Future<Output = Result<Option<String>, CanonicalisationError<Self::Error>>> {
+    ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
         async {
             let info = self
                 .get_info_async()
                 .await
-                .map_err(CanonicalisationError::ProjectRead)?;
+                .map_err(CanonicalizationError::ProjectRead)?;
             let meta = self.canonical_meta_async().await?;
 
             Ok(info
@@ -600,7 +611,7 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
         (**self).read_source_async(path)
     }
 
-    fn sources_async(&self) -> impl Future<Output = Vec<crate::lock::Source>> {
+    fn sources_async(&self) -> impl Future<Output = Vec<Source>> {
         (**self).sources_async()
     }
 
@@ -644,20 +655,20 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
     fn canonical_meta_async(
         &self,
     ) -> impl Future<
-        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>>,
+        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>>,
     > {
         (**self).canonical_meta_async()
     }
 
-    fn checksum_noncanonical_hex_async(
+    fn checksum_non_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
-        (**self).checksum_noncanonical_hex_async()
+        (**self).checksum_non_canonical_hex_async()
     }
 
     fn checksum_canonical_hex_async(
         &self,
-    ) -> impl Future<Output = Result<Option<String>, CanonicalisationError<Self::Error>>> {
+    ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
         (**self).checksum_canonical_hex_async()
     }
 }
@@ -691,7 +702,7 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
         (**self).read_source_async(path)
     }
 
-    fn sources_async(&self) -> impl Future<Output = Vec<crate::lock::Source>> {
+    fn sources_async(&self) -> impl Future<Output = Vec<Source>> {
         (**self).sources_async()
     }
 
@@ -735,20 +746,20 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
     fn canonical_meta_async(
         &self,
     ) -> impl Future<
-        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalisationError<Self::Error>>,
+        Output = Result<Option<InterchangeProjectMetadataRaw>, CanonicalizationError<Self::Error>>,
     > {
         (**self).canonical_meta_async()
     }
 
-    fn checksum_noncanonical_hex_async(
+    fn checksum_non_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, Self::Error>> {
-        (**self).checksum_noncanonical_hex_async()
+        (**self).checksum_non_canonical_hex_async()
     }
 
     fn checksum_canonical_hex_async(
         &self,
-    ) -> impl Future<Output = Result<Option<String>, CanonicalisationError<Self::Error>>> {
+    ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
         (**self).checksum_canonical_hex_async()
     }
 }
@@ -818,26 +829,27 @@ pub trait ProjectMut: ProjectRead {
         compute_checksum: bool,
         overwrite: bool,
     ) -> Result<(), ProjectOrIOError<Self::Error>> {
+        let path = path.as_ref();
         let mut meta = self
             .get_meta()
             .map_err(ProjectOrIOError::Project)?
             .unwrap_or_else(InterchangeProjectMetadataRaw::generate_blank);
 
         {
-            let mut reader = self.read_source(&path).map_err(ProjectOrIOError::Project)?;
+            let mut reader = self.read_source(path).map_err(ProjectOrIOError::Project)?;
 
             if compute_checksum {
                 let sha256_checksum = hash_reader(&mut reader)
-                    .map_err(|e| FsIoError::ReadFile(path.as_ref().as_str().into(), e))?;
+                    .map_err(|e| FsIoError::ReadFile(path.as_str().into(), e))?;
 
                 meta.add_checksum(
-                    &path,
+                    path,
                     KerMlChecksumAlg::Sha256,
                     format!("{:x}", sha256_checksum),
                     overwrite,
                 );
             } else {
-                meta.add_checksum(&path, KerMlChecksumAlg::None, "", overwrite);
+                meta.add_checksum(path, KerMlChecksumAlg::None, "", overwrite);
             }
         }
 
@@ -1019,7 +1031,7 @@ where
         })
     }
 
-    async fn sources_async(&self) -> Vec<crate::lock::Source> {
+    async fn sources_async(&self) -> Vec<Source> {
         self.inner.sources()
     }
 }
@@ -1079,7 +1091,7 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
         })
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self) -> Vec<Source> {
         self.runtime.block_on(self.inner.sources_async())
     }
 
@@ -1118,10 +1130,10 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalisation_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
+    fn test_canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
         let project = InMemoryProject {
             info: Some(InterchangeProjectInfoRaw {
-                name: "test_canonicalisation".to_string(),
+                name: "test_canonicalization".to_string(),
                 description: None,
                 version: "1.2.3".to_string(),
                 license: None,
@@ -1170,5 +1182,56 @@ mod tests {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod macro_tests {
+    use crate::project::{ProjectMut, ProjectRead, memory::InMemoryProject};
+
+    // Have to have these in scope for ProjectRead
+    // TODO: Find a better solution (that works both inside and outside sysand_core)
+    use crate::lock::Source;
+    use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
+    use typed_path::Utf8UnixPath;
+
+    #[derive(ProjectRead)]
+    enum NonGenericProjectRead {
+        Variant(InMemoryProject),
+    }
+
+    #[test]
+    fn test_macro_read() {
+        let _project = NonGenericProjectRead::Variant(InMemoryProject::new());
+    }
+
+    #[derive(ProjectRead, ProjectMut)]
+    enum NonGenericProjectMut {
+        Variant(InMemoryProject),
+    }
+
+    #[test]
+    fn test_macro_mut() {
+        let _project = NonGenericProjectMut::Variant(InMemoryProject::new());
+    }
+
+    #[derive(ProjectRead)]
+    enum GenericProjectRead<SomeProject: ProjectRead> {
+        Variant(SomeProject),
+    }
+
+    #[test]
+    fn test_macro_generic_read() {
+        let _project = GenericProjectRead::<InMemoryProject>::Variant(InMemoryProject::new());
+    }
+
+    #[derive(ProjectRead, ProjectMut)]
+    enum GenericProjectMut<SomeProject: ProjectRead + ProjectMut> {
+        Variant(SomeProject),
+    }
+
+    #[test]
+    fn test_macro_generic_mut() {
+        let _project = GenericProjectMut::<InMemoryProject>::Variant(InMemoryProject::new());
     }
 }

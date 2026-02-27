@@ -1,19 +1,20 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::{
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{self, ProjectRead, editable::GetPath, utils::ZipArchiveError},
-};
 use std::io::Write as _;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::{Utf8TempDir, tempdir};
 use sha2::Digest as _;
-use typed_path::{Utf8Component, Utf8UnixPath};
-
 use thiserror::Error;
+use typed_path::{Utf8Component, Utf8UnixPath};
 use zip::ZipArchive;
+
+use crate::{
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{self, ProjectRead, editable::GetPath, utils::ZipArchiveError},
+};
 
 use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
 
@@ -23,7 +24,7 @@ use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
 /// guessed based on the location of the `.project.json`-file.
 ///
 /// Paths used in the archive are expected to match those used in the metadata
-/// manifest (.meta.json)! Sysand *MAY* try to normalise paths in order
+/// manifest (.meta.json)! Sysand *MAY* try to normalize paths in order
 /// to match filenames, but no guarantees are made.
 ///
 /// Use `LocalKParProject::new_guess_root` to guess `root` based on the
@@ -32,8 +33,18 @@ use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
 /// The archive is read directly without extracting it.
 #[derive(Debug)]
 pub struct LocalKParProject {
-    pub tmp_dir: Utf8TempDir,
+    /// Temporary directory for unpacking files in archive.
+    tmp_dir: Utf8TempDir,
+    /// Path used in `Source::LocalSrc` returned by `.sources()`.
+    /// If `None` no source will be given.
+    /// E.g. if used in lockfile would be the path relative to the lockfile.
+    // TODO: Consider removing this and replacing it with some way of
+    // relativizing `archive_path` at the call site of .sources().
+    pub nominal_path: Option<Utf8PathBuf>,
+    /// Path used when locating the project archive internally.
+    /// Should be absolute.
     pub archive_path: Utf8PathBuf,
+    /// Optionally specify name of root directory inside archive.
     pub root: Option<Utf8PathBuf>,
 }
 
@@ -136,6 +147,19 @@ impl LocalKParProject {
     ) -> Result<Self, Box<FsIoError>> {
         Ok(LocalKParProject {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
+            nominal_path: None,
+            archive_path: path.to_path_buf(),
+            root: Some(root.to_path_buf()),
+        })
+    }
+    pub fn new_nominal<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>, N: AsRef<Utf8Path>>(
+        path: P,
+        root: Q,
+        nominal: N,
+    ) -> Result<Self, Box<FsIoError>> {
+        Ok(LocalKParProject {
+            tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
+            nominal_path: Some(nominal.to_path_buf()),
             archive_path: path.to_path_buf(),
             root: Some(root.to_path_buf()),
         })
@@ -144,7 +168,30 @@ impl LocalKParProject {
     pub fn new_guess_root<P: AsRef<Utf8Path>>(path: P) -> Result<Self, Box<FsIoError>> {
         Ok(LocalKParProject {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
+            nominal_path: None,
             archive_path: path.to_path_buf(),
+            root: None,
+        })
+    }
+
+    pub fn new_guess_root_nominal<P: AsRef<Utf8Path>, N: AsRef<Utf8Path>>(
+        path: P,
+        nominal: N,
+    ) -> Result<Self, Box<FsIoError>> {
+        Ok(LocalKParProject {
+            tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
+            nominal_path: Some(nominal.to_path_buf()),
+            archive_path: path.to_path_buf(),
+            root: None,
+        })
+    }
+
+    pub fn new_temporary() -> Result<Self, Box<FsIoError>> {
+        let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
+        Ok(LocalKParProject {
+            nominal_path: None,
+            archive_path: tmp_dir.path().join("project.kpar"),
+            tmp_dir,
             root: None,
         })
     }
@@ -278,15 +325,7 @@ impl ProjectRead for LocalKParProject {
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         let tmp_name = format!("{:X}", sha2::Sha256::digest(path.as_ref()));
-        let tmp_file_path = {
-            let mut p = self
-                .tmp_dir
-                .path()
-                .canonicalize_utf8()
-                .map_err(|e| FsIoError::Canonicalize(self.tmp_dir.to_path_buf(), e))?;
-            p.push(tmp_name);
-            p
-        };
+        let tmp_file_path = self.tmp_dir.path().join(tmp_name);
 
         if !tmp_file_path.is_file() {
             let mut tmp_file = wrapfs::File::create(&tmp_file_path)?;
@@ -310,10 +349,15 @@ impl ProjectRead for LocalKParProject {
         // Ok(KparFile { archive: archive, file: &mut archive.by_index(idx)? })
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
-        vec![crate::lock::Source::LocalKpar {
-            kpar_path: self.archive_path.as_str().into(),
-        }]
+    fn sources(&self) -> Vec<Source> {
+        self.nominal_path
+            .as_ref()
+            .map(|path| {
+                vec![Source::LocalKpar {
+                    kpar_path: path.as_str().into(),
+                }]
+            })
+            .expect("`LocalKparProject` without `nominal_path` does not have any project sources")
     }
 }
 

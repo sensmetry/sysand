@@ -1,6 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["sysand", "core", "bindings/py", "bindings/js", "bindings/java"]
+members = [
+  "sysand",
+  "core",
+  "macros",
+  "bindings/py",
+  "bindings/js",
+  "bindings/java",
+]
 
 [workspace.package]
 version = "0.0.9"

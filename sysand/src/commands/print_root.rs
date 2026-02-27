@@ -9,7 +9,7 @@ use sysand_core::root::do_root;
 use crate::CliError;
 
 pub fn command_print_root<P: AsRef<Utf8Path>>(path: P) -> Result<()> {
-    match do_root(path) {
+    match do_root(path)? {
         Some(root) => {
             println!("{}", root.canonicalize()?.display());
             Ok(())

@@ -1,15 +1,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use crate::{
-    env::utils::{CloneError, clone_project},
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{
-        ProjectMut, ProjectRead,
-        editable::GetPath,
-        utils::{ToPathBuf, wrapfs},
-    },
-};
 use std::{
     collections::HashSet,
     fs::File,
@@ -17,17 +8,35 @@ use std::{
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
+use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
-use thiserror::Error;
+use crate::{
+    env::utils::{CloneError, clone_project},
+    lock::Source,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{
+        ProjectMut, ProjectRead,
+        editable::GetPath,
+        utils::{ToPathBuf, wrapfs},
+    },
+};
 
 use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError};
 
 /// Project stored in a local directory as an extracted kpar archive.
-/// Source file paths with (unix) segments `segment1/.../segmentn` are
+/// Source file paths with (unix) segments `segment1/.../segmentN` are
 /// re-interpreted as filesystem-native paths relative to `project_path`.
 #[derive(Clone, Debug)]
 pub struct LocalSrcProject {
+    /// Path used in `Source::LocalSrc` returned by `.sources()`.
+    /// If `None` no source will be given.
+    /// E.g. if used in lockfile would be the path relative to the lockfile.
+    // TODO: Consider removing this and replacing it with some way of
+    // relativizing `project_path` at the call site of .sources().
+    pub nominal_path: Option<Utf8PathBuf>,
+    /// Path used when locating the project internally.
+    /// Should be absolute.
     pub project_path: Utf8PathBuf,
 }
 
@@ -37,10 +46,10 @@ impl GetPath for LocalSrcProject {
     }
 }
 
-/// Tries to canonicalise the (longest possible) prefix of a path.
+/// Tries to canonicalize the (longest possible) prefix of a path.
 /// Useful if you have /path/to/file/that/does/not/exist
-/// but where some prefix, say, /path/to/file can be canonicalised.
-fn canonicalise_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
+/// but where some prefix, say, /path/to/file can be canonicalized.
+fn canonicalize_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
     let mut relative_part = Utf8PathBuf::new();
     let mut absolute_part = path.to_path_buf();
 
@@ -65,25 +74,25 @@ fn canonicalise_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
     absolute_part
 }
 
-fn relativise_path<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+fn relativize_path<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     path: P,
     relative_to: Q,
 ) -> Option<Utf8PathBuf> {
     let path = if !path.as_ref().is_absolute() {
         let path = camino::absolute_utf8(path.as_ref()).ok()?;
-        canonicalise_prefix(path)
+        canonicalize_prefix(path)
     } else {
-        canonicalise_prefix(path)
+        canonicalize_prefix(path)
     };
 
-    path.strip_prefix(canonicalise_prefix(relative_to))
+    path.strip_prefix(canonicalize_prefix(relative_to))
         .ok()
         .map(|x| x.to_path_buf())
 }
 
 impl LocalSrcProject {
-    pub fn root_path(&self) -> Utf8PathBuf {
-        self.project_path.clone()
+    pub fn root_path(&self) -> &Utf8Path {
+        &self.project_path
     }
 
     pub fn info_path(&self) -> Utf8PathBuf {
@@ -109,9 +118,9 @@ impl LocalSrcProject {
         let root_path = self.root_path();
         let project_path = root_path
             .canonicalize_utf8()
-            .map_err(|e| UnixPathError::Canonicalize(root_path, e))?;
+            .map_err(|e| UnixPathError::Canonicalize(root_path.to_owned(), e))?;
 
-        let path = relativise_path(&path, project_path)
+        let path = relativize_path(&path, project_path)
             .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
 
         let mut unix_path = Utf8UnixPathBuf::new();
@@ -131,22 +140,22 @@ impl LocalSrcProject {
         &self,
         path: P,
     ) -> Result<Utf8PathBuf, PathError> {
-        let utf_path = if path.as_ref().is_absolute() {
+        let path = path.as_ref();
+        let utf_path = if path.is_absolute() {
             if !cfg!(feature = "lenient_checks") {
-                return Err(PathError::AbsolutePath(path.as_ref().to_owned()));
+                return Err(PathError::AbsolutePath(path.to_owned()));
             }
             // This should never fail, as the only way for a Unix path to be absolute is to begin
             // at root /.
-            path.as_ref()
-                .strip_prefix("/")
+            path.strip_prefix("/")
                 .expect("internal path processing error")
         } else {
-            path.as_ref()
+            path
         };
 
         assert!(utf_path.is_relative());
 
-        let mut final_path = self.root_path();
+        let mut final_path = self.root_path().to_owned();
         let mut added_components = 0;
         for component in utf_path.components() {
             match component {
@@ -215,6 +224,7 @@ impl LocalSrcProject {
     > {
         let tmp = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
         let mut tmp_project = Self {
+            nominal_path: None,
             project_path: wrapfs::canonicalize(tmp.path())?,
         };
 
@@ -401,9 +411,14 @@ impl ProjectRead for LocalSrcProject {
         Ok(f)
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
-        vec![crate::lock::Source::LocalSrc {
-            src_path: self.project_path.as_str().into(),
-        }]
+    fn sources(&self) -> Vec<Source> {
+        self.nominal_path
+            .as_ref()
+            .map(|path| {
+                vec![Source::LocalSrc {
+                    src_path: path.as_str().into(),
+                }]
+            })
+            .expect("`LocalSrcProject` without `nominal_path` does not have any project sources")
     }
 }

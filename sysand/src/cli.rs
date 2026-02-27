@@ -9,6 +9,7 @@ use std::{
 
 use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
+use fluent_uri::Iri;
 use semver::VersionReq;
 
 use crate::env_vars;
@@ -96,6 +97,8 @@ pub enum Command {
 
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
+        #[command(flatten)]
+        source_opts: Box<ProjectSourceOptions>,
     },
     /// Remove usage from project information
     #[clap(alias = "rm")]
@@ -1271,6 +1274,44 @@ pub struct ResolutionOptions {
 }
 
 #[derive(clap::Args, Debug, Clone)]
+pub struct ProjectSourceOptions {
+    /// Add usage as a local interchange project at PATH and
+    /// update configuration file attempting to guess the
+    /// source from the PATH
+    #[arg(long, value_name = "PATH", group = "source")]
+    pub from_path: Option<Utf8PathBuf>,
+    /// Add usage as a remote interchange project at URL and
+    /// update configuration file attempting to guess the
+    /// source from the URL
+    #[arg(long, value_name = "URL", group = "source")]
+    pub from_url: Option<Iri<String>>,
+    /// Add usage as an editable interchange project at PATH and
+    /// update configuration file with appropriate source
+    #[arg(long, value_name = "PATH", group = "source")]
+    pub as_editable: Option<Utf8PathBuf>,
+    /// Add usage as a local interchange project at PATH and
+    /// update configuration file with appropriate source
+    #[arg(long, value_name = "PATH", group = "source")]
+    pub as_local_src: Option<Utf8PathBuf>,
+    /// Add usage as a local interchange project archive at PATH
+    /// and update configuration file with appropriate source
+    #[arg(long, value_name = "PATH", group = "source")]
+    pub as_local_kpar: Option<Utf8PathBuf>,
+    /// Add usage as a remote interchange project at URL and
+    /// update configuration file with appropriate source
+    #[arg(long, value_name = "URL", group = "source")]
+    pub as_remote_src: Option<Iri<String>>,
+    /// Add usage as a remote interchange project archive at URL
+    /// and update configuration file with appropriate source
+    #[arg(long, value_name = "URL", group = "source")]
+    pub as_remote_kpar: Option<Iri<String>>,
+    /// Add usage as a remote git interchange project at URL and
+    /// update configuration file with appropriate source
+    #[arg(long, value_name = "URL", group = "source")]
+    pub as_remote_git: Option<Iri<String>>,
+}
+
+#[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
     /// Do not include sources for dependencies
     #[arg(long, default_value = "false", conflicts_with = "include_std")]
@@ -1309,12 +1350,6 @@ pub struct GlobalOptions {
     /// Print help
     #[arg(long, short, global = true, action = clap::ArgAction::HelpLong, help_heading = "Global options")]
     pub help: Option<bool>,
-}
-
-impl GlobalOptions {
-    pub fn sets_log_level(&self) -> bool {
-        self.verbose || self.quiet
-    }
 }
 
 /// Parse an IRI. Tolerates missing IRI scheme, uses

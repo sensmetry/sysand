@@ -3,21 +3,243 @@
 
 use crate::{
     env::{PutProjectError, ReadEnvironment, WriteEnvironment},
-    project::memory::InMemoryProject,
+    project::{ProjectMut, ProjectRead},
 };
-use std::collections::{HashMap, hash_map::Entry};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    fmt::Debug,
+};
 
 use thiserror::Error;
 
-/// Project stored in a local directory
-#[derive(Clone, Default, Debug)]
-pub struct MemoryStorageEnvironment {
-    pub projects: HashMap<String, HashMap<String, InMemoryProject>>,
+#[derive(Debug)]
+pub struct MemoryStorageEnvironment<Project: Clone> {
+    pub projects: HashMap<String, HashMap<String, Project>>,
 }
 
-impl MemoryStorageEnvironment {
+impl<Project: Clone> Default for MemoryStorageEnvironment<Project> {
+    fn default() -> Self {
+        Self {
+            projects: HashMap::default(),
+        }
+    }
+}
+
+impl<Project: ProjectRead + Clone> MemoryStorageEnvironment<Project> {
     pub fn new() -> Self {
-        Self::default()
+        Default::default()
+    }
+
+    pub fn try_from_iter<T: IntoIterator<Item = (String, Project)>>(
+        iter: T,
+    ) -> Result<Self, TryFromError<Project>> {
+        let mut map = HashMap::<String, HashMap<String, Project>>::new();
+        for (iri, project) in iter {
+            if let Some(version) = project.version().map_err(TryFromError::Read)? {
+                map.entry(iri).or_default().insert(version, project);
+            } else {
+                return Err(TryFromError::MissingVersion(iri));
+            }
+        }
+        Ok(Self { projects: map })
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum TryFromError<Project: ProjectRead> {
+    #[error(transparent)]
+    Read(Project::Error),
+    #[error("missing version for project with IRI `{0}`")]
+    MissingVersion(String),
+}
+
+/// Try to construct a `MemoryStorageEnvironment` from an array of pairs of IRIs
+/// and project storages.
+///
+/// All projects must have versions.
+///
+/// # Returns
+///
+/// - `Ok(env)` where `env` is a `MemoryStorageEnvironment<Project>` with all
+///   projects given.
+/// - `Err(error)` where `error` is
+///   - `TryFromError<Project>::Read` if cannot be read
+///   - `TryFromError<Project>::MissingVersion` if version is `None`
+///
+/// # Example
+///
+/// ```rust
+/// # use sysand_core::commands::init::do_init_memory;
+/// # use sysand_core::env::memory::MemoryStorageEnvironment;
+/// # use sysand_core::env::ReadEnvironment;
+/// # use sysand_core::project::memory::InMemoryProject;
+/// let project1 = do_init_memory("First", "0.0.1", None).unwrap();
+/// let project2 = do_init_memory("First", "0.1.0", None).unwrap();
+/// let env = MemoryStorageEnvironment::<InMemoryProject>::try_from([
+///     ("urn:kpar:first".into(), project1.clone()),
+///     ("urn:kpar:first".into(), project2.clone()),
+/// ])
+/// .unwrap();
+///
+/// assert_eq!(
+///     project1,
+///     env.get_project("urn:kpar:first", "0.0.1").unwrap()
+/// );
+/// assert_eq!(
+///     project2,
+///     env.get_project("urn:kpar:first", "0.1.0").unwrap()
+/// );
+/// ```
+impl<Project: ProjectRead + Clone, const N: usize> TryFrom<[(String, Project); N]>
+    for MemoryStorageEnvironment<Project>
+{
+    type Error = TryFromError<Project>;
+
+    fn try_from(value: [(String, Project); N]) -> Result<Self, Self::Error> {
+        Self::try_from_iter(value)
+    }
+}
+
+/// Try to construct a `MemoryStorageEnvironment` from a Vec of pairs of IRIs and
+/// project storages.
+///
+/// All projects must have versions.
+///
+/// # Returns
+///
+/// - `Ok(env)` where `env` is a `MemoryStorageEnvironment<Project>` with all
+///   projects given.
+/// - `Err(error)` where `error` is
+///   - `TryFromError<Project>::Read` if cannot be read
+///   - `TryFromError<Project>::MissingVersion` if version is `None`
+///
+/// # Example
+///
+/// ```rust
+/// # use sysand_core::commands::init::do_init_memory;
+/// # use sysand_core::env::memory::MemoryStorageEnvironment;
+/// # use sysand_core::env::ReadEnvironment;
+/// # use sysand_core::project::memory::InMemoryProject;
+/// let project1 = do_init_memory("First", "0.0.1", None).unwrap();
+/// let project2 = do_init_memory("First", "0.1.0", None).unwrap();
+/// let env = MemoryStorageEnvironment::<InMemoryProject>::try_from(vec![
+///     ("urn:kpar:first".into(), project1.clone()),
+///     ("urn:kpar:first".into(), project2.clone()),
+/// ])
+/// .unwrap();
+///
+/// assert_eq!(
+///     project1,
+///     env.get_project("urn:kpar:first", "0.0.1").unwrap()
+/// );
+/// assert_eq!(
+///     project2,
+///     env.get_project("urn:kpar:first", "0.1.0").unwrap()
+/// );
+/// ```
+impl<Project: ProjectRead + Clone> TryFrom<Vec<(String, Project)>>
+    for MemoryStorageEnvironment<Project>
+{
+    type Error = TryFromError<Project>;
+
+    fn try_from(value: Vec<(String, Project)>) -> Result<Self, Self::Error> {
+        Self::try_from_iter(value)
+    }
+}
+
+impl<Project: ProjectRead + Clone> FromIterator<(String, String, Project)>
+    for MemoryStorageEnvironment<Project>
+{
+    fn from_iter<T: IntoIterator<Item = (String, String, Project)>>(iter: T) -> Self {
+        let mut map = HashMap::<String, HashMap<String, Project>>::new();
+        for (iri, version, project) in iter {
+            map.entry(iri).or_default().insert(version, project);
+        }
+        Self { projects: map }
+    }
+}
+
+/// Construct a `MemoryStorageEnvironment` from an array of triples of IRIs, versions
+/// and project storages.
+///
+/// All projects must have versions.
+///
+/// # Returns
+///
+/// A `MemoryStorageEnvironment<Project>` with all projects given.
+///
+/// # Example
+///
+/// ```rust
+/// # use sysand_core::commands::init::do_init_memory;
+/// # use sysand_core::env::memory::MemoryStorageEnvironment;
+/// # use sysand_core::env::ReadEnvironment;
+/// # use sysand_core::project::memory::InMemoryProject;
+/// let version1 = "0.0.1".to_string();
+/// let version2 = "0.1.0".to_string();
+/// let project1 = do_init_memory("First", &version1, None).unwrap();
+/// let project2 = do_init_memory("First", &version2, None).unwrap();
+/// let env = MemoryStorageEnvironment::<InMemoryProject>::from([
+///     ("urn:kpar:first".into(), version1.clone(), project1.clone()),
+///     ("urn:kpar:first".into(), version2.clone(), project2.clone()),
+/// ]);
+///
+/// assert_eq!(
+///     project1,
+///     env.get_project("urn:kpar:first", version1).unwrap()
+/// );
+/// assert_eq!(
+///     project2,
+///     env.get_project("urn:kpar:first", version2).unwrap()
+/// );
+/// ```
+impl<Project: ProjectRead + Clone, const N: usize> From<[(String, String, Project); N]>
+    for MemoryStorageEnvironment<Project>
+{
+    fn from(value: [(String, String, Project); N]) -> Self {
+        Self::from_iter(value)
+    }
+}
+
+/// Construct a `MemoryStorageEnvironment` from Vec of triples of IRIs, versions and
+/// project storages.
+///
+/// All projects must have versions.
+///
+/// # Returns
+///
+/// A `MemoryStorageEnvironment<Project>` with all projects given.
+///
+/// # Example
+///
+/// ```rust
+/// # use sysand_core::commands::init::do_init_memory;
+/// # use sysand_core::env::memory::MemoryStorageEnvironment;
+/// # use sysand_core::env::ReadEnvironment;
+/// # use sysand_core::project::memory::InMemoryProject;
+/// let version1 = "0.0.1".to_string();
+/// let version2 = "0.1.0".to_string();
+/// let project1 = do_init_memory("First", &version1, None).unwrap();
+/// let project2 = do_init_memory("First", &version2, None).unwrap();
+/// let env = MemoryStorageEnvironment::<InMemoryProject>::from(vec![
+///     ("urn:kpar:first".into(), version1.clone(), project1.clone()),
+///     ("urn:kpar:first".into(), version2.clone(), project2.clone()),
+/// ]);
+///
+/// assert_eq!(
+///     project1,
+///     env.get_project("urn:kpar:first", version1).unwrap()
+/// );
+/// assert_eq!(
+///     project2,
+///     env.get_project("urn:kpar:first", version2).unwrap()
+/// );
+/// ```
+impl<Project: ProjectRead + Clone> From<Vec<(String, String, Project)>>
+    for MemoryStorageEnvironment<Project>
+{
+    fn from(value: Vec<(String, String, Project)>) -> Self {
+        Self::from_iter(value)
     }
 }
 
@@ -25,10 +247,10 @@ impl MemoryStorageEnvironment {
 #[derive(Error, Debug)]
 pub enum MemoryWriteError {}
 
-impl WriteEnvironment for MemoryStorageEnvironment {
+impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEnvironment<Project> {
     type WriteError = MemoryWriteError;
 
-    type InterchangeProjectMut = InMemoryProject;
+    type InterchangeProjectMut = Project;
 
     fn put_project<S: AsRef<str>, T: AsRef<str>, F, E>(
         &mut self,
@@ -39,7 +261,7 @@ impl WriteEnvironment for MemoryStorageEnvironment {
     where
         F: FnOnce(&mut Self::InterchangeProjectMut) -> Result<(), E>,
     {
-        let mut tentative_project = InMemoryProject::default();
+        let mut tentative_project = Project::default();
 
         write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
 
@@ -60,6 +282,9 @@ impl WriteEnvironment for MemoryStorageEnvironment {
         match &mut self.projects.entry(uri.as_ref().to_string()) {
             Entry::Occupied(occupied_entry) => {
                 occupied_entry.get_mut().remove(version.as_ref());
+                if occupied_entry.get().is_empty() {
+                    self.projects.remove(uri.as_ref());
+                }
                 Ok(())
             }
             Entry::Vacant(_) => Ok(()),
@@ -80,7 +305,7 @@ pub enum MemoryReadError {
     MissingVersion(String, String),
 }
 
-impl ReadEnvironment for MemoryStorageEnvironment {
+impl<Project: ProjectRead + Clone + Debug> ReadEnvironment for MemoryStorageEnvironment<Project> {
     type ReadError = MemoryReadError;
 
     type UriIter = Vec<Result<String, MemoryReadError>>;
@@ -106,7 +331,7 @@ impl ReadEnvironment for MemoryStorageEnvironment {
         Ok(version_vec)
     }
 
-    type InterchangeProjectRead = InMemoryProject;
+    type InterchangeProjectRead = Project;
 
     fn get_project<S: AsRef<str>, T: AsRef<str>>(
         &self,
@@ -125,5 +350,157 @@ impl ReadEnvironment for MemoryStorageEnvironment {
                 )
             })?
             .clone())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::HashMap;
+
+    use crate::{
+        env::{
+            ReadEnvironment, WriteEnvironment,
+            memory::MemoryStorageEnvironment,
+            utils::{CloneError, clone_project},
+        },
+        init::do_init_memory,
+        project::memory::{InMemoryError, InMemoryProject},
+    };
+
+    #[test]
+    fn write_environment() {
+        let uri1 = "urn:kpar:first".to_string();
+        let uri2 = "urn:kpar:second".to_string();
+        let version = "0.0.1".to_string();
+        let project1 = do_init_memory("First", &version, None).unwrap();
+        let project2 = do_init_memory("Second", &version, None).unwrap();
+        let mut env = MemoryStorageEnvironment::<InMemoryProject>::new();
+
+        env.put_project(&uri1, &version, |p| {
+            clone_project(&project1, p, true)?;
+
+            Ok::<(), CloneError<InMemoryError, InMemoryError>>(())
+        })
+        .unwrap();
+
+        assert_eq!(env.projects.len(), 1);
+        assert_eq!(
+            &project1,
+            env.projects.get(&uri1).unwrap().get(&version).unwrap()
+        );
+
+        env.put_project(&uri2, &version, |p| {
+            clone_project(&project2, p, true)?;
+
+            Ok::<(), CloneError<InMemoryError, InMemoryError>>(())
+        })
+        .unwrap();
+
+        assert_eq!(env.projects.len(), 2);
+        assert_eq!(
+            &project2,
+            env.projects.get(&uri2).unwrap().get(&version).unwrap()
+        );
+
+        env.del_project_version(&uri1, version).unwrap();
+
+        assert_eq!(env.projects.len(), 1);
+        assert!(!env.projects.contains_key(&uri1));
+
+        env.del_uri(&uri2).unwrap();
+
+        assert!(env.projects.is_empty());
+        assert!(!env.projects.contains_key(&uri2));
+    }
+
+    #[test]
+    fn read_environment() {
+        let iri = "urn:kpar:first".to_string();
+        let version = "0.0.1".to_string();
+        let project = do_init_memory("First", &version, None).unwrap();
+        let env = MemoryStorageEnvironment {
+            projects: HashMap::from([(
+                iri.clone(),
+                HashMap::from([(version.clone(), project.clone())]),
+            )]),
+        };
+
+        let uris = env.uris().unwrap();
+        assert_eq!(
+            vec![&iri],
+            uris.iter()
+                .map(|uri| uri.as_ref().unwrap())
+                .collect::<Vec<_>>()
+        );
+
+        let versions = env.versions(&iri).unwrap();
+        assert_eq!(
+            vec![&version],
+            versions
+                .iter()
+                .map(|version| version.as_ref().unwrap())
+                .collect::<Vec<_>>()
+        );
+
+        let get_project = env.get_project(iri, version).unwrap();
+        assert_eq!(project, get_project);
+    }
+
+    #[test]
+    fn from() {
+        let version1 = "0.0.1".to_string();
+        let version2 = "0.1.0".to_string();
+        let version3 = "0.0.1".to_string();
+        let project1 = do_init_memory("First 0.0.1", &version1, None).unwrap();
+        let project2 = do_init_memory("First 0.1.0", &version2, None).unwrap();
+        let project3 = do_init_memory("Second", &version3, None).unwrap();
+        let env = MemoryStorageEnvironment::<InMemoryProject>::from([
+            ("urn:kpar:first".into(), version1.clone(), project1.clone()),
+            ("urn:kpar:first".into(), version2.clone(), project2.clone()),
+            ("urn:kpar:second".into(), version3.clone(), project3.clone()),
+        ]);
+
+        assert_eq!(
+            project1,
+            env.get_project("urn:kpar:first", version1).unwrap()
+        );
+        assert_eq!(
+            project2,
+            env.get_project("urn:kpar:first", version2).unwrap()
+        );
+        assert_eq!(
+            project3,
+            env.get_project("urn:kpar:second", version3).unwrap()
+        );
+        assert_eq!(env.projects.len(), 2);
+        assert_eq!(env.projects.get("urn:kpar:first").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn try_from() {
+        let project1 = do_init_memory("First 0.0.1", "0.0.1", None).unwrap();
+        let project2 = do_init_memory("First 0.1.0", "0.1.0", None).unwrap();
+        let project3 = do_init_memory("Second", "0.0.1", None).unwrap();
+        let env = MemoryStorageEnvironment::<InMemoryProject>::try_from([
+            ("urn:kpar:first".into(), project1.clone()),
+            ("urn:kpar:first".into(), project2.clone()),
+            ("urn:kpar:second".into(), project3.clone()),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            project1,
+            env.get_project("urn:kpar:first", "0.0.1").unwrap()
+        );
+        assert_eq!(
+            project2,
+            env.get_project("urn:kpar:first", "0.1.0").unwrap()
+        );
+        assert_eq!(
+            project3,
+            env.get_project("urn:kpar:second", "0.0.1").unwrap()
+        );
+        assert_eq!(env.projects.len(), 2);
+        assert_eq!(env.projects.get("urn:kpar:first").unwrap().len(), 2);
     }
 }
