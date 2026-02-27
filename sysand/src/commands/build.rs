@@ -4,7 +4,10 @@
 use anyhow::Result;
 use camino::Utf8Path;
 use sysand_core::{
-    build::{do_build_kpar, do_build_workspace_kpars}, model::ZipCompressionMethod, project::local_src::LocalSrcProject, workspace::Workspace
+    build::{do_build_kpar, do_build_workspace_kpars},
+    model::ZipCompressionMethod,
+    project::local_src::LocalSrcProject,
+    workspace::Workspace,
 };
 
 pub fn command_build_for_project<P: AsRef<Utf8Path>>(

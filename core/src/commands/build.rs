@@ -14,7 +14,9 @@ use crate::{
     workspace::WorkspaceReadError,
 };
 #[cfg(feature = "filesystem")]
-use crate::{model::ZipCompressionMethod, project::local_src::LocalSrcProject, workspace::Workspace};
+use crate::{
+    model::ZipCompressionMethod, project::local_src::LocalSrcProject, workspace::Workspace,
+};
 
 use super::include::IncludeError;
 
@@ -153,7 +155,11 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
-    Ok(LocalKParProject::from_project(&local_project, path, compression.into())?)
+    Ok(LocalKParProject::from_project(
+        &local_project,
+        path,
+        compression.into(),
+    )?)
 }
 
 #[cfg(feature = "filesystem")]

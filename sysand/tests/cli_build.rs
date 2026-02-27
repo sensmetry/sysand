@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{io::{Read, Write}};
+use std::io::{Read, Write};
 
 use assert_cmd::prelude::*;
 use clap::ValueEnum;

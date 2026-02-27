@@ -418,30 +418,30 @@ impl TryFrom<&str> for ZipCompressionMethod {
             #[cfg(feature = "kpar-bzip2")]
             "BZIP2" => Ok(ZipCompressionMethod::Bzip2),
             #[cfg(not(feature = "kpar-bzip2"))]
-            "BZIP2" => {
-                Err(CompressionMethodParseError("Compile sysand with feature kpar-bzip2 to use BZIP2 compression".to_string()))
-            }
+            "BZIP2" => Err(CompressionMethodParseError(
+                "Compile sysand with feature kpar-bzip2 to use BZIP2 compression".to_string(),
+            )),
             #[cfg(feature = "kpar-zstd")]
             "ZSTD" => Ok(ZipCompressionMethod::Zstd),
             #[cfg(not(feature = "kpar-zstd"))]
-            "ZSTD" => {
-                Err(CompressionMethodParseError("Compile sysand with feature kpar-zstd to use ZSTD compression".to_string()))
-            },
+            "ZSTD" => Err(CompressionMethodParseError(
+                "Compile sysand with feature kpar-zstd to use ZSTD compression".to_string(),
+            )),
             #[cfg(feature = "kpar-xz")]
             "XZ" => Ok(ZipCompressionMethod::Xz),
             #[cfg(not(feature = "kpar-xz"))]
-            "XZ" => {
-                Err(CompressionMethodParseError("Compile sysand with feature kpar-xz to use XZ compression".to_string()))
-            }
+            "XZ" => Err(CompressionMethodParseError(
+                "Compile sysand with feature kpar-xz to use XZ compression".to_string(),
+            )),
             #[cfg(feature = "kpar-ppmd")]
             "PPMD" => Ok(ZipCompressionMethod::Ppmd),
             #[cfg(not(feature = "kpar-ppmd"))]
-            "PPMD" => {
-                Err(CompressionMethodParseError("Compile sysand with feature kpar-ppmd to use PPMD compression".to_string()))
-            }
-            _ => {
-                Err(CompressionMethodParseError(format!("Compression method {value} is invalid")))
-            }
+            "PPMD" => Err(CompressionMethodParseError(
+                "Compile sysand with feature kpar-ppmd to use PPMD compression".to_string(),
+            )),
+            _ => Err(CompressionMethodParseError(format!(
+                "Compression method {value} is invalid"
+            ))),
         }
     }
 }

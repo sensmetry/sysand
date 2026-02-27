@@ -199,13 +199,12 @@ impl LocalKParProject {
     pub fn from_project<Pr: ProjectRead, P: AsRef<Utf8Path>>(
         from: &Pr,
         path: P,
-        compression: zip::CompressionMethod
+        compression: zip::CompressionMethod,
     ) -> Result<Self, IntoKparError<Pr::Error>> {
         let file = wrapfs::File::create(&path)?;
         let mut zip = zip::ZipWriter::new(file);
 
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(compression);
+        let options = zip::write::SimpleFileOptions::default().compression_method(compression);
 
         let (info, meta) = from.get_project().map_err(IntoKparError::ProjectRead)?;
         let info = info.ok_or(IntoKparError::MissingInfo)?;

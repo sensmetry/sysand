@@ -165,7 +165,7 @@ pub enum Command {
         #[clap(verbatim_doc_comment)]
         /// Method to compress the files in zip archive
         #[arg(short = 'c', long, default_value_t, value_enum)]
-        compression: ZipCompressionMethodCli
+        compression: ZipCompressionMethodCli,
     },
     /// Create or update lockfile
     Lock {
@@ -275,10 +275,10 @@ pub enum ZipCompressionMethodCli {
     Xz,
     /// Compress the files using PPMd
     #[cfg(feature = "kpar-ppmd")]
-    Ppmd
+    Ppmd,
 }
 
-impl From<ZipCompressionMethodCli> for ZipCompressionMethod{
+impl From<ZipCompressionMethodCli> for ZipCompressionMethod {
     fn from(value: ZipCompressionMethodCli) -> Self {
         match value {
             ZipCompressionMethodCli::Stored => ZipCompressionMethod::Stored,
@@ -290,7 +290,7 @@ impl From<ZipCompressionMethodCli> for ZipCompressionMethod{
             #[cfg(feature = "kpar-xz")]
             ZipCompressionMethodCli::Xz => ZipCompressionMethod::Xz,
             #[cfg(feature = "kpar-ppmd")]
-            ZipCompressionMethodCli::Ppmd => ZipCompressionMethod::Ppmd
+            ZipCompressionMethodCli::Ppmd => ZipCompressionMethod::Ppmd,
         }
     }
 }
@@ -309,14 +309,14 @@ impl From<ZipCompressionMethod> for ZipCompressionMethodCli {
             #[cfg(feature = "kpar-xz")]
             ZipCompressionMethod::Xz => ZipCompressionMethodCli::Xz,
             #[cfg(feature = "kpar-ppmd")]
-            ZipCompressionMethod::Ppmd => ZipCompressionMethodCli::Ppmd
+            ZipCompressionMethod::Ppmd => ZipCompressionMethodCli::Ppmd,
         }
     }
 }
 
 #[derive(Clone, Debug)]
 struct InvalidCommand {
-    message: String
+    message: String,
 }
 
 fn invalid_command<S: AsRef<str>>(message: S) -> InvalidCommand {
