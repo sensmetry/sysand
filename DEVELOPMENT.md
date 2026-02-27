@@ -116,6 +116,17 @@ Format and lint all Rust and bindings code (requires bindings dependencies):
 ./scripts/run_chores.sh
 ```
 
+Format and lint all other code based on configuration in
+`.pre-commit-config.yaml`, either with prek or pre-commit, available to install
+via uv or pip.
+
+```sh
+prek run -a
+
+# like this, you ensure this formatting is run before git commits are made
+prek install
+```
+
 ## Commits and pull requests
 
 Committing your changes:
