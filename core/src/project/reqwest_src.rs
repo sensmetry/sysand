@@ -1,21 +1,22 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+//! This module implements accessing interchanged projects stored remotely over HTTP.
+//! It is currently written using the blocking Reqwest client. Once sysand functionality
+//! has stabilised it will be refactored to use the async interface and allow reqwest_middleware.
+//! This will enable middleware (such as caching) as well as using reqwest also in WASM.
+
 use std::{io, marker::Send, pin::Pin, sync::Arc};
 
 use futures::{TryStreamExt, join};
-use reqwest_middleware::ClientWithMiddleware;
 use thiserror::Error;
-/// This module implements accessing interchanged projects stored remotely over HTTP.
-/// It is currently written using the blocking Reqwest client. Once sysand functionality
-/// has stabilised it will be refactored to use the async interface and allow reqwest_middleware.
-/// This will enable middleware (such as caching) as well as using reqwest also in WASM.
 use typed_path::Utf8UnixPath;
 
 use crate::{
     auth::HTTPAuthentication,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::ProjectReadAsync,
+    resolve::net_utils::{json_get_request, json_head_request, text_get_request},
 };
 
 /// Project stored at a remote base-URL such as https://www.example.com/project/
@@ -114,10 +115,9 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
     }
 
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        let this_url = self.info_url();
         let info_resp = self
             .auth_policy
-            .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
+            .with_authentication(&self.client, &json_get_request(&self.info_url()))
             .await
             .map_err(|e| ReqwestSrcError::Reqwest(self.info_url().into(), e))?;
 
@@ -133,10 +133,9 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
     }
 
     async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        let this_url = self.meta_url();
         let meta_resp = self
             .auth_policy
-            .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
+            .with_authentication(&self.client, &json_get_request(&self.meta_url()))
             .await
             .map_err(|e| ReqwestSrcError::Reqwest(self.meta_url().into(), e))?;
 
@@ -164,11 +163,9 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         use futures::StreamExt as _;
 
-        let this_url = self.src_url(path);
-
         let resp = self
             .auth_policy
-            .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
+            .with_authentication(&self.client, &text_get_request(&self.src_url(path)))
             .await
             .map_err(|e| ReqwestSrcError::Reqwest(self.meta_url().into(), e))?;
 
@@ -187,17 +184,15 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
     }
 
     async fn is_definitely_invalid_async(&self) -> bool {
-        let info_url = self.info_url();
-        let info_request = move |client: &ClientWithMiddleware| client.head(info_url.clone());
+        let info_request = &json_head_request(&self.info_url());
         let info_resp = self
             .auth_policy
-            .with_authentication(&self.client, &info_request);
+            .with_authentication(&self.client, info_request);
 
-        let meta_url = self.meta_url();
-        let var_name = move |client: &ClientWithMiddleware| client.head(meta_url.clone());
+        let meta_request = &json_head_request(&self.meta_url());
         let meta_resp = self
             .auth_policy
-            .with_authentication(&self.client, &var_name);
+            .with_authentication(&self.client, meta_request);
 
         match join!(info_resp, meta_resp) {
             (Ok(info_head), Ok(meta_head)) => {
@@ -223,6 +218,7 @@ mod tests {
     use crate::{
         auth::Unauthenticated,
         project::{ProjectRead, ProjectReadAsync, reqwest_src::ReqwestSrcProjectAsync},
+        resolve::net_utils::create_reqwest_client,
     };
 
     #[test]
@@ -231,9 +227,7 @@ mod tests {
 
         let url = reqwest::Url::parse(&server.url()).unwrap();
 
-        let client =
-            reqwest_middleware::ClientBuilder::new(reqwest::ClientBuilder::new().build().unwrap())
-                .build();
+        let client = create_reqwest_client();
 
         let project = ReqwestSrcProjectAsync {
             client,
@@ -281,9 +275,7 @@ mod tests {
             .with_body(src)
             .create();
 
-        let client =
-            reqwest_middleware::ClientBuilder::new(reqwest::ClientBuilder::new().build().unwrap())
-                .build();
+        let client = create_reqwest_client();
 
         let project = ReqwestSrcProjectAsync {
             client,

@@ -20,7 +20,7 @@ use sysand_core::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,
     },
-    resolve::standard::standard_resolver,
+    resolve::{net_utils::create_reqwest_client, standard::standard_resolver},
     workspace::Workspace,
 };
 
@@ -183,7 +183,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     let Some(uri) = env.get_str(&uri, "uri") else {
         return JObjectArray::default();
     };
-    let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+    let client = create_reqwest_client();
 
     let runtime = {
         let r = match tokio::runtime::Builder::new_current_thread().build() {

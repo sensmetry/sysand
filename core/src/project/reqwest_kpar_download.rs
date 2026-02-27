@@ -10,7 +10,6 @@ use std::{
 
 use camino_tempfile::tempdir;
 use futures::AsyncRead;
-use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 use thiserror::Error;
 
 use crate::{
@@ -19,6 +18,7 @@ use crate::{
         ProjectRead, ProjectReadAsync,
         local_kpar::{LocalKParError, LocalKParProject},
     },
+    resolve::net_utils::kpar_get_request,
 };
 
 use super::utils::{FsIoError, wrapfs};
@@ -39,10 +39,17 @@ pub struct ReqwestKparDownloadedProject<Policy> {
     pub auth_policy: Arc<Policy>,
 }
 
+// TODO: reduce size of errors here and elsewhere
 #[derive(Error, Debug)]
 pub enum ReqwestKparDownloadedError {
-    #[error("HTTP request to `{0}` returned status {1}")]
-    BadHttpStatus(reqwest::Url, reqwest::StatusCode),
+    #[error(
+        "HTTP request to `{url}` returned status {} with the following headers: {:#?}",
+        response.status(), response.headers()
+    )]
+    BadHttpStatus {
+        url: Box<str>,
+        response: Box<reqwest::Response>,
+    },
     #[error("failed to parse URL `{0}`: {1}")]
     ParseUrl(Box<str>, url::ParseError),
     #[error("HTTP request to `{0}` failed: {1}")]
@@ -95,23 +102,17 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
 
         let mut file = wrapfs::File::create(&self.inner.archive_path)?;
 
-        let this_url = self.url.clone();
         let resp = self
             .auth_policy
-            .with_authentication(
-                &self.client,
-                &move |client: &ClientWithMiddleware| -> RequestBuilder {
-                    client.get(this_url.clone())
-                },
-            )
+            .with_authentication(&self.client, &kpar_get_request(&self.url))
             .await
             .map_err(|e| ReqwestKparDownloadedError::Reqwest(self.url.as_str().into(), e))?;
 
         if !resp.status().is_success() {
-            return Err(ReqwestKparDownloadedError::BadHttpStatus(
-                self.url.clone(),
-                resp.status(),
-            ));
+            return Err(ReqwestKparDownloadedError::BadHttpStatus {
+                url: self.url.as_str().into(),
+                response: resp.into(),
+            });
         }
         let mut bytes_stream = resp.bytes_stream();
 
@@ -198,6 +199,7 @@ mod tests {
     use crate::{
         auth::Unauthenticated,
         project::{ProjectRead, ProjectReadAsync},
+        resolve::net_utils::create_reqwest_client,
     };
 
     #[test]
@@ -239,7 +241,7 @@ mod tests {
 
         let project = super::ReqwestKparDownloadedProject::new_guess_root(
             format!("{}test_basic_download_request.kpar", url,),
-            reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+            create_reqwest_client(),
             Arc::new(Unauthenticated {}),
         )?
         .to_tokio_sync(Arc::new(

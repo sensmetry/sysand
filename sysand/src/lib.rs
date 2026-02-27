@@ -29,6 +29,7 @@ use sysand_core::{
     init::InitError,
     lock::Lock,
     project::utils::wrapfs,
+    resolve::net_utils::create_reqwest_client,
     stdlib::known_std_libs,
 };
 
@@ -153,7 +154,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         log::set_max_level(log_level);
     }
 
-    let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+    let client = create_reqwest_client();
 
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()
