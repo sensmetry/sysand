@@ -20,6 +20,7 @@ pipx install sysand
 ```
 
 Or with [uv](https://docs.astral.sh/uv/):
+
 ```sh
 uv tool install sysand
 ```
@@ -42,7 +43,6 @@ Or with `uv` (run inside a virtual environment):
 ```sh
 uv pip install sysand
 ```
-
 
 ## Download latest release
 
@@ -87,11 +87,10 @@ a few PowerShell commands.
 
 1. Move the downloaded `.exe` file to `%LOCALAPPDATA%\Programs\Sysand\sysand.exe`
 2. Add to `PATH` via Environment Variables:
-
-    1. Open "Environment Variables" (search in Start menu)
-    2. Under "User variables", select "Path" and click "Edit"
-    3. Click "New" and add `%LOCALAPPDATA%\Programs\Sysand`
-    4. Click "Ok" to save
+   1. Open "Environment Variables" (search in Start menu)
+   2. Under "User variables", select "Path" and click "Edit"
+   3. Click "New" and add `%LOCALAPPDATA%\Programs\Sysand`
+   4. Click "Ok" to save
 
 #### PowerShell installation
 
@@ -126,14 +125,13 @@ if ($currentPath -notlike "*$newPath*") {
 > [!important]
 > Restart your terminal after installation for `PATH` changes to take effect.
 
-
 ### macOS
 
 #### System installation (requires `sudo`)
 
 1. Open Terminal
 2. Make the binary executable and move to a folder in `PATH` by running the
-    following commands:
+   following commands:
 
 ```sh
 # For Intel Macs
@@ -163,8 +161,7 @@ source ~/.zshrc
 ```
 
 2. Move the executable as shown above for the system installation,
-    but instead of `/usr/local/bin/sysand` move to `~/.local/bin/sysand`.
-
+   but instead of `/usr/local/bin/sysand` move to `~/.local/bin/sysand`.
 
 ### Linux
 
@@ -172,7 +169,7 @@ source ~/.zshrc
 
 1. Open a terminal
 2. Make the binary executable and move to a folder in `PATH` by running the
-    following commands:
+   following commands:
 
 ```sh
 # For x86_64 systems
@@ -201,8 +198,7 @@ source ~/.bashrc
 ```
 
 2. Move the executable as shown above for the system installation,
-    but instead of `/usr/local/bin/sysand` move to `~/.local/bin/sysand`.
-
+   but instead of `/usr/local/bin/sysand` move to `~/.local/bin/sysand`.
 
 ### Verify the installation
 
@@ -212,8 +208,7 @@ Run in a terminal:
 sysand --version
 ```
 
-You should see an output similar to: `sysand X.Y.Z` 
-
+You should see an output similar to: `sysand X.Y.Z`
 
 ## Download development version
 

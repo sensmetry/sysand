@@ -144,10 +144,10 @@ There are two important branches in the repository:
   projects that need to be shared through the index.
 - `index` branch -- This branch is not supposed to be interacted with by humans.
   This branch is exposed to the Sysand client as the index. It contains an
-  auto-generated file structure and always uses `git reset --hard` and `git push
-  --force` to avoid exploding the size of the git repository. Ideally, branch
-  rules should be set up that would only allow the automated bot to make changes
-  to the `index` branch.
+  auto-generated file structure and always uses `git reset --hard` and
+  `git push --force` to avoid exploding the size of the git repository. Ideally,
+  branch rules should be set up that would only allow the automated bot to make
+  changes to the `index` branch.
 
 Other branches can also be used, e.g. to allow reviews of the projects before
 publishing them. However, they should only target the `main` branch, and not

@@ -33,12 +33,12 @@ allow native modules as described in [JEP
 472](https://openjdk.org/jeps/472#Description). Currently, the warning looks as
 follows:
 
-   ```text
-   WARNING: A restricted method in java.lang.System has been called
-   WARNING: java.lang.System::load has been called by com.sensmetry.sysand.NativeLoader in an unnamed module (file:.../sysand-0.0.4-SNAPSHOT.jar)
-   WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
-   WARNING: Restricted methods will be blocked in a future release unless native access is enabled
-   ```
+```text
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by com.sensmetry.sysand.NativeLoader in an unnamed module (file:.../sysand-0.0.4-SNAPSHOT.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+```
 
 ## Building and testing
 
