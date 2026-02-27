@@ -27,18 +27,16 @@ pub enum InitError<ProjectError: ErrorBound> {
     SPDXLicenseParse(Box<str>, spdx::error::ParseError),
 }
 
-pub fn do_init_ext<N: AsRef<str>, V: AsRef<str>, P: ProjectMut>(
-    name: N,
-    version: V,
+pub fn do_init_ext<P: ProjectMut>(
+    name: String,
+    version: String,
     no_semver: bool,
     license: Option<String>,
     no_spdx: bool,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
-    let name = name.as_ref();
-    let version = version.as_ref();
     if !no_semver {
-        Version::parse(version).map_err(|e| InitError::SemVerParse(version.into(), e))?;
+        Version::parse(&version).map_err(|e| InitError::SemVerParse(version.as_str().into(), e))?;
     }
     let license = if let Some(l) = license {
         if !no_spdx {
@@ -80,9 +78,9 @@ pub fn do_init_ext<N: AsRef<str>, V: AsRef<str>, P: ProjectMut>(
     Ok(())
 }
 
-pub fn do_init<N: AsRef<str>, V: AsRef<str>, P: ProjectMut>(
-    name: N,
-    version: V,
+pub fn do_init<P: ProjectMut>(
+    name: String,
+    version: String,
     license: Option<String>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
@@ -96,15 +94,20 @@ pub fn do_init_memory<N: AsRef<str>, V: AsRef<str>>(
 ) -> Result<InMemoryProject, InitError<crate::project::memory::InMemoryError>> {
     let mut storage = InMemoryProject::default();
 
-    do_init(name, version, license, &mut storage)?;
+    do_init(
+        name.as_ref().to_owned(),
+        version.as_ref().to_owned(),
+        license,
+        &mut storage,
+    )?;
 
     Ok(storage)
 }
 
 #[cfg(feature = "filesystem")]
-pub fn do_init_local_file<N: AsRef<str>, V: AsRef<str>>(
-    name: N,
-    version: V,
+pub fn do_init_local_file(
+    name: String,
+    version: String,
     license: Option<String>,
     path: Utf8PathBuf,
 ) -> Result<LocalSrcProject, InitError<LocalSrcError>> {

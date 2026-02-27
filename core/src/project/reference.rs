@@ -10,7 +10,7 @@ use crate::{
 };
 
 // Arc wrapper around project to make cloning possible
-// (necessary for compatibility with ReadEnvironment)
+// (necessary for compatibility with `MemoryResolver`)
 #[derive(Debug)]
 pub struct ProjectReference<Project: ProjectRead> {
     project: Arc<Project>,

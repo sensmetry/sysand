@@ -64,8 +64,8 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     let original_meta = memory_storage.meta.clone();
 
     let second_result = do_init(
-        "init_fail_on_double_init",
-        "1.2.3",
+        "init_fail_on_double_init".to_string(),
+        "1.2.3".to_string(),
         Some("Apache-2.0 OR MIT".to_string()),
         &mut memory_storage,
     );
