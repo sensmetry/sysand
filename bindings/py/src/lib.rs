@@ -179,7 +179,11 @@ fn do_info_py(
 #[pyo3(
     signature = (output_path, project_path, compression),
 )]
-fn do_build_py(output_path: String, project_path: Option<String>, compression: ZipCompressionMethod) -> PyResult<()> {
+fn do_build_py(
+    output_path: String,
+    project_path: Option<String>,
+    compression: Option<String>,
+) -> PyResult<()> {
     let _ = pyo3_log::try_init();
 
     let Some(current_project_path) = project_path else {
@@ -188,6 +192,14 @@ fn do_build_py(output_path: String, project_path: Option<String>, compression: Z
     let project = LocalSrcProject {
         nominal_path: None,
         project_path: current_project_path.into(),
+    };
+
+    let compression = match compression {
+        Some(compression) => match ZipCompressionMethod::try_from(compression) {
+            Ok(compression) => compression,
+            Err(err) => return Err(PyValueError::new_err(err.0)),
+        },
+        None => ZipCompressionMethod::default(),
     };
 
     do_build_kpar(&project, &output_path, compression, true)
@@ -564,6 +576,8 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_include_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_exclude_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_install_path_py, m)?)?;
+    // Currently this interop is done with strings instead
+    // m.add_class::<ZipCompressionMethod>()?;
 
     m.add("DEFAULT_ENV_NAME", DEFAULT_ENV_NAME)?;
     Ok(())

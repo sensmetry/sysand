@@ -16,6 +16,7 @@ use sysand_core::{
     env::local_directory::{self, LocalWriteError},
     info::InfoError,
     init::InitError,
+    model::ZipCompressionMethod,
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,
@@ -321,13 +322,26 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
     }
 }
 
+fn compression_from_java_string(
+    env: &mut JNIEnv<'_>,
+    compression: String,
+) -> Option<ZipCompressionMethod> {
+    match ZipCompressionMethod::try_from(compression) {
+        Ok(compression) => Some(compression),
+        Err(err) => {
+            env.throw_exception(ExceptionKind::SysandException, err.0);
+            None
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     output_path: JString<'local>,
     project_path: JString<'local>,
-    compression: JString<'local>
+    compression: JString<'local>,
 ) {
     let Some(output_path) = env.get_str(&output_path, "outputPath") else {
         return;
@@ -342,7 +356,11 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     let Some(compression) = env.get_str(&compression, "compression") else {
         return;
     };
-    let command_result = sysand_core::commands::build::do_build_kpar(&project, &output_path, compression, true);
+    let Some(compression) = compression_from_java_string(&mut env, compression) else {
+        return;
+    };
+    let command_result =
+        sysand_core::commands::build::do_build_kpar(&project, &output_path, compression, true);
     match command_result {
         Ok(_) => {}
         Err(error) => handle_build_error(&mut env, error),
@@ -355,6 +373,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
     _class: JClass<'local>,
     output_path: JString<'local>,
     workspace_path: JString<'local>,
+    compression: JString<'local>,
 ) {
     let Some(output_path) = env.get_str(&output_path, "outputPath") else {
         return;
@@ -365,6 +384,12 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
     let workspace = Workspace {
         workspace_path: Utf8PathBuf::from(workspace_path),
     };
+    let Some(compression) = env.get_str(&compression, "compression") else {
+        return;
+    };
+    let Some(compression) = compression_from_java_string(&mut env, compression) else {
+        return;
+    };
     match wrapfs::create_dir_all(&output_path) {
         Ok(_) => {}
         Err(error) => {
@@ -372,8 +397,13 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
             return;
         }
     }
-    let command_result =
-        sysand_core::commands::build::do_build_workspace_kpars(&workspace, &output_path, true);
+
+    let command_result = sysand_core::commands::build::do_build_workspace_kpars(
+        &workspace,
+        &output_path,
+        compression,
+        true,
+    );
     match command_result {
         Ok(_) => {}
         Err(error) => handle_build_error(&mut env, error),

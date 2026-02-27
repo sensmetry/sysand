@@ -351,7 +351,11 @@ impl KerMlChecksumAlg {
 
 #[cfg(feature = "filesystem")]
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "python", pyclass(eq))]
+// Currently python interop is done with strings instead
+// in part to have less boilerplate, in part because the old
+// Python we use doesn't have pattern matching which ensures
+// all cases are covered
+// #[cfg_attr(feature = "python", pyclass(eq))]
 pub enum ZipCompressionMethod {
     /// Store the files as is
     Stored,
@@ -369,7 +373,7 @@ pub enum ZipCompressionMethod {
     Xz,
     /// Compress the files using PPMd
     #[cfg(feature = "kpar-ppmd")]
-    Ppmd
+    Ppmd,
 }
 
 #[cfg(feature = "filesystem")]
@@ -385,11 +389,62 @@ impl From<ZipCompressionMethod> for zip::CompressionMethod {
             #[cfg(feature = "kpar-xz")]
             ZipCompressionMethod::Xz => zip::CompressionMethod::Xz,
             #[cfg(feature = "kpar-ppmd")]
-            ZipCompressionMethod::Ppmd => zip::CompressionMethod::Ppmd
+            ZipCompressionMethod::Ppmd => zip::CompressionMethod::Ppmd,
         }
     }
 }
 
+#[cfg(feature = "filesystem")]
+#[derive(Debug, Error)]
+#[error("failed to parse checksum algorithm")]
+pub struct CompressionMethodParseError(pub String);
+
+#[cfg(feature = "filesystem")]
+impl TryFrom<String> for ZipCompressionMethod {
+    type Error = CompressionMethodParseError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+#[cfg(feature = "filesystem")]
+impl TryFrom<&str> for ZipCompressionMethod {
+    type Error = CompressionMethodParseError;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "STORED" => Ok(ZipCompressionMethod::Stored),
+            "DEFLATED" => Ok(ZipCompressionMethod::Deflated),
+            #[cfg(feature = "kpar-bzip2")]
+            "BZIP2" => Ok(ZipCompressionMethod::Bzip2),
+            #[cfg(not(feature = "kpar-bzip2"))]
+            "BZIP2" => {
+                Err(CompressionMethodParseError("Compile sysand with feature kpar-bzip2 to use BZIP2 compression".to_string()))
+            }
+            #[cfg(feature = "kpar-zstd")]
+            "ZSTD" => Ok(ZipCompressionMethod::Zstd),
+            #[cfg(not(feature = "kpar-zstd"))]
+            "ZSTD" => {
+                Err(CompressionMethodParseError("Compile sysand with feature kpar-zstd to use ZSTD compression".to_string()))
+            },
+            #[cfg(feature = "kpar-xz")]
+            "XZ" => Ok(ZipCompressionMethod::Xz),
+            #[cfg(not(feature = "kpar-xz"))]
+            "XZ" => {
+                Err(CompressionMethodParseError("Compile sysand with feature kpar-xz to use XZ compression".to_string()))
+            }
+            #[cfg(feature = "kpar-ppmd")]
+            "PPMD" => Ok(ZipCompressionMethod::Ppmd),
+            #[cfg(not(feature = "kpar-ppmd"))]
+            "PPMD" => {
+                Err(CompressionMethodParseError("Compile sysand with feature kpar-ppmd to use PPMD compression".to_string()))
+            }
+            _ => {
+                Err(CompressionMethodParseError(format!("Compression method {value} is invalid")))
+            }
+        }
+    }
+}
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]

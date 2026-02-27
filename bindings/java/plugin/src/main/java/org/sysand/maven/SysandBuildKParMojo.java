@@ -4,11 +4,15 @@
 
 package org.sysand.maven;
 
+import java.nio.file.Paths;
+
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
+
+import com.sensmetry.sysand.model.CompressionMethod;
 
 @Mojo(name = "build-kpar", defaultPhase = LifecyclePhase.PACKAGE, threadSafe = false)
 public class SysandBuildKParMojo extends AbstractMojo {
@@ -37,6 +41,14 @@ public class SysandBuildKParMojo extends AbstractMojo {
     @Parameter(property = "sysand.outputPath", required = true)
     private String outputPath;
 
+    /**
+     * Kpar compression method. Can be configured as 
+     * {@code <configuration><compressionMethod>...</compressionMethod></configuration>} or
+     * via {@code -Dsysand.compressionMethod=...}.
+     */
+    @Parameter(property = "sysand.compressionMethod", required = true)
+    private String compressionMethod;
+
     @Override
     public void execute() throws MojoExecutionException {
         if (projectPath == null && workspacePath == null) {
@@ -46,15 +58,16 @@ public class SysandBuildKParMojo extends AbstractMojo {
         if (outputPath == null || outputPath.trim().isEmpty()) {
             throw new MojoExecutionException("Parameter 'outputPath' must be provided and non-empty");
         }
+        CompressionMethod compression = CompressionMethod.valueOf(compressionMethod.toUpperCase());
 
         try {
             if (workspacePath == null) {
-                getLog().info("Invoking Sysand.buildProject on: " + projectPath + " to " + outputPath);
-                com.sensmetry.sysand.Sysand.buildProject(outputPath, projectPath);
+                getLog().info("Invoking Sysand.buildProject on: " + projectPath + " to " + outputPath + " with compression " + compressionMethod);
+                com.sensmetry.sysand.Sysand.buildProject(Paths.get(outputPath), Paths.get(projectPath), compression);
                 getLog().info("Sysand.buildProject completed successfully.");
             } else {
-                getLog().info("Invoking Sysand.buildWorkspace on: " + workspacePath + " to " + outputPath);
-                com.sensmetry.sysand.Sysand.buildWorkspace(outputPath, workspacePath);
+                getLog().info("Invoking Sysand.buildWorkspace on: " + workspacePath + " to " + outputPath + " with compression " + compressionMethod);
+                com.sensmetry.sysand.Sysand.buildWorkspace(Paths.get(outputPath), Paths.get(workspacePath), compression);
                 getLog().info("Sysand.buildWorkspace completed successfully.");
             }
         } catch (com.sensmetry.sysand.exceptions.SysandException e) {
