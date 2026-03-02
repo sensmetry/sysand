@@ -17,7 +17,6 @@ Directory structure:
 - `sysand` (crate `sysand`) wraps `sysand-core` into a user interface, currently
   a command line application.
 - `bindings` contains wrappers for various programming languages:
-
   - `bindings/js` wraps `sysand-core` into a WASM/JavaScript library that can be
     used in Node, Deno, browsers, and so on.
   - `bindings/py` wraps `sysand-core` into a Python module.
@@ -41,6 +40,7 @@ Other useful VS Code extensions can be found in
 [`.vscode/extensions.json`](.vscode/extensions.json).
 
 Get the repository:
+
 ```sh
 git clone git@github.com:sensmetry/sysand.git
 cd sysand
@@ -50,11 +50,13 @@ cd sysand
 
 Sysand command line utility can be compiled from local repository and
 installed as follows:
+
 ```console
 $ cargo install --path=sysand
 [...]
 Installed package `sysand vX.Y.Z (/...)` (executable `sysand`)
 ```
+
 It is then available as `sysand` from the command line.
 
 ## Language bindings
@@ -69,6 +71,7 @@ their respective READMEs:
 ## Building
 
 Build the Sysand CLI:
+
 ```sh
 cargo build -p sysand # unoptimized
 # or
@@ -76,6 +79,7 @@ cargo build -p sysand --release # optimized
 ```
 
 Build binaries of all Rust crates in the workspace:
+
 ```sh
 cargo build # unoptimized
 # or
@@ -86,12 +90,14 @@ cargo build --release # optimized
 
 Run tests for main Rust crates. This excludes language bindings, because they
 have their own test suites:
+
 ```sh
 cargo test -p sysand-core -F filesystem,js,python,alltests
 cargo test -p sysand -F alltests
 ```
 
 Run tests for all crates and language bindings (requires bindings dependencies):
+
 ```sh
 ./scripts/run_tests.sh
 ```
@@ -99,13 +105,26 @@ Run tests for all crates and language bindings (requires bindings dependencies):
 ## Formatting and linting
 
 Format Rust code in core crates:
+
 ```sh
 cargo fmt -p sysand-core -p sysand
 ```
 
 Format and lint all Rust and bindings code (requires bindings dependencies):
+
 ```sh
 ./scripts/run_chores.sh
+```
+
+Format and lint all other code based on configuration in
+`.pre-commit-config.yaml`, either with prek or pre-commit, available to install
+via uv or pip.
+
+```sh
+prek run -a
+
+# like this, you ensure this formatting is run before git commits are made
+prek install
 ```
 
 ## Commits and pull requests
@@ -123,7 +142,6 @@ merged. The project uses GitHub Actions CI, its configuration is in
 [`.github/workflows` directory](.github/workflows). The CI runs the same tests
 as [`./scripts/run_tests.sh`](scripts/run_tests.sh). Therefore it is recommended
 to make sure that all tests pass locally before submitting a pull request.
-
 
 ## Documentation
 
@@ -143,7 +161,6 @@ mdbook serve docs/
 ```
 
 and open [localhost:3000](http://localhost:3000/).
-
 
 ## Text formatting guide
 
@@ -187,6 +204,7 @@ Rules for markdown (Rust doc comments, Markdown (`.md`) files):
 
   ````md
   ```text
+
   ```
   ````
 
@@ -195,6 +213,7 @@ Rules for markdown (Rust doc comments, Markdown (`.md`) files):
 
   ````md
   ```sh
+
   ```
   ````
 
@@ -209,5 +228,6 @@ Rules for markdown (Rust doc comments, Markdown (`.md`) files):
 
   ````md
   ```console
+
   ```
   ````
