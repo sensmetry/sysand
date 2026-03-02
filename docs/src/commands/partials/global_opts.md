@@ -1,4 +1,5 @@
 <!-- markdownlint-disable MD041 -->
+
 ## Global options
 
 - `-v`, `--verbose`: Use verbose output
