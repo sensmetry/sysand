@@ -223,10 +223,12 @@ mod tests {
 
         // sleep(Duration::from_millis(100));
 
-        let project = GixDownloadedProject::new(format!(
-            "file://{}",
-            repo_dir.path().canonicalize()?.display()
-        ))?;
+        let canonical = repo_dir.path().canonicalize()?;
+        // On Windows, canonicalize() returns extended-length paths with a `\\?\`
+        // prefix that gix cannot parse as a valid file URL. Strip it.
+        let path = canonical.to_str().unwrap();
+        let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+        let project = GixDownloadedProject::new(format!("file://{path}"))?;
 
         let (Some(info), Some(meta)) = project.get_project()? else {
             panic!("expected info and meta");
