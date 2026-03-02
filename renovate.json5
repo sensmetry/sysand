@@ -1,39 +1,36 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:best-practices",
-    "schedule:earlyMondays"
-  ],
-  "packageRules": [
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:best-practices", "schedule:earlyMondays"],
+  packageRules: [
     {
-      "groupName": "all non-major dependencies",
-      "groupSlug": "all-minor-patch",
-      "matchPackageNames": ["*"],
-      "matchUpdateTypes": ["minor", "patch"],
+      groupName: "all non-major dependencies",
+      groupSlug: "all-minor-patch",
+      matchPackageNames: ["*"],
+      matchUpdateTypes: ["minor", "patch"],
       // Only upgrade deps with version >=1
-      "matchCurrentVersion": "!/^0/"
+      matchCurrentVersion: "!/^0/",
     },
     // pyo3 packages have interdependencies on each other
     {
-      "groupName": "all pyo3 packages",
-      "groupSlug": "all-pyo3",
-      "matchDatasources": ["crate"],
-      "matchPackageNames": ["pyo3*"]
+      groupName: "all pyo3 packages",
+      groupSlug: "all-pyo3",
+      matchDatasources: ["crate"],
+      matchPackageNames: ["pyo3*"],
     },
     // We upgrade python versions in CI manually
     {
-      "matchManagers": ["github-actions"],
-      "matchDepNames": ["python"],
-      "separateMultipleMinor": true,
-      "dependencyDashboardApproval": true
+      matchManagers: ["github-actions"],
+      matchDepNames: ["python"],
+      separateMultipleMinor: true,
+      dependencyDashboardApproval: true,
     },
     {
-      "matchPackageNames": [
+      matchPackageNames: [
         "python",
         "com.sensmetry:sysand",
-        "com.sensmetry:sysand-maven-plugin"
+        "com.sensmetry:sysand-maven-plugin",
       ],
-      "enabled": false
-    }
-  ]
+      enabled: false,
+    },
+  ],
 }

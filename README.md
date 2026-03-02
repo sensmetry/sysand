@@ -18,18 +18,15 @@ Sysand can be used as a standalone tool through its command line interface (CLI)
 or be integrated into other tools through one of its APIs (currently, Python and
 Java are supported).
 
-
 ## Documentation
 
 Sysand usage documentation is provided in User Guide at
 [docs.sysand.org](https://docs.sysand.org/).
 
-
 ## Installation
 
 See [installation section in User Guide](http://docs.sysand.org/getting_started/installation.html)
 for various ways to download Sysand.
-
 
 ## Contributing
 
@@ -45,7 +42,7 @@ For contributors' guidelines regarding legal matters, please see the
 ## Licensing
 
 The implementation is dual-licensed under the MIT and Apache-2.0 licenses,
-meaning users may choose to use the code under *either* license. Contributors
+meaning users may choose to use the code under _either_ license. Contributors
 agree to provide contributed code under **both** licenses.
 
 Sysand is maintained by [Sensmetry](https://www.sensmetry.com), with

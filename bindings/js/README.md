@@ -7,9 +7,10 @@ Requirements:
 - Rust version given in `rust-version` in [Cargo.toml](../../Cargo.toml) or later
 - npm
 - [wasm-pack](https://github.com/drager/wasm-pack) (can be installed with e. g.
-`cargo install wasm-pack`)
+  `cargo install wasm-pack`)
 
 Build:
+
 ```sh
 wasm-pack build
 ```
