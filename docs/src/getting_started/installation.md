@@ -48,6 +48,7 @@ uv pip install sysand
 
 Latest official Sysand CLI release can be downloaded below
 or from [latest GitHub release][gh_rel].
+
 <!-- markdownlint-disable MD033 MD013 -->
 <table>
   <tr>

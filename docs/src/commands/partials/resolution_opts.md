@@ -1,4 +1,5 @@
 <!-- markdownlint-disable MD041 -->
+
 ## Resolution options
 
 - `--index [<INDEX>...]`: Comma-delimited list of index URLs to use when
