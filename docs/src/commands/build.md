@@ -30,7 +30,7 @@ if none is found uses the current directory instead.
 
 - `-c`, `--compression`: Method to compress the files in the KPAR.  
   Possible values:
-  - `stored`:   Store the files as is
+  - `stored`: Store the files as is
   - `deflated`: Compress the files using Deflate
 
   [default: `deflated`]
