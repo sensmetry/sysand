@@ -1,0 +1,22 @@
+# `sysand info usage`
+
+Print project usages
+
+## Usage
+
+```sh
+sysand info usage [OPTIONS]
+```
+
+## Description
+
+Prints the list of usages (dependencies) of the current project.
+
+This field is read-only via `sysand info`. To add or remove usages, use
+[`sysand add`](../add.md) and [`sysand remove`](../remove.md).
+
+## Options
+
+- `--numbered`: Print the list with item numbers
+
+{{#include ../partials/global_opts.md}}
