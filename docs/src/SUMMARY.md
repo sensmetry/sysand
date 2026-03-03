@@ -28,3 +28,4 @@
 - [Publishing a package to Sysand Index](publishing.md)
 - [Configuration](config.md)
   - [Indexes](config/indexes.md)
+  - [Dependencies](config/dependencies.md)
