@@ -44,7 +44,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Compile
         shell: bash
-        run: cargo build --package sysand-java --release
+        run: cargo build --locked --package sysand-java --release
       - uses: actions/setup-python@v6
         if: ${{ matrix.os == 'ubuntu-22.04' }}
         with:

@@ -43,7 +43,7 @@ jobs:
       - name: Clippy
         run: cargo hack clippy --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
       - name: Clippy for tests
-        run: cargo clippy --all-targets --all-features -- --deny warnings
+        run: cargo clippy --locked --all-targets --all-features -- --deny warnings
       - name: Format
         run: cargo fmt --check
       - name: Set up git user
@@ -51,9 +51,9 @@ jobs:
           git config --global user.email "user@sysand.org"
           git config --global user.name "Test User"
       - name: Test Core
-        run: cargo test --package sysand-core --verbose --features filesystem,js,python,alltests
+        run: cargo test --locked --package sysand-core --verbose --features filesystem,js,python,alltests
       - name: Test CLI
-        run: cargo test --package sysand --verbose --features alltests
+        run: cargo test --locked --package sysand --verbose --features alltests
 
   build:
     strategy:
@@ -81,7 +81,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Build
-        run: cargo build --bin sysand --release
+        run: cargo build --locked --bin sysand --release
       - name: Create the distribution directory
         run: mkdir -p dist
       - name: Copy binaries
