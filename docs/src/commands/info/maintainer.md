@@ -14,7 +14,7 @@ Prints the list of maintainers of the current project. With modifying options, u
 
 ## Options
 
-- `--numbered`: Print the list with item numbers
+- `--numbered`: Prints a numbered list
 - `--set <MAINTAINER>`: Replace the entire list with a single maintainer
 - `--add <MAINTAINER>`: Append a maintainer to the list
 - `--remove <N>`: Remove the maintainer at position N (1-based, as shown by `--numbered`)

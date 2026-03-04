@@ -16,7 +16,7 @@ The value must be a valid IRI/URI/URL.
 
 ## Options
 
-- `--set <URI>`: Set the website; must be a valid IRI/URI/URL
+- `--set <URI>`: Set the website. Must be a valid IRI/URI/URL
 - `--clear`: Remove the project website
 
 {{#include ../partials/global_opts.md}}

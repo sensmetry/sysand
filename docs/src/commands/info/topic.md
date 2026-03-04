@@ -14,7 +14,7 @@ Prints the list of topics of the current project. With modifying options, update
 
 ## Options
 
-- `--numbered`: Print the list with item numbers
+- `--numbered`: Prints a numbered list
 - `--set <TOPIC>`: Replace the entire list with a single topic
 - `--add <TOPIC>`: Append a topic to the list
 - `--remove <N>`: Remove the topic at position N (1-based, as shown by `--numbered`)

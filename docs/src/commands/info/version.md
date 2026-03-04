@@ -21,7 +21,7 @@ The `version` field is required and cannot be cleared.
 
 ## Options
 
-- `--set <VERSION>`: Set the version (SemVer 2.0 by default)
-- `--no-semver`: Allow a non-SemVer version string (requires `--set`)
+- `--set <VERSION>`: Set the version in SemVer 2.0 format
+- `--no-semver`: Don't require version to conform to Semantic Versioning
 
 {{#include ../partials/global_opts.md}}

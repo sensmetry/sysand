@@ -21,8 +21,8 @@ See [Project metadata](../../metadata.md#license) for guidance on license format
 
 ## Options
 
-- `--set <LICENSE>`: Set the license (SPDX expression by default)
-- `--no-spdx`: Allow a non-SPDX license string (requires `--set`)
-- `--clear`: Remove the project license
+- `--set <LICENSE>`: Set the license in the form of an SPDX license identifier
+- `--no-spdx`: Don't require license to be an SPDX expression
+- `--clear`: Remove the project's license
 
 {{#include ../partials/global_opts.md}}

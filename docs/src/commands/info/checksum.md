@@ -17,6 +17,6 @@ This field is read-only via `sysand info`. Checksums are updated by
 
 ## Options
 
-- `--numbered`: Print the list with item numbers
+- `--numbered`: Prints a numbered list
 
 {{#include ../partials/global_opts.md}}

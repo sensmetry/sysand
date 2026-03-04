@@ -17,6 +17,6 @@ use [`sysand include`](../include.md) and [`sysand exclude`](../exclude.md).
 
 ## Options
 
-- `--numbered`: Print the list with item numbers
+- `--numbered`: Prints a numbered list
 
 {{#include ../partials/global_opts.md}}

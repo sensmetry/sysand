@@ -29,10 +29,10 @@ sysand info metamodel --set-custom https://example.com/my-metamodel/1.0
 
 ## Options
 
-- `--set <KIND>`: Set a standard metamodel (`sysml` or `kerml`)
-- `--release <YYYYMMDD>`: Official release of the metamodel (requires `--set`; default: `20250201`); conflicts with `--release-custom`
-- `--release-custom <YYYYMMDD>`: Custom release date (requires `--set`; conflicts with `--release`)
-- `--set-custom <METAMODEL>`: Set an arbitrary metamodel URI (conflicts with `--set`, `--release`, `--release-custom`)
-- `--clear`: Remove the metamodel field (conflicts with `--set`)
+- `--set <KIND>`: Set a SysML v2 or KerML metamodel. To set a custom metamodel, use `--set-custom`
+- `--release <YYYYMMDD>`: Choose the release of the SysML v2 or KerML metamodel. SysML 2.0 and KerML 1.0 have the same release dates (default: `20250201`)
+- `--release-custom <YYYYMMDD>`: Choose a custom release of the SysML v2 or KerML metamodel
+- `--set-custom <METAMODEL>`: Set a custom metamodel. To set a SysML v2 or KerML metamodel, use `--set`
+- `--clear`: Remove the metamodel field
 
 {{#include ../partials/global_opts.md}}
