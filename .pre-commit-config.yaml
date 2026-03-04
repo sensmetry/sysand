@@ -34,24 +34,25 @@ repos:
       - id: cargo-fmt
         name: cargo fmt
         entry: cargo fmt
-        description: Formats all bin and lib files of the current crate using rustfmt.
+        description: Formats all bin and lib files of the current workspace using rustfmt.
         language: system
         types: [rust]
         args: ["--"]
-      - id: cargo-check
-        name: cargo check
-        entry: cargo check
-        description: Check local package and all of its dependencies for errors
-        language: system
-        types: [rust]
-        pass_filenames: false
       - id: cargo-clippy
         name: cargo clippy
         entry: cargo clippy
-        description: Checks package to catch common mistakes and improve your Rust code.
+        description: Checks all packages in the workspace to catch common mistakes and improve your Rust code.
         language: system
         types: [rust]
-        args: ["--", "-D", "warnings"]
+        args:
+          [
+            "--workspace",
+            "--all-targets",
+            "--all-features",
+            "--",
+            "--deny",
+            "warnings",
+          ]
         pass_filenames: false
 
 # pre-commit.ci is a free automation service that can both run a validation job
@@ -65,5 +66,4 @@ ci:
     # The hooks rely on cargo being available, which it won't be in
     # pre-commit.ci's runners, so we skip them from running there.
     - cargo-fmt
-    - cargo-check
     - cargo-clippy
