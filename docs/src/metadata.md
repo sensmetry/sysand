@@ -9,7 +9,7 @@ additional requirements for some fields, as documented below. These extra
 requirements are imposed to achieve better interoperability between different
 tools, user convenience and to have more structured project information.
 
-To read or modify metadata fields from the command line, use
+To read or modify project information and metadata fields from the command line, use
 [`sysand info`](commands/info.md) and its subcommands.
 
 ## Fields of `.project.json`
