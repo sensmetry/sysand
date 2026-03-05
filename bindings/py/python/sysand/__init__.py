@@ -7,6 +7,7 @@ from ._model import (
     InterchangeProjectInfo,
     InterchangeProjectChecksum,
     InterchangeProjectMetadata,
+    CompressionMethod,
 )
 
 from ._info import info_path, info
@@ -47,6 +48,7 @@ __all__ = [
     "InterchangeProjectInfo",
     "InterchangeProjectChecksum",
     "InterchangeProjectMetadata",
+    "CompressionMethod",
     ## Add
     "add",
     ## Remove

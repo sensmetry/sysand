@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(info.name, "test_basic_download_request");
         assert_eq!(meta.created, "123");
 
-        let mut src = "".to_string();
+        let mut src = String::new();
         project
             .read_source("test.sysml")?
             .read_to_string(&mut src)?;

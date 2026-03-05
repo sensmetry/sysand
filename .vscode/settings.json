@@ -1,14 +1,21 @@
 {
     "cSpell.words": [
-        "sysand",
-        "sysml",
         "kerml",
         "kpar",
-        "metamodel",
         "mdbook",
-        "thiserror",
-        "reqwest",
+        "metamodel",
+        "Ppmd",
         "pubgrub",
-        "pycache"
-    ],
+        "pycache",
+        "pyerr",
+        "pyfunction",
+        "pymodule",
+        "reqwest",
+        "strs",
+        "sysand",
+        "sysml",
+        "thiserror",
+        "werr",
+        "wrapfs"
+    ]
 }

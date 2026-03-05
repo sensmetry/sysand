@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(info.name, "test_basic_project_urls");
         assert_eq!(meta.created, "0000-00-00T00:00:00.123456789Z");
 
-        let mut src_buf = "".to_string();
+        let mut src_buf = String::new();
         project
             .read_source(Utf8UnixPath::new("Mekanïk/Kommandöh.sysml").to_path_buf())?
             .read_to_string(&mut src_buf)?;

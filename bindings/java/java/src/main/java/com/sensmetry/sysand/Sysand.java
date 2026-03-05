@@ -152,7 +152,7 @@ public class Sysand {
      * @param outputPath  The path to the output file.
      * @param projectPath The path to the project.
      */
-    public static native void buildProject(String outputPath, String projectPath)
+    private static native void buildProject(String outputPath, String projectPath, String compression)
             throws com.sensmetry.sysand.exceptions.SysandException;
 
     /**
@@ -162,9 +162,9 @@ public class Sysand {
      * @param outputPath  The path to the output file.
      * @param projectPath The path to the project.
      */
-    public static void buildProject(java.nio.file.Path outputPath, java.nio.file.Path projectPath)
+    public static void buildProject(java.nio.file.Path outputPath, java.nio.file.Path projectPath, com.sensmetry.sysand.model.CompressionMethod compression)
             throws com.sensmetry.sysand.exceptions.SysandException {
-        buildProject(outputPath.toString(), projectPath.toString());
+        buildProject(outputPath.toString(), projectPath.toString(), compression.toString());
     }
 
     /**
@@ -174,7 +174,7 @@ public class Sysand {
      * @param outputPath  The path to the output file.
      * @param workspacePath The path to the workspace.
      */
-    public static native void buildWorkspace(String outputPath, String workspacePath)
+    private static native void buildWorkspace(String outputPath, String workspacePath, String compression)
             throws com.sensmetry.sysand.exceptions.SysandException;
 
     /**
@@ -184,8 +184,8 @@ public class Sysand {
      * @param outputPath  The path to the output file.
      * @param workspacePath The path to the workspace.
      */
-    public static void buildWorkspace(java.nio.file.Path outputPath, java.nio.file.Path workspacePath)
+    public static void buildWorkspace(java.nio.file.Path outputPath, java.nio.file.Path workspacePath, com.sensmetry.sysand.model.CompressionMethod compression)
             throws com.sensmetry.sysand.exceptions.SysandException {
-        buildWorkspace(outputPath.toString(), workspacePath.toString());
+        buildWorkspace(outputPath.toString(), workspacePath.toString(), compression.toString());
     }
 }

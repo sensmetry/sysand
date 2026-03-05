@@ -92,8 +92,8 @@ Run tests for main Rust crates. This excludes language bindings, because they
 have their own test suites:
 
 ```sh
-cargo test -p sysand-core -F filesystem,js,python,alltests
-cargo test -p sysand -F alltests
+cargo test -p sysand-core -F filesystem,networking,js,python,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
+cargo test -p sysand -F alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
 ```
 
 Run tests for all crates and language bindings (requires bindings dependencies):
