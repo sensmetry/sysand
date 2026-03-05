@@ -92,6 +92,7 @@ pub fn do_init<P: ProjectMut>(
 
 pub fn do_init_memory<N: AsRef<str>, V: AsRef<str>>(
     name: N,
+    publisher: Option<String>,
     version: V,
     license: Option<String>,
 ) -> Result<InMemoryProject, InitError<crate::project::memory::InMemoryError>> {
@@ -99,6 +100,7 @@ pub fn do_init_memory<N: AsRef<str>, V: AsRef<str>>(
 
     do_init(
         name.as_ref().to_owned(),
+        publisher,
         version.as_ref().to_owned(),
         license,
         &mut storage,
@@ -110,6 +112,7 @@ pub fn do_init_memory<N: AsRef<str>, V: AsRef<str>>(
 #[cfg(feature = "filesystem")]
 pub fn do_init_local_file(
     name: String,
+    publisher: Option<String>,
     version: String,
     license: Option<String>,
     path: Utf8PathBuf,
@@ -119,7 +122,7 @@ pub fn do_init_local_file(
         project_path: path,
     };
 
-    do_init(name, version, license, &mut storage)?;
+    do_init(name, publisher, version, license, &mut storage)?;
 
     Ok(storage)
 }

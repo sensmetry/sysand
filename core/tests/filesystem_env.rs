@@ -92,7 +92,7 @@ mod filesystem_tests {
 
         let info = InterchangeProjectInfo {
             name: "env_manual_install".to_string(),
-            publisher: None,
+            publisher: Some("test-publisher".to_string()),
             description: None,
             version: Version::new(1, 2, 3),
             license: None,

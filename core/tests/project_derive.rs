@@ -55,6 +55,7 @@ fn test_error_to_string() {
 fn test_macro_get_project() {
     let info = InterchangeProjectInfoRaw {
         name: "get_project".to_string(),
+        publisher: Some("Test Publisher".to_string()),
         description: None,
         version: "1.2.3".to_string(),
         license: None,
@@ -117,6 +118,7 @@ fn test_macro_sources() {
 fn test_macro_put_info() {
     let info = InterchangeProjectInfoRaw {
         name: "single_get_info".to_string(),
+        publisher: Some("test-publisher".to_string()),
         description: None,
         version: "1.2.3".to_string(),
         license: None,

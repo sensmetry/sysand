@@ -63,7 +63,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
         },
     };
 
-    let command_result = commands::init::do_init_local_file(name, version, license, path.into());
+    let command_result = commands::init::do_init_local_file(name, None, version, license, path.into());
     match command_result {
         Ok(_) => {}
         Err(error) => match error {
