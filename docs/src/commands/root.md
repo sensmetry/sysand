@@ -5,7 +5,7 @@ Prints the root directory of the current project
 ## Usage
 
 ```sh
-sysand print-root [OPTIONS] <IRI>
+sysand print-root [OPTIONS]
 ```
 
 ## Description

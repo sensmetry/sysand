@@ -28,6 +28,33 @@ repos:
               .*\.lock
           )$
 
+  # Autoformat: rust
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt
+        description: Formats all bin and lib files of the current workspace using rustfmt.
+        language: system
+        types: [rust]
+        args: ["--"]
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy
+        description: Checks all packages in the workspace to catch common mistakes and improve your Rust code.
+        language: system
+        types: [rust]
+        args:
+          [
+            "--workspace",
+            "--all-targets",
+            "--all-features",
+            "--",
+            "--deny",
+            "warnings",
+          ]
+        pass_filenames: false
+
 # pre-commit.ci is a free automation service that can both run a validation job
 # and push commits with fixes to PRs, and keep the versions of configured
 # pre-commit hooks up to date by creating version bumping PRs.
@@ -35,3 +62,8 @@ repos:
 # pre-commit.ci config reference: https://pre-commit.ci/#configuration
 ci:
   autoupdate_schedule: monthly
+  skip:
+    # The hooks rely on cargo being available, which it won't be in
+    # pre-commit.ci's runners, so we skip them from running there.
+    - cargo-fmt
+    - cargo-clippy
