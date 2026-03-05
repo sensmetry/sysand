@@ -29,6 +29,7 @@ pub enum InitError<ProjectError: ErrorBound> {
 
 pub fn do_init_ext<P: ProjectMut>(
     name: String,
+    publisher: Option<String>,
     version: String,
     no_semver: bool,
     license: Option<String>,
@@ -55,6 +56,7 @@ pub fn do_init_ext<P: ProjectMut>(
     storage.put_project(
         &InterchangeProjectInfoRaw {
             name: name.to_owned(),
+            publisher: publisher.to_owned(),
             description: None,
             version: version.to_owned(),
             license,
@@ -80,15 +82,17 @@ pub fn do_init_ext<P: ProjectMut>(
 
 pub fn do_init<P: ProjectMut>(
     name: String,
+    publisher: Option<String>,
     version: String,
     license: Option<String>,
     storage: &mut P,
 ) -> Result<(), InitError<P::Error>> {
-    do_init_ext(name, version, false, license, false, storage)
+    do_init_ext(name, publisher, version, false, license, false, storage)
 }
 
 pub fn do_init_memory<N: AsRef<str>, V: AsRef<str>>(
     name: N,
+    publisher: Option<String>,
     version: V,
     license: Option<String>,
 ) -> Result<InMemoryProject, InitError<crate::project::memory::InMemoryError>> {
@@ -96,6 +100,7 @@ pub fn do_init_memory<N: AsRef<str>, V: AsRef<str>>(
 
     do_init(
         name.as_ref().to_owned(),
+        publisher,
         version.as_ref().to_owned(),
         license,
         &mut storage,
@@ -107,6 +112,7 @@ pub fn do_init_memory<N: AsRef<str>, V: AsRef<str>>(
 #[cfg(feature = "filesystem")]
 pub fn do_init_local_file(
     name: String,
+    publisher: Option<String>,
     version: String,
     license: Option<String>,
     path: Utf8PathBuf,
@@ -116,7 +122,7 @@ pub fn do_init_local_file(
         project_path: path,
     };
 
-    do_init(name, version, license, &mut storage)?;
+    do_init(name, publisher, version, license, &mut storage)?;
 
     Ok(storage)
 }

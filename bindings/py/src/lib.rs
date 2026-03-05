@@ -64,7 +64,7 @@ fn do_new_py_local_file(
     // library from python runs it
     let _ = pyo3_log::try_init();
 
-    do_init_local_file(name, version, license, Utf8PathBuf::from(path)).map_err(
+    do_init_local_file(name, None, version, license, Utf8PathBuf::from(path)).map_err(
         |err| match err {
             InitError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
             InitError::SPDXLicenseParse(..) => PyValueError::new_err(err.to_string()),

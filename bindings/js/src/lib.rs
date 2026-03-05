@@ -43,6 +43,7 @@ pub fn do_new_js_local_storage(
 
     do_init(
         name,
+        None,
         version,
         license,
         &mut io::local_storage::ProjectLocalBrowserStorage {
