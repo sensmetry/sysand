@@ -1,9 +1,12 @@
 {
     "recommendations": [
-        "rust-lang.rust-analyzer",
-        "tamasfe.even-better-toml",
-        "streetsidesoftware.code-spell-checker",
         "davidanson.vscode-markdownlint",
-        "gruntfuggly.todo-tree"
+        "gruntfuggly.todo-tree",
+        "ms-python.python",
+        "rust-lang.rust-analyzer",
+        "streetsidesoftware.code-spell-checker",
+        "tamasfe.even-better-toml",
+        "usernamehw.errorlens",
+        "vadimcn.vscode-lldb"
     ]
 }

@@ -1,11 +1,28 @@
 # Python bindings
 
-## Building and running tests
+## Setup
 
 Requirements:
 
 - Rust version given in `rust-version` in [Cargo.toml](../../Cargo.toml) or later
-- uv
+- [uv](https://docs.astral.sh/uv/)
+
+The main part of the python bindings are written in Rust but some of the
+tests are written in Python so it can be a good idea configure your editor for
+Python development as well.
+
+### VS Code
+
+If using VS Code (or other compatible editor like e.g. Codium or Cursor) we
+recommended the official [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
+extension from Microsoft. This will also install the Pylance, Python Debugger
+and Python Environments extensions.
+
+If your editor is having problems finding imports even after installing all
+dependencies (see below), you can try to go into the settings of the Python
+extension and check the `Use Environments Extension` option.
+
+## Building and running tests
 
 First, set up a Python venv:
 
