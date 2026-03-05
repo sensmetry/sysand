@@ -34,6 +34,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 env:
   CARGO_NET_RETRY: 10
   RUSTUP_MAX_RETRIES: 10
@@ -98,11 +102,10 @@ jobs:
       - name: Run Rust tests for Python bindings
         run: |
           cd bindings/py
-          cargo test --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
+          cargo test --locked --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
       - name: Install uv
         uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # 7.2.0
       - name: pytest
-        shell: bash
         run: |
           export UV_PYTHON=${{ matrix.python.version }}
           export ACTIVATION_SCRIPT=.venv/Scripts/activate
@@ -128,7 +131,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Run Rust tests for Python bindings
-        run: cargo test --package sysand-py --verbose --no-default-features
+        run: cargo test --locked --package sysand-py --verbose --no-default-features
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
         with:
@@ -193,7 +196,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Run Rust tests for Python bindings
-        run: cargo test --package sysand-py --verbose --no-default-features
+        run: cargo test --locked --package sysand-py --verbose --no-default-features
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
         with:
@@ -239,7 +242,6 @@ jobs:
             /bin/bash .github/scripts/run-pytest.sh
       - name: linters
         if: ${{ matrix.platform.target == 'x86_64' }}
-        shell: bash
         run: |
           cd bindings/py
           source .venv/bin/activate
@@ -263,7 +265,7 @@ jobs:
         with:
           python-version: 3.14
       - name: Run Rust tests for Python bindings
-        run: cargo test --package sysand-py --verbose --no-default-features
+        run: cargo test --locked --package sysand-py --verbose --no-default-features
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
         with:
