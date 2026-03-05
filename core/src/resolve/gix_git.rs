@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::{
     project::gix_git_download::{GixDownloadedError, GixDownloadedProject},
     resolve::{
-        ResolveRead,
+        ResolutionOutcome, ResolveRead,
         file::SCHEME_FILE,
         reqwest_http::{SCHEME_HTTP, SCHEME_HTTPS},
     },
@@ -20,6 +20,10 @@ pub enum GitResolverError {
 }
 
 pub const SCHEME_SSH: &Scheme = Scheme::new_or_panic("ssh");
+pub const SCHEME_GIT_SSH: &Scheme = Scheme::new_or_panic("git+ssh");
+pub const SCHEME_GIT_FILE: &Scheme = Scheme::new_or_panic("git+file");
+pub const SCHEME_GIT_HTTP: &Scheme = Scheme::new_or_panic("git+http");
+pub const SCHEME_GIT_HTTPS: &Scheme = Scheme::new_or_panic("git+https");
 
 impl ResolveRead for GitResolver {
     type Error = GitResolverError;
@@ -34,23 +38,30 @@ impl ResolveRead for GitResolver {
     ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let scheme = uri.scheme();
 
-        if !(scheme == SCHEME_HTTP
-            || scheme == SCHEME_HTTPS
-            || scheme == SCHEME_FILE
-            || scheme == SCHEME_SSH)
+        if ![
+            SCHEME_HTTP,
+            SCHEME_HTTPS,
+            SCHEME_FILE,
+            SCHEME_SSH,
+            SCHEME_GIT_HTTP,
+            SCHEME_GIT_HTTPS,
+            SCHEME_GIT_FILE,
+            SCHEME_GIT_SSH,
+        ]
+        .contains(&scheme)
         {
-            return Ok(crate::resolve::ResolutionOutcome::UnsupportedIRIType(
-                format!(
-                    "url scheme `{}` of IRI `{}` is not known to be git-compatible",
-                    scheme,
-                    uri.as_str()
-                ),
-            ));
+            return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+                "url scheme `{}` of IRI `{}` is not known to be git-compatible",
+                scheme,
+                uri.as_str()
+            )));
         }
 
-        Ok(crate::resolve::ResolutionOutcome::Resolved(
-            std::iter::once(GixDownloadedProject::new(uri.as_str()).map_err(|e| e.into())),
-        ))
+        Ok(ResolutionOutcome::Resolved(std::iter::once(
+            // TODO: use trim_prefix() once it's stable
+            GixDownloadedProject::new(uri.as_str().strip_prefix("git+").unwrap_or(uri.as_str()))
+                .map_err(|e| e.into()),
+        )))
     }
 
     fn resolve_read_raw<S: AsRef<str>>(
