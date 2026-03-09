@@ -83,7 +83,7 @@ Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
 
 - `file`: can point to either a KPAR file or to a directory containing
   the project. Can also point to a directory containing a git repository, but
-  the directory will be treated as a project directory, unless `git+file:` is used.
+  the directory will be treated as a project directory, unless `git+file` is used.
 - `urn:kpar`: this is by convention used by all projects in the
   [Sysand index](https://beta.sysand.org/), but otherwise has no special meaning
 - `ssh`: note that currently only git repositories are supported for this type.
