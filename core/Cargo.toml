@@ -48,19 +48,19 @@ sha2 = { version = "0.10.9", default-features = false }
 sysand-macros = { path = "../macros"}
 spdx = "0.13.4"
 thiserror = { version = "2.0.18", default-features = false }
-toml = "1.0.3"
+toml = "1.0.6"
 typed-path = { version = "0.12.3", default-features = false }
 walkdir = "2.5.0"
 # unicode-normalization = { version = "0.1.24", default-features = false }
-wasm-bindgen = { version = "0.2.113", default-features = false, optional = true }
+wasm-bindgen = { version = "0.2.114", default-features = false, optional = true }
 zip = { version = "7.2.0", default-features = false, optional = true }
 url = { version = "2.5.8", default-features = false }
 gix = { version = "0.80.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation"] }
 logos = "0.16.1"
 futures = { version = "0.3.32", default-features = false, features = ["alloc", "async-await"] }
-tokio = { version = "1.49.0", default-features = false, features = ["rt", "io-util"] }
+tokio = { version = "1.50.0", default-features = false, features = ["rt", "io-util"] }
 bytes = { version = "1.11.1", default-features = false }
-toml_edit = { version = "0.25.3", features = ["serde"] }
+toml_edit = { version = "0.25.4", features = ["serde"] }
 globset = { version = "0.4.18", default-features = false }
 
 # Use native TLS only on Windows and Apple OSs

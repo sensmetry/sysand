@@ -26,7 +26,7 @@ semver = { version = "1.0.27", default-features = false }
 typed-path = { version = "0.12.3", default-features = false, features= ["std"] }
 url = { version = "2.5.8", default-features = false }
 reqwest-middleware = "0.5.1"
-tokio = { version = "1.49.0", default-features = false, features = ["rt"] }
+tokio = { version = "1.50.0", default-features = false, features = ["rt"] }
 
 # Use native TLS only on Windows and Apple OSs
 [target.'cfg(any(target_os = "windows", target_vendor = "apple"))'.dependencies]
