@@ -10,7 +10,8 @@ sysand info includes-implied [OPTIONS]
 
 ## Description
 
-Prints whether the project includes implied properties. With `--set` or `--clear`, modifies the value.
+Prints whether the given project includes implied properties.
+With `--set` or `--clear`, modifies the value.
 
 ## Options
 

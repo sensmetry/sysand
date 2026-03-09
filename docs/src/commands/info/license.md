@@ -10,7 +10,7 @@ sysand info license [OPTIONS]
 
 ## Description
 
-Prints the license of the current project. With `--set` or `--clear`, modifies the license.
+Prints the license of the given project. With `--set` or `--clear`, modifies the license.
 `licence` is an accepted alias for this subcommand.
 
 By default the license must be a valid [SPDX license expression][spdx].

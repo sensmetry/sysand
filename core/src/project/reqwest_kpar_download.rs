@@ -46,7 +46,7 @@ pub enum ReqwestKparDownloadedError {
     BadHttpStatus(reqwest::Url, reqwest::StatusCode),
     #[error("failed to parse URL `{0}`: {1}")]
     ParseUrl(Box<str>, url::ParseError),
-    // TODO: nicer formatting. Debug formating is used here to include
+    // TODO: nicer formatting. Debug formatting is used here to include
     // all the details, since they are not given in the Display impl
     #[error("error making an HTTP request:\n{0:#?}")]
     Reqwest(reqwest::Error),

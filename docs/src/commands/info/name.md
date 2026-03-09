@@ -10,7 +10,7 @@ sysand info name [OPTIONS]
 
 ## Description
 
-Prints the name of the current project. With `--set`, updates the name.
+Prints the name of the given project. With `--set`, updates the name.
 
 The `name` field is required and cannot be cleared.
 

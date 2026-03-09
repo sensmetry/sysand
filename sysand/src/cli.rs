@@ -1231,6 +1231,7 @@ pub struct ResolutionOptions {
     #[arg(
         long,
         num_args = 0..,
+        global = true,
         help_heading = "Resolution options",
         env = env_vars::SYSAND_INDEX,
         value_delimiter = ',',
@@ -1244,6 +1245,7 @@ pub struct ResolutionOptions {
     #[arg(
         long,
         num_args = 0..,
+        global = true,
         help_heading = "Resolution options",
         env = env_vars::SYSAND_DEFAULT_INDEX,
         value_delimiter = ',',
@@ -1260,11 +1262,17 @@ pub struct ResolutionOptions {
         long,
         default_value = "false",
         conflicts_with_all = ["index", "default_index"],
+        global = true,
         help_heading = "Resolution options",
     )]
     pub no_index: bool,
     /// Don't ignore KerML/SysML v2 standard libraries if specified as dependencies
-    #[arg(long, default_value = "false", help_heading = "Resolution options")]
+    #[arg(
+        long,
+        default_value = "false",
+        global = true,
+        help_heading = "Resolution options"
+    )]
     pub include_std: bool,
 }
 

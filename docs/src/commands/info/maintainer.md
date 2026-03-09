@@ -10,7 +10,7 @@ sysand info maintainer [OPTIONS]
 
 ## Description
 
-Prints the list of maintainers of the current project. With modifying options, updates the list.
+Prints the list of maintainers of the given project. With modifying options, updates the list.
 
 ## Options
 
