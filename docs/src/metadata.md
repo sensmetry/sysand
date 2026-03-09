@@ -76,15 +76,20 @@ unspecified and may change in the future.
 
 Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
 
-- `http`/`https`: can point to either a KPAR file or to a "directory"
-  containing `.project.json`/`.meta.json`.
+- `http`/`https`: can point to a few different things:
+
+  - a KPAR file
+  - a "directory" containing `.project.json` and `.meta.json`
+  - a git repository containing `.project.json` and `.meta.json` at its root
+
 - `file`: can point to either a KPAR file or to a directory containing
-  the project.
+  the project. Can also point to a directory containing a git repository, but
+  the directory will be treated as a project directory, unless `git+file:` is used.
 - `urn:kpar`: this is by convention used by all projects in the
   [Sysand index](https://beta.sysand.org/), but otherwise has no special meaning
 - `ssh`: note that currently only git repositories are supported for this type.
-  SSH repository URLs supported by git have to be translated to use standard ssh
-  syntax to be accepted by sysand. For example:
+  SSH repository URLs supported by git have to be translated to use standard IRI
+  to be accepted by sysand. For example:
 
   `git@github.com:myuser/myrepo.git`
 
