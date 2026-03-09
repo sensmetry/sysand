@@ -94,6 +94,7 @@ Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
 
   See [git URL documentation][git_url] for
   details.
+
 - `git+file`/`git+http`/`git+https`/`git+ssh`: same as non-prefixed protocols,
   but explicitly identify that the destination is a git repository and should
   be treated as such. This is a way to force Sysand to only use git resolver
