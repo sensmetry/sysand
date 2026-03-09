@@ -9,7 +9,6 @@ use sysand_core::{
     auth::HTTPAuthentication,
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
     config::Config,
-    discover::discover_project,
     env::utils::clone_project,
     project::{ProjectRead, editable::EditableProject, local_src::LocalSrcProject, utils::wrapfs},
     resolve::{
@@ -18,6 +17,7 @@ use sysand_core::{
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
     },
+    workspace::Workspace,
 };
 
 use crate::{
@@ -38,6 +38,8 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     locator: ProjectLocatorArgs,
     version: Option<String>,
     target: Option<Utf8PathBuf>,
+    existing_project: Option<LocalSrcProject>,
+    existing_workspace: Option<Workspace>,
     no_deps: bool,
     resolution_opts: ResolutionOptions,
     config: &Config,
@@ -73,6 +75,8 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     let (include_std, locator, local_project, std_resolver) = match obtain_project(
         locator,
         version,
+        existing_project,
+        existing_workspace,
         resolution_opts,
         config,
         &client,
@@ -150,6 +154,8 @@ pub fn command_clone<Policy: HTTPAuthentication>(
 fn obtain_project<Policy: HTTPAuthentication>(
     locator: ProjectLocatorArgs,
     version: Option<String>,
+    existing_project: Option<LocalSrcProject>,
+    existing_workspace: Option<Workspace>,
     resolution_opts: ResolutionOptions,
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
@@ -171,12 +177,20 @@ fn obtain_project<Policy: HTTPAuthentication>(
         no_index,
         include_std,
     } = resolution_opts;
-    if let Some(existing_project) = discover_project(&project_path) {
+    if let Some(existing_project) = existing_project {
         log::warn!(
             "found an existing project in one of target path's parent\n\
             {:>8} directories `{}`",
             ' ',
-            existing_project.project_path
+            existing_project.root_path()
+        );
+    }
+    if let Some(existing_workspace) = existing_workspace {
+        log::warn!(
+            "found an existing workspace in one of target path's parent\n\
+            {:>8} directories `{}`",
+            ' ',
+            existing_workspace.root_path()
         );
     }
     let index_urls = if no_index {

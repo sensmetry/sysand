@@ -12,8 +12,10 @@ use crate::{
 };
 
 /// If current directory is known by caller, consider using `discover_project`
-pub fn current_project() -> Result<Option<LocalSrcProject>, Box<FsIoError>> {
-    discover_project(wrapfs::current_dir()?)
+pub fn current_project<P: AsRef<Utf8Path>>(
+    cwd: P,
+) -> Result<Option<LocalSrcProject>, Box<FsIoError>> {
+    discover_project(cwd)
 }
 
 fn is_project_file(path: &Utf8Path) -> Result<bool, Box<FsIoError>> {
@@ -32,9 +34,10 @@ pub fn discover_project<P: AsRef<Utf8Path>>(
 
 // TODO: don't use multiple Results here
 /// If current directory is known by caller, consider using `discover_workspace`
-pub fn current_workspace() -> Result<Result<Option<Workspace>, WorkspaceReadError>, Box<FsIoError>>
-{
-    Ok(discover_workspace(wrapfs::current_dir()?))
+pub fn current_workspace<P: AsRef<Utf8Path>>(
+    cwd: P,
+) -> Result<Option<Workspace>, WorkspaceReadError> {
+    discover_workspace(cwd)
 }
 
 /// Tries to find workspace in `working_directory` or its ancestors.

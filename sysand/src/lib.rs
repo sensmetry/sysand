@@ -134,8 +134,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         log::set_max_level(log_level);
     }
 
-    let current_workspace = sysand_core::discover::current_workspace()?;
-    let current_project = sysand_core::discover::current_project()?;
+    let current_workspace = sysand_core::discover::current_workspace(&cwd)?;
+    let current_project = sysand_core::discover::current_project(&cwd)?;
     let project_root = current_project.as_ref().map(|p| p.root_path().to_owned());
 
     let current_environment = {
@@ -383,6 +383,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                             current_workspace,
                             resolution_opts,
                             &config,
+                            &project_root,
                             client.clone(),
                             runtime.clone(),
                             basic_auth_policy.clone(),
@@ -668,6 +669,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             locator,
             version,
             target,
+            current_project,
+            current_workspace,
             no_deps,
             resolution_opts,
             &config,

@@ -287,8 +287,6 @@ impl<
                                 Err(err) => {
                                     log::debug!(
                                         "local resolver rejected project with IRI `{uri}`: {err}",
-                                        uri,
-                                        err
                                     );
                                 }
                             },

@@ -580,10 +580,12 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 .map_err(LocalWriteError::from)?;
 
             // TODO: Add better error messages for catastrophic errors
-            if let Err(err) = try_remove_files(project.get_source_paths()?.into_iter().chain(vec![
-                project.project_path.join(".project.json"),
-                project.project_path.join(".meta.json"),
-            ])) {
+            if let Err(err) = try_remove_files(
+                project
+                    .get_source_paths()?
+                    .into_iter()
+                    .chain(vec![project.info_path(), project.meta_path()]),
+            ) {
                 match err {
                     TryMoveError::CatastrophicIO { .. } => {
                         // Censor the version if a partial delete happened, better pretend

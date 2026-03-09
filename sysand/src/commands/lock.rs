@@ -28,6 +28,7 @@ use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions, get_overrides};
 /// `path` must be relative to workspace root.
 // TODO: this will not work properly if run in subdir of workspace,
 // as `path` will then refer to a deeper subdir
+#[expect(clippy::too_many_arguments)]
 pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
     path: P,
     current_workspace: Option<Workspace>,
@@ -49,6 +50,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
         &path,
         resolution_opts,
         config,
+        &project_root,
         provided_iris,
         client,
         runtime,
@@ -66,7 +68,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
     let LockOutcome {
         lock,
         dependencies: _dependencies,
-    } = do_lock_local_editable(&path, alias_iris, wrapped_resolver)?;
+    } = do_lock_local_editable(&path, &project_root, alias_iris, wrapped_resolver)?;
 
     let canonical = lock.canonicalize();
     wrapfs::write(
@@ -77,16 +79,29 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
     Ok(canonical)
 }
 
-pub fn create_resolver<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
-    path: &P,
+#[expect(clippy::too_many_arguments, clippy::type_complexity)]
+pub fn create_resolver<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+    path: P,
     resolution_opts: ResolutionOptions,
     config: &Config,
+    project_root: R,
     provided_iris: HashMap<String, Vec<InMemoryProject>>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<
-    PriorityResolver<MemoryResolver<AcceptAll, InMemoryProject>, StandardResolver<Policy>>,
+    PriorityResolver<
+        PriorityResolver<
+            MemoryResolver<
+                AcceptAll,
+                sysand_core::project::reference::ProjectReference<
+                    sysand_core::project::any::AnyProject<Policy>,
+                >,
+            >,
+            MemoryResolver<AcceptAll, InMemoryProject>,
+        >,
+        StandardResolver<Policy>,
+    >,
     anyhow::Error,
 > {
     let ResolutionOptions {

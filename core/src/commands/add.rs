@@ -8,10 +8,6 @@ use crate::{
     },
     project::ProjectMut,
 };
-use crate::{
-    model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError},
-    project::ProjectMut,
-};
 
 const SP: char = ' ';
 
