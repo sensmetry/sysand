@@ -214,8 +214,11 @@ pub enum Command {
         #[command(subcommand)]
         subcommand: Option<InfoCommand>,
     },
-    /// List source files for the current project and
-    /// (optionally) its dependencies
+    /// List source files for the current project and (optionally)
+    /// its dependencies available in `sysand_env`. Requires that
+    /// `sysand_env` is up to date, so it's recommended to run
+    /// `sysand sync` prior to this
+    #[clap(verbatim_doc_comment)]
     Sources {
         #[command(flatten)]
         sources_opts: SourcesOptions,
@@ -546,7 +549,7 @@ pub enum InfoCommand {
         /// SysML 2.0 and KerML 1.0 have the same release dates
         #[arg(
             long,
-            value_name = "YYYYMMDD",
+            value_name = "YYYYMMXX",
             requires = "set",
             value_enum,
             verbatim_doc_comment,
@@ -556,7 +559,7 @@ pub enum InfoCommand {
         /// Choose a custom release of the SysML v2 or KerML metamodel.
         #[arg(
             long,
-            value_name = "YYYYMMDD",
+            value_name = "YYYYMMXX",
             requires = "set",
             conflicts_with = "release",
             default_value=None,
@@ -1228,6 +1231,7 @@ pub struct ResolutionOptions {
     #[arg(
         long,
         num_args = 0..,
+        global = true,
         help_heading = "Resolution options",
         env = env_vars::SYSAND_INDEX,
         value_delimiter = ',',
@@ -1241,6 +1245,7 @@ pub struct ResolutionOptions {
     #[arg(
         long,
         num_args = 0..,
+        global = true,
         help_heading = "Resolution options",
         env = env_vars::SYSAND_DEFAULT_INDEX,
         value_delimiter = ',',
@@ -1257,11 +1262,17 @@ pub struct ResolutionOptions {
         long,
         default_value = "false",
         conflicts_with_all = ["index", "default_index"],
+        global = true,
         help_heading = "Resolution options",
     )]
     pub no_index: bool,
     /// Don't ignore KerML/SysML v2 standard libraries if specified as dependencies
-    #[arg(long, default_value = "false", help_heading = "Resolution options")]
+    #[arg(
+        long,
+        default_value = "false",
+        global = true,
+        help_heading = "Resolution options"
+    )]
     pub include_std: bool,
 }
 

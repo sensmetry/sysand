@@ -28,7 +28,8 @@ pub mod standard;
 
 #[derive(Debug)]
 pub enum ResolutionOutcome<T> {
-    /// Successfully resolved a T
+    /// Successfully resolved a `T`. If `T` is a collection/iterator,
+    /// it must contain at least one element
     Resolved(T),
     /// Resolution failed due to an unsupported type of IRI
     UnsupportedIRIType(String),

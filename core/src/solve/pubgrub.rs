@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use fluent_uri::Iri;
-use pubgrub::{DependencyProvider, VersionSet};
+use pubgrub::{DefaultStringReporter, DependencyProvider, Reporter, VersionSet};
 
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, hash_map::Entry},
+    fmt::Write as _,
     fmt::{self, Display},
 };
 
@@ -20,7 +21,10 @@ use crate::{
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum DependencyIdentifier {
+    /// Dependencies that are to be resolved.
     Requested(Vec<InterchangeProjectUsage>),
+    /// Found dependencies. Note that this does not mean that the
+    /// required version was found, just that the IRI was resolved.
     Remote(fluent_uri::Iri<String>),
 }
 
@@ -188,6 +192,7 @@ pub struct ProjectSolver<R: ResolveRead> {
     resolver: R,
 }
 
+/// Returned Vec will have `len >= 1`
 fn resolve_candidates<R: ResolveRead>(
     resolver: &R,
     uri: &fluent_uri::Iri<String>,
@@ -208,28 +213,52 @@ fn resolve_candidates<R: ResolveRead>(
                 .resolve_read(uri)
                 .map_err(InternalSolverError::Resolution)?
             {
-                crate::resolve::ResolutionOutcome::UnsupportedIRIType(_) => {
-                    return Err(InternalSolverError::NotResolvable(uri.clone()));
+                crate::resolve::ResolutionOutcome::UnsupportedIRIType(msg) => {
+                    return Err(InternalSolverError::UnsupportedIriType(format!(
+                        "unsupported IRI type of `{uri}`: {msg}"
+                    )));
                 }
-                crate::resolve::ResolutionOutcome::Unresolvable(_) => {
-                    return Err(InternalSolverError::NotResolvable(uri.clone()));
+                crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
+                    return Err(InternalSolverError::NotFound(uri.as_str().into(), msg));
                 }
                 crate::resolve::ResolutionOutcome::Resolved(alternatives) => {
                     for alternative in alternatives {
-                        let Ok(project) = alternative else {
-                            continue;
+                        let project = match alternative {
+                            Ok(project) => project,
+                            Err(e) => {
+                                log::debug!("resolved project for `{uri}` is error: {e}");
+                                continue;
+                            }
                         };
 
-                        let Ok((Some(info), Some(meta))) = project.get_project() else {
-                            continue;
+                        let (info, meta) = match project.get_project() {
+                            Ok((Some(info), Some(meta))) => (info, meta),
+                            Ok(incomplete) => {
+                                log::debug!(
+                                    "resolved project for `{uri}` failed to get info or meta: {incomplete:?}"
+                                );
+                                continue;
+                            }
+                            Err(e) => {
+                                log::debug!(
+                                    "resolved project for `{uri}` failed to get info and meta: {e}"
+                                );
+                                continue;
+                            }
                         };
 
-                        let Ok(validated_info): Result<InterchangeProjectInfo, _> = info.try_into()
-                        else {
-                            continue;
+                        let validated_info: InterchangeProjectInfo = match info.try_into() {
+                            Ok(i) => i,
+                            Err(e) => {
+                                log::debug!("resolved project for `{uri}` has invalid info: {e}");
+                                continue;
+                            }
                         };
 
                         found.push((validated_info, meta, project));
+                    }
+                    if found.is_empty() {
+                        return Err(InternalSolverError::NoValidCandidates(uri.as_str().into()));
                     }
                 }
             }
@@ -246,7 +275,7 @@ fn resolve_candidates<R: ResolveRead>(
     }
 }
 
-fn compute_deps<R: ResolveRead>(
+fn compute_deps<R: ResolveRead + fmt::Debug>(
     resolver: &R,
     usages: &Vec<InterchangeProjectUsage>,
     cache: &mut ResolvedCandidates<R::ProjectStorage>,
@@ -260,13 +289,30 @@ fn compute_deps<R: ResolveRead>(
         if let Some(constraint) = &usage.version_constraint {
             let mut valid_candidates = HashSet::new();
 
+            let mut found_versions = Vec::new();
             for (i, (candidate_info, _)) in resolve_candidates(resolver, &usage.resource, cache)?
                 .iter()
                 .enumerate()
             {
+                found_versions.push(candidate_info.version.clone());
                 if constraint.matches(&candidate_info.version) {
                     valid_candidates.insert(i);
                 }
+            }
+            if valid_candidates.is_empty() {
+                let mut versions = String::new();
+                // `found_versions` must contain at least one element
+                write!(versions, "`{}`", found_versions[0]).unwrap();
+                for v in &found_versions[1..] {
+                    write!(versions, ", `{}`", v).unwrap();
+                }
+                return Err(InternalSolverError::VersionNotAvailable(format!(
+                    "project `{}`\n\
+                    was found, but the requested version constraint `{}`\n\
+                    was not satisfied by any of the found versions:\n\
+                    {}",
+                    usage.resource, constraint, versions
+                )));
             }
 
             depmap.insert(
@@ -274,6 +320,15 @@ fn compute_deps<R: ResolveRead>(
                 DiscreteHashSet::Finite(valid_candidates),
             );
         } else {
+            // Check that the project can be found
+            resolve_candidates(resolver, &usage.resource, cache)?;
+            // TODO: reenable this when it's fixed to give better error messages
+            // https://github.com/pubgrub-rs/pubgrub/pull/216
+            // match resolve_candidates(resolver, &usage.resource, cache) {
+            //     Ok(_) => (),
+            //     Err(err) => return Ok(pubgrub::Dependencies::Unavailable(err.to_string())),
+            // };
+
             depmap.insert(
                 DependencyIdentifier::Remote(usage.resource.clone()),
                 DiscreteHashSet::empty().complement(),
@@ -284,31 +339,92 @@ fn compute_deps<R: ResolveRead>(
     Ok(pubgrub::Dependencies::Available(depmap))
 }
 
-#[derive(Error, Debug)]
-#[error("{inner}")]
+#[derive(Debug)]
 pub struct SolverError<R: ResolveRead + fmt::Debug + 'static> {
-    #[from]
     pub inner: Box<pubgrub::PubGrubError<ProjectSolver<R>>>,
+}
+
+impl<R: ResolveRead + fmt::Debug + 'static> From<Box<pubgrub::PubGrubError<ProjectSolver<R>>>>
+    for SolverError<R>
+{
+    fn from(mut value: Box<pubgrub::PubGrubError<ProjectSolver<R>>>) -> Self {
+        if let pubgrub::PubGrubError::NoSolution(ref mut derivation_tree) = *value {
+            derivation_tree.collapse_no_versions();
+        }
+        Self { inner: value }
+    }
 }
 
 impl<R: ResolveRead + fmt::Debug + 'static> From<pubgrub::PubGrubError<ProjectSolver<R>>>
     for SolverError<R>
 {
     fn from(value: pubgrub::PubGrubError<ProjectSolver<R>>) -> Self {
-        Self {
-            inner: Box::new(value),
+        Self::from(Box::new(value))
+    }
+}
+
+impl<R: ResolveRead + fmt::Debug + 'static> Display for SolverError<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.inner.as_ref() {
+            pubgrub::PubGrubError::NoSolution(derivation_tree) => {
+                writeln!(
+                    f,
+                    "failed to satisfy usage constraints:\n{}",
+                    DefaultStringReporter::report(derivation_tree)
+                )
+            }
+            pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                package, source, ..
+            } => match package {
+                DependencyIdentifier::Requested(_) => {
+                    write!(f, "failed to retrieve project(s): {source}")
+                }
+                DependencyIdentifier::Remote(iri) => {
+                    write!(f, "failed to retrieve usages of `{iri}`: {source}")
+                }
+            },
+            pubgrub::PubGrubError::ErrorChoosingVersion { package, source } => match package {
+                DependencyIdentifier::Requested(_) => {
+                    // `fn choose_version()` is infallible in this path
+                    unreachable!();
+                }
+                DependencyIdentifier::Remote(iri) => {
+                    write!(f, "unable to select version of `{iri}`: {source}")
+                }
+            },
+            pubgrub::PubGrubError::ErrorInShouldCancel(_) => {
+                // ProjectSolver doesn't implement this and default impl does nothing
+                unreachable!();
+            }
         }
     }
 }
 
+impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R> {}
+
 #[derive(Error, Debug)]
 pub enum InternalSolverError<R: ResolveRead> {
-    #[error(transparent)]
+    #[error("resolution error: {0}")]
     Resolution(R::Error),
     // #[error("invalid project requested")]
     // InvalidProject,
-    #[error("not resolvable: {0}")]
-    NotResolvable(fluent_uri::Iri<String>),
+    /// Project not found by current resolver
+    /// Value is the formatted error message
+    #[error("project with IRI `{0}` not found: {1}")]
+    NotFound(Box<str>, String),
+    /// Project candidates were found, but none of them were
+    /// valid.
+    /// Value is the formatted error message
+    #[error("no valid candidates found for project `{0}`")]
+    NoValidCandidates(Box<str>),
+    /// Project not found by current resolver
+    /// Value is the formatted error message
+    #[error("IRI is of type not supported by this resolver: {0}")]
+    UnsupportedIriType(String),
+    /// Project is found, but the requested version is not
+    /// Value is the formatted error message
+    #[error("requested version unavailable: {0}")]
+    VersionNotAvailable(String),
 }
 
 impl<R: ResolveRead> ProjectSolver<R> {
@@ -371,7 +487,6 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                             iri,
                             &mut self.resolved_candidates.borrow_mut(),
                         )?;
-                        // let max = candidate_versions.len();
                         let mut versions_indexes: Vec<(usize, semver::Version)> =
                             candidate_versions
                                 .into_iter()
@@ -394,13 +509,13 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                                 break;
                             }
                         }
-                        // TODO: why is this called twice? First time it selects some version,
-                        // and the next that version can't be selected anymore.
-                        log::debug!(
-                            "no allowed versions for `{}`, considered: {:?}",
-                            iri.as_str(),
-                            versions_indexes
-                        );
+                        if found.is_none() {
+                            log::debug!(
+                                "no allowed versions for `{}`, considered: {:?}",
+                                iri.as_str(),
+                                versions_indexes
+                            );
+                        }
 
                         Ok(found)
                     }
@@ -430,7 +545,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 
                     if *version >= candidates.len() {
                         return Ok(pubgrub::Dependencies::Unavailable(format!(
-                            "Cannot resolve {} to valid project",
+                            "cannot resolve IRI `{}` to valid project",
                             iri
                         )));
                     } else {

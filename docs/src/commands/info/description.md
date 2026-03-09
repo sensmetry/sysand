@@ -10,7 +10,7 @@ sysand info description [OPTIONS]
 
 ## Description
 
-Prints the description of the current project. With `--set` or `--clear`, modifies the description.
+Prints the description of the given project. With `--set` or `--clear`, modifies the description.
 
 ## Options
 

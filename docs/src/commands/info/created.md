@@ -10,7 +10,7 @@ sysand info created
 
 ## Description
 
-Prints the creation timestamp of the project metadata manifest (`.meta.json`).
+Prints the creation timestamp of the given project's metadata manifest (`.meta.json`).
 
 This field is managed automatically and cannot be set or cleared.
 

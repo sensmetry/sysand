@@ -10,7 +10,8 @@ sysand info includes-derived [OPTIONS]
 
 ## Description
 
-Prints whether the project includes derived properties. With `--set` or `--clear`, modifies the value.
+Prints whether the given project includes derived properties.
+With `--set` or `--clear`, modifies the value.
 
 ## Options
 
