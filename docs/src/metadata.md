@@ -82,22 +82,18 @@ Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
   the project.
 - `urn:kpar`: this is by convention used by all projects in the
   [Sysand index](https://beta.sysand.org/), but otherwise has no special meaning
-
-These schemes are currently only supported in [`clone` command](commands/clone.md):
-
 - `ssh`: note that currently only git repositories are supported for this type.
   SSH repository URLs supported by git have to be translated to use standard ssh
   syntax to be accepted by sysand. For example:
 
   `git@github.com:myuser/myrepo.git`
 
-  translated into standard syntax becomes
+  translated into standard IRI syntax becomes
 
-  `ssh://git@github.com:22/myuser/myrepo.git`
+  `ssh://git@github.com/myuser/myrepo.git`
 
   See [git URL documentation][git_url] for
   details.
-
 - `git+file`/`git+http`/`git+https`/`git+ssh`: same as non-prefixed protocols,
   but explicitly identify that the destination is a git repository and should
   be treated as such. This is a way to force Sysand to only use git resolver
