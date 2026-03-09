@@ -77,7 +77,6 @@ unspecified and may change in the future.
 Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
 
 - `http`/`https`: can point to a few different things:
-
   - a KPAR file
   - a "directory" containing `.project.json` and `.meta.json`
   - a git repository containing `.project.json` and `.meta.json` at its root
