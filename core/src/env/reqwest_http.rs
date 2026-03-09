@@ -161,7 +161,7 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
         let kpar_project_response = self
             .auth_policy
             .with_authentication(&self.client, &kpar_head_request(&kpar_project_url))
-            .await;
+            .await?;
 
         if !kpar_project_response.status().is_success() {
             return Ok(None);
@@ -169,7 +169,7 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
 
         Ok(Some(HTTPProjectAsync::HTTPKParProjectDownloaded(
             ReqwestKparDownloadedProject::new_guess_root(
-                &project_kpar_url,
+                &kpar_project_url,
                 self.client.clone(),
                 self.auth_policy.clone(),
             )
