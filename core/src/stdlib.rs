@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::lock::Source;
 use crate::project::memory::InMemoryProject;
 
 const QUANTITIES_AND_UNITS_LIBRARY_INFO_20250201: &str =
@@ -50,16 +51,21 @@ const SEMANTIC_LIBRARY_META_20250201: &str =
 // to be recreated on each call
 pub fn known_std_libs() -> HashMap<String, Vec<InMemoryProject>> {
     fn entries(
-        xs: impl IntoIterator<Item = (&'static str, &'static str, &'static str)>,
+        xs: impl IntoIterator<Item = (&'static str, &'static str, &'static str, &'static str)>,
     ) -> HashMap<String, Vec<InMemoryProject>> {
         let mut result = HashMap::default();
 
-        for (iri, info, meta) in xs {
+        for (iri, canonical_url, info, meta) in xs {
             let projects = result.entry(iri.to_string()).or_insert_with(Vec::new);
-            projects.push(InMemoryProject::from_info_meta(
+            let mut project = InMemoryProject::from_info_meta(
                 serde_json::from_str(info).unwrap(),
                 serde_json::from_str(meta).unwrap(),
-            ));
+            );
+            project.nominal_sources = vec![Source::RemoteKpar {
+                remote_kpar: canonical_url.to_string(),
+                remote_kpar_size: None,
+            }];
+            projects.push(project);
         }
 
         result
@@ -68,104 +74,142 @@ pub fn known_std_libs() -> HashMap<String, Vec<InMemoryProject>> {
     entries([
         (
             "urn:kpar:quantities-and-units-library",
+            "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar",
             QUANTITIES_AND_UNITS_LIBRARY_INFO_20250201,
             QUANTITIES_AND_UNITS_LIBRARY_META_20250201,
         ),
         (
             "urn:kpar:function-library",
+            "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
             FUNCTION_LIBRARY_INFO_20250201,
             FUNCTION_LIBRARY_META_20250201,
         ),
         (
             "urn:kpar:systems-library",
+            "https://www.omg.org/spec/SysML/20250201/Systems-Library.kpar",
             SYSTEMS_LIBRARY_INFO_20250201,
             SYSTEMS_LIBRARY_META_20250201,
         ),
         (
             "urn:kpar:cause-and-effect-library",
+            "https://www.omg.org/spec/SysML/20250201/Cause-and-Effect-Domain-Library.kpar",
             CAUSE_AND_EFFECT_LIBRARY_INFO_20250201,
             CAUSE_AND_EFFECT_LIBRARY_META_20250201,
         ),
         (
             "urn:kpar:requirement-derivation-library",
+            "https://www.omg.org/spec/SysML/20250201/Requirement-Derivation-Domain-Library.kpar",
             REQUIREMENT_DERIVATION_LIBRARY_INFO_20250201,
             REQUIREMENT_DERIVATION_LIBRARY_META_20250201,
         ),
         (
             "urn:kpar:metadata-library",
+            "https://www.omg.org/spec/SysML/20250201/Metadata-Domain-Library.kpar",
             METADATA_LIBRARY_INFO_20250201,
             METADATA_LIBRARY_META_20250201,
         ),
         (
             "urn:kpar:geometry-library",
+            "https://www.omg.org/spec/SysML/20250201/Geometry-Domain-Library.kpar",
             GEOMETRY_LIBRARY_INFO_20250201,
             GEOMETRY_LIBRARY_META_20250201,
         ),
         (
             "urn:kpar:analysis-library",
+            "https://www.omg.org/spec/SysML/20250201/Analysis-Domain-Library.kpar",
             ANALYSIS_LIBRARY_INFO_20250201,
             ANALYSIS_LIBRARY_META_20250201,
         ),
         (
             "urn:kpar:data-type-library",
+            "https://www.omg.org/spec/KerML/20250201/Data-Type-Library.kpar",
             DATA_TYPE_LIBRARY_INFO_20250201,
             DATA_TYPE_LIBRARY_META_20250201,
         ),
         (
             "urn:kpar:semantic-library",
+            "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
             SEMANTIC_LIBRARY_INFO_20250201,
             SEMANTIC_LIBRARY_META_20250201,
         ),
         //
         (
             "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar",
+            "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar",
             QUANTITIES_AND_UNITS_LIBRARY_INFO_20250201,
             QUANTITIES_AND_UNITS_LIBRARY_META_20250201,
         ),
         (
+            "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
             "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
             FUNCTION_LIBRARY_INFO_20250201,
             FUNCTION_LIBRARY_META_20250201,
         ),
         (
             "https://www.omg.org/spec/SysML/20250201/Systems-Library.kpar",
+            "https://www.omg.org/spec/SysML/20250201/Systems-Library.kpar",
             SYSTEMS_LIBRARY_INFO_20250201,
             SYSTEMS_LIBRARY_META_20250201,
         ),
         (
+            "https://www.omg.org/spec/SysML/20250201/Cause-and-Effect-Domain-Library.kpar",
             "https://www.omg.org/spec/SysML/20250201/Cause-and-Effect-Domain-Library.kpar",
             CAUSE_AND_EFFECT_LIBRARY_INFO_20250201,
             CAUSE_AND_EFFECT_LIBRARY_META_20250201,
         ),
         (
             "https://www.omg.org/spec/SysML/20250201/Requirement-Derivation-Domain-Library.kpar",
+            "https://www.omg.org/spec/SysML/20250201/Requirement-Derivation-Domain-Library.kpar",
             REQUIREMENT_DERIVATION_LIBRARY_INFO_20250201,
             REQUIREMENT_DERIVATION_LIBRARY_META_20250201,
         ),
         (
+            "https://www.omg.org/spec/SysML/20250201/Metadata-Domain-Library.kpar",
             "https://www.omg.org/spec/SysML/20250201/Metadata-Domain-Library.kpar",
             METADATA_LIBRARY_INFO_20250201,
             METADATA_LIBRARY_META_20250201,
         ),
         (
             "https://www.omg.org/spec/SysML/20250201/Geometry-Domain-Library.kpar",
+            "https://www.omg.org/spec/SysML/20250201/Geometry-Domain-Library.kpar",
             GEOMETRY_LIBRARY_INFO_20250201,
             GEOMETRY_LIBRARY_META_20250201,
         ),
         (
+            "https://www.omg.org/spec/SysML/20250201/Analysis-Domain-Library.kpar",
             "https://www.omg.org/spec/SysML/20250201/Analysis-Domain-Library.kpar",
             ANALYSIS_LIBRARY_INFO_20250201,
             ANALYSIS_LIBRARY_META_20250201,
         ),
         (
             "https://www.omg.org/spec/KerML/20250201/Data-Type-Library.kpar",
+            "https://www.omg.org/spec/KerML/20250201/Data-Type-Library.kpar",
             DATA_TYPE_LIBRARY_INFO_20250201,
             DATA_TYPE_LIBRARY_META_20250201,
         ),
         (
             "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+            "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
             SEMANTIC_LIBRARY_INFO_20250201,
             SEMANTIC_LIBRARY_META_20250201,
         ),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lock::Source;
+    use crate::project::ProjectRead;
+
+    #[test]
+    fn stdlib_projects_have_nominal_sources() {
+        for projects in super::known_std_libs().values() {
+            for project in projects {
+                assert!(
+                    matches!(project.sources().as_slice(), [Source::RemoteKpar { .. }]),
+                    "expected embedded stdlib project to expose a remote kpar source"
+                );
+            }
+        }
+    }
 }

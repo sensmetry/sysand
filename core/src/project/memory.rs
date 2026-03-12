@@ -157,6 +157,6 @@ impl ProjectRead for InMemoryProject {
     }
 
     fn sources(&self) -> Vec<Source> {
-        panic!("`InMemoryProject` cannot have any project sources")
+        self.nominal_sources.clone()
     }
 }
