@@ -4,8 +4,7 @@
 use anyhow::Result;
 use camino::Utf8Path;
 use sysand_core::{
-    build::{do_build_kpar, do_build_workspace_kpars},
-    model::KparCompressionMethod,
+    build::{KparCompressionMethod, do_build_kpar, do_build_workspace_kpars},
     project::local_src::LocalSrcProject,
     workspace::Workspace,
 };

@@ -3,16 +3,119 @@ use thiserror::Error;
 
 use crate::{
     env::utils::{CloneError, ErrorBound},
-    model::{InterchangeProjectValidationError, KparCompressionMethod},
+    include::IncludeError,
+    model::InterchangeProjectValidationError,
     project::{
         ProjectRead,
         local_kpar::{IntoKparError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError},
     },
-    workspace::{WorkspaceReadError, Workspace},
-    include::IncludeError
+    workspace::{Workspace, WorkspaceReadError},
 };
+
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
+// Currently python interop is done with strings instead
+// in part to have less boilerplate, in part because the old
+// Python we use doesn't have pattern matching which ensures
+// all cases are covered
+// #[cfg_attr(feature = "python", pyclass(eq))]
+pub enum KparCompressionMethod {
+    /// Store the files as is
+    Stored,
+    /// Compress the files using Deflate
+    #[default]
+    Deflated,
+    /// Compress the files using BZIP2
+    #[cfg(feature = "kpar-bzip2")]
+    Bzip2,
+    /// Compress the files using ZStandard
+    #[cfg(feature = "kpar-zstd")]
+    Zstd,
+    /// Compress the files using XZ
+    #[cfg(feature = "kpar-xz")]
+    Xz,
+    /// Compress the files using PPMd
+    #[cfg(feature = "kpar-ppmd")]
+    Ppmd,
+}
+
+impl From<KparCompressionMethod> for zip::CompressionMethod {
+    fn from(value: KparCompressionMethod) -> Self {
+        match value {
+            KparCompressionMethod::Stored => zip::CompressionMethod::Stored,
+            KparCompressionMethod::Deflated => zip::CompressionMethod::Deflated,
+            #[cfg(feature = "kpar-bzip2")]
+            KparCompressionMethod::Bzip2 => zip::CompressionMethod::Bzip2,
+            #[cfg(feature = "kpar-zstd")]
+            KparCompressionMethod::Zstd => zip::CompressionMethod::Zstd,
+            #[cfg(feature = "kpar-xz")]
+            KparCompressionMethod::Xz => zip::CompressionMethod::Xz,
+            #[cfg(feature = "kpar-ppmd")]
+            KparCompressionMethod::Ppmd => zip::CompressionMethod::Ppmd,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum CompressionMethodParseError {
+    #[error("Compile sysand with feature {feature} to use {compression} compression")]
+    SuggestFeature {
+        compression: String,
+        feature: String,
+    },
+    #[error("{0}")]
+    Invalid(String),
+}
+
+impl TryFrom<String> for KparCompressionMethod {
+    type Error = CompressionMethodParseError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+impl TryFrom<&str> for KparCompressionMethod {
+    type Error = CompressionMethodParseError;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "STORED" => Ok(KparCompressionMethod::Stored),
+            "DEFLATED" => Ok(KparCompressionMethod::Deflated),
+            #[cfg(feature = "kpar-bzip2")]
+            "BZIP2" => Ok(KparCompressionMethod::Bzip2),
+            #[cfg(not(feature = "kpar-bzip2"))]
+            "BZIP2" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-bzip2".into(),
+            }),
+            #[cfg(feature = "kpar-zstd")]
+            "ZSTD" => Ok(KparCompressionMethod::Zstd),
+            #[cfg(not(feature = "kpar-zstd"))]
+            "ZSTD" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-zstd".into(),
+            }),
+            #[cfg(feature = "kpar-xz")]
+            "XZ" => Ok(KparCompressionMethod::Xz),
+            #[cfg(not(feature = "kpar-xz"))]
+            "XZ" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-xz".into(),
+            }),
+            #[cfg(feature = "kpar-ppmd")]
+            "PPMD" => Ok(KparCompressionMethod::Ppmd),
+            #[cfg(not(feature = "kpar-ppmd"))]
+            "PPMD" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-ppmd".into(),
+            }),
+            _ => Err(CompressionMethodParseError::Invalid(format!(
+                "Compression method `{value}` is invalid"
+            ))),
+        }
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum KParBuildError<ProjectReadError: ErrorBound> {

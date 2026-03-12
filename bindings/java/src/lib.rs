@@ -11,12 +11,11 @@ use jni::{
 };
 use sysand_core::{
     auth::Unauthenticated,
-    build::KParBuildError,
+    build::{KParBuildError, KparCompressionMethod},
     commands,
     env::local_directory::{self, LocalWriteError},
     info::InfoError,
     init::InitError,
-    model::KparCompressionMethod,
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,

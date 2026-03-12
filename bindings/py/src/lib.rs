@@ -12,7 +12,7 @@ use semver::{Version, VersionReq};
 use sysand_core::{
     add::do_add,
     auth::Unauthenticated,
-    build::{KParBuildError, do_build_kpar},
+    build::{KParBuildError, KparCompressionMethod, do_build_kpar},
     commands::{
         env::{EnvError, do_env_local_dir},
         init::do_init_local_file,
@@ -28,7 +28,7 @@ use sysand_core::{
     include::do_include,
     info::{InfoError, do_info, do_info_project},
     init::InitError,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, KparCompressionMethod},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectRead as _,
         local_kpar::LocalKParProject,

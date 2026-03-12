@@ -11,7 +11,7 @@ use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use fluent_uri::Iri;
 use semver::VersionReq;
-use sysand_core::model::KparCompressionMethod;
+use sysand_core::build::KparCompressionMethod;
 
 use crate::env_vars;
 
