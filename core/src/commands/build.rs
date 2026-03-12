@@ -1,24 +1,18 @@
-#[cfg(feature = "filesystem")]
 use camino::Utf8Path;
 use thiserror::Error;
 
 use crate::{
     env::utils::{CloneError, ErrorBound},
-    model::InterchangeProjectValidationError,
+    model::{InterchangeProjectValidationError, KparCompressionMethod},
     project::{
         ProjectRead,
         local_kpar::{IntoKparError, LocalKParProject},
-        local_src::LocalSrcError,
+        local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError},
     },
-    workspace::WorkspaceReadError,
+    workspace::{WorkspaceReadError, Workspace},
+    include::IncludeError
 };
-#[cfg(feature = "filesystem")]
-use crate::{
-    model::KparCompressionMethod, project::local_src::LocalSrcProject, workspace::Workspace,
-};
-
-use super::include::IncludeError;
 
 #[derive(Error, Debug)]
 pub enum KParBuildError<ProjectReadError: ErrorBound> {
@@ -99,7 +93,6 @@ impl<ProjectReadError: ErrorBound> From<IntoKparError<LocalSrcError>>
     }
 }
 
-#[cfg(feature = "filesystem")]
 pub fn default_kpar_file_name<Pr: ProjectRead>(
     project: &Pr,
 ) -> Result<String, KParBuildError<Pr::Error>> {
@@ -117,7 +110,6 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
     ))
 }
 
-#[cfg(feature = "filesystem")]
 pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
@@ -162,7 +154,6 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     )?)
 }
 
-#[cfg(feature = "filesystem")]
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &Workspace,
     path: P,
