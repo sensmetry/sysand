@@ -248,11 +248,12 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
 
     if let Some(u) = info.usage.iter().find(|x| {
         // Case-insensitively match `file:` scheme
-        x.resource
-            .as_bytes()
-            .iter()
-            .zip(b"file:")
-            .all(|(c1, &c2)| c1.to_ascii_lowercase() == c2)
+        x.resource.len() >= 5
+            && x.resource
+                .as_bytes()
+                .iter()
+                .zip(b"file:")
+                .all(|(c1, &c2)| c1.to_ascii_lowercase() == c2)
     }) {
         if allow_path_usage {
             log::warn!(

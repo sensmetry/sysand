@@ -156,6 +156,7 @@ impl ProjectRead for InMemoryProject {
     }
 
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        panic!("`InMemoryProject` cannot have any project sources")
+        debug_assert!(!self.nominal_sources.is_empty());
+        Ok(self.nominal_sources.clone())
     }
 }

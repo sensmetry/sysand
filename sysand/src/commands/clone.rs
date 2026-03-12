@@ -120,6 +120,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         } = sysand_core::commands::lock::do_lock_projects(
             [(identifiers, &project)],
             resolver,
+            &provided_iris,
             &ctx,
         )?;
         // Warn if we have any std lib dependencies

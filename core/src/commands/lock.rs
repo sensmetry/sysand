@@ -19,7 +19,7 @@ use crate::{
     context::ProjectContext,
     lock::{Lock, Project, Usage, hash_str},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
-    project::{CanonicalizationError, ProjectRead, utils::FsIoError},
+    project::{CanonicalizationError, ProjectRead, memory::InMemoryProject, utils::FsIoError},
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
 };
@@ -86,6 +86,7 @@ pub fn do_lock_projects<
 >(
     projects: I,
     resolver: R,
+    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
     let mut lock = Lock::default();
@@ -135,7 +136,7 @@ pub fn do_lock_projects<
         all_deps.extend(usages);
     }
 
-    let lock_outcome = do_lock_extend(lock, all_deps, resolver, ctx)?;
+    let lock_outcome = do_lock_extend(lock, all_deps, resolver, provided_iris, ctx)?;
 
     Ok(lock_outcome)
 }
@@ -158,6 +159,7 @@ pub fn do_lock_extend<
     mut lock: Lock,
     usages: I,
     resolver: R,
+    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     let inputs: Vec<_> = usages.into_iter().collect();
@@ -187,8 +189,13 @@ pub fn do_lock_extend<
             .map_err(LockError::DependencyProjectCanonicalization)?
             .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
-        let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;
-        debug_assert!(!sources.is_empty());
+        let sources = if !provided_iris.contains_key(iri.as_str()) {
+            let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;
+            debug_assert!(!sources.is_empty());
+            sources
+        } else {
+            Vec::new()
+        };
 
         let lock_project = Project {
             name: Some(info.name),
@@ -250,6 +257,7 @@ pub fn do_lock_local_editable<
     path: P,
     project_root: PR,
     identifiers: Option<Vec<Iri<String>>>,
+    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
     resolver: R,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
@@ -263,11 +271,13 @@ pub fn do_lock_local_editable<
         },
     );
 
-    do_lock_projects([(identifiers, &project)], resolver, ctx)
+    do_lock_projects([(identifiers, &project)], resolver, provided_iris, ctx)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::{
         commands::lock::{LockError, do_lock_extend},
         lock::{Lock, Project},
@@ -301,7 +311,13 @@ mod tests {
                 },
             ],
         };
-        let res = do_lock_extend(lock, [], NullResolver {}, &Default::default());
+        let res = do_lock_extend(
+            lock,
+            [],
+            NullResolver {},
+            &HashMap::new(),
+            &Default::default(),
+        );
 
         assert!(matches!(res, Err(LockError::NameCollision(_))));
     }

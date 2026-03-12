@@ -250,8 +250,14 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         runtime.clone(),
         auth_policy.clone(),
     )?;
-    let LockOutcome { lock, .. } =
-        do_lock_local_editable(".", &project_root, project_identifiers, resolver, ctx)?;
+    let LockOutcome { lock, .. } = do_lock_local_editable(
+        ".",
+        &project_root,
+        project_identifiers,
+        &provided_iris,
+        resolver,
+        ctx,
+    )?;
     let lock = lock.canonicalize();
     wrapfs::write(
         project_root.as_ref().join(DEFAULT_LOCKFILE_NAME),

@@ -51,7 +51,8 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
         resolution_opts,
         config,
         &project_root,
-        provided_iris,
+        // TODO: avoid expensive clone here
+        provided_iris.clone(),
         client,
         runtime,
         auth_policy,
@@ -68,7 +69,14 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
     let LockOutcome {
         lock,
         dependencies: _dependencies,
-    } = do_lock_local_editable(&path, &project_root, alias_iris, wrapped_resolver, &ctx)?;
+    } = do_lock_local_editable(
+        &path,
+        &project_root,
+        alias_iris,
+        &provided_iris,
+        wrapped_resolver,
+        &ctx,
+    )?;
 
     let canonical = lock.canonicalize();
     wrapfs::write(
