@@ -223,7 +223,7 @@ mod tests {
 
         let url = reqwest::Url::parse(&server.url()).unwrap();
 
-        let client = create_reqwest_client();
+        let client = create_reqwest_client()?;
 
         let project = ReqwestSrcProjectAsync {
             client,
@@ -271,7 +271,7 @@ mod tests {
             .with_body(src)
             .create();
 
-        let client = create_reqwest_client();
+        let client = create_reqwest_client()?;
 
         let project = ReqwestSrcProjectAsync {
             client,

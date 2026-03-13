@@ -164,7 +164,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     config.merge(auto_config);
 
-    let client = create_reqwest_client();
+    let client = create_reqwest_client()?;
 
     let runtime = Arc::new(
         tokio::runtime::Builder::new_current_thread()

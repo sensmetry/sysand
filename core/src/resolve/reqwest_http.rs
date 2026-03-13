@@ -324,7 +324,7 @@ mod tests {
             .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
             .create();
 
-        let client = create_reqwest_client();
+        let client = create_reqwest_client()?;
 
         let resolver = super::HTTPResolverAsync {
             client,
@@ -365,7 +365,7 @@ mod tests {
         with_slash: bool,
         //prefer_ranged: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let client = create_reqwest_client();
+        let client = create_reqwest_client()?;
 
         let resolver = super::HTTPResolverAsync {
             client,

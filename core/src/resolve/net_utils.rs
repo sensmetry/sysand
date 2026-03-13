@@ -1,8 +1,11 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::error::Error;
+
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
+use thiserror::Error;
 use url::Url;
 
 // application/vnd.github.raw+json is required for GitHub API to return raw
@@ -63,15 +66,24 @@ pub fn text_get_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -
     }
 }
 
-pub fn create_reqwest_client() -> reqwest_middleware::ClientWithMiddleware {
+#[derive(Debug, Error)]
+// Errors returned by client builder seem to always have `source` set
+#[error("failed to build reqwest HTTP client: {},\n\
+    caused by {}", inner, inner.source().unwrap())]
+pub struct ReqwestClientBuildError {
+    #[from]
+    inner: reqwest::Error,
+}
+
+pub fn create_reqwest_client()
+-> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
     const UA: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
     let mut headers = HeaderMap::new();
     headers.insert(header::USER_AGENT, HeaderValue::from_static(UA));
 
     let client = reqwest::Client::builder()
         .default_headers(headers)
-        .build()
-        .unwrap();
+        .build()?;
 
-    reqwest_middleware::ClientBuilder::new(client).build()
+    Ok(reqwest_middleware::ClientBuilder::new(client).build())
 }

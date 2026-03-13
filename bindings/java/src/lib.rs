@@ -190,7 +190,13 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     let Some(uri) = env.get_str(&uri, "uri") else {
         return JObjectArray::default();
     };
-    let client = create_reqwest_client();
+    let client = match create_reqwest_client() {
+        Ok(c) => c,
+        Err(e) => {
+            env.throw_exception(ExceptionKind::SysandException, e.to_string());
+            return JObjectArray::default();
+        }
+    };
 
     let runtime = {
         let r = match tokio::runtime::Builder::new_current_thread().build() {

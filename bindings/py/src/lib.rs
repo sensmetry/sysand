@@ -141,7 +141,7 @@ fn do_info_py(
 
     py.detach(|| {
         let mut results = vec![];
-        let client = create_reqwest_client();
+        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
         let runtime = Arc::new(
             tokio::runtime::Builder::new_current_thread()

@@ -326,7 +326,7 @@ mod test {
     #[test]
     fn test_uri_examples() -> Result<(), Box<dyn std::error::Error>> {
         let env = super::HTTPEnvironmentAsync {
-            client: create_reqwest_client(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse("https://www.example.com/a/b")?,
             prefer_src: true,
             auth_policy: Arc::new(Unauthenticated {}),
@@ -361,7 +361,7 @@ mod test {
         let host = server.url();
 
         let env = super::HTTPEnvironmentAsync {
-            client: create_reqwest_client(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
             auth_policy: Arc::new(Unauthenticated {}),
@@ -434,7 +434,7 @@ mod test {
         let host = server.url();
 
         let env = super::HTTPEnvironmentAsync {
-            client: create_reqwest_client(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
             auth_policy: Arc::new(Unauthenticated {}),
@@ -474,7 +474,7 @@ mod test {
         let host = server.url();
 
         let env = super::HTTPEnvironmentAsync {
-            client: create_reqwest_client(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse(&host)?,
             prefer_src: false,
             auth_policy: Arc::new(Unauthenticated {}),
@@ -514,7 +514,7 @@ mod test {
         let host = server.url();
 
         let env = super::HTTPEnvironmentAsync {
-            client: create_reqwest_client(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse(&host)?,
             prefer_src: false,
             auth_policy: Arc::new(Unauthenticated {}),
@@ -566,7 +566,7 @@ mod test {
         let host = server.url();
 
         let env = super::HTTPEnvironmentAsync {
-            client: create_reqwest_client(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
             auth_policy: Arc::new(Unauthenticated {}),

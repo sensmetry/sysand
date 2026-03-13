@@ -230,7 +230,7 @@ mod tests {
 
         let project = super::ReqwestKparDownloadedProject::new_guess_root(
             format!("{}test_basic_download_request.kpar", url,),
-            create_reqwest_client(),
+            create_reqwest_client()?,
             Arc::new(Unauthenticated {}),
         )?
         .to_tokio_sync(Arc::new(
