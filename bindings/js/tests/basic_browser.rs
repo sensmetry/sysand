@@ -23,6 +23,7 @@ mod browser_tests {
     fn test_basic_new() -> Result<(), Box<dyn Error>> {
         do_new_js_local_storage(
             "test_basic_new".to_string(),
+            String::from("a"),
             "1.2.3".to_string(),
             "sysand_storage",
             "/",
@@ -58,6 +59,7 @@ mod browser_tests {
             info,
             InterchangeProjectInfo {
                 name: "test_basic_new".to_string(),
+                publisher: None,
                 description: None,
                 version: Version::parse("1.2.3")?,
                 license: Some("MIT OR Apache-2.0".to_string()),

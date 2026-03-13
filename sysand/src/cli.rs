@@ -64,6 +64,9 @@ pub enum Command {
         /// The name of the project. Defaults to the directory name
         #[arg(long)]
         name: Option<String>,
+        /// The publisher of the project. Defaults to `untitled`
+        #[arg(long)]
+        publisher: Option<String>,
         /// Set the version in SemVer 2.0 format. Defaults to `0.0.1`
         #[arg(long)]
         version: Option<String>,
@@ -428,6 +431,22 @@ pub enum InfoCommand {
             invalid_command("`name` is not a list, and cannot be unset"))]
         remove: Option<Infallible>,
     },
+    /// Get or set the publisher of the project
+    #[group(required = false, multiple = false)]
+    Publisher {
+        #[arg(long, value_name = "PUBLISHER", default_value=None)]
+        set: Option<String>,
+        #[arg(long, default_value = None)]
+        clear: bool,
+        // Only for better error messages
+        #[arg(hide=true, long, default_value=None, value_parser=
+            invalid_command("`publisher` is not a list, consider using `sysand info publisher --set`?"))]
+        add: Option<Infallible>,
+        // Only for better error messages
+        #[arg(hide=true, long, default_value=None, value_parser=
+            invalid_command("`publisher` is not a list, and cannot be unset"))]
+        remove: Option<Infallible>,
+    },
     /// Get or set the description of the project
     #[group(required = false, multiple = false)]
     Description {
@@ -682,13 +701,7 @@ pub enum InfoCommand {
             default_value=None
         )]
         set_custom: Option<String>,
-        #[arg(
-            long,
-            num_args = 0,
-            default_missing_value = "true",
-            default_value_t = false,
-            conflicts_with = "set"
-        )]
+        #[arg(long, num_args = 0, default_value_t = false, conflicts_with = "set")]
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
@@ -823,6 +836,7 @@ pub enum RemoveVerb {
 #[derive(Debug, Clone)]
 pub enum GetInfoVerb {
     GetName,
+    GetPublisher,
     GetDescription,
     GetVersion,
     GetLicense,
@@ -835,6 +849,7 @@ pub enum GetInfoVerb {
 #[derive(Debug, Clone)]
 pub enum SetInfoVerb {
     SetName(String),
+    SetPublisher(String),
     SetDescription(String),
     SetVersion(String),
     SetLicense(String),
@@ -845,6 +860,7 @@ pub enum SetInfoVerb {
 
 #[derive(Debug, Clone)]
 pub enum ClearInfoVerb {
+    ClearPublisher,
     ClearDescription,
     ClearLicense,
     ClearMaintainer,
@@ -963,6 +979,22 @@ impl InfoCommand {
                 GetInfoVerb::GetName,
                 set.map(SetInfoVerb::SetName),
                 impossible(clear),
+                impossible(add),
+                impossible(remove),
+            ),
+            InfoCommand::Publisher {
+                set,
+                clear,
+                add,
+                remove,
+            } => pack_info(
+                GetInfoVerb::GetPublisher,
+                set.map(SetInfoVerb::SetPublisher),
+                if clear {
+                    Some(ClearInfoVerb::ClearPublisher)
+                } else {
+                    None
+                },
                 impossible(add),
                 impossible(remove),
             ),
@@ -1181,6 +1213,12 @@ impl InfoCommand {
         //       relevant flags in the future.
         match self {
             InfoCommand::Name {
+                set: _,
+                clear: _,
+                add: _,
+                remove: _,
+            } => false,
+            InfoCommand::Publisher {
                 set: _,
                 clear: _,
                 add: _,

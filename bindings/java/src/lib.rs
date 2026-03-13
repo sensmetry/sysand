@@ -37,11 +37,15 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     name: JString<'local>,
+    publisher: JString<'local>,
     version: JString<'local>,
     license: JString<'local>,
     path: JString<'local>,
 ) {
     let Some(name) = env.get_str(&name, "name") else {
+        return;
+    };
+    let Some(publisher) = env.get_str(&publisher, "publisher") else {
         return;
     };
     let Some(version) = env.get_str(&version, "version") else {
@@ -63,7 +67,8 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
         },
     };
 
-    let command_result = commands::init::do_init_local_file(name, version, license, path.into());
+    let command_result =
+        commands::init::do_init_local_file(name, publisher, version, license, path.into());
     match command_result {
         Ok(_) => {}
         Err(error) => match error {

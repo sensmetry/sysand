@@ -6,8 +6,12 @@ use anyhow::Result;
 use camino::{Utf8Path, Utf8PathBuf};
 use sysand_core::project::utils::wrapfs;
 
+const DEFAULT_PUBLISHER: &str = "untitled";
+const DEFAULT_VERSION: &str = "0.0.1";
+
 pub fn command_init(
     name: Option<String>,
+    publisher: Option<String>,
     version: Option<String>,
     no_semver: bool,
     license: Option<String>,
@@ -22,14 +26,16 @@ pub fn command_init(
         }
         None => Utf8PathBuf::from("."),
     };
-    let version = version.unwrap_or_else(|| "0.0.1".to_string());
+    let version = version.unwrap_or_else(|| DEFAULT_VERSION.to_owned());
     let name = match name {
         Some(n) => n,
         None => default_name_from_path(&path)?,
     };
+    let publisher = publisher.unwrap_or_else(|| DEFAULT_PUBLISHER.to_owned());
 
     sysand_core::init::do_init_ext(
         name,
+        publisher,
         version,
         no_semver,
         license,

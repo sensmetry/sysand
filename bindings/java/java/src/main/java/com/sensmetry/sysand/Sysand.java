@@ -15,11 +15,12 @@ public class Sysand {
      * already exist.
      *
      * @param name    The name of the project.
+     * @param publisher  The publisher of the project.
      * @param version The version of the project in SemVer 2.0.0 format.
      * @param license The license of the project given as an SPDX license identifier. May be {@code null}.
      * @param path    The path to the directory in which to initialize the project.
      */
-    public static native void init(String name, String version, String license, String path)
+    public static native void init(String name, String publisher, String version, String license, String path)
             throws com.sensmetry.sysand.exceptions.SysandException;
 
     /**
@@ -27,13 +28,14 @@ public class Sysand {
      * already exist.
      *
      * @param name    The name of the project.
+     * @param publisher  The publisher of the project.
      * @param version The version of the project in SemVer 2.0.0 format.
      * @param license The license of the project given as an SPDX license identifier. May be {@code null}.
      * @param path    The path to the directory in which to initialize the project.
      */
-    public static void init(String name, String version, String license, java.nio.file.Path path)
+    public static void init(String name, String publisher, String version, String license, java.nio.file.Path path)
             throws com.sensmetry.sysand.exceptions.SysandException {
-        init(name, version, license, path.toString());
+        init(name, publisher, version, license, path.toString());
     }
 
     /**
