@@ -34,6 +34,7 @@ if none is found uses the current directory instead.
   - `deflated`: Compress the files using Deflate
 
   [default: `deflated`]
+
 - `-a`, `--allow-path-usage` Allow usages of local paths (`file://`).
   Warning: using this makes the project not portable between different
   computers, as `file://` URL always contains an absolute path.
