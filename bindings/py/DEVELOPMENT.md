@@ -5,6 +5,7 @@
 Requirements:
 
 - Rust version given in `rust-version` in [Cargo.toml](../../Cargo.toml) or later
+- Python 3.10+
 - [uv](https://docs.astral.sh/uv/)
 
 The main part of the python bindings are written in Rust but some of the
