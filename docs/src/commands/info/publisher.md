@@ -18,4 +18,3 @@ Prints the publisher of the given project. With `--set` or `--clear`, modifies t
 - `--clear`: Remove the project publisher
 
 {{#include ../partials/global_opts.md}}
-
