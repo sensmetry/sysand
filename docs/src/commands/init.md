@@ -20,6 +20,7 @@ Create new project in current directory, i.e. create `.project.json` and
 ## Options
 
 - `--name <NAME>`: The name of the project. Defaults to the directory name
+- `--publisher <PUBLISHER>`: The publisher of the project. Defaults to `untitled`
 - `--version <VERSION>`: Set the version in SemVer 2.0 format. Defaults to `0.0.1`
 - `--no-semver`: Don't require version to conform to SemVer
 - `--license <LICENSE>`: Set the license in the form of an SPDX license identifier.

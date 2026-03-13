@@ -98,6 +98,7 @@ project and its usages.
 ```console
 $ sysand info
 Name: my_project
+Publisher: untitled
 Version: 0.0.1
 Usages:
     urn:kpar:sysmod

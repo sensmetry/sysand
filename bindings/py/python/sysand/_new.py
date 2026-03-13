@@ -9,15 +9,15 @@ import sysand._sysand_core as sysand_rs  # type: ignore
 from pathlib import Path
 
 
-def init(name: str, version: str, path: str | Path = ".") -> None:
-    sysand_rs.do_new_py_local_file(name, version, str(path))
+def init(name: str, publisher: str, version: str, path: str | Path = ".") -> None:
+    sysand_rs.do_new_py_local_file(name, publisher, version, str(path))
 
 
-def new(name: str, version: str, path: str | Path = ".") -> None:
+def new(name: str, publisher: str, version: str, path: str | Path = ".") -> None:
     if not Path(path).exists():
         Path(path).mkdir()
 
-    sysand_rs.do_new_py_local_file(name, version, str(path))
+    sysand_rs.do_new_py_local_file(name, publisher, version, str(path))
 
 
 __all__ = [

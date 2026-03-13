@@ -115,6 +115,7 @@ pub fn do_lock_projects<
 
         lock.projects.push(Project {
             name: Some(info.name),
+            publisher: info.publisher,
             version: info.version,
             exports: meta.index.into_keys().collect(),
             identifiers: identifiers
@@ -199,6 +200,7 @@ pub fn do_lock_extend<
 
         let lock_project = Project {
             name: Some(info.name),
+            publisher: info.publisher,
             version: info.version.to_string(),
             exports: meta.index.into_keys().collect(),
             identifiers: vec![iri.to_string()],
@@ -293,6 +295,7 @@ mod tests {
             projects: vec![
                 Project {
                     name: Some("test1".into()),
+                    publisher: None,
                     version: String::new(),
                     exports: exports.clone(),
                     identifiers: vec!["test1".into()],
@@ -302,6 +305,7 @@ mod tests {
                 },
                 Project {
                     name: Some("test2".into()),
+                    publisher: None,
                     version: String::new(),
                     exports,
                     identifiers: vec!["test2".into()],
