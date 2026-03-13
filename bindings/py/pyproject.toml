@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.8,<2"]
+requires = ["maturin>=1.12.6,<2"]
 build-backend = "maturin"
 
 [project]
@@ -41,13 +41,13 @@ sysand = "sysand.__main__:main"
 
 [dependency-groups]
 dev = [
-    "maturin>=1.8,<2",
-    "pytest>=8.3.5",
-    "pytest-httpserver>=1.1.1",
+    "maturin>=1.12.6,<2",
+    "pytest>=9.0.2,<10",
+    "pytest-httpserver>=1.1.3,<2",
 ]
 linters = [
-    "mypy>=1.14.1",
-    "ruff>=0.12.11",
+    "mypy>=1.19.1,<2",
+    "ruff>=0.14.13,<1",
 ]
 
 [tool.maturin]
