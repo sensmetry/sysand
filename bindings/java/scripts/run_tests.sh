@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Assumes that Java, Maven, and Python 3.10+ are installed.
+# Assumes that Java, Maven, and Python are installed.
 
 set -eu
 
