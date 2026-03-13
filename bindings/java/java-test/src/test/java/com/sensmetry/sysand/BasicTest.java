@@ -6,6 +6,8 @@ package com.sensmetry.sysand;
 
 import org.junit.jupiter.api.Test;
 
+import com.sensmetry.sysand.model.CompressionMethod;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.regex.Pattern;
@@ -101,6 +103,29 @@ public class BasicTest {
             com.sensmetry.sysand.model.InterchangeProject[] projects2 = com.sensmetry.sysand.Sysand.info(fileUri);
             assertEquals(projects2.length, 1);
             assertExpectedProject(projects2[0]);
+        } catch (java.io.IOException e) {
+            fail("Failed during temporary directory operations or Sysand.info: " + e.getMessage());
+        } catch (com.sensmetry.sysand.exceptions.SysandException e) {
+            fail("Failed during temporary directory operations or Sysand.info: " + e.getMessage());
+        }
+    }
+
+    @Test
+    public void testProjectBuild() {
+        try {
+            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-build");
+            com.sensmetry.sysand.Sysand.init("test_basic_info", "1.2.3", "MIT", tempDir);
+
+            com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
+            assertExpectedProject(project);
+
+            java.net.URI fileUri = tempDir.toUri();
+            com.sensmetry.sysand.model.InterchangeProject[] projects = com.sensmetry.sysand.Sysand.info(fileUri,
+                    tempDir);
+            assertEquals(projects.length, 1);
+            assertExpectedProject(projects[0]);
+
+            com.sensmetry.sysand.Sysand.buildProject(tempDir.resolve("sysand-test-build.kpar"), tempDir, CompressionMethod.DEFLATED);
         } catch (java.io.IOException e) {
             fail("Failed during temporary directory operations or Sysand.info: " + e.getMessage());
         } catch (com.sensmetry.sysand.exceptions.SysandException e) {

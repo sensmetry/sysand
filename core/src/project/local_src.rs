@@ -24,7 +24,7 @@ use crate::{
 
 use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError};
 
-/// Project stored in a local directory as an extracted kpar archive.
+/// Project stored in a local directory as an extracted KPAR archive.
 /// Source file paths with (unix) segments `segment1/.../segmentN` are
 /// re-interpreted as filesystem-native paths relative to `project_path`.
 #[derive(Clone, Debug)]

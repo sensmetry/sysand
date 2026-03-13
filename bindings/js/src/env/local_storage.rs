@@ -178,7 +178,7 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
             .read_string(self.versions_path(&uri))
             .map_err(Error::LocalStorage)?;
 
-        let mut kept_versions = "".to_string();
+        let mut kept_versions = String::new();
 
         let mut found = false;
         for current_version in current_versions.lines() {

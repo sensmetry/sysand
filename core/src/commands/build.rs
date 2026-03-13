@@ -1,22 +1,121 @@
-#[cfg(feature = "filesystem")]
 use camino::Utf8Path;
 use thiserror::Error;
 
 use crate::{
     env::utils::{CloneError, ErrorBound},
+    include::IncludeError,
     model::InterchangeProjectValidationError,
     project::{
         ProjectRead,
         local_kpar::{IntoKparError, LocalKParProject},
-        local_src::LocalSrcError,
+        local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError},
     },
-    workspace::WorkspaceReadError,
+    workspace::{Workspace, WorkspaceReadError},
 };
-#[cfg(feature = "filesystem")]
-use crate::{project::local_src::LocalSrcProject, workspace::Workspace};
 
-use super::include::IncludeError;
+#[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
+// Currently python interop is done with strings instead
+// in part to have less boilerplate, in part because the old
+// Python we use doesn't have pattern matching which ensures
+// all cases are covered
+// #[cfg_attr(feature = "python", pyclass(eq))]
+pub enum KparCompressionMethod {
+    /// Store the files as is
+    Stored,
+    /// Compress the files using Deflate
+    #[default]
+    Deflated,
+    /// Compress the files using BZIP2
+    #[cfg(feature = "kpar-bzip2")]
+    Bzip2,
+    /// Compress the files using ZStandard
+    #[cfg(feature = "kpar-zstd")]
+    Zstd,
+    /// Compress the files using XZ
+    #[cfg(feature = "kpar-xz")]
+    Xz,
+    /// Compress the files using PPMd
+    #[cfg(feature = "kpar-ppmd")]
+    Ppmd,
+}
+
+impl From<KparCompressionMethod> for zip::CompressionMethod {
+    fn from(value: KparCompressionMethod) -> Self {
+        match value {
+            KparCompressionMethod::Stored => zip::CompressionMethod::Stored,
+            KparCompressionMethod::Deflated => zip::CompressionMethod::Deflated,
+            #[cfg(feature = "kpar-bzip2")]
+            KparCompressionMethod::Bzip2 => zip::CompressionMethod::Bzip2,
+            #[cfg(feature = "kpar-zstd")]
+            KparCompressionMethod::Zstd => zip::CompressionMethod::Zstd,
+            #[cfg(feature = "kpar-xz")]
+            KparCompressionMethod::Xz => zip::CompressionMethod::Xz,
+            #[cfg(feature = "kpar-ppmd")]
+            KparCompressionMethod::Ppmd => zip::CompressionMethod::Ppmd,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum CompressionMethodParseError {
+    #[error("Compile sysand with feature {feature} to use {compression} compression")]
+    SuggestFeature {
+        compression: String,
+        feature: String,
+    },
+    #[error("{0}")]
+    Invalid(String),
+}
+
+impl TryFrom<String> for KparCompressionMethod {
+    type Error = CompressionMethodParseError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_str())
+    }
+}
+
+impl TryFrom<&str> for KparCompressionMethod {
+    type Error = CompressionMethodParseError;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "STORED" => Ok(KparCompressionMethod::Stored),
+            "DEFLATED" => Ok(KparCompressionMethod::Deflated),
+            #[cfg(feature = "kpar-bzip2")]
+            "BZIP2" => Ok(KparCompressionMethod::Bzip2),
+            #[cfg(not(feature = "kpar-bzip2"))]
+            "BZIP2" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-bzip2".into(),
+            }),
+            #[cfg(feature = "kpar-zstd")]
+            "ZSTD" => Ok(KparCompressionMethod::Zstd),
+            #[cfg(not(feature = "kpar-zstd"))]
+            "ZSTD" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-zstd".into(),
+            }),
+            #[cfg(feature = "kpar-xz")]
+            "XZ" => Ok(KparCompressionMethod::Xz),
+            #[cfg(not(feature = "kpar-xz"))]
+            "XZ" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-xz".into(),
+            }),
+            #[cfg(feature = "kpar-ppmd")]
+            "PPMD" => Ok(KparCompressionMethod::Ppmd),
+            #[cfg(not(feature = "kpar-ppmd"))]
+            "PPMD" => Err(CompressionMethodParseError::SuggestFeature {
+                compression: value.into(),
+                feature: "kpar-ppmd".into(),
+            }),
+            _ => Err(CompressionMethodParseError::Invalid(format!(
+                "Compression method `{value}` is invalid"
+            ))),
+        }
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum KParBuildError<ProjectReadError: ErrorBound> {
@@ -97,7 +196,6 @@ impl<ProjectReadError: ErrorBound> From<IntoKparError<LocalSrcError>>
     }
 }
 
-#[cfg(feature = "filesystem")]
 pub fn default_kpar_file_name<Pr: ProjectRead>(
     project: &Pr,
 ) -> Result<String, KParBuildError<Pr::Error>> {
@@ -115,10 +213,10 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
     ))
 }
 
-#[cfg(feature = "filesystem")]
 pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
+    compression: KparCompressionMethod,
     canonicalise: bool,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
@@ -152,13 +250,17 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
-    Ok(LocalKParProject::from_project(&local_project, path)?)
+    Ok(LocalKParProject::from_project(
+        &local_project,
+        path,
+        compression.into(),
+    )?)
 }
 
-#[cfg(feature = "filesystem")]
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &Workspace,
     path: P,
+    compression: KparCompressionMethod,
     canonicalise: bool,
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
     let mut result = Vec::new();
@@ -169,7 +271,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
         };
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);
-        let kpar_project = do_build_kpar(&project, &output_path, canonicalise)?;
+        let kpar_project = do_build_kpar(&project, &output_path, compression, canonicalise)?;
         result.push(kpar_project);
     }
     Ok(result)
