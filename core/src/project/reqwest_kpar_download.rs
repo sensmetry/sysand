@@ -96,7 +96,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
 
         let resp = self
             .auth_policy
-            .with_authentication(&self.client, &kpar_get_request(&self.url))
+            .with_authentication(&self.client, &kpar_get_request(self.url.clone()))
             .await?;
 
         if !resp.status().is_success() {

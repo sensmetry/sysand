@@ -16,8 +16,8 @@ const JSON_ACCEPT: &str = "application/vnd.github.raw+json, application/json, te
 const TEXT_ACCEPT: &str = "application/vnd.github.raw+json, text/plain, application/octet-stream";
 
 /// For KPAR and other binary files
-pub fn kpar_get_request(url: &Url) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder + use<> {
-    let this_url = url.clone();
+pub fn kpar_get_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder {
+    let this_url = url.into();
     move |client: &ClientWithMiddleware| -> RequestBuilder {
         client
             .get(this_url.clone())
@@ -25,8 +25,8 @@ pub fn kpar_get_request(url: &Url) -> impl Fn(&ClientWithMiddleware) -> RequestB
     }
 }
 
-pub fn kpar_head_request(url: &Url) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder + use<> {
-    let this_url = url.clone();
+pub fn kpar_head_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder {
+    let this_url = url.into();
     move |client: &ClientWithMiddleware| -> RequestBuilder {
         client
             .head(this_url.clone())
@@ -35,8 +35,8 @@ pub fn kpar_head_request(url: &Url) -> impl Fn(&ClientWithMiddleware) -> Request
 }
 
 /// For JSON files
-pub fn json_get_request(url: &Url) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder + use<> {
-    let this_url = url.clone();
+pub fn json_get_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder {
+    let this_url = url.into();
     move |client: &ClientWithMiddleware| -> RequestBuilder {
         client
             .get(this_url.clone())
@@ -44,8 +44,8 @@ pub fn json_get_request(url: &Url) -> impl Fn(&ClientWithMiddleware) -> RequestB
     }
 }
 
-pub fn json_head_request(url: &Url) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder + use<> {
-    let this_url = url.clone();
+pub fn json_head_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder {
+    let this_url = url.into();
     move |client: &ClientWithMiddleware| -> RequestBuilder {
         client
             .head(this_url.clone())
@@ -54,8 +54,8 @@ pub fn json_head_request(url: &Url) -> impl Fn(&ClientWithMiddleware) -> Request
 }
 
 /// For all text files that are not JSON
-pub fn text_get_request(url: &Url) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder + use<> {
-    let this_url = url.clone();
+pub fn text_get_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder {
+    let this_url = url.into();
     move |client: &ClientWithMiddleware| -> RequestBuilder {
         client
             .get(this_url.clone())

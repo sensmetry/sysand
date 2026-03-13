@@ -119,7 +119,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         let info_resp = self
             .auth_policy
-            .with_authentication(&self.client, &json_get_request(&self.info_url()))
+            .with_authentication(&self.client, &json_get_request(self.info_url()))
             .await
             .map_err(ReqwestSrcError::ReqwestMiddleware)?;
 
@@ -134,7 +134,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
     async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
         let meta_resp = self
             .auth_policy
-            .with_authentication(&self.client, &json_get_request(&self.meta_url()))
+            .with_authentication(&self.client, &json_get_request(self.meta_url()))
             .await
             .map_err(ReqwestSrcError::ReqwestMiddleware)?;
 
@@ -161,7 +161,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
 
         let resp = self
             .auth_policy
-            .with_authentication(&self.client, &text_get_request(&self.src_url(path)))
+            .with_authentication(&self.client, &text_get_request(self.src_url(path)))
             .await
             .map_err(ReqwestSrcError::ReqwestMiddleware)?;
 
@@ -180,12 +180,12 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
     }
 
     async fn is_definitely_invalid_async(&self) -> bool {
-        let info_request = &json_head_request(&self.info_url());
+        let info_request = &json_head_request(self.info_url());
         let info_resp = self
             .auth_policy
             .with_authentication(&self.client, info_request);
 
-        let meta_request = &json_head_request(&self.meta_url());
+        let meta_request = &json_head_request(self.meta_url());
         let meta_resp = self
             .auth_policy
             .with_authentication(&self.client, meta_request);

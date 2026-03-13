@@ -135,7 +135,7 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
 
         let src_project_response = self
             .auth_policy
-            .with_authentication(&self.client, &json_head_request(&src_project_url))
+            .with_authentication(&self.client, &json_head_request(src_project_url.clone()))
             .await?;
 
         if !src_project_response.status().is_success() {
@@ -160,7 +160,7 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
 
         let kpar_project_response = self
             .auth_policy
-            .with_authentication(&self.client, &kpar_head_request(&kpar_project_url))
+            .with_authentication(&self.client, &kpar_head_request(kpar_project_url.clone()))
             .await?;
 
         if !kpar_project_response.status().is_success() {
@@ -227,7 +227,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for HTTPEnvironmentAsync<P
     async fn uris_async(&self) -> Result<Self::UriStream, Self::ReadError> {
         let response = self
             .auth_policy
-            .with_authentication(&self.client, &text_get_request(&self.entries_url()?))
+            .with_authentication(&self.client, &text_get_request(self.entries_url()?))
             .await?;
 
         let inner = if response.status().is_success() {
@@ -260,7 +260,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for HTTPEnvironmentAsync<P
             .auth_policy
             .with_authentication(
                 &self.client,
-                &text_get_request(&self.versions_url(uri.as_ref())?),
+                &text_get_request(self.versions_url(uri.as_ref())?),
             )
             .await?;
 
