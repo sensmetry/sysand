@@ -10,7 +10,6 @@ use std::{
 };
 
 use futures::{Stream, TryStreamExt};
-use reqwest_middleware::ClientWithMiddleware;
 use sha2::Sha256;
 use thiserror::Error;
 
@@ -24,7 +23,10 @@ use crate::{
     project::{
         reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProjectAsync,
     },
-    resolve::reqwest_http::HTTPProjectAsync,
+    resolve::{
+        net_utils::{json_head_request, kpar_head_request, text_get_request},
+        reqwest_http::HTTPProjectAsync,
+    },
 };
 
 use futures::{AsyncBufReadExt as _, StreamExt as _};
@@ -131,15 +133,9 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
         let project_url = self.project_src_url(uri, version)?;
         let src_project_url = Self::url_join(&project_url, ".project.json")?;
 
-        let this_url = src_project_url.clone();
-        let src_project_request = move |client: &ClientWithMiddleware| {
-            client
-                .head(this_url.clone())
-                .header("ACCEPT", "application/json, text/plain")
-        };
         let src_project_response = self
             .auth_policy
-            .with_authentication(&self.client, &src_project_request)
+            .with_authentication(&self.client, &json_head_request(src_project_url.clone()))
             .await?;
 
         if !src_project_response.status().is_success() {
@@ -160,16 +156,11 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
         uri: S,
         version: T,
     ) -> Result<Option<HTTPProjectAsync<Policy>>, HTTPEnvironmentError> {
-        let project_kpar_url = self.project_kpar_url(&uri, &version)?;
-        let this_url = project_kpar_url.clone();
-        let kpar_project_request = move |client: &ClientWithMiddleware| {
-            client
-                .head(this_url.clone())
-                .header("ACCEPT", "application/zip, application/octet-stream")
-        };
+        let kpar_project_url = self.project_kpar_url(&uri, &version)?;
+
         let kpar_project_response = self
             .auth_policy
-            .with_authentication(&self.client, &kpar_project_request)
+            .with_authentication(&self.client, &kpar_head_request(kpar_project_url.clone()))
             .await?;
 
         if !kpar_project_response.status().is_success() {
@@ -178,7 +169,7 @@ impl<Policy: HTTPAuthentication> HTTPEnvironmentAsync<Policy> {
 
         Ok(Some(HTTPProjectAsync::HTTPKParProjectDownloaded(
             ReqwestKparDownloadedProject::new_guess_root(
-                &project_kpar_url,
+                &kpar_project_url,
                 self.client.clone(),
                 self.auth_policy.clone(),
             )
@@ -234,11 +225,9 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for HTTPEnvironmentAsync<P
     >;
 
     async fn uris_async(&self) -> Result<Self::UriStream, Self::ReadError> {
-        let this_url = self.entries_url()?;
-
         let response = self
             .auth_policy
-            .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
+            .with_authentication(&self.client, &text_get_request(self.entries_url()?))
             .await?;
 
         let inner = if response.status().is_success() {
@@ -267,10 +256,12 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for HTTPEnvironmentAsync<P
         &self,
         uri: S,
     ) -> Result<Self::VersionStream, Self::ReadError> {
-        let this_url = self.versions_url(uri.as_ref())?;
         let response = self
             .auth_policy
-            .with_authentication(&self.client, &move |client| client.get(this_url.clone()))
+            .with_authentication(
+                &self.client,
+                &text_get_request(self.versions_url(uri.as_ref())?),
+            )
             .await?;
 
         let inner = if response.status().is_success() {
@@ -329,13 +320,13 @@ mod test {
     use crate::{
         auth::Unauthenticated,
         env::{ReadEnvironment, ReadEnvironmentAsync},
-        resolve::reqwest_http::HTTPProjectAsync,
+        resolve::{net_utils::create_reqwest_client, reqwest_http::HTTPProjectAsync},
     };
 
     #[test]
     fn test_uri_examples() -> Result<(), Box<dyn std::error::Error>> {
         let env = super::HTTPEnvironmentAsync {
-            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse("https://www.example.com/a/b")?,
             prefer_src: true,
             auth_policy: Arc::new(Unauthenticated {}),
@@ -370,7 +361,7 @@ mod test {
         let host = server.url();
 
         let env = super::HTTPEnvironmentAsync {
-            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
             auth_policy: Arc::new(Unauthenticated {}),
@@ -443,7 +434,7 @@ mod test {
         let host = server.url();
 
         let env = super::HTTPEnvironmentAsync {
-            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
             auth_policy: Arc::new(Unauthenticated {}),
@@ -483,7 +474,7 @@ mod test {
         let host = server.url();
 
         let env = super::HTTPEnvironmentAsync {
-            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse(&host)?,
             prefer_src: false,
             auth_policy: Arc::new(Unauthenticated {}),
@@ -523,7 +514,7 @@ mod test {
         let host = server.url();
 
         let env = super::HTTPEnvironmentAsync {
-            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse(&host)?,
             prefer_src: false,
             auth_policy: Arc::new(Unauthenticated {}),
@@ -575,7 +566,7 @@ mod test {
         let host = server.url();
 
         let env = super::HTTPEnvironmentAsync {
-            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+            client: create_reqwest_client()?,
             base_url: url::Url::parse(&host)?,
             prefer_src: true,
             auth_policy: Arc::new(Unauthenticated {}),

@@ -299,7 +299,9 @@ mod tests {
     use crate::{
         auth::Unauthenticated,
         project::ProjectRead,
-        resolve::{ResolutionOutcome, ResolveRead, ResolveReadAsync},
+        resolve::{
+            ResolutionOutcome, ResolveRead, ResolveReadAsync, net_utils::create_reqwest_client,
+        },
     };
 
     #[test]
@@ -322,7 +324,7 @@ mod tests {
             .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
             .create();
 
-        let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+        let client = create_reqwest_client()?;
 
         let resolver = super::HTTPResolverAsync {
             client,
@@ -363,7 +365,7 @@ mod tests {
         with_slash: bool,
         //prefer_ranged: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+        let client = create_reqwest_client()?;
 
         let resolver = super::HTTPResolverAsync {
             client,
@@ -486,7 +488,7 @@ mod tests {
     //     .spawn()?;
     // sleep(Duration::from_millis(1000));
 
-    //     let client = reqwest::blocking::ClientBuilder::new().build().unwrap();
+    //     let client = create_reqwest_client();
     //     let resolver = super::HTTPResolverAsync {
     //         client,
     //         lax: false,
@@ -550,7 +552,7 @@ mod tests {
     //         .with_body(&buf)
     //         .create();
 
-    //     let client = reqwest::blocking::ClientBuilder::new().build().unwrap();
+    //     let client = create_reqwest_client();
     //     let resolver = super::HTTPResolverAsync {
     //         client,
     //         lax: false,

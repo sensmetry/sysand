@@ -36,7 +36,7 @@ use sysand_core::{
         utils::wrapfs,
     },
     remove::do_remove,
-    resolve::standard::standard_resolver,
+    resolve::{net_utils::create_reqwest_client, standard::standard_resolver},
     sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
     stdlib::known_std_libs,
     symbols::Language,
@@ -141,7 +141,7 @@ fn do_info_py(
 
     py.detach(|| {
         let mut results = vec![];
-        let client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build();
+        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
         let runtime = Arc::new(
             tokio::runtime::Builder::new_current_thread()
