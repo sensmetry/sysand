@@ -234,7 +234,7 @@ impl<T> GlobMap<T> {
         if outcome.is_empty() {
             GlobMapResult::NotFound
         } else if outcome.len() == 1 {
-            GlobMapResult::Found(self.keys[0].clone(), &self.values[outcome[0]])
+            GlobMapResult::Found(key.to_owned(), &self.values[outcome[0]])
         } else {
             // Need to do some magic to keep multiple (disjoint) references into a mutable array
             let mut result = Vec::with_capacity(outcome.len());
@@ -255,7 +255,7 @@ impl<T> GlobMap<T> {
         if outcome.is_empty() {
             GlobMapResultMut::NotFound
         } else if outcome.len() == 1 {
-            GlobMapResultMut::Found(self.keys[0].clone(), &mut self.values[outcome[0]])
+            GlobMapResultMut::Found(key.to_owned(), &mut self.values[outcome[0]])
         } else {
             // Need to do some magic to keep multiple (disjoint) references into a mutable array
             let mut result = Vec::with_capacity(outcome.len());
@@ -478,13 +478,17 @@ mod tests {
             panic!("Expected ambiguous result.");
         }
 
-        if let GlobMapResultMut::Found(_, val) = globmap.lookup_mut("axx.com/xxx/xxx/xxx") {
+        let key = "axx.com/xxx/xxx/xxx";
+        if let GlobMapResultMut::Found(k, val) = globmap.lookup_mut(key) {
+            assert_eq!(k, key);
             assert_eq!(*val, 2);
         } else {
             panic!("Expected unambiguous result.");
         }
 
-        if let GlobMapResultMut::Found(_, val) = globmap.lookup_mut("b.com/xxx") {
+        let key = "b.com/xxx";
+        if let GlobMapResultMut::Found(k, val) = globmap.lookup_mut(key) {
+            assert_eq!(k, key);
             assert_eq!(*val, 3);
         } else {
             panic!("Expected unambiguous result.");
