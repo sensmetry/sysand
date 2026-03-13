@@ -12,6 +12,7 @@ use sysand_core::{
     auth::HTTPAuthentication,
     commands::{env::do_env_local_dir, lock::LockOutcome},
     config::Config,
+    context::ProjectContext,
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     model::InterchangeProjectUsage,
@@ -50,6 +51,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    ctx: ProjectContext,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
@@ -136,7 +138,13 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         let LockOutcome {
             lock,
             dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_extend(Lock::default(), usages, resolver)?;
+        } = sysand_core::commands::lock::do_lock_extend(
+            Lock::default(),
+            usages,
+            resolver,
+            &provided_iris,
+            &ctx,
+        )?;
         // Find if we added any std lib dependencies. This relies on `Lock::default()`
         // and `do_lock_extend()` to not read the existing lockfile, i.e. `lock` contains
         // only `iri` and `iri`'s dependencies.
@@ -175,6 +183,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    ctx: ProjectContext,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
     let mut env = crate::get_or_create_env(project_root.as_path())?;
@@ -277,7 +286,12 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         let LockOutcome {
             lock,
             dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_projects([(Some(vec![iri]), &project)], resolver)?;
+        } = sysand_core::commands::lock::do_lock_projects(
+            [(Some(vec![iri]), &project)],
+            resolver,
+            &provided_iris,
+            &ctx,
+        )?;
         command_sync(
             &lock,
             project_root,

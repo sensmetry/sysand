@@ -11,6 +11,7 @@ use sysand_core::{
     auth::HTTPAuthentication,
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
     config::Config,
+    context::ProjectContext,
     env::local_directory::DEFAULT_ENV_NAME,
     project::{memory::InMemoryProject, utils::wrapfs},
     resolve::{
@@ -19,7 +20,6 @@ use sysand_core::{
         standard::{StandardResolver, standard_resolver},
     },
     stdlib::known_std_libs,
-    workspace::Workspace,
 };
 
 use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions, get_overrides};
@@ -31,13 +31,13 @@ use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions, get_overrides};
 #[expect(clippy::too_many_arguments)]
 pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
     path: P,
-    current_workspace: Option<Workspace>,
     resolution_opts: ResolutionOptions,
     config: &Config,
     project_root: R,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    ctx: ProjectContext,
 ) -> Result<sysand_core::lock::Lock> {
     assert!(path.as_ref().is_relative(), "{}", path.as_ref());
 
@@ -51,13 +51,14 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
         resolution_opts,
         config,
         &project_root,
-        provided_iris,
+        // TODO: avoid expensive clone here
+        provided_iris.clone(),
         client,
         runtime,
         auth_policy,
     )?;
 
-    let alias_iris = if let Some(w) = current_workspace {
+    let alias_iris = if let Some(w) = &ctx.current_workspace {
         w.projects()
             .iter()
             .find(|p| Utf8Path::new(&p.path) == path.as_ref())
@@ -68,7 +69,14 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
     let LockOutcome {
         lock,
         dependencies: _dependencies,
-    } = do_lock_local_editable(&path, &project_root, alias_iris, wrapped_resolver)?;
+    } = do_lock_local_editable(
+        &path,
+        &project_root,
+        alias_iris,
+        &provided_iris,
+        wrapped_resolver,
+        &ctx,
+    )?;
 
     let canonical = lock.canonicalize();
     wrapfs::write(

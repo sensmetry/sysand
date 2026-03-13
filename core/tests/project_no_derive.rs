@@ -5,7 +5,11 @@ use std::io::Read;
 
 use thiserror::Error;
 
-use sysand_core::project::{ProjectMut, ProjectRead, memory::InMemoryProject};
+use sysand_core::{
+    context::ProjectContext,
+    lock::Source,
+    project::{ProjectMut, ProjectRead, memory::InMemoryProject},
+};
 
 pub enum GenericProject<A, B>
 where
@@ -110,11 +114,17 @@ where
         }
     }
 
-    fn sources(&self) -> Vec<sysand_core::lock::Source> {
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            GenericProject::Variant1(project) => project.sources(),
-            GenericProject::Variant2(project) => project.sources(),
-            GenericProject::Variant3(project) => project.sources(),
+            GenericProject::Variant1(project) => {
+                project.sources(ctx).map_err(GenericProjectError::Variant1)
+            }
+            GenericProject::Variant2(project) => {
+                project.sources(ctx).map_err(GenericProjectError::Variant2)
+            }
+            GenericProject::Variant3(project) => {
+                project.sources(ctx).map_err(GenericProjectError::Variant3)
+            }
         }
     }
 }

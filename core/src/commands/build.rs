@@ -145,8 +145,11 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     Zip(#[from] ZipArchiveError),
     #[error("project serialization error: {0}: {1}")]
     Serialize(&'static str, serde_json::Error),
-    #[error("internal error: {0}")]
-    InternalError(&'static str),
+    #[error(
+        "project includes a path usage `{0}`,\n\
+        which is unlikely to be available on other computers at the same path"
+    )]
+    PathUsage(String),
 }
 
 impl<ProjectReadError: ErrorBound> From<FsIoError> for KParBuildError<ProjectReadError> {
@@ -218,6 +221,7 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     path: P,
     compression: KparCompressionMethod,
     canonicalise: bool,
+    allow_path_usage: bool,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
 
@@ -242,6 +246,26 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
+    if let Some(u) = info.usage.iter().find(|x| {
+        // Case-insensitively match `file:` scheme
+        x.resource.len() >= 5
+            && x.resource
+                .as_bytes()
+                .iter()
+                .zip(b"file:")
+                .all(|(c1, &c2)| c1.to_ascii_lowercase() == c2)
+    }) {
+        if allow_path_usage {
+            log::warn!(
+                "project includes a path usage `{}`,\n\
+            which is unlikely to be available on other computers at the same path",
+                u.resource
+            );
+        } else {
+            return Err(KParBuildError::PathUsage(u.resource.clone()));
+        }
+    }
+
     if canonicalise {
         for path in meta.validate()?.source_paths(true) {
             use crate::include::do_include;
@@ -262,6 +286,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     path: P,
     compression: KparCompressionMethod,
     canonicalise: bool,
+    allow_path_usage: bool,
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
     let mut result = Vec::new();
     for project in workspace.projects() {
@@ -271,7 +296,13 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
         };
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);
-        let kpar_project = do_build_kpar(&project, &output_path, compression, canonicalise)?;
+        let kpar_project = do_build_kpar(
+            &project,
+            &output_path,
+            compression,
+            canonicalise,
+            allow_path_usage,
+        )?;
         result.push(kpar_project);
     }
     Ok(result)

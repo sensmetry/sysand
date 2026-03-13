@@ -153,7 +153,8 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                 },
                 // sources_match
                 quote! {
-                    #enum_ident::#variant_ident(project) => project.sources()
+                    #enum_ident::#variant_ident(project) => project.sources(ctx)
+                        .map_err(#error_ident::#variant_ident)
                 },
             ))
         })
@@ -252,8 +253,8 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn sources(&self) -> ::std::vec::Vec<Source> {
-                match &self {
+            fn sources(&self, ctx: &ProjectContext) -> ::std::result::Result<::std::vec::Vec<Source>, Self::Error> {
+                match self {
                     #( #sources_match ),*
                 }
             }

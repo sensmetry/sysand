@@ -5,12 +5,13 @@ use gix::{prepare_clone, remote::fetch::Shallow};
 use thiserror::Error;
 
 use crate::{
+    context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
-        utils::{FileWithLifetime, ToPathBuf},
+        utils::{FileWithLifetime, RelativizePathError, ToPathBuf},
     },
 };
 
@@ -41,6 +42,12 @@ pub enum GixDownloadedError {
     Fetch(String, Box<gix::clone::fetch::Error>),
     #[error("git checkout in temporary directory `{0}` failed: {1}")]
     Checkout(Utf8PathBuf, Box<gix::clone::checkout::main_worktree::Error>),
+    #[error(
+        "cannot construct a relative path from the workspace/project
+        directory to one of its dependencies' directory:\n\
+        {0}"
+    )]
+    ImpossibleRelativePath(#[from] RelativizePathError),
     #[error("{0}")]
     Other(String),
 }
@@ -61,6 +68,7 @@ impl From<LocalSrcError> for GixDownloadedError {
             }
             LocalSrcError::Io(e) => Self::Io(e),
             LocalSrcError::Serialize(error) => Self::Serialize(error),
+            LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
         }
     }
 }
@@ -131,10 +139,10 @@ impl ProjectRead for GixDownloadedProject {
         Ok(FileWithLifetime::new(self.inner.read_source(path)?))
     }
 
-    fn sources(&self) -> Vec<Source> {
-        vec![Source::RemoteGit {
+    fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        Ok(vec![Source::RemoteGit {
             remote_git: self.url.to_string(),
-        }]
+        }])
     }
 }
 

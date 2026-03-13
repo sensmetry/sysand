@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use crate::{
+    context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::ProjectRead,
@@ -59,8 +60,8 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
         self.project.read_source(path)
     }
 
-    fn sources(&self) -> Vec<Source> {
-        self.project.sources()
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        self.project.sources(ctx)
     }
 }
 

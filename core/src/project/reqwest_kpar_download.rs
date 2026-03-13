@@ -14,6 +14,7 @@ use thiserror::Error;
 
 use crate::{
     auth::HTTPAuthentication,
+    context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
@@ -168,11 +169,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         })
     }
 
-    async fn sources_async(&self) -> Vec<Source> {
-        vec![Source::RemoteKpar {
+    async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        Ok(vec![Source::RemoteKpar {
             remote_kpar: self.url.to_string(),
             remote_kpar_size: self.inner.file_size().ok(),
-        }]
+        }])
     }
 }
 

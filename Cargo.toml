@@ -13,7 +13,7 @@ default-members = ["sysand", "core"]
 [workspace.package]
 version = "0.0.9"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.94"
 publish = false
 authors = ["Sensmetry <opensource@sensmetry.com>"]
 license = "MIT OR Apache-2.0"

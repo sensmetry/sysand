@@ -9,6 +9,7 @@ use sysand_core::{
     auth::HTTPAuthentication,
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
     config::Config,
+    context::ProjectContext,
     env::utils::clone_project,
     project::{ProjectRead, editable::EditableProject, local_src::LocalSrcProject, utils::wrapfs},
     resolve::{
@@ -17,29 +18,27 @@ use sysand_core::{
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
     },
-    workspace::Workspace,
 };
 
 use crate::{
     CliError, DEFAULT_INDEX_URL,
-    cli::{ProjectLocatorArgs, ResolutionOptions},
+    cli::{CloneProjectLocatorArgs, ResolutionOptions},
     commands::sync::command_sync,
     get_or_create_env,
 };
 
 pub enum ProjectLocator {
     Iri(Iri<String>),
-    Path(String),
+    Path(Utf8PathBuf),
 }
 
 /// Clones project from `locator` to `target` directory.
 #[allow(clippy::too_many_arguments)]
 pub fn command_clone<Policy: HTTPAuthentication>(
-    locator: ProjectLocatorArgs,
+    locator: CloneProjectLocatorArgs,
     version: Option<String>,
     target: Option<Utf8PathBuf>,
-    existing_project: Option<LocalSrcProject>,
-    existing_workspace: Option<Workspace>,
+    ctx: ProjectContext,
     no_deps: bool,
     resolution_opts: ResolutionOptions,
     config: &Config,
@@ -75,14 +74,13 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     let (include_std, locator, local_project, std_resolver) = match obtain_project(
         locator,
         version,
-        existing_project,
-        existing_workspace,
         resolution_opts,
         config,
         &client,
         &runtime,
         auth_policy.clone(),
         project_path,
+        &ctx,
     ) {
         Ok(ret) => ret,
         Err(e) => {
@@ -119,7 +117,12 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         let LockOutcome {
             lock,
             dependencies: _dependencies,
-        } = sysand_core::commands::lock::do_lock_projects([(identifiers, &project)], resolver)?;
+        } = sysand_core::commands::lock::do_lock_projects(
+            [(identifiers, &project)],
+            resolver,
+            &provided_iris,
+            &ctx,
+        )?;
         // Warn if we have any std lib dependencies
         if !provided_iris.is_empty()
             && lock
@@ -152,16 +155,15 @@ pub fn command_clone<Policy: HTTPAuthentication>(
 
 #[expect(clippy::too_many_arguments)]
 fn obtain_project<Policy: HTTPAuthentication>(
-    locator: ProjectLocatorArgs,
+    locator: CloneProjectLocatorArgs,
     version: Option<String>,
-    existing_project: Option<LocalSrcProject>,
-    existing_workspace: Option<Workspace>,
     resolution_opts: ResolutionOptions,
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     project_path: Utf8PathBuf,
+    ctx: &ProjectContext,
 ) -> Result<
     (
         bool,
@@ -177,7 +179,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
         no_index,
         include_std,
     } = resolution_opts;
-    if let Some(existing_project) = existing_project {
+    if let Some(existing_project) = &ctx.current_project {
         log::warn!(
             "found an existing project in one of target path's parent\n\
             {:>8} directories `{}`",
@@ -185,7 +187,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
             existing_project.root_path()
         );
     }
-    if let Some(existing_workspace) = existing_workspace {
+    if let Some(existing_workspace) = &ctx.current_workspace {
         log::warn!(
             "found an existing workspace in one of target path's parent\n\
             {:>8} directories `{}`",
@@ -198,7 +200,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
     } else {
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
-    let ProjectLocatorArgs {
+    let CloneProjectLocatorArgs {
         auto_location,
         iri,
         path,
@@ -206,7 +208,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
     let locator = if let Some(auto_location) = auto_location {
         match fluent_uri::Iri::parse(auto_location) {
             Ok(iri) => ProjectLocator::Iri(iri),
-            Err((_e, path)) => ProjectLocator::Path(path),
+            Err((_e, path)) => ProjectLocator::Path(path.into()),
         }
     } else if let Some(path) = path {
         ProjectLocator::Path(path)
@@ -342,10 +344,10 @@ pub fn get_project_version<R: ResolveRead>(
                         continue;
                     }
                 };
-                if let Some(version) = &requested_version {
-                    if &candidate_version != version {
-                        continue;
-                    }
+                if let Some(version) = &requested_version
+                    && &candidate_version != version
+                {
+                    continue;
                 }
                 candidates.push((candidate_version, candidate_project));
             }

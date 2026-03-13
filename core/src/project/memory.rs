@@ -10,6 +10,7 @@ use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::{
+    context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
@@ -99,13 +100,11 @@ impl ProjectMut for InMemoryProject {
     ) -> Result<(), InMemoryError> {
         let file_entry = self.files.entry(path.as_ref().to_owned());
 
-        if let Entry::Occupied(_) = file_entry {
-            if !overwrite {
-                return Err(InMemoryError::AlreadyExists(format!(
-                    "`{}` already exists",
-                    path.as_ref()
-                )));
-            }
+        if !overwrite && let Entry::Occupied(_) = file_entry {
+            return Err(InMemoryError::AlreadyExists(format!(
+                "`{}` already exists",
+                path.as_ref()
+            )));
         }
 
         let mut buf = String::new();
@@ -156,7 +155,8 @@ impl ProjectRead for InMemoryProject {
         Ok(contents.as_bytes())
     }
 
-    fn sources(&self) -> Vec<Source> {
-        panic!("`InMemoryProject` cannot have any project sources")
+    fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        debug_assert!(!self.nominal_sources.is_empty());
+        Ok(self.nominal_sources.clone())
     }
 }

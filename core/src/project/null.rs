@@ -11,6 +11,7 @@ use futures::AsyncRead;
 use thiserror::Error;
 
 use crate::{
+    context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectRead, ProjectReadAsync},
@@ -74,7 +75,7 @@ impl ProjectRead for NullProject {
         match self.nothing {}
     }
 
-    fn sources(&self) -> Vec<Source> {
+    fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self.nothing {}
     }
 }
@@ -106,7 +107,7 @@ impl ProjectReadAsync for NullProject {
         match self.nothing {}
     }
 
-    async fn sources_async(&self) -> Vec<Source> {
+    async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self.nothing {}
     }
 }

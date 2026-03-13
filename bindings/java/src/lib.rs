@@ -89,6 +89,9 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
                 LocalSrcError::Serialize(subsuberror) => {
                     env.throw_exception(ExceptionKind::SerializationError, subsuberror.to_string())
                 }
+                LocalSrcError::ImpossibleRelativePath(_) => {
+                    env.throw_exception(ExceptionKind::PathError, suberror.to_string())
+                }
             },
         },
     }
@@ -146,6 +149,9 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
                 }
                 LocalWriteError::LocalRead(subsuberror) => {
                     env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
+                }
+                LocalWriteError::ImpossibleRelativePath(_) => {
+                    env.throw_exception(ExceptionKind::PathError, suberror.to_string())
                 }
             },
         },
@@ -315,8 +321,14 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
                 format!("Workspace read error: {}", error),
             );
         }
-        KParBuildError::InternalError(error) => {
-            env.throw_exception(ExceptionKind::SysandException, error);
+        KParBuildError::PathUsage(usage) => {
+            env.throw_exception(
+                ExceptionKind::SysandException,
+                format!(
+                    "project includes a path usage `{usage}`,\n\
+        which is unlikely to be available on other computers at the same path"
+                ),
+            );
         }
     }
 }
@@ -358,8 +370,13 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     let Some(compression) = compression_from_java_string(&mut env, compression) else {
         return;
     };
-    let command_result =
-        sysand_core::commands::build::do_build_kpar(&project, &output_path, compression, true);
+    let command_result = sysand_core::commands::build::do_build_kpar(
+        &project,
+        &output_path,
+        compression,
+        true,
+        false,
+    );
     match command_result {
         Ok(_) => {}
         Err(error) => handle_build_error(&mut env, error),
@@ -406,6 +423,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
         &output_path,
         compression,
         true,
+        false,
     );
     match command_result {
         Ok(_) => {}

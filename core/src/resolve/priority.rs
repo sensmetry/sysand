@@ -6,6 +6,7 @@ use std::{
 use thiserror::Error;
 
 use crate::{
+    context::ProjectContext,
     env::utils::ErrorBound,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
@@ -144,10 +145,14 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         }
     }
 
-    fn sources(&self) -> Vec<Source> {
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            PriorityProject::HigherProject(project) => project.sources(),
-            PriorityProject::LowerProject(project) => project.sources(),
+            PriorityProject::HigherProject(project) => {
+                project.sources(ctx).map_err(PriorityError::Higher)
+            }
+            PriorityProject::LowerProject(project) => {
+                project.sources(ctx).map_err(PriorityError::Lower)
+            }
         }
     }
 

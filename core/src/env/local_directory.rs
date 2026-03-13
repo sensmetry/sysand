@@ -14,7 +14,8 @@ use crate::{
     project::{
         local_src::{LocalSrcError, LocalSrcProject, PathError},
         utils::{
-            FsIoError, ProjectDeserializationError, ProjectSerializationError, ToPathBuf, wrapfs,
+            FsIoError, ProjectDeserializationError, ProjectSerializationError, RelativizePathError,
+            ToPathBuf, wrapfs,
         },
     },
 };
@@ -184,10 +185,10 @@ fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMoveErro
         for (i, (path, _)) in paths.iter().enumerate() {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
-            if src_path.exists() {
-                if let Err(err) = move_fs_item(src_path, path) {
-                    return Err(TryMoveError::CatastrophicIO { err, cause });
-                }
+            if src_path.exists()
+                && let Err(err) = move_fs_item(src_path, path)
+            {
+                return Err(TryMoveError::CatastrophicIO { err, cause });
             }
         }
 
@@ -212,20 +213,20 @@ fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMoveErro
         for (i, (_, path)) in paths.iter().enumerate() {
             let trg_path = tempdir.path().join(format!("trg_{}", i));
 
-            if trg_path.exists() {
-                if let Err(err) = move_fs_item(trg_path, path) {
-                    return Err(TryMoveError::CatastrophicIO { err, cause });
-                }
+            if trg_path.exists()
+                && let Err(err) = move_fs_item(trg_path, path)
+            {
+                return Err(TryMoveError::CatastrophicIO { err, cause });
             }
         }
 
         for (i, (path, _)) in paths.iter().enumerate() {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
-            if src_path.exists() {
-                if let Err(err) = move_fs_item(src_path, path) {
-                    return Err(TryMoveError::CatastrophicIO { err, cause });
-                }
+            if src_path.exists()
+                && let Err(err) = move_fs_item(src_path, path)
+            {
+                return Err(TryMoveError::CatastrophicIO { err, cause });
             }
         }
 
@@ -249,30 +250,30 @@ fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMoveErro
         for (i, (_, path)) in paths.iter().enumerate() {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
-            if path.exists() {
-                if let Err(err) = move_fs_item(path, src_path) {
-                    return Err(TryMoveError::CatastrophicIO { err, cause });
-                }
+            if path.exists()
+                && let Err(err) = move_fs_item(path, src_path)
+            {
+                return Err(TryMoveError::CatastrophicIO { err, cause });
             }
         }
 
         for (i, (_, path)) in paths.iter().enumerate() {
             let trg_path = tempdir.path().join(format!("trg_{}", i));
 
-            if trg_path.exists() {
-                if let Err(err) = move_fs_item(trg_path, path) {
-                    return Err(TryMoveError::CatastrophicIO { err, cause });
-                }
+            if trg_path.exists()
+                && let Err(err) = move_fs_item(trg_path, path)
+            {
+                return Err(TryMoveError::CatastrophicIO { err, cause });
             }
         }
 
         for (i, (path, _)) in paths.iter().enumerate() {
             let src_path = tempdir.path().join(format!("src_{}", i));
 
-            if src_path.exists() {
-                if let Err(err) = move_fs_item(src_path, path) {
-                    return Err(TryMoveError::CatastrophicIO { err, cause });
-                }
+            if src_path.exists()
+                && let Err(err) = move_fs_item(src_path, path)
+            {
+                return Err(TryMoveError::CatastrophicIO { err, cause });
             }
         }
 
@@ -352,10 +353,10 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
         // TODO: Better refactor the interface to return a
         // maybe (similar to *Map::get)
         if !vp.exists() {
-            if let Some(vpp) = vp.parent() {
-                if !vpp.exists() {
-                    wrapfs::create_dir(vpp)?;
-                }
+            if let Some(vpp) = vp.parent()
+                && !vpp.exists()
+            {
+                wrapfs::create_dir(vpp)?;
             }
             wrapfs::File::create(&vp)?;
         }
@@ -406,6 +407,12 @@ pub enum LocalWriteError {
     TryMove(#[from] TryMoveError),
     #[error(transparent)]
     LocalRead(LocalReadError),
+    #[error(
+        "cannot construct a relative path from the workspace/project
+        directory to one of its dependencies' directory:\n\
+        {0}"
+    )]
+    ImpossibleRelativePath(#[from] RelativizePathError),
 }
 
 impl From<FsIoError> for LocalWriteError {
@@ -432,6 +439,7 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::AlreadyExists(msg) => LocalWriteError::AlreadyExists(msg),
             LocalSrcError::Io(e) => LocalWriteError::Io(e),
             LocalSrcError::Serialize(error) => Self::Serialize(error),
+            LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
         }
     }
 }

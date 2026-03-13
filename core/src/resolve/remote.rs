@@ -3,6 +3,8 @@ use std::io::{self, Read};
 use thiserror::Error;
 
 use crate::{
+    context::ProjectContext,
+    lock::Source,
     project::ProjectRead,
     resolve::{ResolveRead, null::NullResolver},
 };
@@ -107,10 +109,14 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
         }
     }
 
-    fn sources(&self) -> Vec<crate::lock::Source> {
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            RemoteProject::HTTPProject(project) => project.sources(),
-            RemoteProject::GitProject(project) => project.sources(),
+            RemoteProject::HTTPProject(project) => {
+                project.sources(ctx).map_err(RemoteProjectError::HTTPRead)
+            }
+            RemoteProject::GitProject(project) => {
+                project.sources(ctx).map_err(RemoteProjectError::GitRead)
+            }
         }
     }
 

@@ -15,14 +15,13 @@ use sysand_core::{
         Config, ConfigProject,
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
+    context::ProjectContext,
     model::InterchangeProjectUsageRaw,
     project::{
         ProjectRead,
-        local_src::LocalSrcProject,
         utils::{relativize_path, wrapfs},
     },
     resolve::{ResolutionOutcome, ResolveRead, standard::standard_resolver},
-    workspace::Workspace,
 };
 
 use crate::{
@@ -43,14 +42,16 @@ pub fn command_add<Policy: HTTPAuthentication>(
     mut config: Config,
     config_file: Option<String>,
     no_config: bool,
-    current_project: Option<LocalSrcProject>,
-    current_workspace: Option<Workspace>,
+    ctx: ProjectContext,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
     let iri = iri.as_ref();
-    let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
+    let mut current_project = ctx
+        .current_project
+        .clone()
+        .ok_or(CliError::MissingProjectCurrentDir)?;
 
     #[allow(clippy::manual_map)] // For readability and compactness
     let source = if let Some(path) = source_opts.from_path {
@@ -98,7 +99,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
                 for candidate in alternatives {
                     match candidate {
                         Ok(project) => {
-                            source = project.sources().first().cloned();
+                            source = project.sources(&ctx)?.first().cloned();
                             if source.is_some() {
                                 break;
                             }
@@ -191,7 +192,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         let info_backup = wrapfs::read_to_string(&info_path)?;
         do_add(&mut current_project, &usage_raw)?;
 
-        let alias_iris = if let Some(w) = current_workspace {
+        let alias_iris = if let Some(w) = &ctx.current_workspace {
             w.projects()
                 .iter()
                 .find(|p| Path::new(&p.path) == current_project.root_path())
@@ -210,6 +211,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             current_project.root_path(),
             alias_iris,
             provided_iris,
+            &ctx,
         ) {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -235,8 +237,9 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     project_root: P,
     project_identifiers: Option<Vec<Iri<String>>>,
     provided_iris: HashMap<String, Vec<sysand_core::project::memory::InMemoryProject>>,
+    ctx: &ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    // TODO: use path relative to workspace root
+    // FIXME: use path relative to workspace root.
     let resolver = create_resolver(
         ".",
         resolution_opts,
@@ -247,9 +250,14 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         runtime.clone(),
         auth_policy.clone(),
     )?;
-    // FIXME: use path relative to workspace root.
-    let LockOutcome { lock, .. } =
-        do_lock_local_editable(".", &project_root, project_identifiers, resolver)?;
+    let LockOutcome { lock, .. } = do_lock_local_editable(
+        ".",
+        &project_root,
+        project_identifiers,
+        &provided_iris,
+        resolver,
+        ctx,
+    )?;
     let lock = lock.canonicalize();
     wrapfs::write(
         project_root.as_ref().join(DEFAULT_LOCKFILE_NAME),

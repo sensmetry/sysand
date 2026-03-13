@@ -9,6 +9,7 @@ use anstream::println;
 use anyhow::{Result, bail};
 use semver::VersionReq;
 use sysand_core::{
+    context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
     project::{ProjectRead, memory::InMemoryProject},
     sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
@@ -31,16 +32,16 @@ pub fn command_sources_env<S: AsRef<str>>(
     let mut projects = env.candidate_projects(&iri)?.into_iter();
 
     let Some(project) = (match &version {
+        // No version constraints, so choose the first candidate
         None => projects.next(),
         Some(vr) => loop {
             if let Some(candidate) = projects.next() {
                 if let Some(v) = candidate
                     .version()?
                     .and_then(|x| semver::Version::parse(&x).ok())
+                    && vr.matches(&v)
                 {
-                    if vr.matches(&v) {
-                        break Some(candidate);
-                    }
+                    break Some(candidate);
                 }
             } else {
                 break None;
@@ -84,11 +85,13 @@ pub fn command_sources_env<S: AsRef<str>>(
 
 pub fn command_sources_project(
     include_deps: bool,
-    current_project: Option<sysand_core::project::local_src::LocalSrcProject>,
+    ctx: ProjectContext,
     env: Option<LocalDirectoryEnvironment>,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
-    let current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
+    let current_project = ctx
+        .current_project
+        .ok_or(CliError::MissingProjectCurrentDir)?;
 
     for src_path in do_sources_local_src_project_no_deps(&current_project, true)? {
         println!("{}", src_path);
