@@ -2,9 +2,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module implements accessing interchanged projects stored remotely over HTTP.
-//! It is currently written using the blocking Reqwest client. Once sysand functionality
-//! has stabilised it will be refactored to use the async interface and allow reqwest_middleware.
-//! This will enable middleware (such as caching) as well as using reqwest also in WASM.
 
 use std::{io, marker::Send, pin::Pin, sync::Arc};
 
