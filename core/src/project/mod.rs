@@ -1147,6 +1147,7 @@ mod tests {
         let project = InMemoryProject {
             info: Some(InterchangeProjectInfoRaw {
                 name: "test_canonicalization".to_string(),
+                publisher: None,
                 description: None,
                 version: "1.2.3".to_string(),
                 license: None,

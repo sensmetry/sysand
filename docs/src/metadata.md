@@ -14,6 +14,11 @@ To read or modify project information and metadata fields from the command line,
 
 ## Fields of `.project.json`
 
+### `publisher`
+
+Person or organization that publishes the project. This is currently not in the
+KerML specification, we will propose adding it as a mandatory field.
+
 ### `license`
 
 Specification does not have any requirements for license format. Sysand

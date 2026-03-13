@@ -87,6 +87,9 @@ pub struct InterchangeProjectInfoG<Iri, Version, VersionReq> {
     pub name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
     pub version: Version, // TODO We should have a fallback for invalid semvers
@@ -116,6 +119,7 @@ impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     fn from(value: InterchangeProjectInfo) -> Self {
         InterchangeProjectInfoRaw {
             name: value.name,
+            publisher: value.publisher,
             description: value.description,
             version: value.version.to_string(),
             license: value.license,
@@ -137,6 +141,7 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
     pub fn minimal(name: String, version: Version) -> Self {
         InterchangeProjectInfoG {
             name,
+            publisher: None,
             description: None,
             version,
             license: None,
@@ -179,6 +184,7 @@ impl InterchangeProjectInfoRaw {
 
         Ok(InterchangeProjectInfo {
             name: self.name.clone(),
+            publisher: self.publisher.clone(),
             description: self.description.clone(),
             version: semver::Version::parse(&self.version).map_err(|e| {
                 InterchangeProjectValidationError::SemVerParse(self.version.as_str().into(), e)
@@ -705,6 +711,7 @@ mod tests {
     fn json_hash_agrees_with_shell() {
         let info = InterchangeProjectInfoRaw {
             name: "json_hash_agrees_with_shell".to_string(),
+            publisher: None,
             description: None,
             version: "1.2.3".to_string(),
             license: None,

@@ -50,10 +50,11 @@ fn run_cli(args: Vec<String>) -> PyResult<bool> {
 
 #[pyfunction(name = "do_new_py_local_file")]
 #[pyo3(
-    signature = (name, version, path, license=None),
+    signature = (name, publisher, version, path, license=None),
 )]
 fn do_new_py_local_file(
     name: String,
+    publisher: String,
     version: String,
     path: String,
     license: Option<String>,
@@ -64,7 +65,7 @@ fn do_new_py_local_file(
     // library from python runs it
     let _ = pyo3_log::try_init();
 
-    do_init_local_file(name, version, license, Utf8PathBuf::from(path)).map_err(
+    do_init_local_file(name, publisher, version, license, Utf8PathBuf::from(path)).map_err(
         |err| match err {
             InitError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
             InitError::SPDXLicenseParse(..) => PyValueError::new_err(err.to_string()),
