@@ -59,45 +59,38 @@ jobs:
           - runner: windows-11-arm
             target: arm64 # not aarch64 because expected by setup-python
             rust_target: aarch64-pc-windows-msvc
-        # A single python version is used for each run, because some tools
-        # don't know which version to use if multiple are present
-        python:
-          - version: "3.13"
-            label: "default"
-            args_suffix: ""
-          - version: "3.13t"
-            label: 3.13-free-threaded
-            args_suffix: " --interpreter python3.13t"
-          - version: "3.14t"
-            label: 3.14-free-threaded
-            args_suffix: " --interpreter python3.14t"
-        exclude:
-          # Free-threaded python does not work on windows arm currently
-          # https://github.com/actions/setup-python/issues/1267
-          - platform:
-              runner: windows-11-arm
-            python:
-              version: "3.13t"
-          - platform:
-              runner: windows-11-arm
-            python:
-              version: "3.14t"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: ${{ matrix.python.version }}
+          python-version: |
+            3.10
+            3.14
+          architecture: ${{ matrix.platform.target }}
+      # Free-threaded python does not work on windows arm currently
+      # https://github.com/actions/setup-python/issues/1267
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        if: matrix.platform.target != 'arm64'
+        with:
+          python-version: "3.14t"
           architecture: ${{ matrix.platform.target }}
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
         with:
           target: ${{ matrix.platform.rust_target }}
-          args: --release --out dist --compatibility pypi --manifest-path bindings/py/Cargo.toml${{ matrix.python.args_suffix }}
+          args: --release --out dist --compatibility pypi --manifest-path bindings/py/Cargo.toml
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - name: Build free-threaded wheel
+        if: matrix.platform.target != 'arm64'
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380 # 1.49.4
+        with:
+          target: ${{ matrix.platform.rust_target }}
+          args: --release --out dist --compatibility pypi --manifest-path bindings/py/Cargo.toml --interpreter python3.14t
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Upload wheels
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: wheels-windows-${{ matrix.platform.target }}-${{ matrix.python.label }}
+          name: wheels-windows-${{ matrix.platform.target }}
           path: dist
       - name: Run Rust tests for Python bindings
         run: |
@@ -105,11 +98,22 @@ jobs:
           cargo test --locked --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
       - name: Install uv
         uses: astral-sh/setup-uv@e06108dd0aef18192324c70427afc47652e63a82 # 7.5.0
-      - name: pytest
+      - name: pytest 3.10
         run: |
-          export UV_PYTHON=${{ matrix.python.version }}
+          export UV_PYTHON=3.10
           export ACTIVATION_SCRIPT=.venv/Scripts/activate
-          /bin/bash .github/scripts/run-pytest.sh ${{ matrix.python.version }}
+          /bin/bash .github/scripts/run-pytest.sh
+      - name: pytest 3.14
+        run: |
+          export UV_PYTHON=3.14
+          export ACTIVATION_SCRIPT=.venv/Scripts/activate
+          /bin/bash .github/scripts/run-pytest.sh
+      - name: pytest 3.14t
+        if: matrix.platform.target != 'arm64'
+        run: |
+          export UV_PYTHON=3.14t
+          export ACTIVATION_SCRIPT=.venv/Scripts/activate
+          /bin/bash .github/scripts/run-pytest.sh
 
   musllinux:
     runs-on: ${{ matrix.platform.runner }}
@@ -218,12 +222,25 @@ jobs:
           path: dist
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: 3.14
+          python-version: |
+            3.10
+            3.14
+            3.14t
       - name: Install uv
         uses: astral-sh/setup-uv@e06108dd0aef18192324c70427afc47652e63a82 # 7.5.0
-      - name: pytest (native)
+      - name: pytest 3.10 (native)
         # TODO: run tests on x86_32. Currently skipped because no containers are used here
         # and run-on-arch-action does not support x86_32
+        if: ${{ matrix.platform.native && matrix.platform.target != 'x86' }}
+        run: |
+          export UV_PYTHON=3.10
+          /bin/bash .github/scripts/run-pytest.sh
+      - name: pytest 3.14t (native)
+        if: ${{ matrix.platform.native && matrix.platform.target != 'x86' }}
+        run: |
+          export UV_PYTHON=3.14t
+          /bin/bash .github/scripts/run-pytest.sh
+      - name: pytest 3.14 (native)
         if: ${{ matrix.platform.native && matrix.platform.target != 'x86' }}
         run: /bin/bash .github/scripts/run-pytest.sh
       - name: pytest (emulated)
@@ -263,7 +280,10 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: 3.14
+          python-version: |
+            3.10
+            3.14
+            3.14t
       - name: Run Rust tests for Python bindings
         run: cargo test --locked --package sysand-py --verbose --no-default-features
       - name: Build wheels
@@ -285,9 +305,16 @@ jobs:
           path: dist
       - name: Install uv
         uses: astral-sh/setup-uv@e06108dd0aef18192324c70427afc47652e63a82 # 7.5.0
-      - name: pytest
+      - name: pytest 3.10
         run: |
+          export UV_PYTHON=3.10
           /bin/bash .github/scripts/run-pytest.sh
+      - name: pytest 3.14t
+        run: |
+          export UV_PYTHON=3.14t
+          /bin/bash .github/scripts/run-pytest.sh
+      - name: pytest 3.14
+        run: /bin/bash .github/scripts/run-pytest.sh
 
   sdist:
     runs-on: ubuntu-latest
