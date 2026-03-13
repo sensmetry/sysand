@@ -28,23 +28,46 @@ Directory structure:
 
 ## Setup
 
-Development is done on Linux (including WSL) or macOS. For Sysand core and CLI
-development, you need to [install Rust](https://rust-lang.org/tools/install/)
-specified in `rust-version` field of [Cargo.toml](Cargo.toml) or later
-and [uv](https://docs.astral.sh/uv/). It is also recommended to use
-[`rust-analyzer`](https://github.com/rust-lang/rust-analyzer). It has an
-[extension for VS Code](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
-and many other code editors can use it via
-[LSP](https://microsoft.github.io/language-server-protocol/).
-Other useful VS Code extensions can be found in
-[`.vscode/extensions.json`](.vscode/extensions.json).
-
-Get the repository:
+To get the repository you need [Git](https://git-scm.com/) installed on your
+system and then run:
 
 ```sh
 git clone git@github.com:sensmetry/sysand.git
 cd sysand
 ```
+
+Development is done on Linux (including WSL), macOS or Windows. For Sysand core
+and CLI development, you need to [install Rust](https://rust-lang.org/tools/install/)
+specified in `rust-version` field of [Cargo.toml](Cargo.toml). It is also
+recommended to use [`rust-analyzer`](https://github.com/rust-lang/rust-analyzer)
+which is supported by many different editors.
+
+### VS Code
+
+If using [VS Code](https://code.visualstudio.com/) (or other compatible editor
+like e.g. [VSCodium](https://vscodium.com/) or [Cursor](https://cursor.com/download))
+we recommended the following extensions for developing in Rust:
+
+- [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+  for Rust language support.
+- [Error Lens](https://marketplace.visualstudio.com/items?itemName=usernamehw.errorlens)
+  for improved highlighting of errors.
+- [CodeLLDB](https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb)
+  for debugging.
+- [Even Better TOML](https://marketplace.visualstudio.com/items?itemName=tamasfe.even-better-toml)
+  for `Cargo.toml` etc.
+
+For rust-analyzer we can also recommend going into the settings and choosing
+to activate the `Test Explorer` option to easily run tests in the editor.
+
+Additionally you may be interested in using [Todo Tree](https://marketplace.visualstudio.com/items?itemName=Gruntfuggly.todo-tree)
+for tracking `TODO` and `FIXME` comments. You may also want to go into the
+REGEX setting and add `|todo!\(` to the end of the default regex to also catch
+invocations of Rust's `todo!` macros.
+
+All the extensions and more can be found in
+[`.vscode/extensions.json`](.vscode/extensions.json) and these should show up
+as recommended at the bottom of the extensions tab.
 
 ## Installing Sysand CLI
 

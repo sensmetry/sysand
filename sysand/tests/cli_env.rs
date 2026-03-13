@@ -259,5 +259,29 @@ fn env_install_from_local_dir_allow_overwrite() -> Result<(), Box<dyn std::error
     Ok(())
 }
 
+#[test]
+fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "install_nonexistent",
+        ],
+        None,
+    )?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["add", "urn:kpar:install_nonexistent"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "no resolver was able to resolve the IRI",
+    ));
+
+    Ok(())
+}
+
 // TODO: Write helper function to generate an index and add tests for
 // installing from index and for using flag '--allow-multiple'.

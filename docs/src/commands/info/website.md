@@ -10,7 +10,7 @@ sysand info website [OPTIONS]
 
 ## Description
 
-Prints the website of the current project. With `--set` or `--clear`, modifies the website.
+Prints the website of the given project. With `--set` or `--clear`, modifies the website.
 
 The value must be a valid IRI/URI/URL.
 

@@ -10,7 +10,7 @@ sysand info metamodel [OPTIONS]
 
 ## Description
 
-Prints the metamodel of the current project. With modifying options, updates the metamodel.
+Prints the metamodel of the given project. With modifying options, updates the metamodel.
 
 There are two ways to set the metamodel:
 

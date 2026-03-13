@@ -1,38 +1,41 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
 use anyhow::{Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 
+use fluent_uri::Iri;
 use sysand_core::{
     add::do_add,
     auth::HTTPAuthentication,
+    commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
     config::{
         Config, ConfigProject,
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
-    lock::Lock,
+    model::InterchangeProjectUsageRaw,
     project::{
         ProjectRead,
         local_src::LocalSrcProject,
         utils::{relativize_path, wrapfs},
     },
     resolve::{ResolutionOutcome, ResolveRead, standard::standard_resolver},
+    workspace::Workspace,
 };
 
 use crate::{
     CliError, DEFAULT_INDEX_URL,
     cli::{ProjectSourceOptions, ResolutionOptions},
-    command_sync,
+    commands::{lock::create_resolver, sync::command_sync},
 };
 
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
-pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
-    iri: S,
-    versions_constraint: Option<String>,
+pub fn command_add<Policy: HTTPAuthentication>(
+    iri: Iri<String>,
+    version_constraint: Option<String>,
     no_lock: bool,
     no_sync: bool,
     resolution_opts: ResolutionOptions,
@@ -41,24 +44,28 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     config_file: Option<String>,
     no_config: bool,
     current_project: Option<LocalSrcProject>,
+    current_workspace: Option<Workspace>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
     let iri = iri.as_ref();
     let mut current_project = current_project.ok_or(CliError::MissingProjectCurrentDir)?;
-    let project_root = current_project.root_path().to_owned();
 
     #[allow(clippy::manual_map)] // For readability and compactness
     let source = if let Some(path) = source_opts.from_path {
         let metadata = wrapfs::metadata(&path)?;
         if metadata.is_dir() {
             Some(sysand_core::lock::Source::LocalSrc {
-                src_path: get_relative(path, &project_root)?.as_str().into(),
+                src_path: get_relative(path, current_project.root_path())?
+                    .as_str()
+                    .into(),
             })
         } else if metadata.is_file() {
             Some(sysand_core::lock::Source::LocalKpar {
-                kpar_path: get_relative(path, &project_root)?.as_str().into(),
+                kpar_path: get_relative(path, current_project.root_path())?
+                    .as_str()
+                    .into(),
             })
         } else {
             bail!("path `{path}` is neither a directory nor a file");
@@ -113,15 +120,21 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         source
     } else if let Some(editable) = source_opts.as_editable {
         Some(sysand_core::lock::Source::Editable {
-            editable: get_relative(editable, &project_root)?.as_str().into(),
+            editable: get_relative(editable, current_project.root_path())?
+                .as_str()
+                .into(),
         })
     } else if let Some(src_path) = source_opts.as_local_src {
         Some(sysand_core::lock::Source::LocalSrc {
-            src_path: get_relative(src_path, &project_root)?.as_str().into(),
+            src_path: get_relative(src_path, current_project.root_path())?
+                .as_str()
+                .into(),
         })
     } else if let Some(kpar_path) = source_opts.as_local_kpar {
         Some(sysand_core::lock::Source::LocalKpar {
-            kpar_path: get_relative(kpar_path, &project_root)?.as_str().into(),
+            kpar_path: get_relative(kpar_path, current_project.root_path())?
+                .as_str()
+                .into(),
         })
     } else if let Some(remote_src) = source_opts.as_remote_src {
         Some(sysand_core::lock::Source::RemoteSrc {
@@ -143,7 +156,7 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
     if let Some(source) = source {
         let config_path = config_file
             .map(Utf8PathBuf::from)
-            .or((!no_config).then(|| project_root.join(CONFIG_FILE)));
+            .or((!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
 
         if let Some(path) = config_path {
             add_project_source_to_config(&path, iri, &source)?;
@@ -168,36 +181,92 @@ pub fn command_add<S: AsRef<str>, Policy: HTTPAuthentication>(
         HashMap::default()
     };
 
-    do_add(&mut current_project, iri, versions_constraint)?;
+    let usage_raw = InterchangeProjectUsageRaw {
+        resource: iri.to_owned(),
+        version_constraint,
+    };
 
     if !no_lock {
-        crate::commands::lock::command_lock(
-            ".",
+        let info_path = current_project.info_path();
+        let info_backup = wrapfs::read_to_string(&info_path)?;
+        do_add(&mut current_project, &usage_raw)?;
+
+        let alias_iris = if let Some(w) = current_workspace {
+            w.projects()
+                .iter()
+                .find(|p| Path::new(&p.path) == current_project.root_path())
+                .map(|p| p.iris.to_owned())
+        } else {
+            None
+        };
+
+        match resolve_deps(
+            no_sync,
             resolution_opts,
             &config,
-            &project_root,
-            client.clone(),
-            runtime.clone(),
-            auth_policy.clone(),
-        )?;
-
-        if !no_sync {
-            let mut env = crate::get_or_create_env(&project_root)?;
-            let lock = Lock::from_str(&wrapfs::read_to_string(
-                project_root.join(sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME),
-            )?)?;
-            command_sync(
-                &lock,
-                project_root,
-                &mut env,
-                client,
-                &provided_iris,
-                runtime,
-                auth_policy,
-            )?;
+            client,
+            runtime,
+            auth_policy,
+            current_project.root_path(),
+            alias_iris,
+            provided_iris,
+        ) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Restore old info
+                wrapfs::write(&info_path, info_backup)?;
+                Err(e)
+            }
         }
+    } else {
+        do_add(&mut current_project, &usage_raw)?;
+        Ok(())
     }
+}
 
+#[expect(clippy::too_many_arguments)]
+fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+    no_sync: bool,
+    resolution_opts: ResolutionOptions,
+    config: &Config,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+    project_root: P,
+    project_identifiers: Option<Vec<Iri<String>>>,
+    provided_iris: HashMap<String, Vec<sysand_core::project::memory::InMemoryProject>>,
+) -> Result<(), anyhow::Error> {
+    // TODO: use path relative to workspace root
+    let resolver = create_resolver(
+        ".",
+        resolution_opts,
+        config,
+        &project_root,
+        provided_iris.clone(),
+        client.clone(),
+        runtime.clone(),
+        auth_policy.clone(),
+    )?;
+    // FIXME: use path relative to workspace root.
+    let LockOutcome { lock, .. } =
+        do_lock_local_editable(".", &project_root, project_identifiers, resolver)?;
+    let lock = lock.canonicalize();
+    wrapfs::write(
+        project_root.as_ref().join(DEFAULT_LOCKFILE_NAME),
+        lock.to_string(),
+    )?;
+    if !no_sync {
+        let mut env = crate::get_or_create_env(&project_root)?;
+        command_sync(
+            &lock,
+            project_root,
+            &mut env,
+            client,
+            &provided_iris,
+            runtime,
+            auth_policy,
+        )?;
+    }
     Ok(())
 }
 

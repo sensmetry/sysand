@@ -1,14 +1,26 @@
+// Renovate creates automated PRs to update various kinds of dependencies.
+//
+// config ref: https://docs.renovatebot.com/configuration-options/
+//
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["config:best-practices", "schedule:earlyMondays"],
   packageRules: [
+    // Group bumps of all non-major dependencies by using two rules, one for
+    // situations like 1.2.3, and one for situations like 0.1.2.
     {
       groupName: "all non-major dependencies",
-      groupSlug: "all-minor-patch",
+      groupSlug: "all-non-major",
       matchPackageNames: ["*"],
+      matchCurrentVersion: "/^[1-9]/",
       matchUpdateTypes: ["minor", "patch"],
-      // Only upgrade deps with version >=1
-      matchCurrentVersion: "!/^0/",
+    },
+    {
+      groupName: "all non-major dependencies",
+      groupSlug: "all-non-major",
+      matchCurrentVersion: "/^0\\.[1-9]/",
+      matchPackageNames: ["*"],
+      matchUpdateTypes: ["patch"],
     },
     // pyo3 packages have interdependencies on each other
     {

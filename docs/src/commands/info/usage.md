@@ -10,7 +10,7 @@ sysand info usage [OPTIONS]
 
 ## Description
 
-Prints the list of usages (dependencies) of the current project.
+Prints the list of usages (dependencies) of the given project.
 
 This field is read-only via `sysand info`. To add or remove usages, use
 [`sysand add`](../add.md) and [`sysand remove`](../remove.md).

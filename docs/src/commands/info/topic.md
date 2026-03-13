@@ -10,7 +10,7 @@ sysand info topic [OPTIONS]
 
 ## Description
 
-Prints the list of topics of the current project. With modifying options, updates the list.
+Prints the list of topics of the given project. With modifying options, updates the list.
 
 ## Options
 

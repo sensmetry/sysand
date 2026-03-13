@@ -35,7 +35,7 @@ pub fn do_exclude<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
 
     let outcome = project.exclude_source(&path)?;
 
-    if outcome.removed_checksum.is_some() {
+    if outcome.removed_checksum.is_some() || !outcome.removed_symbols.is_empty() {
         Ok(outcome)
     } else {
         Err(ExcludeError::SourceNotFound(path.as_ref().as_str().into()))
