@@ -29,7 +29,7 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
         with open(Path(tmpdirname) / ".project.json", "r") as f:
             assert (
                 f.read()
-                == '{\n  "name": "test_basic_init",\n  "publisher": "a",\n  version": "1.2.3",\n  "usage": []\n}\n'
+                == '{\n  "name": "test_basic_init",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": []\n}\n'
             )
         with open(Path(tmpdirname) / ".meta.json", "r") as f:
             assert re.match(
@@ -53,7 +53,7 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(level)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.new("test_basic_info", "1.2.3", tmpdirname)
+        sysand.init("test_basic_info", "a", "1.2.3", tmpdirname)
 
         info_meta = sysand.info_path(tmpdirname)
         assert info_meta is not None
@@ -62,6 +62,7 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
 
         assert info == {
             "name": "test_basic_info",
+            "publisher": "a",
             "description": None,
             "version": "1.2.3",
             "license": None,
@@ -96,7 +97,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
     caplog.set_level(level)
 
     httpserver.expect_request("/.project.json").respond_with_json(
-        {"name": "test_http_info", "version": "1.2.3", "usage": []}
+        {"name": "test_http_info", "publisher": "a", "version": "1.2.3", "usage": []}
     )
     httpserver.expect_request("/.meta.json").respond_with_json(
         {"index": {}, "created": "0000-00-00T00:00:00.123456789Z"}
@@ -109,6 +110,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
 
     assert info == {
         "name": "test_http_info",
+        "publisher": "a",
         "description": None,
         "version": "1.2.3",
         "license": None,
@@ -136,7 +138,9 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     ).respond_with_data("1.2.3\n")
     httpserver.expect_request(
         "/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536/1.2.3.kpar/.project.json"
-    ).respond_with_json({"name": "test_index_info", "version": "1.2.3", "usage": []})
+    ).respond_with_json(
+        {"name": "test_index_info", "publisher": "a", "version": "1.2.3", "usage": []}
+    )
     httpserver.expect_request(
         "/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536/1.2.3.kpar/.meta.json"
     ).respond_with_json({"index": {}, "created": "0000-00-00T00:00:00.123456789Z"})
@@ -150,6 +154,7 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
 
     assert info == {
         "name": "test_index_info",
+        "publisher": "a",
         "description": None,
         "version": "1.2.3",
         "license": None,
@@ -186,8 +191,8 @@ def test_end_to_end_install_sources() -> None:
         with tempfile.TemporaryDirectory() as tmp_dep:
             tmp_main = Path(tmp_main).resolve()
             tmp_dep = Path(tmp_dep).resolve()
-            sysand.new("test_end_to_end_install_sources", "1.2.3", tmp_main)
-            sysand.new("test_end_to_end_install_sources_dep", "1.2.3", tmp_dep)
+            sysand.init("test_end_to_end_install_sources", "a", "1.2.3", tmp_main)
+            sysand.init("test_end_to_end_install_sources_dep", "a", "1.2.3", tmp_dep)
 
             with open(Path(tmp_main) / "src.sysml", "w") as f:
                 f.write("package Src;")
@@ -254,7 +259,7 @@ def test_end_to_end_install_sources() -> None:
 def test_build(compression: Union[sysand.CompressionMethod, None]) -> None:
     with tempfile.TemporaryDirectory() as tmp_main:
         tmp_main = Path(tmp_main).resolve()
-        sysand.new("test_build", "1.2.3", tmp_main)
+        sysand.init("test_build", "a", "1.2.3", tmp_main)
 
         with open(tmp_main / "src.sysml", "w") as f:
             f.write("package Src;")
