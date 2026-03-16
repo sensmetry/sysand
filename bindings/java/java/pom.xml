@@ -65,7 +65,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
       <!--   Produce headers   -->
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.14.1</version>
+        <version>3.15.0</version>
         <configuration>
           <release>8</release>
           <compilerArgs>
@@ -140,7 +140,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-resources-plugin</artifactId>
-        <version>3.4.0</version>
+        <version>3.5.0</version>
         <executions>
           <execution>
             <id>copy-readme-to-javadoc-output</id>
