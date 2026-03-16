@@ -58,3 +58,11 @@ module-name = "sysand._sysand_core"
 # https://github.com/PyO3/maturin/commit/54fc6dd3adf10025e910d43a231b2ec1742a4480
 # (also bump maturin version in requires)
 # strip = true
+
+# pytest is used for running Python based tests
+#
+# ref: https://docs.pytest.org/en/stable/
+#
+[tool.pytest.ini_options]
+addopts = "--verbose --color=yes --durations=10"
+testpaths = ["tests"]
