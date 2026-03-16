@@ -60,14 +60,19 @@ impl Lock {
                 .as_ref()
                 .and_then(|p| p.namespace().map(|ns| ns.to_owned()));
             let name = purl.as_ref().map(|p| p.name().to_owned()).or(project.name);
+            let iri = project.identifiers.first().cloned();
+            let version = project.version;
 
             if let Some(storage) = storage {
                 let directory = storage.root_path().to_owned();
                 projects.push(ResolvedProject {
                     publisher,
                     name,
+                    iri,
+                    version,
                     location: ResolvedLocation::Directory(directory),
                     usages,
+                    editable: false,
                 });
             } else if let [Source::Editable { editable }, ..] = project.sources.as_slice() {
                 let project_path = root_path.as_ref().join(editable.as_str());
@@ -81,8 +86,11 @@ impl Lock {
                 projects.push(ResolvedProject {
                     publisher,
                     name,
+                    iri,
+                    version,
                     location: ResolvedLocation::Files(files),
                     usages,
+                    editable: true,
                 });
             }
         }
@@ -125,8 +133,11 @@ pub enum ResolvedLocation {
 pub struct ResolvedProject {
     pub publisher: Option<String>,
     pub name: Option<String>,
+    pub iri: Option<String>,
+    pub version: String,
     pub location: ResolvedLocation,
     pub usages: Vec<i64>,
+    pub editable: bool,
 }
 
 impl ResolvedProject {
@@ -138,6 +149,10 @@ impl ResolvedProject {
         if let Some(name) = &self.name {
             table.insert("name", value(name));
         }
+        if let Some(iri) = &self.iri {
+            table.insert("iri", value(iri));
+        }
+        table.insert("version", value(&self.version));
         match &self.location {
             ResolvedLocation::Directory(dir) => {
                 table.insert("directory", value(dir.as_str()));
@@ -153,6 +168,10 @@ impl ResolvedProject {
         }
         let usages = Array::from_iter(self.usages.iter().copied().map(Value::from));
         table.insert("usages", value(usages));
+        if self.editable {
+            table.insert("editable", value(true));
+        }
+
         table
     }
 }
