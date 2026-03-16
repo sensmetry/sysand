@@ -16,6 +16,9 @@ Creates a KPAR file from the current project.
 Current project is determined as in [sysand print-root](root.md) and
 if none is found uses the current directory instead.
 
+If a `README.md` file exist at the project root, it is included in the
+`.kpar` archive.
+
 ## Arguments
 
 - `[PATH]`: Path for the finished KPAR or KPARs. When building a

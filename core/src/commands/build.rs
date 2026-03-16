@@ -321,10 +321,29 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
+    let readme_source_path = project.project_root().map(|p| p.join("README.md"));
+    let readme_content = if let Some(readme_path) = &readme_source_path {
+        match std::fs::read_to_string(readme_path) {
+            Ok(content) => {
+                let header = crate::style::get_style_config().header;
+                let including = "Including";
+                log::info!("{header}{including:>12}{header:#} readme from `{readme_path}`");
+                Some(content)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(FsIoError::ReadFile(readme_path.clone(), e).into());
+            }
+        }
+    } else {
+        None
+    };
+
     Ok(LocalKParProject::from_project(
         &local_project,
         path,
         compression.into(),
+        readme_content.as_deref(),
     )?)
 }
 
