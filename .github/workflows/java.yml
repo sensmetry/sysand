@@ -34,7 +34,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-22.04
+          - ubuntu-24.04
           - ubuntu-24.04-arm
           - windows-latest
           - windows-11-arm
@@ -56,17 +56,17 @@ jobs:
         run: cargo build --locked --package sysand-java --release
 
       - uses: actions/setup-python@v6
-        if: ${{ matrix.os == 'ubuntu-22.04' }}
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
         with:
           python-version: "3.14"
       - name: Create version.txt
-        if: ${{ matrix.os == 'ubuntu-22.04' }}
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
         run: python bindings/java/scripts/java-builder.py create-version-file
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
       - name: Upload version.txt
         uses: actions/upload-artifact@v7
-        if: ${{ matrix.os == 'ubuntu-22.04' }}
+        if: ${{ matrix.os == 'ubuntu-24.04' }}
         with:
           name: version
           path: version.txt
@@ -148,7 +148,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-22.04
+          - ubuntu-24.04
           - ubuntu-24.04-arm
           - windows-latest
           - windows-11-arm

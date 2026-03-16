@@ -192,7 +192,7 @@ def build(
         # Used when compiling in CI, all the binaries are expected to be
         # present.
         native_lib_build_path_linux_x64_64 = (
-            use_existing_native_libs / "native-bindings-ubuntu-22.04" / "libsysand.so",
+            use_existing_native_libs / "native-bindings-ubuntu-24.04" / "libsysand.so",
             "linux",
             "x86_64",
         )

@@ -59,7 +59,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-22.04
+          - ubuntu-24.04
           - ubuntu-24.04-arm
           - windows-latest
           - windows-11-arm
@@ -89,7 +89,7 @@ jobs:
     strategy:
       matrix:
         os:
-          - ubuntu-22.04
+          - ubuntu-24.04
           - ubuntu-24.04-arm
           - windows-latest
           - windows-11-arm
@@ -148,7 +148,7 @@ jobs:
           subject-path: "artifacts/*"
       - name: Rename artifacts
         run: |
-          mv artifacts/sysand-ubuntu-22.04 artifacts/sysand-linux-x86_64
+          mv artifacts/sysand-ubuntu-24.04 artifacts/sysand-linux-x86_64
           mv artifacts/sysand-ubuntu-24.04-arm artifacts/sysand-linux-arm64
           mv artifacts/sysand-windows-latest.exe artifacts/sysand-windows-x86_64.exe
           mv artifacts/sysand-windows-11-arm.exe artifacts/sysand-windows-arm64.exe
@@ -189,7 +189,7 @@ jobs:
           subject-path: "artifacts/*"
       - name: Rename artifacts
         run: |
-          mv artifacts/sysand-ubuntu-22.04 artifacts/sysand-linux-x86_64
+          mv artifacts/sysand-ubuntu-24.04 artifacts/sysand-linux-x86_64
           mv artifacts/sysand-ubuntu-24.04-arm artifacts/sysand-linux-arm64
           mv artifacts/sysand-windows-latest.exe artifacts/sysand-windows-x86_64.exe
           mv artifacts/sysand-windows-11-arm.exe artifacts/sysand-windows-arm64.exe
