@@ -447,6 +447,12 @@ fn compression_from_java_string(
             env.throw_exception(ExceptionKind::SysandException, err.to_string());
             None
         }
+        KParBuildError::MissingIndexSymbol(path, symbol) => {
+            env.throw_exception(
+                ExceptionKind::SysandException,
+                format!("file `{path}` is missing symbol `{symbol}` found in index"),
+            );
+        }
     }
 }
 
@@ -478,7 +484,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
         &project,
         &output_path,
         compression,
-        true,
+        false,
         false,
     );
     match command_result {

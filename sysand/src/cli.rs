@@ -181,6 +181,11 @@ pub enum Command {
         /// For multiple related projects, consider using a workspace instead
         #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
         allow_path_usage: bool,
+        // TODO: add tests
+        /// Update project metadata before building. This includes updating
+        /// project symbol index and adding/updating source file checksums
+        #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
+        update_meta: bool,
     },
     /// Publish a KPAR to a sysand package index
     Publish {

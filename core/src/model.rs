@@ -502,6 +502,22 @@ pub enum InterchangeProjectValidationError {
     },
 }
 
+impl InterchangeProjectMetadata {
+    /// Get symbols recorded in `index` for file at `path`
+    pub fn file_index_symbols<P: AsRef<str>>(&self, path: P) -> HashSet<String> {
+        self.index
+            .iter()
+            .filter_map(|(k, v)| {
+                if v == path.as_ref() {
+                    Some(k.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
 impl Default for InterchangeProjectMetadataRaw {
     fn default() -> Self {
         InterchangeProjectMetadataRaw {
