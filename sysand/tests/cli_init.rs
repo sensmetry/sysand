@@ -30,6 +30,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
         info,
         r#"{
   "name": "init_basic",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
@@ -61,7 +62,13 @@ fn init_basic_cwd() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         info,
-        "{\n  \"name\": \"init_basic_cwd\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}\n"
+        r#"{
+  "name": "init_basic_cwd",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
     );
     // Isn't there some nicer way to use this?
     assert!(meta_match.eval(&meta));
@@ -99,7 +106,13 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         info,
-        "{\n  \"name\": \"other_than_init_explicit_name\",\n  \"version\": \"1.2.3\",\n  \"usage\": []\n}\n"
+        r#"{
+  "name": "other_than_init_explicit_name",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
     );
     // Isn't there some nicer way to use this?
     assert!(meta_match.eval(&meta));
