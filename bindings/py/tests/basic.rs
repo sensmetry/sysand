@@ -8,7 +8,7 @@ use sysand_py::sysand_py;
 use tempfile::TempDir;
 
 #[test]
-fn test_basic_new() -> Result<(), Box<dyn std::error::Error>> {
+fn test_basic_init() -> Result<(), Box<dyn std::error::Error>> {
     let proj_dir: TempDir = TempDir::new()?;
     let proj_dir_path = proj_dir.path();
 
