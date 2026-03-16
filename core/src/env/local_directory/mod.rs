@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-pub mod manifest;
+pub mod metadata;
 mod utils;
 
 use utils::{
@@ -33,7 +33,7 @@ pub struct LocalDirectoryEnvironment {
 
 pub const DEFAULT_ENV_NAME: &str = "sysand_env";
 
-pub const DEFAULT_MANIFEST_NAME: &str = "current.toml";
+pub const DEFAULT_METADATA_NAME: &str = "env.toml";
 
 pub const ENTRIES_PATH: &str = "entries.txt";
 pub const VERSIONS_PATH: &str = "versions.txt";

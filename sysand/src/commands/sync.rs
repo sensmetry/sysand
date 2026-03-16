@@ -9,7 +9,7 @@ use url::ParseError;
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    env::local_directory::{DEFAULT_ENV_NAME, DEFAULT_MANIFEST_NAME, LocalDirectoryEnvironment},
+    env::local_directory::{DEFAULT_ENV_NAME, DEFAULT_METADATA_NAME, LocalDirectoryEnvironment},
     lock::Lock,
     project::{
         AsSyncProjectTokio, ProjectReadAsync,
@@ -75,7 +75,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             project_root
                 .as_ref()
                 .join(DEFAULT_ENV_NAME)
-                .join(DEFAULT_MANIFEST_NAME),
+                .join(DEFAULT_METADATA_NAME),
             manifest.to_string(),
         )?;
     }
