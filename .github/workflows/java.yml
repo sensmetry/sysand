@@ -3,8 +3,18 @@ name: Java
 on:
   push:
     branches: ["main"]
+    paths:
+      - "core/**"
+      - "bindings/java/**"
+      - "Cargo.*"
+      - ".github/workflows/java.yml"
   pull_request:
     branches: ["main"]
+    paths:
+      - "core/**"
+      - "bindings/java/**"
+      - "Cargo.*"
+      - ".github/workflows/java.yml"
 
 permissions:
   contents: read
