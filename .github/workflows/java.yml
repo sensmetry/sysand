@@ -44,7 +44,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -65,7 +65,7 @@ jobs:
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
       - name: Upload version.txt
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         if: ${{ matrix.os == 'ubuntu-22.04' }}
         with:
           name: version
@@ -74,7 +74,7 @@ jobs:
           retention-days: 5
 
       - name: Upload native bindings
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: native-bindings-${{ matrix.os }}
           path: |
@@ -100,11 +100,11 @@ jobs:
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
 
       - name: Download version.txt
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: version
       - name: Download native bindings
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           path: native-bindings
       - name: List native bindings
@@ -127,13 +127,13 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
 
       - name: Upload JARs
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: jars
           path: target/java
           retention-days: 5
       - name: Upload Maven plugin JAR
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: maven-plugin-jar
           path: target/java-plugin
@@ -169,12 +169,12 @@ jobs:
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
 
       - name: Download JARs
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: jars
           path: target/java
       - name: Download version.txt
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: version
       - name: List .jar files and more
@@ -218,17 +218,17 @@ jobs:
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
 
       - name: Download native bindings
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: jars
           path: target/java
       - name: Download Maven plugin JAR
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: maven-plugin-jar
           path: target/java-plugin
       - name: Download version.txt
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: version
       - name: List .jar files and more
