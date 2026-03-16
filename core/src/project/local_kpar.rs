@@ -210,6 +210,7 @@ impl LocalKParProject {
         from: &Pr,
         path: P,
         compression: zip::CompressionMethod,
+        readme: Option<&[u8]>,
     ) -> Result<Self, IntoKparError<Pr::Error>> {
         let file = wrapfs::File::create(&path)?;
         let mut zip = zip::ZipWriter::new(file);
@@ -246,6 +247,13 @@ impl LocalKParProject {
                 .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&source_path).into(), e))?;
             std::io::copy(&mut reader, &mut zip)
                 .map_err(|e| FsIoError::CopyFile(source_path.into(), path.to_path_buf(), e))?;
+        }
+
+        if let Some(readme_content) = readme {
+            zip.start_file("README.md", options)
+                .map_err(|e| ZipArchiveError::Write(Utf8Path::new("README.md").into(), e))?;
+            zip.write_all(readme_content)
+                .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
         }
 
         zip.finish()

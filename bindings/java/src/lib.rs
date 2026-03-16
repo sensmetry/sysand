@@ -390,12 +390,14 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     let Some(compression) = compression_from_java_string(&mut env, compression) else {
         return;
     };
+    let readme_path = project.project_path.join("README.md");
     let command_result = sysand_core::commands::build::do_build_kpar(
         &project,
         &output_path,
         compression,
         true,
         false,
+        Some(readme_path.as_ref()),
     );
     match command_result {
         Ok(_) => {}

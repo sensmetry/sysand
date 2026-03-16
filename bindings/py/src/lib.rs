@@ -209,23 +209,31 @@ fn do_build_py(
         None => KparCompressionMethod::default(),
     };
 
-    do_build_kpar(&project, &output_path, compression, true, false)
-        .map(|_| ())
-        .map_err(|err| match err {
-            KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::LocalSrc(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::IncompleteSource(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::Io(_) => PyIOError::new_err(err.to_string()),
-            KParBuildError::Validation(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::Extract(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::UnknownFormat(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::MissingInfo => PyValueError::new_err(err.to_string()),
-            KParBuildError::MissingMeta => PyValueError::new_err(err.to_string()),
-            KParBuildError::Zip(_) => PyIOError::new_err(err.to_string()),
-            KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
-            KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::PathUsage(_) => PyValueError::new_err(err.to_string()),
-        })
+    let readme_path = project.project_path.join("README.md");
+    do_build_kpar(
+        &project,
+        &output_path,
+        compression,
+        true,
+        false,
+        Some(readme_path.as_ref()),
+    )
+    .map(|_| ())
+    .map_err(|err| match err {
+        KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
+        KParBuildError::LocalSrc(_) => PyRuntimeError::new_err(err.to_string()),
+        KParBuildError::IncompleteSource(_) => PyRuntimeError::new_err(err.to_string()),
+        KParBuildError::Io(_) => PyIOError::new_err(err.to_string()),
+        KParBuildError::Validation(_) => PyValueError::new_err(err.to_string()),
+        KParBuildError::Extract(_) => PyValueError::new_err(err.to_string()),
+        KParBuildError::UnknownFormat(_) => PyValueError::new_err(err.to_string()),
+        KParBuildError::MissingInfo => PyValueError::new_err(err.to_string()),
+        KParBuildError::MissingMeta => PyValueError::new_err(err.to_string()),
+        KParBuildError::Zip(_) => PyIOError::new_err(err.to_string()),
+        KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
+        KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
+        KParBuildError::PathUsage(_) => PyValueError::new_err(err.to_string()),
+    })
 }
 
 #[pyfunction(name = "do_sources_env_py")]
