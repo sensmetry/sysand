@@ -60,7 +60,7 @@ SPDX-License-Identifier: MIT OR Apache-2.0
       <plugin>
         <!-- test runner -->
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.5.4</version>
+        <version>3.5.5</version>
       </plugin>
     </plugins>
   </build>
