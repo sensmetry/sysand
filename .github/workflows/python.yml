@@ -138,7 +138,7 @@ jobs:
       - name: cargo test ... (Python bindings)
         run: |
           cd bindings/py
-          cargo test --locked --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
+          cargo test --locked --package sysand-py --no-default-features --target ${{ matrix.platform.rust_target }}
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -192,7 +192,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: cargo test ... (Python bindings)
-        run: cargo test --locked --package sysand-py --verbose --no-default-features
+        run: cargo test --locked --package sysand-py --no-default-features
 
       - name: Build wheels (manylinux)
         uses: PyO3/maturin-action@v1
@@ -295,7 +295,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: cargo test ... (Python bindings)
-        run: cargo test --locked --package sysand-py --verbose --no-default-features
+        run: cargo test --locked --package sysand-py --no-default-features
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
