@@ -1,4 +1,4 @@
-name: WASM
+name: JS/WASM (Bindings)
 
 on:
   push:

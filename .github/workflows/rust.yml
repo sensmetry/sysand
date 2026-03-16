@@ -1,4 +1,4 @@
-name: CLI
+name: Rust (Library & CLI)
 
 on:
   push:
