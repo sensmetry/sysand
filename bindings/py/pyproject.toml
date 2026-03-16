@@ -54,4 +54,6 @@ linters = [
 python-source = "python"
 features = ["pyo3/extension-module"]
 module-name = "sysand._sysand_core"
-strip = true
+# TODO: reenable once https://github.com/PyO3/maturin/commit/54fc6dd3adf10025e910d43a231b2ec1742a4480
+# is released (also bump maturin version in requires)
+# strip = true
