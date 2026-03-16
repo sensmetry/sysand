@@ -1,7 +1,7 @@
 # `sysand build`
 
-Build a KerML Project Archive (KPAR). If executed in a workspace outside of a
-project, builds all projects in the workspace.
+Build a KerML Project Archive (KPAR). If executed in a workspace
+outside of a project, builds all projects in the workspace.
 
 ## Usage
 
@@ -13,8 +13,8 @@ sysand build [OPTIONS] [PATH]
 
 Creates a KPAR file from the current project.
 
-Current project is determined as in [sysand print-root](root.md) and
-if none is found uses the current directory instead.
+Current project is determined as in [`sysand print-root`](root.md) and
+if none is found, defaults to current directory.
 
 If a `README.md` file exist at the project root, it is included in the
 `.kpar` archive.
@@ -42,5 +42,9 @@ If a `README.md` file exist at the project root, it is included in the
   Warning: using this makes the project not portable between different
   computers, as `file://` URL always contains an absolute path.
   For multiple related projects, consider using a workspace instead
+
+- `-u`, `--update-meta`: Update project metadata before building. This
+  includes updating project symbol index and adding/updating source
+  file checksums.
 
 {{#include ./partials/global_opts.md}}
