@@ -48,11 +48,11 @@ fn run_cli(args: Vec<String>) -> PyResult<bool> {
     Ok(exit_code == ExitCode::SUCCESS)
 }
 
-#[pyfunction(name = "do_new_py_local_file")]
+#[pyfunction(name = "do_init_py_local_file")]
 #[pyo3(
     signature = (name, publisher, version, path, license=None),
 )]
-fn do_new_py_local_file(
+fn do_init_py_local_file(
     name: String,
     publisher: String,
     version: String,
@@ -577,7 +577,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
 #[pymodule(name = "_sysand_core")]
 pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_cli, m)?)?;
-    m.add_function(wrap_pyfunction!(do_new_py_local_file, m)?)?;
+    m.add_function(wrap_pyfunction!(do_init_py_local_file, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_py_local_dir, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py_path, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py, m)?)?;

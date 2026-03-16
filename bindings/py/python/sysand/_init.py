@@ -10,17 +10,10 @@ from pathlib import Path
 
 
 def init(name: str, publisher: str, version: str, path: str | Path = ".") -> None:
-    sysand_rs.do_new_py_local_file(name, publisher, version, str(path))
-
-
-def new(name: str, publisher: str, version: str, path: str | Path = ".") -> None:
     if not Path(path).exists():
         Path(path).mkdir()
 
-    sysand_rs.do_new_py_local_file(name, publisher, version, str(path))
+    sysand_rs.do_init_py_local_file(name, publisher, version, str(path))
 
 
-__all__ = [
-    "init",
-    "new",
-]
+__all__ = ["init"]

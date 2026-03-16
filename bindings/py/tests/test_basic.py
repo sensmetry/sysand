@@ -11,25 +11,25 @@ from pytest_httpserver import HTTPServer
 import sysand
 
 
-def test_basic_new(caplog: pytest.LogCaptureFixture) -> None:
+def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
     level = logging.DEBUG
     logging.basicConfig(level=level)
     caplog.set_level(level)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
-        sysand.new("test_basic_new", "1.2.3", tmpdirname)
+        sysand.init("test_basic_init", "a", "1.2.3", tmpdirname)
 
         assert caplog.record_tuples == [
             (
                 "sysand_core.commands.init",
                 logging.INFO,
-                "    Creating interchange project `test_basic_new`",
+                "    Creating interchange project `test_basic_init`",
             )
         ]
         with open(Path(tmpdirname) / ".project.json", "r") as f:
             assert (
                 f.read()
-                == '{\n  "name": "test_basic_new",\n  "version": "1.2.3",\n  "usage": []\n}\n'
+                == '{\n  "name": "test_basic_init",\n  "publisher": "a",\n  version": "1.2.3",\n  "usage": []\n}\n'
             )
         with open(Path(tmpdirname) / ".meta.json", "r") as f:
             assert re.match(
