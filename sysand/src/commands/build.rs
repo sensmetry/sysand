@@ -14,8 +14,16 @@ pub fn command_build_for_project<P: AsRef<Utf8Path>>(
     compression: KparCompressionMethod,
     current_project: LocalSrcProject,
     allow_path_usage: bool,
+    readme_source_path: Option<&Utf8Path>,
 ) -> Result<()> {
-    match do_build_kpar(&current_project, &path, compression, true, allow_path_usage) {
+    match do_build_kpar(
+        &current_project,
+        &path,
+        compression,
+        true,
+        allow_path_usage,
+        readme_source_path,
+    ) {
         Ok(_) => Ok(()),
         Err(err) => match err {
             KParBuildError::PathUsage(_) => bail!(
