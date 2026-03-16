@@ -506,6 +506,135 @@ fn test_compression_methods() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Build a project with a README.md at the project root
+#[test]
+fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "test_readme"],
+        None,
+    )?;
+
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    std::fs::write(cwd.join("README.md"), b"# My Project\nHello world\n")?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("Including readme from"));
+
+    // Verify the KPAR contains README.md with correct content
+    assert_kpar_readme(&cwd.join("test_build.kpar"), "# My Project\nHello world\n");
+
+    Ok(())
+}
+
+/// Build a project without any README file — should succeed
+#[test]
+fn project_build_without_readme() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "test_no_readme"],
+        None,
+    )?;
+
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert().success();
+
+    // Verify the KPAR does NOT contain README.md
+    assert_kpar_no_readme(&cwd.join("test_build.kpar"));
+
+    Ok(())
+}
+
+/// Build workspace with per-project READMEs
+#[test]
+fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project1_cwd = cwd.join("project1");
+    let project2_cwd = cwd.join("project2");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{"projects": [
+            {"path": "project1", "iris": ["urn:kpar:project1"]},
+            {"path": "project2", "iris": ["urn:kpar:project2"]}
+            ]}"#,
+    )?;
+
+    for (project_cwd, readme_content) in [
+        (&project1_cwd, "# Project 1\n"),
+        (&project2_cwd, "# Project 2\n"),
+    ] {
+        std::fs::create_dir(project_cwd)?;
+        let project_name = project_cwd.file_name().unwrap();
+        let out = run_sysand_in(
+            project_cwd,
+            ["init", "--version", "1.2.3", "--name", project_name],
+            None,
+        )?;
+        out.assert().success();
+
+        std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
+        let out = run_sysand_in(
+            project_cwd,
+            ["include", "--no-index-symbols", "test.sysml"],
+            None,
+        )?;
+        out.assert().success();
+
+        std::fs::write(project_cwd.join("README.md"), readme_content.as_bytes())?;
+    }
+
+    let out = run_sysand_in(&cwd, ["build"], None)?;
+    out.assert().success();
+
+    for (project_name, expected_readme) in
+        [("project1", "# Project 1\n"), ("project2", "# Project 2\n")]
+    {
+        let kpar_path = cwd
+            .join("output")
+            .join(format!("{}-1.2.3.kpar", project_name));
+        assert!(
+            kpar_path.is_file(),
+            "kpar file does not exist: {}",
+            kpar_path
+        );
+
+        assert_kpar_readme(&kpar_path, expected_readme);
+    }
+
+    Ok(())
+}
+
+fn assert_kpar_readme(kpar_path: &camino::Utf8Path, expected: &str) {
+    let file = std::fs::File::open(kpar_path).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    let mut readme = archive.by_name("README.md").unwrap();
+    let mut content = String::new();
+    readme.read_to_string(&mut content).unwrap();
+    assert_eq!(content, expected, "README mismatch in {kpar_path}");
+}
+
+fn assert_kpar_no_readme(kpar_path: &camino::Utf8Path) {
+    let file = std::fs::File::open(kpar_path).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    assert!(
+        archive.by_name("README.md").is_err(),
+        "KPAR should not contain README.md: {kpar_path}"
+    );
+}
+
 fn test_compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
         run_sysand(["init", "--version", "1.2.3", "--name", "test_build"], None)?;

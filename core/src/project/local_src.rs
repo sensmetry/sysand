@@ -361,6 +361,10 @@ pub enum PathError {
 impl ProjectRead for LocalSrcProject {
     type Error = LocalSrcError;
 
+    fn project_root(&self) -> Option<&Utf8Path> {
+        Some(&self.project_path)
+    }
+
     fn get_project(
         &self,
     ) -> Result<

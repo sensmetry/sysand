@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use camino::Utf8Path;
 use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
@@ -155,6 +156,11 @@ pub trait ProjectRead {
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error>;
 
     // Optional and helpers
+
+    /// Returns the local filesystem root path of this project, if available.
+    fn project_root(&self) -> Option<&Utf8Path> {
+        None
+    }
 
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         Ok(self.get_project()?.0)
