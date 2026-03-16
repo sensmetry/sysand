@@ -15,6 +15,31 @@ use std::{
     process::{Command, Output},
 };
 
+/// Initializes a git repository at `path` with a pre-configured test user.
+pub fn git_init(path: &Path) -> Result<(), Box<dyn Error>> {
+    use assert_cmd::prelude::*;
+
+    Command::new("git")
+        .arg("init")
+        .current_dir(path)
+        .output()?
+        .assert()
+        .success();
+    Command::new("git")
+        .args(["config", "user.email", "user@sysand.org"])
+        .current_dir(path)
+        .output()?
+        .assert()
+        .success();
+    Command::new("git")
+        .args(["config", "user.name", "Test User"])
+        .current_dir(path)
+        .output()?
+        .assert()
+        .success();
+    Ok(())
+}
+
 /// `p` must be absolute OS-native path
 pub fn file_url_from_path(p: impl AsRef<Path>) -> String {
     url::Url::from_file_path(p).unwrap().to_string()

@@ -157,16 +157,34 @@ mod tests {
     use crate::project::{ProjectRead, gix_git_download::GixDownloadedProject};
     //use predicates::prelude::*;
 
+    /// Initializes a git repository at `path` with a pre-configured test user.
+    fn git_init(path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+        Command::new("git")
+            .arg("init")
+            .current_dir(path)
+            .output()?
+            .assert()
+            .success();
+        Command::new("git")
+            .args(["config", "user.email", "user@sysand.org"])
+            .current_dir(path)
+            .output()?
+            .assert()
+            .success();
+        Command::new("git")
+            .args(["config", "user.name", "Test User"])
+            .current_dir(path)
+            .output()?
+            .assert()
+            .success();
+        Ok(())
+    }
+
     #[cfg(feature = "alltests")]
     #[test]
     pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
         let repo_dir = tempdir()?;
-        Command::new("git")
-            .arg("init")
-            .current_dir(repo_dir.path())
-            .output()?
-            .assert()
-            .success();
+        git_init(repo_dir.path())?;
 
         // TODO: Replace by commands::*::do_* when sufficiently complete, also use gix to create repo?
         std::fs::write(
@@ -203,9 +221,7 @@ mod tests {
             .success();
 
         Command::new("git")
-            .arg("commit")
-            .arg("-m")
-            .arg("test_commit")
+            .args(["commit", "-m", "test_commit"])
             .current_dir(repo_dir.path())
             .output()?
             .assert()
