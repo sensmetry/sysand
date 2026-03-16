@@ -688,12 +688,7 @@ fn info_basic_file_git() -> Result<(), Box<dyn Error>> {
     let cwd = tempfile::TempDir::new()?;
 
     {
-        Command::new("git")
-            .arg("init")
-            .current_dir(cwd.path())
-            .output()?
-            .assert()
-            .success();
+        git_init(cwd.path())?;
 
         // TODO: Replace by commands::*::do_* when sufficiently complete, also use gix to create repo?
         std::fs::write(
@@ -730,9 +725,7 @@ fn info_basic_file_git() -> Result<(), Box<dyn Error>> {
         //     .success();
 
         Command::new("git")
-            .arg("commit")
-            .arg("-m")
-            .arg("test_commit")
+            .args(["commit", "-m", "test_commit"])
             .current_dir(cwd.path())
             .output()?
             .assert()
