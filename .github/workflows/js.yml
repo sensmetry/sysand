@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 
@@ -30,7 +30,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 23
+          node-version: 24
 
       - name: Test in Firefox
         run: |

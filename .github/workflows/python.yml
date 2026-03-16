@@ -124,6 +124,22 @@ jobs:
           architecture: ${{ matrix.platform.target }}
       - uses: astral-sh/setup-uv@v7
 
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
+
+      - name: cargo test ... (Python bindings)
+        run: |
+          cd bindings/py
+          cargo test --locked --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -136,11 +152,6 @@ jobs:
         with:
           name: wheels-windows-${{ matrix.platform.target }}-${{ matrix.python.label }}
           path: dist
-
-      - name: cargo test ... (Python bindings)
-        run: |
-          cd bindings/py
-          cargo test --locked --package sysand-py --verbose --no-default-features --target ${{ matrix.platform.rust_target }}
 
       - name: pytest
         run: |
@@ -167,6 +178,17 @@ jobs:
         with:
           python-version: "3.14"
       - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: cargo test ... (Python bindings)
         run: cargo test --locked --package sysand-py --verbose --no-default-features
@@ -255,6 +277,17 @@ jobs:
         with:
           python-version: "3.14"
       - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: cargo test ... (Python bindings)
         run: cargo test --locked --package sysand-py --verbose --no-default-features
