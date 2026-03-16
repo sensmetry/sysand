@@ -3,8 +3,18 @@ name: CLI
 on:
   push:
     branches: ["main"]
+    paths:
+      - "core/**"
+      - "sysand/**"
+      - "Cargo.*"
+      - ".github/workflows/test.yml"
   pull_request:
     branches: ["main"]
+    paths:
+      - "core/**"
+      - "sysand/**"
+      - "Cargo.*"
+      - ".github/workflows/test.yml"
 
 permissions:
   contents: read

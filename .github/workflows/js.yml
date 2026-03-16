@@ -3,8 +3,18 @@ name: WASM
 on:
   push:
     branches: ["main"]
+    paths:
+      - "core/**"
+      - "bindings/js/**"
+      - "Cargo.*"
+      - ".github/workflows/js.yml"
   pull_request:
     branches: ["main"]
+    paths:
+      - "core/**"
+      - "bindings/js/**"
+      - "Cargo.*"
+      - ".github/workflows/js.yml"
 
 permissions:
   contents: read
@@ -18,8 +28,7 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - name: Install Node.js
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 23
 
