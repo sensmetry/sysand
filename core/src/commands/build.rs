@@ -1,6 +1,8 @@
 use camino::Utf8Path;
 use thiserror::Error;
 
+use std::collections::HashSet;
+
 use crate::{
     env::utils::{CloneError, ErrorBound},
     include::IncludeError,
@@ -150,6 +152,8 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         which is unlikely to be available on other computers at the same path"
     )]
     PathUsage(String),
+    #[error("file `{0}` is missing symbol `{1}` found in index")]
+    MissingIndexSymbol(Box<str>, String),
 }
 
 impl<ProjectReadError: ErrorBound> From<FsIoError> for KParBuildError<ProjectReadError> {
@@ -216,14 +220,19 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
     ))
 }
 
+/// `update_index_checksum` controls whether to parse symbols from current
+/// file to update index and also update file checksum
 pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
     compression: KparCompressionMethod,
-    canonicalise: bool,
+    update_index_checksum: bool,
     allow_path_usage: bool,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
-    use crate::project::local_src::LocalSrcProject;
+    use crate::{
+        include::{do_include, extract_symbols},
+        project::local_src::LocalSrcProject,
+    };
 
     let building = "Building";
     let header = crate::style::get_style_config().header;
@@ -266,11 +275,26 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
-    if canonicalise {
-        for path in meta.validate()?.source_paths(true) {
-            use crate::include::do_include;
-
-            do_include(&mut local_project, &path, true, true, None)?;
+    let meta = meta.validate()?;
+    // Check whether index symbols are up to date
+    if update_index_checksum {
+        for p in meta.source_paths(true) {
+            do_include(&mut local_project, p, true, true, None)?
+        }
+    } else {
+        for p in meta.source_paths(true) {
+            let new_symbols = extract_symbols(&mut local_project, &p, None)?;
+            let new_symbols: HashSet<String> = new_symbols.into_iter().collect();
+            let old_symbols = meta.file_index_symbols(&p);
+            if let Some(only_in_old) = old_symbols.difference(&new_symbols).next() {
+                return Err(KParBuildError::MissingIndexSymbol(
+                    p.as_str().into(),
+                    only_in_old.clone(),
+                ));
+            }
+            for only_in_new in new_symbols.difference(&old_symbols) {
+                log::warn!("index is missing symbol `{only_in_new}` found in file `{p}`");
+            }
         }
     }
 
@@ -285,7 +309,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &Workspace,
     path: P,
     compression: KparCompressionMethod,
-    canonicalise: bool,
+    update_index_checksum: bool,
     allow_path_usage: bool,
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
     let mut result = Vec::new();
@@ -300,7 +324,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             &project,
             &output_path,
             compression,
-            canonicalise,
+            update_index_checksum,
             allow_path_usage,
         )?;
         result.push(kpar_project);
