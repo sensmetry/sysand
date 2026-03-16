@@ -15,14 +15,14 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
       - name: Install mdBook
         uses: peaceiris/actions-mdbook@v2
         with:
           mdbook-version: "latest"
-      - name: Build mdBook
-        run: mdbook build docs
+
+      - run: mdbook build docs
+
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v4
         with:
