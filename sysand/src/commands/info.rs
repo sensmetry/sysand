@@ -38,6 +38,9 @@ pub fn pprint_interchange_project(
     excluded_iris: &HashSet<String>,
 ) {
     println!("Name: {}", info.name);
+    if let Some(publisher) = info.publisher {
+        println!("Publisher: {}", publisher);
+    }
     if let Some(description) = info.description {
         println!("Description: {}", description);
     }
@@ -334,6 +337,7 @@ fn apply_get_info(
 ) -> Result<()> {
     match get_info_verb {
         GetInfoVerb::GetName => print_output(Some(vec![info.name]), numbered),
+        GetInfoVerb::GetPublisher => print_output(info.publisher.map(|x| vec![x]), numbered),
         GetInfoVerb::GetDescription => print_output(info.description.map(|x| vec![x]), numbered),
         GetInfoVerb::GetVersion => print_output(Some(vec![info.version]), numbered),
         GetInfoVerb::GetLicense => print_output(info.license.map(|x| vec![x]), numbered),
@@ -422,56 +426,55 @@ fn apply_set<Project: ProjectRead + ProjectMut>(
 
 fn set_info(
     set_info_verb: &SetInfoVerb,
-    info: InterchangeProjectInfoRaw,
+    mut info: InterchangeProjectInfoRaw,
 ) -> Result<InterchangeProjectInfoRaw> {
-    let mut result = info.clone();
-
     match set_info_verb {
         SetInfoVerb::SetName(value) => {
-            result.name = value.clone();
+            info.name = value.clone();
+        }
+        SetInfoVerb::SetPublisher(value) => {
+            info.publisher = Some(value.clone());
         }
         SetInfoVerb::SetDescription(value) => {
-            result.description = Some(value.clone());
+            info.description = Some(value.clone());
         }
         SetInfoVerb::SetVersion(value) => {
-            result.version = value.clone();
+            info.version = value.clone();
         }
         SetInfoVerb::SetLicense(value) => {
-            result.license = Some(value.clone());
+            info.license = Some(value.clone());
         }
         SetInfoVerb::SetMaintainer(value) => {
-            result.maintainer = value.clone();
+            info.maintainer = value.clone();
         }
         SetInfoVerb::SetWebsite(value) => {
-            result.website = Some(value.clone());
+            info.website = Some(value.clone());
         }
         SetInfoVerb::SetTopic(value) => {
-            result.topic = value.clone();
+            info.topic = value.clone();
         }
     }
 
-    Ok(result)
+    Ok(info)
 }
 
 fn set_meta(
     set_meta_verb: &SetMetaVerb,
-    meta: InterchangeProjectMetadataRaw,
+    mut meta: InterchangeProjectMetadataRaw,
 ) -> Result<InterchangeProjectMetadataRaw> {
-    let mut result = meta.clone();
-
     match set_meta_verb {
         SetMetaVerb::SetMetamodel(value) => {
-            result.metamodel = Some(value.into());
+            meta.metamodel = Some(value.into());
         }
         SetMetaVerb::SetIncludesDerived(value) => {
-            result.includes_derived = Some(*value);
+            meta.includes_derived = Some(*value);
         }
         SetMetaVerb::SetIncludesImplied(value) => {
-            result.includes_implied = Some(*value);
+            meta.includes_implied = Some(*value);
         }
     }
 
-    Ok(result)
+    Ok(meta)
 }
 
 fn apply_clear<Project: ProjectRead + ProjectMut>(
@@ -494,50 +497,49 @@ fn apply_clear<Project: ProjectRead + ProjectMut>(
 
 fn clear_info(
     clear_info_verb: &ClearInfoVerb,
-    info: InterchangeProjectInfoRaw,
+    mut info: InterchangeProjectInfoRaw,
 ) -> Result<InterchangeProjectInfoRaw> {
-    let mut result = info.clone();
-
     match clear_info_verb {
+        ClearInfoVerb::ClearPublisher => {
+            info.publisher = None;
+        }
         ClearInfoVerb::ClearDescription => {
-            result.description = None;
+            info.description = None;
         }
         ClearInfoVerb::ClearLicense => {
-            result.license = None;
+            info.license = None;
         }
         ClearInfoVerb::ClearMaintainer => {
-            result.maintainer = vec![];
+            info.maintainer = vec![];
         }
         ClearInfoVerb::ClearWebsite => {
-            result.website = None;
+            info.website = None;
         }
         ClearInfoVerb::ClearTopic => {
-            result.topic = vec![];
+            info.topic = vec![];
         }
     }
 
-    Ok(result)
+    Ok(info)
 }
 
 fn clear_meta(
     clear_meta_verb: &ClearMetaVerb,
-    meta: InterchangeProjectMetadataRaw,
+    mut meta: InterchangeProjectMetadataRaw,
 ) -> Result<InterchangeProjectMetadataRaw> {
-    let mut result = meta.clone();
-
     match clear_meta_verb {
         ClearMetaVerb::ClearMetamodel => {
-            result.metamodel = None;
+            meta.metamodel = None;
         }
         ClearMetaVerb::ClearIncludesDerived => {
-            result.includes_derived = None;
+            meta.includes_derived = None;
         }
         ClearMetaVerb::ClearIncludesImplied => {
-            result.includes_implied = None;
+            meta.includes_implied = None;
         }
     }
 
-    Ok(result)
+    Ok(meta)
 }
 
 fn apply_add<Project: ProjectRead + ProjectMut>(
@@ -560,20 +562,18 @@ fn apply_add<Project: ProjectRead + ProjectMut>(
 
 fn add_info(
     add_info_verb: &AddInfoVerb,
-    info: InterchangeProjectInfoRaw,
+    mut info: InterchangeProjectInfoRaw,
 ) -> Result<InterchangeProjectInfoRaw> {
-    let mut result = info;
-
     match add_info_verb {
         AddInfoVerb::AddMaintainer(items) => {
-            result.maintainer.extend(items.iter().cloned());
+            info.maintainer.extend(items.iter().cloned());
         }
         AddInfoVerb::AddTopic(items) => {
-            result.topic.extend(items.iter().cloned());
+            info.topic.extend(items.iter().cloned());
         }
     }
 
-    Ok(result)
+    Ok(info)
 }
 
 fn add_meta(
@@ -603,10 +603,8 @@ fn apply_remove<Project: ProjectRead + ProjectMut>(
 
 fn remove_info(
     remove_info_verb: &RemoveInfoVerb,
-    info: InterchangeProjectInfoRaw,
+    mut info: InterchangeProjectInfoRaw,
 ) -> Result<InterchangeProjectInfoRaw> {
-    let mut result = info.clone();
-
     enum RemoveFailure {
         ZeroIndex,
         EmptyFailure(usize),
@@ -635,7 +633,7 @@ fn remove_info(
 
     match remove_info_verb {
         RemoveInfoVerb::RemoveMaintainer(idx) => {
-            if let Err(err) = remove(*idx, &mut result.maintainer) {
+            if let Err(err) = remove(*idx, &mut info.maintainer) {
                 match err {
                     RemoveFailure::ZeroIndex => {
                         bail!("0 is an invalid index, maintainers are indexed from 1")
@@ -652,7 +650,7 @@ fn remove_info(
             }
         }
         RemoveInfoVerb::RemoveTopic(idx) => {
-            if let Err(err) = remove(*idx, &mut result.topic) {
+            if let Err(err) = remove(*idx, &mut info.topic) {
                 match err {
                     RemoveFailure::ZeroIndex => {
                         bail!("0 is an invalid index, topics are indexed from 1")
@@ -670,7 +668,7 @@ fn remove_info(
         }
     }
 
-    Ok(result)
+    Ok(info)
 }
 
 fn remove_meta(

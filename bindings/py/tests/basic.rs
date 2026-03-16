@@ -8,21 +8,26 @@ use sysand_py::sysand_py;
 use tempfile::TempDir;
 
 #[test]
-fn test_basic_new() -> Result<(), Box<dyn std::error::Error>> {
+fn test_basic_init() -> Result<(), Box<dyn std::error::Error>> {
     let proj_dir: TempDir = TempDir::new()?;
     let proj_dir_path = proj_dir.path();
 
     pyo3::append_to_inittab!(sysand_py);
     Python::initialize();
     Python::attach(|py| {
-        let do_new_py_local_file_fn = py
+        let do_init_py_local_file_fn = py
             .import("_sysand_core")
             .expect("Failed to import _sysand_core")
-            .getattr("do_new_py_local_file")
-            .expect("Failed to get do_new_py_local_file function");
+            .getattr("do_init_py_local_file")
+            .expect("Failed to get do_init_py_local_file function");
 
-        do_new_py_local_file_fn
-            .call1(("test_basic_new", "1.2.3", proj_dir_path.to_str().unwrap()))
+        do_init_py_local_file_fn
+            .call1((
+                "test_basic_init",
+                "a",
+                "1.2.3",
+                proj_dir_path.to_str().unwrap(),
+            ))
             .unwrap();
     });
 
@@ -36,7 +41,8 @@ fn test_basic_new() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         info,
         r#"{
-  "name": "test_basic_new",
+  "name": "test_basic_init",
+  "publisher": "a",
   "version": "1.2.3",
   "usage": []
 }

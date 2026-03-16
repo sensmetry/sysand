@@ -8,7 +8,7 @@ mod browser_tests {
     use sysand_core::{model::InterchangeProjectInfo, project::ProjectRead};
 
     use sysand_js::{
-        do_env_js_local_storage, do_new_js_local_storage,
+        do_env_js_local_storage, do_init_js_local_storage,
         io::local_storage::open_project_local_storage,
     };
 
@@ -20,9 +20,10 @@ mod browser_tests {
     use regex::Regex;
 
     #[wasm_bindgen_test(unsupported = test)]
-    fn test_basic_new() -> Result<(), Box<dyn Error>> {
-        do_new_js_local_storage(
-            "test_basic_new".to_string(),
+    fn test_basic_init() -> Result<(), Box<dyn Error>> {
+        do_init_js_local_storage(
+            "test_basic_init".to_string(),
+            String::from("a"),
             "1.2.3".to_string(),
             "sysand_storage",
             "/",
@@ -36,7 +37,7 @@ mod browser_tests {
             local_storage
                 .get_item("sysand_storage/.project.json")
                 .unwrap(),
-            Some(r#"{"name":"test_basic_new","version":"1.2.3","license":"MIT OR Apache-2.0","usage":[]}"#.to_string())
+            Some(r#"{"name":"test_basic_init","publisher":"a","version":"1.2.3","license":"MIT OR Apache-2.0","usage":[]}"#.to_string())
         );
 
         let re = Regex::new(r#"\{"index":\{\},"created":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{3}|\d{6}|\d{9})Z"}"#).unwrap();
@@ -57,7 +58,8 @@ mod browser_tests {
         assert_eq!(
             info,
             InterchangeProjectInfo {
-                name: "test_basic_new".to_string(),
+                name: "test_basic_init".to_string(),
+                publisher: Some(String::from("a")),
                 description: None,
                 version: Version::parse("1.2.3")?,
                 license: Some("MIT OR Apache-2.0".to_string()),

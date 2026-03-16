@@ -21,7 +21,7 @@ public class BasicTest {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init");
             // The original Sysand.init call is moved here and modified to use the
             // temporary directory.
-            com.sensmetry.sysand.Sysand.init("test", "1.0.0", null, tempDir);
+            com.sensmetry.sysand.Sysand.init("test", "a", "1.0.0", null, tempDir);
 
             // Add basic assertions to verify project creation
             assertTrue(Files.exists(tempDir.resolve(".project.json")), "Project file should exist");
@@ -30,7 +30,7 @@ public class BasicTest {
             // java.nio.file.Files.readString is available in Java 11+
             // String projectJson = java.nio.file.Files.readString(tempDir.resolve(".project.json"));
             String projectJson = new String(Files.readAllBytes(tempDir.resolve(".project.json")));
-            assertEquals("{\n  \"name\": \"test\",\n  \"version\": \"1.0.0\",\n  \"usage\": []\n}\n", projectJson);
+            assertEquals("{\n  \"name\": \"test\",\n  \"publisher\": \"a\",\n  \"version\": \"1.0.0\",\n  \"usage\": []\n}\n", projectJson);
 
             // String metaJson = Files.readString(tempDir.resolve(".meta.json"));
             String metaJson = new String(Files.readAllBytes(tempDir.resolve(".meta.json")));
@@ -68,6 +68,7 @@ public class BasicTest {
         assertNotNull(project.info);
         assertNotNull(project.metadata);
         assertEquals(project.info.getName(), "test_basic_info");
+        assertEquals(project.info.getPublisher(), "a");
         assertEquals(project.info.getDescription(), null);
         assertEquals(project.info.getVersion(), "1.2.3");
         assertEquals(project.info.getLicense(), "MIT");
@@ -89,7 +90,7 @@ public class BasicTest {
     public void testBasicInfo() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-info");
-            com.sensmetry.sysand.Sysand.init("test_basic_info", "1.2.3", "MIT", tempDir);
+            com.sensmetry.sysand.Sysand.init("test_basic_info", "a", "1.2.3", "MIT", tempDir);
 
             com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
             assertExpectedProject(project);
@@ -114,7 +115,7 @@ public class BasicTest {
     public void testProjectBuild() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-build");
-            com.sensmetry.sysand.Sysand.init("test_basic_info", "1.2.3", "MIT", tempDir);
+            com.sensmetry.sysand.Sysand.init("test_basic_info", "a", "1.2.3", "MIT", tempDir);
 
             com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
             assertExpectedProject(project);

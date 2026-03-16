@@ -14,9 +14,8 @@ from ._info import info_path, info
 
 from . import env
 
-from ._new import (
+from ._init import (
     init,
-    new,
 )
 
 from ._add import (
@@ -58,9 +57,8 @@ __all__ = [
     ## info
     "info_path",
     "info",
-    ## New
+    ## Init
     "init",
-    "new",
     ## Build
     "build",
     ## Include

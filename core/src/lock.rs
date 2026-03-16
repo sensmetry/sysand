@@ -362,6 +362,7 @@ impl Lock {
 
 pub const PROJECT_ENTRIES: &[&str] = &[
     "name",
+    "publisher",
     "version",
     "exports",
     "identifiers",
@@ -370,9 +371,13 @@ pub const PROJECT_ENTRIES: &[&str] = &[
     "checksum",
 ];
 
+/// Fields that are not critical for using the lockfile use `Option`
 #[derive(Clone, Eq, Debug, Deserialize, PartialEq)]
 pub struct Project {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub publisher: Option<String>,
     pub version: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub exports: Vec<String>,
@@ -700,6 +705,7 @@ mod tests {
         test_to_toml(
             vec![Project {
                 name: None,
+                publisher: None,
                 version: "0.0.1".to_string(),
                 exports: vec![],
                 identifiers: vec![],
@@ -723,6 +729,7 @@ checksum = "{CHECKSUM}"
             vec![
                 Project {
                     name: Some("One".to_string()),
+                    publisher: None,
                     version: "0.0.1".to_string(),
                     exports: vec![],
                     identifiers: vec![],
@@ -732,6 +739,7 @@ checksum = "{CHECKSUM}"
                 },
                 Project {
                     name: Some("Two".to_string()),
+                    publisher: None,
                     version: "0.0.2".to_string(),
                     exports: vec![],
                     identifiers: vec![],
@@ -741,6 +749,7 @@ checksum = "{CHECKSUM}"
                 },
                 Project {
                     name: Some("Three".to_string()),
+                    publisher: None,
                     version: "0.0.3".to_string(),
                     exports: vec![],
                     identifiers: vec![],
@@ -775,6 +784,7 @@ checksum = "{CHECKSUM}"
         test_to_toml(
             vec![Project {
                 name: Some("One Package".to_string()),
+                publisher: None,
                 version: "0.1.1".to_string(),
                 exports: vec!["PackageName".to_string()],
                 identifiers: vec![],
@@ -801,6 +811,7 @@ checksum = "{CHECKSUM}"
         test_to_toml(
             vec![Project {
                 name: Some("Three Packages".to_string()),
+                publisher: None,
                 version: "0.1.3".to_string(),
                 exports: vec![
                     "Package1".to_string(),
@@ -833,6 +844,7 @@ checksum = "{CHECKSUM}"
         test_to_toml(
             vec![Project {
                 name: Some("One IRI".to_string()),
+                publisher: None,
                 version: "0.2.1".to_string(),
                 exports: vec![],
                 identifiers: vec!["urn:kpar:example".to_string()],
@@ -859,6 +871,7 @@ checksum = "{CHECKSUM}"
         test_to_toml(
             vec![Project {
                 name: Some("Three IRI:s".to_string()),
+                publisher: None,
                 version: "0.2.3".to_string(),
                 exports: vec![],
                 identifiers: vec![
@@ -891,6 +904,7 @@ checksum = "{CHECKSUM}"
         test_to_toml(
             vec![Project {
                 name: Some("One source".to_string()),
+                publisher: None,
                 version: "0.4.1".to_string(),
                 exports: vec![],
                 identifiers: vec![],
@@ -919,6 +933,7 @@ checksum = "{CHECKSUM}"
         test_to_toml(
             vec![Project {
                 name: Some("Seven sources".to_string()),
+                publisher: None,
                 version: "0.4.7".to_string(),
                 exports: vec![],
                 identifiers: vec![],
@@ -974,6 +989,7 @@ checksum = "{CHECKSUM}"
         test_to_toml(
             vec![Project {
                 name: Some("One usage".to_string()),
+                publisher: None,
                 version: "0.5.1".to_string(),
                 exports: vec![],
                 identifiers: vec![],
@@ -1002,6 +1018,7 @@ checksum = "{CHECKSUM}"
         test_to_toml(
             vec![Project {
                 name: Some("Three usages".to_string()),
+                publisher: None,
                 version: "0.5.3".to_string(),
                 exports: vec![],
                 identifiers: vec![],
@@ -1104,6 +1121,7 @@ checksum = "{CHECKSUM}"
 
     fn make_project<S: AsRef<str>>(
         name: Option<String>,
+        publisher: Option<String>,
         version: S,
         exports: &[&'static str],
         identifiers: &[&'static str],
@@ -1111,6 +1129,7 @@ checksum = "{CHECKSUM}"
     ) -> Project {
         Project {
             name,
+            publisher,
             version: version.as_ref().to_string(),
             exports: exports.iter().map(|s| String::from(*s)).collect(),
             identifiers: identifiers.iter().map(|s| String::from(*s)).collect(),
@@ -1134,7 +1153,7 @@ checksum = "{CHECKSUM}"
     fn validate_minimal() {
         Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
-            projects: vec![make_project(None, "0.0.1", &[], &[], &[])],
+            projects: vec![make_project(None, None, "0.0.1", &[], &[], &[])],
         }
         .validate()
         .unwrap();
@@ -1148,6 +1167,7 @@ checksum = "{CHECKSUM}"
             projects: vec![
                 make_project(
                     None,
+                    None,
                     "0.0.1",
                     &[],
                     &[],
@@ -1155,7 +1175,7 @@ checksum = "{CHECKSUM}"
                         resource: iri.to_string(),
                     }],
                 ),
-                make_project(None, "0.0.1", &[], &[iri], &[]),
+                make_project(None, None, "0.0.1", &[], &[iri], &[]),
             ],
         }
         .validate()
@@ -1171,6 +1191,7 @@ checksum = "{CHECKSUM}"
             projects: vec![
                 make_project(
                     None,
+                    None,
                     "0.0.1",
                     &[],
                     &[],
@@ -1183,8 +1204,8 @@ checksum = "{CHECKSUM}"
                         },
                     ],
                 ),
-                make_project(None, "0.0.1", &[], &[iri1], &[]),
-                make_project(None, "0.0.1", &[], &[iri2], &[]),
+                make_project(None, None, "0.0.1", &[], &[iri1], &[]),
+                make_project(None, None, "0.0.1", &[], &[iri2], &[]),
             ],
         }
         .validate()
@@ -1200,6 +1221,7 @@ checksum = "{CHECKSUM}"
             projects: vec![
                 make_project(
                     None,
+                    None,
                     "0.0.1",
                     &[],
                     &[],
@@ -1209,6 +1231,7 @@ checksum = "{CHECKSUM}"
                 ),
                 make_project(
                     None,
+                    None,
                     "0.0.1",
                     &[],
                     &[iri1],
@@ -1216,7 +1239,7 @@ checksum = "{CHECKSUM}"
                         resource: iri2.to_string(),
                     }],
                 ),
-                make_project(None, "0.0.1", &[], &[iri2], &[]),
+                make_project(None, None, "0.0.1", &[], &[iri2], &[]),
             ],
         }
         .validate()
@@ -1248,6 +1271,7 @@ checksum = "{CHECKSUM}"
             projects: vec![
                 make_project(
                     None,
+                    None,
                     "0.0.1",
                     &[name],
                     &[],
@@ -1255,7 +1279,7 @@ checksum = "{CHECKSUM}"
                         resource: iri.to_string(),
                     }],
                 ),
-                make_project(None, "0.0.1", &[name], &[iri], &[]),
+                make_project(None, None, "0.0.1", &[name], &[iri], &[]),
             ],
         }
         .validate() else {
@@ -1279,6 +1303,7 @@ checksum = "{CHECKSUM}"
             projects: vec![
                 make_project(
                     None,
+                    None,
                     "0.0.1",
                     &[name1, name2, name3],
                     &[],
@@ -1286,7 +1311,7 @@ checksum = "{CHECKSUM}"
                         resource: iri.to_string(),
                     }],
                 ),
-                make_project(None, "0.0.1", &[name2, name3, name4], &[iri], &[]),
+                make_project(None, None, "0.0.1", &[name2, name3, name4], &[iri], &[]),
             ],
         }
         .validate() else {
@@ -1305,6 +1330,7 @@ checksum = "{CHECKSUM}"
         let Err(err) = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![make_project(
+                None,
                 None,
                 "0.0.1",
                 &[],
@@ -1333,6 +1359,7 @@ checksum = "{CHECKSUM}"
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![Project {
                 name: None,
+                publisher: None,
                 version: "0.0.1".to_string(),
                 exports: vec![],
                 identifiers: vec![],
@@ -1368,7 +1395,7 @@ checksum = "{CHECKSUM}"
 
     #[test]
     fn sort_single_trivial() {
-        let project = make_project(None, "0.0.1", &[], &[], &[]);
+        let project = make_project(None, None, "0.0.1", &[], &[], &[]);
         let mut lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![project.clone()],
@@ -1380,8 +1407,8 @@ checksum = "{CHECKSUM}"
 
     #[test]
     fn sort_exports() {
-        let project1 = make_project(None, "0.0.1", &["B", "A"], &[], &[]);
-        let project2 = make_project(None, "0.0.1", &["A", "B"], &[], &[]);
+        let project1 = make_project(None, None, "0.0.1", &["B", "A"], &[], &[]);
+        let project2 = make_project(None, None, "0.0.1", &["A", "B"], &[], &[]);
         let mut lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![project1],
@@ -1393,8 +1420,8 @@ checksum = "{CHECKSUM}"
 
     #[test]
     fn sort_identifiers() {
-        let project1 = make_project(None, "0.0.1", &[], &["urn:kpar:b", "urn:kpar:a"], &[]);
-        let project2 = make_project(None, "0.0.1", &[], &["urn:kpar:a", "urn:kpar:b"], &[]);
+        let project1 = make_project(None, None, "0.0.1", &[], &["urn:kpar:b", "urn:kpar:a"], &[]);
+        let project2 = make_project(None, None, "0.0.1", &[], &["urn:kpar:a", "urn:kpar:b"], &[]);
         let mut lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![project1],
@@ -1412,8 +1439,15 @@ checksum = "{CHECKSUM}"
         let usage2 = Usage {
             resource: "urn:kpar:b".to_string(),
         };
-        let project1 = make_project(None, "0.0.1", &[], &[], &[usage2.clone(), usage1.clone()]);
-        let project2 = make_project(None, "0.0.1", &[], &[], &[usage1, usage2]);
+        let project1 = make_project(
+            None,
+            None,
+            "0.0.1",
+            &[],
+            &[],
+            &[usage2.clone(), usage1.clone()],
+        );
+        let project2 = make_project(None, None, "0.0.1", &[], &[], &[usage1, usage2]);
         let mut lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![project1],
@@ -1431,8 +1465,15 @@ checksum = "{CHECKSUM}"
         let usage2 = Usage {
             resource: "urn:kpar:a".to_string(),
         };
-        let project1 = make_project(None, "0.0.1", &[], &[], &[usage2.clone(), usage1.clone()]);
-        let project2 = make_project(None, "0.0.1", &[], &[], &[usage1, usage2]);
+        let project1 = make_project(
+            None,
+            None,
+            "0.0.1",
+            &[],
+            &[],
+            &[usage2.clone(), usage1.clone()],
+        );
+        let project2 = make_project(None, None, "0.0.1", &[], &[], &[usage1, usage2]);
         let mut lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![project1],
@@ -1444,8 +1485,22 @@ checksum = "{CHECKSUM}"
 
     #[test]
     fn sort_projects_by_name() {
-        let project1 = make_project(Some("A".to_string()), "0.0.2", &["B"], &["urn:kpar:b"], &[]);
-        let project2 = make_project(Some("B".to_string()), "0.0.1", &["A"], &["urn:kpar:a"], &[]);
+        let project1 = make_project(
+            Some("A".to_string()),
+            None,
+            "0.0.2",
+            &["B"],
+            &["urn:kpar:b"],
+            &[],
+        );
+        let project2 = make_project(
+            Some("B".to_string()),
+            None,
+            "0.0.1",
+            &["A"],
+            &["urn:kpar:a"],
+            &[],
+        );
         let mut lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![project2.clone(), project1.clone()],
@@ -1457,8 +1512,22 @@ checksum = "{CHECKSUM}"
 
     #[test]
     fn sort_projects_by_exports() {
-        let project1 = make_project(Some("A".to_string()), "0.0.2", &["A"], &["urn:kpar:b"], &[]);
-        let project2 = make_project(Some("A".to_string()), "0.0.1", &["B"], &["urn:kpar:a"], &[]);
+        let project1 = make_project(
+            Some("A".to_string()),
+            None,
+            "0.0.2",
+            &["A"],
+            &["urn:kpar:b"],
+            &[],
+        );
+        let project2 = make_project(
+            Some("A".to_string()),
+            None,
+            "0.0.1",
+            &["B"],
+            &["urn:kpar:a"],
+            &[],
+        );
         let mut lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![project2.clone(), project1.clone()],
@@ -1470,8 +1539,22 @@ checksum = "{CHECKSUM}"
 
     #[test]
     fn sort_projects_by_identifiers() {
-        let project1 = make_project(Some("A".to_string()), "0.0.2", &["A"], &["urn:kpar:a"], &[]);
-        let project2 = make_project(Some("A".to_string()), "0.0.1", &["A"], &["urn:kpar:b"], &[]);
+        let project1 = make_project(
+            Some("A".to_string()),
+            None,
+            "0.0.2",
+            &["A"],
+            &["urn:kpar:a"],
+            &[],
+        );
+        let project2 = make_project(
+            Some("A".to_string()),
+            None,
+            "0.0.1",
+            &["A"],
+            &["urn:kpar:b"],
+            &[],
+        );
         let mut lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![project2.clone(), project1.clone()],
@@ -1483,8 +1566,22 @@ checksum = "{CHECKSUM}"
 
     #[test]
     fn sort_projects_by_version() {
-        let project1 = make_project(Some("A".to_string()), "0.0.1", &["A"], &["urn:kpar:a"], &[]);
-        let project2 = make_project(Some("A".to_string()), "0.0.2", &["A"], &["urn:kpar:a"], &[]);
+        let project1 = make_project(
+            Some("A".to_string()),
+            None,
+            "0.0.1",
+            &["A"],
+            &["urn:kpar:a"],
+            &[],
+        );
+        let project2 = make_project(
+            Some("A".to_string()),
+            None,
+            "0.0.2",
+            &["A"],
+            &["urn:kpar:a"],
+            &[],
+        );
         let mut lock = Lock {
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![project2.clone(), project1.clone()],
@@ -1500,6 +1597,7 @@ checksum = "{CHECKSUM}"
             lock_version: CURRENT_LOCK_VERSION.to_string(),
             projects: vec![Project {
                 name: None,
+                publisher: None,
                 version: "0.0.1".to_string(),
                 exports: vec![],
                 identifiers: vec![],

@@ -98,7 +98,7 @@ def parse_version() -> str:
     if VERSION_FILE.exists():
         print("Using version from version.txt")
         return VERSION_FILE.read_text().strip()
-    print("Computing version from Cargo.toml")
+    print("Getting version from Cargo.toml")
     output = subprocess.check_output(
         [
             "cargo",

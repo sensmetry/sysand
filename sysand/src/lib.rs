@@ -44,7 +44,7 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, InfoCommand},
+    cli::{Args, Command, InfoCommand},
     commands::{
         add::command_add,
         build::{command_build_for_project, command_build_for_workspace},
@@ -257,16 +257,17 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let basic_auth_policy = Arc::new(auths_builder.build()?);
 
     match args.command {
-        cli::Command::Init {
+        Command::Init {
             path,
             name,
+            publisher,
             version,
             no_semver,
             license,
             no_spdx,
-        } => command_init(name, version, no_semver, license, no_spdx, path),
-        cli::Command::New { .. } => bail!("use `init` instead of `new`"),
-        cli::Command::Env { command } => match command {
+        } => command_init(name, publisher, version, no_semver, license, no_spdx, path),
+        Command::New { .. } => bail!("use `init` instead of `new`"),
+        Command::Env { command } => match command {
             None => {
                 let env_dir = {
                     let mut p = project_root.unwrap_or(cwd);
@@ -346,7 +347,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         },
-        cli::Command::Lock { resolution_opts } => {
+        Command::Lock { resolution_opts } => {
             if let Some(project_root) = project_root {
                 crate::commands::lock::command_lock(
                     ".",
@@ -365,7 +366,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         }
-        cli::Command::Sync { resolution_opts } => {
+        Command::Sync { resolution_opts } => {
             let mut local_environment = match current_environment {
                 Some(env) => env,
                 None => command_env(project_root.as_ref().unwrap_or(&cwd).join(DEFAULT_ENV_NAME))?,
@@ -413,8 +414,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 basic_auth_policy,
             )
         }
-        cli::Command::PrintRoot => command_print_root(cwd),
-        cli::Command::Info {
+        Command::PrintRoot => command_print_root(cwd),
+        Command::Info {
             path,
             iri,
             auto_location,
@@ -572,7 +573,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 }
             }
         }
-        cli::Command::Add {
+        Command::Add {
             locator,
             version_constraint,
             no_lock,
@@ -597,7 +598,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 basic_auth_policy,
             )
         }
-        cli::Command::Remove { locator } => {
+        Command::Remove { locator } => {
             let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
             command_remove(
                 iri,
@@ -606,13 +607,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 args.global_opts.no_config,
             )
         }
-        cli::Command::Include {
+        Command::Include {
             paths,
             compute_checksum: add_checksum,
             no_index_symbols,
         } => command_include(paths, add_checksum, !no_index_symbols, ctx),
-        cli::Command::Exclude { paths } => command_exclude(paths, ctx),
-        cli::Command::Build {
+        Command::Exclude { paths } => command_exclude(paths, ctx),
+        Command::Build {
             path,
             compression,
             allow_path_usage,
@@ -661,7 +662,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         }
-        cli::Command::Sources { sources_opts } => {
+        Command::Sources { sources_opts } => {
             let cli::SourcesOptions {
                 no_deps,
                 include_std,
@@ -675,7 +676,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
             command_sources_project(!no_deps, ctx, current_environment, &provided_iris)
         }
-        cli::Command::Clone {
+        Command::Clone {
             locator,
             version,
             target,

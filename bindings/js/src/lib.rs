@@ -31,9 +31,10 @@ pub fn clear_local_storage(prefix: &str) -> Result<(), JsValue> {
 }
 
 #[cfg(feature = "browser")]
-#[wasm_bindgen(js_name = do_new_js_local_storage)]
-pub fn do_new_js_local_storage(
+#[wasm_bindgen(js_name = do_init_js_local_storage)]
+pub fn do_init_js_local_storage(
     name: String,
+    publisher: String,
     version: String,
     prefix: &str,
     root_path: &str,
@@ -43,6 +44,7 @@ pub fn do_new_js_local_storage(
 
     do_init(
         name,
+        publisher,
         version,
         license,
         &mut io::local_storage::ProjectLocalBrowserStorage {

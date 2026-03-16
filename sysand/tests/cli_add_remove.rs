@@ -29,6 +29,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": [
     {
@@ -52,6 +53,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
@@ -104,6 +106,7 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
         format!(
             r#"{{
   "name": "add_and_remove_path1",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": [
     {{
@@ -132,6 +135,7 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove_path1",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
@@ -178,6 +182,7 @@ fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": [
     {
@@ -223,6 +228,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
@@ -271,6 +277,7 @@ fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": [
     {
@@ -316,6 +323,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
@@ -364,6 +372,7 @@ fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": [
     {
@@ -409,6 +418,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
@@ -457,6 +467,7 @@ fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": [
     {
@@ -502,6 +513,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
@@ -550,6 +562,7 @@ fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": [
     {
@@ -595,6 +608,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
@@ -643,6 +657,7 @@ fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": [
     {
@@ -688,6 +703,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
@@ -759,6 +775,7 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": [
     {
@@ -829,6 +846,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
@@ -916,6 +934,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
         info_json,
         r#"{
   "name": "add_and_remove_with_lock_preinstall",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": [
     {
@@ -940,6 +959,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
         info_json,
         r#"{
   "name": "add_and_remove_with_lock_preinstall",
+  "publisher": "untitled",
   "version": "1.2.3",
   "usage": []
 }
