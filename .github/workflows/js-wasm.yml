@@ -2,14 +2,14 @@ name: JS/WASM (Bindings)
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
     paths:
       - "core/**"
       - "bindings/js/**"
       - "Cargo.*"
       - ".github/workflows/js-wasm.yml"
   pull_request:
-    branches: ["main"]
+    branches: [main]
     paths:
       - "core/**"
       - "bindings/js/**"
@@ -40,13 +40,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
       - uses: actions/setup-node@v6
         with:
           node-version: 24
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Test in Firefox
         run: |
