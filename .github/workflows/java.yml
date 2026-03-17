@@ -90,6 +90,7 @@ jobs:
             target/release/*.so
             target/release/*.dylib
             target/release/*.dll
+          if-no-files-found: error
           retention-days: 5
 
   build-jar:
@@ -141,12 +142,14 @@ jobs:
         with:
           name: jars
           path: target/java
+          if-no-files-found: error
           retention-days: 5
       - name: Upload Maven plugin JAR
         uses: actions/upload-artifact@v7
         with:
           name: maven-plugin-jar
           path: target/java-plugin
+          if-no-files-found: error
           retention-days: 5
           # We need to include hidden files because integration tests use
           # .meta.json and .project.json files.

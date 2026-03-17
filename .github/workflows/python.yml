@@ -149,6 +149,7 @@ jobs:
         with:
           name: wheels-windows-${{ matrix.platform.target }}-${{ matrix.python.label }}
           path: dist
+          if-no-files-found: error
 
       - name: pytest
         run: |
@@ -223,6 +224,7 @@ jobs:
         with:
           name: wheels-linux-${{ matrix.platform.target }}
           path: dist
+          if-no-files-found: error
 
       - name: pytest (manylinux)
         run: /bin/bash .github/scripts/run-pytest.sh
@@ -288,6 +290,7 @@ jobs:
         with:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
+          if-no-files-found: error
 
       - name: pytest
         run: |
@@ -316,6 +319,7 @@ jobs:
         with:
           name: wheels-sdist
           path: dist
+          if-no-files-found: error
 
   release:
     name: Release to PyPI
