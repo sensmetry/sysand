@@ -155,7 +155,7 @@ jobs:
         run: |
           export UV_PYTHON=${{ matrix.python.version }}
           export ACTIVATION_SCRIPT=.venv/Scripts/activate
-          /bin/bash .github/scripts/run-pytest.sh ${{ matrix.python.version }}
+          .github/scripts/run-pytest.sh ${{ matrix.python.version }}
 
   linux:
     runs-on: ${{ matrix.platform.runner }}
@@ -227,14 +227,14 @@ jobs:
           if-no-files-found: error
 
       - name: pytest (manylinux)
-        run: /bin/bash .github/scripts/run-pytest.sh
+        run: .github/scripts/run-pytest.sh
 
       - name: pytest (musllinux)
         run: |
           docker run --rm -v ${{ github.workspace }}:/io -w /io \
             alpine:latest \
             sh -c '
-              apk add curl bash python3
+              apk add -q curl bash python3
               curl -LsSf https://astral.sh/uv/install.sh | sh
               export PATH=$PATH:$HOME/.local/bin
               /bin/bash .github/scripts/run-pytest.sh
@@ -293,8 +293,7 @@ jobs:
           if-no-files-found: error
 
       - name: pytest
-        run: |
-          /bin/bash .github/scripts/run-pytest.sh
+        run: .github/scripts/run-pytest.sh
 
   sdist:
     runs-on: ubuntu-24.04
