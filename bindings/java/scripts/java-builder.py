@@ -52,11 +52,6 @@ def parse_args() -> argparse.Namespace:
         "build-plugin", help="Build the sysand Maven plugin."
     )
     build_plugin_parser.add_argument(
-        "--release-jar-version",
-        action="store_true",
-        help="Produce a non-snapshot version of the JAR.",
-    )
-    build_plugin_parser.add_argument(
         "--sign-artifacts",
         action="store_true",
         help="Sign the artifacts with the GPG key.",
