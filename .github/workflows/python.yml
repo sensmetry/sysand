@@ -101,8 +101,8 @@ jobs:
               target: x64
               rust_target: x86_64-pc-windows-msvc
             python:
-              version: "3.11"
-              label: "3.11"
+              version: "3.10"
+              label: "3.10"
               args_suffix: ""
           - platform:
               runner: windows-11-arm
