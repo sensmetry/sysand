@@ -46,7 +46,11 @@ impl HTTPAuthentication for Unauthenticated {
     where
         F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        request.send().await
+        let (client, req) = request.build_split();
+        let req = req?;
+        log::debug!("no auth request for `{}`", req.url());
+
+        client.execute(req).await
     }
 }
 
