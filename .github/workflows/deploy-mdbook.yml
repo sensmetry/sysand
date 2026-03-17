@@ -29,8 +29,8 @@ jobs:
           path: ./docs/book
 
   deploy:
-    runs-on: ubuntu-latest
     needs: build
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
     steps:

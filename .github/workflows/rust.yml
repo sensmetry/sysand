@@ -2,14 +2,14 @@ name: Rust (Library & CLI)
 
 on:
   push:
-    branches: ["main"]
+    branches: [main]
     paths:
       - "core/**"
       - "sysand/**"
       - "Cargo.*"
       - ".github/workflows/rust.yml"
   pull_request:
-    branches: ["main"]
+    branches: [main]
     paths:
       - "core/**"
       - "sysand/**"
@@ -38,6 +38,7 @@ env:
 jobs:
   lint-and-format:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v6
       - uses: actions/cache@v5
@@ -63,6 +64,7 @@ jobs:
         run: cargo fmt --check
 
   test:
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -73,7 +75,7 @@ jobs:
           - windows-11-arm
           - macos-15-intel # x86
           - macos-latest # arm64
-    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v6
       - uses: actions/cache@v5
@@ -94,6 +96,8 @@ jobs:
         run: cargo test --locked --package sysand --features alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
 
   build:
+    needs: test
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os:
@@ -103,8 +107,6 @@ jobs:
           - windows-11-arm
           - macos-15-intel # x86
           - macos-latest # arm64
-    runs-on: ${{ matrix.os }}
-    needs: [test]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/cache@v5
@@ -135,9 +137,9 @@ jobs:
 
   nightly-release:
     name: Nightly Release
-    runs-on: ubuntu-latest
     needs: [test, build]
     if: ${{ github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
     permissions:
       # Use to sign the release artifacts
       id-token: write
@@ -145,15 +147,18 @@ jobs:
       contents: write
       # Used to generate artifact attestation
       attestations: write
+
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
+
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: "artifacts/*"
+
       - name: Rename artifacts
         run: |
           mv artifacts/sysand-ubuntu-24.04 artifacts/sysand-linux-x86_64
@@ -162,8 +167,10 @@ jobs:
           mv artifacts/sysand-windows-11-arm.exe artifacts/sysand-windows-arm64.exe
           mv artifacts/sysand-macos-15-intel artifacts/sysand-macos-x86_64
           mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
+
       - name: Create release tag
         run: echo "TAG_NAME=$(date +v-%Y-%m-%d-%H%M)" >> $GITHUB_ENV
+
       - name: Create a nightly release
         uses: softprops/action-gh-release@v2
         with:
@@ -176,9 +183,9 @@ jobs:
 
   release:
     name: Release
-    runs-on: ubuntu-latest
     needs: [test, build]
     if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
     permissions:
       # Use to sign the release artifacts
       id-token: write
@@ -186,15 +193,18 @@ jobs:
       contents: write
       # Used to generate artifact attestation
       attestations: write
+
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
+
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: "artifacts/*"
+
       - name: Rename artifacts
         run: |
           mv artifacts/sysand-ubuntu-24.04 artifacts/sysand-linux-x86_64
@@ -203,6 +213,7 @@ jobs:
           mv artifacts/sysand-windows-11-arm.exe artifacts/sysand-windows-arm64.exe
           mv artifacts/sysand-macos-15-intel artifacts/sysand-macos-x86_64
           mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
+
       - name: Create a release
         uses: softprops/action-gh-release@v2
         with:
