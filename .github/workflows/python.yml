@@ -145,7 +145,7 @@ jobs:
           args: --release --out ../../dist --compatibility pypi ${{ matrix.python.args_suffix }}
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-windows-${{ matrix.platform.target }}-${{ matrix.python.label }}
           path: dist
@@ -219,7 +219,7 @@ jobs:
           manylinux: musllinux_1_2
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-${{ matrix.platform.target }}
           path: dist
@@ -284,7 +284,7 @@ jobs:
           args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
@@ -312,7 +312,7 @@ jobs:
           args: --out ../../dist
 
       - name: Upload sdist
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-sdist
           path: dist
@@ -329,7 +329,7 @@ jobs:
       attestations: write # for release artifact attestation
 
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
 
       - name: Generate artifact attestation
         id: attest
