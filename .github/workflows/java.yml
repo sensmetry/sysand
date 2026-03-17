@@ -211,7 +211,7 @@ jobs:
 
   release:
     # Nightly tags do not trigger CI since they are created in CI
-    name: ${{ startsWith(github.ref, 'refs/tags/') && 'Release' || 'Nightly Release' }}
+    name: Release
     needs: [build-jar, test-jar]
     if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-24.04
