@@ -4,18 +4,8 @@ on:
   push:
     branches: [main]
     tags: ["*"]
-    paths:
-      - "core/**"
-      - "bindings/java/**"
-      - "Cargo.*"
-      - ".github/workflows/java.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "core/**"
-      - "bindings/java/**"
-      - "Cargo.*"
-      - ".github/workflows/java.yml"
 
 permissions:
   contents: read
@@ -37,7 +27,24 @@ env:
   UV_HTTP_TIMEOUT: 60
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'core/**'
+              - 'bindings/java/**'
+              - 'Cargo.*'
+              - '.github/workflows/java.yml'
+
   compile-bindings:
+    needs: [changes]
+    if: needs.changes.outputs.src == 'true'
     name: Compile native bindings
     runs-on: ${{ matrix.os }}
     strategy:
@@ -208,6 +215,17 @@ jobs:
               test
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
+
+  ci-gate:
+    name: Java CI
+    if: always()
+    needs: [changes, compile-bindings, build-jar, test-jar]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            exit 1
+          fi
 
   release:
     # Nightly tags do not trigger CI since they are created in CI

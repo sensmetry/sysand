@@ -10,22 +10,8 @@ on:
   push:
     branches: [main]
     tags: ["*"]
-    paths:
-      - "bindings/py/**"
-      - "core/**"
-      - "sysand/**"
-      - "Cargo.*"
-      - ".github/workflows/python.yml"
-      - ".github/scripts/*"
   pull_request:
     branches: [main]
-    paths:
-      - "bindings/py/**"
-      - "core/**"
-      - "sysand/**"
-      - "Cargo.*"
-      - ".github/workflows/python.yml"
-      - ".github/scripts/*"
   workflow_dispatch:
 
 permissions:
@@ -48,7 +34,26 @@ env:
   UV_HTTP_TIMEOUT: 60
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'bindings/py/**'
+              - 'core/**'
+              - 'sysand/**'
+              - 'Cargo.*'
+              - '.github/workflows/python.yml'
+              - '.github/scripts/*'
+
   lint:
+    needs: [changes]
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -76,6 +81,8 @@ jobs:
         run: mypy --strict python
 
   windows:
+    needs: [changes]
+    if: needs.changes.outputs.src == 'true'
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
@@ -158,6 +165,8 @@ jobs:
           .github/scripts/run-pytest.sh ${{ matrix.python.version }}
 
   linux:
+    needs: [changes]
+    if: needs.changes.outputs.src == 'true'
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
@@ -241,6 +250,8 @@ jobs:
             '
 
   macos:
+    needs: [changes]
+    if: needs.changes.outputs.src == 'true'
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
@@ -296,6 +307,8 @@ jobs:
         run: .github/scripts/run-pytest.sh
 
   sdist:
+    needs: [changes]
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -319,6 +332,17 @@ jobs:
           name: wheels-sdist
           path: dist
           if-no-files-found: error
+
+  ci-gate:
+    name: Python CI
+    if: always()
+    needs: [changes, lint, windows, linux, macos, sdist]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            exit 1
+          fi
 
   release:
     name: Release to PyPI

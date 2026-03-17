@@ -4,18 +4,8 @@ on:
   push:
     branches: [main]
     tags: ["*"]
-    paths:
-      - "core/**"
-      - "bindings/js/**"
-      - "Cargo.*"
-      - ".github/workflows/js-wasm.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "core/**"
-      - "bindings/js/**"
-      - "Cargo.*"
-      - ".github/workflows/js-wasm.yml"
 
 permissions:
   contents: read
@@ -37,7 +27,24 @@ env:
   UV_HTTP_TIMEOUT: 60
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'core/**'
+              - 'bindings/js/**'
+              - 'Cargo.*'
+              - '.github/workflows/js-wasm.yml'
+
   test:
+    needs: [changes]
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -65,3 +72,14 @@ jobs:
           cd bindings/js
           npm install
           npm run test:browser
+
+  ci-gate:
+    name: JS/WASM CI
+    if: always()
+    needs: [changes, test]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            exit 1
+          fi

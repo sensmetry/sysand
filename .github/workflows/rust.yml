@@ -4,18 +4,8 @@ on:
   push:
     branches: [main]
     tags: ["*"]
-    paths:
-      - "core/**"
-      - "sysand/**"
-      - "Cargo.*"
-      - ".github/workflows/rust.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "core/**"
-      - "sysand/**"
-      - "Cargo.*"
-      - ".github/workflows/rust.yml"
 
 permissions:
   contents: read
@@ -37,7 +27,24 @@ env:
   UV_HTTP_TIMEOUT: 60
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      src: ${{ steps.filter.outputs.src }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'core/**'
+              - 'sysand/**'
+              - 'Cargo.*'
+              - '.github/workflows/rust.yml'
+
   lint-and-format:
+    needs: [changes]
+    if: needs.changes.outputs.src == 'true'
     runs-on: ubuntu-24.04
 
     steps:
@@ -65,6 +72,8 @@ jobs:
         run: cargo fmt --check
 
   test:
+    needs: [changes]
+    if: needs.changes.outputs.src == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -137,6 +146,17 @@ jobs:
           name: sysand-cli-${{ matrix.os }}
           path: dist
           if-no-files-found: error
+
+  ci-gate:
+    name: Rust CI
+    if: always()
+    needs: [changes, lint-and-format, test, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            exit 1
+          fi
 
   nightly-release:
     name: Nightly Release
