@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module includes utilities for creating and using authentication policies for requests.
+
 use globset::{GlobBuilder, GlobSetBuilder};
 use reqwest::Response;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
@@ -65,21 +66,27 @@ impl HTTPAuthentication for ForceHTTPBasicAuth {
     where
         F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        request
+        let (client, req) = request
             .basic_auth(&self.username, Some(&self.password))
-            .send()
-            .await
+            .build_split();
+        let req = req?;
+        log::debug!("using HTTP basic auth for `{}`", req.url());
+
+        client.execute(req).await
     }
 }
 
-/// Authentication policy that *always* includes a given header
+/// Authentication policy that *always* includes a bearer token
 #[derive(Debug, Clone)]
-struct HeaderAuth {
-    pub header: String,
-    pub value: String,
+pub struct ForceBearerAuth(Box<str>);
+
+impl ForceBearerAuth {
+    pub fn new<S: AsRef<str>>(token: S) -> ForceBearerAuth {
+        Self(token.as_ref().into())
+    }
 }
 
-impl HTTPAuthentication for HeaderAuth {
+impl HTTPAuthentication for ForceBearerAuth {
     async fn request_with_authentication<F>(
         &self,
         request: RequestBuilder,
@@ -88,35 +95,11 @@ impl HTTPAuthentication for HeaderAuth {
     where
         F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        request.header(&self.header, &self.value).send().await
-    }
-}
+        let (client, req) = request.bearer_auth(&self.0).build_split();
+        let req = req?;
+        log::debug!("using bearer auth for `{}`", req.url());
 
-/// Authentication policy that *always* includes a bearer token
-#[derive(Debug, Clone)]
-pub struct ForceBearerAuth(HeaderAuth);
-
-impl ForceBearerAuth {
-    pub fn new<S: AsRef<str>>(token: S) -> ForceBearerAuth {
-        ForceBearerAuth(HeaderAuth {
-            header: "Authorization".to_owned(),
-            value: format!("Bearer {}", token.as_ref()),
-        })
-    }
-}
-
-impl HTTPAuthentication for ForceBearerAuth {
-    async fn request_with_authentication<F>(
-        &self,
-        request: RequestBuilder,
-        renew_request: &F,
-    ) -> Result<Response, reqwest_middleware::Error>
-    where
-        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
-    {
-        self.0
-            .request_with_authentication(request, renew_request)
-            .await
+        client.execute(req).await
     }
 }
 
@@ -324,7 +307,7 @@ impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthe
                     .iter()
                     .fold(String::new(), |acc, (p, _)| acc + "\n" + p);
                 log::warn!(
-                    "URL {} matches multiple authentication patterns: {}",
+                    "URL {} matches multiple authentication URL globs: {}",
                     url.as_str(),
                     matched_patterns
                 );

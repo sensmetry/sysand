@@ -29,6 +29,7 @@ use sysand_core::{
         local_fs::{get_config, load_configs},
     },
     context::ProjectContext,
+    discover::{discover_project, discover_workspace},
     env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
     init::InitError,
     lock::Lock,
@@ -137,8 +138,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     }
 
     let ctx = ProjectContext {
-        current_workspace: sysand_core::discover::current_workspace(&cwd)?,
-        current_project: sysand_core::discover::current_project(&cwd)?,
+        current_workspace: discover_workspace(&cwd)?,
+        current_project: discover_project(&cwd)?,
     };
     let project_root = ctx
         .current_project
@@ -230,18 +231,20 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 match (maybe_username, maybe_password) {
                     (Some(username), Some(password)) => {
                         matched_schemes += 1;
+                        log::debug!("auth: env vars specify HTTP basic for URL glob `{pattern}`");
                         auths_builder.add_basic_auth(pattern, username, password)
                     }
                     (None, None) => {}
                     (_, _) => {
                         anyhow::bail!(
-                            "Please specify both (or neither) of SYSAND_CRED_{k}_BASIC_USER and SYSAND_CRED_{k}_BASIC_PASS"
+                            "please specify both (or neither) of SYSAND_CRED_{k}_BASIC_USER and SYSAND_CRED_{k}_BASIC_PASS"
                         );
                     }
                 }
 
                 if let Some(token) = maybe_token {
                     matched_schemes += 1;
+                    log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
                     auths_builder.add_bearer_auth(pattern, token);
                 }
 

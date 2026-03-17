@@ -5,6 +5,7 @@ use assert_cmd::prelude::*;
 use indexmap::IndexMap;
 use mockito::Matcher;
 use predicates::prelude::*;
+use reqwest::header;
 use sysand_core::commands::lock::DEFAULT_LOCKFILE_NAME;
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -88,6 +89,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
         .expect_at_most(4) // TODO: Reduce this to 1 after caching
+        .match_request(|r| r.has_header(header::USER_AGENT))
         .create();
 
     let meta_mock = server
@@ -96,6 +98,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
         .expect_at_most(4) // TODO: Reduce this to 1 after caching
+        .match_request(|r| r.has_header(header::USER_AGENT))
         .create();
 
     std::fs::write(

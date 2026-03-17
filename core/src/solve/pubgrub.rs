@@ -226,7 +226,7 @@ fn resolve_candidates<R: ResolveRead>(
                         let project = match alternative {
                             Ok(project) => project,
                             Err(e) => {
-                                log::debug!("resolved project for `{uri}` is error: {e}");
+                                log::debug!("candidate project for `{uri}` is error: {e}");
                                 continue;
                             }
                         };
@@ -235,13 +235,13 @@ fn resolve_candidates<R: ResolveRead>(
                             Ok((Some(info), Some(meta))) => (info, meta),
                             Ok(incomplete) => {
                                 log::debug!(
-                                    "resolved project for `{uri}` failed to get info or meta: {incomplete:?}"
+                                    "candidate project for `{uri}` failed to get info or meta: {incomplete:?}"
                                 );
                                 continue;
                             }
                             Err(e) => {
                                 log::debug!(
-                                    "resolved project for `{uri}` failed to get info and meta: {e}"
+                                    "candidate project for `{uri}` failed to get info and meta: {e}"
                                 );
                                 continue;
                             }
@@ -250,7 +250,7 @@ fn resolve_candidates<R: ResolveRead>(
                         let validated_info: InterchangeProjectInfo = match info.try_into() {
                             Ok(i) => i,
                             Err(e) => {
-                                log::debug!("resolved project for `{uri}` has invalid info: {e}");
+                                log::debug!("candidate project for `{uri}` has invalid info: {e}");
                                 continue;
                             }
                         };
