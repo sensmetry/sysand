@@ -77,6 +77,7 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
                 src_path: cwd.join("local_dep").as_str().into(),
             }],
         }],
+        ..Default::default()
     })?;
 
     let cfg_path = cwd.join(sysand_core::config::local_fs::CONFIG_FILE);
@@ -127,6 +128,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
                 src_path: cwd.join("local_dep").as_str().into(),
             }],
         }],
+        ..Default::default()
     })?;
 
     let cfg_path = cwd.join(sysand_core::config::local_fs::CONFIG_FILE);

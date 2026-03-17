@@ -49,6 +49,16 @@ public class SysandBuildKParMojo extends AbstractMojo {
     @Parameter(property = "sysand.compressionMethod", required = false)
     private String compressionMethod;
 
+    /**
+     * Path to a README file to bundle into the .kpar archive (project builds only).
+     * Can be configured as
+     * {@code <configuration><readmeSourcePath>...</readmeSourcePath></configuration>}
+     * or via {@code -Dsysand.readmeSourcePath=...}.
+     * For workspace builds, README bundling is controlled by per-project {@code sysand.toml}.
+     */
+    @Parameter(property = "sysand.readmeSourcePath", required = false)
+    private String readmeSourcePath;
+
     @Override
     public void execute() throws MojoExecutionException {
         if (projectPath == null && workspacePath == null) {
@@ -64,7 +74,8 @@ public class SysandBuildKParMojo extends AbstractMojo {
         try {
             if (workspacePath == null) {
                 getLog().info("Invoking Sysand.buildProject on: " + projectPath + " to " + outputPath + " with compression " + compressionMethod);
-                com.sensmetry.sysand.Sysand.buildProject(Paths.get(outputPath), Paths.get(projectPath), compression);
+                java.nio.file.Path readmePath = readmeSourcePath == null ? null : Paths.get(readmeSourcePath);
+                com.sensmetry.sysand.Sysand.buildProject(Paths.get(outputPath), Paths.get(projectPath), compression, readmePath);
                 getLog().info("Sysand.buildProject completed successfully.");
             } else {
                 getLog().info("Invoking Sysand.buildWorkspace on: " + workspacePath + " to " + outputPath + " with compression " + compressionMethod);

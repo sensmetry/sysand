@@ -350,6 +350,18 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
                 ),
             );
         }
+        KParBuildError::ConfigRead(error) => {
+            env.throw_exception(
+                ExceptionKind::SysandException,
+                format!("Config read error: {}", error),
+            );
+        }
+        KParBuildError::ReadmeConfig(error) => {
+            env.throw_exception(
+                ExceptionKind::SysandException,
+                format!("README config error: {}", error),
+            );
+        }
     }
 }
 
@@ -373,6 +385,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     output_path: JString<'local>,
     project_path: JString<'local>,
     compression: JString<'local>,
+    readme_source_path: JString<'local>,
 ) {
     let Some(output_path) = env.get_str(&output_path, "outputPath") else {
         return;
@@ -390,12 +403,45 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     let Some(compression) = compression_from_java_string(&mut env, compression) else {
         return;
     };
+    let build_config = match env.get_string(&readme_source_path) {
+        Ok(s) => sysand_core::config::BuildConfig {
+            readme: Some(sysand_core::config::ReadmeConfig::Path(String::from(s))),
+        },
+        Err(e) => match e {
+            jni::errors::Error::NullPtr(_) => {
+                match sysand_core::config::local_fs::get_config(
+                    project
+                        .project_path
+                        .join(sysand_core::config::local_fs::CONFIG_FILE),
+                ) {
+                    Ok(config) => config.build.unwrap_or_default(),
+                    Err(e) => {
+                        env.throw_exception(
+                            ExceptionKind::SysandException,
+                            format!("Config read error: {}", e),
+                        );
+                        return;
+                    }
+                }
+            }
+            _ => {
+                env.throw_runtime_exception(format!(
+                    "failed to get argument `readmeSourcePath`: {}",
+                    e
+                ));
+                return;
+            }
+        },
+    };
+    let project_root = project.project_path.clone();
     let command_result = sysand_core::commands::build::do_build_kpar(
         &project,
         &output_path,
         compression,
         true,
         false,
+        &build_config,
+        &project_root,
     );
     match command_result {
         Ok(_) => {}

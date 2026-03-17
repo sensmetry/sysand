@@ -41,5 +41,6 @@
 - [Self-hosting a project index](hosting_index.md)
 - [Publishing a package to Sysand Index](publishing.md)
 - [Configuration](config.md)
+  - [Build](config/build.md)
   - [Indexes](config/indexes.md)
   - [Dependencies](config/dependencies.md)

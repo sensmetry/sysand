@@ -10,13 +10,15 @@ def build(
     output_path: str | Path,
     project_path: str | Path | None = None,
     compression: CompressionMethod | None = None,
+    readme_source_path: str | Path | None = None,
 ) -> None:
     if project_path is not None:
         project_path = str(project_path)
 
     # comp = None if compression is None else _convert_compression(compression)
     comp = None if compression is None else compression.name
-    sysand_rs.do_build_py(str(output_path), project_path, comp)
+    readme = None if readme_source_path is None else str(readme_source_path)
+    sysand_rs.do_build_py(str(output_path), project_path, comp, readme)
 
 
 __all__ = [

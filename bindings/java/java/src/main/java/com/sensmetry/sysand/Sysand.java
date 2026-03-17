@@ -154,8 +154,22 @@ public class Sysand {
      * @param outputPath  The path to the output file.
      * @param projectPath The path to the project.
      */
-    private static native void buildProject(String outputPath, String projectPath, String compression)
+    private static native void buildProject(String outputPath, String projectPath, String compression, String readmeSourcePath)
             throws com.sensmetry.sysand.exceptions.SysandException;
+
+    /**
+     * Build Model Project Interchange file (.kpar) from the project at the given
+     * path.
+     *
+     * @param outputPath       The path to the output file.
+     * @param projectPath      The path to the project.
+     * @param compression      The compression method to use.
+     * @param readmeSourcePath Optional path to a README file to bundle into the archive. May be null.
+     */
+    public static void buildProject(java.nio.file.Path outputPath, java.nio.file.Path projectPath, com.sensmetry.sysand.model.CompressionMethod compression, java.nio.file.Path readmeSourcePath)
+            throws com.sensmetry.sysand.exceptions.SysandException {
+        buildProject(outputPath.toString(), projectPath.toString(), compression.toString(), readmeSourcePath == null ? null : readmeSourcePath.toString());
+    }
 
     /**
      * Build Model Project Interchange file (.kpar) from the project at the given
@@ -163,28 +177,31 @@ public class Sysand {
      *
      * @param outputPath  The path to the output file.
      * @param projectPath The path to the project.
+     * @param compression The compression method to use.
      */
     public static void buildProject(java.nio.file.Path outputPath, java.nio.file.Path projectPath, com.sensmetry.sysand.model.CompressionMethod compression)
             throws com.sensmetry.sysand.exceptions.SysandException {
-        buildProject(outputPath.toString(), projectPath.toString(), compression.toString());
+        buildProject(outputPath, projectPath, compression, null);
     }
 
     /**
      * Build Model Project Interchange file (.kpar) from the workspace at the given
-     * path.
+     * path. README bundling is controlled by per-project {@code sysand.toml} configuration.
      *
-     * @param outputPath  The path to the output file.
+     * @param outputPath    The path to the output file.
      * @param workspacePath The path to the workspace.
+     * @param compression   The compression method to use.
      */
     private static native void buildWorkspace(String outputPath, String workspacePath, String compression)
             throws com.sensmetry.sysand.exceptions.SysandException;
 
     /**
      * Build Model Project Interchange file (.kpar) from the workspace at the given
-     * path.
+     * path. README bundling is controlled by per-project {@code sysand.toml} configuration.
      *
-     * @param outputPath  The path to the output file.
+     * @param outputPath    The path to the output file.
      * @param workspacePath The path to the workspace.
+     * @param compression   The compression method to use.
      */
     public static void buildWorkspace(java.nio.file.Path outputPath, java.nio.file.Path workspacePath, com.sensmetry.sysand.model.CompressionMethod compression)
             throws com.sensmetry.sysand.exceptions.SysandException {

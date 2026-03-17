@@ -17,6 +17,8 @@ use sysand_core::{
         env::{EnvError, do_env_local_dir},
         init::do_init_local_file,
     },
+    config::local_fs::{CONFIG_FILE, get_config},
+    config::{BuildConfig, ReadmeConfig},
     env::{
         ReadEnvironment as _, WriteEnvironment,
         local_directory::{
@@ -184,12 +186,13 @@ fn do_info_py(
 
 #[pyfunction(name = "do_build_py")]
 #[pyo3(
-    signature = (output_path, project_path, compression),
+    signature = (output_path, project_path, compression, readme_source_path),
 )]
 fn do_build_py(
     output_path: String,
     project_path: Option<String>,
     compression: Option<String>,
+    readme_source_path: Option<String>,
 ) -> PyResult<()> {
     let _ = pyo3_log::try_init();
 
@@ -209,23 +212,44 @@ fn do_build_py(
         None => KparCompressionMethod::default(),
     };
 
-    do_build_kpar(&project, &output_path, compression, true, false)
-        .map(|_| ())
-        .map_err(|err| match err {
-            KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::LocalSrc(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::IncompleteSource(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::Io(_) => PyIOError::new_err(err.to_string()),
-            KParBuildError::Validation(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::Extract(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::UnknownFormat(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::MissingInfo => PyValueError::new_err(err.to_string()),
-            KParBuildError::MissingMeta => PyValueError::new_err(err.to_string()),
-            KParBuildError::Zip(_) => PyIOError::new_err(err.to_string()),
-            KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
-            KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::PathUsage(_) => PyValueError::new_err(err.to_string()),
-        })
+    let build_config = match readme_source_path {
+        Some(path) => BuildConfig {
+            readme: Some(ReadmeConfig::Path(path)),
+        },
+        None => {
+            let config = get_config(project.project_path.join(CONFIG_FILE))
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            config.build.unwrap_or_default()
+        }
+    };
+    let project_root = project.project_path.clone();
+    do_build_kpar(
+        &project,
+        &output_path,
+        compression,
+        true,
+        false,
+        &build_config,
+        &project_root,
+    )
+    .map(|_| ())
+    .map_err(|err| match err {
+        KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
+        KParBuildError::LocalSrc(_) => PyRuntimeError::new_err(err.to_string()),
+        KParBuildError::IncompleteSource(_) => PyRuntimeError::new_err(err.to_string()),
+        KParBuildError::Io(_) => PyIOError::new_err(err.to_string()),
+        KParBuildError::Validation(_) => PyValueError::new_err(err.to_string()),
+        KParBuildError::Extract(_) => PyValueError::new_err(err.to_string()),
+        KParBuildError::UnknownFormat(_) => PyValueError::new_err(err.to_string()),
+        KParBuildError::MissingInfo => PyValueError::new_err(err.to_string()),
+        KParBuildError::MissingMeta => PyValueError::new_err(err.to_string()),
+        KParBuildError::Zip(_) => PyIOError::new_err(err.to_string()),
+        KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
+        KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
+        KParBuildError::PathUsage(_) => PyValueError::new_err(err.to_string()),
+        KParBuildError::ConfigRead(_) => PyRuntimeError::new_err(err.to_string()),
+        KParBuildError::ReadmeConfig(_) => PyValueError::new_err(err.to_string()),
+    })
 }
 
 #[pyfunction(name = "do_sources_env_py")]

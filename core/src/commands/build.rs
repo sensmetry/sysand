@@ -2,6 +2,8 @@ use camino::Utf8Path;
 use thiserror::Error;
 
 use crate::{
+    config::local_fs::{CONFIG_FILE, ConfigReadError, get_config},
+    config::{BuildConfig, ReadmeConfigError, ResolvedReadme},
     env::utils::{CloneError, ErrorBound},
     include::IncludeError,
     model::InterchangeProjectValidationError,
@@ -150,6 +152,10 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         which is unlikely to be available on other computers at the same path"
     )]
     PathUsage(String),
+    #[error(transparent)]
+    ConfigRead(#[from] ConfigReadError),
+    #[error(transparent)]
+    ReadmeConfig(#[from] ReadmeConfigError),
 }
 
 impl<ProjectReadError: ErrorBound> From<FsIoError> for KParBuildError<ProjectReadError> {
@@ -222,7 +228,8 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     compression: KparCompressionMethod,
     canonicalise: bool,
     allow_path_usage: bool,
-    readme_source_path: Option<&Utf8Path>,
+    build_config: &BuildConfig,
+    project_root: &Utf8Path,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
 
@@ -275,21 +282,25 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
-    let readme_content = if let Some(readme_path) = readme_source_path {
-        match std::fs::read(readme_path) {
-            Ok(content) => {
-                let header = crate::style::get_style_config().header;
-                let including = "Including";
-                log::info!("{header}{including:>12}{header:#} readme from `{readme_path}`");
-                Some(content)
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-            Err(e) => {
-                return Err(FsIoError::ReadFile(readme_path.into(), e).into());
+    let resolved_readme = build_config.resolve_readme_path()?;
+    let readme_content = match &resolved_readme {
+        ResolvedReadme::Disabled => None,
+        ResolvedReadme::DefaultIfExists(name) | ResolvedReadme::Required(name) => {
+            let readme_path = project_root.join(name);
+            let required = matches!(resolved_readme, ResolvedReadme::Required(_));
+            match std::fs::read(&readme_path) {
+                Ok(content) => {
+                    let header = crate::style::get_style_config().header;
+                    let including = "Including";
+                    log::info!("{header}{including:>12}{header:#} readme `{readme_path}`");
+                    Some(content)
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound && !required => None,
+                Err(e) => {
+                    return Err(FsIoError::ReadFile(readme_path, e).into());
+                }
             }
         }
-    } else {
-        None
     };
 
     Ok(LocalKParProject::from_project(
@@ -310,10 +321,14 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     let mut result = Vec::new();
     for project in workspace.projects() {
         let project_path = workspace.root_path().join(&project.path);
-        let readme_source_path = project_path.join("README.md");
+
+        // Load per-project config for build settings
+        let config = get_config(project_path.join(CONFIG_FILE))?;
+        let build_config = config.build.unwrap_or_default();
+
         let project = LocalSrcProject {
             nominal_path: None,
-            project_path,
+            project_path: project_path.clone(),
         };
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);
@@ -323,7 +338,8 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             compression,
             canonicalise,
             allow_path_usage,
-            Some(readme_source_path.as_ref()),
+            &build_config,
+            &project_path,
         )?;
         result.push(kpar_project);
     }

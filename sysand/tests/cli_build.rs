@@ -15,6 +15,78 @@ use sysand_core::{
 mod common;
 pub use common::*;
 
+/// Create a minimal buildable project (init + write sysml + include).
+fn init_buildable_project(
+    name: &str,
+) -> Result<(camino_tempfile::Utf8TempDir, camino::Utf8PathBuf), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(["init", "--version", "1.2.3", "--name", name], None)?;
+    out.assert().success();
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+    Ok((_temp_dir, cwd))
+}
+
+/// Assert that a kpar archive contains (or does not contain) a README.md with the expected content.
+fn assert_kpar_readme(
+    kpar_path: &camino::Utf8Path,
+    expected: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let file = std::fs::File::open(kpar_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    match expected {
+        Some(expected_content) => {
+            let mut readme = archive.by_name("README.md")?;
+            let mut content = String::new();
+            readme.read_to_string(&mut content)?;
+            assert_eq!(content, expected_content);
+        }
+        None => {
+            assert!(
+                archive.by_name("README.md").is_err(),
+                "KPAR should not contain README.md"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Set up a two-project workspace, calling `per_project` for each project directory.
+fn init_workspace(
+    per_project: impl Fn(&camino::Utf8Path, &str) -> Result<(), Box<dyn std::error::Error>>,
+) -> Result<(camino_tempfile::Utf8TempDir, camino::Utf8PathBuf), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{"projects": [
+            {"path": "project1", "iris": ["urn:kpar:project1"]},
+            {"path": "project2", "iris": ["urn:kpar:project2"]}
+            ]}"#,
+    )?;
+
+    for project_name in ["project1", "project2"] {
+        let project_cwd = cwd.join(project_name);
+        std::fs::create_dir(&project_cwd)?;
+        let out = run_sysand_in(
+            &project_cwd,
+            ["init", "--version", "1.2.3", "--name", project_name],
+            None,
+        )?;
+        out.assert().success();
+        std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
+        let out = run_sysand_in(
+            &project_cwd,
+            ["include", "--no-index-symbols", "test.sysml"],
+            None,
+        )?;
+        out.assert().success();
+        per_project(&project_cwd, project_name)?;
+    }
+
+    Ok((_temp_dir, cwd))
+}
+
 #[test]
 fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
@@ -220,128 +292,142 @@ fn test_compression_methods() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project with a README.md at the project root
 #[test]
 fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "test_readme"],
-        None,
-    )?;
-
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    let (_temp_dir, cwd) = init_buildable_project("test_readme")?;
     std::fs::write(cwd.join("README.md"), b"# My Project\nHello world\n")?;
-
-    out.assert().success();
-
-    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
-    out.assert().success();
 
     let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
     out.assert()
         .success()
-        .stderr(predicate::str::contains("Including readme from"));
+        .stderr(predicate::str::contains("Including readme"));
 
-    // Verify the KPAR contains README.md with correct content
-    let file = std::fs::File::open(cwd.join("test_build.kpar"))?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    let mut readme = archive.by_name("README.md")?;
-    let mut content = String::new();
-    readme.read_to_string(&mut content)?;
-    assert_eq!(content, "# My Project\nHello world\n");
+    assert_kpar_readme(
+        &cwd.join("test_build.kpar"),
+        Some("# My Project\nHello world\n"),
+    )?;
+    Ok(())
+}
 
+/// Build a project with a custom README filename via config
+#[test]
+fn project_build_with_custom_readme() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = init_buildable_project("test_custom_readme")?;
+    std::fs::write(
+        cwd.join("PUBLIC_README.md"),
+        b"# Public Readme\nCustom content\n",
+    )?;
+
+    let cfg_path = cwd.join("sysand.toml");
+    std::fs::write(&cfg_path, b"[build]\nreadme = \"PUBLIC_README.md\"\n")?;
+
+    let out = run_sysand_in(
+        &cwd,
+        ["build", "./test_build.kpar"],
+        Some(cfg_path.as_str()),
+    )?;
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("Including readme"));
+
+    assert_kpar_readme(
+        &cwd.join("test_build.kpar"),
+        Some("# Public Readme\nCustom content\n"),
+    )?;
     Ok(())
 }
 
 /// Build a project without any README file — should succeed
 #[test]
 fn project_build_without_readme() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "test_no_readme"],
-        None,
-    )?;
-
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-
-    out.assert().success();
-
-    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
-    out.assert().success();
+    let (_temp_dir, cwd) = init_buildable_project("test_no_readme")?;
 
     let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
     out.assert().success();
 
-    // Verify the KPAR does NOT contain README.md
-    let file = std::fs::File::open(cwd.join("test_build.kpar"))?;
-    let mut archive = zip::ZipArchive::new(file)?;
-    assert!(
-        archive.by_name("README.md").is_err(),
-        "KPAR should not contain README.md when no README exists"
-    );
-
+    assert_kpar_readme(&cwd.join("test_build.kpar"), None)?;
     Ok(())
 }
 
 /// Build workspace with per-project READMEs
 #[test]
 fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project1_cwd = cwd.join("project1");
-    let project2_cwd = cwd.join("project2");
-
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{"projects": [
-            {"path": "project1", "iris": ["urn:kpar:project1"]},
-            {"path": "project2", "iris": ["urn:kpar:project2"]}
-            ]}"#,
-    )?;
-
-    for (project_cwd, readme_content) in [
-        (&project1_cwd, "# Project 1\n"),
-        (&project2_cwd, "# Project 2\n"),
-    ] {
-        std::fs::create_dir(project_cwd)?;
-        let project_name = project_cwd.file_name().unwrap();
-        let out = run_sysand_in(
-            project_cwd,
-            ["init", "--version", "1.2.3", "--name", project_name],
-            None,
+    let (_temp_dir, cwd) = init_workspace(|project_cwd, name| {
+        std::fs::write(
+            project_cwd.join("README.md"),
+            format!("# {name}\n").as_bytes(),
         )?;
-        out.assert().success();
-
-        std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
-        let out = run_sysand_in(
-            project_cwd,
-            ["include", "--no-index-symbols", "test.sysml"],
-            None,
-        )?;
-        out.assert().success();
-
-        std::fs::write(project_cwd.join("README.md"), readme_content.as_bytes())?;
-    }
+        Ok(())
+    })?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
     out.assert().success();
 
-    for (project_name, expected_readme) in
-        [("project1", "# Project 1\n"), ("project2", "# Project 2\n")]
-    {
-        let kpar_path = cwd
-            .join("output")
-            .join(format!("{}-1.2.3.kpar", project_name));
-        assert!(
-            kpar_path.is_file(),
-            "kpar file does not exist: {}",
-            kpar_path
-        );
-
-        let file = std::fs::File::open(&kpar_path)?;
-        let mut archive = zip::ZipArchive::new(file)?;
-        let mut readme = archive.by_name("README.md")?;
-        let mut content = String::new();
-        readme.read_to_string(&mut content)?;
-        assert_eq!(
-            content, expected_readme,
-            "README mismatch for {project_name}"
-        );
+    for name in ["project1", "project2"] {
+        let kpar_path = cwd.join("output").join(format!("{name}-1.2.3.kpar"));
+        assert_kpar_readme(&kpar_path, Some(&format!("# {name}\n")))?;
     }
+    Ok(())
+}
+
+/// Build workspace with a custom README path configured via sysand.toml
+#[test]
+fn workspace_build_with_custom_readme() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = init_workspace(|project_cwd, name| {
+        std::fs::write(
+            project_cwd.join("CUSTOM_README.md"),
+            format!("# {name} Custom\n").as_bytes(),
+        )?;
+        std::fs::write(
+            project_cwd.join("sysand.toml"),
+            b"[build]\nreadme = \"CUSTOM_README.md\"\n",
+        )?;
+        Ok(())
+    })?;
+
+    let out = run_sysand_in(&cwd, ["build"], None)?;
+    out.assert().success();
+
+    for name in ["project1", "project2"] {
+        let kpar_path = cwd.join("output").join(format!("{name}-1.2.3.kpar"));
+        assert_kpar_readme(&kpar_path, Some(&format!("# {name} Custom\n")))?;
+    }
+    Ok(())
+}
+
+/// Build a project with `readme = false` — should NOT bundle README even if file exists
+#[test]
+fn project_build_readme_disabled() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = init_buildable_project("test_readme_disabled")?;
+    std::fs::write(cwd.join("README.md"), b"# Should not be bundled\n")?;
+
+    let cfg_path = cwd.join("sysand.toml");
+    std::fs::write(&cfg_path, b"[build]\nreadme = false\n")?;
+
+    let out = run_sysand_in(
+        &cwd,
+        ["build", "./test_build.kpar"],
+        Some(cfg_path.as_str()),
+    )?;
+    out.assert().success();
+
+    assert_kpar_readme(&cwd.join("test_build.kpar"), None)?;
+    Ok(())
+}
+
+/// Build with a required readme (explicit path) that doesn't exist — should fail
+#[test]
+fn project_build_required_readme_missing_file() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = init_buildable_project("test_readme_missing")?;
+    // Deliberately NOT creating the readme file
+
+    let cfg_path = cwd.join("sysand.toml");
+    std::fs::write(&cfg_path, b"[build]\nreadme = \"NONEXISTENT.md\"\n")?;
+
+    let out = run_sysand_in(
+        &cwd,
+        ["build", "./test_build.kpar"],
+        Some(cfg_path.as_str()),
+    )?;
+    out.assert().failure();
 
     Ok(())
 }
