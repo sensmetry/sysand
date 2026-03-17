@@ -80,7 +80,6 @@ jobs:
           name: version
           path: version.txt
           if-no-files-found: error
-          retention-days: 5
 
       - name: Upload native bindings
         uses: actions/upload-artifact@v7
@@ -91,7 +90,7 @@ jobs:
             target/release/*.dylib
             target/release/*.dll
           if-no-files-found: error
-          retention-days: 5
+          retention-days: 5 # lower than default, many ~5 MB files
 
   build-jar:
     name: Build Java JAR
@@ -143,14 +142,13 @@ jobs:
           name: jars
           path: target/java
           if-no-files-found: error
-          retention-days: 5
+          retention-days: 5 # lower than default, a ~160 MB file
       - name: Upload Maven plugin JAR
         uses: actions/upload-artifact@v7
         with:
           name: maven-plugin-jar
           path: target/java-plugin
           if-no-files-found: error
-          retention-days: 5
           # We need to include hidden files because integration tests use
           # .meta.json and .project.json files.
           include-hidden-files: true
