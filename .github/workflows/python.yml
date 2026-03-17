@@ -143,7 +143,6 @@ jobs:
           target: ${{ matrix.platform.rust_target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi ${{ matrix.python.args_suffix }}
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
         uses: actions/upload-artifact@v6
@@ -195,8 +194,14 @@ jobs:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: manylinux2014
+      - name: Build wheels (musllinux)
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          working-directory: bindings/py
+          args: --release --out ../../dist --compatibility pypi
+          manylinux: musllinux_1_2
 
       - name: Build free-threaded wheels (manylinux)
         uses: PyO3/maturin-action@v1
@@ -204,25 +209,13 @@ jobs:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: manylinux2014 # TODO: don't use default cross-compile containers for aarch64
-
-      - name: Build wheels (musllinux)
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          working-directory: bindings/py
-          args: --release --out ../../dist --compatibility pypi
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          manylinux: musllinux_1_2
-
       - name: Build free-threaded wheels (musllinux)
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
 
       - name: Upload wheels
@@ -282,7 +275,6 @@ jobs:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build free-threaded wheels
         uses: PyO3/maturin-action@v1
@@ -290,7 +282,6 @@ jobs:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
         uses: actions/upload-artifact@v6
