@@ -135,7 +135,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: sysand-cli-${{ matrix.os }}
-          path: dist/*
+          path: dist
+          if-no-files-found: error
 
   nightly-release:
     name: Nightly Release
