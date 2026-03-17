@@ -122,7 +122,9 @@ jobs:
 
       - name: Build JAR
         run: |
-          python bindings/java/scripts/java-builder.py build \
+          python bindings/java/scripts/java-builder.py \
+              ${{ startsWith(github.ref, 'refs/tags/') && '--release-jar-version' || '' }} \
+              build \
               --use-existing-native-libs native-bindings \
               --use-release-build \
               ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE && '--sign-artifacts' || '' }}
@@ -131,7 +133,9 @@ jobs:
 
       - name: Build Sysand Maven plugin and run integration tests
         run: |
-          python bindings/java/scripts/java-builder.py build-plugin \
+          python bindings/java/scripts/java-builder.py \
+              ${{ startsWith(github.ref, 'refs/tags/') && '--release-jar-version' || '' }} \
+              build-plugin \
               ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE && '--sign-artifacts' || '' }}
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
@@ -198,14 +202,17 @@ jobs:
           ls -la target/java/target/*
 
       - name: Test Java JAR
-        run: python bindings/java/scripts/java-builder.py test
+        run: |
+          python bindings/java/scripts/java-builder.py \
+              ${{ startsWith(github.ref, 'refs/tags/') && '--release-jar-version' || '' }} \
+              test
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
 
-  nightly-release:
-    name: Nightly Release
+  release:
+    name: ${{ startsWith(github.ref, 'refs/tags/') && 'Release' || 'Nightly Release' }}
     needs: [build-jar, test-jar]
-    if: ${{ github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-24.04
     permissions:
       id-token: write # for signing release artifacts
