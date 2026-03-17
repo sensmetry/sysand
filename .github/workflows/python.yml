@@ -86,22 +86,16 @@ jobs:
           - runner: windows-11-arm
             target: arm64 # not aarch64 because expected by setup-python
             rust_target: aarch64-pc-windows-msvc
-        # A single python version is used for each run, because some tools
-        # don't know which version to use if multiple are present
+        # It is sufficient to build wheels for the lowest supported Python
+        # version, but we need to build wheels for each supported free-threaded
+        # version.
         python:
           - version: "3.14t"
             label: 3.14-free-threaded
             args_suffix: --interpreter python3.14t
-        exclude:
-          # Free-threaded python does not work on windows arm currently
-          # https://github.com/actions/setup-python/issues/1267
-          - platform:
-              runner: windows-11-arm
-            python:
-              version: "3.14t"
         include:
-          # The lowest supported version on x86 is 3.10, and only python 3.11+
-          # are available on the windows arm runners
+          # Since Python 3.10 isn't available on the arm runners, we need to
+          # provide a 3.10 job for x64 and a 3.11 job for arm64.
           - platform:
               runner: windows-latest
               target: x64
