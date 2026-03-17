@@ -165,8 +165,6 @@ jobs:
         platform:
           - runner: ubuntu-24.04
             target: x86_64
-          - runner: ubuntu-24.04
-            target: x86
           - runner: ubuntu-24.04-arm
             target: aarch64
 
@@ -234,28 +232,12 @@ jobs:
           path: dist
 
       - name: pytest (manylinux)
-        if: ${{ matrix.platform.target != 'x86' }}
         run: /bin/bash .github/scripts/run-pytest.sh
-
-      - name: pytest (manylinux)
-        if: ${{ matrix.platform.target == 'x86' }}
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}:/io -w /io \
-            ${{ matrix.platform.target == 'x86' && 'i386/ubuntu:latest' }} \
-            sh -c '
-              apt-get update
-              apt-get install -y curl bash python3
-              curl -LsSf https://astral.sh/uv/install.sh | sh
-              export PATH=$PATH:$HOME/.local/bin
-              /bin/bash .github/scripts/run-pytest.sh
-            '
 
       - name: pytest (musllinux)
         run: |
-          docker run --rm \
-            -v ${{ github.workspace }}:/io -w /io \
-            ${{ matrix.platform.target == 'x86' && 'i386/alpine:latest' || 'alpine:latest' }} \
+          docker run --rm -v ${{ github.workspace }}:/io -w /io \
+            alpine:latest \
             sh -c '
               apk add curl bash python3
               curl -LsSf https://astral.sh/uv/install.sh | sh
