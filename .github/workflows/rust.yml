@@ -90,11 +90,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-cargo-
 
-      - name: cargo test ... (Rust library)
-        run: cargo test --locked --package sysand-core --features filesystem,networking,js,python,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
-
-      - name: cargo test ... (CLI)
-        run: cargo test --locked --package sysand --features alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
+      - name: cargo test ... (Rust library & CLI)
+        run: >-
+          cargo test --locked
+          --package sysand-core
+          --package sysand
+          --features sysand-core/filesystem,sysand-core/networking,sysand-core/js,sysand-core/python,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
 
   build:
     needs: test
