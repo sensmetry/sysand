@@ -210,6 +210,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
 
   release:
+    # Nightly tags do not trigger CI since they are created in CI
     name: ${{ startsWith(github.ref, 'refs/tags/') && 'Release' || 'Nightly Release' }}
     needs: [build-jar, test-jar]
     if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
