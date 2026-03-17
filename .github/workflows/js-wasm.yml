@@ -7,14 +7,14 @@ on:
       - "core/**"
       - "bindings/js/**"
       - "Cargo.*"
-      - ".github/workflows/js.yml"
+      - ".github/workflows/js-wasm.yml"
   pull_request:
     branches: ["main"]
     paths:
       - "core/**"
       - "bindings/js/**"
       - "Cargo.*"
-      - ".github/workflows/js.yml"
+      - ".github/workflows/js-wasm.yml"
 
 permissions:
   contents: read
