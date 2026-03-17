@@ -6,6 +6,7 @@ on:
     tags: ["*"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,12 +28,13 @@ env:
   UV_HTTP_TIMEOUT: 60
 
 jobs:
-  changes:
+  plan:
     runs-on: ubuntu-24.04
     outputs:
-      src: ${{ steps.filter.outputs.src }}
+      test: ${{ steps.decisions.outputs.test }}
+      gate: ${{ steps.decisions.outputs.gate }}
     steps:
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -41,10 +43,16 @@ jobs:
               - 'bindings/java/**'
               - 'Cargo.*'
               - '.github/workflows/java.yml'
+      - id: decisions
+        run: |
+          test=${{ steps.filter.outputs.src == 'true' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          gate=${{ github.event_name == 'pull_request' }}
+          echo "test=$test" >> "$GITHUB_OUTPUT"
+          echo "gate=$gate" >> "$GITHUB_OUTPUT"
 
   compile-bindings:
-    needs: [changes]
-    if: needs.changes.outputs.src == 'true'
+    needs: [plan]
+    if: needs.plan.outputs.test == 'true'
     name: Compile native bindings
     runs-on: ${{ matrix.os }}
     strategy:
@@ -63,26 +71,29 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
 
       - name: cargo build ...
         run: cargo build --locked --package sysand-java --release
 
       - uses: actions/setup-python@v6
-        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        if: matrix.os == 'ubuntu-24.04'
         with:
           python-version: "3.14"
       - name: Create version.txt
-        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        if: matrix.os == 'ubuntu-24.04'
         run: python bindings/java/scripts/java-builder.py create-version-file
         env:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
       - name: Upload version.txt
         uses: actions/upload-artifact@v7
-        if: ${{ matrix.os == 'ubuntu-24.04' }}
+        if: matrix.os == 'ubuntu-24.04'
         with:
           name: version
           path: version.txt
@@ -166,7 +177,7 @@ jobs:
 
   test-jar:
     name: Test Java JAR
-    needs: build-jar
+    needs: [build-jar]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -218,12 +229,12 @@ jobs:
 
   ci-gate:
     name: Java CI
-    if: always()
-    needs: [changes, compile-bindings, build-jar, test-jar]
+    needs: [plan, compile-bindings, build-jar, test-jar]
+    if: needs.plan.outputs.gate == 'true' && !cancelled()
     runs-on: ubuntu-24.04
     steps:
       - run: |
-          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
             exit 1
           fi
 
@@ -231,7 +242,7 @@ jobs:
     # Nightly tags do not trigger CI since they are created in CI
     name: Release
     needs: [build-jar, test-jar]
-    if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
       id-token: write # for signing release artifacts
