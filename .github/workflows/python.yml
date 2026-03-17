@@ -39,6 +39,8 @@ defaults:
     shell: bash
 
 env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
   CARGO_NET_RETRY: 10
   RUSTUP_MAX_RETRIES: 10
   UV_HTTP_RETRIES: 5
