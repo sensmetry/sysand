@@ -4,7 +4,7 @@
 //! This module includes utilities for creating and using authentication policies for requests.
 
 use globset::{GlobBuilder, GlobSetBuilder};
-use reqwest::Response;
+use reqwest::{Response, header};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 
 pub trait HTTPAuthentication: std::fmt::Debug + 'static {
@@ -50,7 +50,14 @@ impl HTTPAuthentication for Unauthenticated {
         let req = req?;
         log::debug!("no auth request for `{}`", req.url());
 
-        client.execute(req).await
+        let resp = client.execute(req).await?;
+        log::debug!(
+            "response to no auth request `{}`: status {}, content type {:?}",
+            resp.url(),
+            resp.status(),
+            resp.headers().get(header::CONTENT_TYPE)
+        );
+        Ok(resp)
     }
 }
 
@@ -76,7 +83,14 @@ impl HTTPAuthentication for ForceHTTPBasicAuth {
         let req = req?;
         log::debug!("using HTTP basic auth for `{}`", req.url());
 
-        client.execute(req).await
+        let resp = client.execute(req).await?;
+        log::debug!(
+            "response to HTTP basic auth request `{}`: status {}, content type {:?}",
+            resp.url(),
+            resp.status(),
+            resp.headers().get(header::CONTENT_TYPE)
+        );
+        Ok(resp)
     }
 }
 
@@ -103,7 +117,14 @@ impl HTTPAuthentication for ForceBearerAuth {
         let req = req?;
         log::debug!("using bearer auth for `{}`", req.url());
 
-        client.execute(req).await
+        let resp = client.execute(req).await?;
+        log::debug!(
+            "response to bearer auth request `{}`: status {}, content type {:?}",
+            resp.url(),
+            resp.status(),
+            resp.headers().get(header::CONTENT_TYPE)
+        );
+        Ok(resp)
     }
 }
 
@@ -140,7 +161,9 @@ impl<Higher: HTTPAuthentication, Lower: HTTPAuthentication> HTTPAuthentication
 
         // Many servers (e.g. GitLab pages) generate a 404 instead of a 401 or 403 in response
         // to lack of authentication.
-        if initial_response.status().is_client_error() {
+        let status = initial_response.status();
+        if status.is_client_error() {
+            log::debug!("higher priority auth request returned status {status}, trying lower");
             self.lower
                 .request_with_authentication(renew_request(&client), renew_request)
                 .await
