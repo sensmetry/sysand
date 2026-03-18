@@ -114,7 +114,7 @@ jobs:
           python-version: "3.14"
       - uses: actions/setup-java@v5
         with:
-          java-version: "21" # to support JRE 21+
+          java-version: "25" # our compiler target is Java 8
           distribution: temurin
           gpg-private-key: ${{ secrets.MAVEN_CENTRAL_GPG_PRIVATE_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
@@ -189,7 +189,9 @@ jobs:
           python-version: "3.14"
       - uses: actions/setup-java@v5
         with:
-          java-version: "21" # to support JRE 21+
+          # TODO: Use temurin 25 systematically when this issue resolves
+          #       https://github.com/adoptium/adoptium-support/issues/1402
+          java-version: ${{ matrix.os == 'windows-11-arm' && '21' || '25' }} # our build target is Java 8+
           distribution: temurin
           gpg-private-key: ${{ secrets.MAVEN_CENTRAL_GPG_PRIVATE_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE
@@ -248,7 +250,7 @@ jobs:
           python-version: "3.14"
       - uses: actions/setup-java@v5
         with:
-          java-version: "21" # to support JRE 21+
+          java-version: "25" # our build target is Java 8+
           distribution: temurin
           server-id: central
           server-username: MAVEN_USERNAME
