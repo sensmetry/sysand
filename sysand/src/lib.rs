@@ -91,6 +91,12 @@ where
                 for cause in err.chain() {
                     eprintln!("{}", cause);
                 }
+                let note_style = style::GOOD;
+                if log::max_level() < log::Level::Debug {
+                    eprintln!(
+                        "\n{note_style}note{note_style:#}: pass `-v`/`--verbose` to output additional logs"
+                    );
+                }
                 return ExitCode::FAILURE;
             }
         }

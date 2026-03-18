@@ -64,8 +64,8 @@ impl HTTPAuthentication for Unauthenticated {
 /// Authentication policy that *always* sends a username/password pair
 #[derive(Debug, Clone)]
 pub struct ForceHTTPBasicAuth {
-    pub username: String,
-    pub password: String,
+    pub username: Box<str>,
+    pub password: Box<str>,
 }
 
 impl HTTPAuthentication for ForceHTTPBasicAuth {
@@ -439,8 +439,8 @@ impl StandardHTTPAuthenticationBuilder {
             SequenceAuthentication {
                 higher: Unauthenticated {},
                 lower: StandardInnerAuthentication::HTTPBasicAuth(ForceHTTPBasicAuth {
-                    username: username.as_ref().to_string(),
-                    password: password.as_ref().to_string(),
+                    username: username.as_ref().into(),
+                    password: password.as_ref().into(),
                 }),
             },
         );
