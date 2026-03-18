@@ -146,9 +146,10 @@ jobs:
     if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
-      id-token: write # for signing release artifacts
-      contents: write # for uploading release artifacts
-      attestations: write # for release artifact attestation
+      id-token: write # for actions/attest
+      attestations: write # for actions/attest
+      artifact-metadata: write # for actions/attest
+      contents: write # for softprops/action-gh-release
 
     steps:
       - uses: actions/download-artifact@v8
@@ -157,7 +158,7 @@ jobs:
           merge-multiple: true
 
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest@v4
         with:
           subject-path: "artifacts/*"
 
@@ -189,9 +190,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
-      id-token: write # for signing release artifacts
-      contents: write # for uploading release artifacts
-      attestations: write # for release artifact attestation
+      id-token: write # for actions/attest
+      attestations: write # for actions/attest
+      artifact-metadata: write # for actions/attest
+      contents: write # for softprops/action-gh-release
 
     steps:
       - uses: actions/download-artifact@v8
@@ -200,7 +202,7 @@ jobs:
           merge-multiple: true
 
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest@v4
         with:
           subject-path: "artifacts/*"
 
