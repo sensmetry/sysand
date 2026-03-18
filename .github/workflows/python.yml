@@ -361,5 +361,7 @@ jobs:
 
       - name: Publish to PyPI
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          UV_CONCURRENT_DOWNLOADS: "1"
         run: |
           uv publish -v --trusted-publishing always wheels-*/*
