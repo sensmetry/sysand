@@ -23,7 +23,7 @@ mod browser_tests {
     fn test_basic_init() -> Result<(), Box<dyn Error>> {
         do_init_js_local_storage(
             "test_basic_init".to_string(),
-            String::from("a"),
+            Some(String::from("a")),
             "1.2.3".to_string(),
             "sysand_storage",
             "/",

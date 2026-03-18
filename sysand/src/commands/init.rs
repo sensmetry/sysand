@@ -6,7 +6,6 @@ use anyhow::Result;
 use camino::{Utf8Path, Utf8PathBuf};
 use sysand_core::project::utils::wrapfs;
 
-const DEFAULT_PUBLISHER: &str = "untitled";
 const DEFAULT_VERSION: &str = "0.0.1";
 
 pub fn command_init(
@@ -31,7 +30,6 @@ pub fn command_init(
         Some(n) => n,
         None => default_name_from_path(&path)?,
     };
-    let publisher = publisher.unwrap_or_else(|| DEFAULT_PUBLISHER.to_owned());
 
     sysand_core::init::do_init_ext(
         name,
