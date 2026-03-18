@@ -249,7 +249,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 }
 
                 if matched_schemes > 1 {
-                    log::warn!("SYSAND_CRED_{k} has multiple authentication schemes!");
+                    log::warn!(
+                        "SYSAND_CRED_{k} (`{pattern}`) has multiple authentication schemes!"
+                    );
                 }
             }
             (None, _, _, _) => {

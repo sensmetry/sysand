@@ -48,11 +48,11 @@ impl HTTPAuthentication for Unauthenticated {
     {
         let (client, req) = request.build_split();
         let req = req?;
-        log::debug!("no auth request for `{}`", req.url());
+        log::debug!("{} (no auth) `{}`", req.method(), req.url());
 
         let resp = client.execute(req).await?;
         log::debug!(
-            "response to no auth request `{}`: status {}, content type {:?}",
+            "response to (no auth) `{}`: status {}, content type {:?}",
             resp.url(),
             resp.status(),
             resp.headers().get(header::CONTENT_TYPE)
@@ -81,11 +81,11 @@ impl HTTPAuthentication for ForceHTTPBasicAuth {
             .basic_auth(&self.username, Some(&self.password))
             .build_split();
         let req = req?;
-        log::debug!("using HTTP basic auth for `{}`", req.url());
+        log::debug!("{} (basic auth) `{}`", req.method(), req.url());
 
         let resp = client.execute(req).await?;
         log::debug!(
-            "response to HTTP basic auth request `{}`: status {}, content type {:?}",
+            "response to (basic auth) `{}`: status {}, content type {:?}",
             resp.url(),
             resp.status(),
             resp.headers().get(header::CONTENT_TYPE)
@@ -115,11 +115,11 @@ impl HTTPAuthentication for ForceBearerAuth {
     {
         let (client, req) = request.bearer_auth(&self.0).build_split();
         let req = req?;
-        log::debug!("using bearer auth for `{}`", req.url());
+        log::debug!("{} (bearer auth) `{}`", req.method(), req.url());
 
         let resp = client.execute(req).await?;
         log::debug!(
-            "response to bearer auth request `{}`: status {}, content type {:?}",
+            "response to (bearer auth) `{}`: status {}, content type {:?}",
             resp.url(),
             resp.status(),
             resp.headers().get(header::CONTENT_TYPE)

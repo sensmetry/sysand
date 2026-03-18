@@ -21,10 +21,12 @@ pub enum AddError<ProjectError> {
     MissingInfo(&'static str),
 }
 
+/// Ok(true) => usage added to project info
+/// Ok(false) => usage already present in project info
 pub fn do_add<P: ProjectMut>(
     project: &mut P,
     usage_raw: &InterchangeProjectUsageRaw,
-) -> Result<(), AddError<P::Error>> {
+) -> Result<bool, AddError<P::Error>> {
     let usage: InterchangeProjectUsageG<String, String> = usage_raw.validate()?.into();
 
     let adding = "Adding";
@@ -42,18 +44,24 @@ pub fn do_add<P: ProjectMut>(
     if let Some(info) = project.get_info().map_err(AddError::Project)?.as_mut() {
         if let Some(u) = info.usage.iter_mut().find(|u| u.resource == usage.resource) {
             match (usage.version_constraint, &mut u.version_constraint) {
-                (None, None) => log::warn!(
-                    "ignoring usage `{}`,\n\
+                (None, None) => {
+                    log::warn!(
+                        "ignoring usage `{}`,\n\
                     {SP:>8} since it is already present",
-                    usage.resource,
-                ),
-                (None, Some(vc)) => log::warn!(
-                    "ignoring usage `{}`\n\
+                        usage.resource,
+                    );
+                    return Ok(false);
+                }
+                (None, Some(vc)) => {
+                    log::warn!(
+                        "ignoring usage `{}`\n\
                     {SP:>8} without a version constraint, since it is already present with\n\
                     {SP:>8} version constraint `{}`",
-                    usage.resource,
-                    vc
-                ),
+                        usage.resource,
+                        vc
+                    );
+                    return Ok(false);
+                }
                 (Some(vc), vc_current @ None) => {
                     log::warn!(
                         "usage `{}` is already present,\n\
@@ -94,7 +102,7 @@ pub fn do_add<P: ProjectMut>(
 
         project.put_info(info, true).map_err(AddError::Project)?;
 
-        Ok(())
+        Ok(true)
     } else {
         Err(AddError::MissingInfo(
             "project is missing the interchange project information",
