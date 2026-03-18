@@ -136,16 +136,7 @@ jobs:
           architecture: ${{ matrix.platform.target }}
       - uses: astral-sh/setup-uv@v7
 
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-
+      - uses: Swatinem/rust-cache@v2
 
       - name: cargo test ... (Python bindings)
         run: |
@@ -158,6 +149,7 @@ jobs:
           target: ${{ matrix.platform.rust_target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi ${{ matrix.python.args_suffix }}
+          sccache: true
 
       - name: Upload wheels
         uses: actions/upload-artifact@v7
@@ -192,16 +184,7 @@ jobs:
           python-version: "3.14"
       - uses: astral-sh/setup-uv@v7
 
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-
+      - uses: Swatinem/rust-cache@v2
 
       - name: cargo test ... (Python bindings)
         run: cargo test --locked --package sysand-py --no-default-features
@@ -213,6 +196,7 @@ jobs:
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi
           manylinux: manylinux2014
+          sccache: true
       - name: Build wheels (musllinux)
         uses: PyO3/maturin-action@v1
         with:
@@ -220,6 +204,7 @@ jobs:
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi
           manylinux: musllinux_1_2
+          sccache: true
 
       - name: Build free-threaded wheels (manylinux)
         uses: PyO3/maturin-action@v1
@@ -228,6 +213,7 @@ jobs:
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
           manylinux: manylinux2014 # TODO: don't use default cross-compile containers for aarch64
+          sccache: true
       - name: Build free-threaded wheels (musllinux)
         uses: PyO3/maturin-action@v1
         with:
@@ -235,6 +221,7 @@ jobs:
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
           manylinux: musllinux_1_2
+          sccache: true
 
       - name: Upload wheels
         uses: actions/upload-artifact@v7
@@ -276,16 +263,7 @@ jobs:
           python-version: "3.14"
       - uses: astral-sh/setup-uv@v7
 
-      - uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-
+      - uses: Swatinem/rust-cache@v2
 
       - name: cargo test ... (Python bindings)
         run: cargo test --locked --package sysand-py --no-default-features
@@ -296,6 +274,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi
+          sccache: true
 
       - name: Build free-threaded wheels
         uses: PyO3/maturin-action@v1
@@ -303,6 +282,7 @@ jobs:
           target: ${{ matrix.platform.target }}
           working-directory: bindings/py
           args: --release --out ../../dist --compatibility pypi --interpreter python3.14t
+          sccache: true
 
       - name: Upload wheels
         uses: actions/upload-artifact@v7
