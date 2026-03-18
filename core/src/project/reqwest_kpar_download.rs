@@ -9,7 +9,6 @@ use std::{
 };
 
 use futures::AsyncRead;
-use reqwest::header::HeaderMap;
 use thiserror::Error;
 
 use crate::{
@@ -45,15 +44,10 @@ pub struct ReqwestKparDownloadedProject<Policy> {
 // TODO: reduce size of errors here and elsewhere
 #[derive(Error, Debug)]
 pub enum ReqwestKparDownloadedError {
-    #[error(
-        "HTTP request to `{url}` returned status {} with the following headers: {:#?}",
-        status,
-        headers
-    )]
+    #[error("HTTP request to `{url}` returned status {status}")]
     BadHttpStatus {
         url: Box<str>,
         status: reqwest::StatusCode,
-        headers: Box<HeaderMap>,
     },
     #[error("failed to parse URL `{0}`: {1}")]
     ParseUrl(Box<str>, url::ParseError),
@@ -106,7 +100,6 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             return Err(ReqwestKparDownloadedError::BadHttpStatus {
                 url: self.url.as_str().into(),
                 status: resp.status(),
-                headers: resp.headers().to_owned().into(),
             });
         }
         let mut bytes_stream = resp.bytes_stream();

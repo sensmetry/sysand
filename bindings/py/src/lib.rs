@@ -426,14 +426,17 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
         project_path: path.into(),
     };
 
-    do_add(
+    // TODO: do dependency resolution and locking?
+    match do_add(
         &mut project,
         &InterchangeProjectUsageRaw {
             resource: iri,
             version_constraint: version,
         },
-    )
-    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    ) {
+        Ok(_added) => Ok(()),
+        Err(e) => Err(PyRuntimeError::new_err(e.to_string())),
+    }
 }
 
 #[pyfunction(name = "do_remove_py")]

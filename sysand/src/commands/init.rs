@@ -4,7 +4,7 @@
 use crate::CliError;
 use anyhow::Result;
 use camino::{Utf8Path, Utf8PathBuf};
-use sysand_core::project::utils::wrapfs;
+use sysand_core::project::{local_src::LocalSrcProject, utils::wrapfs};
 
 const DEFAULT_VERSION: &str = "0.0.1";
 
@@ -38,7 +38,7 @@ pub fn command_init(
         no_semver,
         license,
         no_spdx,
-        &mut sysand_core::project::local_src::LocalSrcProject {
+        &mut LocalSrcProject {
             nominal_path: None,
             project_path: path,
         },

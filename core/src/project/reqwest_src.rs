@@ -206,6 +206,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
 mod tests {
     use std::{io::Read, sync::Arc};
 
+    use reqwest::header;
     use typed_path::Utf8UnixPath;
 
     use crate::{
@@ -250,6 +251,7 @@ mod tests {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"name":"test_basic_project_urls","version":"1.2.3","usage":[]}"#)
+            .match_request(|r| r.has_header(header::USER_AGENT))
             .create();
 
         let meta_mock = server
@@ -257,6 +259,7 @@ mod tests {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+            .match_request(|r| r.has_header(header::USER_AGENT))
             .create();
 
         let src = "package 'Mekanïk Kommandöh';";
@@ -266,6 +269,7 @@ mod tests {
             .with_status(200)
             .with_header("content-type", "text/plain")
             .with_body(src)
+            .match_request(|r| r.has_header(header::USER_AGENT))
             .create();
 
         let client = create_reqwest_client()?;

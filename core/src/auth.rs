@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! This module includes utilities for creating and using authentication policies for requests.
+
 use globset::{GlobBuilder, GlobSetBuilder};
-use reqwest::Response;
+use reqwest::{Response, header};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 
 pub trait HTTPAuthentication: std::fmt::Debug + 'static {
@@ -45,15 +46,26 @@ impl HTTPAuthentication for Unauthenticated {
     where
         F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        request.send().await
+        let (client, req) = request.build_split();
+        let req = req?;
+        log::debug!("{} (no auth) `{}`", req.method(), req.url());
+
+        let resp = client.execute(req).await?;
+        log::debug!(
+            "response to (no auth) `{}`: status {}, content type {:?}",
+            resp.url(),
+            resp.status(),
+            resp.headers().get(header::CONTENT_TYPE)
+        );
+        Ok(resp)
     }
 }
 
 /// Authentication policy that *always* sends a username/password pair
 #[derive(Debug, Clone)]
 pub struct ForceHTTPBasicAuth {
-    pub username: String,
-    pub password: String,
+    pub username: Box<str>,
+    pub password: Box<str>,
 }
 
 impl HTTPAuthentication for ForceHTTPBasicAuth {
@@ -65,21 +77,34 @@ impl HTTPAuthentication for ForceHTTPBasicAuth {
     where
         F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        request
+        let (client, req) = request
             .basic_auth(&self.username, Some(&self.password))
-            .send()
-            .await
+            .build_split();
+        let req = req?;
+        log::debug!("{} (basic auth) `{}`", req.method(), req.url());
+
+        let resp = client.execute(req).await?;
+        log::debug!(
+            "response to (basic auth) `{}`: status {}, content type {:?}",
+            resp.url(),
+            resp.status(),
+            resp.headers().get(header::CONTENT_TYPE)
+        );
+        Ok(resp)
     }
 }
 
-/// Authentication policy that *always* includes a given header
+/// Authentication policy that *always* includes a bearer token
 #[derive(Debug, Clone)]
-struct HeaderAuth {
-    pub header: String,
-    pub value: String,
+pub struct ForceBearerAuth(Box<str>);
+
+impl ForceBearerAuth {
+    pub fn new<S: AsRef<str>>(token: S) -> ForceBearerAuth {
+        Self(token.as_ref().into())
+    }
 }
 
-impl HTTPAuthentication for HeaderAuth {
+impl HTTPAuthentication for ForceBearerAuth {
     async fn request_with_authentication<F>(
         &self,
         request: RequestBuilder,
@@ -88,35 +113,18 @@ impl HTTPAuthentication for HeaderAuth {
     where
         F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
-        request.header(&self.header, &self.value).send().await
-    }
-}
+        let (client, req) = request.bearer_auth(&self.0).build_split();
+        let req = req?;
+        log::debug!("{} (bearer auth) `{}`", req.method(), req.url());
 
-/// Authentication policy that *always* includes a bearer token
-#[derive(Debug, Clone)]
-pub struct ForceBearerAuth(HeaderAuth);
-
-impl ForceBearerAuth {
-    pub fn new<S: AsRef<str>>(token: S) -> ForceBearerAuth {
-        ForceBearerAuth(HeaderAuth {
-            header: "Authorization".to_owned(),
-            value: format!("Bearer {}", token.as_ref()),
-        })
-    }
-}
-
-impl HTTPAuthentication for ForceBearerAuth {
-    async fn request_with_authentication<F>(
-        &self,
-        request: RequestBuilder,
-        renew_request: &F,
-    ) -> Result<Response, reqwest_middleware::Error>
-    where
-        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
-    {
-        self.0
-            .request_with_authentication(request, renew_request)
-            .await
+        let resp = client.execute(req).await?;
+        log::debug!(
+            "response to (bearer auth) `{}`: status {}, content type {:?}",
+            resp.url(),
+            resp.status(),
+            resp.headers().get(header::CONTENT_TYPE)
+        );
+        Ok(resp)
     }
 }
 
@@ -153,7 +161,9 @@ impl<Higher: HTTPAuthentication, Lower: HTTPAuthentication> HTTPAuthentication
 
         // Many servers (e.g. GitLab pages) generate a 404 instead of a 401 or 403 in response
         // to lack of authentication.
-        if initial_response.status().is_client_error() {
+        let status = initial_response.status();
+        if status.is_client_error() {
+            log::debug!("higher priority auth request returned status {status}, trying lower");
             self.lower
                 .request_with_authentication(renew_request(&client), renew_request)
                 .await
@@ -324,7 +334,7 @@ impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthe
                     .iter()
                     .fold(String::new(), |acc, (p, _)| acc + "\n" + p);
                 log::warn!(
-                    "URL {} matches multiple authentication patterns: {}",
+                    "URL {} matches multiple authentication URL globs: {}",
                     url.as_str(),
                     matched_patterns
                 );
@@ -429,8 +439,8 @@ impl StandardHTTPAuthenticationBuilder {
             SequenceAuthentication {
                 higher: Unauthenticated {},
                 lower: StandardInnerAuthentication::HTTPBasicAuth(ForceHTTPBasicAuth {
-                    username: username.as_ref().to_string(),
-                    password: password.as_ref().to_string(),
+                    username: username.as_ref().into(),
+                    password: password.as_ref().into(),
                 }),
             },
         );

@@ -13,6 +13,7 @@ pub fn init(level: LevelFilter) -> Result<(), SetLoggerError> {
         .filter_level(level)
         .format(format)
         .target(Target::Stderr)
+        .parse_default_env()
         .try_init()
 }
 
@@ -29,6 +30,10 @@ fn format(buf: &mut Formatter, record: &Record<'_>) -> Result<(), io::Error> {
         log::Level::Debug => {
             let style = style::NOTE;
             writeln!(buf, "{style}debug{style:#}: {}", record.args())
+        }
+        log::Level::Trace => {
+            let style = style::PLACEHOLDER;
+            writeln!(buf, "{style}trace{style:#}: {}", record.args())
         }
         _ => {
             writeln!(buf, "{}", record.args())
