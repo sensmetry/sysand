@@ -35,6 +35,7 @@ jobs:
       gate: ${{ steps.decisions.outputs.gate }}
     steps:
       - uses: dorny/paths-filter@v4
+        if: github.event_name == 'pull_request'
         id: filter
         with:
           filters: |
