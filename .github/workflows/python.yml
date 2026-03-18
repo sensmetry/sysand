@@ -338,7 +338,6 @@ jobs:
       id-token: write # for actions/attest
       attestations: write # for actions/attest
       artifact-metadata: write # for actions/attest
-      contents: write # for uploading release artifacts
 
     steps:
       - uses: actions/download-artifact@v8
