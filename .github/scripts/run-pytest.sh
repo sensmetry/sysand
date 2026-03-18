@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 #
@@ -17,7 +17,7 @@ rm -f bindings/py/.python-version
 uv python list --only-installed
 cd bindings/py
 uv venv --clear --no-project
-source ${ACTIVATION_SCRIPT}
+. "${ACTIVATION_SCRIPT}"
 uv sync --only-dev --active --no-install-project --locked --no-progress
 uv pip install sysand --find-links ../../dist --force-reinstall --no-index
 pytest
