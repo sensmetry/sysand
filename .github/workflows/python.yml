@@ -361,6 +361,7 @@ jobs:
 
       - name: Publish to PyPI
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        # An attempt to fix reliable 502s from PyPi publishing. See https://github.com/sensmetry/sysand/issues/223
         env:
           UV_CONCURRENT_DOWNLOADS: "1"
         run: |
