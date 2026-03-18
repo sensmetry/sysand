@@ -35,7 +35,7 @@ env:
 
 jobs:
   plan:
-    runs-on: ubuntu-24.04-slim
+    runs-on: ubuntu-slim
     outputs:
       test: ${{ steps.decisions.outputs.test }}
       gate: ${{ steps.decisions.outputs.gate }}
@@ -344,7 +344,7 @@ jobs:
     name: Python CI Gate
     needs: [plan, lint, windows, linux, macos, sdist]
     if: needs.plan.outputs.gate == 'true' && !cancelled()
-    runs-on: ubuntu-24.04-slim
+    runs-on: ubuntu-slim
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
@@ -356,7 +356,7 @@ jobs:
     environment: pypi-publish
     needs: [lint, linux, macos, windows, sdist]
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-24.04-slim
+    runs-on: ubuntu-slim
     permissions:
       id-token: write # for trusted publishing, and signing release artifacts
       contents: write # for uploading release artifacts
