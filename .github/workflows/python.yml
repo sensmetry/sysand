@@ -235,14 +235,10 @@ jobs:
 
       - name: pytest (musllinux)
         run: |
-          docker run --rm -v ${{ github.workspace }}:/io -w /io \
-            alpine:latest \
-            sh -c '
-              apk add -q curl bash python3
-              curl -LsSf https://astral.sh/uv/install.sh | sh
-              export PATH=$PATH:$HOME/.local/bin
-              /bin/bash .github/scripts/run-pytest.sh
-            '
+          docker run \
+            --rm -v ${{ github.workspace }}:/io -w /io \
+            ghcr.io/astral-sh/uv:python3.14-alpine \
+            sh .github/scripts/run-pytest.sh
 
   macos:
     needs: [plan]
