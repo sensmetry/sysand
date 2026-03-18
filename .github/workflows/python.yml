@@ -335,34 +335,24 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-slim
     permissions:
-      id-token: write # for actions/attest
-      attestations: write # for actions/attest
+      id-token: write # for actions/attest and pypa/gh-action-pypi-publish
+      attestations: write # for actions/attest and pypa/gh-action-pypi-publish
       artifact-metadata: write # for actions/attest
 
     steps:
       - uses: actions/download-artifact@v8
 
+      - name: Collect packages
+        run: |
+          mkdir dist
+          cp wheels-*/* dist/
+
       - name: Generate artifact attestation
-        id: attest
         uses: actions/attest@v4
         with:
-          subject-path: "wheels-*/*"
-
-      - name: Prepare attestations for uv
-        run: |
-          # The action creates one attestation bundle for all artifacts, but
-          # uv expects a separate .publish.attestation file for each artifact
-          for file in wheels-*/*; do
-            cp "${{ steps.attest.outputs.bundle-path }}" "$file.publish.attestation"
-          done
-
-      - uses: astral-sh/setup-uv@v7
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+          subject-path: "dist/*"
 
       - name: Publish to PyPI
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        # An attempt to fix reliable 502s from PyPi publishing. See https://github.com/sensmetry/sysand/issues/223
-        env:
-          UV_CONCURRENT_DOWNLOADS: "1"
-        run: |
-          uv publish -v --trusted-publishing always wheels-*/*
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true
