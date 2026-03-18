@@ -54,7 +54,7 @@ fn run_cli(args: Vec<String>) -> PyResult<bool> {
 )]
 fn do_init_py_local_file(
     name: String,
-    publisher: String,
+    publisher: Option<String>,
     version: String,
     path: String,
     license: Option<String>,

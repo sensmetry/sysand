@@ -15,7 +15,7 @@ public class Sysand {
      * already exist.
      *
      * @param name    The name of the project.
-     * @param publisher  The publisher of the project.
+     * @param publisher  The publisher of the project. If {@code null}, default value will be used.
      * @param version The version of the project in SemVer 2.0.0 format.
      * @param license The license of the project given as an SPDX license identifier. May be {@code null}.
      * @param path    The path to the directory in which to initialize the project.
@@ -28,7 +28,7 @@ public class Sysand {
      * already exist.
      *
      * @param name    The name of the project.
-     * @param publisher  The publisher of the project.
+     * @param publisher  The publisher of the project. If {@code null}, default value will be used.
      * @param version The version of the project in SemVer 2.0.0 format.
      * @param license The license of the project given as an SPDX license identifier. May be {@code null}.
      * @param path    The path to the directory in which to initialize the project.
