@@ -228,7 +228,7 @@ jobs:
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_CENTRAL_GPG_PASSPHRASE }}
 
   ci-gate:
-    name: Java CI
+    name: Java CI Gate
     needs: [plan, compile-bindings, build-jar, test-jar]
     if: needs.plan.outputs.gate == 'true' && !cancelled()
     runs-on: ubuntu-24.04

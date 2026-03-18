@@ -341,7 +341,7 @@ jobs:
           if-no-files-found: error
 
   ci-gate:
-    name: Python CI
+    name: Python CI Gate
     needs: [plan, lint, windows, linux, macos, sdist]
     if: needs.plan.outputs.gate == 'true' && !cancelled()
     runs-on: ubuntu-24.04

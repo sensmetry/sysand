@@ -82,7 +82,7 @@ jobs:
           npm run test:browser
 
   ci-gate:
-    name: JS/WASM CI
+    name: JS/WASM CI Gate
     needs: [plan, test]
     if: needs.plan.outputs.gate == 'true' && !cancelled()
     runs-on: ubuntu-24.04
