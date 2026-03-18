@@ -220,9 +220,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             basic_auth_passwords.get(k),
             bearer_auth_tokens.get(k),
         ) {
-            (Some(_), None, None, None) => {
+            (Some(pattern), None, None, None) => {
                 anyhow::bail!(
-                    "SYSAND_CRED_{k} has no matching authentication scheme, please specify SYSAND_CRED_{k}_BASIC_USER/SYSAND_CRED_{k}_BASIC_PASS or SYSAND_CRED_{k}_BEARER_TOKEN"
+                    "SYSAND_CRED_{k} (`{pattern}`) has no matching authentication scheme, please specify SYSAND_CRED_{k}_BASIC_USER/SYSAND_CRED_{k}_BASIC_PASS or SYSAND_CRED_{k}_BEARER_TOKEN"
                 );
             }
             (Some(pattern), maybe_username, maybe_password, maybe_token) => {
