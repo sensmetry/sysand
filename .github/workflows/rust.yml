@@ -29,7 +29,7 @@ env:
 
 jobs:
   plan:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-slim
     outputs:
       test: ${{ steps.decisions.outputs.test }}
       gate: ${{ steps.decisions.outputs.gate }}
@@ -159,7 +159,7 @@ jobs:
     name: Rust CI Gate
     needs: [plan, lint-and-format, test, build]
     if: needs.plan.outputs.gate == 'true' && !cancelled()
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-slim
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
