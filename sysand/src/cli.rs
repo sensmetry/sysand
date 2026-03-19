@@ -82,6 +82,7 @@ pub enum Command {
         no_spdx: bool,
     },
     // Only for better error messages
+    #[command(hide = true)]
     New {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
