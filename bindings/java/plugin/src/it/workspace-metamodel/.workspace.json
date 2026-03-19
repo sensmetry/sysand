@@ -1,0 +1,11 @@
+{
+  "projects": [
+    {
+      "path": "project1",
+      "iris": ["urn:kpar:project1"]
+    }
+  ],
+  "meta": {
+    "metamodel": "https://www.omg.org/spec/SysML/20250201"
+  }
+}

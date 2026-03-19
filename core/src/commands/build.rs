@@ -150,6 +150,15 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         which is unlikely to be available on other computers at the same path"
     )]
     PathUsage(String),
+    #[error(
+        "workspace sets metamodel `{workspace_metamodel}`, \
+         but project `{project_path}` also sets metamodel in `.meta.json`;\n\
+         remove the metamodel from the project's `.meta.json` or from `.workspace.json`"
+    )]
+    WorkspaceMetamodelConflict {
+        workspace_metamodel: String,
+        project_path: String,
+    },
 }
 
 impl<ProjectReadError: ErrorBound> From<FsIoError> for KParBuildError<ProjectReadError> {
@@ -223,13 +232,32 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     canonicalise: bool,
     allow_path_usage: bool,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
+    do_build_kpar_inner(
+        project,
+        path,
+        compression,
+        canonicalise,
+        allow_path_usage,
+        None,
+    )
+}
+
+fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
+    project: &Pr,
+    path: P,
+    compression: KparCompressionMethod,
+    canonicalise: bool,
+    allow_path_usage: bool,
+    workspace_metamodel: Option<&str>,
+) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
 
     let building = "Building";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{building:>12}{header:#} kpar `{}`", path.as_ref());
 
-    let (_tmp, mut local_project, info, meta) = LocalSrcProject::temporary_from_project(project)?;
+    let (_tmp, mut local_project, info, mut meta) =
+        LocalSrcProject::temporary_from_project(project)?;
     match semver::Version::parse(&info.version) {
         Ok(_) => (),
         Err(e) => log::warn!(
@@ -266,6 +294,16 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
+    if let Some(ws_metamodel) = workspace_metamodel
+        && meta.metamodel.is_none()
+    {
+        meta.metamodel = Some(ws_metamodel.to_string());
+        use crate::project::ProjectMut;
+        local_project
+            .put_meta(&meta, true)
+            .map_err(KParBuildError::from)?;
+    }
+
     if canonicalise {
         for path in meta.validate()?.source_paths(true) {
             use crate::include::do_include;
@@ -288,20 +326,36 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     canonicalise: bool,
     allow_path_usage: bool,
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
+    let ws_metamodel = workspace.metamodel().map(|iri| iri.as_str());
+
     let mut result = Vec::new();
-    for project in workspace.projects() {
+    for project_info in workspace.projects() {
         let project = LocalSrcProject {
             nominal_path: None,
-            project_path: workspace.root_path().join(&project.path),
+            project_path: workspace.root_path().join(&project_info.path),
         };
+
+        if let Some(ws_mm) = ws_metamodel {
+            let project_meta = project.get_meta().map_err(KParBuildError::ProjectRead)?;
+            if let Some(meta) = &project_meta
+                && meta.metamodel.is_some()
+            {
+                return Err(KParBuildError::WorkspaceMetamodelConflict {
+                    workspace_metamodel: ws_mm.to_string(),
+                    project_path: project_info.path.clone(),
+                });
+            }
+        }
+
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);
-        let kpar_project = do_build_kpar(
+        let kpar_project = do_build_kpar_inner(
             &project,
             &output_path,
             compression,
             canonicalise,
             allow_path_usage,
+            ws_metamodel,
         )?;
         result.push(kpar_project);
     }

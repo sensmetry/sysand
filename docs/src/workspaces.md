@@ -28,16 +28,22 @@ under the workspace root directory.
 A workspace is defined by `.workspace.json` file in the root directory of
 the workspace.
 
-`.workspace.json` contains a JSON object. The only currently permitted key
-is `projects`, for which the value is an array of objects having two keys:
+`.workspace.json` contains a JSON object with the following keys:
 
-- `path`: A Unix-style path relative to workspace root, specifying the
-  project's directory
-- `iris`: An array of IRIs identifying the project. The IRIs can be freely
-  chosen, but reasonable care has to be taken to make them not clash with
-  possible IRIs of third party projects. Any of the included IRIs can be
-  used to refer to the project from other projects in the workspace
-  instead of using `file://` URLs
+- `projects`: An array of objects having two keys:
+  - `path`: A Unix-style path relative to workspace root, specifying the
+    project's directory
+  - `iris`: An array of IRIs identifying the project. The IRIs can be freely
+    chosen, but reasonable care has to be taken to make them not clash with
+    possible IRIs of third party projects. Any of the included IRIs can be
+    used to refer to the project from other projects in the workspace
+    instead of using `file://` URLs
+- `meta` (optional): An object containing workspace-level metadata:
+  - `metamodel` (optional): An IRI specifying the metamodel for all projects
+    in the workspace. When set, individual projects must **not** also set
+    `metamodel` in their `.meta.json` — doing so will produce an error.
+    During build, the workspace metamodel is injected into each project
+    that does not already have one set.
 
 ## Example
 
@@ -58,6 +64,9 @@ An example `.workspace.json` file:
       "path": "project3",
       "iris": ["urn:local:project3"]
     }
-  ]
+  ],
+  "meta": {
+    "metamodel": "https://www.omg.org/spec/SysML/20250201"
+  }
 }
 ```
