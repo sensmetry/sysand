@@ -647,11 +647,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     output_dir.push(name);
                     output_dir
                 };
+                let readme_path = current_project.project_path.join("README.md");
                 command_build_for_project(
                     path,
                     compression.into(),
                     current_project,
                     allow_path_usage,
+                    Some(readme_path.as_ref()),
                 )
             } else {
                 // If the workspace is also missing, report an error about

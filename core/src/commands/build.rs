@@ -222,6 +222,7 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     compression: KparCompressionMethod,
     canonicalise: bool,
     allow_path_usage: bool,
+    readme_source_path: Option<&Utf8Path>,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
 
@@ -274,10 +275,28 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
+    let readme_content = if let Some(readme_path) = readme_source_path {
+        match std::fs::read(readme_path) {
+            Ok(content) => {
+                let header = crate::style::get_style_config().header;
+                let including = "Including";
+                log::info!("{header}{including:>12}{header:#} readme from `{readme_path}`");
+                Some(content)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(FsIoError::ReadFile(readme_path.into(), e).into());
+            }
+        }
+    } else {
+        None
+    };
+
     Ok(LocalKParProject::from_project(
         &local_project,
         path,
         compression.into(),
+        readme_content.as_deref(),
     )?)
 }
 
@@ -290,9 +309,11 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
     let mut result = Vec::new();
     for project in workspace.projects() {
+        let project_path = workspace.root_path().join(&project.path);
+        let readme_source_path = project_path.join("README.md");
         let project = LocalSrcProject {
             nominal_path: None,
-            project_path: workspace.root_path().join(&project.path),
+            project_path,
         };
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);
@@ -302,6 +323,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             compression,
             canonicalise,
             allow_path_usage,
+            Some(readme_source_path.as_ref()),
         )?;
         result.push(kpar_project);
     }
