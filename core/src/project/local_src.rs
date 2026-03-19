@@ -11,6 +11,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
+use indexmap::IndexMap;
+
 use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
@@ -230,6 +232,13 @@ impl LocalSrcProject {
     // pub fn source_paths(&self) -> &str {
     //     self.get_project()
     // }
+
+    pub fn set_index(&mut self, new_index: IndexMap<String, String>) -> Result<(), LocalSrcError> {
+        let mut meta = self.get_meta()?.ok_or(LocalSrcError::MissingMeta)?;
+        meta.index = new_index;
+        self.put_meta(&meta, true)?;
+        Ok(())
+    }
 }
 
 impl ProjectMut for LocalSrcProject {
@@ -319,6 +328,8 @@ impl ProjectMut for LocalSrcProject {
 pub enum LocalSrcError {
     #[error("{0}")]
     AlreadyExists(String),
+    #[error("project is missing metadata file `.meta.json`")]
+    MissingMeta,
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]

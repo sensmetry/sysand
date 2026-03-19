@@ -6,7 +6,7 @@ use crate::exceptions::JniExt;
 use indexmap::IndexMap;
 use jni::{
     JNIEnv,
-    objects::{JObject, JObjectArray, JValue},
+    objects::{JMap, JObject, JObjectArray, JString, JValue},
 };
 use sysand_core::model::{
     InterchangeProjectChecksum, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
@@ -323,6 +323,25 @@ impl ToJObject for InterchangeProjectMetadataRaw {
             }
         }
     }
+}
+
+pub(crate) fn java_map_to_index_map<'local>(
+    env: &mut JNIEnv<'local>,
+    map_obj: &JObject<'local>,
+) -> Result<IndexMap<String, String>, jni::errors::Error> {
+    let jmap = JMap::from_env(env, map_obj)?;
+    let mut iter = jmap.iter(env)?;
+    let mut result = IndexMap::new();
+    while let Some((key, value)) = iter.next(env)? {
+        let key_str = env
+            .get_str(&JString::from(key), "index map key")
+            .ok_or(jni::errors::Error::JavaException)?;
+        let value_str = env
+            .get_str(&JString::from(value), "index map value")
+            .ok_or(jni::errors::Error::JavaException)?;
+        result.insert(key_str, value_str);
+    }
+    Ok(result)
 }
 
 impl ToJObject for (InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw) {

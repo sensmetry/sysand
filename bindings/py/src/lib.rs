@@ -5,7 +5,7 @@ use std::{collections::HashMap, process::ExitCode, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use pyo3::{
-    exceptions::{PyFileExistsError, PyIOError, PyRuntimeError, PyValueError},
+    exceptions::{PyFileExistsError, PyFileNotFoundError, PyIOError, PyRuntimeError, PyValueError},
     prelude::*,
 };
 use semver::{Version, VersionReq};
@@ -78,6 +78,7 @@ fn do_init_py_local_file(
                 LocalSrcError::ImpossibleRelativePath(error) => {
                     PyValueError::new_err(error.to_string())
                 }
+                LocalSrcError::MissingMeta => PyFileNotFoundError::new_err(err.to_string()),
             },
         },
     )?;
@@ -105,6 +106,7 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
             LocalWriteError::ImpossibleRelativePath(error) => {
                 PyValueError::new_err(error.to_string())
             }
+            LocalWriteError::MissingMeta => PyFileNotFoundError::new_err(werr.to_string()),
         },
     })?;
 

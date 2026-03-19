@@ -69,6 +69,9 @@ impl From<LocalSrcError> for GixDownloadedError {
             LocalSrcError::Io(e) => Self::Io(e),
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
+            LocalSrcError::MissingMeta => GixDownloadedError::Other(
+                "project is missing metadata file `.meta.json`".to_string(),
+            ),
         }
     }
 }

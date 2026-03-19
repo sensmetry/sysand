@@ -413,6 +413,8 @@ pub enum LocalWriteError {
         {0}"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
+    #[error("project is missing metadata file `.meta.json`")]
+    MissingMeta,
 }
 
 impl From<FsIoError> for LocalWriteError {
@@ -440,6 +442,7 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::Io(e) => LocalWriteError::Io(e),
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
+            LocalSrcError::MissingMeta => LocalWriteError::MissingMeta,
         }
     }
 }
