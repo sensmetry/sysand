@@ -225,6 +225,9 @@ fn do_build_py(
             KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
             KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
             KParBuildError::PathUsage(_) => PyValueError::new_err(err.to_string()),
+            KParBuildError::WorkspaceMetamodelConflict { .. } => {
+                PyValueError::new_err(err.to_string())
+            }
         })
 }
 
