@@ -33,14 +33,17 @@ pub struct LocalDirectoryEnvironment {
 
 pub const DEFAULT_ENV_NAME: &str = "sysand_env";
 
-pub const DEFAULT_METADATA_NAME: &str = "env.toml";
-
+pub const METADATA_PATH: &str = "env.toml";
 pub const ENTRIES_PATH: &str = "entries.txt";
 pub const VERSIONS_PATH: &str = "versions.txt";
 
 impl LocalDirectoryEnvironment {
     pub fn root_path(&self) -> &Utf8Path {
         &self.environment_path
+    }
+
+    pub fn metadata_path(&self) -> Utf8PathBuf {
+        self.environment_path.join(METADATA_PATH)
     }
 
     pub fn entries_path(&self) -> Utf8PathBuf {
