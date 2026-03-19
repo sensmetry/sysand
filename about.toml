@@ -1,3 +1,22 @@
+# cargo-about is a tool to generate license attribution reports for Rust
+# dependencies, intended to be shipped alongside release artifacts.
+#
+# It is independent of cargo-deny (see deny.toml), which enforces license
+# policy at build/CI time. Use both: deny to gate, about to document.
+#
+# Config reference: https://github.com/EmbarkStudios/cargo-about#configuration
+#
+# Common tasks
+#
+# - Generate a license report (JSON): cargo about generate --format json
+# - Generate a license report (HTML): cargo about generate <template file, .hbs format>
+#
+# FIXME:
+#
+# - we currently error when trying to generate a report
+# - this file is outdated and does not list all targets that we support
+# - our CI system doesn't care about it currently
+#
 accepted = [
     "Apache-2.0 WITH LLVM-exception",
     "Apache-2.0",

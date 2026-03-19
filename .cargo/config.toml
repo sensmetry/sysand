@@ -1,2 +1,13 @@
+# Cargo configuration for the sysand workspace.
+#
+# Config reference: https://doc.rust-lang.org/cargo/reference/config.html
+#
+# rustflags set to statically link the C runtime (CRT) on Windows, so that the
+# Visual C++ Redistributable (VCRUNTIME140.dll) does not need to be installed on
+# the host computer.
+#
+# crt-static reference: See https://rust-lang.github.io/rfcs/1721-crt-static.html
+# dumpbin verification: https://github.com/sensmetry/sysand/pull/91#issuecomment-4081523020
+#
 [target.'cfg(windows)']
 rustflags = ["-Ctarget-feature=+crt-static"]
