@@ -153,6 +153,14 @@ impl Workspace {
     pub fn metamodel(&self) -> Option<&Iri<String>> {
         self.info.meta.as_ref().and_then(|m| m.metamodel.as_ref())
     }
+
+    pub fn absolute_project_paths(&self) -> Vec<Utf8PathBuf> {
+        self.info
+            .projects
+            .iter()
+            .map(|p| self.root_dir.join(&p.path))
+            .collect()
+    }
 }
 
 #[cfg(test)]
