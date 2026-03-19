@@ -139,4 +139,148 @@ public class BasicTest {
         // TODO: Find a good mock server so that we can test this.
     }
 
+    @Test
+    public void testSetProjectIndex() {
+        try {
+            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-update-index");
+            com.sensmetry.sysand.Sysand.init("test_index", "a", "1.0.0", null, tempDir);
+
+            java.util.LinkedHashMap<String, String> index = new java.util.LinkedHashMap<>();
+            index.put("Foo", "src/Foo.sysml");
+            index.put("Bar", "src/Bar.sysml");
+            index.put("Baz", "src/sub/Baz.kerml");
+
+            com.sensmetry.sysand.Sysand.setProjectIndex(tempDir, index);
+
+            // Verify via infoPath that the index was persisted
+            com.sensmetry.sysand.model.InterchangeProject project = com.sensmetry.sysand.Sysand.infoPath(tempDir);
+            assertNotNull(project);
+            assertNotNull(project.metadata);
+            java.util.LinkedHashMap<String, String> readIndex = project.metadata.getIndex();
+            assertEquals(3, readIndex.size());
+            assertEquals("src/Foo.sysml", readIndex.get("Foo"));
+            assertEquals("src/Bar.sysml", readIndex.get("Bar"));
+            assertEquals("src/sub/Baz.kerml", readIndex.get("Baz"));
+
+            // Verify the raw JSON contains the index entries
+            String metaJson = new String(Files.readAllBytes(tempDir.resolve(".meta.json")));
+            assertTrue(metaJson.contains("\"Foo\": \"src/Foo.sysml\""), "meta.json should contain Foo entry");
+            assertTrue(metaJson.contains("\"Bar\": \"src/Bar.sysml\""), "meta.json should contain Bar entry");
+            assertTrue(metaJson.contains("\"Baz\": \"src/sub/Baz.kerml\""), "meta.json should contain Baz entry");
+        } catch (java.io.IOException e) {
+            fail("Failed: " + e.getMessage());
+        } catch (com.sensmetry.sysand.exceptions.SysandException e) {
+            fail("Failed: " + e.getMessage());
+        }
+    }
+
+    private void writeWorkspaceJson(java.nio.file.Path workspaceDir, String... projectNames) throws java.io.IOException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\n  \"projects\": [\n");
+        for (int i = 0; i < projectNames.length; i++) {
+            sb.append("    {\"path\": \"").append(projectNames[i])
+              .append("\", \"iris\": [\"urn:test:").append(projectNames[i]).append("\"]}");
+            if (i < projectNames.length - 1) sb.append(",");
+            sb.append("\n");
+        }
+        sb.append("  ]\n}\n");
+        Files.write(workspaceDir.resolve(".workspace.json"), sb.toString().getBytes());
+    }
+
+    @Test
+    public void testWorkspaceProjectPaths() {
+        try {
+            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-workspace-paths");
+
+            // Create two project directories and init them
+            java.nio.file.Path projA = tempDir.resolve("projA");
+            java.nio.file.Path projB = tempDir.resolve("projB");
+            Files.createDirectories(projA);
+            Files.createDirectories(projB);
+            com.sensmetry.sysand.Sysand.init("projA", "a", "1.0.0", null, projA);
+            com.sensmetry.sysand.Sysand.init("projB", "a", "1.0.0", null, projB);
+
+            // Write .workspace.json
+            writeWorkspaceJson(tempDir, "projA", "projB");
+
+            // Get project paths via API
+            String[] paths = com.sensmetry.sysand.Sysand.workspaceProjectPaths(tempDir);
+            assertEquals(2, paths.length);
+
+            // Paths should be absolute and contain the project names
+            java.util.Arrays.sort(paths);
+            assertTrue(paths[0].endsWith("projA"), "First path should end with projA: " + paths[0]);
+            assertTrue(paths[1].endsWith("projB"), "Second path should end with projB: " + paths[1]);
+            assertTrue(java.nio.file.Paths.get(paths[0]).isAbsolute(), "Paths should be absolute");
+            assertTrue(java.nio.file.Paths.get(paths[1]).isAbsolute(), "Paths should be absolute");
+        } catch (java.io.IOException e) {
+            fail("Failed: " + e.getMessage());
+        } catch (com.sensmetry.sysand.exceptions.SysandException e) {
+            fail("Failed: " + e.getMessage());
+        }
+    }
+
+    @Test
+    public void testSetWorkspaceProjectIndexes() {
+        try {
+            java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-workspace-index");
+
+            // Create two project directories and init them
+            java.nio.file.Path projA = tempDir.resolve("projA");
+            java.nio.file.Path projB = tempDir.resolve("projB");
+            Files.createDirectories(projA);
+            Files.createDirectories(projB);
+            com.sensmetry.sysand.Sysand.init("projA", "a", "1.0.0", null, projA);
+            com.sensmetry.sysand.Sysand.init("projB", "a", "1.0.0", null, projB);
+
+            // Write .workspace.json
+            writeWorkspaceJson(tempDir, "projA", "projB");
+
+            // Get project paths and update each with distinct indexes
+            String[] paths = com.sensmetry.sysand.Sysand.workspaceProjectPaths(tempDir);
+            assertEquals(2, paths.length);
+
+            java.util.LinkedHashMap<String, String> indexA = new java.util.LinkedHashMap<>();
+            indexA.put("Alpha", "src/Alpha.sysml");
+            indexA.put("Beta", "src/Beta.sysml");
+
+            java.util.LinkedHashMap<String, String> indexB = new java.util.LinkedHashMap<>();
+            indexB.put("Gamma", "lib/Gamma.kerml");
+
+            // Update each project's index (sort paths to get deterministic assignment)
+            java.util.Arrays.sort(paths);
+            com.sensmetry.sysand.Sysand.setProjectIndex(java.nio.file.Paths.get(paths[0]), indexA);
+            com.sensmetry.sysand.Sysand.setProjectIndex(java.nio.file.Paths.get(paths[1]), indexB);
+
+            // Verify projA index
+            com.sensmetry.sysand.model.InterchangeProject projectA = com.sensmetry.sysand.Sysand.infoPath(
+                    java.nio.file.Paths.get(paths[0]));
+            assertNotNull(projectA);
+            assertEquals(2, projectA.metadata.getIndex().size());
+            assertEquals("src/Alpha.sysml", projectA.metadata.getIndex().get("Alpha"));
+            assertEquals("src/Beta.sysml", projectA.metadata.getIndex().get("Beta"));
+
+            // Verify projB index
+            com.sensmetry.sysand.model.InterchangeProject projectB = com.sensmetry.sysand.Sysand.infoPath(
+                    java.nio.file.Paths.get(paths[1]));
+            assertNotNull(projectB);
+            assertEquals(1, projectB.metadata.getIndex().size());
+            assertEquals("lib/Gamma.kerml", projectB.metadata.getIndex().get("Gamma"));
+
+            // Verify raw JSON for each project
+            String metaA = new String(Files.readAllBytes(java.nio.file.Paths.get(paths[0]).resolve(".meta.json")));
+            assertTrue(metaA.contains("\"Alpha\""), "projA meta.json should contain Alpha");
+            assertTrue(metaA.contains("\"Beta\""), "projA meta.json should contain Beta");
+            assertFalse(metaA.contains("\"Gamma\""), "projA meta.json should not contain Gamma");
+
+            String metaB = new String(Files.readAllBytes(java.nio.file.Paths.get(paths[1]).resolve(".meta.json")));
+            assertTrue(metaB.contains("\"Gamma\""), "projB meta.json should contain Gamma");
+            assertFalse(metaB.contains("\"Alpha\""), "projB meta.json should not contain Alpha");
+        } catch (java.io.IOException e) {
+            fail("Failed: " + e.getMessage());
+        } catch (com.sensmetry.sysand.exceptions.SysandException e) {
+            fail("Failed: " + e.getMessage());
+        }
+    }
+
 }

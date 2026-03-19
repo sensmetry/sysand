@@ -26,7 +26,7 @@ use sysand_core::{
 };
 
 use crate::{
-    conversion::{ToJObject, ToJObjectArray},
+    conversion::{ToJObject, ToJObjectArray, java_map_to_index_map},
     exceptions::{ExceptionKind, JniExt, StdlibExceptionKind},
 };
 
@@ -106,6 +106,9 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
                 LocalSrcError::ImpossibleRelativePath(_) => {
                     env.throw_exception(ExceptionKind::PathError, suberror.to_string())
                 }
+                LocalSrcError::MissingMeta => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
+                }
             },
         },
     }
@@ -166,6 +169,9 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
                 }
                 LocalWriteError::ImpossibleRelativePath(_) => {
                     env.throw_exception(ExceptionKind::PathError, suberror.to_string())
+                }
+                LocalWriteError::MissingMeta => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
                 }
             },
         },
@@ -268,6 +274,60 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     };
 
     results.to_jobject_array(&mut env).unwrap_or_default()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_sensmetry_sysand_Sysand_workspaceProjectPaths<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    workspace_path: JString<'local>,
+) -> JObjectArray<'local> {
+    let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
+        return JObjectArray::default();
+    };
+    let workspace = match Workspace::new(workspace_path.into()) {
+        Ok(w) => w,
+        Err(e) => {
+            env.throw_exception(ExceptionKind::InvalidWorkspace, e.to_string());
+            return JObjectArray::default();
+        }
+    };
+    let paths: Vec<String> = workspace
+        .absolute_project_paths()
+        .into_iter()
+        .map(|p| p.into_string())
+        .collect();
+    paths.to_jobject_array(&mut env).unwrap_or_default()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectIndex<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    project_path: JString<'local>,
+    index: JObject<'local>,
+) {
+    let Some(project_path) = env.get_str(&project_path, "projectPath") else {
+        return;
+    };
+    let rust_index = match java_map_to_index_map(&mut env, &index) {
+        Ok(index) => index,
+        Err(jni::errors::Error::JavaException) => {
+            // Exception already thrown by get_str
+            return;
+        }
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to convert index map: {e}"));
+            return;
+        }
+    };
+    let mut project = LocalSrcProject {
+        nominal_path: None,
+        project_path: Utf8PathBuf::from(project_path),
+    };
+    let _ = project
+        .set_index(rust_index)
+        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, e.to_string()));
 }
 
 fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>) {
