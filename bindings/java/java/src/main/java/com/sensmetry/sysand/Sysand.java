@@ -148,6 +148,48 @@ public class Sysand {
     }
 
     /**
+     * Get absolute paths of all projects in a workspace.
+     *
+     * @param workspacePath The path to the workspace directory containing {@code .workspace.json}.
+     * @return An array of absolute project paths.
+     */
+    private static native String[] workspaceProjectPaths(String workspacePath)
+            throws com.sensmetry.sysand.exceptions.SysandException;
+
+    /**
+     * Get absolute paths of all projects in a workspace.
+     *
+     * @param workspacePath The path to the workspace directory containing {@code .workspace.json}.
+     * @return An array of absolute project paths.
+     */
+    public static String[] workspaceProjectPaths(java.nio.file.Path workspacePath)
+            throws com.sensmetry.sysand.exceptions.SysandException {
+        return workspaceProjectPaths(workspacePath.toString());
+    }
+
+    /**
+     * Update the index field in a project's {@code .meta.json} file.
+     * If the file does not exist, a default one will be created.
+     *
+     * @param projectPath The path to the project directory.
+     * @param index       A map of symbol names to file paths.
+     */
+    private static native void updateProjectIndex(String projectPath, java.util.LinkedHashMap<String, String> index)
+            throws com.sensmetry.sysand.exceptions.SysandException;
+
+    /**
+     * Update the index field in a project's {@code .meta.json} file.
+     * If the file does not exist, a default one will be created.
+     *
+     * @param projectPath The path to the project directory.
+     * @param index       A map of symbol names to file paths.
+     */
+    public static void updateProjectIndex(java.nio.file.Path projectPath, java.util.LinkedHashMap<String, String> index)
+            throws com.sensmetry.sysand.exceptions.SysandException {
+        updateProjectIndex(projectPath.toString(), index);
+    }
+
+    /**
      * Build Model Project Interchange file (.kpar) from the project at the given
      * path.
      *

@@ -11,6 +11,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
+use indexmap::IndexMap;
+
 use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
@@ -230,6 +232,18 @@ impl LocalSrcProject {
     // pub fn source_paths(&self) -> &str {
     //     self.get_project()
     // }
+
+    pub fn update_index(
+        &mut self,
+        new_index: IndexMap<String, String>,
+    ) -> Result<(), LocalSrcError> {
+        let mut meta = self
+            .get_meta()?
+            .unwrap_or_else(InterchangeProjectMetadataRaw::default);
+        meta.index = new_index;
+        self.put_meta(&meta, true)?;
+        Ok(())
+    }
 }
 
 impl ProjectMut for LocalSrcProject {
