@@ -126,13 +126,21 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
 
     let entries = std::fs::read_dir(cwd.join(env_path))?.collect::<Result<Vec<_>, _>>()?;
 
-    assert_eq!(entries.len(), 2);
+    let mut entry_names: Vec<_> = entries
+        .iter()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
 
-    assert_eq!(entries[0].file_name(), ENTRIES_PATH);
+    let entries_path_index = entry_names.iter().position(|e| e == ENTRIES_PATH).unwrap();
 
-    assert_eq!(entries[1].file_name(), METADATA_PATH);
+    entry_names.sort();
 
-    assert_eq!(std::fs::read_to_string(entries[0].path())?, "");
+    assert_eq!(entry_names, [ENTRIES_PATH, METADATA_PATH]);
+
+    assert_eq!(
+        std::fs::read_to_string(entries[entries_path_index].path())?,
+        ""
+    );
 
     Ok(())
 }
