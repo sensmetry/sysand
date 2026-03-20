@@ -142,7 +142,6 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             &project.inner().project_path,
-            true,
             &mut env,
             client,
             &provided_iris,

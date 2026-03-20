@@ -9,7 +9,7 @@ use url::ParseError;
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment, METADATA_PATH},
+    env::local_directory::{LocalDirectoryEnvironment, metadata::load_env_metadata},
     lock::Lock,
     project::{
         AsSyncProjectTokio, ProjectReadAsync,
@@ -27,7 +27,6 @@ use sysand_core::{
 pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     lock: &Lock,
     project_root: P,
-    update_metadata: bool,
     env: &mut LocalDirectoryEnvironment,
     client: reqwest_middleware::ClientWithMiddleware,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
@@ -69,16 +68,16 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         provided_iris,
     )?;
 
-    if update_metadata {
-        let env_metadata = lock.to_env_metadata(env, &project_root)?;
-        wrapfs::write(
-            project_root
-                .as_ref()
-                .join(DEFAULT_ENV_NAME)
-                .join(METADATA_PATH),
-            env_metadata.to_string(),
-        )?;
-    }
+    let lock_metadata = lock.to_env_metadata(env, project_root)?;
+    let env_metadata = if wrapfs::is_file(env.metadata_path())? {
+        let mut env_metadata = load_env_metadata(env.metadata_path())?;
+        env_metadata.merge(lock_metadata);
+        env_metadata
+    } else {
+        lock_metadata
+    };
+
+    wrapfs::write(env.metadata_path(), env_metadata.to_string())?;
 
     Ok(())
 }

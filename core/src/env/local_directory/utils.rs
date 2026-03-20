@@ -80,7 +80,7 @@ pub fn try_remove_files<P: AsRef<Utf8Path>, I: Iterator<Item = P>>(
                 moved.push(path.to_path_buf());
             }
             Err(cause) => {
-                // NOTE: This dance is to bypass the fact that std::io::error is not Clone-eable...
+                // NOTE: This dance is to bypass the fact that std::io::error is not cloneable...
                 let mut catastrophic_error = None;
                 for (j, recover) in moved.iter().enumerate() {
                     if let Err(err) = move_fs_item(tempdir.path().join(j.to_string()), recover) {

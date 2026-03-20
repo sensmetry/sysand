@@ -59,9 +59,9 @@ impl Lock {
                 metadata.projects.push(EnvProject {
                     publisher: project.publisher,
                     name: project.name,
-                    identifiers: project.identifiers,
                     version: project.version,
                     path,
+                    identifiers: project.identifiers,
                     usages,
                     editable: false,
                     files: None,
@@ -81,9 +81,9 @@ impl Lock {
                 metadata.projects.push(EnvProject {
                     publisher: project.publisher,
                     name: project.name,
-                    identifiers: project.identifiers,
                     version: project.version,
                     path: editable.as_str().into(),
+                    identifiers: project.identifiers,
                     usages,
                     editable: true,
                     files: Some(files),
@@ -98,6 +98,7 @@ impl Lock {
 #[derive(Debug, Deserialize)]
 pub struct EnvMetadata {
     pub version: String,
+    #[serde(rename = "project", skip_serializing_if = "Vec::is_empty", default)]
     pub projects: Vec<EnvProject>,
 }
 
@@ -189,6 +190,17 @@ impl EnvMetadata {
         }
     }
 
+    pub fn remove_project<S: AsRef<str>, V: AsRef<str>>(&mut self, iri: S, version: Option<V>) {
+        if let Some(v) = version {
+            self.projects.retain(|p| {
+                p.version != v.as_ref() || !p.identifiers.iter().any(|i| i == iri.as_ref())
+            });
+        } else {
+            self.projects
+                .retain(|p| !p.identifiers.iter().any(|i| i == iri.as_ref()));
+        }
+    }
+
     /// Add `LocalSrcProject` to env. Must have `nominal_path` set.
     pub fn add_local_project(
         &mut self,
@@ -202,11 +214,11 @@ impl EnvMetadata {
         let project = EnvProject {
             publisher: info.publisher,
             name: Some(info.name),
-            identifiers,
             version: info.version,
             path: project
                 .nominal_path
                 .expect("expected nominal path for project"),
+            identifiers,
             usages: info.usage.into_iter().map(|u| u.resource).collect(),
             editable,
             files: None,
@@ -230,12 +242,6 @@ pub struct EnvProject {
     pub publisher: Option<String>,
     /// Name of the project. Intended for display purposes.
     pub name: Option<String>,
-    /// List of identifiers (IRIs) used for the project.
-    /// The first identifier is to. be considered the canonical
-    /// identifier, and if the project is not `editable` this
-    /// is the IRI it is installed as. The rest are considered
-    /// as aliases. Can only be empty for `editable` projects.
-    pub identifiers: Vec<String>,
     /// Version of the project.
     pub version: String,
     /// Path to the root directory of the project.
@@ -243,11 +249,20 @@ pub struct EnvProject {
     /// to the env directory and otherwise it should be relative
     /// to the workspace root.
     pub path: Utf8PathBuf,
+    /// List of identifiers (IRIs) used for the project.
+    /// The first identifier is to. be considered the canonical
+    /// identifier, and if the project is not `editable` this
+    /// is the IRI it is installed as. The rest are considered
+    /// as aliases. Can only be empty for `editable` projects.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub identifiers: Vec<String>,
     /// Usages of the project. Intended for tools needing to
     /// track the interdependence of project in the environment.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub usages: Vec<String>,
     /// Indicator of wether the project is fully installed in
     /// the environment or located elsewhere.
+    #[serde(skip_serializing_if = "bool::is_false", default)]
     pub editable: bool,
     /// In case of an `editable` project these are the files
     /// belonging to the project. Intended for tools that
@@ -266,14 +281,14 @@ impl EnvProject {
         if let Some(name) = &self.name {
             table.insert("name", value(name));
         }
+        table.insert("version", value(&self.version));
+        table.insert("path", value(self.path.as_str()));
         if !self.identifiers.is_empty() {
             table.insert(
                 "identifiers",
                 value(multiline_array(self.identifiers.iter())),
             );
         }
-        table.insert("version", value(&self.version));
-        table.insert("path", value(self.path.as_str()));
         if !self.usages.is_empty() {
             table.insert("usages", value(multiline_array(self.usages.iter())));
         }

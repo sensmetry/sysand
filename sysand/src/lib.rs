@@ -110,7 +110,7 @@ where
 
 fn set_panic_hook() {
     // TODO: use `panic::update_hook()` once it's stable
-    //       also set bactrace style once it's stable, but take
+    //       also set backtrace style once it's stable, but take
     //       into account the current level
     let default_hook = panic::take_hook();
     // panic::set_backtrace_style(panic::BacktraceStyle::Short);
@@ -181,7 +181,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             .unwrap(),
     );
 
-    let _runtime_keepalive = runtime.clone();
+    let _runtime_keep_alive = runtime.clone();
 
     // FIXME: This is a temporary implementation to provide credentials until
     //        https://github.com/sensmetry/sysand/pull/157
@@ -418,7 +418,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             command_sync(
                 &lock,
                 project_root,
-                true,
                 &mut local_environment,
                 client,
                 &provided_iris,
