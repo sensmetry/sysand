@@ -40,7 +40,6 @@ pub enum WorkspaceValidationError {
 pub struct WorkspaceInfoG<Iri> {
     pub projects: Vec<WorkspaceProjectInfoG<Iri>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
     pub meta: Option<WorkspaceMetaG<Iri>>,
 }
 
