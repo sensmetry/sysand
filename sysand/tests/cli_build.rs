@@ -366,7 +366,55 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
     let out = run_sysand_in(&cwd, ["build"], None)?;
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("workspace sets metamodel"));
+        .stderr(predicate::str::contains("sets a different metamodel"));
+
+    Ok(())
+}
+
+/// Workspace and project set the **same** metamodel — no conflict, build succeeds
+#[test]
+fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project1_cwd = cwd.join("project1");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project1", "iris": ["urn:kpar:project1"]}
+            ],
+            "meta": {
+                "metamodel": "https://www.omg.org/spec/SysML/20250201"
+            }
+        }"#,
+    )?;
+
+    std::fs::create_dir(&project1_cwd)?;
+    let out = run_sysand_in(
+        &project1_cwd,
+        ["init", "--version", "1.0.0", "--name", "project1"],
+        None,
+    )?;
+    out.assert().success();
+
+    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
+    let out = run_sysand_in(
+        &project1_cwd,
+        ["include", "--no-index-symbols", "test.sysml"],
+        None,
+    )?;
+    out.assert().success();
+
+    // Set the same metamodel in the project's .meta.json — should NOT conflict
+    let meta_path = project1_cwd.join(".meta.json");
+    let meta_content = std::fs::read_to_string(&meta_path)?;
+    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
+    meta["metamodel"] =
+        serde_json::Value::String("https://www.omg.org/spec/SysML/20250201".to_string());
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
+
+    let out = run_sysand_in(&cwd, ["build"], None)?;
+    out.assert().success();
 
     Ok(())
 }
