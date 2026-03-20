@@ -74,7 +74,7 @@ impl TryFrom<WorkspaceInfoRaw> for WorkspaceInfo {
                     .metamodel
                     .map(|m| {
                         if !KNOWN_METAMODELS.contains(&m.as_str()) {
-                            log::warn!("workspace uses an unknown metamodel `{}`", m);
+                            log::warn!("workspace uses an unknown metamodel `{m}`");
                         }
                         Iri::parse(m)
                             .map_err(|(e, iri)| WorkspaceValidationError::InvalidIri(iri, e))
