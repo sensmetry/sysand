@@ -13,7 +13,7 @@ use sysand_core::{
     commands::{env::do_env_local_dir, lock::LockOutcome},
     config::Config,
     context::ProjectContext,
-    env::local_directory::LocalDirectoryEnvironment,
+    env::local_directory::{LocalDirectoryEnvironment, metadata::load_env_metadata},
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
@@ -120,7 +120,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     // TODO: don't use different root project resolution
     //       mechanisms depending on no_deps
     if no_deps {
-        let (_version, storage) =
+        let (version, storage) =
             crate::commands::clone::get_project_version(&iri, version, &resolver)?;
         sysand_core::commands::env::do_env_install_project(
             &iri,
@@ -129,6 +129,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             allow_overwrite,
             allow_multiple,
         )?;
+        add_single_env_project(iri, version.to_string(), env)?;
     } else {
         let usages = vec![InterchangeProjectUsage {
             resource: fluent_uri::Iri::from_str(iri.as_ref())?,
@@ -159,7 +160,6 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             project_root,
-            false,
             &mut env,
             client,
             &provided_iris,
@@ -231,14 +231,14 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
     };
 
-    if let Some(version) = version {
-        let project_version = project
-            .get_info()?
-            .ok_or_else(|| anyhow!("missing project info"))?
-            .version;
-        if version != project_version {
-            bail!("given version {version} does not match project version {project_version}")
-        }
+    let project_version = project
+        .get_info()?
+        .ok_or_else(|| anyhow!("missing project info"))?
+        .version;
+    if let Some(version) = version
+        && version != project_version
+    {
+        bail!("given version {version} does not match project version {project_version}")
     }
 
     // TODO: Fix this hack. Currently installing manually then turning project into Editable to
@@ -296,24 +296,50 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             project_root,
-            false,
             &mut env,
             client,
             &provided_iris,
             runtime,
             auth_policy,
         )?;
+    } else {
+        add_single_env_project(iri, project_version, env)?;
     }
 
     Ok(())
 }
 
-pub fn command_env_uninstall<S: AsRef<str>, Q: AsRef<str>>(
+fn add_single_env_project<S: AsRef<str>, V: AsRef<str>>(
     iri: S,
-    version: Option<Q>,
+    version: V,
     env: LocalDirectoryEnvironment,
 ) -> Result<()> {
-    sysand_core::commands::env::do_env_uninstall(iri, version, env)?;
+    let metadata_path = env.metadata_path();
+    let mut env_metadata = load_env_metadata(&metadata_path)?;
+    let project_path = env.project_path(&iri, version);
+    let project = LocalSrcProject {
+        nominal_path: Some(project_path.strip_prefix(env.root_path())?.to_owned()),
+        project_path,
+    };
+    env_metadata.add_local_project(vec![iri.as_ref().to_owned()], project, false)?;
+    wrapfs::write(metadata_path, env_metadata.to_string())?;
+
+    Ok(())
+}
+
+pub fn command_env_uninstall<S: AsRef<str>, V: AsRef<str>>(
+    iri: S,
+    version: Option<V>,
+    env: LocalDirectoryEnvironment,
+) -> Result<()> {
+    let metadata_path = env.metadata_path();
+
+    sysand_core::commands::env::do_env_uninstall(&iri, version.as_ref(), env)?;
+
+    let mut env_metadata = load_env_metadata(&metadata_path)?;
+    env_metadata.remove_project(iri, version);
+    wrapfs::write(metadata_path, env_metadata.to_string())?;
+
     Ok(())
 }
 

@@ -7,7 +7,9 @@ use assert_cmd::prelude::*;
 use camino::Utf8Path;
 use mockito::Server;
 use predicates::prelude::*;
-use sysand_core::env::local_directory::{DEFAULT_ENV_NAME, ENTRIES_PATH, VERSIONS_PATH};
+use sysand_core::env::local_directory::{
+    DEFAULT_ENV_NAME, ENTRIES_PATH, METADATA_PATH, VERSIONS_PATH,
+};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -124,9 +126,11 @@ fn env_install_from_local_dir() -> Result<(), Box<dyn std::error::Error>> {
 
     let entries = std::fs::read_dir(cwd.join(env_path))?.collect::<Result<Vec<_>, _>>()?;
 
-    assert_eq!(entries.len(), 1);
+    assert_eq!(entries.len(), 2);
 
     assert_eq!(entries[0].file_name(), ENTRIES_PATH);
+
+    assert_eq!(entries[1].file_name(), METADATA_PATH);
 
     assert_eq!(std::fs::read_to_string(entries[0].path())?, "");
 
