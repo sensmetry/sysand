@@ -295,14 +295,22 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
-    if let Some(ws_metamodel) = workspace_metamodel
-        && meta.metamodel.is_none()
-    {
-        meta.metamodel = Some(ws_metamodel.to_string());
-        use crate::project::ProjectMut;
-        local_project
-            .put_meta(&meta, true)
-            .map_err(KParBuildError::from)?;
+    if let Some(ws_metamodel) = workspace_metamodel {
+        if let Some(proj_metamodel) = &meta.metamodel {
+            if proj_metamodel != ws_metamodel {
+                return Err(KParBuildError::WorkspaceMetamodelConflict {
+                    workspace_metamodel: ws_metamodel.to_string(),
+                    project_metamodel: proj_metamodel.clone(),
+                    project_path: path.as_ref().to_string(),
+                });
+            }
+        } else {
+            meta.metamodel = Some(ws_metamodel.to_string());
+            use crate::project::ProjectMut;
+            local_project
+                .put_meta(&meta, true)
+                .map_err(KParBuildError::from)?;
+        }
     }
 
     if canonicalise {
@@ -335,20 +343,6 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             nominal_path: None,
             project_path: workspace.root_path().join(&project_root.path),
         };
-
-        if let Some(ws_mm) = ws_metamodel {
-            let project_meta = project.get_meta().map_err(KParBuildError::ProjectRead)?;
-            if let Some(meta) = &project_meta
-                && let Some(proj_mm) = &meta.metamodel
-                && proj_mm != ws_mm
-            {
-                return Err(KParBuildError::WorkspaceMetamodelConflict {
-                    workspace_metamodel: ws_mm.to_string(),
-                    project_metamodel: proj_mm.clone(),
-                    project_path: project_root.path.clone(),
-                });
-            }
-        }
 
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);
