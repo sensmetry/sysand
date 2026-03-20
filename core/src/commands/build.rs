@@ -330,10 +330,10 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     let ws_metamodel = workspace.metamodel().map(|iri| iri.as_str());
 
     let mut result = Vec::new();
-    for project_info in workspace.projects() {
+    for project_root in workspace.projects() {
         let project = LocalSrcProject {
             nominal_path: None,
-            project_path: workspace.root_path().join(&project_info.path),
+            project_path: workspace.root_path().join(&project_root.path),
         };
 
         if let Some(ws_mm) = ws_metamodel {
@@ -345,7 +345,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
                 return Err(KParBuildError::WorkspaceMetamodelConflict {
                     workspace_metamodel: ws_mm.to_string(),
                     project_metamodel: proj_mm.clone(),
-                    project_path: project_info.path.clone(),
+                    project_path: project_root.path.clone(),
                 });
             }
         }
