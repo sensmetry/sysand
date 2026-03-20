@@ -61,13 +61,16 @@ files = [
         )
     );
 
-    let entries = std::fs::read_dir(env_path)?.collect::<Result<Vec<_>, _>>()?;
+    let entries: Result<Vec<_>, _> = std::fs::read_dir(env_path)?.collect();
 
-    assert_eq!(entries.len(), 2);
+    let mut entry_names: Vec<_> = entries?
+        .iter()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
 
-    assert_eq!(entries[0].file_name(), ENTRIES_PATH);
+    entry_names.sort();
 
-    assert_eq!(entries[1].file_name(), METADATA_PATH);
+    assert_eq!(entry_names, [ENTRIES_PATH, METADATA_PATH]);
 
     Ok(())
 }
