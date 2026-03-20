@@ -275,7 +275,6 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             project_root,
-            true,
             &mut env,
             client,
             &provided_iris,
