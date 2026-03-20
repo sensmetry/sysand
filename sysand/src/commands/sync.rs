@@ -9,7 +9,7 @@ use url::ParseError;
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    env::local_directory::LocalDirectoryEnvironment,
+    env::local_directory::{LocalDirectoryEnvironment, metadata::load_env_metadata},
     lock::Lock,
     project::{
         AsSyncProjectTokio, ProjectReadAsync,
@@ -19,9 +19,11 @@ use sysand_core::{
         memory::InMemoryProject,
         reqwest_kpar_download::ReqwestKparDownloadedProject,
         reqwest_src::ReqwestSrcProjectAsync,
+        utils::wrapfs,
     },
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     lock: &Lock,
     project_root: P,
@@ -65,5 +67,17 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         }),
         provided_iris,
     )?;
+
+    let lock_metadata = lock.to_env_metadata(env, project_root)?;
+    let env_metadata = if wrapfs::is_file(env.metadata_path())? {
+        let mut env_metadata = load_env_metadata(env.metadata_path())?;
+        env_metadata.merge(lock_metadata);
+        env_metadata
+    } else {
+        lock_metadata
+    };
+
+    wrapfs::write(env.metadata_path(), env_metadata.to_string())?;
+
     Ok(())
 }
