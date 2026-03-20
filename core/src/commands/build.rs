@@ -151,12 +151,13 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     )]
     PathUsage(String),
     #[error(
-        "workspace sets metamodel `{workspace_metamodel}`, \
-         but project `{project_path}` also sets metamodel in `.meta.json`;\n\
+        "workspace sets metamodel `{workspace_metamodel}`, but project `{project_path}` \
+         sets a different metamodel `{project_metamodel}` in `.meta.json`;\n\
          remove the metamodel from the project's `.meta.json` or from `.workspace.json`"
     )]
     WorkspaceMetamodelConflict {
         workspace_metamodel: String,
+        project_metamodel: String,
         project_path: String,
     },
 }
@@ -338,10 +339,12 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
         if let Some(ws_mm) = ws_metamodel {
             let project_meta = project.get_meta().map_err(KParBuildError::ProjectRead)?;
             if let Some(meta) = &project_meta
-                && meta.metamodel.is_some()
+                && let Some(proj_mm) = &meta.metamodel
+                && proj_mm != ws_mm
             {
                 return Err(KParBuildError::WorkspaceMetamodelConflict {
                     workspace_metamodel: ws_mm.to_string(),
+                    project_metamodel: proj_mm.clone(),
                     project_path: project_info.path.clone(),
                 });
             }
