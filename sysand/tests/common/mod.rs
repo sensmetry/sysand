@@ -181,8 +181,8 @@ pub fn run_sysand_interactive<'a, I: IntoIterator<Item = &'a str>>(
 // TODO: Figure out how to do interactive tests on Windows.
 #[cfg(not(target_os = "windows"))]
 pub fn await_exit(p: PtySession) -> Result<std::process::ExitStatus, Box<dyn Error>> {
-    let status = p.process.wait()?;
-    if let rexpect::process::wait::WaitStatus::Exited(_, code) = status {
+    let status = p.process().wait()?;
+    if let nix::sys::wait::WaitStatus::Exited(_, code) = status {
         Ok(std::process::ExitStatus::from_raw(code))
     } else {
         Err("Failed to get exit status code".into())

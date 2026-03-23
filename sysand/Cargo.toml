@@ -55,4 +55,5 @@ url = "2.5.8"
 zip = "7.2.0"
 
 [target.'cfg(not(windows))'.dev-dependencies]
-rexpect = "0.6.3"
+rexpect = "0.7.0"
+nix = { version = "0.31.2", features = ["process"] }
