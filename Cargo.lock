@@ -3318,6 +3318,7 @@ dependencies = [
  "indexmap",
  "log",
  "mockito",
+ "nix",
  "predicates",
  "pubgrub",
  "reqwest",
