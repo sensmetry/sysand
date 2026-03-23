@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{fmt::Display, num::TryFromIntError, str::FromStr};
+use std::{fmt::Display, str::FromStr};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserialize;
@@ -26,8 +26,6 @@ pub const SUPPORTED_METADATA_VERSIONS: &[&str] = &[CURRENT_METADATA_VERSION];
 pub enum LockToEnvMetadataError {
     #[error(transparent)]
     ResolutionError(#[from] ResolutionError<LocalReadError>),
-    #[error("too many dependencies, unable to convert to i64: {0}")]
-    TooManyDependencies(TryFromIntError),
     #[error(transparent)]
     LocalSources(#[from] LocalSourcesError),
     #[error(transparent)]
@@ -51,9 +49,10 @@ impl Lock {
                 .collect();
 
             if let Some(storage) = storage {
-                let path = storage
-                    .root_path()
-                    .strip_prefix(env.root_path())
+                let project_path = wrapfs::canonicalize(storage.root_path())?;
+                let env_path = wrapfs::canonicalize(env.root_path())?;
+                let path = project_path
+                    .strip_prefix(env_path)
                     .expect("path to project in env does not share a prefix with path to env")
                     .to_owned();
                 metadata.projects.push(EnvProject {
@@ -67,14 +66,15 @@ impl Lock {
                     files: None,
                 });
             } else if let [Source::Editable { editable }, ..] = project.sources.as_slice() {
+                let root_path = wrapfs::canonicalize(root_path.as_ref())?;
                 let editable_project = LocalSrcProject {
                     nominal_path: None,
-                    project_path: wrapfs::canonicalize(root_path.as_ref().join(editable.as_str()))?,
+                    project_path: wrapfs::canonicalize(root_path.join(editable.as_str()))?,
                 };
                 let files = do_sources_local_src_project_no_deps(&editable_project, true)?
                     .into_iter()
                     .map(|path| {
-                        relativize_path(path, root_path.as_ref())
+                        relativize_path(path, root_path.clone())
                             .expect("cannot relativize path to file in editable project")
                     })
                     .collect();
@@ -272,6 +272,17 @@ pub struct EnvProject {
     pub files: Option<Vec<Utf8PathBuf>>,
 }
 
+// `toml_edit` normally serializes string differently depending
+// on if they contain any backslashes or not. In order to have
+// consistent string types for paths on different platforms we
+// use this function to force all paths to serialize to string
+// literals.
+fn from_path<P: AsRef<Utf8Path>>(path: P) -> Value {
+    format!(r#"'{}'"#, path.as_ref().as_str())
+        .parse::<Value>()
+        .unwrap()
+}
+
 impl EnvProject {
     pub fn to_toml(&self) -> Table {
         let mut table = Table::new();
@@ -282,7 +293,7 @@ impl EnvProject {
             table.insert("name", value(name));
         }
         table.insert("version", value(&self.version));
-        table.insert("path", value(self.path.as_str()));
+        table.insert("path", value(from_path(&self.path)));
         if !self.identifiers.is_empty() {
             table.insert(
                 "identifiers",
@@ -296,7 +307,7 @@ impl EnvProject {
             table.insert("editable", value(true));
         }
         if let Some(files) = &self.files {
-            let file_iter = files.iter().map(|f| Value::from(f.as_str()));
+            let file_iter = files.iter().map(from_path);
             if files.is_empty() {
                 table.insert("files", value(Array::from_iter(file_iter)));
             } else {
@@ -324,12 +335,6 @@ pub enum EnvMetadataReadError {
     Io(#[from] Box<FsIoError>),
     #[error(transparent)]
     Unsupported(UnsupportedVersionError),
-}
-
-impl From<FsIoError> for EnvMetadataReadError {
-    fn from(err: FsIoError) -> Self {
-        Self::Io(Box::new(err))
-    }
 }
 
 pub fn load_env_metadata<P: AsRef<Utf8Path>>(path: P) -> Result<EnvMetadata, EnvMetadataReadError> {
