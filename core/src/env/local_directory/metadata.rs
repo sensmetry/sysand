@@ -7,6 +7,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 use toml_edit::{Array, ArrayOfTables, DocumentMut, Item, Table, Value, value};
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     commands::sources::{LocalSourcesError, do_sources_local_src_project_no_deps},
@@ -14,7 +15,10 @@ use crate::{
     lock::{Lock, ResolutionError, Source, multiline_array},
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
-        utils::{FsIoError, relativize_path, wrapfs},
+        utils::{
+            FsIoError, ToUnixPathBuf, deserialize_optional_unix_paths, deserialize_unix_path,
+            relativize_path, wrapfs,
+        },
     },
 };
 
@@ -54,7 +58,7 @@ impl Lock {
                 let path = project_path
                     .strip_prefix(env_path)
                     .expect("path to project in env does not share a prefix with path to env")
-                    .to_owned();
+                    .to_unix_path_buf();
                 metadata.projects.push(EnvProject {
                     publisher: project.publisher,
                     name: project.name,
@@ -76,6 +80,7 @@ impl Lock {
                     .map(|path| {
                         relativize_path(path, root_path.clone())
                             .expect("cannot relativize path to file in editable project")
+                            .to_unix_path_buf()
                     })
                     .collect();
                 metadata.projects.push(EnvProject {
@@ -217,7 +222,8 @@ impl EnvMetadata {
             version: info.version,
             path: project
                 .nominal_path
-                .expect("expected nominal path for project"),
+                .expect("expected nominal path for project")
+                .to_unix_path_buf(),
             identifiers,
             usages: info.usage.into_iter().map(|u| u.resource).collect(),
             editable,
@@ -248,7 +254,8 @@ pub struct EnvProject {
     /// If the project is not `editable` this should be relative
     /// to the env directory and otherwise it should be relative
     /// to the workspace root.
-    pub path: Utf8PathBuf,
+    #[serde(deserialize_with = "deserialize_unix_path")]
+    pub path: Utf8UnixPathBuf,
     /// List of identifiers (IRIs) used for the project.
     /// The first identifier is to. be considered the canonical
     /// identifier, and if the project is not `editable` this
@@ -269,18 +276,8 @@ pub struct EnvProject {
     /// are not able to natively parse and understand the
     /// projects `.meta.json` file. Paths should be relative
     /// to the `path` of the project.
-    pub files: Option<Vec<Utf8PathBuf>>,
-}
-
-// `toml_edit` normally serializes string differently depending
-// on if they contain any backslashes or not. In order to have
-// consistent string types for paths on different platforms we
-// use this function to force all paths to serialize to string
-// literals.
-fn from_path<P: AsRef<Utf8Path>>(path: P) -> Value {
-    format!(r#"'{}'"#, path.as_ref().as_str())
-        .parse::<Value>()
-        .unwrap()
+    #[serde(deserialize_with = "deserialize_optional_unix_paths", default)]
+    pub files: Option<Vec<Utf8UnixPathBuf>>,
 }
 
 impl EnvProject {
@@ -293,7 +290,7 @@ impl EnvProject {
             table.insert("name", value(name));
         }
         table.insert("version", value(&self.version));
-        table.insert("path", value(from_path(&self.path)));
+        table.insert("path", value(self.path.as_str()));
         if !self.identifiers.is_empty() {
             table.insert(
                 "identifiers",
@@ -307,7 +304,7 @@ impl EnvProject {
             table.insert("editable", value(true));
         }
         if let Some(files) = &self.files {
-            let file_iter = files.iter().map(from_path);
+            let file_iter = files.iter().map(|f| f.as_str());
             if files.is_empty() {
                 table.insert("files", value(Array::from_iter(file_iter)));
             } else {
