@@ -429,14 +429,9 @@ fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
 
-    let expected_error = if cfg!(windows) {
-        "The system cannot find the file specified"
-    } else {
-        "No such file or directory"
-    };
-    out.assert()
-        .failure()
-        .stderr(predicates::str::contains(expected_error));
+    out.assert().failure().stderr(predicates::str::contains(
+        "`test.sysml` does not exist or is not a file",
+    ));
 
     let meta: InterchangeProjectMetadataRaw =
         serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
