@@ -11,6 +11,7 @@ use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     commands::sources::{LocalSourcesError, do_sources_local_src_project_no_deps},
+    context::ProjectContext,
     env::local_directory::{LocalDirectoryEnvironment, LocalReadError},
     lock::{Lock, ResolutionError, Source, multiline_array},
     project::{
@@ -37,10 +38,10 @@ pub enum LockToEnvMetadataError {
 }
 
 impl Lock {
-    pub fn to_env_metadata<P: AsRef<Utf8Path>>(
+    pub fn to_env_metadata(
         &self,
         env: &LocalDirectoryEnvironment,
-        root_path: P,
+        ctx: &ProjectContext,
     ) -> Result<EnvMetadata, LockToEnvMetadataError> {
         let resolved_projects = self.resolve_projects(env)?;
 
@@ -68,9 +69,16 @@ impl Lock {
                     usages,
                     editable: false,
                     files: None,
+                    workspace: false,
                 });
             } else if let [Source::Editable { editable }, ..] = project.sources.as_slice() {
-                let root_path = wrapfs::canonicalize(root_path.as_ref())?;
+                let root_path = if let Some(current_workspace) = &ctx.current_workspace {
+                    wrapfs::canonicalize(current_workspace.root_path())?
+                } else if let Some(current_project) = &ctx.current_project {
+                    wrapfs::canonicalize(current_project.root_path())?
+                } else {
+                    wrapfs::canonicalize(&ctx.current_directory)?
+                };
                 let editable_project = LocalSrcProject {
                     nominal_path: None,
                     project_path: wrapfs::canonicalize(root_path.join(editable.as_str()))?,
@@ -83,6 +91,11 @@ impl Lock {
                             .to_unix_path_buf()
                     })
                     .collect();
+                let workspace = ctx
+                    .current_workspace
+                    .iter()
+                    .flat_map(|ws| ws.projects().iter())
+                    .any(|p| p.path.as_str() == editable);
                 metadata.projects.push(EnvProject {
                     publisher: project.publisher,
                     name: project.name,
@@ -92,6 +105,7 @@ impl Lock {
                     usages,
                     editable: true,
                     files: Some(files),
+                    workspace,
                 });
             }
         }
@@ -212,6 +226,7 @@ impl EnvMetadata {
         identifiers: Vec<String>,
         project: LocalSrcProject,
         editable: bool,
+        workspace: bool,
     ) -> Result<(), AddProjectError> {
         let info = project
             .get_info()?
@@ -228,6 +243,7 @@ impl EnvMetadata {
             usages: info.usage.into_iter().map(|u| u.resource).collect(),
             editable,
             files: None,
+            workspace,
         };
         self.add_project(project);
 
@@ -278,6 +294,9 @@ pub struct EnvProject {
     /// to the `path` of the project.
     #[serde(deserialize_with = "deserialize_optional_unix_paths", default)]
     pub files: Option<Vec<Utf8UnixPathBuf>>,
+    /// Indicator of wether the project is part of a workspace.
+    #[serde(skip_serializing_if = "bool::is_false", default)]
+    pub workspace: bool,
 }
 
 impl EnvProject {

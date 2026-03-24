@@ -165,6 +165,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             &provided_iris,
             runtime,
             auth_policy,
+            &ctx,
         )?;
     }
 
@@ -301,6 +302,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             &provided_iris,
             runtime,
             auth_policy,
+            &ctx,
         )?;
     } else {
         add_single_env_project(iri, project_version, env)?;
@@ -321,7 +323,7 @@ fn add_single_env_project<S: AsRef<str>, V: AsRef<str>>(
         nominal_path: Some(project_path.strip_prefix(env.root_path())?.to_owned()),
         project_path,
     };
-    env_metadata.add_local_project(vec![iri.as_ref().to_owned()], project, false)?;
+    env_metadata.add_local_project(vec![iri.as_ref().to_owned()], project, false, false)?;
     wrapfs::write(metadata_path, env_metadata.to_string())?;
 
     Ok(())
