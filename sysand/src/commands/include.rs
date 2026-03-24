@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
 // use glob::glob;
-use sysand_core::{context::ProjectContext, include::do_include};
+use sysand_core::{context::ProjectContext, include::do_include, project::utils::wrapfs};
 
 use crate::CliError;
 
@@ -19,6 +19,9 @@ pub fn command_include(
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
     for file in files {
+        if !wrapfs::is_file(file.to_path_buf())? {
+            bail!("`{file}` does not exist or is not a file");
+        }
         let unix_path = current_project.get_unix_path(file)?;
 
         do_include(
