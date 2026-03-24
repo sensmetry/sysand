@@ -1,10 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::str::FromStr;
-
 use assert_cmd::prelude::*;
-use camino::Utf8PathBuf;
 use indexmap::IndexMap;
 use mockito::Matcher;
 use predicates::prelude::*;
@@ -55,10 +52,10 @@ version = "0.1"
 publisher = "untitled"
 name = "sync_to_current"
 version = "1.2.3"
-path = '.'
+path = "."
 editable = true
 files = [
-    'test.sysml',
+    "test.sysml",
 ]
 "#
         )
@@ -129,10 +126,6 @@ sources = [
         .stderr(predicate::str::contains("Installing"));
 
     let env_metadata = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
-    let project_env_path =
-        Utf8PathBuf::from_str("5ddc0a2e8aaa88ac2bfc71aa0a8d08e020bceac4a90a4b72d8fb7f97ec5bfcc5")
-            .unwrap()
-            .join("1.2.3.kpar");
 
     assert_eq!(
         env_metadata,
@@ -144,7 +137,7 @@ version = "0.1"
 [[project]]
 name = "sync_to_local"
 version = "1.2.3"
-path = '{project_env_path}'
+path = "5ddc0a2e8aaa88ac2bfc71aa0a8d08e020bceac4a90a4b72d8fb7f97ec5bfcc5/1.2.3.kpar"
 identifiers = [
     "urn:kpar:sync_to_local",
 ]
@@ -221,10 +214,6 @@ sources = [
     meta_mock.assert();
 
     let env_metadata = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
-    let project_env_path =
-        Utf8PathBuf::from_str("2b95cb7c6d6c08695b0e7c4b7e9d836c21de37fb9c72b0cfa26f53fd84a1b459")
-            .unwrap()
-            .join("1.2.3.kpar");
 
     assert_eq!(
         env_metadata,
@@ -236,7 +225,7 @@ version = "0.1"
 [[project]]
 name = "sync_to_remote"
 version = "1.2.3"
-path = '{project_env_path}'
+path = "2b95cb7c6d6c08695b0e7c4b7e9d836c21de37fb9c72b0cfa26f53fd84a1b459/1.2.3.kpar"
 identifiers = [
     "urn:kpar:sync_to_remote",
 ]
