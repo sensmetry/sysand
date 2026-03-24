@@ -51,6 +51,7 @@ impl HTTPAuthentication for Unauthenticated {
         log::debug!("{} (no auth) `{}`", req.method(), req.url());
 
         let resp = client.execute(req).await?;
+        // useful to log final URL in case redirects happen
         log::debug!(
             "response to (no auth) `{}`: status {}, content type {:?}",
             resp.url(),
@@ -290,6 +291,11 @@ impl<T> GlobMap<T> {
 /// otherwise use `unrestricted`. For an ambiguous match a warning is generated and the
 /// ambiguous options are tried, in order, until a non-4xx response is generated. If no
 /// option produces a non-4xx response, the *first* response is returned.
+///
+/// Note that redirects work differently (due to reqwest internal defaults):
+/// - if `restricted` is used for a URL, it is also used for the redirect target if
+///   the target is on the same host
+/// - `unrestricted` is not tried for redirect target URL.
 pub struct RestrictAuthentication<Restricted, Unrestricted> {
     pub restricted: GlobMap<Restricted>,
     pub unrestricted: Unrestricted,

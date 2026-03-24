@@ -3,19 +3,18 @@
 
 use std::{error::Error, fmt::Display};
 
-use reqwest::header::{self, HeaderMap, HeaderValue};
+use reqwest::header;
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 use url::Url;
 
-// application/vnd.github.raw+json is required for GitHub API to return raw
+// application/vnd.github.raw is required for GitHub API to return raw
 // file contents
-const KPAR_ACCEPT: &str =
-    "application/zip, application/octet-stream, application/vnd.github.raw+json";
-const JSON_ACCEPT: &str = "application/vnd.github.raw+json, application/json, text/plain";
+const KPAR_ACCEPT: &str = "application/zip, application/octet-stream, application/vnd.github.raw";
+const JSON_ACCEPT: &str = "application/vnd.github.raw, application/json, text/plain";
 // application/octet-stream is included here because `.sysml`/`.kerml`
 // file extensions are unusual enough that some servers are likely to
 // treat them as binary data
-const TEXT_ACCEPT: &str = "application/vnd.github.raw+json, text/plain, application/octet-stream";
+const TEXT_ACCEPT: &str = "application/vnd.github.raw, text/plain, application/octet-stream";
 
 /// For KPAR and other binary files
 pub fn kpar_get_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder {
@@ -87,15 +86,14 @@ impl Display for ReqwestClientBuildError {
 }
 impl Error for ReqwestClientBuildError {}
 
+/// Create a reqwest client. This must be used where possible.
+/// Note that gix manages its own HTTP client, so logs may indicate
+/// duplicate initialization.
 pub fn create_reqwest_client()
 -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
     const UA: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
-    let mut headers = HeaderMap::new();
-    headers.insert(header::USER_AGENT, HeaderValue::from_static(UA));
 
-    let client = reqwest::Client::builder()
-        .default_headers(headers)
-        .build()?;
+    let client = reqwest::Client::builder().user_agent(UA).build()?;
 
     Ok(reqwest_middleware::ClientBuilder::new(client).build())
 }
