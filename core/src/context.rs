@@ -1,12 +1,18 @@
 #[cfg(feature = "filesystem")]
+use camino::Utf8PathBuf;
+
+#[cfg(feature = "filesystem")]
 use crate::{project::local_src::LocalSrcProject, workspace::Workspace};
 
 #[derive(Debug, Default)]
 pub struct ProjectContext {
-    /// Root directory of current workspace
+    /// Current workspace if found
     #[cfg(feature = "filesystem")]
     pub current_workspace: Option<Workspace>,
-    /// Root directory of current project
+    /// Current project if found
     #[cfg(feature = "filesystem")]
     pub current_project: Option<LocalSrcProject>,
+    /// Path to current directory
+    #[cfg(feature = "filesystem")]
+    pub current_directory: Utf8PathBuf,
 }

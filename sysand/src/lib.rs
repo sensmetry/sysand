@@ -147,6 +147,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let ctx = ProjectContext {
         current_workspace: discover_workspace(&cwd)?,
         current_project: discover_project(&cwd)?,
+        current_directory: cwd.clone(),
     };
     let project_root = ctx
         .current_project
@@ -369,7 +370,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     client,
                     runtime,
                     basic_auth_policy,
-                    ctx,
+                    &ctx,
                 )
                 .map(|_| ())
             } else {
@@ -409,7 +410,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                             client.clone(),
                             runtime.clone(),
                             basic_auth_policy.clone(),
-                            ctx,
+                            &ctx,
                         )?
                     } else {
                         bail!("failed to read lockfile `{lockfile}`: {e}")
@@ -424,6 +425,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &provided_iris,
                 runtime,
                 basic_auth_policy,
+                &ctx,
             )
         }
         Command::PrintRoot => command_print_root(cwd),

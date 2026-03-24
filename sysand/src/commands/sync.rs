@@ -9,6 +9,7 @@ use url::ParseError;
 
 use sysand_core::{
     auth::HTTPAuthentication,
+    context::ProjectContext,
     env::local_directory::{LocalDirectoryEnvironment, metadata::load_env_metadata},
     lock::Lock,
     project::{
@@ -32,6 +33,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    ctx: &ProjectContext,
 ) -> Result<()> {
     sysand_core::commands::sync::do_sync(
         lock,
@@ -68,7 +70,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         provided_iris,
     )?;
 
-    let lock_metadata = lock.to_env_metadata(env, project_root)?;
+    let lock_metadata = lock.to_env_metadata(env, ctx)?;
     let env_metadata = if wrapfs::is_file(env.metadata_path())? {
         let mut env_metadata = load_env_metadata(env.metadata_path())?;
         env_metadata.merge(lock_metadata);
