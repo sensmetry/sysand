@@ -142,6 +142,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         );
         log::set_max_level(log_level);
     }
+    log::debug!("sysand v{}", env!("CARGO_PKG_VERSION"));
 
     let ctx = ProjectContext {
         current_workspace: discover_workspace(&cwd)?,
