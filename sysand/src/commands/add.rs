@@ -280,6 +280,7 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             &provided_iris,
             runtime,
             auth_policy,
+            ctx,
         )?;
     }
     Ok(())

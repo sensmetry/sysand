@@ -20,7 +20,7 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectMut, ProjectRead,
-        utils::{RelativizePathError, ToPathBuf, relativize_path, wrapfs},
+        utils::{RelativizePathError, ToPathBuf, ToUnixPathBuf, relativize_path, wrapfs},
     },
 };
 
@@ -119,17 +119,7 @@ impl LocalSrcProject {
         let path = relativize_path_in(&path, project_path)
             .ok_or_else(|| UnixPathError::PathOutsideProject(path.to_path_buf()))?;
 
-        let mut unix_path = Utf8UnixPathBuf::new();
-        for component in path.components() {
-            unix_path.push(
-                component
-                    .as_os_str()
-                    .to_str()
-                    .ok_or_else(|| UnixPathError::Conversion(path.to_owned()))?,
-            );
-        }
-
-        Ok(unix_path)
+        Ok(path.to_unix_path_buf())
     }
 
     pub fn get_source_path<P: AsRef<Utf8UnixPath>>(
@@ -358,8 +348,6 @@ pub enum UnixPathError {
     PathOutsideProject(Utf8PathBuf),
     #[error("failed to canonicalize\n  `{0}`:\n  {1}")]
     Canonicalize(Utf8PathBuf, std::io::Error),
-    #[error("path `{0}` is not valid Unicode")]
-    Conversion(Utf8PathBuf),
 }
 
 #[derive(Error, Debug)]
