@@ -6,20 +6,16 @@ use std::{fmt::Display, str::FromStr};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
-use toml_edit::{Array, ArrayOfTables, DocumentMut, Item, Table, Value, value};
+use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value, value};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::{
-    commands::sources::{LocalSourcesError, do_sources_local_src_project_no_deps},
     context::ProjectContext,
     env::local_directory::{LocalDirectoryEnvironment, LocalReadError},
     lock::{Lock, ResolutionError, Source, multiline_array},
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
-        utils::{
-            FsIoError, ToUnixPathBuf, deserialize_optional_unix_paths, deserialize_unix_path,
-            relativize_path, wrapfs,
-        },
+        utils::{FsIoError, ToUnixPathBuf, deserialize_unix_path, wrapfs},
     },
 };
 
@@ -31,8 +27,6 @@ pub const SUPPORTED_METADATA_VERSIONS: &[&str] = &[CURRENT_METADATA_VERSION];
 pub enum LockToEnvMetadataError {
     #[error(transparent)]
     ResolutionError(#[from] ResolutionError<LocalReadError>),
-    #[error(transparent)]
-    LocalSources(#[from] LocalSourcesError),
     #[error(transparent)]
     Canonicalization(#[from] Box<FsIoError>),
 }
@@ -68,29 +62,9 @@ impl Lock {
                     identifiers: project.identifiers,
                     usages,
                     editable: false,
-                    files: None,
                     workspace: false,
                 });
             } else if let [Source::Editable { editable }, ..] = project.sources.as_slice() {
-                let root_path = if let Some(current_workspace) = &ctx.current_workspace {
-                    current_workspace.root_path()
-                } else if let Some(current_project) = &ctx.current_project {
-                    current_project.root_path()
-                } else {
-                    &ctx.current_directory
-                };
-                let editable_project = LocalSrcProject {
-                    nominal_path: None,
-                    project_path: wrapfs::canonicalize(root_path.join(editable.as_str()))?,
-                };
-                let files = do_sources_local_src_project_no_deps(&editable_project, true)?
-                    .into_iter()
-                    .map(|path| {
-                        relativize_path(path, root_path)
-                            .expect("cannot relativize path to file in editable project")
-                            .to_unix_path_buf()
-                    })
-                    .collect();
                 let workspace = ctx
                     .current_workspace
                     .iter()
@@ -104,7 +78,6 @@ impl Lock {
                     identifiers: project.identifiers,
                     usages,
                     editable: true,
-                    files: Some(files),
                     workspace,
                 });
             }
@@ -242,7 +215,6 @@ impl EnvMetadata {
             identifiers,
             usages: info.usage.into_iter().map(|u| u.resource).collect(),
             editable,
-            files: None,
             workspace,
         };
         self.add_project(project);
@@ -292,10 +264,6 @@ pub struct EnvProject {
     /// are not able to natively parse and understand the
     /// projects `.meta.json` file. Paths should be relative
     /// to the `path` of the project.
-    #[serde(deserialize_with = "deserialize_optional_unix_paths", default)]
-    pub files: Option<Vec<Utf8UnixPathBuf>>,
-    /// Indicator of whether the project is part of the current
-    /// workspace.
     #[serde(skip_serializing_if = "bool::is_false", default)]
     pub workspace: bool,
 }
@@ -322,14 +290,6 @@ impl EnvProject {
         }
         if self.editable {
             table.insert("editable", value(true));
-        }
-        if let Some(files) = &self.files {
-            let file_iter = files.iter().map(|f| f.as_str());
-            if files.is_empty() {
-                table.insert("files", value(Array::from_iter(file_iter)));
-            } else {
-                table.insert("files", value(multiline_array(file_iter)));
-            }
         }
 
         table
