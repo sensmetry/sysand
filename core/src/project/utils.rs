@@ -79,20 +79,6 @@ where
     Ok(Utf8UnixPathBuf::from(string))
 }
 
-pub fn deserialize_optional_unix_paths<'de, D>(
-    deserializer: D,
-) -> Result<Option<Vec<Utf8UnixPathBuf>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let opt = Option::<Vec<String>>::deserialize(deserializer)?;
-    Ok(opt.map(|vec| {
-        vec.iter()
-            .map(Utf8UnixPathBuf::from)
-            .collect::<Vec<Utf8UnixPathBuf>>()
-    }))
-}
-
 /// The errors arising from filesystem I/O.
 /// The variants defined here include relevant context where possible.
 #[derive(Error, Debug)]

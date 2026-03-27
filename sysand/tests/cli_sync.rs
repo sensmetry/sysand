@@ -54,9 +54,6 @@ name = "sync_to_current"
 version = "1.2.3"
 path = "."
 editable = true
-files = [
-    "test.sysml",
-]
 "#
         )
     );
