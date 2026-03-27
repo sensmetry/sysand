@@ -10,7 +10,6 @@ use std::{
 };
 
 use fluent_uri::Iri;
-use packageurl::PackageUrl;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -483,13 +482,6 @@ impl Project {
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
         ProjectHash(hasher.finish())
-    }
-
-    // Simple stopgap solution for now
-    pub fn get_package_url<'a>(&self) -> Option<PackageUrl<'a>> {
-        self.identifiers
-            .first()
-            .and_then(|id| PackageUrl::from_str(id.as_str()).ok())
     }
 }
 

@@ -73,11 +73,11 @@ impl Lock {
                 });
             } else if let [Source::Editable { editable }, ..] = project.sources.as_slice() {
                 let root_path = if let Some(current_workspace) = &ctx.current_workspace {
-                    wrapfs::canonicalize(current_workspace.root_path())?
+                    current_workspace.root_path()
                 } else if let Some(current_project) = &ctx.current_project {
-                    wrapfs::canonicalize(current_project.root_path())?
+                    current_project.root_path()
                 } else {
-                    wrapfs::canonicalize(&ctx.current_directory)?
+                    &ctx.current_directory
                 };
                 let editable_project = LocalSrcProject {
                     nominal_path: None,
@@ -86,7 +86,7 @@ impl Lock {
                 let files = do_sources_local_src_project_no_deps(&editable_project, true)?
                     .into_iter()
                     .map(|path| {
-                        relativize_path(path, root_path.clone())
+                        relativize_path(path, root_path)
                             .expect("cannot relativize path to file in editable project")
                             .to_unix_path_buf()
                     })
@@ -273,7 +273,7 @@ pub struct EnvProject {
     #[serde(deserialize_with = "deserialize_unix_path")]
     pub path: Utf8UnixPathBuf,
     /// List of identifiers (IRIs) used for the project.
-    /// The first identifier is to. be considered the canonical
+    /// The first identifier is considered the canonical
     /// identifier, and if the project is not `editable` this
     /// is the IRI it is installed as. The rest are considered
     /// as aliases. Can only be empty for `editable` projects.
@@ -294,7 +294,8 @@ pub struct EnvProject {
     /// to the `path` of the project.
     #[serde(deserialize_with = "deserialize_optional_unix_paths", default)]
     pub files: Option<Vec<Utf8UnixPathBuf>>,
-    /// Indicator of wether the project is part of a workspace.
+    /// Indicator of whether the project is part of the current
+    /// workspace.
     #[serde(skip_serializing_if = "bool::is_false", default)]
     pub workspace: bool,
 }
@@ -334,7 +335,15 @@ impl EnvProject {
         table
     }
 
+    /// Adds identifiers from other project.
+    /// Should only be done if the underlying projects are the same.
+    /// In particular they must have the same version.
     pub fn merge(&mut self, other: &EnvProject) {
+        assert_eq!(
+            self.version, other.version,
+            "attempting to merge projects with different versions"
+        );
+
         for iri in &other.identifiers {
             if !self.identifiers.contains(iri) {
                 self.identifiers.push(iri.clone());

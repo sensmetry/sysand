@@ -70,6 +70,9 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         provided_iris,
     )?;
 
+    // TODO: Integrate the updating of metadata into `LocalDirectoryEnvironment` itself.
+    //       This will likely require updating the `WriteEnvironment` trait to support
+    //       multiple identifiers per project.
     let lock_metadata = lock.to_env_metadata(env, ctx)?;
     let env_metadata = if wrapfs::is_file(env.metadata_path())? {
         let mut env_metadata = load_env_metadata(env.metadata_path())?;
