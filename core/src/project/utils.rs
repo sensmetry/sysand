@@ -58,13 +58,7 @@ where
     fn to_unix_path_buf(&self) -> Utf8UnixPathBuf {
         let mut unix_path = Utf8UnixPathBuf::new();
         for component in self.as_ref().components() {
-            unix_path.push(
-                component
-                    .as_os_str()
-                    .to_str()
-                    // This conversion should always be possible since everything is UTF8 encoded
-                    .expect("component of `Utf8Path` no convertible to `str`"),
-            );
+            unix_path.push(component.as_str());
         }
         unix_path
     }
@@ -241,8 +235,11 @@ pub mod wrapfs {
     }
 
     pub fn canonicalize<P: AsRef<Utf8Path>>(path: P) -> Result<Utf8PathBuf, Box<FsIoError>> {
-        path.as_ref()
-            .canonicalize_utf8()
+        dunce::canonicalize(path.as_ref())
+            .map(|path| {
+                Utf8PathBuf::from_path_buf(path)
+                    .expect("expected Dunce not to introduce non UTF8 characters")
+            })
             .map_err(|e| Box::new(FsIoError::Canonicalize(path.as_ref().into(), e)))
     }
 
