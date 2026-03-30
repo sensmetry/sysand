@@ -70,9 +70,9 @@ globset = { version = "0.4.18", default-features = false }
 reqwest = { version = "0.13.2", optional = true, features = ["rustls", "stream"] }
 
 [dev-dependencies]
-assert_cmd = "2.1.2"
-mockito = "1.7.2"
-port_check = "0.3.0"
-predicates = "3.1.4"
-tempfile = { version = "3.26.0", default-features = false }
-zip = "7.2.0"
+assert_cmd = "=2.1.2"
+mockito = "=1.7.2"
+port_check = "=0.3.0"
+predicates = "=3.1.4"
+tempfile = { version = "=3.26.0", default-features = false }
+zip = "=7.2.0"

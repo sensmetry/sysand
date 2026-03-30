@@ -29,9 +29,9 @@ log = { version = "0.4.29", default-features = false }
 typed-path = { version = "0.12.3", default-features = false }
 
 [dev-dependencies]
-regex = { version = "1.12.3", default-features = false, features = ["unicode-perl"] }
-semver = { version = "1.0.27", default-features = false }
-wasm-bindgen-test = "0.3.64"
+regex = { version = "=1.12.3", default-features = false, features = ["unicode-perl"] }
+semver = { version = "=1.0.27", default-features = false }
+wasm-bindgen-test = "=0.3.64"
 
 [features]
 default = ["browser"]
