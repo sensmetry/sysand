@@ -4,7 +4,12 @@
 //
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: ["config:best-practices", "schedule:earlyMondays"],
+  extends: [
+    "config:best-practices",
+    ":preserveSemverRanges",
+    "schedule:earlyMondays",
+  ],
+  minimumReleaseAge: "7 days",
   packageRules: [
     // Group bumps of all non-major dependencies by using two rules, one for
     // situations like 1.2.3, and one for situations like 0.1.2.

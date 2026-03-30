@@ -34,7 +34,7 @@ jobs:
       test: ${{ steps.decisions.outputs.test }}
       gate: ${{ steps.decisions.outputs.gate }}
     steps:
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         if: github.event_name == 'pull_request'
         id: filter
         with:
@@ -57,10 +57,10 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
-      - uses: taiki-e/install-action@cargo-hack
+      - uses: taiki-e/install-action@6eec77b572d917fad00b2d3429df5ca9b6a0512c # cargo-hack
 
       - name: cargo hack clippy ...
         run: cargo hack clippy --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
@@ -87,8 +87,8 @@ jobs:
           - macos-latest # arm64
 
     steps:
-      - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: cargo test ... (Rust library & CLI)
         run: >-
@@ -110,8 +110,8 @@ jobs:
           - macos-15-intel # x86
           - macos-latest # arm64
     steps:
-      - uses: actions/checkout@v6
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: cargo build ...
         run: cargo build --locked --bin sysand --release
@@ -123,7 +123,7 @@ jobs:
           cp target/release/sysand${ext} dist/sysand-${{ matrix.os }}${ext}
 
       - name: Upload binaries
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
           name: sysand-cli-${{ matrix.os }}
           path: dist
@@ -152,13 +152,13 @@ jobs:
       contents: write # for softprops/action-gh-release
 
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts
           merge-multiple: true
 
       - name: Generate artifact attestation
-        uses: actions/attest@v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
         with:
           subject-path: "artifacts/*"
 
@@ -175,7 +175,7 @@ jobs:
         run: echo "TAG_NAME=$(date +v-%Y-%m-%d-%H%M)" >> $GITHUB_ENV
 
       - name: Create a nightly release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
         with:
           prerelease: true
           files: |
@@ -196,13 +196,13 @@ jobs:
       contents: write # for softprops/action-gh-release
 
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts
           merge-multiple: true
 
       - name: Generate artifact attestation
-        uses: actions/attest@v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4
         with:
           subject-path: "artifacts/*"
 
@@ -216,7 +216,7 @@ jobs:
           mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
 
       - name: Create a release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
         with:
           make_latest: true
           files: |
