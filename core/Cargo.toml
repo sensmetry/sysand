@@ -68,6 +68,7 @@ bytes = { version = "1.11.1", default-features = false }
 toml_edit = { version = "0.25.4", features = ["serde"] }
 globset = { version = "0.4.18", default-features = false }
 reqwest = { version = "0.13.2", optional = true, features = ["rustls", "stream"] }
+dunce = "1.0.5"
 
 [dev-dependencies]
 assert_cmd = "2.1.2"

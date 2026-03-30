@@ -3350,6 +3350,7 @@ dependencies = [
  "chrono",
  "digest",
  "dirs",
+ "dunce",
  "fluent-uri",
  "futures",
  "gix",

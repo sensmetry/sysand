@@ -79,14 +79,14 @@ pub fn do_sources_local_src_project_no_deps(
     project: &LocalSrcProject,
     include_index: bool,
 ) -> Result<Vec<Utf8PathBuf>, LocalSourcesError> {
-    let unix_srcs = do_sources_project_no_deps(project, include_index)?;
+    let unix_sources = do_sources_project_no_deps(project, include_index)?;
 
-    let srcs: Result<Vec<_>, _> = unix_srcs
+    let sources: Result<Vec<_>, _> = unix_sources
         .iter()
         .map(|path| project.get_source_path(path))
         .collect();
 
-    Ok(srcs?)
+    Ok(sources?)
 }
 
 /// Transitively resolve a list of usages (typically the usages of some project)
@@ -136,5 +136,10 @@ pub fn enumerate_projects_lock<Env: ReadEnvironment>(
     Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
     ResolutionError<<Env as ReadEnvironment>::ReadError>,
 > {
-    lock.resolve_projects(env)
+    let projects = lock
+        .resolve_projects(env)?
+        .into_iter()
+        .filter_map(|(_, project_read)| project_read)
+        .collect();
+    Ok(projects)
 }

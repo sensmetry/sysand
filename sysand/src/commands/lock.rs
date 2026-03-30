@@ -37,7 +37,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    ctx: ProjectContext,
+    ctx: &ProjectContext,
 ) -> Result<sysand_core::lock::Lock> {
     assert!(path.as_ref().is_relative(), "{}", path.as_ref());
 
@@ -75,7 +75,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
         alias_iris,
         &provided_iris,
         wrapped_resolver,
-        &ctx,
+        ctx,
     )?;
 
     let canonical = lock.canonicalize();

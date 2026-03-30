@@ -91,6 +91,15 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
     };
 
+    // Update project context with the new cloned project
+    // TODO: Consider under which circumstances (if any)
+    //       the workspace should carry over.
+    let ctx = ProjectContext {
+        current_workspace: None,
+        current_project: Some(local_project.clone()),
+        current_directory: ctx.current_directory,
+    };
+
     if !no_deps {
         let provided_iris = if !include_std {
             crate::known_std_libs()
@@ -147,6 +156,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             &provided_iris,
             runtime,
             auth_policy,
+            &ctx,
         )?;
     }
 

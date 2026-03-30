@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use std::io::{self, Read};
+
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
+use serde::Deserialize;
 use thiserror::Error;
+use typed_path::Utf8UnixPathBuf;
 #[cfg(feature = "filesystem")]
 use zip::{self, result::ZipError};
-
-use std::io::{self, Read};
 
 /// A file that is guaranteed to exist as long as the lifetime.
 /// Intended to be used with temporary files that are automatically
@@ -43,6 +45,38 @@ where
     fn to_path_buf(&self) -> Utf8PathBuf {
         self.as_ref().into()
     }
+}
+
+pub trait ToUnixPathBuf {
+    fn to_unix_path_buf(&self) -> Utf8UnixPathBuf;
+}
+
+impl<P> ToUnixPathBuf for P
+where
+    P: AsRef<Utf8Path>,
+{
+    fn to_unix_path_buf(&self) -> Utf8UnixPathBuf {
+        let mut unix_path = Utf8UnixPathBuf::new();
+        for component in self.as_ref().components() {
+            unix_path.push(component.as_str());
+        }
+        unix_path
+    }
+}
+
+pub fn serialize_unix_path<S>(path: &Utf8UnixPathBuf, s: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    s.serialize_str(path.as_str())
+}
+
+pub fn deserialize_unix_path<'de, D>(deserializer: D) -> Result<Utf8UnixPathBuf, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let string = String::deserialize(deserializer)?;
+    Ok(Utf8UnixPathBuf::from(string))
 }
 
 /// The errors arising from filesystem I/O.
@@ -186,9 +220,15 @@ pub mod wrapfs {
             .map_err(|e| Box::new(FsIoError::WriteFile(path.as_ref().into(), e)))
     }
 
+    /// Canonicalizes UTF-8 path. If canonicalized path is not valid
+    /// UTF-8, returns `io::Error` of `InvalidData` kind.
+    /// On Windows this returns most compatible form of a path instead of UNC.
     pub fn canonicalize<P: AsRef<Utf8Path>>(path: P) -> Result<Utf8PathBuf, Box<FsIoError>> {
-        path.as_ref()
-            .canonicalize_utf8()
+        dunce::canonicalize(path.as_ref())
+            .and_then(|path| {
+                Utf8PathBuf::from_path_buf(path)
+                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+            })
             .map_err(|e| Box::new(FsIoError::Canonicalize(path.as_ref().into(), e)))
     }
 

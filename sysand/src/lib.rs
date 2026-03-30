@@ -110,7 +110,7 @@ where
 
 fn set_panic_hook() {
     // TODO: use `panic::update_hook()` once it's stable
-    //       also set bactrace style once it's stable, but take
+    //       also set backtrace style once it's stable, but take
     //       into account the current level
     let default_hook = panic::take_hook();
     // panic::set_backtrace_style(panic::BacktraceStyle::Short);
@@ -147,6 +147,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let ctx = ProjectContext {
         current_workspace: discover_workspace(&cwd)?,
         current_project: discover_project(&cwd)?,
+        current_directory: cwd,
     };
     let project_root = ctx
         .current_project
@@ -154,7 +155,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         .map(|p| p.root_path().to_owned());
 
     let current_environment = {
-        let dir = project_root.as_ref().unwrap_or(&cwd);
+        let dir = project_root.as_ref().unwrap_or(&ctx.current_directory);
         crate::get_env(dir)?
     };
 
@@ -182,7 +183,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             .unwrap(),
     );
 
-    let _runtime_keepalive = runtime.clone();
+    let _runtime_keep_alive = runtime.clone();
 
     // FIXME: This is a temporary implementation to provide credentials until
     //        https://github.com/sensmetry/sysand/pull/157
@@ -282,7 +283,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         Command::Env { command } => match command {
             None => {
                 let env_dir = {
-                    let mut p = project_root.unwrap_or(cwd);
+                    let mut p = project_root.unwrap_or(ctx.current_directory);
                     p.push(DEFAULT_ENV_NAME);
                     p
                 };
@@ -369,7 +370,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     client,
                     runtime,
                     basic_auth_policy,
-                    ctx,
+                    &ctx,
                 )
                 .map(|_| ())
             } else {
@@ -381,7 +382,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         Command::Sync { resolution_opts } => {
             let mut local_environment = match current_environment {
                 Some(env) => env,
-                None => command_env(project_root.as_ref().unwrap_or(&cwd).join(DEFAULT_ENV_NAME))?,
+                None => command_env(
+                    project_root
+                        .as_ref()
+                        .unwrap_or(&ctx.current_directory)
+                        .join(DEFAULT_ENV_NAME),
+                )?,
             };
 
             let provided_iris = if !resolution_opts.include_std {
@@ -391,7 +397,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashMap::default()
             };
 
-            let project_root = project_root.unwrap_or(cwd);
+            let project_root = project_root.unwrap_or(ctx.current_directory.clone());
             let lockfile = project_root.join(DEFAULT_LOCKFILE_NAME);
             let lock = match fs::read_to_string(&lockfile) {
                 Ok(l) => match Lock::from_str(&l) {
@@ -409,7 +415,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                             client.clone(),
                             runtime.clone(),
                             basic_auth_policy.clone(),
-                            ctx,
+                            &ctx,
                         )?
                     } else {
                         bail!("failed to read lockfile `{lockfile}`: {e}")
@@ -424,9 +430,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &provided_iris,
                 runtime,
                 basic_auth_policy,
+                &ctx,
             )
         }
-        Command::PrintRoot => command_print_root(cwd),
+        Command::PrintRoot => command_print_root(ctx.current_directory),
         Command::Info {
             path,
             iri,
@@ -470,7 +477,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashSet::default()
             };
 
-            let project_root = project_root.unwrap_or(cwd);
+            let project_root = project_root.unwrap_or(ctx.current_directory);
             let overrides = get_overrides(
                 &config,
                 &project_root,
