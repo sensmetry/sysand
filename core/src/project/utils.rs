@@ -220,11 +220,14 @@ pub mod wrapfs {
             .map_err(|e| Box::new(FsIoError::WriteFile(path.as_ref().into(), e)))
     }
 
+    /// Canonicalizes UTF-8 path. If canonicalized path is not valid
+    /// UTF-8, returns `io::Error` of `InvalidData` kind.
+    /// On Windows this returns most compatible form of a path instead of UNC.
     pub fn canonicalize<P: AsRef<Utf8Path>>(path: P) -> Result<Utf8PathBuf, Box<FsIoError>> {
         dunce::canonicalize(path.as_ref())
-            .map(|path| {
+            .and_then(|path| {
                 Utf8PathBuf::from_path_buf(path)
-                    .expect("expected Dunce not to introduce non UTF8 characters")
+                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
             })
             .map_err(|e| Box::new(FsIoError::Canonicalize(path.as_ref().into(), e)))
     }

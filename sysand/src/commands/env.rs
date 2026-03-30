@@ -13,7 +13,10 @@ use sysand_core::{
     commands::{env::do_env_local_dir, lock::LockOutcome},
     config::Config,
     context::ProjectContext,
-    env::local_directory::{LocalDirectoryEnvironment, metadata::load_env_metadata},
+    env::local_directory::{
+        LocalDirectoryEnvironment,
+        metadata::{EnvMetadata, load_env_metadata},
+    },
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
@@ -36,7 +39,9 @@ use crate::{
 };
 
 pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironment> {
-    Ok(do_env_local_dir(path)?)
+    let env = do_env_local_dir(path)?;
+    wrapfs::write(env.metadata_path(), EnvMetadata::default().to_string())?;
+    Ok(env)
 }
 
 // TODO: Factor out provided_iris logic

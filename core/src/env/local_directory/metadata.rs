@@ -90,7 +90,7 @@ impl Lock {
 #[derive(Debug, Deserialize)]
 pub struct EnvMetadata {
     pub version: String,
-    #[serde(rename = "project", skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(rename = "project", default)]
     pub projects: Vec<EnvProject>,
 }
 
@@ -176,7 +176,7 @@ impl EnvMetadata {
 
     pub fn add_project(&mut self, project: EnvProject) {
         if let Some(found) = self.find_project(&project.identifiers, &project.version) {
-            self.projects[found].merge(&project);
+            self.projects[found].merge_identifiers(&project);
         } else {
             self.projects.push(project);
         }
@@ -249,22 +249,22 @@ pub struct EnvProject {
     /// identifier, and if the project is not `editable` this
     /// is the IRI it is installed as. The rest are considered
     /// as aliases. Can only be empty for `editable` projects.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(default)]
     pub identifiers: Vec<String>,
     /// Usages of the project. Intended for tools needing to
     /// track the interdependence of project in the environment.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(default)]
     pub usages: Vec<String>,
     /// Indicator of wether the project is fully installed in
     /// the environment or located elsewhere.
-    #[serde(skip_serializing_if = "bool::is_false", default)]
+    #[serde(default)]
     pub editable: bool,
     /// In case of an `editable` project these are the files
     /// belonging to the project. Intended for tools that
     /// are not able to natively parse and understand the
     /// projects `.meta.json` file. Paths should be relative
     /// to the `path` of the project.
-    #[serde(skip_serializing_if = "bool::is_false", default)]
+    #[serde(default)]
     pub workspace: bool,
 }
 
@@ -291,6 +291,9 @@ impl EnvProject {
         if self.editable {
             table.insert("editable", value(true));
         }
+        if self.workspace {
+            table.insert("workspace", value(true));
+        }
 
         table
     }
@@ -298,10 +301,10 @@ impl EnvProject {
     /// Adds identifiers from other project.
     /// Should only be done if the underlying projects are the same.
     /// In particular they must have the same version.
-    pub fn merge(&mut self, other: &EnvProject) {
+    pub fn merge_identifiers(&mut self, other: &EnvProject) {
         assert_eq!(
             self.version, other.version,
-            "attempting to merge projects with different versions"
+            "attempting to merge identifiers for projects with different versions"
         );
 
         for iri in &other.identifiers {
