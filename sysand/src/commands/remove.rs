@@ -7,6 +7,7 @@ use camino::Utf8PathBuf;
 use sysand_core::{
     config::local_fs::{CONFIG_FILE, remove_project_source_from_config},
     context::ProjectContext,
+    model::InterchangeProjectUsageG,
     remove::do_remove,
 };
 
@@ -35,33 +36,86 @@ pub fn command_remove<S: AsRef<str>>(
     let removed = "Removed";
     let header = sysand_core::style::get_style_config().header;
     if let [usage] = usages.as_slice() {
-        match usage.version_constraint {
-            Some(ref vc) => {
-                log::info!(
-                    "{header}{removed:>12}{header:#} `{}` with version constraints `{}`",
-                    &usage.resource,
-                    vc
-                );
-            }
-            None => {
-                log::info!("{header}{removed:>12}{header:#} `{}`", &usage.resource,);
-            }
-        }
-    } else {
-        log::info!("{header}{removed:>12}{header:#}:");
-        for usage in usages {
-            match usage.version_constraint {
+        match usage {
+            InterchangeProjectUsageG::Resource {
+                resource,
+                version_constraint,
+            } => match version_constraint {
                 Some(vc) => {
                     log::info!(
-                        "{:>13} `{}` with version constraints `{}`",
-                        ' ',
-                        &usage.resource,
+                        "{header}{removed:>12}{header:#} `{}` with version constraints `{}`",
+                        resource,
                         vc
                     );
                 }
                 None => {
-                    log::info!("{:>13} `{}`", ' ', &usage.resource,);
+                    log::info!("{header}{removed:>12}{header:#} `{}`", resource,);
                 }
+            },
+            InterchangeProjectUsageG::Url {
+                url,
+                publisher,
+                name,
+            } => todo!(),
+            InterchangeProjectUsageG::Path {
+                path,
+                publisher,
+                name,
+            } => todo!(),
+            InterchangeProjectUsageG::Git {
+                git,
+                id,
+                publisher,
+                name,
+            } => todo!(),
+            InterchangeProjectUsageG::Index {
+                publisher,
+                name,
+                version_constraint,
+            } => todo!(),
+        }
+    } else {
+        log::info!("{header}{removed:>12}{header:#}:");
+        for usage in usages {
+            match usage {
+                InterchangeProjectUsageG::Resource {
+                    resource,
+                    version_constraint,
+                } => match version_constraint {
+                    Some(vc) => {
+                        log::info!(
+                            "{:>13} `{}` with version constraints `{}`",
+                            ' ',
+                            resource,
+                            vc
+                        );
+                    }
+                    None => {
+                        log::info!("{:>13} `{}`", ' ', resource,);
+                    }
+                },
+
+                InterchangeProjectUsageG::Url {
+                    url,
+                    publisher,
+                    name,
+                } => todo!(),
+                InterchangeProjectUsageG::Path {
+                    path,
+                    publisher,
+                    name,
+                } => todo!(),
+                InterchangeProjectUsageG::Git {
+                    git,
+                    id,
+                    publisher,
+                    name,
+                } => todo!(),
+                InterchangeProjectUsageG::Index {
+                    publisher,
+                    name,
+                    version_constraint,
+                } => todo!(),
             }
         }
     }

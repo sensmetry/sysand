@@ -49,6 +49,8 @@ impl<T> ResolutionOutcome<T> {
     }
 }
 
+/// This is only ussed to resolve "resource" IRIs, new style usages
+/// go directly through their specific resolvers.
 pub trait ResolveRead {
     type Error: ErrorBound;
 

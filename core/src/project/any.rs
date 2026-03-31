@@ -106,8 +106,13 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 }
                 .to_tokio_sync(runtime),
             )),
-            Source::RemoteGit { remote_git } => Ok(AnyProject::RemoteGit(
-                GixDownloadedProject::new(remote_git).map_err(TryFromSourceError::RemoteGit)?,
+            Source::RemoteGit {
+                remote_git,
+                rev,
+                path,
+            } => Ok(AnyProject::RemoteGit(
+                GixDownloadedProject::new(remote_git, Some(rev), path)
+                    .map_err(TryFromSourceError::RemoteGit)?,
             )),
             _ => Err(TryFromSourceError::UnsupportedSource(format!("{source:?}"))),
         }

@@ -4,7 +4,9 @@ use thiserror::Error;
 use crate::{
     env::utils::{CloneError, ErrorBound},
     include::IncludeError,
-    model::InterchangeProjectValidationError,
+    model::{
+        InterchangeProjectUsageG, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
+    },
     project::{
         ProjectRead,
         local_kpar::{IntoKparError, LocalKParProject},
@@ -149,7 +151,7 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         "project includes a path usage `{0}`,\n\
         which is unlikely to be available on other computers at the same path"
     )]
-    PathUsage(String),
+    PathUsage(InterchangeProjectUsageRaw),
     #[error(
         "workspace sets metamodel `{workspace_metamodel}`, but project `{project_path}` \
          sets a different metamodel `{project_metamodel}` in `.meta.json`;\n\
@@ -226,6 +228,17 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
     ))
 }
 
+/// Case-insentively check if `iri` begins with `file:`
+fn is_file_scheme(iri: impl AsRef<str>) -> bool {
+    let iri = iri.as_ref();
+    iri.len() >= 5
+        && iri
+            .as_bytes()
+            .iter()
+            .zip(b"file:")
+            .all(|(c1, &c2)| c1.to_ascii_lowercase() == c2)
+}
+
 pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
@@ -277,21 +290,20 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
 
     if let Some(u) = info.usage.iter().find(|x| {
         // Case-insensitively match `file:` scheme
-        x.resource.len() >= 5
-            && x.resource
-                .as_bytes()
-                .iter()
-                .zip(b"file:")
-                .all(|(c1, &c2)| c1.to_ascii_lowercase() == c2)
+        match x {
+            InterchangeProjectUsageG::Resource { resource: url, .. }
+            | InterchangeProjectUsageG::Url { url, .. } => is_file_scheme(url),
+            InterchangeProjectUsageG::Path { .. } => true,
+            _ => false,
+        }
     }) {
         if allow_path_usage {
             log::warn!(
-                "project includes a path usage `{}`,\n\
+                "project includes a path usage `{u}`,\n\
             which is unlikely to be available on other computers at the same path",
-                u.resource
             );
         } else {
-            return Err(KParBuildError::PathUsage(u.resource.clone()));
+            return Err(KParBuildError::PathUsage(u.to_owned()));
         }
     }
 

@@ -14,6 +14,7 @@ use sysand_core::{
     env::local_directory::DEFAULT_ENV_NAME,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageG,
     },
     project::{ProjectMut, ProjectRead, any::OverrideProject},
     resolve::{
@@ -63,14 +64,42 @@ pub fn pprint_interchange_project(
     } else {
         println!("Usages:");
         for usage in info.usage {
-            if excluded_iris.contains(&usage.resource) {
-                continue;
-            }
-            print!("    {}", usage.resource);
-            if let Some(v) = usage.version_constraint {
-                println!(" ({})", v);
-            } else {
-                println!();
+            match &usage {
+                InterchangeProjectUsageG::Resource {
+                    resource,
+                    version_constraint,
+                } => {
+                    if excluded_iris.contains(resource) {
+                        continue;
+                    }
+                    print!("    {}", resource);
+                    if let Some(v) = version_constraint {
+                        println!(" ({})", v);
+                    } else {
+                        println!();
+                    }
+                }
+                InterchangeProjectUsageG::Url {
+                    url,
+                    publisher,
+                    name,
+                } => todo!(),
+                InterchangeProjectUsageG::Path {
+                    path,
+                    publisher,
+                    name,
+                } => todo!(),
+                InterchangeProjectUsageG::Git {
+                    git,
+                    id,
+                    publisher,
+                    name,
+                } => todo!(),
+                InterchangeProjectUsageG::Index {
+                    publisher,
+                    name,
+                    version_constraint,
+                } => todo!(),
             }
         }
     }
@@ -348,12 +377,38 @@ fn apply_get_info(
             Some(
                 info.usage
                     .into_iter()
-                    .map(|usage| {
-                        if let Some(version_constraint) = usage.version_constraint {
-                            format!("{} ({})", usage.resource, version_constraint)
-                        } else {
-                            usage.resource.clone()
+                    .map(|usage| match usage {
+                        InterchangeProjectUsageG::Resource {
+                            resource,
+                            version_constraint,
+                        } => {
+                            if let Some(version_constraint) = version_constraint {
+                                format!("{} ({})", resource, version_constraint)
+                            } else {
+                                resource.clone()
+                            }
                         }
+                        InterchangeProjectUsageG::Url {
+                            url,
+                            publisher,
+                            name,
+                        } => todo!(),
+                        InterchangeProjectUsageG::Path {
+                            path,
+                            publisher,
+                            name,
+                        } => todo!(),
+                        InterchangeProjectUsageG::Git {
+                            git,
+                            id,
+                            publisher,
+                            name,
+                        } => todo!(),
+                        InterchangeProjectUsageG::Index {
+                            publisher,
+                            name,
+                            version_constraint,
+                        } => todo!(),
                     })
                     .collect(),
             ),

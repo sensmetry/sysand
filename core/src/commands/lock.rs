@@ -18,7 +18,7 @@ use crate::project::{editable::EditableProject, local_src::LocalSrcProject, util
 use crate::{
     context::ProjectContext,
     lock::{Lock, Project, Usage, hash_str},
-    model::{InterchangeProjectUsage, InterchangeProjectValidationError},
+    model::{InterchangeProjectUsage, InterchangeProjectUsageG, InterchangeProjectValidationError},
     project::{CanonicalizationError, ProjectRead, memory::InMemoryProject, utils::FsIoError},
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
@@ -113,6 +113,8 @@ pub fn do_lock_projects<
             .map_err(LockProjectError::InputProjectError)?;
         debug_assert!(!sources.is_empty());
 
+        // TODO :this needs rethinking. How to map deps from InterchangeProjectUsage to proper Usage string?
+        // This cannot be done before resolving them
         lock.projects.push(Project {
             name: Some(info.name),
             publisher: info.publisher,
@@ -126,7 +128,7 @@ pub fn do_lock_projects<
             usages: info
                 .usage
                 .iter()
-                .map(|u| Usage::from(u.resource.clone()))
+                .map(InterchangeProjectUsageG::to_lock_usage)
                 .collect(),
         });
 
@@ -198,6 +200,8 @@ pub fn do_lock_extend<
             Vec::new()
         };
 
+        // TODO: rewrite lockfile construction, it can only be done after everything is resolved to have
+        // identifiers.
         let lock_project = Project {
             name: Some(info.name),
             publisher: info.publisher,
@@ -208,8 +212,8 @@ pub fn do_lock_extend<
             sources,
             usages: info
                 .usage
-                .into_iter()
-                .map(|u| Usage::from(u.resource))
+                .iter()
+                .map(InterchangeProjectUsageG::to_lock_usage)
                 .collect(),
         };
         if lock_projects.contains(&lock_project.hash_val()) {
