@@ -1,5 +1,6 @@
 {
     "cSpell.words": [
+        "clippy",
         "kerml",
         "kpar",
         "mdbook",
@@ -17,5 +18,6 @@
         "thiserror",
         "werr",
         "wrapfs"
-    ]
+    ],
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
 }

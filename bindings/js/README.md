@@ -1,6 +1,6 @@
 # WASM bindings
 
-## Building and running tests
+## Setup
 
 Requirements:
 
@@ -8,6 +8,16 @@ Requirements:
 - npm
 - [wasm-pack](https://github.com/drager/wasm-pack) (can be installed with e. g.
   `cargo install wasm-pack`)
+
+### VS Code
+
+If using VS Code (or other compatible editor like e.g. Codium or Cursor) then
+base support for JavaScript should come without any need for extensions. We use
+ESlint and Prettier for linting and formatting respectively, and both come with
+official extensions [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
+and [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode).
+
+## Building and running tests
 
 Build:
 
@@ -29,7 +39,8 @@ See [wasm-bindgen
 documentation](https://wasm-bindgen.github.io/wasm-bindgen/wasm-bindgen-test/browsers.html)
 for how to run in other browsers, in Node, etc. It is also worth looking into
 [`.github/workflows/js-wasm.yml`](https://github.com/sensmetry/sysand/blob/main/.github/workflows/js-wasm.yml)
-to see which versions of the tools are tested in CI and, therefore, expected to work.
+to see which versions of the tools are tested in CI and, therefore, expected to
+work.
 
 To run the Jasmine tests, install the dependencies and run `test:browser` target:
 
@@ -37,3 +48,19 @@ To run the Jasmine tests, install the dependencies and run `test:browser` target
 npm install
 npm run test:browser
 ```
+
+## Formatting and linting
+
+Format Rust code and run linters for Rust and JavaScript:
+
+```sh
+./scripts/run_chores.sh
+```
+
+You can also run the lint for JavaScript separately with
+
+```sh
+npm run lint
+```
+
+assuming you have already installed the dependencies with `npm install`.
