@@ -28,6 +28,18 @@ repos:
               .*\.lock
           )$
 
+  # Lint: javascript
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v10.1.0
+    hooks:
+      - id: eslint
+        files: ^bindings/js/
+        types: [javascript]
+        additional_dependencies:
+          - eslint@^10.1.0
+          - "@eslint/js@^10.0.1"
+          - globals@^17.4.0
+
   # Autoformat: rust
   - repo: local
     hooks:
