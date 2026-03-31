@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
+use crate::{lock::Usage, project::utils::make_identifier_iri};
+
 // pub struct RawIri(String);
 // pub struct ParsedIri(fluent_uri::Iri<String>);
 // pub struct NormalisedIri(fluent_uri::Iri<String>);
@@ -21,56 +23,391 @@ pub const KNOWN_METAMODELS: [&str; 2] = [
     "https://www.omg.org/spec/KerML/20250201",
 ];
 
+// #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
+// #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+// #[serde(rename_all = "camelCase")]
+// pub struct InterchangeProjectUsageG<Iri, VersionReq> {
+//     pub resource: Iri, // TODO: We should have a fallback for invalid IRIs
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvers
+// }
+// pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String>;
+// pub type InterchangeProjectUsage =
+//     InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>;
+
+// impl InterchangeProjectUsageRaw {
+//     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
+//         Ok(InterchangeProjectUsage {
+//             resource: fluent_uri::Iri::parse(self.resource.clone())
+//                 .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
+
+//             version_constraint: self
+//                 .version_constraint
+//                 .as_ref()
+//                 .map(|c| {
+//                     semver::VersionReq::parse(c).map_err(|e| {
+//                         InterchangeProjectValidationError::SemVerConstraintParse(c.to_owned(), e)
+//                     })
+//                 })
+//                 .transpose()?,
+//         })
+//     }
+// }
+
+// impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
+//     fn from(value: InterchangeProjectUsage) -> InterchangeProjectUsageRaw {
+//         InterchangeProjectUsageRaw {
+//             resource: value.resource.to_string(),
+//             version_constraint: value.version_constraint.map(|x| x.to_string()),
+//         }
+//     }
+// }
+
+// impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>>
+//     for InterchangeProjectUsageG<String, semver::VersionReq>
+// {
+//     fn from(value: InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>) -> Self {
+//         InterchangeProjectUsageG {
+//             resource: value.resource.to_string(),
+//             version_constraint: value.version_constraint,
+//         }
+//     }
+// }
+
+// impl TryFrom<InterchangeProjectUsageRaw> for InterchangeProjectUsage {
+//     type Error = InterchangeProjectValidationError;
+
+//     fn try_from(value: InterchangeProjectUsageRaw) -> Result<InterchangeProjectUsage, Self::Error> {
+//         value.validate()
+//     }
+// }
+
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-#[serde(rename_all = "camelCase")]
-pub struct InterchangeProjectUsageG<Iri, VersionReq> {
-    pub resource: Iri, // TODO: We should have a fallback for invalid IRIs
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvers
+#[serde(rename_all = "camelCase", untagged)]
+pub enum GitId {
+    Rev(String),
+    Tag(String),
+    Branch(String),
 }
-pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String>;
+
+impl Display for GitId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GitId::Rev(r) => write!(f, "commit `{r}`"),
+            GitId::Tag(t) => write!(f, "tag `{t}`"),
+            GitId::Branch(b) => write!(f, "branch `{b}`"),
+        }
+    }
+}
+
+/// Usage of a project. Legacy (KerML 1.0) usage is always `Resource`,
+/// regardless of its actual type.
+/// `Publisher` and `Name` can be inferred from downloaded project, so there is
+/// no need for user to provide this info in most cases. This is required
+/// only if user disables lock/sync when adding a usage, or if non-root
+/// project of git repo is to be used.
+#[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[serde(rename_all = "camelCase", untagged)]
+pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
+    /// Legacy, from KerML 1.0 spec
+    Resource {
+        resource: Iri, // TODO: We should have a fallback for invalid IRIs
+        #[serde(skip_serializing_if = "Option::is_none")]
+        version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvers
+    },
+    Url {
+        url: Iri,
+        publisher: String,
+        name: String,
+    },
+    // TODO: assuming this is a relative Unix-style path
+    // TODO: use proper types
+    Path {
+        path: Path,
+        publisher: String,
+        name: String,
+    },
+    Git {
+        git: Iri,
+        id: GitId,
+        publisher: String,
+        name: String,
+    },
+    Index {
+        publisher: String,
+        name: String,
+        version_constraint: VersionReq,
+    },
+    // TODO: is this needed? We don't know what info might be needed for different APIs,
+    // so it seems premature to include this here, as it would likely be useless
+    // TODO: change the doc, it seemingly by mistake lists rev/tag/branch here
+    // Api {
+    //     server: Iri,
+    //     publisher: String,
+    //     name: String,
+    //     project_id: u128, // UUID
+    // },
+}
+
+pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String, String>;
 pub type InterchangeProjectUsage =
-    InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>;
+    InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq, Utf8UnixPathBuf>;
+
+impl Display for InterchangeProjectUsageRaw {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InterchangeProjectUsageG::Resource {
+                resource,
+                version_constraint,
+            } => {
+                write!(f, "IRI `{resource}`")?;
+                if let Some(vc) = version_constraint {
+                    write!(f, " {vc}")?;
+                }
+            }
+            InterchangeProjectUsageG::Url {
+                url,
+                publisher,
+                name,
+            } => {
+                write!(f, "`{publisher}/{name}` from URL `{url}`")?;
+            }
+            InterchangeProjectUsageG::Path {
+                path,
+                publisher,
+                name,
+            } => {
+                write!(f, "`{publisher}/{name}` from path `{path}`")?;
+            }
+            InterchangeProjectUsageG::Git {
+                git,
+                id,
+                publisher,
+                name,
+            } => {
+                write!(f, "`{publisher}/{name}` from git repository `{git}`, {id}")?;
+            }
+            InterchangeProjectUsageG::Index {
+                publisher,
+                name,
+                // TODO: version must be chosen at this point even if not provided by user
+                version_constraint,
+            } => {
+                write!(f, "`{publisher}/{name}` ({version_constraint}) from index")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<Iri: Display, VersionReq, Path> InterchangeProjectUsageG<Iri, VersionReq, Path> {
+    /// Get the canonical IRI representing this usage. This IRI is not resolvable
+    /// on its own.
+    /// This is expensive, don't call repeatedly
+    pub fn to_lock_usage(&self) -> Usage {
+        match self {
+            InterchangeProjectUsageG::Resource {
+                resource,
+                version_constraint: _,
+            } => Usage::from(resource.to_string()),
+            InterchangeProjectUsageG::Url {
+                url: _,
+                publisher,
+                name,
+            } => Usage::from(make_identifier_iri(publisher, name)),
+            InterchangeProjectUsageG::Path {
+                path: _,
+                publisher,
+                name,
+            } => Usage::from(make_identifier_iri(publisher, name)),
+            InterchangeProjectUsageG::Git {
+                git: _,
+                id: _,
+                publisher,
+                name,
+            } => Usage::from(make_identifier_iri(publisher, name)),
+            InterchangeProjectUsageG::Index {
+                publisher,
+                name,
+                version_constraint: _,
+            } => Usage::from(make_identifier_iri(publisher, name)),
+        }
+    }
+}
 
 impl InterchangeProjectUsageRaw {
+    // TODO: consolidate to `try_from()`?
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
-        Ok(InterchangeProjectUsage {
-            resource: fluent_uri::Iri::parse(self.resource.clone())
-                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
+        let res = match self {
+            InterchangeProjectUsageG::Resource {
+                resource,
+                version_constraint,
+            } => InterchangeProjectUsage::Resource {
+                resource: fluent_uri::Iri::parse(resource.to_owned())
+                    .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
 
-            version_constraint: self
-                .version_constraint
-                .as_ref()
-                .map(|c| {
-                    semver::VersionReq::parse(c).map_err(|e| {
-                        InterchangeProjectValidationError::SemVerConstraintParse(c.to_owned(), e)
+                version_constraint: version_constraint
+                    .as_ref()
+                    .map(|c| {
+                        semver::VersionReq::parse(c).map_err(|e| {
+                            InterchangeProjectValidationError::SemVerConstraintParse(
+                                c.to_owned(),
+                                e,
+                            )
+                        })
                     })
-                })
-                .transpose()?,
-        })
+                    .transpose()?,
+            },
+            InterchangeProjectUsageG::Url {
+                url,
+                publisher,
+                name,
+            } => InterchangeProjectUsage::Url {
+                url: fluent_uri::Iri::parse(url.to_owned())
+                    .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
+                publisher: publisher.clone(),
+                name: name.clone(),
+            },
+            InterchangeProjectUsageG::Path {
+                path,
+                publisher,
+                name,
+            } => InterchangeProjectUsage::Path {
+                // TODO: check that this is a relative Unix path
+                path: Utf8UnixPathBuf::from(path),
+                publisher: publisher.clone(),
+                name: name.clone(),
+            },
+            InterchangeProjectUsageG::Git {
+                git,
+                id,
+                publisher,
+                name,
+            } => InterchangeProjectUsage::Git {
+                git: fluent_uri::Iri::parse(git.to_owned())
+                    .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
+                id: id.clone(),
+                // TODO: No restrictions for now
+                publisher: publisher.to_owned(),
+                name: name.to_owned(),
+            },
+            InterchangeProjectUsageG::Index {
+                publisher,
+                name,
+                version_constraint,
+            } => InterchangeProjectUsage::Index {
+                publisher: publisher.to_owned(),
+                name: name.to_owned(),
+                version_constraint: semver::VersionReq::parse(version_constraint).map_err(|e| {
+                    InterchangeProjectValidationError::SemVerConstraintParse(
+                        version_constraint.to_owned(),
+                        e,
+                    )
+                })?,
+            },
+        };
+
+        Ok(res)
     }
+
+    // /// Get the canonical IRI representing this usage. This IRI is not resolvable
+    // /// on its own.
+    // /// This is expensive, don't call repeatedly
+    // pub fn to_lock_usage(&self) -> Usage {
+    //     match self {
+    //         InterchangeProjectUsageG::Resource {
+    //             resource,
+    //             version_constraint: _,
+    //         } => Usage::from(resource.to_owned()),
+    //         InterchangeProjectUsageG::Url {
+    //             url: _,
+    //             publisher,
+    //             name,
+    //         } => Usage::from(make_identifier_iri(publisher, name)),
+    //         InterchangeProjectUsageG::Path {
+    //             path: _,
+    //             publisher,
+    //             name,
+    //         } => Usage::from(make_identifier_iri(publisher, name)),
+    //         InterchangeProjectUsageG::Git {
+    //             git: _,
+    //             id: _,
+    //             publisher,
+    //             name,
+    //         } => Usage::from(make_identifier_iri(publisher, name)),
+    //         InterchangeProjectUsageG::Index {
+    //             publisher,
+    //             name,
+    //             version_constraint: _,
+    //         } => Usage::from(make_identifier_iri(publisher, name)),
+    //     }
+    // }
 }
 
 impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
     fn from(value: InterchangeProjectUsage) -> InterchangeProjectUsageRaw {
-        InterchangeProjectUsageRaw {
-            resource: value.resource.to_string(),
-            version_constraint: value.version_constraint.map(|x| x.to_string()),
+        match value {
+            InterchangeProjectUsage::Resource {
+                resource,
+                version_constraint,
+            } => InterchangeProjectUsageRaw::Resource {
+                resource: resource.into_string(),
+                version_constraint: version_constraint.map(|x| x.to_string()),
+            },
+            InterchangeProjectUsage::Url {
+                url,
+                publisher,
+                name,
+            } => InterchangeProjectUsageRaw::Url {
+                url: url.into_string(),
+                publisher,
+                name,
+            },
+            InterchangeProjectUsage::Path {
+                path,
+                publisher,
+                name,
+            } => InterchangeProjectUsageRaw::Path {
+                path: path.into_string(),
+                publisher,
+                name,
+            },
+            InterchangeProjectUsage::Git {
+                git,
+                id,
+                publisher,
+                name,
+            } => InterchangeProjectUsageRaw::Git {
+                git: git.into_string(),
+                id,
+                publisher,
+                name,
+            },
+            InterchangeProjectUsage::Index {
+                publisher,
+                name,
+                version_constraint,
+            } => InterchangeProjectUsageRaw::Index {
+                publisher,
+                name,
+                version_constraint: version_constraint.to_string(),
+            },
         }
     }
 }
 
-impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>>
-    for InterchangeProjectUsageG<String, semver::VersionReq>
-{
-    fn from(value: InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>) -> Self {
-        InterchangeProjectUsageG {
-            resource: value.resource.to_string(),
-            version_constraint: value.version_constraint,
-        }
-    }
-}
+// impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>>
+//     for InterchangeProjectUsageG<String, semver::VersionReq>
+// {
+//     fn from(value: InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>) -> Self {
+//         InterchangeProjectUsageG {
+//             resource: value.resource.to_string(),
+//             version_constraint: value.version_constraint,
+//         }
+//     }
+// }
 
 impl TryFrom<InterchangeProjectUsageRaw> for InterchangeProjectUsage {
     type Error = InterchangeProjectValidationError;
@@ -83,7 +420,7 @@ impl TryFrom<InterchangeProjectUsageRaw> for InterchangeProjectUsage {
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
-pub struct InterchangeProjectInfoG<Iri, Version, VersionReq> {
+pub struct InterchangeProjectInfoG<Iri, Version, VersionReq, Path> {
     pub name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,12 +445,17 @@ pub struct InterchangeProjectInfoG<Iri, Version, VersionReq> {
     #[serde(default)]
     pub topic: Vec<String>,
 
-    pub usage: Vec<InterchangeProjectUsageG<Iri, VersionReq>>,
+    // pub usage: Vec<InterchangeProjectUsageG<Iri, VersionReq>>,
+    pub usage: Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>>,
 }
 
-pub type InterchangeProjectInfoRaw = InterchangeProjectInfoG<String, String, String>;
-pub type InterchangeProjectInfo =
-    InterchangeProjectInfoG<fluent_uri::Iri<String>, semver::Version, semver::VersionReq>;
+pub type InterchangeProjectInfoRaw = InterchangeProjectInfoG<String, String, String, String>;
+pub type InterchangeProjectInfo = InterchangeProjectInfoG<
+    fluent_uri::Iri<String>,
+    semver::Version,
+    semver::VersionReq,
+    Utf8UnixPathBuf,
+>;
 
 impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     fn from(value: InterchangeProjectInfo) -> Self {
@@ -135,8 +477,8 @@ impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     }
 }
 
-impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
-    InterchangeProjectInfoG<Iri, Version, VersionReq>
+impl<Iri: PartialEq + Clone, Version, VersionReq: Clone, Path>
+    InterchangeProjectInfoG<Iri, Version, VersionReq, Path>
 {
     pub fn minimal(name: String, version: Version) -> Self {
         InterchangeProjectInfoG {
@@ -162,15 +504,19 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
     /// Note that sysand will never add multiple usages of the same resource
     /// to the project, but it does tolerate such usages.
     // TODO: the spec does not say anything about this and should be clarified
-    pub fn pop_usage(&mut self, resource: &Iri) -> Vec<InterchangeProjectUsageG<Iri, VersionReq>> {
+    pub fn pop_usage(
+        &mut self,
+        resource: &Iri,
+    ) -> Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>> {
         self.usage
-            .extract_if(
-                ..,
-                |InterchangeProjectUsageG {
-                     resource: this_resource,
-                     ..
-                 }| this_resource == resource,
-            )
+            .extract_if(.., |u| match u {
+                // TODO: how to match here? Simplest would be to require the same info as for
+                // adding, but that is way overkill and annoying to use. Otherwise we'd need
+                // some sort of separate "matcher" type that allows wildcarding everything
+                // apart from: any sort of IRI/URL, publisher+name.
+                // Then how to allow providing version (constraint) and possibly other matchers?
+                _ => todo!("this needs new design of pop_usage and CLI surface"),
+            })
             .collect()
     }
 }

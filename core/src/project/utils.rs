@@ -4,11 +4,130 @@
 use std::io::{self, Read};
 
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
+use fluent_uri::pct_enc::{EString, encoder::IData};
 use serde::Deserialize;
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 #[cfg(feature = "filesystem")]
 use zip::{self, result::ZipError};
+
+use std::io::{self, Read};
+
+// TODO: use newtype for identifier IRI
+pub fn make_identifier_iri(publisher: impl AsRef<str>, name: impl AsRef<str>) -> String {
+    let publisher = publisher.as_ref();
+    let name = name.as_ref();
+    debug_assert!(!publisher.is_empty());
+    debug_assert!(!name.is_empty());
+
+    match (check_purl_publisher(publisher), check_purl_name(name)) {
+        (PurlPartForm::Purl, PurlPartForm::Purl) => {
+            format!("pkg:sysand/{publisher}/{name}")
+        }
+        (PurlPartForm::MakePurl, PurlPartForm::Purl) => {
+            let mut res = "pkg:sysand/".to_owned();
+            normalize_purl_char(publisher, &mut res);
+            res.push('/');
+            res.push_str(name);
+            res
+        }
+        (PurlPartForm::Purl, PurlPartForm::MakePurl) => {
+            let mut res = "pkg:sysand/".to_owned();
+            res.push_str(publisher);
+            res.push('/');
+            normalize_purl_char(name, &mut res);
+            res
+        }
+        (PurlPartForm::MakePurl, PurlPartForm::MakePurl) => {
+            let mut res = "pkg:sysand/".to_owned();
+            normalize_purl_char(publisher, &mut res);
+            res.push('/');
+            normalize_purl_char(name, &mut res);
+            res
+        }
+        _ => {
+            let mut enc_pub = EString::<IData>::new();
+            enc_pub.encode_str::<IData>(publisher);
+            let mut enc_name = EString::<IData>::new();
+            enc_name.encode_str::<IData>(publisher);
+            format!("urn:sysand:{enc_pub}/{enc_name}")
+        }
+    }
+}
+
+/// Normalize publisher or name for PURL:
+/// - lowercase
+/// - replace spaces with `-`
+///
+/// Assumes that preconditions are satisfied
+fn normalize_purl_char(part: &str, buf: &mut String) {
+    for c in part.chars() {
+        if c == ' ' {
+            buf.push('-');
+        } else {
+            buf.push(c.to_ascii_lowercase());
+        }
+    }
+}
+
+/// For of a PURL part: publisher or name
+#[derive(Clone, Copy, Debug)]
+enum PurlPartForm {
+    /// Valid form to use in PURL
+    Purl,
+    /// Can be turned into form usable in PURL
+    MakePurl,
+    /// Not usable for PURL
+    Arbitrary,
+}
+
+fn check_purl_publisher(publisher: &str) -> PurlPartForm {
+    if publisher.len() < 3
+        || publisher.len() > 50
+        || !publisher.as_bytes()[0].is_ascii_alphanumeric()
+        || !publisher.as_bytes().last().unwrap().is_ascii_alphanumeric()
+    {
+        return PurlPartForm::Arbitrary;
+    }
+    let mut res = PurlPartForm::Purl;
+
+    for &[c1, c2] in publisher.as_bytes().array_windows() {
+        if (!c1.is_ascii_alphanumeric() && c1 != b'-' && c1 != b' ')
+            || (c1 == b' ' || c1 == b'-') && (c2 == b' ' || c2 == b'-')
+        {
+            return PurlPartForm::Arbitrary;
+        }
+        if c1.is_ascii_uppercase() || c1 == b' ' {
+            res = PurlPartForm::MakePurl;
+        }
+    }
+
+    res
+}
+
+fn check_purl_name(name: &str) -> PurlPartForm {
+    if name.len() < 3
+        || name.len() > 50
+        || !name.as_bytes()[0].is_ascii_alphanumeric()
+        || !name.as_bytes().last().unwrap().is_ascii_alphanumeric()
+    {
+        return PurlPartForm::Arbitrary;
+    }
+    let mut res = PurlPartForm::Purl;
+
+    for &[c1, c2] in name.as_bytes().array_windows() {
+        if (!c1.is_ascii_alphanumeric() && c1 != b'-' && c1 != b' ' && c1 != b'.')
+            || (c1 == b' ' || c1 == b'-' || c1 == b'.') && (c2 == b' ' || c2 == b'-' || c2 == b'.')
+        {
+            return PurlPartForm::Arbitrary;
+        }
+        if c1.is_ascii_uppercase() || c1 == b' ' {
+            res = PurlPartForm::MakePurl;
+        }
+    }
+
+    res
+}
 
 /// A file that is guaranteed to exist as long as the lifetime.
 /// Intended to be used with temporary files that are automatically

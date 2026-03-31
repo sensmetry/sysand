@@ -224,7 +224,12 @@ where
                     log::debug!("trying to install `{uri}` from remote_kpar: {remote_kpar}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
-                Source::RemoteGit { remote_git } => {
+                Source::RemoteGit {
+                    remote_git,
+                    // TODO: implement (shallow) cloning of the sepecified rev and dir traversal
+                    rev,
+                    path,
+                } => {
                     let uri = main_uri.as_ref().ok_or_else(|| {
                         SyncError::MissingIriRemoteGitPath(remote_git.as_str().into())
                     })?;
@@ -301,6 +306,7 @@ fn try_install<
 ) -> Result<(), SyncError<U, G>> {
     let uri = uri.as_ref();
     let checksum = checksum.as_ref();
+    // TODO: don't calculate checksum multiple times for the same project
     let project_checksum = storage
         .checksum_canonical_hex()
         .map_err(|e| SyncError::ProjectRead(e.to_string()))?
