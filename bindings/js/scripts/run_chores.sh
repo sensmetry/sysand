@@ -10,3 +10,6 @@ cd "$PACKAGE_DIR"
 
 cargo fmt
 cargo clippy --all-targets -- --deny warnings
+
+npm install
+npm lint
