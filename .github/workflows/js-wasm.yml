@@ -51,37 +51,63 @@ jobs:
           echo "test=$test" >> "$GITHUB_OUTPUT"
           echo "gate=$gate" >> "$GITHUB_OUTPUT"
 
-  test:
+  lint:
+    name: JS/WASM Lints
     needs: [plan]
     if: needs.plan.outputs.test == 'true'
     runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: bindings/js
+
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: 24
+          cache: npm
+          cache-dependency-path: bindings/js/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+  test:
+    name: JS/WASM Tests
+    needs: [plan]
+    if: needs.plan.outputs.test == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      WASM_BINDGEN_USE_BROWSER: 1
+    defaults:
+      run:
+        working-directory: bindings/js
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: bindings/js/package-lock.json
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Test in Firefox
-        run: |
-          cd bindings/js
-          export WASM_BINDGEN_USE_BROWSER=1
-          wasm-pack test --headless --firefox
+        run: wasm-pack test --headless --firefox
 
       - name: Test in Chrome
-        run: |
-          cd bindings/js
-          export WASM_BINDGEN_USE_BROWSER=1
-          wasm-pack test --headless --chrome
+        run: wasm-pack test --headless --chrome
 
-      - name: Build for Node.js and test
-        run: |
-          cd bindings/js
-          npm install
-          npm run test:browser
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Test with Node.js
+        run: npm run test:browser
 
   ci-gate:
     name: JS/WASM CI Gate
