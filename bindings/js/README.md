@@ -51,12 +51,16 @@ npm run test:browser
 
 ## Formatting and linting
 
-Format and lint all code based on configuration in `.pre-commit-config.yaml`,
-either with prek or pre-commit, available to install via uv or pip.
+Format Rust code and run linters for Rust and JavaScript:
 
 ```sh
-prek run -a
-
-# like this, you ensure this formatting is run before git commits are made
-prek install
+./scripts/run_chores.sh
 ```
+
+You can also run the lint for JavaScript separately with
+
+```sh
+npm run lint
+```
+
+assuming you have already installed the dependencies with `npm install`.
