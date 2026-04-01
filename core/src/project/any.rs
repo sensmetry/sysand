@@ -17,7 +17,7 @@ use crate::{
     project::{
         AsSyncProjectTokio, ProjectRead, ProjectReadAsync,
         editable::EditableProject,
-        gix_git_download::{GixDownloadedError, GixDownloadedProject},
+        gix_git_download::{GixDownloadedError, GixDownloadedProject, GixDownloadedProjectExact},
         local_kpar::LocalKParProject,
         local_src::LocalSrcProject,
         reference::ProjectReference,
@@ -35,7 +35,7 @@ pub enum AnyProject<Policy: HTTPAuthentication> {
     LocalKpar(LocalKParProject),
     RemoteSrc(AsSyncProjectTokio<ReqwestSrcProjectAsync<Policy>>),
     RemoteKpar(AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>),
-    RemoteGit(GixDownloadedProject),
+    RemoteGit(GixDownloadedProjectExact),
 }
 
 #[derive(Error, Debug)]
@@ -111,7 +111,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 rev,
                 path,
             } => Ok(AnyProject::RemoteGit(
-                GixDownloadedProject::new(remote_git, Some(rev), path)
+                GixDownloadedProjectExact::new_download(remote_git, rev, path)
                     .map_err(TryFromSourceError::RemoteGit)?,
             )),
             _ => Err(TryFromSourceError::UnsupportedSource(format!("{source:?}"))),

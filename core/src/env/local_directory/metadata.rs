@@ -41,11 +41,7 @@ impl Lock {
 
         let mut metadata = EnvMetadata::default();
         for (project, storage) in resolved_projects {
-            let usages = project
-                .usages
-                .iter()
-                .map(|usage| usage.resource.clone())
-                .collect();
+            let usages = project.usages.into_iter().map(Into::into).collect();
 
             if let Some(storage) = storage {
                 let project_path = wrapfs::canonicalize(storage.root_path())?;
@@ -213,7 +209,12 @@ impl EnvMetadata {
                 .expect("expected nominal path for project")
                 .to_unix_path_buf(),
             identifiers,
-            usages: info.usage.into_iter().map(|u| u.resource).collect(),
+            usages: info
+                .usage
+                .into_iter()
+                // TODO: be more efficient, minimize calls to to_lock_usage()
+                .map(|u| u.to_lock_usage().into())
+                .collect(),
             editable,
             workspace,
         };
