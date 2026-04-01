@@ -16,6 +16,7 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     context::ProjectContext,
+    lock::Source,
     model::InterchangeProjectUsageRaw,
     project::{
         ProjectRead,
@@ -57,13 +58,13 @@ pub fn command_add<Policy: HTTPAuthentication>(
     let source = if let Some(path) = source_opts.from_path {
         let metadata = wrapfs::metadata(&path)?;
         if metadata.is_dir() {
-            Some(sysand_core::lock::Source::LocalSrc {
+            Some(Source::LocalSrc {
                 src_path: get_relative(path, current_project.root_path())?
                     .as_str()
                     .into(),
             })
         } else if metadata.is_file() {
-            Some(sysand_core::lock::Source::LocalKpar {
+            Some(Source::LocalKpar {
                 kpar_path: get_relative(path, current_project.root_path())?
                     .as_str()
                     .into(),
@@ -120,35 +121,38 @@ pub fn command_add<Policy: HTTPAuthentication>(
         }
         source
     } else if let Some(editable) = source_opts.as_editable {
-        Some(sysand_core::lock::Source::Editable {
+        Some(Source::Editable {
             editable: get_relative(editable, current_project.root_path())?
                 .as_str()
                 .into(),
         })
     } else if let Some(src_path) = source_opts.as_local_src {
-        Some(sysand_core::lock::Source::LocalSrc {
+        Some(Source::LocalSrc {
             src_path: get_relative(src_path, current_project.root_path())?
                 .as_str()
                 .into(),
         })
     } else if let Some(kpar_path) = source_opts.as_local_kpar {
-        Some(sysand_core::lock::Source::LocalKpar {
+        Some(Source::LocalKpar {
             kpar_path: get_relative(kpar_path, current_project.root_path())?
                 .as_str()
                 .into(),
         })
     } else if let Some(remote_src) = source_opts.as_remote_src {
-        Some(sysand_core::lock::Source::RemoteSrc {
+        Some(Source::RemoteSrc {
             remote_src: remote_src.into_string(),
         })
     } else if let Some(remote_kpar) = source_opts.as_remote_kpar {
-        Some(sysand_core::lock::Source::RemoteKpar {
+        Some(Source::RemoteKpar {
             remote_kpar: remote_kpar.into_string(),
             remote_kpar_size: None,
         })
+        // TODO: make all --as-* use new-style usages unconditionally, otherwise will need two impl for them
     } else if let Some(remote_git) = source_opts.as_remote_git {
-        Some(sysand_core::lock::Source::RemoteGit {
+        Some(Source::RemoteGit {
             remote_git: remote_git.into_string(),
+            rev: todo!(),
+            path: todo!(),
         })
     } else {
         None
@@ -182,7 +186,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         HashMap::default()
     };
 
-    let usage_raw = InterchangeProjectUsageRaw {
+    let usage_raw = InterchangeProjectUsageRaw::Resource {
         resource: iri.to_owned(),
         version_constraint,
     };

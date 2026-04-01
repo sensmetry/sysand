@@ -726,6 +726,12 @@ impl From<String> for Usage {
     }
 }
 
+impl From<Usage> for String {
+    fn from(value: Usage) -> Self {
+        value.0
+    }
+}
+
 impl From<&str> for Usage {
     fn from(value: &str) -> Self {
         Self(value.to_owned())

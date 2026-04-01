@@ -11,8 +11,6 @@ use typed_path::Utf8UnixPathBuf;
 #[cfg(feature = "filesystem")]
 use zip::{self, result::ZipError};
 
-use std::io::{self, Read};
-
 // TODO: use newtype for identifier IRI
 pub fn make_identifier_iri(publisher: impl AsRef<str>, name: impl AsRef<str>) -> String {
     let publisher = publisher.as_ref();

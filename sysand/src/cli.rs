@@ -244,6 +244,22 @@ pub enum Command {
     },
     /// Prints the root directory of the current project
     PrintRoot,
+    /// Experimental commands. Likely to change in incompatible ways or be
+    /// removed in the future.
+    #[clap(verbatim_doc_comment)]
+    Experimental {
+        #[command(subcommand)]
+        subcommand: Option<ExpCommand>,
+    },
+}
+
+pub enum ExpCommand {
+    Add {
+        
+    }
+    Remove {
+        
+    }
 }
 
 #[derive(clap::Args, Debug, Clone)]

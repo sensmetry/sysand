@@ -59,12 +59,8 @@ impl ResolveRead for GitResolver {
 
         Ok(ResolutionOutcome::Resolved(std::iter::once(
             // TODO: use trim_prefix() once it's stable
-            GixDownloadedProject::new(
-                uri.as_str().strip_prefix("git+").unwrap_or(uri.as_str()),
-                None,
-                None,
-            )
-            .map_err(|e| e.into()),
+            GixDownloadedProject::new(uri.as_str().strip_prefix("git+").unwrap_or(uri.as_str()))
+                .map_err(|e| e.into()),
         )))
     }
 
