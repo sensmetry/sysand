@@ -10,11 +10,6 @@ rules:
   cache-poisoning:
     disable: true
 
-  # FIXME: excessive-permissions was disabled on introduction to avoid erroring,
-  #        try fix issues or motivate why it should remain disabled
-  excessive-permissions:
-    disable: true
-
   # FIXME: secrets-outside-env was disabled on introduction to avoid erroring,
   #        try fix issues or motivate why it should remain disabled
   secrets-outside-env:
