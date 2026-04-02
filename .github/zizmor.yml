@@ -10,7 +10,17 @@ rules:
   cache-poisoning:
     disable: true
 
-  # FIXME: secrets-outside-env was disabled on introduction to avoid erroring,
-  #        try fix issues or motivate why it should remain disabled
+  # FIXME: We provide secrets without using a dedicated environments where they
+  #        are supposed to be available, and that exposes them beyond where they
+  #        are really needed. For example, they will be available in non-java
+  #        workflow jobs as well now.
+  #
   secrets-outside-env:
+    # FIXME: as soon as zizmor-action is updated to use zizmor 1.24+, the config
+    #        will be respected, and we don't have to be blunt about disabling
+    #        this pending a fix.
     disable: true
+    config:
+      allow:
+        - MAVEN_CENTRAL_GPG_PASSPHRASE
+        - MAVEN_CENTRAL_GPG_PRIVATE_KEY
