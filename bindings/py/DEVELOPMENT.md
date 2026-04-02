@@ -56,10 +56,14 @@ If this is run inside a venv and does not work, look in `scripts/run_tests.sh` f
 
 ## Formatting and linting
 
-Format Rust and Python code and run linters for both:
+Format and lint all code based on configuration in `.pre-commit-config.yaml`
+with `prek`, available to install via uv or pip.
 
 ```sh
-./scripts/run_chores.sh
+prek run -a
+
+# like this, you ensure this formatting is run before git commits are made
+prek install
 ```
 
 ## Changing Python version

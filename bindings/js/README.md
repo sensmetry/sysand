@@ -51,8 +51,8 @@ npm run test:browser
 
 ## Formatting and linting
 
-Format and lint all code based on configuration in `.pre-commit-config.yaml`,
-either with prek or pre-commit, available to install via uv or pip.
+Format and lint all code based on configuration in `.pre-commit-config.yaml`
+with `prek`, available to install via uv or pip.
 
 ```sh
 prek run -a

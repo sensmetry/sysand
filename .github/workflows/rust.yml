@@ -45,6 +45,8 @@ jobs:
               - 'sysand/**'
               - 'Cargo.*'
               - '.github/workflows/rust.yml'
+            rs_src:
+              - '**/*.rs'
       - id: decisions
         run: |
           test=${{ steps.filter.outputs.src == 'true' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
@@ -52,9 +54,12 @@ jobs:
           echo "test=$test" >> "$GITHUB_OUTPUT"
           echo "gate=$gate" >> "$GITHUB_OUTPUT"
 
+          lint_and_format=$([ "${{ steps.filter.outputs.any_rust_src }}" = "true" ] || [ "$test" = "true" ] && echo true || echo false)
+          echo "lint_and_format=$lint_and_format" >> "$GITHUB_OUTPUT"
+
   lint-and-format:
     needs: [plan]
-    if: needs.plan.outputs.test == 'true'
+    if: needs.plan.outputs.lint_and_format == 'true'
     runs-on: ubuntu-24.04
 
     steps:
@@ -63,14 +68,20 @@ jobs:
 
       - uses: taiki-e/install-action@6eec77b572d917fad00b2d3429df5ca9b6a0512c # cargo-hack
 
-      - name: cargo hack clippy ...
+      # cargo clippy is run with variants of features enabled, where
+      # --all-features is done by prek so we don't do it here
+
+      - name: cargo clippy ... (no features)
+        run: cargo clippy --workspace --locked --all-targets -- --deny warnings
+
+      - name: cargo hack clippy --each-feature ... (individual features)
         run: cargo hack clippy --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
 
-      - name: cargo clippy ...
-        run: cargo clippy --locked --all-targets --all-features -- --deny warnings
+      - name: cargo clippy --features std,filesystem,alltests ...  (specific feature set 1)
+        run: cargo clippy --workspace --locked --no-default-features --features std,filesystem,alltests -- --deny warnings
 
-      - name: cargo fmt ...
-        run: cargo fmt --check
+      - name: cargo clippy --features std,networking,alltests ... (specific feature set 2)
+        run: cargo clippy --workspace --locked --no-default-features --features std,networking,alltests -- --deny warnings
 
   test:
     needs: [plan]
