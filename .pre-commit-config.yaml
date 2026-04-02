@@ -95,4 +95,5 @@ repos:
     hooks:
       - id: zizmor
         args:
-          - --fix
+          - --fix=safe
+          # - --fix=all # fix more things with a manual review

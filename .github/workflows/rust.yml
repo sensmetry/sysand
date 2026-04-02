@@ -165,7 +165,7 @@ jobs:
       id-token: write # for actions/attest
       attestations: write # for actions/attest
       artifact-metadata: write # for actions/attest
-      contents: write # for softprops/action-gh-release
+      contents: write # for "gh release create"
 
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -191,14 +191,14 @@ jobs:
         run: echo "TAG_NAME=$(date +v-%Y-%m-%d-%H%M)" >> $GITHUB_ENV
 
       - name: Create a nightly release
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
-        with:
-          prerelease: true
-          files: |
-            artifacts/*
-          overwrite_files: false
-          tag_name: ${{ env.TAG_NAME }}
-          name: Nightly Release ${{ env.TAG_NAME }}
+        run: >-
+          gh release create "$TAG_NAME"
+              --prerelease
+              --title "Nightly Release $TAG_NAME"
+              --repo "$GITHUB_REPOSITORY"
+              artifacts/*
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   release:
     name: Release
@@ -209,7 +209,7 @@ jobs:
       id-token: write # for actions/attest
       attestations: write # for actions/attest
       artifact-metadata: write # for actions/attest
-      contents: write # for softprops/action-gh-release
+      contents: write # for "gh release create"
 
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -232,10 +232,13 @@ jobs:
           mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
 
       - name: Create a release
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
-        with:
-          make_latest: true
-          files: |
-            artifacts/*
-          overwrite_files: false
-          name: Release ${{ github.event.inputs.tag_name }}
+        run: >-
+          gh release create "$REF_NAME"
+              --verify-tag
+              --latest
+              --title "Release $REF_NAME"
+              --repo "$GITHUB_REPOSITORY"
+              artifacts/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}

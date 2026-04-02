@@ -1,7 +1,8 @@
 # zizmor is a static analysis tool for GitHub Actions workflows that detects
 # security issues, misconfigurations, and best-practice violations.
 #
-# zizmor reference: https://docs.zizmor.sh/configuration/#discovery
+# config ref: https://docs.zizmor.sh/configuration/#discovery
+# rules ref:  https://docs.zizmor.sh/audits/
 #
 rules:
   # FIXME: artipacked was disabled on introduction to avoid erroring, try fix
