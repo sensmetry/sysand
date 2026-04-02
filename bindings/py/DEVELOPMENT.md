@@ -56,11 +56,7 @@ If this is run inside a venv and does not work, look in `scripts/run_tests.sh` f
 
 ## Formatting and linting
 
-Format Rust and Python code and run linters for both:
-
-```sh
-./scripts/run_chores.sh
-```
+Refer to the main [DEVELOPMENT.md](../../DEVELOPMENT.md).
 
 ## Changing Python version
 

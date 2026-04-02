@@ -67,3 +67,7 @@ Only run tests:
 ```sh
 ./scripts/java-builder.py test
 ```
+
+## Formatting and linting
+
+Refer to the main [DEVELOPMENT.md](../../DEVELOPMENT.md).

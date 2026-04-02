@@ -109,7 +109,7 @@ def parse_version() -> str:
     metadata = json.loads(output)
     for package in metadata["packages"]:
         if package["name"] == "sysand-java":
-            version = package["version"]
+            version: str = package["version"]
             return version
     raise ValueError("sysand-java not found in Cargo.toml")
 

@@ -33,6 +33,7 @@ jobs:
     outputs:
       test: ${{ steps.decisions.outputs.test }}
       gate: ${{ steps.decisions.outputs.gate }}
+      lint_and_format: ${{ steps.decisions.outputs.lint_and_format }}
     steps:
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         if: github.event_name == 'pull_request'
@@ -41,9 +42,13 @@ jobs:
           filters: |
             src:
               - 'core/**'
+              - 'macros/**'
               - 'sysand/**'
               - 'Cargo.*'
               - '.github/workflows/rust.yml'
+            rs_src:
+              - '**/Cargo.*'
+              - '**/*.rs'
       - id: decisions
         run: |
           test=${{ steps.filter.outputs.src == 'true' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
@@ -51,25 +56,38 @@ jobs:
           echo "test=$test" >> "$GITHUB_OUTPUT"
           echo "gate=$gate" >> "$GITHUB_OUTPUT"
 
+          lint_and_format=${{ steps.filter.outputs.rs_src == 'true' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          echo "lint_and_format=$lint_and_format" >> "$GITHUB_OUTPUT"
+
   lint-and-format:
     needs: [plan]
-    if: needs.plan.outputs.test == 'true'
+    if: needs.plan.outputs.lint_and_format == 'true'
     runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - uses: taiki-e/install-action@6eec77b572d917fad00b2d3429df5ca9b6a0512c # cargo-hack
 
-      - name: cargo hack clippy ...
+      # cargo clippy is run with variants of features enabled, where
+      # --all-features is done by prek so we don't do it here
+
+      - name: cargo clippy ... (no features)
+        run: cargo clippy --workspace --locked --all-targets -- --deny warnings
+
+      - name: cargo clippy --features std,filesystem,alltests ...  (specific feature set 1)
+        run: cargo clippy --workspace --locked --all-targets --no-default-features --features std,filesystem,alltests -- --deny warnings
+
+      - name: cargo clippy --features std,networking,alltests ... (specific feature set 2)
+        run: cargo clippy --workspace --locked --all-targets --no-default-features --features std,networking,alltests -- --deny warnings
+
+      # since we use --no-dev-deps below (as recommended), we don't do
+      # --all-targets to include tests with required development dependencies
+      - name: cargo hack clippy --each-feature ... (individual features)
         run: cargo hack clippy --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
-
-      - name: cargo clippy ...
-        run: cargo clippy --locked --all-targets --all-features -- --deny warnings
-
-      - name: cargo fmt ...
-        run: cargo fmt --check
 
   test:
     needs: [plan]
@@ -88,6 +106,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: cargo test ... (Rust library & CLI)
@@ -111,6 +131,8 @@ jobs:
           - macos-latest # arm64
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: cargo build ...
@@ -149,7 +171,7 @@ jobs:
       id-token: write # for actions/attest
       attestations: write # for actions/attest
       artifact-metadata: write # for actions/attest
-      contents: write # for softprops/action-gh-release
+      contents: write # for "gh release create"
 
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -175,14 +197,14 @@ jobs:
         run: echo "TAG_NAME=$(date +v-%Y-%m-%d-%H%M)" >> $GITHUB_ENV
 
       - name: Create a nightly release
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
-        with:
-          prerelease: true
-          files: |
-            artifacts/*
-          overwrite_files: false
-          tag_name: ${{ env.TAG_NAME }}
-          name: Nightly Release ${{ env.TAG_NAME }}
+        run: >-
+          gh release create "$TAG_NAME"
+              --prerelease
+              --title "Nightly Release $TAG_NAME"
+              --repo "$GITHUB_REPOSITORY"
+              artifacts/*
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   release:
     name: Release
@@ -193,7 +215,7 @@ jobs:
       id-token: write # for actions/attest
       attestations: write # for actions/attest
       artifact-metadata: write # for actions/attest
-      contents: write # for softprops/action-gh-release
+      contents: write # for "gh release create"
 
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -216,10 +238,13 @@ jobs:
           mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
 
       - name: Create a release
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
-        with:
-          make_latest: true
-          files: |
-            artifacts/*
-          overwrite_files: false
-          name: Release ${{ github.event.inputs.tag_name }}
+        run: >-
+          gh release create "$REF_NAME"
+              --verify-tag
+              --latest
+              --title "Release $REF_NAME"
+              --repo "$GITHUB_REPOSITORY"
+              artifacts/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}

@@ -51,16 +51,4 @@ npm run test:browser
 
 ## Formatting and linting
 
-Format Rust code and run linters for Rust and JavaScript:
-
-```sh
-./scripts/run_chores.sh
-```
-
-You can also run the lint for JavaScript separately with
-
-```sh
-npm run lint
-```
-
-assuming you have already installed the dependencies with `npm install`.
+Refer to the main [DEVELOPMENT.md](../../DEVELOPMENT.md).
