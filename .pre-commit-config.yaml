@@ -88,3 +88,12 @@ repos:
           - eslint@^10.1.0
           - "@eslint/js@^10.0.1"
           - globals@^17.4.0
+
+  # Security: github actions security checks
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.23.1
+    hooks:
+      - id: zizmor
+        args:
+          - --fix=safe
+          # - --fix=all # fix more things with a manual review
