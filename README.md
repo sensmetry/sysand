@@ -32,7 +32,7 @@ for various ways to download Sysand.
 
 ### Development
 
-Development instructions are provided in [DEVELOPMENT.md](../DEVELOPMENT.md).
+Development instructions are provided in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ### Legal
 
