@@ -36,10 +36,9 @@ fn resolve_publish_kpar_path(
     })
 }
 
-fn resolve_publish_index_url(index: Option<String>, config: &Config) -> Result<Url> {
+fn resolve_publish_index_url(index: Option<Url>, config: &Config) -> Result<Url> {
     if let Some(index_url) = index {
-        return Url::parse(index_url.as_str())
-            .map_err(|e| anyhow!("invalid index URL `{index_url}`: {e}"));
+        return Ok(index_url);
     }
 
     if let Some(index_url) = config
@@ -57,7 +56,7 @@ fn resolve_publish_index_url(index: Option<String>, config: &Config) -> Result<U
 
 pub fn command_publish(
     path: Option<Utf8PathBuf>,
-    index: Option<String>,
+    index: Option<Url>,
     ctx: &ProjectContext,
     config: &Config,
     auth_policy: Arc<StandardHTTPAuthentication>,
@@ -69,7 +68,9 @@ pub fn command_publish(
         bail!("kpar file not found at `{kpar_path}`, run `sysand build` first");
     }
     let index_url = resolve_publish_index_url(index, config)?;
-    let response = do_publish_kpar(kpar_path, index_url.as_str(), auth_policy, client, runtime)?;
+    let publish_auth_policy =
+        Arc::new(Arc::unwrap_or_clone(auth_policy).into_publish_authentication()?);
+    let response = do_publish_kpar(kpar_path, index_url, publish_auth_policy, client, runtime)?;
 
     let header = sysand_core::style::get_style_config().header;
     let published = "Published";
@@ -87,6 +88,7 @@ mod tests {
     use super::resolve_publish_index_url;
     use crate::DEFAULT_INDEX_URL;
     use sysand_core::config::{Config, Index};
+    use url::Url;
 
     #[test]
     fn resolve_publish_index_url_prefers_explicit_flag() {
@@ -99,8 +101,11 @@ mod tests {
             ..Default::default()
         };
 
-        let url = resolve_publish_index_url(Some("https://cli.example.com".to_string()), &config)
-            .unwrap();
+        let url = resolve_publish_index_url(
+            Some(Url::parse("https://cli.example.com").unwrap()),
+            &config,
+        )
+        .unwrap();
 
         assert_eq!(url.as_str(), "https://cli.example.com/");
     }

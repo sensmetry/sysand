@@ -9,7 +9,7 @@ use thiserror::Error;
 use url::Url;
 
 use crate::{
-    auth::{GlobMapResult, HTTPAuthentication, StandardHTTPAuthentication},
+    auth::{GlobMapResult, HTTPAuthentication, PublishHTTPAuthentication},
     project::{ProjectRead, local_kpar::LocalKParProject},
 };
 
@@ -78,7 +78,7 @@ pub enum PublishError {
     MissingPublisher,
 
     #[error(
-        "publisher field `{0}` is invalid for modern project IDs: must be 3-50 characters, use only letters and numbers, may include single spaces or hyphens between words, and must start and end with a letter or number"
+        "publisher field `{0}` is invalid for modern project IDs: must be 3-50 characters, use only ASCII letters and numbers, may include single spaces or hyphens between words, and must start and end with a letter or number"
     )]
     NonCanonicalizablePublisher(Box<str>),
 
@@ -93,6 +93,17 @@ pub enum PublishError {
     InvalidVersion {
         version: Box<str>,
         source: semver::Error,
+    },
+
+    #[error("missing license in project info (required for publishing)")]
+    MissingLicense,
+
+    #[error(
+        "license field `{license}` is invalid for publishing: must be a valid SPDX license expression ({source})"
+    )]
+    InvalidLicense {
+        license: Box<str>,
+        source: spdx::error::ParseError,
     },
 
     #[error("invalid index URL `{url}` for publish endpoint: {reason}")]
@@ -126,35 +137,42 @@ pub struct PublishResponse {
     pub is_new_project: bool,
 }
 
-fn build_upload_url(index_url: &str) -> Result<Url, PublishError> {
-    let mut upload_url = Url::parse(index_url).map_err(|e| PublishError::InvalidIndexUrl {
-        url: index_url.into(),
-        reason: e.to_string(),
-    })?;
+fn build_upload_url(index_url: &Url) -> Result<Url, PublishError> {
+    if !matches!(index_url.scheme(), "http" | "https") {
+        return Err(PublishError::InvalidIndexUrl {
+            url: index_url.as_str().into(),
+            reason: "URL scheme must be http or https".to_string(),
+        });
+    }
 
+    if index_url.query().is_some() {
+        return Err(PublishError::InvalidIndexUrl {
+            url: index_url.as_str().into(),
+            reason: "URL must not include a query component".to_string(),
+        });
+    }
+
+    if index_url.fragment().is_some() {
+        return Err(PublishError::InvalidIndexUrl {
+            url: index_url.as_str().into(),
+            reason: "URL must not include a fragment component".to_string(),
+        });
+    }
+
+    let mut upload_url = index_url.clone();
     {
-        let mut segments =
-            upload_url
-                .path_segments_mut()
-                .map_err(|_| PublishError::InvalidIndexUrl {
-                    url: index_url.into(),
-                    reason: "URL cannot be used as a hierarchical base URL".to_string(),
-                })?;
+        let mut segments = upload_url.path_segments_mut().unwrap();
         segments.pop_if_empty();
         segments.extend(["api", "v1", "upload"]);
     }
-
-    // Keep publish endpoint path stable even if user provided query/fragment in base URL.
-    upload_url.set_query(None);
-    upload_url.set_fragment(None);
 
     Ok(upload_url)
 }
 
 pub fn do_publish_kpar<P: AsRef<Utf8Path>>(
     kpar_path: P,
-    index_url: &str,
-    auth_policy: Arc<StandardHTTPAuthentication>,
+    index_url: Url,
+    auth_policy: Arc<PublishHTTPAuthentication>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<PublishResponse, PublishError> {
@@ -178,18 +196,22 @@ pub fn do_publish_kpar<P: AsRef<Utf8Path>>(
         .ok_or(PublishError::MissingPublisher)?;
     let name = &info.name;
     let version = &info.version;
+    let license = info
+        .license
+        .as_deref()
+        .ok_or(PublishError::MissingLicense)?;
     if !is_canonicalizable_publisher_field_value(publisher) {
-        return Err(PublishError::NonCanonicalizablePublisher(
-            publisher.to_owned().into_boxed_str(),
-        ));
+        return Err(PublishError::NonCanonicalizablePublisher(publisher.into()));
     }
     if !is_canonicalizable_name_field_value(name) {
-        return Err(PublishError::NonCanonicalizableName(
-            name.to_owned().into_boxed_str(),
-        ));
+        return Err(PublishError::NonCanonicalizableName(name.as_str().into()));
     }
     semver::Version::parse(version).map_err(|source| PublishError::InvalidVersion {
-        version: version.to_owned().into_boxed_str(),
+        version: version.as_str().into(),
+        source,
+    })?;
+    spdx::Expression::parse(license).map_err(|source| PublishError::InvalidLicense {
+        license: license.into(),
         source,
     })?;
     let normalized_publisher = canonicalize_modern_project_id_component(publisher);
@@ -197,7 +219,10 @@ pub fn do_publish_kpar<P: AsRef<Utf8Path>>(
     let purl = format!("pkg:sysand/{normalized_publisher}/{normalized_name}@{version}");
 
     let publishing = "Publishing";
-    log::info!("{header}{publishing:>12}{header:#} `{name}` {version} to {index_url}");
+    log::info!(
+        "{header}{publishing:>12}{header:#} `{name}` {version} to {}",
+        index_url
+    );
 
     let file_name = kpar_path
         .file_name()
@@ -208,7 +233,7 @@ pub fn do_publish_kpar<P: AsRef<Utf8Path>>(
     let file_bytes = std::fs::read(kpar_path)
         .map_err(|e| PublishError::KparRead(kpar_path.as_str().into(), e))?;
 
-    let upload_url = build_upload_url(index_url)?;
+    let upload_url = build_upload_url(&index_url)?;
 
     match auth_policy.restricted.lookup(upload_url.as_str()) {
         GlobMapResult::NotFound => {
@@ -219,18 +244,19 @@ pub fn do_publish_kpar<P: AsRef<Utf8Path>>(
 
     // Keep upload payload in `Bytes` so request retries clone cheaply.
     let file_bytes = Bytes::from(file_bytes);
+    let upload_url_for_request = upload_url.clone();
 
     let request_builder = move |c: &reqwest_middleware::ClientWithMiddleware| {
         let file_part = reqwest::multipart::Part::stream(file_bytes.clone())
             .file_name(file_name.clone())
             .mime_str("application/octet-stream")
-            .expect("valid mime type");
+            .unwrap();
 
         let form = reqwest::multipart::Form::new()
             .text("purl", purl.clone())
             .part("file", file_part);
 
-        c.post(upload_url.as_str()).multipart(form)
+        c.post(upload_url_for_request.clone()).multipart(form)
     };
 
     let response = runtime.block_on(async {
@@ -240,7 +266,14 @@ pub fn do_publish_kpar<P: AsRef<Utf8Path>>(
     })?;
 
     let status = response.status().as_u16();
+    let response_url = response.url().to_string();
     let body = runtime.block_on(response.text()).unwrap_or_default();
+    log::debug!(
+        "publish response: request URL `{}`, final URL `{}`, status {}",
+        upload_url,
+        response_url,
+        status
+    );
 
     match status {
         200 => Ok(PublishResponse {
@@ -256,7 +289,15 @@ pub fn do_publish_kpar<P: AsRef<Utf8Path>>(
         401 | 403 => Err(PublishError::AuthError(body)),
         409 => Err(PublishError::Conflict(body)),
         400 | 404 => Err(PublishError::BadRequest(body)),
-        _ => Err(PublishError::ServerError(status, body)),
+        _ => {
+            log::warn!(
+                "publish failed: request URL `{}`, final URL `{}`, status {}",
+                upload_url,
+                response_url,
+                status
+            );
+            Err(PublishError::ServerError(status, body))
+        }
     }
 }
 
@@ -266,6 +307,7 @@ mod tests {
         PublishError, build_upload_url, canonicalize_modern_project_id_component,
         is_canonicalizable_name_field_value, is_canonicalizable_publisher_field_value,
     };
+    use url::Url;
 
     #[test]
     fn publisher_field_canonicalizability() {
@@ -302,21 +344,25 @@ mod tests {
     #[test]
     fn build_upload_url_appends_endpoint_path() {
         assert_eq!(
-            build_upload_url("https://example.org").unwrap().as_str(),
+            build_upload_url(&Url::parse("https://example.org").unwrap())
+                .unwrap()
+                .as_str(),
             "https://example.org/api/v1/upload"
         );
         assert_eq!(
-            build_upload_url("https://example.org/").unwrap().as_str(),
+            build_upload_url(&Url::parse("https://example.org/").unwrap())
+                .unwrap()
+                .as_str(),
             "https://example.org/api/v1/upload"
         );
         assert_eq!(
-            build_upload_url("https://example.org/index")
+            build_upload_url(&Url::parse("https://example.org/index").unwrap())
                 .unwrap()
                 .as_str(),
             "https://example.org/index/api/v1/upload"
         );
         assert_eq!(
-            build_upload_url("https://example.org/index/")
+            build_upload_url(&Url::parse("https://example.org/index/").unwrap())
                 .unwrap()
                 .as_str(),
             "https://example.org/index/api/v1/upload"
@@ -325,17 +371,20 @@ mod tests {
 
     #[test]
     fn build_upload_url_strips_query_and_fragment() {
-        assert_eq!(
-            build_upload_url("https://example.org/index?x=1#frag")
-                .unwrap()
-                .as_str(),
-            "https://example.org/index/api/v1/upload"
-        );
+        let err = build_upload_url(&Url::parse("https://example.org/index?x=1#frag").unwrap())
+            .unwrap_err();
+        assert!(matches!(err, PublishError::InvalidIndexUrl { .. }));
+    }
+
+    #[test]
+    fn build_upload_url_rejects_non_http_scheme() {
+        let err = build_upload_url(&Url::parse("ftp://example.org").unwrap()).unwrap_err();
+        assert!(matches!(err, PublishError::InvalidIndexUrl { .. }));
     }
 
     #[test]
     fn build_upload_url_rejects_non_hierarchical_url() {
-        let err = build_upload_url("mailto:test@example.org").unwrap_err();
+        let err = build_upload_url(&Url::parse("mailto:test@example.org").unwrap()).unwrap_err();
         assert!(matches!(err, PublishError::InvalidIndexUrl { .. }));
     }
 }

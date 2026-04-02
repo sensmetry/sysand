@@ -222,8 +222,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     let mut auths_builder: StandardHTTPAuthenticationBuilder =
         StandardHTTPAuthenticationBuilder::new();
-    let mut publish_auths_builder: StandardHTTPAuthenticationBuilder =
-        StandardHTTPAuthenticationBuilder::new();
     for k in basic_auth_pattern_names {
         match (
             auth_patterns.get(k),
@@ -257,7 +255,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     matched_schemes += 1;
                     log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
                     auths_builder.add_bearer_auth(pattern, token);
-                    publish_auths_builder.add_bearer_auth(pattern, token);
                 }
 
                 if matched_schemes > 1 {
@@ -272,7 +269,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         }
     }
     let basic_or_bearer_auth_policy = Arc::new(auths_builder.build()?);
-    let bearer_only_auth_policy = Arc::new(publish_auths_builder.build()?);
 
     match args.command {
         Command::Init {
@@ -691,7 +687,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             index,
             &ctx,
             &config,
-            bearer_only_auth_policy,
+            basic_or_bearer_auth_policy,
             client,
             runtime,
         ),
