@@ -48,6 +48,7 @@ jobs:
             src:
               - 'bindings/py/**'
               - 'core/**'
+              - 'macros/**'
               - 'sysand/**'
               - 'Cargo.*'
               - '.github/workflows/python.yml'

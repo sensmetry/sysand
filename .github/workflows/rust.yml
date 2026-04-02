@@ -41,6 +41,7 @@ jobs:
           filters: |
             src:
               - 'core/**'
+              - 'macros/**'
               - 'sysand/**'
               - 'Cargo.*'
               - '.github/workflows/rust.yml'

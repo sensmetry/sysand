@@ -41,6 +41,7 @@ jobs:
           filters: |
             src:
               - 'core/**'
+              - 'macros/**'
               - 'bindings/js/**'
               - 'Cargo.*'
               - '.github/workflows/js-wasm.yml'
