@@ -16,24 +16,16 @@
 # FIXME: ensure hooks gets updated over time automatically
 #
 repos:
-  # Autoformat: python
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.4
-    hooks:
-      - id: ruff-check
-        args: [--fix]
-      - id: ruff-format
-
   # Autoformat: markdown, yaml, json, js
   - repo: https://github.com/rbubley/mirrors-prettier
     rev: v3.8.1
     hooks:
       - id: prettier
-        exclude: |
-          (?x)^(
-              .*stdlib_assets/.*|
-              .*\.lock
-          )$
+        exclude: |-
+          (?x)(
+              stdlib_assets/|
+              \.lock
+          )
 
   # Autoformat: rust
   - repo: local
@@ -63,14 +55,27 @@ repos:
           - warnings
         pass_filenames: false
 
-  # Lint: python typing
+  # Autoformat: python
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.4
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # Lint: python type checking
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.20.0
     hooks:
       - id: mypy
         args:
           - --strict
-        exclude: ^bindings/py/tests/
+        # lint only what is known to use typings
+        files: |-
+          (?x)^(
+              bindings/py/python/|
+              bindings/java/scripts/
+          )
 
   # Lint: javascript
   - repo: https://github.com/pre-commit/mirrors-eslint

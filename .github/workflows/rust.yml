@@ -54,7 +54,7 @@ jobs:
           echo "test=$test" >> "$GITHUB_OUTPUT"
           echo "gate=$gate" >> "$GITHUB_OUTPUT"
 
-          lint_and_format=$([ "${{ steps.filter.outputs.any_rust_src }}" = "true" ] || [ "$test" = "true" ] && echo true || echo false)
+          lint_and_format=$([ "${{ steps.filter.outputs.rs_src }}" = "true" ] || [ "$test" = "true" ] && echo true || echo false)
           echo "lint_and_format=$lint_and_format" >> "$GITHUB_OUTPUT"
 
   lint-and-format:
@@ -74,14 +74,16 @@ jobs:
       - name: cargo clippy ... (no features)
         run: cargo clippy --workspace --locked --all-targets -- --deny warnings
 
-      - name: cargo hack clippy --each-feature ... (individual features)
-        run: cargo hack clippy --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
-
       - name: cargo clippy --features std,filesystem,alltests ...  (specific feature set 1)
-        run: cargo clippy --workspace --locked --no-default-features --features std,filesystem,alltests -- --deny warnings
+        run: cargo clippy --workspace --locked --all-targets --no-default-features --features std,filesystem,alltests -- --deny warnings
 
       - name: cargo clippy --features std,networking,alltests ... (specific feature set 2)
-        run: cargo clippy --workspace --locked --no-default-features --features std,networking,alltests -- --deny warnings
+        run: cargo clippy --workspace --locked --all-targets --no-default-features --features std,networking,alltests -- --deny warnings
+
+      # since we use --no-dev-deps below (as recommended), we don't do
+      # --all-targets to include tests with required development dependencies
+      - name: cargo hack clippy --each-feature ... (individual features)
+        run: cargo hack clippy --each-feature --no-dev-deps --features std --ignore-unknown-features -- --deny warnings
 
   test:
     needs: [plan]

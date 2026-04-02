@@ -56,15 +56,7 @@ If this is run inside a venv and does not work, look in `scripts/run_tests.sh` f
 
 ## Formatting and linting
 
-Format and lint all code based on configuration in `.pre-commit-config.yaml`
-with `prek`, available to install via uv or pip.
-
-```sh
-prek run -a
-
-# like this, you ensure this formatting is run before git commits are made
-prek install
-```
+Refer to the main [DEVELOPMENT.md](../../DEVELOPMENT.md).
 
 ## Changing Python version
 

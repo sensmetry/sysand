@@ -128,7 +128,7 @@ Run tests for all crates and language bindings (requires bindings dependencies):
 ## Formatting and linting
 
 Format and lint all code based on configuration in `.pre-commit-config.yaml`
-with `prek`, available to install via uv or pip.
+with `prek` ([installation options]).
 
 ```sh
 prek run -a
@@ -136,6 +136,8 @@ prek run -a
 # like this, you ensure this formatting is run before git commits are made
 prek install
 ```
+
+[installation options]: https://github.com/j178/prek?tab=readme-ov-file#installation
 
 ## Commits and pull requests
 
