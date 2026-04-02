@@ -1,0 +1,57 @@
+# zizmor is a static analysis tool for GitHub Actions workflows that detects
+# security issues, misconfigurations, and best-practice violations.
+#
+# config ref: https://docs.zizmor.sh/configuration/#discovery
+# rules ref:  https://docs.zizmor.sh/audits/
+#
+rules:
+  # The artipacked rule flags persist-credentials (default: true) on
+  # actions/checkout, which stores a git credential on disk.
+  #
+  # This is a public repo with workflow-level `permissions.contents: read`, so a
+  # leaked credential only grants read access anyone already has. The only jobs
+  # with elevated permissions (release/deploy) either don't use checkout at all,
+  # or only have non-contents write scopes (id-token, attestations) that the
+  # persisted git credential cannot be used for.
+  #
+  artipacked:
+    disable: true
+
+  # Cache poisoning is when a cache entry is manipulated to inject malicious
+  # content into a build that trusts it. This can happen across trust
+  # boundaries (e.g. a PR poisoning a cache later used by a main/tag run) or
+  # within the same trust level (e.g. a compromised dependency writing bad
+  # compiled artifacts to the cache on main, affecting future main runs).
+  #
+  # Cross-trust-boundary poisoning is prevented by GitHub's cache scoping [1]:
+  # caches created by PR workflows are scoped to their merge ref (e.g.
+  # refs/pull/123/merge) and cannot be restored by main/tag runs (e.g.
+  # refs/heads/main, refs/tags/v1). This applies to all caches in our
+  # workflows (rust-cache, setup-node, setup-uv, and sccache via
+  # maturin-action) because scoping is enforced server-side by the GitHub
+  # Actions cache API, regardless of which client library is used.
+  #
+  # [1]: https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows#restrictions-for-accessing-a-cache
+  #
+  cache-poisoning:
+    disable: true
+
+  # FIXME: excessive-permissions was disabled on introduction to avoid erroring,
+  #        try fix issues or motivate why it should remain disabled
+  excessive-permissions:
+    disable: true
+
+  # FIXME: We provide secrets without using a dedicated environments where they
+  #        are supposed to be available, and that exposes them beyond where they
+  #        are really needed. For example, they will be available in non-java
+  #        workflow jobs as well now.
+  #
+  secrets-outside-env:
+    # FIXME: as soon as zizmor-action is updated to use zizmor 1.24+, the config
+    #        will be respected, and we don't have to be blunt about disabling
+    #        this pending a fix.
+    disable: true
+    config:
+      allow:
+        - MAVEN_CENTRAL_GPG_PASSPHRASE
+        - MAVEN_CENTRAL_GPG_PRIVATE_KEY
