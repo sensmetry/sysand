@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: j178/prek-action@v2
+      - uses: j178/prek-action@b0ae0c600be6176aa296014b4eab1974096ebd69 # v2
 
   ci-gate:
     name: Prek CI Gate
