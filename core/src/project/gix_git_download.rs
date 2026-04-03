@@ -161,6 +161,7 @@ mod tests {
     //use predicates::prelude::*;
 
     /// Initializes a git repository at `path` with a pre-configured test user.
+    #[cfg(feature = "alltests")]
     fn git_init(path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
         Command::new("git")
             .arg("init")

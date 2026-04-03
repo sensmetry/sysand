@@ -416,6 +416,31 @@ pub type StandardHTTPAuthentication = RestrictAuthentication<
     Unauthenticated,
 >;
 
+/// Publish-specific HTTP authentication policy where matching URL globs always use bearer auth.
+pub type PublishHTTPAuthentication = RestrictAuthentication<ForceBearerAuth, Unauthenticated>;
+
+impl StandardHTTPAuthentication {
+    pub fn into_publish_authentication(self) -> Result<PublishHTTPAuthentication, globset::Error> {
+        let mut partial = GlobMapBuilder::new();
+
+        for (key, sequence_auth) in self
+            .restricted
+            .keys
+            .into_iter()
+            .zip(self.restricted.values.into_iter())
+        {
+            if let StandardInnerAuthentication::BearerAuth(inner) = sequence_auth.lower {
+                partial.add(key, inner);
+            }
+        }
+
+        Ok(PublishHTTPAuthentication {
+            restricted: partial.build()?,
+            unrestricted: Unauthenticated {},
+        })
+    }
+}
+
 /// Utility to simplify construction of `StandardHTTPAuthentication`
 #[derive(Debug, Default, Clone)]
 pub struct StandardHTTPAuthenticationBuilder {
