@@ -1,14 +1,60 @@
-# pre-commit is a tool to perform a predefined set of tasks manually and/or
-# automatically before git commits are made.
+# prek (Rust version of the Python based pre-commit) is a tool to perform a
+# predefined set of tasks manually and/or automatically before git commits are
+# made.
 #
-# Config reference: https://pre-commit.com/#pre-commit-configyaml---top-level
+# We require prek specifically, since we want support for rust based hooks.
+#
+# pre-commit reference: https://pre-commit.com/#pre-commit-configyaml---top-level
+# prek reference:       https://prek.j178.dev/configuration/
 #
 # Common tasks
 #
-# - Run once on all files: pre-commit run --all-files
-# - Register git hooks:    pre-commit install --install-hooks
+# - Run once on all files: prek run -a
+# - Register git hooks:    prek install
+#
+# FIXME: transition to a prek official config as we now require prek
+# FIXME: ensure hooks gets updated over time automatically
 #
 repos:
+  # Autoformat: markdown, yaml, json, js
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.8.1
+    hooks:
+      - id: prettier
+        exclude: |-
+          (?x)(
+              stdlib_assets/|
+              \.lock
+          )
+
+  # Autoformat: rust
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt
+        description: Formats all bin and lib files of the current workspace using rustfmt.
+        language: rust
+        types: [rust]
+        args: ["--"]
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy
+        description: Checks all packages in the workspace to catch common mistakes and improve your Rust code.
+        language: rust
+        types: [rust]
+        args:
+          - --workspace
+          - --all-targets
+          - --all-features
+          - --allow-dirty
+          - --fix
+          - --
+          - --deny
+          - warnings
+        pass_filenames: false
+
   # Autoformat: python
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.4
@@ -17,16 +63,19 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  # Autoformat: markdown, yaml, json, js
-  - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.8.1
+  # Lint: python type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.20.0
     hooks:
-      - id: prettier
-        exclude: |
+      - id: mypy
+        args:
+          - --strict
+        # lint only what is known to use typings
+        files: |-
           (?x)^(
-              .*stdlib_assets/.*|
-              .*\.lock
-          )$
+              bindings/py/python/|
+              bindings/java/scripts/
+          )
 
   # Lint: javascript
   - repo: https://github.com/pre-commit/mirrors-eslint
@@ -39,43 +88,3 @@ repos:
           - eslint@^10.1.0
           - "@eslint/js@^10.0.1"
           - globals@^17.4.0
-
-  # Autoformat: rust
-  - repo: local
-    hooks:
-      - id: cargo-fmt
-        name: cargo fmt
-        entry: cargo fmt
-        description: Formats all bin and lib files of the current workspace using rustfmt.
-        language: system
-        types: [rust]
-        args: ["--"]
-      - id: cargo-clippy
-        name: cargo clippy
-        entry: cargo clippy
-        description: Checks all packages in the workspace to catch common mistakes and improve your Rust code.
-        language: system
-        types: [rust]
-        args:
-          [
-            "--workspace",
-            "--all-targets",
-            "--all-features",
-            "--",
-            "--deny",
-            "warnings",
-          ]
-        pass_filenames: false
-
-# pre-commit.ci is a free automation service that can both run a validation job
-# and push commits with fixes to PRs, and keep the versions of configured
-# pre-commit hooks up to date by creating version bumping PRs.
-#
-# pre-commit.ci config reference: https://pre-commit.ci/#configuration
-ci:
-  autoupdate_schedule: monthly
-  skip:
-    # The hooks rely on cargo being available, which it won't be in
-    # pre-commit.ci's runners, so we skip them from running there.
-    - cargo-fmt
-    - cargo-clippy

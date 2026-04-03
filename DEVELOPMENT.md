@@ -127,21 +127,8 @@ Run tests for all crates and language bindings (requires bindings dependencies):
 
 ## Formatting and linting
 
-Format Rust code in core crates:
-
-```sh
-cargo fmt -p sysand-core -p sysand
-```
-
-Format and lint all Rust and bindings code (requires bindings dependencies):
-
-```sh
-./scripts/run_chores.sh
-```
-
-Format and lint all other code based on configuration in
-`.pre-commit-config.yaml`, either with prek or pre-commit, available to install
-via uv or pip.
+Format and lint all code based on configuration in `.pre-commit-config.yaml`
+with `prek` ([installation options]).
 
 ```sh
 prek run -a
@@ -149,6 +136,8 @@ prek run -a
 # like this, you ensure this formatting is run before git commits are made
 prek install
 ```
+
+[installation options]: https://github.com/j178/prek?tab=readme-ov-file#installation
 
 ## Commits and pull requests
 

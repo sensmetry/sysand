@@ -45,10 +45,6 @@ dev = [
     "pytest>=9.0.2,<10",
     "pytest-httpserver>=1.1.3,<2",
 ]
-linters = [
-    "mypy>=1.19.1,<2",
-    "ruff>=0.14.13,<1",
-]
 
 [tool.maturin]
 python-source = "python"

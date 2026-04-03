@@ -41,6 +41,7 @@ jobs:
           filters: |
             src:
               - 'core/**'
+              - 'macros/**'
               - 'bindings/java/**'
               - 'Cargo.*'
               - '.github/workflows/java.yml'
