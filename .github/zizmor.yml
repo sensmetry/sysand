@@ -36,11 +36,6 @@ rules:
   cache-poisoning:
     disable: true
 
-  # FIXME: excessive-permissions was disabled on introduction to avoid erroring,
-  #        try fix issues or motivate why it should remain disabled
-  excessive-permissions:
-    disable: true
-
   # FIXME: We provide secrets without using a dedicated environments where they
   #        are supposed to be available, and that exposes them beyond where they
   #        are really needed. For example, they will be available in non-java
