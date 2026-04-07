@@ -49,7 +49,7 @@ reqwest-middleware = { version = "0.5.1" }
 semver = { version = "1.0.27", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149", default-features = false, features = ["preserve_order"] }
-sha2 = { version = "0.10.9", default-features = false }
+sha2 = { version = "0.11.0", default-features = false }
 sysand-macros = { path = "../macros"}
 spdx = "0.13.4"
 thiserror = { version = "2.0.18", default-features = false }
