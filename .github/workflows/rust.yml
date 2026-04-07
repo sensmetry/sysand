@@ -190,12 +190,12 @@ jobs:
           mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
 
       - name: Create a nightly release
-        run: >-
-          NEW_TAG=$(date +v-%Y-%m-%d-%H%M) &&
-          gh release create "$NEW_TAG"
-              --title "Nightly Release $NEW_TAG"
-              --prerelease
-              --target "$GITHUB_SHA"
+        run: |
+          NEW_TAG=$(date +v-%Y-%m-%d-%H%M)
+          gh release create "$NEW_TAG" \
+              --title "Nightly Release $NEW_TAG" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
               artifacts/*
         env:
           GH_TOKEN: ${{ github.token }}
@@ -233,10 +233,10 @@ jobs:
           mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
 
       - name: Create a release
-        run: >-
-          gh release create "$TRIGGERING_TAG"
-              --title "Release $TRIGGERING_TAG"
-              --verify-tag
+        run: |
+          gh release create "$TRIGGERING_TAG" \
+              --title "Release $TRIGGERING_TAG" \
+              --verify-tag \
               artifacts/*
         env:
           GH_TOKEN: ${{ github.token }}
