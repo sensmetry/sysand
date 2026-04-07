@@ -36,7 +36,7 @@ camino-tempfile = { version = "1.4", optional = true }
 anstyle = { version = "1.0.13", default-features = false }
 borrow-or-share = { version = "0.2.4", default-features = false }
 chrono = { version = "0.4.44", features = ["now", "serde"] }
-digest = { version = "0.10.7", default-features = false }
+digest = { version = "0.11.0", default-features = false }
 dirs = { version = "6.0.0", optional = true}
 fluent-uri = { version = "0.4.1", features = ["serde"] }
 indexmap = { version = "2.13.0", default-features = false, features = ["serde"] }
