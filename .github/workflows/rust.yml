@@ -191,13 +191,13 @@ jobs:
         run: >-
           NEW_TAG=$(date +v-%Y-%m-%d-%H%M) &&
           gh release create "$NEW_TAG"
-              --prerelease
               --title "Nightly Release $NEW_TAG"
-              --repo "$GITHUB_REPOSITORY"
+              --prerelease
               --target "$GITHUB_SHA"
               artifacts/*
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
 
   release:
     name: Release
@@ -233,11 +233,10 @@ jobs:
       - name: Create a release
         run: >-
           gh release create "$TRIGGERING_TAG"
-              --verify-tag
-              --latest
               --title "Release $TRIGGERING_TAG"
-              --repo "$GITHUB_REPOSITORY"
+              --verify-tag
               artifacts/*
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TRIGGERING_TAG: ${{ github.ref_name }}
