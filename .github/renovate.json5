@@ -35,6 +35,13 @@
       matchDatasources: ["crate"],
       matchPackageNames: ["pyo3*"],
     },
+    // jasmine packages have interdependencies on each other
+    {
+      groupName: "all jasmine packages",
+      groupSlug: "all-jasmine",
+      matchDatasources: ["npm"],
+      matchPackageNames: ["jasmine*"],
+    },
     // Group all GitHub Actions bumps (including majors) into one PR.
     {
       groupName: "all github actions",
