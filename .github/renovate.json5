@@ -35,6 +35,14 @@
       matchDatasources: ["crate"],
       matchPackageNames: ["pyo3*"],
     },
+    // Group all GitHub Actions bumps (including majors) into one PR.
+    {
+      groupName: "all github actions",
+      groupSlug: "all-github-actions",
+      matchManagers: ["github-actions"],
+      matchDepNames: ["!python"],
+      matchUpdateTypes: ["major", "minor", "patch", "digest"],
+    },
     // We upgrade python versions in CI manually
     {
       matchManagers: ["github-actions"],
