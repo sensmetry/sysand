@@ -13,7 +13,7 @@
     "copy-webpack-plugin": "^14.0.0",
     "glob": "^13.0.0",
     "jasmine-browser-runner": "^3.0.0",
-    "jasmine-core": "^5.13.0",
+    "jasmine-core": "^6.0.0",
     "webpack": "^5.105.4",
     "webpack-cli": "^7.0.0"
   }
