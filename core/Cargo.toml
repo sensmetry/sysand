@@ -60,7 +60,7 @@ walkdir = "2.5.0"
 wasm-bindgen = { version = "0.2.114", default-features = false, optional = true }
 zip = { version = "7.2.0", default-features = false, optional = true, features = ["deflate"] }
 url = { version = "2.5.8", default-features = false }
-gix = { version = "0.80.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation"] }
+gix = { version = "0.81.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation"] }
 logos = "0.16.1"
 futures = { version = "0.3.32", default-features = false, features = ["alloc", "async-await"] }
 tokio = { version = "1.50.0", default-features = false, features = ["rt", "io-util"] }
