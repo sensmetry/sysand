@@ -58,7 +58,7 @@ typed-path = { version = "0.12.3", default-features = false }
 walkdir = "2.5.0"
 # unicode-normalization = { version = "0.1.24", default-features = false }
 wasm-bindgen = { version = "0.2.114", default-features = false, optional = true }
-zip = { version = "7.2.0", default-features = false, optional = true, features = ["deflate"] }
+zip = { version = "8.0.0", default-features = false, optional = true, features = ["deflate"] }
 url = { version = "2.5.8", default-features = false }
 gix = { version = "0.80.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation"] }
 logos = "0.16.1"
@@ -76,4 +76,4 @@ mockito = "1.7.2"
 port_check = "0.3.0"
 predicates = "3.1.4"
 tempfile = { version = "3.26.0", default-features = false }
-zip = "7.2.0"
+zip = "8.0.0"
