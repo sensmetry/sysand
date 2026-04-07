@@ -68,7 +68,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - uses: taiki-e/install-action@3968242624f47b28e4947cec7a91298f4461ff92 # cargo-hack
+      - uses: taiki-e/install-action@94cb46f8d6e437890146ffbd78a778b78e623fb2 # v2.74.0
 
       # cargo clippy is run with variants of features enabled, where
       # --all-features is done by prek so we don't do it here
