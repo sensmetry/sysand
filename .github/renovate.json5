@@ -8,6 +8,7 @@
     "config:best-practices",
     ":preserveSemverRanges",
     "schedule:earlyMondays",
+    "helpers:pinGitHubActionDigestsToSemver",
   ],
   minimumReleaseAge: "7 days",
   packageRules: [
