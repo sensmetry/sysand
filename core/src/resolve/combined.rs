@@ -3,6 +3,7 @@
 
 use std::{fmt::Debug, iter::Peekable};
 
+use camino::Utf8Path;
 use indexmap::IndexMap;
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
@@ -11,7 +12,8 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     model::{
-        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, ProjectHash, project_hash_raw,
+        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage,
+        ProjectHash, project_hash_raw,
     },
     project::{ProjectRead, cached::CachedProject},
     resolve::{ResolutionOutcome, ResolveRead, null::NullResolver},
@@ -229,7 +231,8 @@ impl<
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        usage: &InterchangeProjectUsage,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let mut at_least_one_supports = false;
 
@@ -238,10 +241,10 @@ impl<
         // TODO: autodetect git (and possibly other VCSs), and use appropriate (e.g. git) resolver for them.
         if let Some(file_resolver) = &self.file_resolver {
             match file_resolver
-                .resolve_read(uri)
+                .resolve_read(usage)
                 .map_err(CombinedResolverError::File)?
             {
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
+                ResolutionOutcome::UnsupportedUsageType(msg) => {
                     log::debug!("file resolver rejected IRI `{uri}`: {msg}");
                 } // Just continue
                 ResolutionOutcome::Resolved(r) => {
@@ -251,8 +254,8 @@ impl<
                         locals: IndexMap::new(),
                     }));
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
-                    return Ok(ResolutionOutcome::Unresolvable(format!(
+                ResolutionOutcome::NotFound(msg) => {
+                    return Ok(ResolutionOutcome::NotFound(format!(
                         "failed to resolve as file: {msg}"
                     )));
                 }
@@ -294,10 +297,10 @@ impl<
                         }
                     }
                 }
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
+                ResolutionOutcome::UnsupportedUsageType(msg) => {
                     log::debug!("local resolver rejected IRI `{uri}`: {msg}");
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
+                ResolutionOutcome::NotFound(msg) => {
                     at_least_one_supports = true;
                     log::debug!("local resolver unable to resolve IRI `{uri}`: {msg}");
                 }
@@ -313,10 +316,10 @@ impl<
                 .resolve_read(uri)
                 .map_err(CombinedResolverError::Remote)?
             {
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
+                ResolutionOutcome::UnsupportedUsageType(msg) => {
                     log::debug!("remote resolver rejected IRI `{uri}`: {msg}");
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
+                ResolutionOutcome::NotFound(msg) => {
                     at_least_one_supports = true;
                     log::debug!("remote resolver unable to resolve IRI `{uri}`: {msg}");
                 }
@@ -387,10 +390,10 @@ impl<
                         locals,
                     }));
                 }
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
+                ResolutionOutcome::UnsupportedUsageType(msg) => {
                     log::debug!("registry resolver rejected IRI `{uri}` due to: {msg}");
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
+                ResolutionOutcome::NotFound(msg) => {
                     at_least_one_supports = true;
                     log::debug!("registry resolver unable to resolve IRI `{uri}`: {msg}");
                 }
@@ -399,11 +402,11 @@ impl<
 
         // As a last resort, use only locally cached projects, if any were found
         if !at_least_one_supports {
-            Ok(ResolutionOutcome::UnsupportedIRIType(
+            Ok(ResolutionOutcome::UnsupportedUsageType(
                 "no resolver accepted the IRI".to_owned(),
             ))
         } else if locals.is_empty() {
-            Ok(ResolutionOutcome::Unresolvable(
+            Ok(ResolutionOutcome::NotFound(
                 "no resolver was able to resolve the IRI".to_owned(),
             ))
         } else {
@@ -676,7 +679,7 @@ mod tests {
             index_resolver: NO_RESOLVER,
         };
 
-        let Ok(crate::resolve::ResolutionOutcome::UnsupportedIRIType(_)) =
+        let Ok(crate::resolve::ResolutionOutcome::UnsupportedUsageType(_)) =
             resolver.resolve_read_raw(example_uri)
         else {
             panic!()
@@ -694,7 +697,7 @@ mod tests {
             index_resolver: empty_any_resolver(),
         };
 
-        let Ok(crate::resolve::ResolutionOutcome::Unresolvable(_)) =
+        let Ok(crate::resolve::ResolutionOutcome::NotFound(_)) =
             resolver.resolve_read_raw(example_uri)
         else {
             panic!()

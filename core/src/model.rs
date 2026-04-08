@@ -155,7 +155,9 @@ pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String, S
 pub type InterchangeProjectUsage =
     InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq, Utf8UnixPathBuf>;
 
-impl Display for InterchangeProjectUsageRaw {
+impl<Iri: Display, VersionReq: Display, Path: Display> Display
+    for InterchangeProjectUsageG<Iri, VersionReq, Path>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InterchangeProjectUsageG::Resource {
@@ -509,13 +511,49 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone, Path>
         resource: &Iri,
     ) -> Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>> {
         self.usage
+            .extract_if(.., |u| {
+                if let InterchangeProjectUsageG::Resource { resource: r, .. } = u
+                    && r == resource
+                {
+                    true
+                } else {
+                    false
+                }
+            })
+            .collect()
+    }
+
+    /// Remove and return all usages matching `publisher`/`name`.
+    /// Note that sysand will never add multiple usages of the same resource
+    /// to the project, but it does tolerate such usages.
+    // TODO: the spec does not say anything about this and should be clarified
+    pub fn pop_usage_experimental(
+        &mut self,
+        publisher: impl AsRef<str>,
+        name: impl AsRef<str>,
+    ) -> Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>> {
+        let p = publisher.as_ref();
+        let n = name.as_ref();
+        self.usage
             .extract_if(.., |u| match u {
                 // TODO: how to match here? Simplest would be to require the same info as for
                 // adding, but that is way overkill and annoying to use. Otherwise we'd need
                 // some sort of separate "matcher" type that allows wildcarding everything
                 // apart from: any sort of IRI/URL, publisher+name.
                 // Then how to allow providing version (constraint) and possibly other matchers?
-                _ => todo!("this needs new design of pop_usage and CLI surface"),
+                InterchangeProjectUsageG::Resource { .. } => false,
+                InterchangeProjectUsageG::Url {
+                    publisher, name, ..
+                }
+                | InterchangeProjectUsageG::Path {
+                    publisher, name, ..
+                }
+                | InterchangeProjectUsageG::Git {
+                    publisher, name, ..
+                }
+                | InterchangeProjectUsageG::Index {
+                    publisher, name, ..
+                } => publisher == p && name == n,
             })
             .collect()
     }

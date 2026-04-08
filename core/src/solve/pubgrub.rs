@@ -216,12 +216,12 @@ fn resolve_candidates<R: ResolveRead>(
                 .resolve_read(uri)
                 .map_err(InternalSolverError::Resolution)?
             {
-                crate::resolve::ResolutionOutcome::UnsupportedIRIType(msg) => {
+                crate::resolve::ResolutionOutcome::UnsupportedUsageType(msg) => {
                     return Err(InternalSolverError::UnsupportedIriType(format!(
                         "unsupported IRI type of `{uri}`: {msg}"
                     )));
                 }
-                crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
+                crate::resolve::ResolutionOutcome::NotFound(msg) => {
                     return Err(InternalSolverError::NotFound(uri.as_str().into(), msg));
                 }
                 crate::resolve::ResolutionOutcome::Resolved(alternatives) => {
@@ -280,6 +280,7 @@ fn resolve_candidates<R: ResolveRead>(
 
 fn compute_deps<R: ResolveRead + fmt::Debug>(
     resolver: &R,
+    url_resolver: // TODO: URL may be file:, in that case we need FileResolver
     usages: &Vec<InterchangeProjectUsage>,
     cache: &mut ResolvedCandidates<R::ProjectStorage>,
 ) -> Result<

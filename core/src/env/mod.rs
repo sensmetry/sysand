@@ -43,32 +43,34 @@ pub trait ReadEnvironment {
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError>;
 
     type VersionIter: IntoIterator<Item = Result<String, Self::ReadError>>;
-    fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError>;
+    fn versions<S: AsRef<str>>(&self, identifier: S) -> Result<Self::VersionIter, Self::ReadError>;
 
     type InterchangeProjectRead: ProjectRead + Debug;
     fn get_project<S: AsRef<str>, T: AsRef<str>>(
         &self,
-        uri: S,
+        // TODO: change this for the new env structure. Then every project will once again be
+        // identified by an IRI
+        identifier: S,
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError>;
 
     // Utilities
 
-    fn has<S: AsRef<str>>(&self, uri: S) -> Result<bool, Self::ReadError> {
+    fn has<S: AsRef<str>>(&self, identifier: S) -> Result<bool, Self::ReadError> {
         Ok(self
             .uris()?
             .into_iter()
             .filter_map(Result::ok)
-            .any(|u: String| u == uri.as_ref()))
+            .any(|id| id == identifier.as_ref()))
     }
 
     fn has_version<S: AsRef<str>, V: AsRef<str>>(
         &self,
-        uri: S,
+        identifier: S,
         version: V,
     ) -> Result<bool, Self::ReadError> {
         Ok(self
-            .versions(&uri)?
+            .versions(identifier)?
             .into_iter()
             .filter_map(Result::ok)
             .any(|v: String| v == version.as_ref()))
@@ -76,13 +78,13 @@ pub trait ReadEnvironment {
 
     fn candidate_projects<S: AsRef<str>>(
         &self,
-        uri: S,
+        identifier: S,
     ) -> Result<Vec<Self::InterchangeProjectRead>, Self::ReadError> {
-        let versions: Result<Vec<_>, _> = self.versions(&uri)?.into_iter().collect();
+        let versions: Result<Vec<_>, _> = self.versions(&identifier)?.into_iter().collect();
 
         let projects: Result<Vec<_>, _> = versions?
             .into_iter()
-            .map(|v| self.get_project(&uri, v))
+            .map(|v| self.get_project(&identifier, v))
             .collect();
 
         projects

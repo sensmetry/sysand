@@ -3,12 +3,13 @@
 
 use std::{fmt, result::Result, sync::Arc};
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use reqwest_middleware::ClientWithMiddleware;
 
 use crate::{
     auth::HTTPAuthentication,
     env::{local_directory::LocalDirectoryEnvironment, reqwest_http::HTTPEnvironmentAsync},
+    model::InterchangeProjectUsage,
     resolve::{
         AsSyncResolveTokio, ResolveRead, ResolveReadAsync,
         combined::CombinedResolver,
@@ -50,9 +51,10 @@ impl<Policy: HTTPAuthentication> ResolveRead for StandardResolver<Policy> {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        usage: &InterchangeProjectUsage,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<crate::resolve::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        self.0.resolve_read(uri)
+        self.0.resolve_read(usage, base_path)
     }
 }
 

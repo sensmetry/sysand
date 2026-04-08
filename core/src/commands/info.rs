@@ -1,21 +1,32 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use camino::Utf8Path;
 use thiserror::Error;
 
 use crate::{
     env::utils::ErrorBound,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{
+        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage,
+        InterchangeProjectUsageRaw, InterchangeProjectValidationError,
+    },
     project::ProjectRead,
     resolve::{ResolutionOutcome, ResolveRead},
 };
 
 #[derive(Error, Debug)]
 pub enum InfoError<Error: ErrorBound> {
-    #[error("failed to resolve IRI `{0}`: {1}")]
-    NoResolve(Box<str>, String),
-    #[error("IRI `{0}` is not supported: {1}")]
-    UnsupportedIri(Box<str>, String),
+    #[error("cannot resolve usage: {0}")]
+    Unresolvable(String),
+    #[error("usage {0} is not supported: {1}")]
+    UnsupportedUsageType(InterchangeProjectUsage, String),
+    #[error("usage {0} is invalid: {1}")]
+    InvalidUsage(
+        InterchangeProjectUsageRaw,
+        InterchangeProjectValidationError,
+    ),
+    #[error("usage {0} was not found: {1}")]
+    NotFound(InterchangeProjectUsage, String),
     #[error("failure during resolution: {0}")]
     Resolution(#[from] Error),
 }
@@ -58,10 +69,11 @@ pub fn do_info_project<P: ProjectRead>(
 }
 
 pub fn do_info<S: AsRef<str>, R: ResolveRead>(
-    uri: S,
+    usage: &InterchangeProjectUsageRaw,
+    base_path: Option<impl AsRef<Utf8Path>>,
     resolver: &R,
 ) -> Result<Vec<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>, InfoError<R::Error>> {
-    let outcome = resolver.resolve_read_raw(uri.as_ref())?;
+    let outcome = resolver.resolve_read_raw(usage, base_path)?;
 
     match outcome {
         ResolutionOutcome::Resolved(resolved) => {
@@ -86,9 +98,13 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
             }
             Ok(result)
         }
-        ResolutionOutcome::UnsupportedIRIType(e) => {
-            Err(InfoError::UnsupportedIri(uri.as_ref().into(), e))
+        ResolutionOutcome::UnsupportedUsageType { usage, reason } => {
+            Err(InfoError::UnsupportedUsageType(usage, reason))
         }
-        ResolutionOutcome::Unresolvable(e) => Err(InfoError::NoResolve(uri.as_ref().into(), e)),
+        ResolutionOutcome::NotFound(usage, reason) => Err(InfoError::NotFound(usage, reason)),
+        ResolutionOutcome::InvalidUsage(usage, reason) => {
+            Err(InfoError::InvalidUsage(usage, reason))
+        }
+        ResolutionOutcome::Unresolvable(msg) => Err(InfoError::Unresolvable(msg)),
     }
 }

@@ -1,15 +1,73 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::io::{self, Read};
+use std::{
+    fmt::Display,
+    io::{self, Read},
+};
 
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use fluent_uri::pct_enc::{EString, encoder::IData};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 #[cfg(feature = "filesystem")]
 use zip::{self, result::ZipError};
+
+use crate::model::InterchangeProjectUsage;
+
+/// Project identifier IRI. Constructed by
+// TODO: steps
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
+pub struct Identifier(String);
+
+impl Identifier {
+    pub fn from_interchange_usage(usage: &InterchangeProjectUsage) -> Identifier {
+        let (publisher, name) = match usage {
+            InterchangeProjectUsage::Resource { resource, .. } => {
+                return Self(resource.to_string());
+            }
+            InterchangeProjectUsage::Url {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsage::Path {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsage::Git {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsage::Index {
+                publisher, name, ..
+            } => (publisher, name),
+        };
+        Self(make_identifier_iri(publisher, name))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl AsRef<str> for Identifier {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+// impl From<Usage> for Identifier {
+//     fn from(value: Usage) -> Self {
+//     }
+// }
+
+impl Display for Identifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 // TODO: use newtype for identifier IRI
 pub fn make_identifier_iri(publisher: impl AsRef<str>, name: impl AsRef<str>) -> String {

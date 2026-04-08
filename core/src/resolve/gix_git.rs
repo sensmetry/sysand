@@ -1,7 +1,9 @@
+use camino::Utf8Path;
 use fluent_uri::component::Scheme;
 use thiserror::Error;
 
 use crate::{
+    model::InterchangeProjectUsageRaw,
     project::gix_git_download::{GixDownloadedError, GixDownloadedProject},
     resolve::{
         ResolutionOutcome, ResolveRead,
@@ -34,7 +36,8 @@ impl ResolveRead for GitResolver {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        usage: &InterchangeProjectUsage,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let scheme = uri.scheme();
 
@@ -50,7 +53,7 @@ impl ResolveRead for GitResolver {
         ]
         .contains(&scheme)
         {
-            return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+            return Ok(ResolutionOutcome::UnsupportedUsageType(format!(
                 "url scheme `{}` of IRI `{}` is not known to be git-compatible",
                 scheme,
                 uri.as_str()
@@ -66,7 +69,8 @@ impl ResolveRead for GitResolver {
 
     fn resolve_read_raw<S: AsRef<str>>(
         &self,
-        uri: S,
+        usage: &InterchangeProjectUsageRaw,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         if let Some(stripped_uri) = uri.as_ref().strip_prefix("git+") {
             self.default_resolve_read_raw(stripped_uri)

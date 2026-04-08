@@ -21,7 +21,7 @@ use crate::{
     env::ReadEnvironment,
     project::{
         ProjectRead,
-        utils::{deserialize_unix_path, serialize_unix_path},
+        utils::{Identifier, deserialize_unix_path, serialize_unix_path},
     },
 };
 
@@ -712,35 +712,35 @@ impl Source {
 }
 
 #[derive(Clone, Eq, Debug, PartialEq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
-pub struct Usage(String);
+pub struct Usage(Identifier);
 
 impl Display for Usage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        write!(f, "{}", &self.0)
     }
 }
 
-impl From<String> for Usage {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
+// impl From<String> for Usage {
+//     fn from(value: String) -> Self {
+//         Self(value)
+//     }
+// }
 
 impl From<Usage> for String {
     fn from(value: Usage) -> Self {
-        value.0
+        value.0.into_string()
     }
 }
 
-impl From<&str> for Usage {
-    fn from(value: &str) -> Self {
-        Self(value.to_owned())
-    }
-}
+// impl From<&str> for Usage {
+//     fn from(value: &str) -> Self {
+//         Self(value.to_owned())
+//     }
+// }
 
 impl Usage {
     pub fn to_toml(&self) -> Value {
-        Value::from(&self.0)
+        Value::from(self.0.as_str())
     }
 }
 

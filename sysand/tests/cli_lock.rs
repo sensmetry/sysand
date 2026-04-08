@@ -224,7 +224,7 @@ fn inject_usages_versions<
     )?;
 
     for (usage, version_req) in usages {
-        info.usage.push(InterchangeProjectUsageRaw {
+        info.usage.push(InterchangeProjectUsageRaw::Resource {
             resource: usage.as_ref().to_string(),
             version_constraint: version_req.map(|x| x.as_ref().to_string()),
         });

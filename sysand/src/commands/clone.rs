@@ -380,12 +380,12 @@ pub fn get_project_version<R: ResolveRead>(
                 }
             }
         }
-        ResolutionOutcome::UnsupportedIRIType(e) => bail!(
+        ResolutionOutcome::UnsupportedUsageType(e) => bail!(
             "IRI scheme `{}` of `{}` is not supported: {e}",
             iri.scheme(),
             iri
         ),
-        ResolutionOutcome::Unresolvable(e) => {
+        ResolutionOutcome::NotFound(e) => {
             bail!("failed to resolve project `{iri}`: {e}")
         }
     }

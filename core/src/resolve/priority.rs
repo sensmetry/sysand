@@ -3,13 +3,14 @@ use std::{
     io::{self, Read},
 };
 
+use camino::Utf8Path;
 use thiserror::Error;
 
 use crate::{
     context::ProjectContext,
     env::utils::ErrorBound,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::ProjectRead,
     resolve::ResolveRead,
 };
@@ -173,11 +174,12 @@ impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<H
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        usage: &InterchangeProjectUsage,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         match self
             .higher
-            .resolve_read(uri)
+            .resolve_read(usage, base_path.as_ref())
             .map_err(PriorityError::Higher)?
         {
             ResolutionOutcome::Resolved(resolved) => {
@@ -185,17 +187,21 @@ impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<H
                     PriorityIterator::HigherIterator(resolved.into_iter()),
                 ));
             }
-            ResolutionOutcome::UnsupportedIRIType(msg) => {
-                log::debug!("higher priority resolver rejected IRI: {msg}")
+            ResolutionOutcome::UnsupportedUsageType { usage, reason } => {
+                log::debug!("higher priority resolver rejected usage {usage}: {reason}")
+            }
+            ResolutionOutcome::NotFound(usage, reason) => {
+                log::debug!("higher priority resolver did not find usage {usage}: {reason}")
             }
             ResolutionOutcome::Unresolvable(msg) => {
-                log::debug!("higher priority resolver failed to resolve IRI: {msg}")
+                log::debug!("cannot resolve usage: {msg}")
             }
+            ResolutionOutcome::InvalidUsage(..) => unreachable!(),
         };
 
         Ok(self
             .lower
-            .resolve_read(uri)
+            .resolve_read(usage, base_path)
             .map_err(PriorityError::Lower)?
             .map(|resolved| PriorityIterator::LowerIterator(resolved.into_iter())))
     }
@@ -209,7 +215,9 @@ mod tests {
     use indexmap::IndexMap;
 
     use crate::{
-        model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+        model::{
+            InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw,
+        },
         project::{ProjectRead as _, memory::InMemoryProject},
         resolve::{
             ResolutionOutcome, ResolveRead,
@@ -259,11 +267,12 @@ mod tests {
         }
     }
 
-    fn expect_to_resolve<R: ResolveRead, S: AsRef<str>>(
+    fn expect_to_resolve<R: ResolveRead>(
         resolver: &R,
-        uri: S,
+        usage: &InterchangeProjectUsageRaw,
+        base_path: Option<&str>,
     ) -> Vec<R::ProjectStorage> {
-        let resolved = resolver.resolve_read_raw(uri).unwrap();
+        let resolved = resolver.resolve_read_raw(usage, base_path).unwrap();
 
         let foo_projects: Result<Vec<_>, _> =
             if let ResolutionOutcome::Resolved(foo_projects) = resolved {
@@ -289,17 +298,38 @@ mod tests {
 
         let resolver = super::PriorityResolver::new(higher, lower);
 
-        let foos = expect_to_resolve(&resolver, "urn:kpar:foo");
+        let foos = expect_to_resolve(
+            &resolver,
+            &crate::model::InterchangeProjectUsageRaw::Resource {
+                resource: String::from("urn:kpar:foo"),
+                version_constraint: None,
+            },
+            None,
+        );
 
         assert_eq!(foos.len(), 1);
         assert_eq!(foos[0].version().unwrap(), Some("1.2.3".to_string()));
 
-        let bars = expect_to_resolve(&resolver, "urn:kpar:bar");
+        let bars = expect_to_resolve(
+            &resolver,
+            &crate::model::InterchangeProjectUsageRaw::Resource {
+                resource: String::from("urn:kpar:bar"),
+                version_constraint: None,
+            },
+            None,
+        );
 
         assert_eq!(bars.len(), 1);
         assert_eq!(bars[0].version().unwrap(), Some("1.2.3".to_string()));
 
-        let bazs = expect_to_resolve(&resolver, "urn:kpar:baz");
+        let bazs = expect_to_resolve(
+            &resolver,
+            &crate::model::InterchangeProjectUsageRaw::Resource {
+                resource: String::from("urn:kpar:baz"),
+                version_constraint: None,
+            },
+            None,
+        );
 
         assert_eq!(bazs.len(), 1);
         assert_eq!(bazs[0].version().unwrap(), Some("3.2.1".to_string()));

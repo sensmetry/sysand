@@ -265,7 +265,8 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
 
     async fn resolve_read_async(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        usage: &InterchangeProjectUsage,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         // Try to resolve as a HTTP src project.
         Ok(
@@ -281,10 +282,10 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
                         // prefer_ranged: self.prefer_ranged,
                     }))
                 } else {
-                    ResolutionOutcome::UnsupportedIRIType("invalid http(s) URL".to_string())
+                    ResolutionOutcome::UnsupportedUsageType("invalid http(s) URL".to_string())
                 }
             } else {
-                ResolutionOutcome::UnsupportedIRIType("not an http(s) URL".to_string())
+                ResolutionOutcome::UnsupportedUsageType("not an http(s) URL".to_string())
             },
         )
     }

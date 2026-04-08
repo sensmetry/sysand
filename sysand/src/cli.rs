@@ -212,7 +212,7 @@ pub enum Command {
             visible_alias = "url",
             group = "location"
         )]
-        iri: Option<fluent_uri::Iri<String>>,
+        iri: Option<Iri<String>>,
         /// Use the project with the given locator, trying to parse it as
         /// an IRI/URI/URL and otherwise falling back to using it as a path
         #[arg(
@@ -249,17 +249,89 @@ pub enum Command {
     #[clap(verbatim_doc_comment)]
     Experimental {
         #[command(subcommand)]
-        subcommand: Option<ExpCommand>,
+        subcommand: ExpCommand,
     },
 }
 
+#[derive(clap::Subcommand, Debug, Clone)]
 pub enum ExpCommand {
+    /// Add a usage
     Add {
-        
-    }
-    Remove {
-        
-    }
+        #[command(subcommand)]
+        locator: ExpAddProjectLocatorArgs,
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
+    /// Remove a usage
+    Remove { publisher: String, name: String },
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+#[group(id = "expadd", required = true, multiple = false)]
+pub enum ExpAddProjectLocatorArgs {
+    /// Add a project from HTTP(S) URL
+    Url {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project
+        name: String,
+        /// URL of the project. Can point to a KPAR or a project directory
+        url: Iri<String>,
+    },
+    // TODO: does it make sense to allow kpar or src?
+    /// Add a project from a local path
+    #[clap(verbatim_doc_comment)]
+    Path {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project
+        name: String,
+        /// Path to the project. Can be relative or absolute, and can point
+        /// to either a KPAR or a project directory
+        #[clap(verbatim_doc_comment)]
+        path: Utf8PathBuf,
+    },
+    /// Add a project from an index
+    Index {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project
+        name: String,
+        /// Version constraint
+        // TODO: make this optional and default to latest stable version, like Cargo
+        version_constraint: VersionReq,
+    },
+    /// Add a project from a git repository.
+    #[clap(verbatim_doc_comment)]
+    Git {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project. Publisher and name
+        /// identify the project anywhere within the repository
+        #[clap(verbatim_doc_comment)]
+        name: String,
+        /// URL of the repository. If none of the `rev`/`tag`/`branch` are given,
+        /// latest rev of the default branch will be used.
+        #[clap(value_name = "URL", verbatim_doc_comment)]
+        git: Iri<String>,
+        #[command(flatten)]
+        options: ExpGitOptions,
+    },
+}
+
+// TODO: make specifying these optional and infer
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
+pub struct ExpGitOptions {
+    /// Git revision, i.e. full commit hash
+    #[arg(long, default_value = None, conflicts_with_all = ["tag", "branch"])]
+    pub rev: Option<String>,
+    /// Git tag
+    #[arg(long, default_value = None, conflicts_with_all = ["rev", "branch"])]
+    pub tag: Option<String>,
+    /// Git branch. Will use latest revision (commit) of that branch
+    #[arg(long, default_value = None, conflicts_with_all = ["rev", "tag"])]
+    pub branch: Option<String>,
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -267,7 +339,7 @@ pub enum ExpCommand {
 pub struct AddProjectLocatorArgs {
     /// IRI/URI/URL identifying the project to be used
     #[clap(default_value = None, value_parser = parse_iri_suggest_path)]
-    pub iri: Option<fluent_uri::Iri<String>>,
+    pub iri: Option<Iri<String>>,
     /// Path to the project to be added. Since every usage is identified
     /// by an IRI, `file://` URL will be used to refer to the project.
     /// Warning: using this makes the project not portable between different
@@ -287,7 +359,7 @@ pub struct AddProjectLocatorArgs {
 pub struct RemoveProjectLocatorArgs {
     /// IRI identifying the project usage to be removed
     #[clap(default_value = None, value_parser = parse_iri_suggest_path)]
-    pub iri: Option<fluent_uri::Iri<String>>,
+    pub iri: Option<Iri<String>>,
     /// Path to the project to be removed from usages. Since every usage is
     /// identified by an IRI, the path will be transformed into a `file://` URL
     #[arg(
@@ -312,7 +384,7 @@ pub struct CloneProjectLocatorArgs {
     pub auto_location: Option<String>,
     /// IRI/URI/URL identifying the project to be cloned
     #[arg(short = 'i', long, visible_alias = "uri", visible_alias = "url")]
-    pub iri: Option<fluent_uri::Iri<String>>,
+    pub iri: Option<Iri<String>>,
     /// Path to clone the project from. If version is also
     /// given, verifies that the project has the given version
     // TODO: allow somehow requiring to use git here
@@ -556,7 +628,7 @@ pub enum InfoCommand {
     Website {
         /// Set the website. Must be a valid IRI/URI/URL
         #[arg(long, value_name = "URI", value_parser = parse_https_iri, default_value=None)]
-        set: Option<fluent_uri::Iri<String>>,
+        set: Option<Iri<String>>,
         #[arg(long, default_value = None)]
         clear: bool,
         // Only for better error messages
@@ -1338,7 +1410,7 @@ pub enum EnvCommand {
     /// Install project in `sysand_env`
     Install {
         /// IRI identifying the project to be installed
-        iri: fluent_uri::Iri<String>,
+        iri: Iri<String>,
         /// Version to be installed. Defaults to the latest
         /// version according to SemVer 2.0, ignoring pre-releases
         #[clap(verbatim_doc_comment)]
@@ -1355,7 +1427,7 @@ pub enum EnvCommand {
     /// Uninstall project in `sysand_env`
     Uninstall {
         /// IRI identifying the project to be uninstalled
-        iri: fluent_uri::Iri<String>,
+        iri: Iri<String>,
         /// Version to be uninstalled
         version: Option<String>,
     },
@@ -1368,7 +1440,7 @@ pub enum EnvCommand {
         /// IRI of the (already installed) project for which
         /// to enumerate source files
         #[clap(verbatim_doc_comment)]
-        iri: fluent_uri::Iri<String>,
+        iri: Iri<String>,
         /// Version of project to list sources for
         version: Option<VersionReq>,
 
@@ -1527,7 +1599,7 @@ pub struct GlobalOptions {
 
 /// Parse an IRI. Tolerates missing IRI scheme, uses
 /// `https://` scheme in that case.
-fn parse_https_iri(s: &str) -> Result<fluent_uri::Iri<String>, fluent_uri::ParseError> {
+fn parse_https_iri(s: &str) -> Result<Iri<String>, fluent_uri::ParseError> {
     use fluent_uri::Iri;
 
     Iri::parse(s).map(Into::into).or_else(|original_err| {

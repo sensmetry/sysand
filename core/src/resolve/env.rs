@@ -1,9 +1,12 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use camino::Utf8Path;
+
 // Resolve IRIs in an environment
 use crate::{
     env::{ReadEnvironment, ReadEnvironmentAsync},
+    model::InterchangeProjectUsage,
     resolve::{ResolutionOutcome, ResolveRead, ResolveReadAsync},
 };
 
@@ -21,7 +24,8 @@ impl<Env: ReadEnvironment> ResolveRead for EnvResolver<Env> {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        usage: &InterchangeProjectUsage,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let versions = self.env.versions(uri)?;
 
@@ -34,9 +38,10 @@ impl<Env: ReadEnvironment> ResolveRead for EnvResolver<Env> {
             )
             .collect();
         if projects.is_empty() {
-            Ok(ResolutionOutcome::Unresolvable(format!(
-                "no versions of `{uri}` found in environment"
-            )))
+            Ok(ResolutionOutcome::NotFound(
+                usage.to_owned(),
+                String::from("no versions of `{uri}` found in environment"),
+            ))
         } else {
             Ok(ResolutionOutcome::Resolved(projects))
         }
@@ -59,13 +64,14 @@ impl<Env: ReadEnvironmentAsync> ResolveReadAsync for EnvResolver<Env> {
 
     async fn resolve_read_async(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        usage: &InterchangeProjectUsage,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         use futures::StreamExt as _;
 
         let versions: Vec<Result<String, _>> = self.env.versions_async(uri).await?.collect().await;
         if versions.is_empty() {
-            return Ok(ResolutionOutcome::Unresolvable(format!(
+            return Ok(ResolutionOutcome::NotFound(format!(
                 "no versions of `{uri}` found in environment"
             )));
         }

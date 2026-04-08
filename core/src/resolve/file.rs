@@ -88,7 +88,7 @@ impl FileResolver {
             if let Some(root_part) = &self.relative_path_root {
                 root_part.join(&path)
             } else {
-                return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+                return Ok(ResolutionOutcome::UnsupportedUsageType(format!(
                     "cannot resolve relative file without a specified root directory: {}",
                     path
                 )));
@@ -129,7 +129,7 @@ impl FileResolver {
     ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
         match try_file_uri_to_path(uri)? {
             Some(path) => self.resolve_platform_path(path),
-            None => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+            None => Ok(ResolutionOutcome::UnsupportedUsageType(format!(
                 "`{uri}` is not a file URL",
             ))),
         }
@@ -278,7 +278,8 @@ impl ResolveRead for FileResolver {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        usage: &InterchangeProjectUsage,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         Ok(match self.resolve_general(uri)? {
             ResolutionOutcome::Resolved(path) => ResolutionOutcome::Resolved(vec![
@@ -290,10 +291,10 @@ impl ResolveRead for FileResolver {
                     LocalKParProject::new_guess_root(path)?,
                 )),
             ]),
-            ResolutionOutcome::UnsupportedIRIType(msg) => {
-                ResolutionOutcome::UnsupportedIRIType(msg)
+            ResolutionOutcome::UnsupportedUsageType(msg) => {
+                ResolutionOutcome::UnsupportedUsageType(msg)
             }
-            ResolutionOutcome::Unresolvable(msg) => ResolutionOutcome::Unresolvable(msg),
+            ResolutionOutcome::NotFound(msg) => ResolutionOutcome::NotFound(msg),
         })
     }
 }

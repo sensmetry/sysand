@@ -85,17 +85,18 @@ impl<Predicate: IRIPredicate, ProjectStorage: ProjectRead + Clone> ResolveRead
 
     fn resolve_read(
         &self,
-        uri: &Iri<String>,
+        usage: &InterchangeProjectUsage,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         if !self.iri_predicate.accept_iri(uri) {
-            return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
+            return Ok(ResolutionOutcome::UnsupportedUsageType(format!(
                 "invalid IRI `{uri}` for this memory resolver"
             )));
         }
 
         Ok(match self.projects.get(uri) {
             Some(xs) => ResolutionOutcome::Resolved(xs.iter().map(|x| Ok(x.clone())).collect()),
-            None => ResolutionOutcome::Unresolvable(uri.to_string()),
+            None => ResolutionOutcome::NotFound(uri.to_string()),
         })
     }
 }

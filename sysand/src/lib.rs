@@ -45,9 +45,9 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, Command, InfoCommand},
+    cli::{Args, Command, ExpAddProjectLocatorArgs, ExpCommand, InfoCommand},
     commands::{
-        add::command_add,
+        add::{command_add, command_add_experimental},
         build::{command_build_for_project, command_build_for_workspace},
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
@@ -59,7 +59,7 @@ use crate::{
         init::command_init,
         lock::command_lock,
         print_root::command_print_root,
-        remove::command_remove,
+        remove::{command_remove, command_remove_experimental},
         sources::{command_sources_env, command_sources_project},
         sync::command_sync,
     },
@@ -713,6 +713,60 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             runtime,
             basic_auth_policy,
         ),
+        Command::Experimental { subcommand } => {
+            match subcommand {
+                ExpCommand::Add {
+                    locator,
+                    resolution_opts,
+                } => {
+                    // Command::Add {
+                    //     locator,
+                    //     version_constraint,
+                    //     no_lock,
+                    //     no_sync,
+                    //     resolution_opts,
+                    //     source_opts,
+                    // } => {
+                    //     let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
+                    //     command_add(
+                    //         iri,
+                    //         version_constraint,
+                    //         no_lock,
+                    //         no_sync,
+                    //         resolution_opts,
+                    //         source_opts,
+                    //         config,
+                    //         args.global_opts.config_file,
+                    //         args.global_opts.no_config,
+                    //         ctx,
+                    //         client,
+                    //         runtime,
+                    //         basic_auth_policy,
+                    //     )
+                    // }
+                    command_add_experimental(
+                        locator,
+                        // no_lock,
+                        // no_sync,
+                        resolution_opts,
+                        config,
+                        args.global_opts.config_file,
+                        args.global_opts.no_config,
+                        ctx,
+                        client,
+                        runtime,
+                        basic_auth_policy,
+                    )
+                }
+                ExpCommand::Remove { publisher, name } => command_remove_experimental(
+                    publisher,
+                    name,
+                    ctx,
+                    args.global_opts.config_file,
+                    args.global_opts.no_config,
+                ),
+            }
+        }
     }
 }
 
