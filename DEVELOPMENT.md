@@ -109,6 +109,44 @@ cargo build # unoptimized
 cargo build --release # optimized
 ```
 
+## Rust code structure
+
+When adding or refactoring Rust code, organize modules so the public API appears
+before private implementation details. If a module's public API is mainly
+functions, for example command modules, put those entry-point functions first
+and place supporting public types after them.
+
+Recommended order in a file:
+
+- declarations at the top (`use`, `mod`, and test module declaration)
+- public API next, ordered from primary entry points to supporting items
+- private implementation details (`const`, private helper functions/types)
+
+For most command modules, prefer this public API order:
+
+- primary entry-point functions first (`pub fn`), followed by
+- supporting public types (`pub enum`, `pub struct`, type aliases)
+
+For type-centric modules (where the type is the main abstraction), it is fine
+to put the core public type(s) before methods/functions.
+
+If unsure, default to function-first in command modules.
+
+For unit tests, prefer dedicated test files for non-trivial modules instead of
+large inline `#[cfg(test)]` blocks.
+
+- use a sibling test file named `<module>_tests.rs`
+- declare tests from the main module using:
+
+  ```rust
+  #[cfg(test)]
+  #[path = "./<module>_tests.rs"]
+  mod tests;
+  ```
+
+- keep the module name as `tests` for consistency across files
+- keep test-only helpers in the test file unless they are shared broadly
+
 ## Running tests
 
 Run tests for main Rust crates. This excludes language bindings, because they
