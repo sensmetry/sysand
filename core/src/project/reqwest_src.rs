@@ -204,6 +204,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
 
 #[cfg(test)]
 mod tests {
+    use httpmock::MockServer;
     use std::{io::Read, sync::Arc};
 
     use reqwest::header;
@@ -213,13 +214,14 @@ mod tests {
         auth::Unauthenticated,
         project::{ProjectRead, ProjectReadAsync, reqwest_src::ReqwestSrcProjectAsync},
         resolve::net_utils::create_reqwest_client,
+        test_utils::ProjectMock,
     };
 
     #[test]
     fn empty_remote_definitely_invalid_http_src() -> Result<(), Box<dyn std::error::Error>> {
-        let server = mockito::Server::new();
+        let server = MockServer::start();
 
-        let url = reqwest::Url::parse(&server.url()).unwrap();
+        let url = reqwest::Url::parse(&server.base_url()).unwrap();
 
         let client = create_reqwest_client()?;
 
@@ -241,36 +243,16 @@ mod tests {
 
     #[test]
     fn test_basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
-        let mut server = mockito::Server::new();
+        let file_path = "Mekanïk/Kommandöh.sysml";
+        let file_src = "package 'Mekanïk Kommandöh';";
 
-        //let host = server.host_with_port();
-        let url = reqwest::Url::parse(&server.url()).unwrap();
-
-        let info_mock = server
-            .mock("GET", "/.project.json")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"name":"test_basic_project_urls","version":"1.2.3","usage":[]}"#)
-            .match_request(|r| r.has_header(header::USER_AGENT))
-            .create();
-
-        let meta_mock = server
-            .mock("GET", "/.meta.json")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-            .match_request(|r| r.has_header(header::USER_AGENT))
-            .create();
-
-        let src = "package 'Mekanïk Kommandöh';";
-
-        let src_mock = server
-            .mock("GET", "/Mekan%C3%AFk/Kommand%C3%B6h.sysml")
-            .with_status(200)
-            .with_header("content-type", "text/plain")
-            .with_body(src)
-            .match_request(|r| r.has_header(header::USER_AGENT))
-            .create();
+        let project_mock = ProjectMock::builder("test_basic_project_urls", "1.2.3")
+            .with_created("0000-00-00T00:00:00.123456789Z")
+            .with_files([(file_path, file_src)], true, true)
+            .build();
+        let server = MockServer::start();
+        let url = reqwest::Url::parse(&server.base_url()).unwrap();
+        let mocks = project_mock.add_to_server(&server, |when| when.header_exists(header::USER_AGENT.as_str()), |then| then);
 
         let client = create_reqwest_client()?;
 
@@ -285,8 +267,14 @@ mod tests {
                 .build()?,
         ));
 
-        let (Some(info), Some(meta)) = project.get_project()? else {
-            panic!()
+        // let (Some(info), Some(meta)) = project.get_project()?;
+
+        let downloaded_project = project.get_project()?;
+        let (Some(info), Some(meta)) = downloaded_project else {
+            panic!(
+                "Info and meta must not be None. Info: {:?}, Meta: {:?}",
+                downloaded_project.0, downloaded_project.1
+            )
         };
 
         assert_eq!(info.name, "test_basic_project_urls");
@@ -294,10 +282,10 @@ mod tests {
 
         let mut src_buf = String::new();
         project
-            .read_source(Utf8UnixPath::new("Mekanïk/Kommandöh.sysml").to_path_buf())?
+            .read_source(Utf8UnixPath::new(file_path).to_path_buf())?
             .read_to_string(&mut src_buf)?;
 
-        assert_eq!(src, src_buf);
+        assert_eq!(file_src, src_buf);
 
         let Err(super::ReqwestSrcError::BadStatus(..)) =
             project.read_source(Utf8UnixPath::new("Mekanik/Kommandoh.sysml").to_path_buf())
@@ -305,9 +293,9 @@ mod tests {
             panic!();
         };
 
-        info_mock.assert();
-        meta_mock.assert();
-        src_mock.assert();
+        for (_path, mock) in mocks.iter() {
+            mock.assert_calls(1);
+        }
 
         Ok(())
     }

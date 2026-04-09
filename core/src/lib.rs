@@ -29,6 +29,8 @@ pub mod discover;
 
 #[cfg(not(feature = "std"))]
 compile_error!("`std` feature is currently required to build `sysand`");
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
 
 // #[cfg(feature = "python")]
 // use pyo3::prelude::*;

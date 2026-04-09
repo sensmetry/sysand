@@ -57,7 +57,12 @@ fn assert_dir_empty(p: impl AsRef<Utf8Path>) -> Result<(), Box<dyn std::error::E
 // create lockfile and env
 #[test]
 fn clone_project_default_target() -> Result<(), Box<dyn std::error::Error>> {
+    // let project = ProjectMock::new_small_example();
+    // let temp_dir = camino_tempfile::TempDir::new()?;
+    // Can't just use tempdir() as it returns the same directory every time
+    // let test_path = temp_dir.path();
     let test_path = fixture_path("test_lib");
+    // project.save_to_folder(&test_path);
     let test_path_str = test_path.as_str();
     // auto path form locator
     let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str], None)?;

@@ -386,12 +386,13 @@ impl ProjectRead for LocalKParProject {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read as _, Write};
+    use std::{fs, io::Read as _};
 
     use camino_tempfile::tempdir;
     use zip::write::SimpleFileOptions;
 
     use super::ProjectRead;
+    use crate::test_utils::ProjectMock;
 
     #[test]
     fn test_basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
@@ -399,21 +400,17 @@ mod tests {
         let zip_path = cwd.path().join("test.kpar");
 
         {
-            let file = std::fs::File::create(&zip_path).unwrap();
-            let mut zip = zip::ZipWriter::new(file);
+            let project_mock = ProjectMock::builder("test_basic_kpar_archive", "1.2.3")
+                .with_created("123")
+                .with_files([("test.sysml", "package Test;")], false, false)
+                .build();
 
             let options = SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Stored)
                 .unix_permissions(0o755);
 
-            zip.start_file(".project.json", options)?;
-            zip.write_all(br#"{"name":"test_basic_kpar_archive","version":"1.2.3","usage":[]}"#)?;
-            zip.start_file(".meta.json", options)?;
-            zip.write_all(br#"{"index":{},"created":"123"}"#)?;
-            zip.start_file("test.sysml", options)?;
-            zip.write_all(br#"package Test;"#)?;
-
-            zip.finish().unwrap();
+            let zip_content = project_mock.to_zip(options)?;
+            fs::write(&zip_path, zip_content)?;
         }
 
         let project = super::LocalKParProject::new_guess_root(zip_path)?;
@@ -442,21 +439,23 @@ mod tests {
         let zip_path = cwd.path().join("test.kpar");
 
         {
-            let file = std::fs::File::create(&zip_path).unwrap();
-            let mut zip = zip::ZipWriter::new(file);
+            let project = ProjectMock::new_raw([
+                (
+                    "some_root_dir/.project.json",
+                    r#"{"name":"test_nested_kpar_archive","version":"1.2.3","usage":[]}"#,
+                ),
+                (
+                    "some_root_dir/.meta.json",
+                    r#"{"index":{},"created":"123"}"#,
+                ),
+                ("some_root_dir/test.sysml", r#"package Test;"#),
+            ]);
 
             let options = SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Stored)
                 .unix_permissions(0o755);
-
-            zip.start_file("some_root_dir/.project.json", options)?;
-            zip.write_all(br#"{"name":"test_nested_kpar_archive","version":"1.2.3","usage":[]}"#)?;
-            zip.start_file("some_root_dir/.meta.json", options)?;
-            zip.write_all(br#"{"index":{},"created":"123"}"#)?;
-            zip.start_file("some_root_dir/test.sysml", options)?;
-            zip.write_all(br#"package Test;"#)?;
-
-            zip.finish().unwrap();
+            let zip_content = project.to_zip(options)?;
+            fs::write(&zip_path, zip_content)?;
         }
 
         let project = super::LocalKParProject::new_guess_root(zip_path)?;
