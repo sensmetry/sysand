@@ -48,7 +48,7 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
     // multiple times and each `post` consumes the URL.
     let upload_url_for_log = upload_url.to_string();
 
-    let request_builder = move |c: &reqwest_middleware::ClientWithMiddleware| {
+    let build_request = move |c: &reqwest_middleware::ClientWithMiddleware| {
         let file_part = reqwest::multipart::Part::stream(file_bytes.clone())
             .file_name(file_name.clone())
             .mime_str("application/zip")
@@ -65,7 +65,7 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
     };
 
     let response =
-        runtime.block_on(async { auth.with_authentication(&client, &request_builder).await })?;
+        runtime.block_on(async { auth.with_authentication(&client, &build_request).await })?;
 
     let status = response.status().as_u16();
     let response_url = response.url().to_string();
@@ -113,6 +113,7 @@ pub fn build_upload_url(index_url: &Url) -> Result<Url, PublishError> {
         segments.pop_if_empty();
     }
 
+    // After normalization, reject URLs that already end with the upload path.
     let path_segments: Vec<_> = upload_url
         .path_segments()
         .expect("http(s) URLs are hierarchical and must support path segments")
@@ -145,6 +146,7 @@ struct PublishPreparation {
     metadata: String,
 }
 
+/// Reads and validates a `.kpar` file, returning the upload payload and metadata.
 fn prepare_publish_payload(kpar_path: &Utf8Path) -> Result<PublishPreparation, PublishError> {
     // Open and validate kpar.
     let kpar_project = LocalKParProject::new_guess_root(kpar_path)
@@ -155,6 +157,7 @@ fn prepare_publish_payload(kpar_path: &Utf8Path) -> Result<PublishPreparation, P
         .map_err(|e| PublishError::KparOpen(kpar_path.as_str().into(), e.to_string()))?;
 
     let info = info.ok_or(PublishError::MissingInfo)?;
+    // Validate that metadata exists; contents are not used during upload.
     let _meta = meta.ok_or(PublishError::MissingMeta)?;
 
     let publisher = info
@@ -208,40 +211,41 @@ fn prepare_publish_payload(kpar_path: &Utf8Path) -> Result<PublishPreparation, P
     })
 }
 
+/// Maps an HTTP status and body to a `PublishResponse` or `PublishError`.
 fn map_publish_response(
     status: u16,
     body_bytes: &[u8],
     upload_url_for_log: &str,
     response_url: &str,
 ) -> Result<PublishResponse, PublishError> {
-    let is_new_project = match status {
-        200 => false,
-        201 => true,
+    match status {
+        200 => Ok(PublishResponse {
+            status,
+            message: String::from_utf8_lossy(body_bytes).into_owned(),
+            is_new_project: false,
+        }),
+        201 => Ok(PublishResponse {
+            status,
+            message: String::from_utf8_lossy(body_bytes).into_owned(),
+            is_new_project: true,
+        }),
+        401 | 403 => Err(PublishError::AuthError(summarize_error_body(body_bytes))),
+        409 => Err(PublishError::Conflict(summarize_error_body(body_bytes))),
+        400 => Err(PublishError::BadRequest(summarize_error_body(body_bytes))),
+        404 => Err(PublishError::NotFound(summarize_error_body(body_bytes))),
         _ => {
-            let summarized = summarize_error_body(body_bytes);
-            return match status {
-                401 | 403 => Err(PublishError::AuthError(summarized)),
-                409 => Err(PublishError::Conflict(summarized)),
-                400 => Err(PublishError::BadRequest(summarized)),
-                404 => Err(PublishError::NotFound(summarized)),
-                _ => {
-                    log::warn!(
-                        "publish failed: request URL `{}`, final URL `{}`, status {}",
-                        upload_url_for_log,
-                        response_url,
-                        status
-                    );
-                    Err(PublishError::ServerError(status, summarized))
-                }
-            };
+            log::warn!(
+                "publish failed: request URL `{}`, final URL `{}`, status {}",
+                upload_url_for_log,
+                response_url,
+                status
+            );
+            Err(PublishError::ServerError {
+                status,
+                body: summarize_error_body(body_bytes),
+            })
         }
-    };
-
-    Ok(PublishResponse {
-        status,
-        message: String::from_utf8_lossy(body_bytes).into_owned(),
-        is_new_project,
-    })
+    }
 }
 
 #[derive(Error, Debug)]
@@ -299,8 +303,8 @@ pub enum PublishError {
     #[error("failed to read server response body: {0}")]
     ResponseBody(#[source] reqwest::Error),
 
-    #[error("server error ({0}): {1}")]
-    ServerError(u16, String),
+    #[error("server error ({status}): {body}")]
+    ServerError { status: u16, body: String },
 
     #[error("authentication failed: {0}")]
     AuthError(String),
@@ -322,7 +326,9 @@ pub struct PublishResponse {
     pub is_new_project: bool,
 }
 
+/// Maximum number of characters to include when summarizing an error response body.
 const MAX_ERROR_BODY_CHARS: usize = 1024;
+/// Path segments appended to the index URL to form the upload endpoint.
 const UPLOAD_ENDPOINT_SEGMENTS: [&str; 3] = ["api", "v1", "upload"];
 
 fn summarize_error_text(text: &str) -> String {
@@ -382,8 +388,13 @@ fn summarize_error_body(body_bytes: &[u8]) -> String {
     }
 }
 
-// Publish-only validation and normalization rules for modern project IDs.
-// If additional surfaces need this behavior, extract to a shared module.
+/// Validates a publisher or name field for modern project IDs.
+///
+/// Rules: 3-50 ASCII alphanumeric characters, with single separators (space,
+/// hyphen, and optionally dot when `allow_dot` is true) allowed between words.
+/// Must start and end with an alphanumeric character.
+///
+/// Publish-only; if additional surfaces need this, extract to a shared module.
 fn is_valid_field(s: &str, allow_dot: bool) -> bool {
     if !s.is_ascii() {
         return false;

@@ -95,7 +95,7 @@ fn build_upload_url_rejects_upload_endpoint_path() {
 }
 
 #[test]
-fn build_upload_url_strips_query_and_fragment() {
+fn build_upload_url_rejects_query_and_fragment() {
     let err =
         build_upload_url(&Url::parse("https://example.org/index?x=1#frag").unwrap()).unwrap_err();
     assert!(matches!(err, PublishError::InvalidIndexUrl { .. }));
