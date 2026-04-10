@@ -28,15 +28,13 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
     let kpar_path = kpar_path.as_ref();
     let header = crate::style::get_style_config().header;
     let upload_url = build_upload_url(&index_url)?;
-    let prepared = prepare_publish_payload(kpar_path)?;
-
     let PublishPreparation {
         name,
         version,
         file_name,
         file_bytes,
         metadata,
-    } = prepared;
+    } = prepare_publish_payload(kpar_path)?;
     log::info!(
         "{header}{:>12}{header:#} `{name}` {version} to {}",
         "Publishing",
