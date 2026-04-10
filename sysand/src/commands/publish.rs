@@ -28,6 +28,7 @@ pub fn command_publish(
     if !wrapfs::is_file(&kpar_path)? {
         bail!("KPAR file not found at `{kpar_path}`, run `sysand build` first");
     }
+    // Consume the Arc (or clone if shared) to extract owned credentials.
     let bearer_map = Arc::unwrap_or_clone(auth_policy).try_into_publish_bearer_auth_map()?;
 
     // Match credentials against the concrete upload endpoint, not the index root,
@@ -36,6 +37,12 @@ pub fn command_publish(
     let bearer = match bearer_map.lookup(upload_url.as_str()) {
         GlobMapResult::Found(_, token) => token.clone(),
         GlobMapResult::Ambiguous(candidates) => {
+            // Publish must resolve to exactly one bearer token. Unlike the
+            // general fetch/auth flow, do not probe multiple credentials here:
+            // we do not want to retry uploads or accidentally send unrelated
+            // publish credentials to the endpoint. A future refinement could
+            // prefer the most specific glob match, which would support
+            // separate read and publish credentials under the same host.
             bail!(
                 "multiple bearer token credentials configured for publish URL `{upload_url}`; \
                  refine SYSAND_CRED_<X> URL patterns so exactly one bearer token matches ({} candidates found)",
@@ -72,29 +79,29 @@ fn resolve_publish_kpar_path(
     path: Option<Utf8PathBuf>,
     ctx: &ProjectContext,
 ) -> Result<Utf8PathBuf> {
-    Ok(if let Some(path) = path {
-        path
-    } else {
-        // Without an explicit path, publish must resolve one concrete project artifact.
-        // From workspace root this is ambiguous, so require `[PATH]` there.
-        let current_project = if let Some(current_project) = ctx.current_project.as_ref() {
-            current_project
-        } else if ctx.current_workspace.is_some() {
+    if let Some(path) = path {
+        return Ok(path);
+    }
+
+    // Without an explicit path, publish must resolve one concrete project artifact.
+    // From workspace root this is ambiguous, so require `[PATH]` there.
+    let Some(current_project) = ctx.current_project.as_ref() else {
+        if ctx.current_workspace.is_some() {
             bail!(
                 "`sysand publish` without [PATH] is not supported from a workspace root; \
                  run the command from a project directory or pass an explicit .kpar path"
             );
-        } else {
-            return Err(CliError::MissingProjectCurrentDir.into());
-        };
-        let mut output_dir = ctx
-            .current_workspace
-            .as_ref()
-            .map(|workspace| workspace.root_path())
-            .unwrap_or(&current_project.project_path)
-            .join("output");
-        let name = default_kpar_file_name(current_project)?;
-        output_dir.push(name);
-        output_dir
-    })
+        }
+        return Err(CliError::MissingProjectCurrentDir.into());
+    };
+
+    let mut output_dir = ctx
+        .current_workspace
+        .as_ref()
+        .map(|workspace| workspace.root_path())
+        .unwrap_or(&current_project.project_path)
+        .join("output");
+    let name = default_kpar_file_name(current_project)?;
+    output_dir.push(name);
+    Ok(output_dir)
 }
