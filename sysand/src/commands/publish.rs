@@ -95,13 +95,12 @@ fn resolve_publish_kpar_path(
         return Err(CliError::MissingProjectCurrentDir.into());
     };
 
-    let mut output_dir = ctx
+    let mut kpar_path = ctx
         .current_workspace
         .as_ref()
         .map(|workspace| workspace.root_path())
         .unwrap_or(&current_project.project_path)
         .join("output");
-    let name = default_kpar_file_name(current_project)?;
-    output_dir.push(name);
-    Ok(output_dir)
+    kpar_path.push(default_kpar_file_name(current_project)?);
+    Ok(kpar_path)
 }
