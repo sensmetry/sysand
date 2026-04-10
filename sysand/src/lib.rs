@@ -59,6 +59,7 @@ use crate::{
         init::command_init,
         lock::command_lock,
         print_root::command_print_root,
+        publish::command_publish,
         remove::command_remove,
         sources::{command_sources_env, command_sources_project},
         sync::command_sync,
@@ -267,7 +268,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
     }
-    let basic_auth_policy = Arc::new(auths_builder.build()?);
+    let auth_policy = Arc::new(auths_builder.build()?);
 
     match args.command {
         Command::Init {
@@ -309,7 +310,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         project_root,
                         client,
                         runtime,
-                        basic_auth_policy,
+                        auth_policy,
                         ctx,
                     )
                 } else {
@@ -322,7 +323,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         project_root,
                         client,
                         runtime,
-                        basic_auth_policy,
+                        auth_policy,
                         ctx,
                     )
                 }
@@ -369,7 +370,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     project_root,
                     client,
                     runtime,
-                    basic_auth_policy,
+                    auth_policy,
                     &ctx,
                 )
                 .map(|_| ())
@@ -414,7 +415,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                             &project_root,
                             client.clone(),
                             runtime.clone(),
-                            basic_auth_policy.clone(),
+                            auth_policy.clone(),
                             &ctx,
                         )?
                     } else {
@@ -429,7 +430,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 client,
                 &provided_iris,
                 runtime,
-                basic_auth_policy,
+                auth_policy,
                 &ctx,
             )
         }
@@ -483,7 +484,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &project_root,
                 &client,
                 runtime.clone(),
-                basic_auth_policy.clone(),
+                auth_policy.clone(),
             )?;
 
             enum Location {
@@ -568,7 +569,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     &excluded_iris,
                     overrides,
                     runtime,
-                    basic_auth_policy,
+                    auth_policy,
                 ),
                 (Location::Iri(iri), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
@@ -581,7 +582,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         index_urls,
                         overrides,
                         runtime,
-                        basic_auth_policy,
+                        auth_policy,
                     )
                 }
                 (Location::Path(path), None) => command_info_path(&path, &excluded_iris),
@@ -614,7 +615,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 ctx,
                 client,
                 runtime,
-                basic_auth_policy,
+                auth_policy,
             )
         }
         Command::Remove { locator } => {
@@ -681,6 +682,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         }
+        cli::Command::Publish { path, index } => {
+            command_publish(path, index, &ctx, auth_policy, client, runtime)
+        }
         Command::Sources { sources_opts } => {
             let cli::SourcesOptions {
                 no_deps,
@@ -711,7 +715,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             &config,
             client,
             runtime,
-            basic_auth_policy,
+            auth_policy,
         ),
     }
 }

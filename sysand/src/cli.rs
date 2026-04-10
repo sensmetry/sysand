@@ -12,6 +12,7 @@ use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use fluent_uri::Iri;
 use semver::VersionReq;
 use sysand_core::build::KparCompressionMethod;
+use url::Url;
 
 use crate::env_vars;
 
@@ -180,6 +181,19 @@ pub enum Command {
         /// For multiple related projects, consider using a workspace instead
         #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
         allow_path_usage: bool,
+    },
+    /// Publish a KPAR to a sysand package index
+    Publish {
+        /// Path to the KPAR file to publish. If not provided, will look
+        /// for a KPAR in the output directory with the current project's
+        /// name and version
+        #[clap(verbatim_doc_comment)]
+        path: Option<Utf8PathBuf>,
+
+        /// Root URL of the package index to publish to
+        /// (e.g. https://sysand.org), not the upload endpoint path
+        #[arg(long, value_name = "URL", verbatim_doc_comment)]
+        index: Url,
     },
     /// Create or update lockfile
     Lock {
