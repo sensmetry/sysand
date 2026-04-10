@@ -340,63 +340,6 @@ fn map_publish_response(
     }
 }
 
-fn summarize_error_text(text: &str) -> String {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return "empty response body".to_string();
-    }
-
-    let mut summarized = trimmed.to_string();
-    if summarized.len() > MAX_ERROR_BODY_CHARS {
-        let mut cutoff = MAX_ERROR_BODY_CHARS;
-        while !summarized.is_char_boundary(cutoff) {
-            cutoff -= 1;
-        }
-        summarized.truncate(cutoff);
-    }
-    if summarized.len() < trimmed.len() {
-        summarized.push_str(" ... [truncated]");
-    }
-
-    summarized
-}
-
-fn summarize_error_body(body_bytes: &[u8]) -> String {
-    if body_bytes.is_empty() {
-        return "empty response body".to_string();
-    }
-
-    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(body_bytes) {
-        let error = json.get("error").and_then(|v| v.as_str());
-        let detail = json.get("detail").and_then(|v| v.as_str());
-        let message = match (error, detail) {
-            (Some(error), Some(detail)) => format!("{error}: {detail}"),
-            (Some(error), None) => error.to_string(),
-            (None, Some(detail)) => detail.to_string(),
-            (None, None) => String::new(),
-        };
-        if !message.is_empty() {
-            return summarize_error_text(&message);
-        }
-    }
-
-    match std::str::from_utf8(body_bytes) {
-        Ok(text) => {
-            if text.chars().any(|c| c.is_control() && !c.is_whitespace()) {
-                return format!(
-                    "unexpected non-text error response ({} bytes)",
-                    body_bytes.len()
-                );
-            }
-            summarize_error_text(text)
-        }
-        Err(_) => format!(
-            "unexpected non-text error response ({} bytes)",
-            body_bytes.len()
-        ),
-    }
-}
-
 /// Validates a publisher or name field for modern project IDs.
 ///
 /// Rules: 3-50 ASCII alphanumeric characters, with single separators (space,
@@ -447,6 +390,63 @@ fn is_valid_name(s: &str) -> bool {
 
 fn normalize_field(s: &str) -> String {
     s.to_ascii_lowercase().replace(' ', "-")
+}
+
+fn summarize_error_body(body_bytes: &[u8]) -> String {
+    if body_bytes.is_empty() {
+        return "empty response body".to_string();
+    }
+
+    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(body_bytes) {
+        let error = json.get("error").and_then(|v| v.as_str());
+        let detail = json.get("detail").and_then(|v| v.as_str());
+        let message = match (error, detail) {
+            (Some(error), Some(detail)) => format!("{error}: {detail}"),
+            (Some(error), None) => error.to_string(),
+            (None, Some(detail)) => detail.to_string(),
+            (None, None) => String::new(),
+        };
+        if !message.is_empty() {
+            return summarize_error_text(&message);
+        }
+    }
+
+    match std::str::from_utf8(body_bytes) {
+        Ok(text) => {
+            if text.chars().any(|c| c.is_control() && !c.is_whitespace()) {
+                return format!(
+                    "unexpected non-text error response ({} bytes)",
+                    body_bytes.len()
+                );
+            }
+            summarize_error_text(text)
+        }
+        Err(_) => format!(
+            "unexpected non-text error response ({} bytes)",
+            body_bytes.len()
+        ),
+    }
+}
+
+fn summarize_error_text(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return "empty response body".to_string();
+    }
+
+    let mut summarized = trimmed.to_string();
+    if summarized.len() > MAX_ERROR_BODY_CHARS {
+        let mut cutoff = MAX_ERROR_BODY_CHARS;
+        while !summarized.is_char_boundary(cutoff) {
+            cutoff -= 1;
+        }
+        summarized.truncate(cutoff);
+    }
+    if summarized.len() < trimmed.len() {
+        summarized.push_str(" ... [truncated]");
+    }
+
+    summarized
 }
 
 #[cfg(test)]
