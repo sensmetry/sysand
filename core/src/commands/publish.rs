@@ -193,6 +193,16 @@ fn prepare_publish_payload(kpar_path: &Utf8Path) -> Result<PublishPreparation, P
         .unwrap_or(kpar_path.as_str())
         .to_string();
 
+    let file_size = std::fs::metadata(kpar_path)
+        .map_err(|e| PublishError::KparRead(kpar_path.as_str().into(), e))?
+        .len();
+    if file_size > MAX_KPAR_PUBLISH_SIZE {
+        return Err(PublishError::KparTooLarge {
+            size: file_size,
+            limit: MAX_KPAR_PUBLISH_SIZE,
+        });
+    }
+
     let file_bytes = std::fs::read(kpar_path)
         .map_err(|e| PublishError::KparRead(kpar_path.as_str().into(), e))?;
     let sha256_digest = format!("{:x}", sha2::Sha256::digest(&file_bytes));
@@ -317,6 +327,11 @@ pub enum PublishError {
 
     #[error("publish endpoint not found: {0}")]
     NotFound(String),
+
+    #[error(
+        "kpar file is unexpectedly large ({size} bytes, limit is {limit} bytes); verify you are publishing the correct file"
+    )]
+    KparTooLarge { size: u64, limit: u64 },
 }
 
 #[derive(Debug)]
@@ -326,6 +341,8 @@ pub struct PublishResponse {
     pub is_new_project: bool,
 }
 
+/// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
+const MAX_KPAR_PUBLISH_SIZE: u64 = 100 * 1024 * 1024;
 /// Maximum number of characters to include when summarizing an error response body.
 const MAX_ERROR_BODY_CHARS: usize = 1024;
 /// Path segments appended to the index URL to form the upload endpoint.
