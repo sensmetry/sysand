@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=1.12.6,<2"]
+requires = ["maturin>=1.13.1,<2"]
 build-backend = "maturin"
 
 [project]
@@ -41,7 +41,7 @@ sysand = "sysand.__main__:main"
 
 [dependency-groups]
 dev = [
-    "maturin>=1.12.6,<2",
+    "maturin>=1.13.1,<2",
     "pytest>=9.0.2,<10",
     "pytest-httpserver>=1.1.3,<2",
 ]
@@ -50,15 +50,12 @@ dev = [
 python-source = "python"
 features = ["pyo3/extension-module"]
 module-name = "sysand._sysand_core"
-# TODO: reenable once version after 1.12.6 is released; it will contain
-# https://github.com/PyO3/maturin/commit/54fc6dd3adf10025e910d43a231b2ec1742a4480
-# (also bump maturin version in requires)
-# strip = true
+strip = true
 
 # pytest is used for running Python based tests
 #
 # ref: https://docs.pytest.org/en/stable/
 #
-[tool.pytest.ini_options]
-addopts = "--verbose --color=yes --durations=10"
+[tool.pytest]
+addopts = ["--verbose", "--color=yes", "--durations=10"]
 testpaths = ["tests"]
