@@ -14,9 +14,12 @@ use crate::{
     project::{ProjectRead, local_kpar::LocalKParProject},
 };
 
-#[cfg(test)]
-#[path = "./publish_tests.rs"]
-mod tests;
+/// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
+const MAX_KPAR_PUBLISH_SIZE: u64 = 100 * 1024 * 1024;
+/// Maximum number of characters to include when summarizing an error response body.
+const MAX_ERROR_BODY_CHARS: usize = 1024;
+/// Path segments appended to the index URL to form the upload endpoint.
+const UPLOAD_ENDPOINT_SEGMENTS: [&str; 3] = ["api", "v1", "upload"];
 
 pub fn do_publish<P: AsRef<Utf8Path>>(
     path: P,
@@ -133,6 +136,91 @@ pub fn build_upload_url(index: &Url) -> Result<Url, PublishError> {
 
     Ok(upload_url)
 }
+
+#[derive(Debug)]
+pub struct PublishResponse {
+    pub status: u16,
+    pub message: String,
+    pub is_new_project: bool,
+}
+
+#[derive(Error, Debug)]
+pub enum PublishError {
+    #[error("failed to read kpar file at `{0}`: {1}")]
+    KparRead(Box<str>, std::io::Error),
+
+    #[error("failed to open kpar project at `{0}`: {1}")]
+    KparOpen(Box<str>, String),
+
+    #[error("missing project info in kpar")]
+    MissingInfo,
+
+    #[error("missing project metadata in kpar")]
+    MissingMeta,
+
+    #[error("missing publisher in project info (required for publishing)")]
+    MissingPublisher,
+
+    #[error(
+        "publisher field `{0}` is invalid for modern project IDs: must be 3-50 characters, use only ASCII letters and numbers, may include single spaces or hyphens between words, and must start and end with a letter or number"
+    )]
+    InvalidPublisher(Box<str>),
+
+    #[error(
+        "name field `{0}` is invalid for modern project IDs: must be 3-50 characters, use only ASCII letters and numbers, may include single spaces, hyphens, or dots between words, and must start and end with a letter or number"
+    )]
+    InvalidName(Box<str>),
+
+    #[error(
+        "version field `{version}` is invalid for publishing: must be a valid Semantic Versioning 2.0 version ({source})"
+    )]
+    InvalidVersion {
+        version: Box<str>,
+        source: semver::Error,
+    },
+
+    #[error("missing license in project info (required for publishing)")]
+    MissingLicense,
+
+    #[error(
+        "license field `{license}` is invalid for publishing: must be a valid SPDX license expression ({source})"
+    )]
+    InvalidLicense {
+        license: Box<str>,
+        source: spdx::error::ParseError,
+    },
+
+    #[error("invalid index URL `{url}` for publish endpoint: {reason}")]
+    InvalidIndexUrl { url: Box<str>, reason: String },
+
+    #[error("HTTP request failed: {0}")]
+    Http(#[from] reqwest_middleware::Error),
+
+    #[error("failed to read server response body: {0}")]
+    ResponseBody(#[source] reqwest::Error),
+
+    #[error("server error ({status}): {body}")]
+    ServerError { status: u16, body: String },
+
+    #[error("authentication failed: {0}")]
+    AuthError(String),
+
+    #[error("conflict: package version already exists: {0}")]
+    Conflict(String),
+
+    #[error("bad request: {0}")]
+    BadRequest(String),
+
+    #[error("publish endpoint not found: {0}")]
+    NotFound(String),
+
+    #[error(
+        "kpar file is unexpectedly large ({size} bytes, limit is {limit} bytes); verify you are publishing the correct file"
+    )]
+    KparTooLarge { size: u64, limit: u64 },
+}
+
+// --- Private helpers ---
 
 struct PublishPreparation {
     name: String,
@@ -252,96 +340,6 @@ fn map_publish_response(
     }
 }
 
-#[derive(Error, Debug)]
-pub enum PublishError {
-    #[error("failed to read kpar file at `{0}`: {1}")]
-    KparRead(Box<str>, std::io::Error),
-
-    #[error("failed to open kpar project at `{0}`: {1}")]
-    KparOpen(Box<str>, String),
-
-    #[error("missing project info in kpar")]
-    MissingInfo,
-
-    #[error("missing project metadata in kpar")]
-    MissingMeta,
-
-    #[error("missing publisher in project info (required for publishing)")]
-    MissingPublisher,
-
-    #[error(
-        "publisher field `{0}` is invalid for modern project IDs: must be 3-50 characters, use only ASCII letters and numbers, may include single spaces or hyphens between words, and must start and end with a letter or number"
-    )]
-    InvalidPublisher(Box<str>),
-
-    #[error(
-        "name field `{0}` is invalid for modern project IDs: must be 3-50 characters, use only ASCII letters and numbers, may include single spaces, hyphens, or dots between words, and must start and end with a letter or number"
-    )]
-    InvalidName(Box<str>),
-
-    #[error(
-        "version field `{version}` is invalid for publishing: must be a valid Semantic Versioning 2.0 version ({source})"
-    )]
-    InvalidVersion {
-        version: Box<str>,
-        source: semver::Error,
-    },
-
-    #[error("missing license in project info (required for publishing)")]
-    MissingLicense,
-
-    #[error(
-        "license field `{license}` is invalid for publishing: must be a valid SPDX license expression ({source})"
-    )]
-    InvalidLicense {
-        license: Box<str>,
-        source: spdx::error::ParseError,
-    },
-
-    #[error("invalid index URL `{url}` for publish endpoint: {reason}")]
-    InvalidIndexUrl { url: Box<str>, reason: String },
-
-    #[error("HTTP request failed: {0}")]
-    Http(#[from] reqwest_middleware::Error),
-
-    #[error("failed to read server response body: {0}")]
-    ResponseBody(#[source] reqwest::Error),
-
-    #[error("server error ({status}): {body}")]
-    ServerError { status: u16, body: String },
-
-    #[error("authentication failed: {0}")]
-    AuthError(String),
-
-    #[error("conflict: package version already exists: {0}")]
-    Conflict(String),
-
-    #[error("bad request: {0}")]
-    BadRequest(String),
-
-    #[error("publish endpoint not found: {0}")]
-    NotFound(String),
-
-    #[error(
-        "kpar file is unexpectedly large ({size} bytes, limit is {limit} bytes); verify you are publishing the correct file"
-    )]
-    KparTooLarge { size: u64, limit: u64 },
-}
-
-#[derive(Debug)]
-pub struct PublishResponse {
-    pub status: u16,
-    pub message: String,
-    pub is_new_project: bool,
-}
-
-/// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
-const MAX_KPAR_PUBLISH_SIZE: u64 = 100 * 1024 * 1024;
-/// Maximum number of characters to include when summarizing an error response body.
-const MAX_ERROR_BODY_CHARS: usize = 1024;
-/// Path segments appended to the index URL to form the upload endpoint.
-const UPLOAD_ENDPOINT_SEGMENTS: [&str; 3] = ["api", "v1", "upload"];
-
 fn summarize_error_text(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -450,3 +448,7 @@ fn is_valid_name(s: &str) -> bool {
 fn normalize_field(s: &str) -> String {
     s.to_ascii_lowercase().replace(' ', "-")
 }
+
+#[cfg(test)]
+#[path = "./publish_tests.rs"]
+mod tests;
