@@ -19,26 +19,25 @@ use crate::{
 mod tests;
 
 pub fn do_publish<P: AsRef<Utf8Path>>(
-    kpar_path: P,
-    index_url: Url,
+    path: P,
+    index: Url,
     auth: ForceBearerAuth,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<PublishResponse, PublishError> {
-    let kpar_path = kpar_path.as_ref();
+    let path = path.as_ref();
     let header = crate::style::get_style_config().header;
-    let upload_url = build_upload_url(&index_url)?;
+    let upload_url = build_upload_url(&index)?;
     let PublishPreparation {
         name,
         version,
         file_name,
         file_bytes,
         metadata,
-    } = prepare_publish_payload(kpar_path)?;
+    } = prepare_publish_payload(path)?;
     log::info!(
-        "{header}{:>12}{header:#} `{name}` {version} to {}",
+        "{header}{:>12}{header:#} `{name}` {version} to {index}",
         "Publishing",
-        index_url
     );
 
     // Stash the URL as a string for post-request logging; the `Url` itself
@@ -80,29 +79,29 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
     map_publish_response(status, &body_bytes, &upload_url_for_log, &response_url)
 }
 
-pub fn build_upload_url(index_url: &Url) -> Result<Url, PublishError> {
-    if !matches!(index_url.scheme(), "http" | "https") {
+pub fn build_upload_url(index: &Url) -> Result<Url, PublishError> {
+    if !matches!(index.scheme(), "http" | "https") {
         return Err(PublishError::InvalidIndexUrl {
-            url: index_url.as_str().into(),
+            url: index.as_str().into(),
             reason: "URL scheme must be http or https".to_string(),
         });
     }
 
-    if index_url.query().is_some() {
+    if index.query().is_some() {
         return Err(PublishError::InvalidIndexUrl {
-            url: index_url.as_str().into(),
+            url: index.as_str().into(),
             reason: "URL must not include a query component".to_string(),
         });
     }
 
-    if index_url.fragment().is_some() {
+    if index.fragment().is_some() {
         return Err(PublishError::InvalidIndexUrl {
-            url: index_url.as_str().into(),
+            url: index.as_str().into(),
             reason: "URL must not include a fragment component".to_string(),
         });
     }
 
-    let mut upload_url = index_url.clone();
+    let mut upload_url = index.clone();
     {
         let mut segments = upload_url
             .path_segments_mut()
@@ -118,7 +117,7 @@ pub fn build_upload_url(index_url: &Url) -> Result<Url, PublishError> {
         .collect();
     if path_segments.ends_with(&UPLOAD_ENDPOINT_SEGMENTS) {
         return Err(PublishError::InvalidIndexUrl {
-            url: index_url.as_str().into(),
+            url: index.as_str().into(),
             reason: "URL must point to the index root; do not include `/api/v1/upload`".to_string(),
         });
     }
@@ -145,14 +144,14 @@ struct PublishPreparation {
 }
 
 /// Reads and validates a `.kpar` file, returning the upload payload and metadata.
-fn prepare_publish_payload(kpar_path: &Utf8Path) -> Result<PublishPreparation, PublishError> {
+fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, PublishError> {
     // Open and validate kpar.
-    let kpar_project = LocalKParProject::new_guess_root(kpar_path)
-        .map_err(|e| PublishError::KparOpen(kpar_path.as_str().into(), e.to_string()))?;
+    let kpar_project = LocalKParProject::new_guess_root(path)
+        .map_err(|e| PublishError::KparOpen(path.as_str().into(), e.to_string()))?;
 
     let (info, meta) = kpar_project
         .get_project()
-        .map_err(|e| PublishError::KparOpen(kpar_path.as_str().into(), e.to_string()))?;
+        .map_err(|e| PublishError::KparOpen(path.as_str().into(), e.to_string()))?;
 
     let info = info.ok_or(PublishError::MissingInfo)?;
     // Validate that metadata exists; contents are not used during upload.
@@ -186,13 +185,10 @@ fn prepare_publish_payload(kpar_path: &Utf8Path) -> Result<PublishPreparation, P
     let normalized_name = normalize_field(name);
     let purl = format!("pkg:sysand/{normalized_publisher}/{normalized_name}@{version}");
 
-    let file_name = kpar_path
-        .file_name()
-        .unwrap_or(kpar_path.as_str())
-        .to_string();
+    let file_name = path.file_name().unwrap_or(path.as_str()).to_string();
 
-    let file_size = std::fs::metadata(kpar_path)
-        .map_err(|e| PublishError::KparRead(kpar_path.as_str().into(), e))?
+    let file_size = std::fs::metadata(path)
+        .map_err(|e| PublishError::KparRead(path.as_str().into(), e))?
         .len();
     if file_size > MAX_KPAR_PUBLISH_SIZE {
         return Err(PublishError::KparTooLarge {
@@ -201,8 +197,8 @@ fn prepare_publish_payload(kpar_path: &Utf8Path) -> Result<PublishPreparation, P
         });
     }
 
-    let file_bytes = std::fs::read(kpar_path)
-        .map_err(|e| PublishError::KparRead(kpar_path.as_str().into(), e))?;
+    let file_bytes =
+        std::fs::read(path).map_err(|e| PublishError::KparRead(path.as_str().into(), e))?;
     let sha256_digest = format!("{:x}", sha2::Sha256::digest(&file_bytes));
     let metadata = serde_json::json!({
         "purl": purl,
