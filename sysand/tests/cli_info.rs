@@ -4,7 +4,7 @@
 #[cfg(feature = "alltests")]
 use std::process::Command;
 
-use std::{error::Error, io::Write as _};
+use std::{error::Error, fs};
 
 use assert_cmd::prelude::*;
 use camino::Utf8PathBuf;
@@ -15,6 +15,7 @@ use predicates::prelude::*;
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
+use sysand_core::test_utils::ProjectMock;
 
 #[test]
 fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
@@ -657,19 +658,23 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
     let zip_path = cwd.path().canonicalize()?.join("test.kpar");
 
     {
-        let file = std::fs::File::create(&zip_path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
+        let project = ProjectMock::new_raw([
+            (
+                "some_root_dir/.project.json",
+                r#"{"name":"info_basic_local_kpar","version":"1.2.3","usage":[]}"#,
+            ),
+            (
+                "some_root_dir/.meta.json",
+                r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#,
+            ),
+        ]);
 
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored)
             .unix_permissions(0o755);
 
-        zip.start_file("some_root_dir/.project.json", options)?;
-        zip.write_all(br#"{"name":"info_basic_local_kpar","version":"1.2.3","usage":[]}"#)?;
-        zip.start_file("some_root_dir/.meta.json", options)?;
-        zip.write_all(br#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)?;
-
-        zip.finish().unwrap();
+        let zip_content = project.to_zip(options)?;
+        fs::write(&zip_path, zip_content)?;
     }
 
     let (_, _, out) = run_sysand(["info", "--path", &zip_path.to_string_lossy()], None)?;

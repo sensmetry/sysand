@@ -28,6 +28,7 @@ kpar-zstd = ["zip?/zstd"]
 kpar-xz = ["zip?/xz"]
 kpar-ppmd = ["zip?/ppmd"]
 alltests = []
+test-utils = ["dep:httpmock", "dep:urlencoding"]
 
 [dependencies]
 # General
@@ -69,8 +70,14 @@ toml_edit = { version = "0.25.4", features = ["serde"] }
 globset = { version = "0.4.18", default-features = false }
 reqwest = { version = "0.13.2", optional = true, features = ["rustls", "stream"] }
 dunce = "1.0.5"
+# For test-utils
+httpmock = { version = "0.8.3", optional = true }
+urlencoding = { version = "2.1.3", optional = true }
 
 [dev-dependencies]
+# Based on https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481
+# and https://github.com/rust-lang/cargo/issues/2911#issuecomment-1483256987
+sysand-core = { path = ".", default-features = false, features = ["test-utils"] }
 assert_cmd = "2.1.2"
 mockito = "1.7.2"
 port_check = "0.3.0"

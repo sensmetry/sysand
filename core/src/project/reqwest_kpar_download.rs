@@ -177,40 +177,33 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::{Read, Write as _},
-        sync::Arc,
-    };
-
     use crate::{
         auth::Unauthenticated,
         project::{ProjectRead, ProjectReadAsync},
         resolve::net_utils::create_reqwest_client,
+        test_utils::ProjectMock,
     };
+    use std::{io::Read, sync::Arc};
 
     #[test]
     fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         let buf = {
-            let mut cursor = std::io::Cursor::new(vec![]);
-            let mut zip = zip::ZipWriter::new(&mut cursor);
-
+            let project = ProjectMock::new_raw([
+                (
+                    "some_root_dir/.project.json",
+                    r#"{"name":"test_basic_download_request","version":"1.2.3","usage":[]}"#,
+                ),
+                (
+                    "some_root_dir/.meta.json",
+                    r#"{"index":{},"created":"123"}"#,
+                ),
+                ("some_root_dir/test.sysml", r#"package Test;"#),
+            ]);
             let options = zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Stored)
                 .unix_permissions(0o755);
 
-            zip.start_file("some_root_dir/.project.json", options)?;
-            zip.write_all(
-                br#"{"name":"test_basic_download_request","version":"1.2.3","usage":[]}"#,
-            )?;
-            zip.start_file("some_root_dir/.meta.json", options)?;
-            zip.write_all(br#"{"index":{},"created":"123"}"#)?;
-            zip.start_file("some_root_dir/test.sysml", options)?;
-            zip.write_all(br#"package Test;"#)?;
-
-            zip.finish().unwrap();
-
-            cursor.flush()?;
-            cursor.into_inner()
+            project.to_zip(options)?
         };
 
         let mut server = mockito::Server::new();

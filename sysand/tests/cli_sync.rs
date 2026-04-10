@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use assert_cmd::prelude::*;
+use camino::Utf8PathBuf;
 use indexmap::IndexMap;
 use mockito::Matcher;
 use predicates::prelude::*;
 use reqwest::header;
 use sysand_core::{
+    test_utils::{ProjectMock, httpmock::MockServer},
     commands::lock::DEFAULT_LOCKFILE_NAME,
     env::local_directory::{DEFAULT_ENV_NAME, ENTRIES_PATH, METADATA_PATH},
 };
@@ -161,25 +163,11 @@ identifiers = [
 fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
 
-    let mut server = mockito::Server::new();
+    let project_mock = ProjectMock::builder("sync_to_remote", "1.2.3").build();
 
-    let info_mock = server
-        .mock("GET", "/.project.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(4) // TODO: Reduce this to 1 after caching
-        .match_request(|r| r.has_header(header::USER_AGENT))
-        .create();
+    let server = MockServer::start();
 
-    let meta_mock = server
-        .mock("GET", "/.meta.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(4) // TODO: Reduce this to 1 after caching
-        .match_request(|r| r.has_header(header::USER_AGENT))
-        .create();
+    let mocks = project_mock.add_to_server(&server, |when| when.header_exists(header::USER_AGENT.as_str()), |then| then);
 
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
@@ -195,8 +183,8 @@ sources = [
     {{ remote_src = "{}" }},
 ]
 "#,
-            &server.url()
-        ),
+            &server.base_url()
+        )
     )?;
 
     let out = run_sysand_in(&cwd, ["sync"], None)?;
@@ -207,8 +195,8 @@ sources = [
         .stderr(predicate::str::contains("Syncing"))
         .stderr(predicate::str::contains("Installing"));
 
-    info_mock.assert();
-    meta_mock.assert();
+    mocks[&Utf8PathBuf::from("/.project.json")].assert_calls(4); // TODO: Reduce this to 1 after caching
+    mocks[&Utf8PathBuf::from("/.meta.json")].assert_calls(4); // TODO: Reduce this to 1 after caching
 
     let env_metadata = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
 
