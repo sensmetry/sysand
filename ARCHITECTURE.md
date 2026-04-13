@@ -48,7 +48,7 @@ Directory structure:
   providing `#[derive(ProjectRead)]` and `#[derive(ProjectMut)]` procedural
   macros.
 
-  As of 2026-04, only `#[derive(ProjectRead)]` is used, and used once, for
+  As of 2026-04, only `#[derive(ProjectRead)]` is used, and only for
   `AnyProject` and `CombinedProjectStorage`.
 
 The non-Rust bindings are in an early state of development. The JavaScript/WASM
