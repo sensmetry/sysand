@@ -304,10 +304,10 @@ fn map_publish_response(
             message: String::from_utf8_lossy(body_bytes).into_owned(),
             is_new_project: true,
         }),
-        401 | 403 => Err(PublishError::AuthError(error_body_to_string(body_bytes))),
-        409 => Err(PublishError::Conflict(error_body_to_string(body_bytes))),
         400 => Err(PublishError::BadRequest(error_body_to_string(body_bytes))),
+        401 | 403 => Err(PublishError::AuthError(error_body_to_string(body_bytes))),
         404 => Err(PublishError::NotFound(error_body_to_string(body_bytes))),
+        409 => Err(PublishError::Conflict(error_body_to_string(body_bytes))),
         _ => {
             log::warn!(
                 "publish failed: request URL `{}`, final URL `{}`, status {}",
