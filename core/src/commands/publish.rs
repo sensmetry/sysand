@@ -59,7 +59,7 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
 
         let form = reqwest::multipart::Form::new()
             .part("metadata", metadata_part)
-            .part("file", file_part);
+            .part("kpar", file_part);
 
         c.post(upload_url.clone()).multipart(form)
     };
@@ -104,7 +104,7 @@ pub fn build_upload_url(index: &Url) -> Result<Url, PublishError> {
         });
     }
 
-    let mut upload_url = index.clone();
+    let mut upload_url = index.to_owned();
     {
         let mut segments = upload_url
             .path_segments_mut()
@@ -128,7 +128,7 @@ pub fn build_upload_url(index: &Url) -> Result<Url, PublishError> {
     {
         let mut segments = upload_url
             .path_segments_mut()
-            .expect("http(s) URLs are hierarchical and must support mutable path segments");
+            .unwrap();
         for segment in UPLOAD_ENDPOINT_SEGMENTS {
             segments.push(segment);
         }
@@ -193,10 +193,10 @@ pub enum PublishError {
     #[error("invalid index URL `{url}` for publish endpoint: {reason}")]
     InvalidIndexUrl { url: Box<str>, reason: String },
 
-    #[error("HTTP request failed: {0}")]
+    #[error("HTTP request failed: {0:#?}")]
     Http(#[from] reqwest_middleware::Error),
 
-    #[error("failed to read server response body: {0}")]
+    #[error("failed to read server response body: {0:#?}")]
     ResponseBody(#[source] reqwest::Error),
 
     #[error("server error ({status}): {body}")]
@@ -215,7 +215,7 @@ pub enum PublishError {
     NotFound(String),
 
     #[error(
-        "kpar file is unexpectedly large ({size} bytes, limit is {limit} bytes); verify you are publishing the correct file"
+        "KPAR file is unexpectedly large ({size} bytes, limit is {limit} bytes); verify you are publishing the correct file"
     )]
     KparTooLarge { size: u64, limit: u64 },
 }
@@ -243,7 +243,7 @@ fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Publis
 
     let info = info.ok_or(PublishError::MissingInfo)?;
     // Validate that metadata exists; contents are not used during upload.
-    let _meta = meta.ok_or(PublishError::MissingMeta)?;
+    _ = meta.ok_or(PublishError::MissingMeta)?;
 
     let publisher = info
         .publisher

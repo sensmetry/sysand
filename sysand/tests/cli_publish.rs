@@ -220,7 +220,7 @@ fn test_publish_with_explicit_index_succeeds() -> TestResult {
             Matcher::Regex(r#"name="metadata""#.to_string()),
             Matcher::Regex(r#"Content-Type: application/json"#.to_string()),
             Matcher::Regex(r#""sha256_digest":"[0-9a-f]{64}""#.to_string()),
-            Matcher::Regex(r#"name="file""#.to_string()),
+            Matcher::Regex(r#"name="kpar""#.to_string()),
             Matcher::Regex(r#"filename=".*\.kpar""#.to_string()),
             Matcher::Regex(r#"Content-Type: application/zip"#.to_string()),
         ]))
@@ -415,7 +415,7 @@ fn test_publish_canonicalizes_modern_project_id() -> TestResult {
                 r#""purl":"pkg:sysand/acme-labs/my\.project-alpha@1\.0\.0""#.to_string(),
             ),
             Matcher::Regex(r#""sha256_digest":"[0-9a-f]{64}""#.to_string()),
-            Matcher::Regex(r#"name="file""#.to_string()),
+            Matcher::Regex(r#"name="kpar""#.to_string()),
             Matcher::Regex(r#"filename="artifact\.kpar""#.to_string()),
             Matcher::Regex(r#"Content-Type: application/zip"#.to_string()),
         ]))
