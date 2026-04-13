@@ -49,7 +49,7 @@ Directory structure:
   macros.
 
   As of 2026-04, only `#[derive(ProjectRead)]` is used, and used once, for
-  `AnyProject`.
+  `AnyProject` and `CombinedProjectStorage`.
 
 The non-Rust bindings are in an early state of development. The JavaScript/WASM
 library in particular is only a proof-of-concept that is not yet usable.
@@ -58,8 +58,7 @@ library in particular is only a proof-of-concept that is not yet usable.
 
 ## Key concepts
 
-Sysand works with [SysML v2] and [KerML] "Interchange Projects", and introduces
-a few concepts of its own.
+Sysand works with [SysML v2] and [KerML] Interchange Projects, as defined in the KerML spec section 10.3, and also introduces a few concepts of its own.
 
 ```
 Workspace (.workspace.json)
@@ -218,12 +217,12 @@ system:
 - **JavaScript**: Converts all errors to `JsValue` via their `Display`
   implementation (no type-based differentiation)
 
-## Sysand file formats
+## Sysand specific files
 
 ### `.workspace.json`
 
 Defines a workspace. Lists the projects the user is working on and optionally
-specifies a default metamodel for projects `.meta.json` files:
+specifies a default metamodel for projects' `.meta.json` files:
 
 ```json
 {
@@ -234,8 +233,86 @@ specifies a default metamodel for projects `.meta.json` files:
 }
 ```
 
+### `sysand.toml`
+
+Defines sysand configuration, and has [user facing configuration
+documentation](docs/src/config.md).
+
+The sysand CLI is by default merging a user-level sysand config from
+`$XDG_CONFIG_HOME/sysand/sysand.toml` or a platform equivalent location with a
+project-local `sysand.toml`.
+
+It is as of 2026-04 not yet clearly defined if/how bindings should consider
+project-local and optionally user-level configuration.
+
 ### `sysand-lock.toml`
 
-Captures the resolved dependency graph in TOML. Each entry records a project's
-name, version, exported symbols, dependency usages, sources (local paths,
-registry URLs, git repos, etc.), and a content checksum.
+Captures a project's resolved usages and their dependencies.
+
+The `sysand lock` command regenerates this file, recording each project's name,
+version, exported symbols, dependency usages, sources (local paths, registry
+URLs, git repos, etc.), and a content checksum. The `sysand sync` command reads
+`sysand-lock.toml` to populate `sysand_env`, and will run `lock` first if the
+file does not yet exist.
+
+### Local environment (`sysand_env`)
+
+A local environment for use by tools like `syside`. It can be initialized by
+`sysand env`, and populated with `sysand sync`.
+
+As of 2026-04 and not concluded [work in GitLab], the local environment will
+looks something like below.
+
+```text
+sysand_env
+ ├──env.toml
+ ├──(optional) current.toml
+ └──lib
+    ├──package_ID1_0.0.1
+    ├──package_ID2_1.2.3
+    └──package_ID3_0.5.4
+```
+
+Refer to the [work in GitLab] for the latest details for now.
+
+[work in gitlab]: https://gitlab.com/sensmetry/internal2/tech/syside/sysand/home/-/merge_requests/1
+
+### Index environment
+
+An index environment for use by index webservers. Exactly how its managed isn't
+yet defined, but tracked in [GitHub issue
+279](https://github.com/sensmetry/sysand/issues/279).
+
+As of 2026-04 and not concluded [work in GitLab], the index environment will
+looks something like below.
+
+```text
+index_root
+ ├──index.json
+ ├──_iri
+ │  ├──package_ID1
+ │  │  ├──0.0.1
+ │  │  └──meta.json
+ │  ├──package_ID2
+ │  └──package_ID3
+ ├──publisher1
+ │  ├──name1
+ │  │  ├──0.0.1
+ │  │  └──meta.json
+ │  └──name2
+ └──publisher2
+    └──name1
+```
+
+where `index.json` should have a structure like below.
+
+```json
+{
+  "projects": [
+    { i = "pkg:sysand/abc/def", v = ["0.0.1", "2.3.4"] },
+    { i = "https://example.org/project.kpar", v = ["0.0.1"] }
+  ]
+}
+```
+
+Refer to the [work in GitLab] for the latest details for now.
