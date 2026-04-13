@@ -50,6 +50,7 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
             .mime_str("application/json")
             .expect("hard-coded content type must be a valid MIME");
         let kpar_part = reqwest::multipart::Part::stream(kpar_bytes.clone())
+            .file_name("project.kpar")
             .mime_str("application/zip")
             .expect("hard-coded content type must be a valid MIME");
 
