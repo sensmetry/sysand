@@ -84,7 +84,7 @@ fn bearer_env_for_url(url: &str) -> IndexMap<String, String> {
 }
 
 #[test]
-fn test_publish_without_path_from_workspace_root_reports_explicit_error() -> TestResult {
+fn publish_without_path_from_workspace_root_reports_explicit_error() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     std::fs::write(
         cwd.join(".workspace.json"),
@@ -95,16 +95,14 @@ fn test_publish_without_path_from_workspace_root_reports_explicit_error() -> Tes
     let out = run_sysand_in(&cwd, ["publish", "--index", "http://localhost:1"], None)?;
     out.assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "not supported from a workspace root",
-        ))
+        .stderr(predicate::str::contains("not supported from a workspace"))
         .stderr(predicate::str::contains("explicit .kpar path"));
 
     Ok(())
 }
 
 #[test]
-fn test_publish_missing_kpar() -> TestResult {
+fn publish_missing_kpar() -> TestResult {
     let (_temp_dir, cwd) = init_project("test-publish")?;
     let out = run_sysand_in(&cwd, ["publish", "--index", "http://localhost:1"], None)?;
 
@@ -117,7 +115,7 @@ fn test_publish_missing_kpar() -> TestResult {
 }
 
 #[test]
-fn test_publish_explicit_missing_kpar() -> TestResult {
+fn publish_explicit_missing_kpar() -> TestResult {
     let (_temp_dir, cwd) = init_project("test-publish")?;
     let out = run_sysand_in(
         &cwd,
@@ -138,7 +136,7 @@ fn test_publish_explicit_missing_kpar() -> TestResult {
 }
 
 #[test]
-fn test_publish_network_error() -> TestResult {
+fn publish_network_error() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;
     let env = bearer_env_for_url("http://localhost:1");
     let out = run_sysand_in_with(
@@ -156,7 +154,7 @@ fn test_publish_network_error() -> TestResult {
 }
 
 #[test]
-fn test_publish_requires_index_argument() -> TestResult {
+fn publish_requires_index_argument() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;
     let out = run_sysand_in(&cwd, ["publish"], None)?;
     out.assert()
@@ -170,7 +168,7 @@ fn test_publish_requires_index_argument() -> TestResult {
 }
 
 #[test]
-fn test_publish_requires_index_value() -> TestResult {
+fn publish_requires_index_value() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;
     let out = run_sysand_in(&cwd, ["publish", "--index"], None)?;
     out.assert().failure().stderr(predicate::str::contains(
@@ -181,7 +179,7 @@ fn test_publish_requires_index_value() -> TestResult {
 }
 
 #[test]
-fn test_publish_requires_index_even_with_config_default() -> TestResult {
+fn publish_requires_index_even_with_config_default() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;
 
     let config_path = cwd.join("publish-test.toml");
@@ -202,7 +200,7 @@ fn test_publish_requires_index_even_with_config_default() -> TestResult {
 }
 
 #[test]
-fn test_publish_with_explicit_index_succeeds() -> TestResult {
+fn publish_with_explicit_index_succeeds() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;
     let mut server = Server::new();
     let publish_mock = server
@@ -242,7 +240,7 @@ fn test_publish_with_explicit_index_succeeds() -> TestResult {
 }
 
 #[test]
-fn test_publish_explicit_path_outside_project_dir() -> TestResult {
+fn publish_explicit_path_outside_project_dir() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project_at("outside-publish", "artifact.kpar")?;
     let kpar_path = cwd.join("artifact.kpar");
 
@@ -269,7 +267,7 @@ fn test_publish_explicit_path_outside_project_dir() -> TestResult {
 }
 
 #[test]
-fn test_publish_invalid_index_url_errors_early() -> TestResult {
+fn publish_invalid_index_url_errors_early() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project_at("invalid-index", "artifact.kpar")?;
     let out = run_sysand_in(
         &cwd,
@@ -286,7 +284,7 @@ fn test_publish_invalid_index_url_errors_early() -> TestResult {
 }
 
 #[test]
-fn test_publish_rejects_upload_endpoint_index_url() -> TestResult {
+fn publish_rejects_upload_endpoint_index_url() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project_at("upload-endpoint-index", "artifact.kpar")?;
     let mut server = Server::new();
     let publish_mock = server.mock("POST", "/api/v1/upload").expect(0).create();
@@ -311,7 +309,7 @@ fn test_publish_rejects_upload_endpoint_index_url() -> TestResult {
 }
 
 #[test]
-fn test_publish_rejects_invalid_semver_version() -> TestResult {
+fn publish_rejects_invalid_semver_version() -> TestResult {
     let (_temp_dir, cwd) = init_project("invalid-version")?;
 
     let project_file = cwd.join(".project.json");
@@ -341,7 +339,7 @@ fn test_publish_rejects_invalid_semver_version() -> TestResult {
 }
 
 #[test]
-fn test_publish_rejects_noncanonicalizable_publisher() -> TestResult {
+fn publish_rejects_noncanonicalizable_publisher() -> TestResult {
     let (_temp_dir, cwd) = init_project("valid-publish-name")?;
     set_project_field(&cwd, "publisher", "bad__publisher")?;
     include_basic_model(&cwd)?;
@@ -365,7 +363,7 @@ fn test_publish_rejects_noncanonicalizable_publisher() -> TestResult {
 }
 
 #[test]
-fn test_publish_rejects_noncanonicalizable_name() -> TestResult {
+fn publish_rejects_noncanonicalizable_name() -> TestResult {
     let (_temp_dir, cwd) = init_project("valid-publish-name")?;
     set_project_field(&cwd, "name", "bad__name")?;
     include_basic_model(&cwd)?;
@@ -389,7 +387,7 @@ fn test_publish_rejects_noncanonicalizable_name() -> TestResult {
 }
 
 #[test]
-fn test_publish_canonicalizes_modern_project_id() -> TestResult {
+fn publish_canonicalizes_modern_project_id() -> TestResult {
     let (_temp_dir, cwd) = init_project("seed-project")?;
     set_project_field(&cwd, "publisher", "Acme Labs")?;
     set_project_field(&cwd, "name", "My.Project Alpha")?;
@@ -438,7 +436,7 @@ fn test_publish_canonicalizes_modern_project_id() -> TestResult {
 }
 
 #[test]
-fn test_publish_ignores_basic_auth_credentials() -> TestResult {
+fn publish_ignores_basic_auth_credentials() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("publish-basic-auth-ignored")?;
 
     let mut server = Server::new();
@@ -475,7 +473,7 @@ fn test_publish_ignores_basic_auth_credentials() -> TestResult {
 }
 
 #[test]
-fn test_publish_rejects_ambiguous_bearer_credentials() -> TestResult {
+fn publish_rejects_ambiguous_bearer_credentials() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("publish-ambiguous-bearer")?;
 
     let mut server = Server::new();
@@ -546,7 +544,7 @@ fn assert_publish_error_status(
 }
 
 #[test]
-fn test_publish_401_maps_to_auth_error() -> TestResult {
+fn publish_401_maps_to_auth_error() -> TestResult {
     assert_publish_error_status(
         "publish-auth-401",
         401,
@@ -557,7 +555,7 @@ fn test_publish_401_maps_to_auth_error() -> TestResult {
 }
 
 #[test]
-fn test_publish_403_maps_to_auth_error() -> TestResult {
+fn publish_403_maps_to_auth_error() -> TestResult {
     assert_publish_error_status(
         "publish-auth-403",
         403,
@@ -568,7 +566,7 @@ fn test_publish_403_maps_to_auth_error() -> TestResult {
 }
 
 #[test]
-fn test_publish_404_maps_to_not_found_error() -> TestResult {
+fn publish_404_maps_to_not_found_error() -> TestResult {
     assert_publish_error_status(
         "publish-not-found",
         404,
@@ -579,7 +577,7 @@ fn test_publish_404_maps_to_not_found_error() -> TestResult {
 }
 
 #[test]
-fn test_publish_409_maps_to_conflict_error() -> TestResult {
+fn publish_409_maps_to_conflict_error() -> TestResult {
     assert_publish_error_status(
         "publish-conflict",
         409,
@@ -590,7 +588,7 @@ fn test_publish_409_maps_to_conflict_error() -> TestResult {
 }
 
 #[test]
-fn test_publish_500_json_error_body_extracts_error_message() -> TestResult {
+fn publish_500_json_error_body_extracts_error_message() -> TestResult {
     assert_publish_error_status(
         "publish-server-error",
         500,

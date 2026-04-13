@@ -23,10 +23,8 @@ the command fails before making the upload request.
 `--index` is required for `sysand publish`.
 
 The package identifier used during publish is derived from project metadata.
-Before publishing, ensure `version`, `publisher`, `name`, and `license` follow
+Before publishing, ensure `publisher`, `name`, `version`, and `license` follow
 these rules:
-
-- `version`: must be a valid Semantic Versioning 2.0 version.
 
 - `publisher`: 3-50 characters, ASCII letters and numbers only, with optional
   single spaces or hyphens between words, and must start and end with a letter
@@ -34,6 +32,7 @@ these rules:
 - `name`: 3-50 characters, ASCII letters and numbers only, with optional single
   spaces, hyphens, or dots between words, and must start and end with a letter
   or number.
+- `version`: must be a valid Semantic Versioning 2.0 version.
 - `license`: required and must be a valid
   [SPDX license expression](https://spdx.github.io/spdx-spec/latest/annexes/spdx-license-expressions/).
   See [Project metadata: `license`](../metadata.md#license) for examples.

@@ -84,23 +84,22 @@ fn resolve_publish_kpar_path(
     }
 
     // Without an explicit path, publish must resolve one concrete project artifact.
-    // From workspace root this is ambiguous, so require `[PATH]` there.
-    let Some(current_project) = ctx.current_project.as_ref() else {
-        if ctx.current_workspace.is_some() {
+    // If no current project is discovered but a workspace is, this is ambiguous
+    // (workspace-level context may contain multiple projects), so require `[PATH]`.
+    let current_project = match (ctx.current_project.as_ref(), ctx.current_workspace.as_ref()) {
+        (Some(current_project), _) => current_project,
+        (None, Some(_)) => {
             bail!(
-                "`sysand publish` without [PATH] is not supported from a workspace root; \
+                "`sysand publish` without [PATH] is not supported from a workspace; \
                  run the command from a project directory or pass an explicit .kpar path"
             );
         }
-        return Err(CliError::MissingProjectCurrentDir.into());
+        (None, None) => return Err(CliError::MissingProjectCurrentDir.into()),
     };
 
-    let mut path = ctx
-        .current_workspace
-        .as_ref()
-        .map(|workspace| workspace.root_path())
-        .unwrap_or(&current_project.project_path)
-        .join("output");
-    path.push(default_kpar_file_name(current_project)?);
-    Ok(path)
+    let output_file_name = default_kpar_file_name(current_project)?;
+    Ok(current_project
+        .project_path
+        .join("output")
+        .join(output_file_name))
 }

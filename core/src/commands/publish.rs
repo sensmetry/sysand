@@ -50,6 +50,9 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
             .mime_str("application/json")
             .expect("hard-coded content type must be a valid MIME");
         let kpar_part = reqwest::multipart::Part::stream(kpar_bytes.clone())
+            // we declare an arbitrary filename to help server side libraries
+            // make reasonable assumptions reading the POST request, such as not
+            // trying to parse the binary data as UTF-8 or similar
             .file_name("project.kpar")
             .mime_str("application/zip")
             .expect("hard-coded content type must be a valid MIME");
@@ -335,28 +338,36 @@ fn is_valid_field(s: &str, allow_dot: bool) -> bool {
     if !s.is_ascii() {
         return false;
     }
-
     let bytes = s.as_bytes();
+
+    // check length between 3-50
     if !(3..=50).contains(&bytes.len()) {
         return false;
     }
 
+    // check first and last characters are alphanum
     if !bytes[0].is_ascii_alphanumeric() || !bytes[bytes.len() - 1].is_ascii_alphanumeric() {
         return false;
     }
 
+    // check all characters, except first and last
     for i in 1..(bytes.len() - 1) {
         let b = bytes[i];
+
+        // alphanums are ok
         if b.is_ascii_alphanumeric() {
             continue;
         }
 
+        // and separators are ok
         let is_separator = b == b'-' || b == b' ' || (allow_dot && b == b'.');
         if !is_separator {
             return false;
         }
 
-        if !bytes[i - 1].is_ascii_alphanumeric() || !bytes[i + 1].is_ascii_alphanumeric() {
+        // but only isolated separators characters are ok
+        // knowing first/last is an alphanum, this is sufficient
+        if !bytes[i - 1].is_ascii_alphanumeric() {
             return false;
         }
     }
