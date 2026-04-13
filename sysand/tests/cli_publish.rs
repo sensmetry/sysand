@@ -387,7 +387,7 @@ fn publish_rejects_noncanonicalizable_name() -> TestResult {
 }
 
 #[test]
-fn publish_canonicalizes_modern_project_id() -> TestResult {
+fn publish_sends_kpar_with_integrity_metadata() -> TestResult {
     let (_temp_dir, cwd) = init_project("seed-project")?;
     set_project_field(&cwd, "publisher", "Acme Labs")?;
     set_project_field(&cwd, "name", "My.Project Alpha")?;
@@ -408,9 +408,6 @@ fn publish_canonicalizes_modern_project_id() -> TestResult {
         )
         .match_body(Matcher::AllOf(vec![
             Matcher::Regex(r#"name="metadata""#.to_string()),
-            Matcher::Regex(
-                r#""purl":"pkg:sysand/acme-labs/my\.project-alpha@1\.0\.0""#.to_string(),
-            ),
             Matcher::Regex(r#""sha256_digest":"[0-9a-f]{64}""#.to_string()),
             Matcher::Regex(r#"name="kpar""#.to_string()),
             Matcher::Regex(r#"Content-Type: application/zip"#.to_string()),

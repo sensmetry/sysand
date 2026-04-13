@@ -277,8 +277,9 @@ fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Publis
     let kpar_bytes =
         std::fs::read(path).map_err(|e| PublishError::KparRead(path.as_str().into(), e))?;
     let sha256_digest = format!("{:x}", sha2::Sha256::digest(&kpar_bytes));
+    // The server derives project identity from the uploaded .kpar content.
+    // Client metadata only carries integrity data for now.
     let metadata = serde_json::json!({
-        "purl": purl_versioned,
         "sha256_digest": sha256_digest,
     })
     .to_string();
