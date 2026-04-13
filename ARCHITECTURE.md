@@ -2,7 +2,7 @@
 
 This project provides a Rust Library, a Rust based CLI (`sysand` binary), and
 bindings for Python, Java, and JS/WASM. The Rust library is the most
-foundational part, where the CLI and bindings rely on it.
+foundational part, the CLI and bindings rely on it.
 
 ```
   ┌────────────────┐     ┌─────────────┐
@@ -44,7 +44,7 @@ Directory structure:
   - `bindings/java` contains the `sysand-java` crate, providing a Java library.
   - `bindings/js` contains the `sysand-js` crate, providing a WASM/JavaScript
     library that can be used in Node, Deno, browsers, etc.
-- `macros` contains the `sysand-macros` crate used sparsly by `sysand-core`,
+- `macros` contains the `sysand-macros` crate used sparsely by `sysand-core`,
   providing `#[derive(ProjectRead)]` and `#[derive(ProjectMut)]` procedural
   macros.
 
@@ -126,7 +126,7 @@ either context, so the read traits have async counterparts (`ProjectReadAsync`,
 Adapter types bridge the two: `AsAsyncEnvironment<T>` wraps a sync
 implementation for use in async contexts, and `AsSyncEnvironmentTokio<T>` wraps
 an async implementation for sync callers via a tokio runtime. There is no async
-variant of `ProjectMut` or `WriteEnvironment`.
+variant of `ProjectMut` or `WriteEnvironment`, because these are only used for local/in-memory projects/environments.
 
 ## The Raw type pattern
 
@@ -144,7 +144,7 @@ This pattern appears in `InterchangeProjectUsageG`, `InterchangeProjectInfoG`,
 `InterchangeProjectMetadataG`, `WorkspaceInfoG`, `WorkspaceMetaG`, and
 `WorkspaceProjectInfoG`.
 
-**All trait boundaries use Raw types.** `ProjectRead::get_project()` returns
+**Trait boundaries mostly use Raw types.** For example, `ProjectRead::get_project()` returns
 `InterchangeProjectInfoRaw`, not the validated form. This is a deliberate
 design choice: traits work with the lowest-common-denominator representation,
 and callers validate when they need to.
@@ -156,7 +156,7 @@ compiled in:
 
 | Feature          | What it enables                                                              |
 | ---------------- | ---------------------------------------------------------------------------- |
-| `std` (default)  | Standard library support in dependencies                                     |
+| `std` (default)  | Standard library support in dependencies. Must be enabled.                   |
 | `python`         | PyO3 dependency; enables `FromPyObject`/`IntoPyObject` derives on core types |
 | `js`             | `wasm-bindgen` dependency for WASM/JavaScript support                        |
 | `filesystem`     | Local file I/O, KPAR reading/writing (`zip`, `camino-tempfile`, `dirs`)      |
