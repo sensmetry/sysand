@@ -10,8 +10,8 @@ use crate::{
     project::ProjectRead,
 };
 
-// Arc wrapper around project to make cloning possible
-// (necessary for compatibility with `MemoryResolver`)
+/// Arc wrapper around project to make cloning possible
+/// (necessary for compatibility with `MemoryResolver`)
 #[derive(Debug)]
 pub struct ProjectReference<Project: ProjectRead> {
     project: Arc<Project>,
@@ -62,6 +62,14 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
 
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         self.project.sources(ctx)
+    }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        self.project.project_root()
+    }
+
+    fn base_path_for_usage_resolver(&self) -> Option<&camino::Utf8Path> {
+        todo!()
     }
 }
 

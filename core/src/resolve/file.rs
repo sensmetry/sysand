@@ -15,7 +15,7 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
         self, ProjectRead,
         local_kpar::{LocalKParError, LocalKParProject},
@@ -88,9 +88,8 @@ impl FileResolver {
             if let Some(root_part) = &self.relative_path_root {
                 root_part.join(&path)
             } else {
-                return Ok(ResolutionOutcome::UnsupportedUsageType(format!(
-                    "cannot resolve relative file without a specified root directory: {}",
-                    path
+                return Ok(ResolutionOutcome::Unresolvable(format!(
+                    "cannot resolve relative path `{path}` without a specified root directory"
                 )));
             }
         } else {
@@ -125,13 +124,48 @@ impl FileResolver {
 
     fn resolve_general(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        usage: &InterchangeProjectUsage,
+        // TODO: maybe pack this into the path usage (of course ignore it for serde)?
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
-        match try_file_uri_to_path(uri)? {
-            Some(path) => self.resolve_platform_path(path),
-            None => Ok(ResolutionOutcome::UnsupportedUsageType(format!(
-                "`{uri}` is not a file URL",
-            ))),
+        match usage {
+            InterchangeProjectUsage::Resource {
+                resource: url,
+                // TODO: don't ignore, check that the project version satisfies this
+                version_constraint: _,
+            }
+            | InterchangeProjectUsage::Url {
+                url,
+                publisher: _,
+                name: _,
+            } => match try_file_uri_to_path(url)? {
+                Some(path) => self.resolve_platform_path(path),
+                None => Ok(ResolutionOutcome::UnsupportedUsageType {
+                    usage: usage.to_owned(),
+                    reason: String::from("resource is not a file URL"),
+                }),
+            },
+            // TODO: we must check somewhere that publisher/name match actual
+            InterchangeProjectUsage::Path {
+                path,
+                publisher: _,
+                name: _,
+            } => {
+                if path.is_absolute() {
+                    self.resolve_platform_path(path.into())
+                } else if let Some(base) = base_path {
+                    let abs_path = base.as_ref().join(path.as_str());
+                    self.resolve_platform_path(abs_path)
+                } else {
+                    Ok(ResolutionOutcome::Unresolvable(format!(
+                        "cannot resolve relative path usage without a base path"
+                    )))
+                }
+            }
+            _ => Ok(ResolutionOutcome::UnsupportedUsageType {
+                usage: usage.to_owned(),
+                reason: String::from("not a path usage"),
+            }),
         }
     }
 }
@@ -281,7 +315,7 @@ impl ResolveRead for FileResolver {
         usage: &InterchangeProjectUsage,
         base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        Ok(match self.resolve_general(uri)? {
+        Ok(match self.resolve_general(usage, base_path)? {
             ResolutionOutcome::Resolved(path) => ResolutionOutcome::Resolved(vec![
                 Ok(FileResolverProject::LocalSrcProject(LocalSrcProject {
                     nominal_path: None,
@@ -291,10 +325,14 @@ impl ResolveRead for FileResolver {
                     LocalKParProject::new_guess_root(path)?,
                 )),
             ]),
-            ResolutionOutcome::UnsupportedUsageType(msg) => {
-                ResolutionOutcome::UnsupportedUsageType(msg)
+            ResolutionOutcome::UnsupportedUsageType { usage, reason } => {
+                ResolutionOutcome::UnsupportedUsageType { usage, reason }
             }
-            ResolutionOutcome::NotFound(msg) => ResolutionOutcome::NotFound(msg),
+            ResolutionOutcome::NotFound(usage, reason) => {
+                ResolutionOutcome::NotFound(usage, reason)
+            }
+            ResolutionOutcome::Unresolvable(msg) => ResolutionOutcome::Unresolvable(msg),
+            ResolutionOutcome::InvalidUsage(..) => unreachable!(),
         })
     }
 }

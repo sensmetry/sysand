@@ -1,3 +1,4 @@
+use camino::Utf8Path;
 use url::Url;
 
 use crate::{
@@ -87,6 +88,7 @@ impl<Policy: HTTPAuthentication> TypedResolver<Policy> {
     pub fn resolve(
         &self,
         usage: &InterchangeProjectUsage,
+        base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<impl ProjectRead>, impl ErrorBound> {
         match usage {
             InterchangeProjectUsage::Resource {

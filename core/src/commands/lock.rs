@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
+use camino::Utf8PathBuf;
 use fluent_uri::Iri;
 use std::{
     collections::{HashMap, HashSet},
@@ -17,9 +18,13 @@ pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
 use crate::project::{editable::EditableProject, local_src::LocalSrcProject, utils::ToPathBuf};
 use crate::{
     context::ProjectContext,
-    lock::{Lock, Project, Usage, hash_str},
+    lock::{Lock, Project, hash_str},
     model::{InterchangeProjectUsage, InterchangeProjectUsageG, InterchangeProjectValidationError},
-    project::{CanonicalizationError, ProjectRead, memory::InMemoryProject, utils::FsIoError},
+    project::{
+        CanonicalizationError, ProjectRead,
+        memory::InMemoryProject,
+        utils::{FsIoError, Identifier},
+    },
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
 };
@@ -64,7 +69,7 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
 
 pub struct LockOutcome<PD> {
     pub lock: Lock,
-    pub dependencies: Vec<(fluent_uri::Iri<String>, PD)>,
+    pub dependencies: Vec<(Identifier, PD)>,
 }
 
 /// Generates a lockfile by solving for a (compatible) set of interchange projects
@@ -85,6 +90,7 @@ pub fn do_lock_projects<
     R: ResolveRead<ProjectStorage = PD> + Debug,
 >(
     projects: I,
+    base_path: Option<Utf8PathBuf>,
     resolver: R,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
     ctx: &ProjectContext,
@@ -113,15 +119,13 @@ pub fn do_lock_projects<
             .map_err(LockProjectError::InputProjectError)?;
         debug_assert!(!sources.is_empty());
 
-        // TODO :this needs rethinking. How to map deps from InterchangeProjectUsage to proper Usage string?
-        // This cannot be done before resolving them
         lock.projects.push(Project {
             name: Some(info.name),
             publisher: info.publisher,
             version: info.version,
             exports: meta.index.into_keys().collect(),
             identifiers: identifiers
-                .map(|ids| ids.into_iter().map(|id| id.into_string()).collect())
+                .map(|ids| ids.into_iter().map(Identifier::from).collect())
                 .unwrap_or_default(),
             checksum: canonical_hash,
             sources,
@@ -139,7 +143,7 @@ pub fn do_lock_projects<
         all_deps.extend(usages);
     }
 
-    let lock_outcome = do_lock_extend(lock, all_deps, resolver, provided_iris, ctx)?;
+    let lock_outcome = do_lock_extend(lock, all_deps, base_path, resolver, provided_iris, ctx)?;
 
     Ok(lock_outcome)
 }
@@ -161,13 +165,14 @@ pub fn do_lock_extend<
 >(
     mut lock: Lock,
     usages: I,
+    base_path: Option<Utf8PathBuf>,
     resolver: R,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     let inputs: Vec<_> = usages.into_iter().collect();
     let mut dependencies = vec![];
-    let solution = solve(inputs, resolver).map_err(LockError::Solver)?;
+    let solution = solve(inputs, base_path, resolver).map_err(LockError::Solver)?;
     let mut lock_projects = HashSet::new();
     let mut lock_symbols = HashMap::new();
     for (i, p) in lock.projects.iter().enumerate() {
@@ -186,13 +191,13 @@ pub fn do_lock_extend<
         }
     }
 
-    for (iri, (info, meta, project)) in solution {
+    for (identifier, (info, meta, project)) in solution {
         let canonical_hash = project
             .checksum_canonical_hex()
             .map_err(LockError::DependencyProjectCanonicalization)?
             .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
 
-        let sources = if !provided_iris.contains_key(iri.as_str()) {
+        let sources = if !provided_iris.contains_key(identifier.as_str()) {
             let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;
             debug_assert!(!sources.is_empty());
             sources
@@ -207,7 +212,7 @@ pub fn do_lock_extend<
             publisher: info.publisher,
             version: info.version.to_string(),
             exports: meta.index.into_keys().collect(),
-            identifiers: vec![iri.to_string()],
+            identifiers: vec![identifier],
             checksum: canonical_hash,
             sources,
             usages: info
@@ -219,7 +224,7 @@ pub fn do_lock_extend<
         if lock_projects.contains(&lock_project.hash_val()) {
             log::debug!(
                 "not adding project `{}` ({}) to lock, as lock already contains it",
-                iri,
+                identifier,
                 lock_project.version
             );
         } else {
@@ -243,7 +248,7 @@ pub fn do_lock_extend<
             lock.projects.push(lock_project);
         }
 
-        dependencies.push((iri, project));
+        dependencies.push((identifier, project));
     }
 
     Ok(LockOutcome { lock, dependencies })

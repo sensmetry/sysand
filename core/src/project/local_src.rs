@@ -435,4 +435,8 @@ impl ProjectRead for LocalSrcProject {
             panic!("`LocalSrcProject` without `nominal_path` does not have any project sources");
         }
     }
+
+    fn base_path_for_usage_resolver(&self) -> Option<&Utf8Path> {
+        Some(&self.project_path)
+    }
 }

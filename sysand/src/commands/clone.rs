@@ -11,7 +11,13 @@ use sysand_core::{
     config::Config,
     context::ProjectContext,
     env::utils::clone_project,
-    project::{ProjectRead, editable::EditableProject, local_src::LocalSrcProject, utils::wrapfs},
+    model::InterchangeProjectUsage,
+    project::{
+        ProjectRead,
+        editable::EditableProject,
+        local_src::LocalSrcProject,
+        utils::{Identifier, wrapfs},
+    },
     resolve::{
         ResolutionOutcome, ResolveRead,
         memory::{AcceptAll, MemoryResolver},
@@ -22,7 +28,7 @@ use sysand_core::{
 
 use crate::{
     CliError, DEFAULT_INDEX_URL,
-    cli::{CloneProjectLocatorArgs, ResolutionOptions},
+    cli::{CloneProjectLocatorArgs, ExpCloneLocatorArgs, ResolutionOptions},
     commands::sync::command_sync,
     get_or_create_env,
 };
@@ -163,6 +169,204 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     Ok(())
 }
 
+/// Clones project from `locator` to `target` directory.
+#[allow(clippy::too_many_arguments)]
+pub fn command_clone_experimental<Policy: HTTPAuthentication>(
+    locator: ExpCloneLocatorArgs,
+    // TODO: is version useful?
+    // version: Option<String>,
+    target: Option<Utf8PathBuf>,
+    ctx: ProjectContext,
+    no_deps: bool,
+    resolution_opts: ResolutionOptions,
+    config: &Config,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+) -> Result<()> {
+    let usage: InterchangeProjectUsage = locator.into();
+    let target: Utf8PathBuf = target.unwrap_or_else(|| ".".into());
+    let project_path = {
+        // Canonicalization is performed only for better error messages
+        let canonical = wrapfs::absolute(&target)?;
+        match fs::read_dir(&target) {
+            Ok(mut dir_it) => {
+                if dir_it.next().is_some() {
+                    bail!("target directory not empty: `{}`", canonical)
+                }
+            }
+            Err(e) => match e.kind() {
+                ErrorKind::NotFound => {
+                    wrapfs::create_dir_all(&canonical)?;
+                }
+                ErrorKind::NotADirectory => {
+                    bail!("target path `{}` is not a directory", canonical)
+                }
+                e => {
+                    bail!("failed to get metadata for `{}`: {}", canonical, e);
+                }
+            },
+        }
+        canonical
+    };
+
+    let (include_std, locator, local_project, std_resolver) = match {
+        let ResolutionOptions {
+            index,
+            default_index,
+            no_index,
+            include_std,
+        } = resolution_opts;
+        if let Some(existing_project) = &ctx.current_project {
+            log::warn!(
+                "found an existing project in one of target path's parent\n\
+            {:>8} directories `{}`",
+                ' ',
+                existing_project.root_path()
+            );
+        }
+        if let Some(existing_workspace) = &ctx.current_workspace {
+            log::warn!(
+                "found an existing workspace in one of target path's parent\n\
+            {:>8} directories `{}`",
+                ' ',
+                existing_workspace.root_path()
+            );
+        }
+        let index_urls = if no_index {
+            None
+        } else {
+            Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
+        };
+        // let CloneProjectLocatorArgs {
+        //     auto_location,
+        //     iri,
+        //     path,
+        // } = locator;
+        // let locator = if let Some(auto_location) = auto_location {
+        //     match fluent_uri::Iri::parse(auto_location) {
+        //         Ok(iri) => ProjectLocator::Iri(iri),
+        //         Err((_e, path)) => ProjectLocator::Path(path.into()),
+        //     }
+        // } else if let Some(path) = path {
+        //     ProjectLocator::Path(path)
+        // } else if let Some(iri) = iri {
+        //     ProjectLocator::Iri(iri)
+        // } else {
+        //     unreachable!()
+        // };
+        let cloning = "Cloning";
+        let cloned = "Cloned";
+        let header = sysand_core::style::get_style_config().header;
+
+        let mut local_project = LocalSrcProject {
+            nominal_path: None,
+            project_path: project_path,
+        };
+
+        let std_resolver = standard_resolver(
+            None,
+            None,
+            Some(client.clone()),
+            index_urls,
+            runtime.clone(),
+            auth_policy.clone(),
+        );
+        log::info!(
+            "{header}{cloning:>12}{header:#} project {usage} to\n\
+                {:>12} `{}`",
+            ' ',
+            local_project.project_path,
+        );
+        let (_version, storage) =
+            get_project_version(&usage, Some(&ctx.current_directory), version, &std_resolver)?;
+        let (info, _meta) = clone_project(&storage, &mut local_project, true)?;
+        log::info!(
+            "{header}{cloned:>12}{header:#} `{}` {}",
+            info.name,
+            info.version
+        );
+
+        Ok((include_std, locator, local_project, std_resolver))
+    } {
+        Ok(ret) => ret,
+        Err(e) => {
+            // Clean up the target dir. This is safe, since we ensured
+            // that the dir is empty before touching it
+            clean_dir(&target);
+            return Err(e);
+        }
+    };
+
+    // Update project context with the new cloned project
+    // TODO: Consider under which circumstances (if any)
+    //       the workspace should carry over.
+    let ctx = ProjectContext {
+        current_workspace: None,
+        current_project: Some(local_project.clone()),
+        current_directory: ctx.current_directory,
+    };
+
+    if !no_deps {
+        let provided_iris = if !include_std {
+            crate::known_std_libs()
+        } else {
+            HashMap::default()
+        };
+        let mut memory_projects = HashMap::default();
+        for (k, v) in provided_iris.iter() {
+            memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
+        }
+
+        let resolver = PriorityResolver::new(
+            MemoryResolver {
+                iri_predicate: AcceptAll {},
+                projects: memory_projects,
+            },
+            std_resolver,
+        );
+        let project = EditableProject::new(".".into(), local_project);
+        let identifiers = vec![Identifier::from_interchange_usage(&usage)];
+        let LockOutcome {
+            lock,
+            dependencies: _dependencies,
+        } = sysand_core::commands::lock::do_lock_projects(
+            [(identifiers, &project)],
+            resolver,
+            &provided_iris,
+            &ctx,
+        )?;
+        // Warn if we have any std lib dependencies
+        if !provided_iris.is_empty()
+            && lock
+                .projects
+                .iter()
+                .any(|x| x.identifiers.iter().any(|y| provided_iris.contains_key(y)))
+        {
+            crate::logger::warn_std_deps();
+        }
+        let lock = lock.canonicalize();
+        wrapfs::write(
+            project.inner().project_path.join(DEFAULT_LOCKFILE_NAME),
+            lock.to_string(),
+        )?;
+
+        let mut env = get_or_create_env(&project.inner().project_path)?;
+        command_sync(
+            &lock,
+            &project.inner().project_path,
+            &mut env,
+            client,
+            &provided_iris,
+            runtime,
+            auth_policy,
+            &ctx,
+        )?;
+    }
+
+    Ok(())
+}
+
 #[expect(clippy::too_many_arguments)]
 fn obtain_project<Policy: HTTPAuthentication>(
     locator: CloneProjectLocatorArgs,
@@ -245,6 +449,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
         auth_policy.clone(),
     );
     match &locator {
+        // TODO: leave this as-is for now, add `sysand experimental clone`
         ProjectLocator::Iri(iri) => {
             log::info!(
                 "{header}{cloning:>12}{header:#} project with IRI `{}` to\n\
@@ -253,7 +458,15 @@ fn obtain_project<Policy: HTTPAuthentication>(
                 ' ',
                 local_project.project_path,
             );
-            let (_version, storage) = get_project_version(iri, version, &std_resolver)?;
+            let (_version, storage) = get_project_version(
+                &InterchangeProjectUsage::Resource {
+                    resource: iri.to_owned(),
+                    version_constraint: None,
+                },
+                None,
+                version,
+                &std_resolver,
+            )?;
             let (info, _meta) = clone_project(&storage, &mut local_project, true)?;
             log::info!(
                 "{header}{cloned:>12}{header:#} `{}` {}",
@@ -264,7 +477,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
         ProjectLocator::Path(path) => {
             let remote_project = LocalSrcProject {
                 nominal_path: None,
-                project_path: path.into(),
+                project_path: wrapfs::canonicalize(path)?,
             };
             if let Some(version) = version {
                 let project_version = remote_project
@@ -296,15 +509,17 @@ fn obtain_project<Policy: HTTPAuthentication>(
     Ok((include_std, locator, local_project, std_resolver))
 }
 
-/// Obtains a project identified by `iri` via `resolver`. If
+/// Obtains a project identified by `usage` via `resolver`. If
 /// version is given, obtains exactly that version. If not,
 /// obtains the latest version (including prerelease versions)
 pub fn get_project_version<R: ResolveRead>(
-    iri: &Iri<String>,
+    usage: &InterchangeProjectUsage,
+    base_path: Option<impl AsRef<Utf8Path>>,
+    // TODO: get rid of `version`
     version: Option<String>,
     resolver: &R,
 ) -> Result<(semver::Version, R::ProjectStorage), anyhow::Error> {
-    match resolver.resolve_read(iri)? {
+    match resolver.resolve_read(usage, base_path)? {
         ResolutionOutcome::Resolved(alternatives) => {
             // If no version is supplied, choose the highest
             // Else, choose version that is supplied
@@ -385,8 +600,8 @@ pub fn get_project_version<R: ResolveRead>(
             iri.scheme(),
             iri
         ),
-        ResolutionOutcome::NotFound(e) => {
-            bail!("failed to resolve project `{iri}`: {e}")
+        ResolutionOutcome::NotFound(usage, reason) => {
+            bail!("project {usage} not found: {e}")
         }
     }
 }

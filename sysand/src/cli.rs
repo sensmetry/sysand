@@ -11,7 +11,10 @@ use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use fluent_uri::Iri;
 use semver::VersionReq;
-use sysand_core::build::KparCompressionMethod;
+use sysand_core::{
+    build::KparCompressionMethod,
+    model::{GitId, InterchangeProjectUsage},
+};
 
 use crate::env_vars;
 
@@ -264,6 +267,20 @@ pub enum ExpCommand {
     },
     /// Remove a usage
     Remove { publisher: String, name: String },
+    /// Clone a project
+    Clone {
+        #[command(subcommand)]
+        locator: ExpCloneLocatorArgs,
+        /// Path to clone the project into. If already exists, must
+        /// be an empty directory. Defaults to current directory
+        #[arg(long, short, default_value = None, verbatim_doc_comment)]
+        target: Option<Utf8PathBuf>,
+        /// Don't resolve or install dependencies
+        #[arg(long)]
+        no_deps: bool,
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -334,6 +351,117 @@ pub struct ExpGitOptions {
     pub branch: Option<String>,
 }
 
+// TODO: don't require publisher/name
+#[derive(clap::Subcommand, Debug, Clone)]
+#[group(id = "expadd", required = true, multiple = false)]
+pub enum ExpCloneLocatorArgs {
+    /// Clone a project from HTTP(S) URL
+    Url {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project
+        name: String,
+        /// URL of the project. Can point to a KPAR or a project directory
+        url: Iri<String>,
+    },
+    // TODO: does it make sense to allow kpar or src?
+    /// Clone a project from a local path
+    #[clap(verbatim_doc_comment)]
+    Path {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project
+        name: String,
+        /// Path to the project. Can be relative or absolute, and can point
+        /// to either a KPAR or a project directory
+        #[clap(verbatim_doc_comment)]
+        path: Utf8PathBuf,
+    },
+    /// Clone a project from an index
+    Index {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project
+        name: String,
+        /// Version constraint
+        // TODO: make this optional and default to latest stable version, like Cargo
+        version_constraint: VersionReq,
+    },
+    /// Clone a project from a git repository.
+    #[clap(verbatim_doc_comment)]
+    Git {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project. Publisher and name
+        /// identify the project anywhere within the repository
+        #[clap(verbatim_doc_comment)]
+        name: String,
+        /// URL of the repository. If none of the `rev`/`tag`/`branch` are given,
+        /// latest rev of the default branch will be used.
+        #[clap(value_name = "URL", verbatim_doc_comment)]
+        git: Iri<String>,
+        #[command(flatten)]
+        options: ExpGitOptions,
+    },
+}
+
+impl From<ExpCloneLocatorArgs> for InterchangeProjectUsage {
+    fn from(value: ExpCloneLocatorArgs) -> Self {
+        match value {
+            ExpCloneLocatorArgs::Url {
+                publisher,
+                name,
+                url,
+            } => InterchangeProjectUsage::Url {
+                url,
+                publisher,
+                name,
+            },
+            ExpCloneLocatorArgs::Path {
+                publisher,
+                name,
+                path,
+            } => InterchangeProjectUsage::Path {
+                path: path.into(),
+                publisher,
+                name,
+            },
+            ExpCloneLocatorArgs::Index {
+                publisher,
+                name,
+                version_constraint,
+            } => InterchangeProjectUsage::Index {
+                publisher,
+                name,
+                version_constraint,
+            },
+            ExpCloneLocatorArgs::Git {
+                publisher,
+                name,
+                git,
+                options,
+            } => {
+                let ExpGitOptions { rev, tag, branch } = options;
+                let id = if let Some(rev) = rev {
+                    GitId::Rev(rev)
+                } else if let Some(tag) = tag {
+                    GitId::Tag(tag)
+                } else if let Some(branch) = branch {
+                    GitId::Branch(branch)
+                } else {
+                    unreachable!()
+                };
+                InterchangeProjectUsage::Git {
+                    git,
+                    id,
+                    publisher,
+                    name,
+                }
+            }
+        }
+    }
+}
+
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
 pub struct AddProjectLocatorArgs {
@@ -385,8 +513,8 @@ pub struct CloneProjectLocatorArgs {
     /// IRI/URI/URL identifying the project to be cloned
     #[arg(short = 'i', long, visible_alias = "uri", visible_alias = "url")]
     pub iri: Option<Iri<String>>,
-    /// Path to clone the project from. If version is also
-    /// given, verifies that the project has the given version
+    /// Path to clone the project from. Can be relative or absolute. If version
+    /// is also given, verifies that the project has the given version
     // TODO: allow somehow requiring to use git here
     #[arg(
         long,

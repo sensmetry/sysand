@@ -7,6 +7,7 @@ use camino::Utf8Path;
 use crate::{
     env::{ReadEnvironment, ReadEnvironmentAsync},
     model::InterchangeProjectUsage,
+    project::utils::Identifier,
     resolve::{ResolutionOutcome, ResolveRead, ResolveReadAsync},
 };
 
@@ -25,22 +26,23 @@ impl<Env: ReadEnvironment> ResolveRead for EnvResolver<Env> {
     fn resolve_read(
         &self,
         usage: &InterchangeProjectUsage,
-        base_path: Option<impl AsRef<Utf8Path>>,
+        _base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        let versions = self.env.versions(uri)?;
+        let identifier = Identifier::from_interchange_usage(usage);
+        let versions = self.env.versions(&identifier)?;
 
         let projects: Self::ResolvedStorages = versions
             .into_iter()
             .map(
                 |version| -> Result<Env::InterchangeProjectRead, Env::ReadError> {
-                    self.env.get_project(uri.clone(), version?)
+                    self.env.get_project(&identifier, version?)
                 },
             )
             .collect();
         if projects.is_empty() {
             Ok(ResolutionOutcome::NotFound(
                 usage.to_owned(),
-                String::from("no versions of `{uri}` found in environment"),
+                String::from("no versions of the project found in environment"),
             ))
         } else {
             Ok(ResolutionOutcome::Resolved(projects))
@@ -65,21 +67,24 @@ impl<Env: ReadEnvironmentAsync> ResolveReadAsync for EnvResolver<Env> {
     async fn resolve_read_async(
         &self,
         usage: &InterchangeProjectUsage,
-        base_path: Option<impl AsRef<Utf8Path>>,
+        _base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         use futures::StreamExt as _;
+        let identifier = Identifier::from_interchange_usage(usage);
 
-        let versions: Vec<Result<String, _>> = self.env.versions_async(uri).await?.collect().await;
+        let versions: Vec<Result<String, _>> =
+            self.env.versions_async(&identifier).await?.collect().await;
         if versions.is_empty() {
-            return Ok(ResolutionOutcome::NotFound(format!(
-                "no versions of `{uri}` found in environment"
-            )));
+            return Ok(ResolutionOutcome::NotFound(
+                usage.to_owned(),
+                String::from("no versions of the project found in environment"),
+            ));
         }
 
         let projects = futures::future::join_all(
             versions
                 .into_iter()
-                .map(|version| async { self.env.get_project_async(uri.clone(), version?).await }),
+                .map(|version| async { self.env.get_project_async(&identifier, version?).await }),
         )
         .await;
 

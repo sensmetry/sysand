@@ -74,7 +74,7 @@ impl<T> ResolutionOutcome<T> {
 pub trait ResolveRead {
     type Error: ErrorBound;
 
-    type ProjectStorage: ProjectRead;
+    type ProjectStorage: ProjectRead; // + Clone;
     type ResolvedStorages: IntoIterator<Item = Result<Self::ProjectStorage, Self::Error>>;
 
     // TODO: move path-specific docs to FileResolver

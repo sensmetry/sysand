@@ -44,11 +44,14 @@ pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironm
     Ok(env)
 }
 
+// TODO: add experimental env commands: install, uninstall. No additional options.
+//       Try reusing this and other underlying functionality where possible
 // TODO: Factor out provided_iris logic
 #[allow(clippy::too_many_arguments)]
 pub fn command_env_install<Policy: HTTPAuthentication>(
-    iri: Iri<String>,
-    version: Option<String>,
+    usage: InterchangeProjectUsage,
+    // TODO: take versionreq in cli and package it into usage
+    // version: Option<String>,
     install_opts: InstallOptions,
     resolution_opts: ResolutionOptions,
     config: &Config,
@@ -59,6 +62,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     ctx: ProjectContext,
 ) -> Result<()> {
     let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
+    let base_path = Some(Utf8Path::new("."));
     let mut env = crate::get_or_create_env(project_root.as_path())?;
     let InstallOptions {
         allow_overwrite,
@@ -72,7 +76,6 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         include_std,
     } = resolution_opts;
 
-    // TODO: should probably first check that current project exists
     let provided_iris = if !include_std {
         let sysml_std = crate::known_std_libs();
         if sysml_std.contains_key(iri.as_ref()) {
@@ -126,7 +129,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     //       mechanisms depending on no_deps
     if no_deps {
         let (version, storage) =
-            crate::commands::clone::get_project_version(&iri, version, &resolver)?;
+            crate::commands::clone::get_project_version(&usage, base_path, version, &resolver)?;
         sysand_core::commands::env::do_env_install_project(
             &iri,
             &storage,
@@ -136,17 +139,18 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         )?;
         add_single_env_project(iri, version.to_string(), env)?;
     } else {
-        let usages = vec![InterchangeProjectUsage::Resource {
-            resource: fluent_uri::Iri::from_str(iri.as_ref())?,
-            version_constraint: version.map(|v| semver::VersionReq::parse(&v)).transpose()?,
-        }];
+        // let usages = [InterchangeProjectUsage::Resource {
+        //     resource: fluent_uri::Iri::from_str(iri.as_ref())?,
+        //     version_constraint: version.map(|v| semver::VersionReq::parse(&v)).transpose()?,
+        // }];
 
         let LockOutcome {
             lock,
             dependencies: _dependencies,
         } = sysand_core::commands::lock::do_lock_extend(
             Lock::default(),
-            usages,
+            [usage],
+            base_path.map(|p| p.to_owned()),
             resolver,
             &provided_iris,
             &ctx,
@@ -178,6 +182,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
 }
 
 // TODO: Collect common arguments
+/// Install project from `path` as `iri`
 #[allow(clippy::too_many_arguments)]
 pub fn command_env_install_path<Policy: HTTPAuthentication>(
     iri: Iri<String>,

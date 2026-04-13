@@ -3,6 +3,7 @@
 
 use std::{convert::Infallible, io, pin::Pin, sync::Arc};
 
+use camino::Utf8Path;
 use fluent_uri::component::Scheme;
 use futures::AsyncRead;
 use thiserror::Error;
@@ -11,7 +12,7 @@ use crate::{
     auth::HTTPAuthentication,
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
         ProjectRead, ProjectReadAsync, reqwest_kpar_download::ReqwestKparDownloadedProject,
         reqwest_src::ReqwestSrcProjectAsync,
@@ -266,28 +267,42 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
     async fn resolve_read_async(
         &self,
         usage: &InterchangeProjectUsage,
-        base_path: Option<impl AsRef<Utf8Path>>,
+        _base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         // Try to resolve as a HTTP src project.
-        Ok(
-            if uri.scheme() == SCHEME_HTTP || uri.scheme() == SCHEME_HTTPS {
-                if let Ok(url) = reqwest::Url::parse(uri.as_str()) {
-                    ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
-                        client: self.client.clone(),
-                        url,
-                        src_done: false,
-                        kpar_done: false,
-                        lax: self.lax,
-                        auth_policy: self.auth_policy.clone(),
-                        // prefer_ranged: self.prefer_ranged,
-                    }))
+        let outcome = match usage {
+            InterchangeProjectUsage::Resource { resource: iri, .. }
+            | InterchangeProjectUsage::Url { url: iri, .. } => {
+                if iri.scheme() == SCHEME_HTTP || iri.scheme() == SCHEME_HTTPS {
+                    if let Ok(url) = reqwest::Url::parse(iri.as_str()) {
+                        ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
+                            client: self.client.clone(),
+                            url,
+                            src_done: false,
+                            kpar_done: false,
+                            lax: self.lax,
+                            auth_policy: self.auth_policy.clone(),
+                            // prefer_ranged: self.prefer_ranged,
+                        }))
+                    } else {
+                        ResolutionOutcome::UnsupportedUsageType {
+                            usage: usage.to_owned(),
+                            reason: String::from("invalid http(s) URL"),
+                        }
+                    }
                 } else {
-                    ResolutionOutcome::UnsupportedUsageType("invalid http(s) URL".to_string())
+                    ResolutionOutcome::UnsupportedUsageType {
+                        usage: usage.to_owned(),
+                        reason: String::from("not an http(s) URL"),
+                    }
                 }
-            } else {
-                ResolutionOutcome::UnsupportedUsageType("not an http(s) URL".to_string())
+            }
+            _ => ResolutionOutcome::UnsupportedUsageType {
+                usage: usage.to_owned(),
+                reason: String::from("not a url/resource usage"),
             },
-        )
+        };
+        Ok(outcome)
     }
 }
 
@@ -299,6 +314,7 @@ mod tests {
 
     use crate::{
         auth::Unauthenticated,
+        model::InterchangeProjectUsageRaw,
         project::ProjectRead,
         resolve::{
             ResolutionOutcome, ResolveRead, ResolveReadAsync, net_utils::create_reqwest_client,
@@ -339,8 +355,13 @@ mod tests {
                 .unwrap(),
         ));
 
-        let ResolutionOutcome::Resolved(projects) =
-            resolver.resolve_read_raw(format!("http://{}/foo/", host))?
+        let ResolutionOutcome::Resolved(projects) = resolver.resolve_read_raw(
+            &InterchangeProjectUsageRaw::Resource {
+                resource: format!("http://{}/foo/", host),
+                version_constraint: None,
+            },
+            None,
+        )?
         else {
             panic!()
         };
@@ -386,7 +407,14 @@ mod tests {
             "http://www.example.invalid/foo"
         };
 
-        let ResolutionOutcome::Resolved(projects) = resolver.resolve_read_raw(url)? else {
+        let ResolutionOutcome::Resolved(projects) = resolver.resolve_read_raw(
+            &InterchangeProjectUsageRaw::Resource {
+                resource: url.to_owned(),
+                version_constraint: None,
+            },
+            None,
+        )?
+        else {
             panic!()
         };
         let projects: Vec<super::HTTPProjectAsync<Unauthenticated>> =

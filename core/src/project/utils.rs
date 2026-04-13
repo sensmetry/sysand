@@ -4,10 +4,14 @@
 use std::{
     fmt::Display,
     io::{self, Read},
+    ops::Deref,
 };
 
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
-use fluent_uri::pct_enc::{EString, encoder::IData};
+use fluent_uri::{
+    Iri,
+    pct_enc::{EString, encoder::IData},
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
@@ -16,8 +20,8 @@ use zip::{self, result::ZipError};
 
 use crate::model::InterchangeProjectUsage;
 
-/// Project identifier IRI. Constructed by
-// TODO: steps
+/// Project identifier IRI. Always a valid IRI.
+// TODO: construction steps
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub struct Identifier(String);
 
@@ -43,6 +47,10 @@ impl Identifier {
         Self(make_identifier_iri(publisher, name))
     }
 
+    pub fn from_iri(iri: &Iri<String>) -> Identifier {
+        Self(iri.to_string())
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -50,11 +58,42 @@ impl Identifier {
     pub fn into_string(self) -> String {
         self.0
     }
+
+    /// Construct `Identifier` from a String, assuming it's a valid IRI
+    pub fn from_iri_unchecked(iri: String) -> Identifier {
+        Self(iri)
+    }
+
+    /// Construct `Identifier` from `&str`, assuming it's a valid IRI
+    pub fn from_iri_unchecked_str(iri: &str) -> Identifier {
+        Self(iri.to_owned())
+    }
 }
 
 impl AsRef<str> for Identifier {
     fn as_ref(&self) -> &str {
         &self.0
+    }
+}
+
+impl Deref for Identifier {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Iri<String>> for Identifier {
+    fn from(value: Iri<String>) -> Self {
+        Self(value.into_string())
+    }
+}
+
+impl From<Identifier> for Iri<String> {
+    fn from(value: Identifier) -> Self {
+        // Identifier is always valid IRI
+        Iri::parse(value.0).unwrap()
     }
 }
 

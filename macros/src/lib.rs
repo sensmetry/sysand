@@ -144,6 +144,16 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                         .get_project()
                         .map_err(#error_ident::#variant_ident)
                 },
+                // project_root_match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .project_root()
+                },
+                // base_path_for_usage_resolver_match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .base_path_for_usage_resolver()
+                },
                 // read_source_match
                 quote! {
                     #enum_ident::#variant_ident(project) => project
@@ -167,6 +177,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         }
     };
 
+    #[expect(clippy::type_complexity)]
     let (
         variant_list,
         error_variants,
@@ -176,9 +187,13 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         source_reader_match,
         source_reader_args,
         get_project_match,
+        project_root_match,
+        base_path_for_usage_resolver_match,
         read_source_match,
         sources_match,
     ): (
+        Vec<_>,
+        Vec<_>,
         Vec<_>,
         Vec<_>,
         Vec<_>,
@@ -234,6 +249,18 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             > {
                 match self {
                     #( #get_project_match ),*
+                }
+            }
+
+            fn project_root(&self) -> ::std::option::Option<&::camino::Utf8Path> {
+                match self {
+                    #( #project_root_match ),*
+                }
+            }
+
+            fn base_path_for_usage_resolver(&self) -> ::std::option::Option<&::camino::Utf8Path> {
+                match self {
+                    #( #base_path_for_usage_resolver_match ),*
                 }
             }
 

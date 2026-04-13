@@ -15,7 +15,7 @@ use crate::{
     lock::{Lock, ResolutionError, Source, multiline_array},
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
-        utils::{FsIoError, ToUnixPathBuf, deserialize_unix_path, wrapfs},
+        utils::{FsIoError, Identifier, ToUnixPathBuf, deserialize_unix_path, wrapfs},
     },
 };
 
@@ -156,7 +156,7 @@ impl EnvMetadata {
         doc
     }
 
-    fn find_project(&self, identifiers: &[String], version: &String) -> Option<usize> {
+    fn find_project(&self, identifiers: &[Identifier], version: &String) -> Option<usize> {
         for (index, project) in self.projects.iter().enumerate() {
             if &project.version == version
                 && project
@@ -181,18 +181,18 @@ impl EnvMetadata {
     pub fn remove_project<S: AsRef<str>, V: AsRef<str>>(&mut self, iri: S, version: Option<V>) {
         if let Some(v) = version {
             self.projects.retain(|p| {
-                p.version != v.as_ref() || !p.identifiers.iter().any(|i| i == iri.as_ref())
+                p.version != v.as_ref() || !p.identifiers.iter().any(|i| i.as_str() == iri.as_ref())
             });
         } else {
             self.projects
-                .retain(|p| !p.identifiers.iter().any(|i| i == iri.as_ref()));
+                .retain(|p| !p.identifiers.iter().any(|i| i.as_str() == iri.as_ref()));
         }
     }
 
     /// Add `LocalSrcProject` to env. Must have `nominal_path` set.
     pub fn add_local_project(
         &mut self,
-        identifiers: Vec<String>,
+        identifiers: Vec<Identifier>,
         project: LocalSrcProject,
         editable: bool,
         workspace: bool,
@@ -251,7 +251,7 @@ pub struct EnvProject {
     /// is the IRI it is installed as. The rest are considered
     /// as aliases. Can only be empty for `editable` projects.
     #[serde(default)]
-    pub identifiers: Vec<String>,
+    pub identifiers: Vec<Identifier>,
     /// Usages of the project. Intended for tools needing to
     /// track the interdependence of project in the environment.
     #[serde(default)]

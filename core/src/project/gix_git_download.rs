@@ -7,20 +7,15 @@ use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::Utf8TempDir;
 use gix::{
     prepare_clone,
-    progress::{self, Discard},
-    remote::{
-        Direction,
-        fetch::{self, Shallow},
-    },
+    remote::{Direction, fetch::Shallow},
 };
-use serde::Deserialize;
 use thiserror::Error;
 use walkdir::WalkDir;
 
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{GitId, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
@@ -174,93 +169,114 @@ impl From<LocalSrcError> for GixDownloadedError {
 }
 
 impl GixDownloadedProjectExact {
-    /// Immediately clone the repo and try to find the project publisher/name
+    /// Immediately clone the repo and try to find the project publisher/name,
+    /// if present
     pub fn new_download_find<S: AsRef<str>>(
         url: S,
-        rev: Option<String>,
-        publisher: impl AsRef<str>,
-        name: impl AsRef<str>,
+        rev: Option<&GitId>,
+        pub_name: Option<(impl AsRef<str>, impl AsRef<str>)>,
     ) -> Result<GixDownloadedProjectExact, GixDownloadedError> {
         let url = url.as_ref();
-        let publisher = publisher.as_ref();
-        let name = name.as_ref();
         let tmp_dir = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
-        let repo = download_repo_to_temp(&tmp_dir, url, rev.as_deref())?;
+        let (repo, rev) = download_repo_to_temp(&tmp_dir, url, rev)?;
 
-        let rev = rev.unwrap_or_else(|| repo.head_commit().unwrap().id().to_string());
+        let rev = rev
+            .unwrap_or_else(|| repo.head_commit().unwrap().id().detach())
+            .to_string();
 
         // TODO: find specified project in repo and convert to path
         // TODO: Since gix provides a way to iterate over non-checked-out files,
         // checkout may not be necessary.
 
-        // Check every `.project.json` file
-        for entry in WalkDir::new(tmp_dir.path())
-            .into_iter()
-            .filter_entry(|entry| entry.file_name() == ".git")
-        {
-            match entry {
-                Ok(entry) => {
-                    if !entry.file_type().is_file() || entry.path().ends_with(".project.json") {
-                        continue;
-                    }
-                    let Some(path) = entry.path().to_str() else {
-                        log::debug!(
-                            "ignoring path `{}` as it contains invalid Unicode",
-                            entry.path().display()
-                        );
-                        continue;
-                    };
-                    let info: InterchangeProjectInfoRaw =
-                        match serde_json::from_reader(wrapfs::File::open(path)?) {
-                            Ok(info) => info,
-                            Err(e) => {
-                                log::debug!(
-                                    "ignoring file `{}` due to error: {e}",
-                                    entry.path().display()
-                                );
-                                continue;
-                            }
+        if let Some((publisher, name)) = pub_name {
+            let (publisher, name) = (publisher.as_ref(), name.as_ref());
+            // Check every `.project.json` file
+            for entry in WalkDir::new(tmp_dir.path())
+                .into_iter()
+                .filter_entry(|entry| entry.file_name() == ".git")
+            {
+                match entry {
+                    Ok(entry) => {
+                        if !entry.file_type().is_file() || entry.path().ends_with(".project.json") {
+                            continue;
+                        }
+                        let Some(path) = entry.path().to_str() else {
+                            log::debug!(
+                                "ignoring path `{}` as it contains invalid Unicode",
+                                entry.path().display()
+                            );
+                            continue;
                         };
+                        let info: InterchangeProjectInfoRaw =
+                            match serde_json::from_reader(wrapfs::File::open(path)?) {
+                                Ok(info) => info,
+                                Err(e) => {
+                                    log::debug!(
+                                        "ignoring file `{}` due to error: {e}",
+                                        entry.path().display()
+                                    );
+                                    continue;
+                                }
+                            };
 
-                    if info.publisher.as_deref() == Some(publisher) && info.name == name {
-                        // FOUND
-                        // let mut canonical_temp = wrapfs::canonicalize(tmp_dir.path())?;
-                        // Append path inside the repo, as it will be cloned to the temp dir
-                        let downloaded_project = LocalSrcProject {
-                            nominal_path: None,
-                            project_path: entry.path().parent().unwrap().to_str().unwrap().into(),
-                        };
-                        let path_in_repo = downloaded_project
-                            .project_path
-                            .strip_prefix(tmp_dir.path())
-                            .unwrap();
-                        return Ok(GixDownloadedProjectExact {
-                            url: url.to_owned(),
-                            rev,
-                            path: if path_in_repo.as_str().is_empty() {
-                                None
-                            } else {
-                                Some(path_in_repo.to_owned())
-                            },
-                            inner: downloaded_project,
-                            tmp_dir,
-                        });
+                        if info.publisher.as_deref() == Some(publisher) && info.name == name {
+                            // let mut canonical_temp = wrapfs::canonicalize(tmp_dir.path())?;
+                            // Append path inside the repo, as it will be cloned to the temp dir
+                            let downloaded_project = LocalSrcProject {
+                                nominal_path: None,
+                                project_path: entry
+                                    .path()
+                                    .parent()
+                                    .unwrap()
+                                    .to_str()
+                                    .unwrap()
+                                    .into(),
+                            };
+                            let path_in_repo = downloaded_project
+                                .project_path
+                                .strip_prefix(tmp_dir.path())
+                                .unwrap();
+                            return Ok(GixDownloadedProjectExact {
+                                url: url.to_owned(),
+                                rev,
+                                path: if path_in_repo.as_str().is_empty() {
+                                    None
+                                } else {
+                                    Some(path_in_repo.to_owned())
+                                },
+                                inner: downloaded_project,
+                                tmp_dir,
+                            });
+                        }
                     }
-                }
-                Err(e) => {
-                    log::debug!("skipping path due to error: {e}");
+                    Err(e) => {
+                        log::debug!("skipping path due to error: {e}");
+                    }
                 }
             }
-        }
 
-        Err(GixDownloadedError::ProjectNotFound {
-            repo_url: url.into(),
-            rev: rev.into(),
-            publisher: publisher.into(),
-            name: name.into(),
-        })
+            Err(GixDownloadedError::ProjectNotFound {
+                repo_url: url.into(),
+                rev: rev.into(),
+                publisher: publisher.into(),
+                name: name.into(),
+            })
+        } else {
+            let inner = LocalSrcProject {
+                nominal_path: None,
+                project_path: tmp_dir.path().to_owned(),
+            };
+            return Ok(GixDownloadedProjectExact {
+                url: url.to_owned(),
+                rev,
+                path: None,
+                tmp_dir,
+                inner,
+            });
+        }
     }
 
+    /// For sync use.
     /// `path` must be relative path inside repo
     pub fn new_download<S: AsRef<str>>(
         url: S,
@@ -269,7 +285,8 @@ impl GixDownloadedProjectExact {
     ) -> Result<GixDownloadedProjectExact, GixDownloadedError> {
         let url = url.as_ref();
         let tmp_dir = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
-        let _repo = download_repo_to_temp(&tmp_dir, url, Some(&rev))?;
+        // TODO: don't clone rev
+        let (_repo, _rev) = download_repo_to_temp(&tmp_dir, url, Some(&GitId::Rev(rev.clone())))?;
 
         let downloaded_project = LocalSrcProject {
             nominal_path: None,
@@ -360,26 +377,52 @@ impl GixDownloadedProject {
     }
 }
 
-/// Clone the repo, the checkout `rev` (which must be a commit SHA1/256).
+/// Clone the repo, the checkout `git_ref` if present, or default branch `HEAD`
+/// otherwise.
 /// Adapted from gitoxide `main_worktree()`:
 /// https://github.com/GitoxideLabs/gitoxide/blob/v0.52.0/gix/src/clone/checkout.rs#L85
 fn download_repo_to_temp(
     tmp_dir: &Utf8TempDir,
     url: &str,
-    rev: Option<&str>,
-) -> Result<gix::Repository, GixDownloadedError> {
-    let repo = if let Some(rev) = rev {
+    git_ref: Option<&GitId>,
+) -> Result<(gix::Repository, Option<gix::ObjectId>), GixDownloadedError> {
+    let ret = if let Some(git_ref) = git_ref {
         // Fetch all objects without checking out any files
         let (repo, _) = gix::prepare_clone(url, tmp_dir.path())
             .unwrap()
             .fetch_only(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
             .unwrap();
 
-        // Resolve the SHA to a commit, then get its tree
-        // We already checked that this is a valid SHA1/256
-        let commit_id = gix::ObjectId::from_hex(rev.as_bytes()).unwrap();
+        let rev = match git_ref {
+            GitId::Rev(rev) => {
+                // Resolve the SHA to a commit, then get its tree
+                gix::ObjectId::from_hex(rev.as_bytes()).unwrap()
+            }
+            GitId::Tag(tag) => {
+                // TODO: tags may not be present due to gitconfig which is read by gix,
+                // and thus may need to be fetched separately
+                repo.try_find_reference(&format!("refs/tags/{tag}"))
+                    .unwrap()
+                    .unwrap()
+                    .peel_to_commit()
+                    .unwrap()
+                    .id
+            }
+            GitId::Branch(branch) => {
+                let remote = repo.find_default_remote(Direction::Fetch).unwrap().unwrap();
+                let branch_ref =
+                    format!("refs/remotes/{}/{branch}", remote.name().unwrap().as_bstr());
+                repo.try_find_reference(&branch_ref)
+                    .unwrap()
+                    .unwrap()
+                    .peel_to_commit()
+                    .unwrap()
+                    .id
+            }
+        };
+
         let tree_id = repo
-            .find_object(commit_id)
+            .find_object(rev)
             .unwrap()
             .into_commit()
             .tree_id()
@@ -407,7 +450,8 @@ fn download_repo_to_temp(
         .unwrap();
 
         index.write(Default::default()).unwrap();
-        repo
+
+        (repo, Some(rev))
     } else {
         let prepared_clone = prepare_clone(url.clone(), tmp_dir.path())
             .map_err(|e| GixDownloadedError::Clone(url.to_string(), Box::new(e)))?;
@@ -420,10 +464,10 @@ fn download_repo_to_temp(
             .main_worktree(gix::progress::Discard, &gix::interrupt::IS_INTERRUPTED)
             .map_err(|e| GixDownloadedError::Checkout(tmp_dir.to_path_buf(), Box::new(e)))?;
 
-        repo
+        (repo, None)
     };
 
-    Ok(repo)
+    Ok(ret)
 }
 
 impl ProjectRead for GixDownloadedProject {

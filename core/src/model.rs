@@ -8,6 +8,7 @@ use digest::{generic_array::GenericArray, typenum};
 use indexmap::IndexMap;
 #[cfg(feature = "python")]
 use pyo3::{FromPyObject, IntoPyObject, pyclass};
+use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
@@ -82,6 +83,7 @@ pub const KNOWN_METAMODELS: [&str; 2] = [
 //     }
 // }
 
+// TODO: maybe make this generic over AsRef<str>?
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase", untagged)]
@@ -166,7 +168,7 @@ impl<Iri: Display, VersionReq: Display, Path: Display> Display
             } => {
                 write!(f, "IRI `{resource}`")?;
                 if let Some(vc) = version_constraint {
-                    write!(f, " {vc}")?;
+                    write!(f, " ({vc})")?;
                 }
             }
             InterchangeProjectUsageG::Url {
@@ -205,6 +207,20 @@ impl<Iri: Display, VersionReq: Display, Path: Display> Display
 }
 
 impl<Iri: Display, VersionReq, Path> InterchangeProjectUsageG<Iri, VersionReq, Path> {
+    pub fn from_iri(iri: Iri) -> Self {
+        InterchangeProjectUsageG::Resource {
+            resource: iri,
+            version_constraint: None,
+        }
+    }
+
+    pub fn from_iri_version(iri: Iri, version: VersionReq) -> Self {
+        InterchangeProjectUsageG::Resource {
+            resource: iri,
+            version_constraint: Some(version),
+        }
+    }
+
     /// Get the canonical IRI representing this usage. This IRI is not resolvable
     /// on its own.
     /// This is expensive, don't call repeatedly
@@ -235,6 +251,32 @@ impl<Iri: Display, VersionReq, Path> InterchangeProjectUsageG<Iri, VersionReq, P
                 name,
                 version_constraint: _,
             } => Usage::from(make_identifier_iri(publisher, name)),
+        }
+    }
+}
+
+impl InterchangeProjectUsage {
+    /// Returns true if there is no constraint
+    pub fn version_satisfies_req(&self, version: &Version) -> bool {
+        match self {
+            InterchangeProjectUsage::Resource {
+                resource: _,
+                version_constraint,
+            } => {
+                if let Some(vc) = version_constraint {
+                    vc.matches(version)
+                } else {
+                    true
+                }
+            }
+            InterchangeProjectUsage::Index {
+                publisher: _,
+                name: _,
+                version_constraint,
+            } => version_constraint.matches(version),
+            InterchangeProjectUsage::Url { .. } => true,
+            InterchangeProjectUsage::Path { .. } => true,
+            InterchangeProjectUsage::Git { .. } => true,
         }
     }
 }

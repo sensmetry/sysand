@@ -402,9 +402,8 @@ pub struct Project {
     pub version: String,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub exports: Vec<String>,
-    // TODO: what to do about identifiers for non-IRI/URL projects?
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub identifiers: Vec<String>,
+    pub identifiers: Vec<Identifier>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub usages: Vec<Usage>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -449,6 +448,12 @@ pub fn hash_str(val: &str) -> StrHash {
     let mut hasher = DefaultHasher::new();
     val.hash(&mut hasher);
     StrHash(hasher.finish())
+}
+
+impl From<&Identifier> for toml_edit::Value {
+    fn from(value: &Identifier) -> Self {
+        Self::from(value.as_str())
+    }
 }
 
 impl Project {
@@ -876,9 +881,12 @@ mod tests {
     use toml_edit::DocumentMut;
     use typed_path::Utf8UnixPathBuf;
 
-    use crate::lock::{
-        CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
-        VersionError, check_lock_version, project_with,
+    use crate::{
+        lock::{
+            CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
+            VersionError, check_lock_version, project_with,
+        },
+        project::utils::Identifier,
     };
 
     const CHECKSUM: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -1075,7 +1083,7 @@ checksum = "{CHECKSUM}"
                 publisher: None,
                 version: "0.2.1".to_string(),
                 exports: vec![],
-                identifiers: vec!["urn:kpar:example".to_string()],
+                identifiers: vec![Identifier::from_iri_unchecked_str("urn:kpar:example")],
                 usages: vec![],
                 sources: vec![],
                 checksum: CHECKSUM.to_string(),

@@ -14,7 +14,7 @@ use sysand_core::{
     lock::Lock,
     project::{
         AsSyncProjectTokio, ProjectReadAsync,
-        gix_git_download::{GixDownloadedError, GixDownloadedProject},
+        gix_git_download::{GixDownloadedError, GixDownloadedProject, GixDownloadedProjectExact},
         local_kpar::LocalKParProject,
         local_src::LocalSrcProject,
         memory::InMemoryProject,
@@ -64,8 +64,8 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                 )
             },
         ),
-        Some(|remote_git: String| -> Result<GixDownloadedProject, GixDownloadedError> {
-            GixDownloadedProject::new(remote_git)
+        Some(|remote_git: &str, rev:String, path: Option<String>| -> Result<GixDownloadedProjectExact, GixDownloadedError> {
+            GixDownloadedProjectExact::new_download(remote_git,rev,path)
         }),
         provided_iris,
     )?;

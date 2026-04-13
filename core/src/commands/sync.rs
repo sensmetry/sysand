@@ -10,7 +10,7 @@ use crate::{
     commands::env::do_env_install_project,
     env::{ReadEnvironment, WriteEnvironment, utils::ErrorBound},
     lock::{Lock, Source},
-    project::{ProjectRead, memory::InMemoryProject},
+    project::{ProjectRead, memory::InMemoryProject, utils::Identifier},
 };
 
 #[derive(Error, Debug)]
@@ -20,7 +20,7 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
     #[error("project with IRI `{0}` is missing `.project.json` or `.meta.json`")]
     BadProject(String),
     #[error("project with IRI(s) {0:?} has no known sources in lockfile")]
-    MissingSource(Box<[String]>),
+    MissingSource(Box<[Identifier]>),
     #[error("no IRI given for project with src_path = `{0}` in lockfile")]
     MissingIriSrcPath(Box<str>),
     #[error("no IRI given for project with remote_src = `{0}` in lockfile")]
@@ -54,7 +54,9 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
     #[error("invalid remote source URL `{0}`:\n{1}")]
     InvalidRemoteSource(Box<str>, UrlParseError),
     #[error("no supported sources for project with IRI `{0}`")]
-    UnsupportedSources(String),
+    UnsupportedSourcesId(Identifier),
+    #[error("no supported sources for project with publisher {0:?}, name {1:?}")]
+    UnsupportedSourcesPubName(Option<String>, Option<String>),
     #[error("failed to install project `{uri}`:\n{cause}")]
     InstallFail { uri: Box<str>, cause: String },
     #[error(
@@ -105,7 +107,7 @@ where
     KParPathStorage: ProjectRead,
     CreateRemoteKParStorage: Fn(String) -> Result<RemoteKParStorage, UrlParseError>,
     RemoteKParStorage: ProjectRead,
-    CreateRemoteGitStorage: Fn(String) -> Result<RemoteGitStorage, GitError>,
+    CreateRemoteGitStorage: Fn(&str, String, Option<String>) -> Result<RemoteGitStorage, GitError>,
     RemoteGitStorage: ProjectRead,
 {
     let syncing = "Syncing";
@@ -118,11 +120,13 @@ where
         let main_uri = project.identifiers.first();
 
         for iri in &project.identifiers {
-            let excluded_versions = if let Ok(parsed_iri) = fluent_uri::Iri::parse(iri.clone()) {
-                provided_iris.get(parsed_iri.normalize().as_str())
-            } else {
-                provided_iris.get(iri.as_str())
-            };
+            // TODO: revisit this when dealing with IRI normalization
+            let excluded_versions =
+                if let Ok(parsed_iri) = fluent_uri::Iri::parse(iri.as_str().clone()) {
+                    provided_iris.get(parsed_iri.normalize().as_str())
+                } else {
+                    provided_iris.get(iri.as_str())
+                };
 
             let checksum = &project.checksum;
             if let Some(versions) = excluded_versions {
@@ -226,7 +230,7 @@ where
                 }
                 Source::RemoteGit {
                     remote_git,
-                    // TODO: implement (shallow) cloning of the sepecified rev and dir traversal
+                    // TODO: implement (shallow) cloning of the specified rev and dir traversal
                     rev,
                     path,
                 } => {
@@ -236,23 +240,26 @@ where
                     let remote_git_storage = remote_git_storage.as_ref().ok_or_else(|| {
                         SyncError::MissingRemoteGitStorage(remote_git.as_str().into())
                     })?;
-                    let storage = remote_git_storage(remote_git.clone())
-                        .map_err(|e| SyncError::GitDownload(remote_git.as_str().into(), e))?;
+                    let storage =
+                        remote_git_storage(remote_git.as_str(), rev.to_owned(), path.to_owned())
+                            .map_err(|e| SyncError::GitDownload(remote_git.as_str().into(), e))?;
                     log::debug!("trying to install `{uri}` from remote_git: {remote_git}");
                     try_install(uri, &project.checksum, storage, env)?;
-                }
-                _ => supported = false,
+                } // _ => supported = false,
             }
             if supported {
                 no_supported = false;
             }
         }
         if no_supported {
-            return Err(SyncError::UnsupportedSources(
-                main_uri
-                    .cloned()
-                    .unwrap_or_else(|| "project without IRI".to_string()),
-            ));
+            if let Some(id) = main_uri {
+                return Err(SyncError::UnsupportedSourcesId(id.to_owned()));
+            } else {
+                return Err(SyncError::UnsupportedSourcesPubName(
+                    project.publisher.clone(),
+                    project.name.clone(),
+                ));
+            }
         }
         updated = true;
     }

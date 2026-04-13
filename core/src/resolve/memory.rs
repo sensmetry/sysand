@@ -3,10 +3,12 @@
 
 use std::{collections::HashMap, convert::Infallible};
 
+use camino::Utf8Path;
 use fluent_uri::{Iri, component::Scheme};
 
 use crate::{
-    project::ProjectRead,
+    model::InterchangeProjectUsage,
+    project::{ProjectRead, utils::Identifier},
     resolve::{ResolutionOutcome, ResolveRead},
 };
 
@@ -46,6 +48,7 @@ impl<Project: ProjectRead + Clone> From<Vec<(Iri<String>, Vec<Project>)>>
 pub trait IRIPredicate {
     fn accept_iri(&self, iri: &Iri<String>) -> bool;
 
+    // TODO: be more efficient, don't clone
     fn accept_iri_raw(&self, iri: &str) -> bool {
         match Iri::parse(iri.to_string()) {
             Ok(iri) => self.accept_iri(&iri),
@@ -86,17 +89,32 @@ impl<Predicate: IRIPredicate, ProjectStorage: ProjectRead + Clone> ResolveRead
     fn resolve_read(
         &self,
         usage: &InterchangeProjectUsage,
-        base_path: Option<impl AsRef<Utf8Path>>,
+        _base_path: Option<impl AsRef<Utf8Path>>,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        if !self.iri_predicate.accept_iri(uri) {
-            return Ok(ResolutionOutcome::UnsupportedUsageType(format!(
-                "invalid IRI `{uri}` for this memory resolver"
-            )));
-        }
+        let identifier = match usage {
+            InterchangeProjectUsage::Resource {
+                resource,
+                version_constraint: _,
+            } => {
+                // TODO: should publisher/name identifiers be filtered?
+                if !self.iri_predicate.accept_iri(resource) {
+                    return Ok(ResolutionOutcome::Unresolvable(format!(
+                        "invalid IRI `{resource}` for this memory resolver"
+                    )));
+                }
+                Identifier::from_iri(resource)
+            }
+            _ => Identifier::from_interchange_usage(usage),
+        };
 
-        Ok(match self.projects.get(uri) {
+        // TODO: be more efficient, avoid reparsing IRI. Maybe make `Identifier` contain `Iri<String>`?
+        let iri: Iri<String> = identifier.into();
+        Ok(match self.projects.get(&iri) {
             Some(xs) => ResolutionOutcome::Resolved(xs.iter().map(|x| Ok(x.clone())).collect()),
-            None => ResolutionOutcome::NotFound(uri.to_string()),
+            None => ResolutionOutcome::NotFound(
+                usage.to_owned(),
+                String::from("memory resolver does not contain this project"),
+            ),
         })
     }
 }

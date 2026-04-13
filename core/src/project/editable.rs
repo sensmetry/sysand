@@ -82,4 +82,12 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
 
         Ok(inner_sources)
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        self.inner.project_root()
+    }
+
+    fn base_path_for_usage_resolver(&self) -> Option<&camino::Utf8Path> {
+        self.inner.base_path_for_usage_resolver()
+    }
 }

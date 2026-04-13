@@ -17,7 +17,7 @@ use sysand_core::{
     },
     context::ProjectContext,
     lock::Source,
-    model::{GitId, InterchangeProjectUsageRaw},
+    model::{GitId, InterchangeProjectUsageG, InterchangeProjectUsageRaw},
     project::{
         ProjectRead,
         utils::{relativize_path, wrapfs},
@@ -51,7 +51,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
     let iri = iri.as_ref();
     let mut current_project = ctx
         .current_project
-        .clone()
+        // .clone()
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
     #[allow(clippy::manual_map)] // For readability and compactness
@@ -93,7 +93,10 @@ pub fn command_add<Policy: HTTPAuthentication>(
             runtime.clone(),
             auth_policy.clone(),
         );
-        let outcome = std_resolver.resolve_read_raw(&url)?;
+        let outcome = std_resolver.resolve_read(
+            &InterchangeProjectUsageG::from_iri(url),
+            Some(current_project.root_path()),
+        )?;
         let mut source = None;
         match outcome {
             ResolutionOutcome::Resolved(alternatives) => {
@@ -111,9 +114,15 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     }
                 }
             }
-            ResolutionOutcome::UnsupportedUsageType(e) => bail!("unsupported URL `{url}`:\n{e}"),
-            ResolutionOutcome::NotFound(e) => {
-                bail!("failed to resolve URL `{url}`:\n{e}")
+            ResolutionOutcome::UnsupportedUsageType { usage, reason } => {
+                bail!("unsupported URL {usage}:\n{reason}")
+            }
+            ResolutionOutcome::NotFound(usage, reason) => {
+                bail!("failed to resolve URL {usage}:\n{reason}")
+            }
+            ResolutionOutcome::InvalidUsage(..) => unreachable!(),
+            ResolutionOutcome::Unresolvable(msg) => {
+                bail!("usage is not resolvable: {msg}")
             }
         }
         if source.is_none() {
@@ -338,126 +347,7 @@ pub fn command_add_experimental<Policy: HTTPAuthentication>(
         .clone()
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
-    // #[allow(clippy::manual_map)] // For readability and compactness
-    // let source = if let Some(path) = source_opts.from_path {
-    //     let metadata = wrapfs::metadata(&path)?;
-    //     if metadata.is_dir() {
-    //         Some(Source::LocalSrc {
-    //             src_path: get_relative(path, current_project.root_path())?
-    //                 .as_str()
-    //                 .into(),
-    //         })
-    //     } else if metadata.is_file() {
-    //         Some(Source::LocalKpar {
-    //             kpar_path: get_relative(path, current_project.root_path())?
-    //                 .as_str()
-    //                 .into(),
-    //         })
-    //     } else {
-    //         bail!("path `{path}` is neither a directory nor a file");
-    //     }
-    // } else if let Some(url) = source_opts.from_url {
-    //     let ResolutionOptions {
-    //         index,
-    //         default_index,
-    //         no_index,
-    //         include_std: _,
-    //     } = resolution_opts.clone();
-
-    //     let index_urls = if no_index {
-    //         None
-    //     } else {
-    //         Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
-    //     };
-    //     let std_resolver = standard_resolver(
-    //         None,
-    //         None,
-    //         Some(client.clone()),
-    //         index_urls,
-    //         runtime.clone(),
-    //         auth_policy.clone(),
-    //     );
-    //     let outcome = std_resolver.resolve_read_raw(&url)?;
-    //     let mut source = None;
-    //     match outcome {
-    //         ResolutionOutcome::Resolved(alternatives) => {
-    //             for candidate in alternatives {
-    //                 match candidate {
-    //                     Ok(project) => {
-    //                         source = project.sources(&ctx)?.first().cloned();
-    //                         if source.is_some() {
-    //                             break;
-    //                         }
-    //                     }
-    //                     Err(err) => {
-    //                         log::debug!("skipping candidate project: {err}");
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //         ResolutionOutcome::UnsupportedIRIType(e) => bail!("unsupported URL `{url}`:\n{e}"),
-    //         ResolutionOutcome::Unresolvable(e) => {
-    //             bail!("failed to resolve URL `{url}`:\n{e}")
-    //         }
-    //     }
-    //     if source.is_none() {
-    //         bail!("unable to find project at URL `{url}`")
-    //     }
-    //     source
-    // } else if let Some(editable) = source_opts.as_editable {
-    //     Some(Source::Editable {
-    //         editable: get_relative(editable, current_project.root_path())?
-    //             .as_str()
-    //             .into(),
-    //     })
-    // } else if let Some(src_path) = source_opts.as_local_src {
-    //     Some(Source::LocalSrc {
-    //         src_path: get_relative(src_path, current_project.root_path())?
-    //             .as_str()
-    //             .into(),
-    //     })
-    // } else if let Some(kpar_path) = source_opts.as_local_kpar {
-    //     Some(Source::LocalKpar {
-    //         kpar_path: get_relative(kpar_path, current_project.root_path())?
-    //             .as_str()
-    //             .into(),
-    //     })
-    // } else if let Some(remote_src) = source_opts.as_remote_src {
-    //     Some(Source::RemoteSrc {
-    //         remote_src: remote_src.into_string(),
-    //     })
-    // } else if let Some(remote_kpar) = source_opts.as_remote_kpar {
-    //     Some(Source::RemoteKpar {
-    //         remote_kpar: remote_kpar.into_string(),
-    //         remote_kpar_size: None,
-    //     })
-    //     // TODO: make all --as-* use new-style usages unconditionally, otherwise will need two impl for them
-    // } else if let Some(remote_git) = source_opts.as_remote_git {
-    //     Some(Source::RemoteGit {
-    //         remote_git: remote_git.into_string(),
-    //         rev: todo!(),
-    //         path: todo!(),
-    //     })
-    // } else {
-    //     None
-    // };
-
-    // if let Some(source) = source {
-    //     let config_path = config_file
-    //         .map(Utf8PathBuf::from)
-    //         .or((!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
-
-    //     if let Some(path) = config_path {
-    //         add_project_source_to_config(&path, iri, &source)?;
-    //     } else {
-    //         log::warn!("project source for `{iri}` not added to any config file");
-    //     }
-
-    //     config.projects.push(ConfigProject {
-    //         identifiers: vec![iri.to_owned()],
-    //         sources: vec![source],
-    //     });
-    // }
+    // TODO: support source overrides
 
     let usage = match locator {
         ExpAddProjectLocatorArgs::Url {

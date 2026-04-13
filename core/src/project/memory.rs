@@ -159,4 +159,12 @@ impl ProjectRead for InMemoryProject {
         debug_assert!(!self.nominal_sources.is_empty());
         Ok(self.nominal_sources.clone())
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        None
+    }
+
+    fn base_path_for_usage_resolver(&self) -> Option<&camino::Utf8Path> {
+        None
+    }
 }

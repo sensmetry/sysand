@@ -49,6 +49,7 @@ use crate::{
     commands::{
         add::{command_add, command_add_experimental},
         build::{command_build_for_project, command_build_for_workspace},
+        clone::command_clone_experimental,
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
             command_env_uninstall,
@@ -764,6 +765,22 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     ctx,
                     args.global_opts.config_file,
                     args.global_opts.no_config,
+                ),
+                ExpCommand::Clone {
+                    locator,
+                    target,
+                    no_deps,
+                    resolution_opts,
+                } => command_clone_experimental(
+                    locator,
+                    target,
+                    ctx,
+                    no_deps,
+                    resolution_opts,
+                    &config,
+                    client,
+                    runtime,
+                    auth_policy,
                 ),
             }
         }

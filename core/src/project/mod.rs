@@ -158,9 +158,9 @@ pub trait ProjectRead {
     // Optional and helpers
 
     /// Returns the local filesystem root path of this project, if available.
-    fn project_root(&self) -> Option<&Utf8Path> {
-        None
-    }
+    fn project_root(&self) -> Option<&Utf8Path>;
+
+    fn base_path_for_usage_resolver(&self) -> Option<&Utf8Path>;
 
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         Ok(self.get_project()?.0)
@@ -280,6 +280,14 @@ impl<T: ProjectRead> ProjectRead for &T {
         (*self).get_project()
     }
 
+    fn project_root(&self) -> Option<&Utf8Path> {
+        (*self).project_root()
+    }
+
+    fn base_path_for_usage_resolver(&self) -> Option<&Utf8Path> {
+        (*self).base_path_for_usage_resolver()
+    }
+
     type SourceReader<'a>
         = T::SourceReader<'a>
     where
@@ -354,6 +362,14 @@ impl<T: ProjectRead> ProjectRead for &mut T {
         Self::Error,
     > {
         (**self).get_project()
+    }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        (**self).project_root()
+    }
+
+    fn base_path_for_usage_resolver(&self) -> Option<&Utf8Path> {
+        (**self).base_path_for_usage_resolver()
     }
 
     type SourceReader<'a>
@@ -434,6 +450,12 @@ pub trait ProjectReadAsync {
             Self::Error,
         >,
     >;
+
+    // These don't need to be async
+
+    fn project_root_async(&self) -> impl Future<Output = Option<&Utf8Path>>;
+
+    fn base_path_for_usage_resolver_async(&self) -> impl Future<Output = Option<&Utf8Path>>;
 
     type SourceReader<'a>: AsyncRead + Unpin
     where
@@ -612,6 +634,14 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
         (**self).get_project_async()
     }
 
+    fn project_root_async(&self) -> impl Future<Output = Option<&Utf8Path>> {
+        (**self).project_root_async()
+    }
+
+    fn base_path_for_usage_resolver_async(&self) -> impl Future<Output = Option<&Utf8Path>> {
+        (**self).base_path_for_usage_resolver_async()
+    }
+
     type SourceReader<'a>
         = T::SourceReader<'a>
     where
@@ -704,6 +734,14 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
         >,
     > {
         (**self).get_project_async()
+    }
+
+    fn project_root_async(&self) -> impl Future<Output = Option<&Utf8Path>> {
+        (**self).project_root_async()
+    }
+
+    fn base_path_for_usage_resolver_async(&self) -> impl Future<Output = Option<&Utf8Path>> {
+        (**self).base_path_for_usage_resolver_async()
     }
 
     type SourceReader<'a>
@@ -1036,6 +1074,14 @@ where
         self.inner.get_project()
     }
 
+    async fn project_root_async(&self) -> Option<&Utf8Path> {
+        self.inner.project_root()
+    }
+
+    async fn base_path_for_usage_resolver_async(&self) -> Option<&Utf8Path> {
+        self.inner.base_path_for_usage_resolver()
+    }
+
     type SourceReader<'a>
         = AsAsyncReader<<T as ProjectRead>::SourceReader<'a>>
     where
@@ -1089,6 +1135,15 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
         Self::Error,
     > {
         self.runtime.block_on(self.inner.get_project_async())
+    }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        self.runtime.block_on(self.inner.project_root_async())
+    }
+
+    fn base_path_for_usage_resolver(&self) -> Option<&Utf8Path> {
+        self.runtime
+            .block_on(self.inner.base_path_for_usage_resolver_async())
     }
 
     type SourceReader<'a>
