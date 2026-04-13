@@ -1,30 +1,8 @@
 # Developing Sysand
 
-Requirements for contributing are specified in [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Repository structure
-
-The whole repository is a [Cargo
-workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html) composed
-of multiple crates (Rust packages) and variour other language libraries that
-wrap the Rust core.
-
-Directory structure:
-
-- `core` (crate `sysand-core`) contains all the core logic, and can be used as
-  a Rust library. It also contains (optional) coercion trait implementations for
-  Python and WASM/JavaScript.
-- `sysand` (crate `sysand`) wraps `sysand-core` into a user interface, currently
-  a command line application.
-- `bindings` contains wrappers for various programming languages:
-  - `bindings/js` wraps `sysand-core` into a WASM/JavaScript library that can be
-    used in Node, Deno, browsers, and so on.
-  - `bindings/py` wraps `sysand-core` into a Python module.
-  - `bindings/java` wraps `sysand-core` into a Java library.
-
-  Note that the language libraries are currently in a very early state of
-  development. Especially the JavaScript/WASM library is only a proof-of-concept
-  that is not yet usable.
+Requirements for contributing are specified in
+[CONTRIBUTING.md](CONTRIBUTING.md), and overview of the project's architecture
+is maintained in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Setup
 
@@ -85,10 +63,10 @@ It is then available as `sysand` from the command line.
 ## Language bindings
 
 Instructions for developing language bindings are specified in
-their respective READMEs:
+their respective folders under a DEVELOPMENT.md or README.md:
 
 - [Java](bindings/java/README.md)
-- [Python](bindings/py/README.md)
+- [Python](bindings/py/DEVELOPMENT.md)
 - [JavaScript (WASM)](bindings/js/README.md)
 
 ## Building
