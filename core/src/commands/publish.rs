@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use camino::Utf8Path;
+use serde::Deserialize;
 use sha2::Digest;
 use thiserror::Error;
 use url::Url;
@@ -16,8 +17,8 @@ use crate::{
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
 const MAX_KPAR_PUBLISH_SIZE: u64 = 100 * 1024 * 1024;
-/// Path segments appended to the index URL to form the upload endpoint.
-const UPLOAD_ENDPOINT_SEGMENTS: [&str; 3] = ["api", "v1", "upload"];
+/// Path appended to the index URL to form the upload endpoint.
+const UPLOAD_ENDPOINT_PATH: &str = "/api/v1/upload";
 
 pub fn do_publish<P: AsRef<Utf8Path>>(
     path: P,
@@ -30,14 +31,12 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
     let header = crate::style::get_style_config().header;
     let upload_url = build_upload_url(&index)?;
     let PublishPreparation {
-        name,
-        version,
-        file_name,
-        file_bytes,
+        purl_versioned,
         metadata,
+        kpar_bytes,
     } = prepare_publish_payload(path)?;
     log::info!(
-        "{header}{:>12}{header:#} `{name}` {version} to {index}",
+        "{header}{:>12}{header:#} `{purl_versioned}` to {index}",
         "Publishing",
     );
 
@@ -47,17 +46,16 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
     let upload_url_for_log = upload_url.to_string();
 
     let build_request = move |c: &reqwest_middleware::ClientWithMiddleware| {
-        let file_part = reqwest::multipart::Part::stream(file_bytes.clone())
-            .file_name(file_name.clone())
-            .mime_str("application/zip")
-            .expect("hard-coded content type must be a valid MIME");
         let metadata_part = reqwest::multipart::Part::text(metadata.clone())
             .mime_str("application/json")
+            .expect("hard-coded content type must be a valid MIME");
+        let kpar_part = reqwest::multipart::Part::stream(kpar_bytes.clone())
+            .mime_str("application/zip")
             .expect("hard-coded content type must be a valid MIME");
 
         let form = reqwest::multipart::Form::new()
             .part("metadata", metadata_part)
-            .part("kpar", file_part);
+            .part("kpar", kpar_part);
 
         c.post(upload_url.clone()).multipart(form)
     };
@@ -104,19 +102,14 @@ pub fn build_upload_url(index: &Url) -> Result<Url, PublishError> {
 
     let mut upload_url = index.to_owned();
     {
-        let mut segments = upload_url
-            .path_segments_mut()
-            .expect("http(s) URLs are hierarchical and must support mutable path segments");
+        // Guaranteed for validated http(s) URLs.
+        let mut segments = upload_url.path_segments_mut().unwrap();
         // Normalize both `https://host` and `https://host/`.
         segments.pop_if_empty();
     }
 
     // After normalization, reject URLs that already end with the upload path.
-    let path_segments: Vec<_> = upload_url
-        .path_segments()
-        .expect("http(s) URLs are hierarchical and must support path segments")
-        .collect();
-    if path_segments.ends_with(&UPLOAD_ENDPOINT_SEGMENTS) {
+    if upload_url.path().ends_with(UPLOAD_ENDPOINT_PATH) {
         return Err(PublishError::InvalidIndexUrl {
             url: index.as_str().into(),
             reason: "URL must point to the index root; do not include `/api/v1/upload`".to_string(),
@@ -125,7 +118,7 @@ pub fn build_upload_url(index: &Url) -> Result<Url, PublishError> {
 
     {
         let mut segments = upload_url.path_segments_mut().unwrap();
-        for segment in UPLOAD_ENDPOINT_SEGMENTS {
+        for segment in UPLOAD_ENDPOINT_PATH.trim_start_matches('/').split('/') {
             segments.push(segment);
         }
     }
@@ -219,11 +212,9 @@ pub enum PublishError {
 // --- Private helpers ---
 
 struct PublishPreparation {
-    name: String,
-    version: String,
-    file_name: String,
+    purl_versioned: String,
     // Keep upload payload in `Bytes` so request retries clone cheaply.
-    file_bytes: Bytes,
+    kpar_bytes: Bytes,
     metadata: String,
 }
 
@@ -267,9 +258,7 @@ fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Publis
     })?;
     let normalized_publisher = normalize_field(publisher);
     let normalized_name = normalize_field(name);
-    let purl = format!("pkg:sysand/{normalized_publisher}/{normalized_name}@{version}");
-
-    let file_name = path.file_name().unwrap_or(path.as_str()).to_string();
+    let purl_versioned = format!("pkg:sysand/{normalized_publisher}/{normalized_name}@{version}");
 
     let file_size = std::fs::metadata(path)
         .map_err(|e| PublishError::KparRead(path.as_str().into(), e))?
@@ -281,21 +270,19 @@ fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Publis
         });
     }
 
-    let file_bytes =
+    let kpar_bytes =
         std::fs::read(path).map_err(|e| PublishError::KparRead(path.as_str().into(), e))?;
-    let sha256_digest = format!("{:x}", sha2::Sha256::digest(&file_bytes));
+    let sha256_digest = format!("{:x}", sha2::Sha256::digest(&kpar_bytes));
     let metadata = serde_json::json!({
-        "purl": purl,
+        "purl": purl_versioned,
         "sha256_digest": sha256_digest,
     })
     .to_string();
 
     Ok(PublishPreparation {
-        name: name.clone(),
-        version: version.clone(),
-        file_name,
-        file_bytes: Bytes::from(file_bytes),
+        purl_versioned,
         metadata,
+        kpar_bytes: Bytes::from(kpar_bytes),
     })
 }
 
@@ -388,18 +375,22 @@ fn normalize_field(s: &str) -> String {
     s.to_ascii_lowercase().replace(' ', "-")
 }
 
-fn error_body_to_string(body_bytes: &[u8]) -> String {
-    if body_bytes.is_empty() {
-        return "empty response body".to_string();
-    }
+#[derive(Deserialize)]
+struct ErrorResponse {
+    error: String,
+}
 
+fn error_body_to_string(body_bytes: &[u8]) -> String {
     let text = String::from_utf8_lossy(body_bytes);
     let trimmed = text.trim();
+
     if trimmed.is_empty() {
-        "empty response body".to_string()
-    } else {
-        trimmed.to_string()
+        return "no error details provided".to_string();
     }
+
+    serde_json::from_str::<ErrorResponse>(trimmed)
+        .map(|error| error.error)
+        .unwrap_or_else(|_| trimmed.to_string())
 }
 
 #[cfg(test)]

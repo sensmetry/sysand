@@ -119,14 +119,14 @@ fn error_body_to_string_trims_text_content() {
 }
 
 #[test]
-fn error_body_to_string_preserves_json_as_text() {
+fn error_body_to_string_extracts_error_from_json() {
     assert_eq!(
-        error_body_to_string(br#"{"error":"Invalid token","detail":"Token not found or invalid"}"#),
-        r#"{"error":"Invalid token","detail":"Token not found or invalid"}"#
+        error_body_to_string(br#"{"error":"Invalid token"}"#),
+        "Invalid token"
     );
 }
 
 #[test]
 fn error_body_to_string_reports_empty_body() {
-    assert_eq!(error_body_to_string(b" \n\t "), "empty response body");
+    assert_eq!(error_body_to_string(b" \n\t "), "no error details provided");
 }

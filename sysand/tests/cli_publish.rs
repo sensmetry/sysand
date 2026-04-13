@@ -221,7 +221,6 @@ fn test_publish_with_explicit_index_succeeds() -> TestResult {
             Matcher::Regex(r#"Content-Type: application/json"#.to_string()),
             Matcher::Regex(r#""sha256_digest":"[0-9a-f]{64}""#.to_string()),
             Matcher::Regex(r#"name="kpar""#.to_string()),
-            Matcher::Regex(r#"filename=".*\.kpar""#.to_string()),
             Matcher::Regex(r#"Content-Type: application/zip"#.to_string()),
         ]))
         .with_status(201)
@@ -416,7 +415,6 @@ fn test_publish_canonicalizes_modern_project_id() -> TestResult {
             ),
             Matcher::Regex(r#""sha256_digest":"[0-9a-f]{64}""#.to_string()),
             Matcher::Regex(r#"name="kpar""#.to_string()),
-            Matcher::Regex(r#"filename="artifact\.kpar""#.to_string()),
             Matcher::Regex(r#"Content-Type: application/zip"#.to_string()),
         ]))
         .with_status(201)
@@ -592,15 +590,12 @@ fn test_publish_409_maps_to_conflict_error() -> TestResult {
 }
 
 #[test]
-fn test_publish_500_json_error_body_is_rendered_as_text() -> TestResult {
+fn test_publish_500_json_error_body_extracts_error_message() -> TestResult {
     assert_publish_error_status(
         "publish-server-error",
         500,
-        r#"{"error":"Invalid token","detail":"Token not found or invalid"}"#,
+        r#"{"error":"Invalid token"}"#,
         Some("application/json"),
-        &[
-            "server error (500)",
-            r#"{"error":"Invalid token","detail":"Token not found or invalid"}"#,
-        ],
+        &["server error (500)", "Invalid token"],
     )
 }
