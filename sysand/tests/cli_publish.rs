@@ -592,7 +592,7 @@ fn test_publish_409_maps_to_conflict_error() -> TestResult {
 }
 
 #[test]
-fn test_publish_500_json_error_body_is_summarized() -> TestResult {
+fn test_publish_500_json_error_body_is_rendered_as_text() -> TestResult {
     assert_publish_error_status(
         "publish-server-error",
         500,
@@ -600,7 +600,7 @@ fn test_publish_500_json_error_body_is_summarized() -> TestResult {
         Some("application/json"),
         &[
             "server error (500)",
-            "Invalid token: Token not found or invalid",
+            r#"{"error":"Invalid token","detail":"Token not found or invalid"}"#,
         ],
     )
 }

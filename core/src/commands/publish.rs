@@ -16,8 +16,6 @@ use crate::{
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
 const MAX_KPAR_PUBLISH_SIZE: u64 = 100 * 1024 * 1024;
-/// Maximum number of characters to include when summarizing an error response body.
-const MAX_ERROR_BODY_CHARS: usize = 1024;
 /// Path segments appended to the index URL to form the upload endpoint.
 const UPLOAD_ENDPOINT_SEGMENTS: [&str; 3] = ["api", "v1", "upload"];
 
@@ -126,9 +124,7 @@ pub fn build_upload_url(index: &Url) -> Result<Url, PublishError> {
     }
 
     {
-        let mut segments = upload_url
-            .path_segments_mut()
-            .unwrap();
+        let mut segments = upload_url.path_segments_mut().unwrap();
         for segment in UPLOAD_ENDPOINT_SEGMENTS {
             segments.push(segment);
         }
@@ -321,10 +317,10 @@ fn map_publish_response(
             message: String::from_utf8_lossy(body_bytes).into_owned(),
             is_new_project: true,
         }),
-        401 | 403 => Err(PublishError::AuthError(summarize_error_body(body_bytes))),
-        409 => Err(PublishError::Conflict(summarize_error_body(body_bytes))),
-        400 => Err(PublishError::BadRequest(summarize_error_body(body_bytes))),
-        404 => Err(PublishError::NotFound(summarize_error_body(body_bytes))),
+        401 | 403 => Err(PublishError::AuthError(error_body_to_string(body_bytes))),
+        409 => Err(PublishError::Conflict(error_body_to_string(body_bytes))),
+        400 => Err(PublishError::BadRequest(error_body_to_string(body_bytes))),
+        404 => Err(PublishError::NotFound(error_body_to_string(body_bytes))),
         _ => {
             log::warn!(
                 "publish failed: request URL `{}`, final URL `{}`, status {}",
@@ -334,7 +330,7 @@ fn map_publish_response(
             );
             Err(PublishError::ServerError {
                 status,
-                body: summarize_error_body(body_bytes),
+                body: error_body_to_string(body_bytes),
             })
         }
     }
@@ -392,61 +388,18 @@ fn normalize_field(s: &str) -> String {
     s.to_ascii_lowercase().replace(' ', "-")
 }
 
-fn summarize_error_body(body_bytes: &[u8]) -> String {
+fn error_body_to_string(body_bytes: &[u8]) -> String {
     if body_bytes.is_empty() {
         return "empty response body".to_string();
     }
 
-    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(body_bytes) {
-        let error = json.get("error").and_then(|v| v.as_str());
-        let detail = json.get("detail").and_then(|v| v.as_str());
-        let message = match (error, detail) {
-            (Some(error), Some(detail)) => format!("{error}: {detail}"),
-            (Some(error), None) => error.to_string(),
-            (None, Some(detail)) => detail.to_string(),
-            (None, None) => String::new(),
-        };
-        if !message.is_empty() {
-            return summarize_error_text(&message);
-        }
-    }
-
-    match std::str::from_utf8(body_bytes) {
-        Ok(text) => {
-            if text.chars().any(|c| c.is_control() && !c.is_whitespace()) {
-                return format!(
-                    "unexpected non-text error response ({} bytes)",
-                    body_bytes.len()
-                );
-            }
-            summarize_error_text(text)
-        }
-        Err(_) => format!(
-            "unexpected non-text error response ({} bytes)",
-            body_bytes.len()
-        ),
-    }
-}
-
-fn summarize_error_text(text: &str) -> String {
+    let text = String::from_utf8_lossy(body_bytes);
     let trimmed = text.trim();
     if trimmed.is_empty() {
-        return "empty response body".to_string();
+        "empty response body".to_string()
+    } else {
+        trimmed.to_string()
     }
-
-    let mut summarized = trimmed.to_string();
-    if summarized.len() > MAX_ERROR_BODY_CHARS {
-        let mut cutoff = MAX_ERROR_BODY_CHARS;
-        while !summarized.is_char_boundary(cutoff) {
-            cutoff -= 1;
-        }
-        summarized.truncate(cutoff);
-    }
-    if summarized.len() < trimmed.len() {
-        summarized.push_str(" ... [truncated]");
-    }
-
-    summarized
 }
 
 #[cfg(test)]

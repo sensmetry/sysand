@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::{
-    MAX_ERROR_BODY_CHARS, PublishError, build_upload_url, is_valid_name, is_valid_publisher,
-    normalize_field, summarize_error_body,
+    PublishError, build_upload_url, error_body_to_string, is_valid_name, is_valid_publisher,
+    normalize_field,
 };
 use url::Url;
 
@@ -114,25 +114,19 @@ fn build_upload_url_rejects_non_hierarchical_url() {
 }
 
 #[test]
-fn summarize_error_body_extracts_json_error_and_detail() {
+fn error_body_to_string_trims_text_content() {
+    assert_eq!(error_body_to_string(b"  unauthorized\n"), "unauthorized");
+}
+
+#[test]
+fn error_body_to_string_preserves_json_as_text() {
     assert_eq!(
-        summarize_error_body(br#"{"error":"Invalid token","detail":"Token not found or invalid"}"#),
-        "Invalid token: Token not found or invalid"
+        error_body_to_string(br#"{"error":"Invalid token","detail":"Token not found or invalid"}"#),
+        r#"{"error":"Invalid token","detail":"Token not found or invalid"}"#
     );
 }
 
 #[test]
-fn summarize_error_body_falls_back_for_non_text_bytes() {
-    assert_eq!(
-        summarize_error_body(&[0, 159, 255]),
-        "unexpected non-text error response (3 bytes)"
-    );
-}
-
-#[test]
-fn summarize_error_body_truncates_text_content() {
-    let long = "x".repeat(MAX_ERROR_BODY_CHARS + 20);
-    let summarized = summarize_error_body(long.as_bytes());
-    assert!(summarized.ends_with(" ... [truncated]"));
-    assert!(summarized.len() > MAX_ERROR_BODY_CHARS);
+fn error_body_to_string_reports_empty_body() {
+    assert_eq!(error_body_to_string(b" \n\t "), "empty response body");
 }
