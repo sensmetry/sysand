@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
 use std::io::{Read as _, Write};
 
 use camino_tempfile::tempdir;

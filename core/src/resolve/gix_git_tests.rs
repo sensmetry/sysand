@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
 use crate::resolve::{ResolutionOutcome, ResolveRead, gix_git::GitResolver};
 
 fn un_once<T>(x: &mut std::iter::Once<T>) -> T {

@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
 #![allow(unused_imports)]
+
 use std::{io::Read, process::Command};
 
 use assert_cmd::prelude::*;
