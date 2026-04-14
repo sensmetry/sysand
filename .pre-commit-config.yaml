@@ -27,6 +27,21 @@ repos:
               \.lock
           )
 
+  # Autoformat: Ensure SPDX license and copyright headers
+  - repo: local
+    hooks:
+      - id: reuse-annotate
+        name: reuse annotate
+        language: system
+        entry: uv tool run reuse annotate
+        args:
+          - --license=MIT OR Apache-2.0
+          - --copyright=Sysand contributors <opensource@sensmetry.com>
+          - --copyright-prefix=spdx-symbol
+          - --template=compact
+          - --skip-existing
+        types_or: [rust, python, java, groovy, shell, xml, javascript]
+
   # Autoformat: rust
   - repo: local
     hooks:
