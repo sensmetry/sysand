@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
 set -eu
 
 # Compute the root directory based on the location of this script.

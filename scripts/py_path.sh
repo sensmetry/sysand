@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
 # Workaround to make pyo3 embedded Python detect venv python libs.
 # See https://github.com/PyO3/pyo3/issues/1741
 OS="$(uname -s)"

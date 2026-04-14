@@ -1,6 +1,5 @@
-# SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
-#
 # SPDX-License-Identifier: MIT OR Apache-2.0
+# SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 from __future__ import annotations
 from typing import List

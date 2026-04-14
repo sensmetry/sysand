@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
 # Assumes that Java, Maven, and Python are installed.
 
 set -eu

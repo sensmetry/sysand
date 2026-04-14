@@ -1,8 +1,7 @@
 #!/bin/sh
 
-# SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
-#
 # SPDX-License-Identifier: MIT OR Apache-2.0
+# SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 # This script expects to be executed in CI from the root of the repository.
 # Usage: .github/scripts/run-pytest.sh
