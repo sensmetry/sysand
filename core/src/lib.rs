@@ -62,11 +62,5 @@ compile_error!("`std` feature is currently required to build `sysand`");
 // Private tests
 
 #[cfg(test)]
-mod tests {
-    //use crate::{Message, get_message};
-
-    #[test]
-    fn placeholder_test() {
-        assert_eq!(1, 1);
-    }
-}
+#[path = "./lib_tests.rs"]
+mod tests;

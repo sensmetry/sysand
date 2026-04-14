@@ -67,11 +67,5 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
 
 #[cfg(feature = "filesystem")]
 #[cfg(test)]
-mod tests {
-    use crate::project::{local_kpar::LocalKParProject, reference::ProjectReference};
-    #[test]
-    fn test_kpar() {
-        let kpar = ProjectReference::new(LocalKParProject::new("path", "root").unwrap());
-        let _clone = kpar.clone();
-    }
-}
+#[path = "./reference_tests.rs"]
+mod tests;
