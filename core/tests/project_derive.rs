@@ -180,3 +180,23 @@ fn test_macro_write_source() {
 
     assert_eq!(buffer, file_content);
 }
+
+#[derive(ProjectRead)]
+enum GenericProjectRead<SomeProject: ProjectRead> {
+    Variant(SomeProject),
+}
+
+#[test]
+fn test_macro_generic_read() {
+    let _project = GenericProjectRead::<InMemoryProject>::Variant(InMemoryProject::new());
+}
+
+#[derive(ProjectRead, ProjectMut)]
+enum GenericProjectMut<SomeProject: ProjectRead + ProjectMut> {
+    Variant(SomeProject),
+}
+
+#[test]
+fn test_macro_generic_mut() {
+    let _project = GenericProjectMut::<InMemoryProject>::Variant(InMemoryProject::new());
+}
