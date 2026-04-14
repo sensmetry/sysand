@@ -1,5 +1,5 @@
-// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 //! This module implements accessing interchanged projects stored remotely over HTTP.
 

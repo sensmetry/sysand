@@ -1,5 +1,5 @@
-// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use anyhow::{Result, bail};
 use camino::Utf8PathBuf;

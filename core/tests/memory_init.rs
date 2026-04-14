@@ -1,5 +1,5 @@
-// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use semver::Version;
 use sysand_core::{commands::init::do_init, init::do_init_memory, model::InterchangeProjectInfo};

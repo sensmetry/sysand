@@ -1,5 +1,5 @@
-// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use env_logger::{Builder, Target, fmt::Formatter};
 use log::{LevelFilter, Record, SetLoggerError};
