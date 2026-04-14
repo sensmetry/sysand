@@ -217,7 +217,11 @@ fn publish_with_explicit_index_succeeds() -> TestResult {
         .match_body(Matcher::AllOf(vec![
             Matcher::Regex(r#"name="metadata""#.to_string()),
             Matcher::Regex(r#"Content-Type: application/json"#.to_string()),
-            Matcher::Regex(r#""sha256_digest":"[0-9a-f]{64}""#.to_string()),
+            Matcher::Regex(r#""kpar_sha256_digest":"[0-9a-f]{64}""#.to_string()),
+            Matcher::Regex(r#""normalized_publisher":"#.to_string()),
+            Matcher::Regex(r#""normalized_name":"#.to_string()),
+            Matcher::Regex(r#""version":"#.to_string()),
+            Matcher::Regex(r#""license":"#.to_string()),
             Matcher::Regex(r#"name="kpar""#.to_string()),
             Matcher::Regex(r#"Content-Type: application/zip"#.to_string()),
         ]))
@@ -408,7 +412,11 @@ fn publish_sends_kpar_with_integrity_metadata() -> TestResult {
         )
         .match_body(Matcher::AllOf(vec![
             Matcher::Regex(r#"name="metadata""#.to_string()),
-            Matcher::Regex(r#""sha256_digest":"[0-9a-f]{64}""#.to_string()),
+            Matcher::Regex(r#""kpar_sha256_digest":"[0-9a-f]{64}""#.to_string()),
+            Matcher::Regex(r#""normalized_publisher":"acme-labs""#.to_string()),
+            Matcher::Regex(r#""normalized_name":"my.project-alpha""#.to_string()),
+            Matcher::Regex(r#""version":"1.0.0""#.to_string()),
+            Matcher::Regex(r#""license":"MIT""#.to_string()),
             Matcher::Regex(r#"name="kpar""#.to_string()),
             Matcher::Regex(r#"Content-Type: application/zip"#.to_string()),
         ]))

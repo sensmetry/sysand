@@ -7,7 +7,7 @@ use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
 use sysand_core::{
     auth::{GlobMapResult, StandardHTTPAuthentication},
-    build::default_kpar_file_name,
+    build::default_kpar_path,
     commands::publish::{build_upload_url, do_publish},
     context::ProjectContext,
     project::utils::wrapfs,
@@ -97,15 +97,9 @@ fn resolve_publish_kpar_path(
         (None, None) => return Err(CliError::MissingProjectCurrentDir.into()),
     };
 
-    // Default to attempting to publish the .kpar emitted from the build
-    // command, which will be at the workspace root's output folder rather than
-    // the project's folder if the project is part of a workspace.
-    let mut path = ctx
-        .current_workspace
-        .as_ref()
-        .map(|workspace| workspace.root_path())
-        .unwrap_or(&current_project.project_path)
-        .join("output");
-    path.push(default_kpar_file_name(current_project)?);
-    Ok(path)
+    Ok(default_kpar_path(
+        current_project,
+        ctx.current_workspace.as_ref(),
+        &current_project.project_path,
+    )?)
 }

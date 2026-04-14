@@ -40,7 +40,6 @@ use sysand_core::{
     },
     resolve::net_utils::create_reqwest_client,
     stdlib::known_std_libs,
-    workspace::Workspace,
 };
 use url::Url;
 
@@ -643,18 +642,17 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let path = if let Some(path) = path {
                     path
                 } else {
-                    let mut output_dir = ctx
-                        .current_workspace
-                        .as_ref()
-                        .map(Workspace::root_path)
-                        .unwrap_or_else(|| &current_project.project_path)
-                        .join("output");
-                    let name = sysand_core::build::default_kpar_file_name(&current_project)?;
-                    if !wrapfs::is_dir(&output_dir)? {
-                        wrapfs::create_dir(&output_dir)?;
+                    let path = sysand_core::build::default_kpar_path(
+                        &current_project,
+                        ctx.current_workspace.as_ref(),
+                        &current_project.project_path,
+                    )?;
+                    if let Some(output_dir) = path.parent()
+                        && !wrapfs::is_dir(output_dir)?
+                    {
+                        wrapfs::create_dir(output_dir)?;
                     }
-                    output_dir.push(name);
-                    output_dir
+                    path
                 };
                 command_build_for_project(
                     path,
