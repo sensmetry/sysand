@@ -67,7 +67,7 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
 
 #[cfg(feature = "filesystem")]
 #[cfg(test)]
-mod test {
+mod tests {
     use crate::project::{local_kpar::LocalKParProject, reference::ProjectReference};
     #[test]
     fn test_kpar() {

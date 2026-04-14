@@ -354,7 +354,7 @@ impl<Project: ProjectRead + Clone + Debug> ReadEnvironment for MemoryStorageEnvi
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::collections::HashMap;
 
     use crate::{

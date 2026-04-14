@@ -314,7 +314,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for HTTPEnvironmentAsync<P
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::sync::Arc;
 
     use crate::{
