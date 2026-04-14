@@ -1,4 +1,4 @@
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
 use crate::{
@@ -207,6 +207,19 @@ impl<ProjectReadError: ErrorBound> From<IntoKparError<LocalSrcError>>
             IntoKparError::Serialize(msg, e) => Self::Serialize(msg, e),
         }
     }
+}
+
+pub fn default_kpar_path<Pr: ProjectRead>(
+    project: &Pr,
+    workspace: Option<&Workspace>,
+    project_path: &Utf8Path,
+) -> Result<Utf8PathBuf, KParBuildError<Pr::Error>> {
+    let mut path = workspace
+        .map(Workspace::root_path)
+        .unwrap_or(project_path)
+        .join("output");
+    path.push(default_kpar_file_name(project)?);
+    Ok(path)
 }
 
 pub fn default_kpar_file_name<Pr: ProjectRead>(

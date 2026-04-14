@@ -416,6 +416,32 @@ pub type StandardHTTPAuthentication = RestrictAuthentication<
     Unauthenticated,
 >;
 
+impl StandardHTTPAuthentication {
+    /// Extracts the bearer tokens from the configured credential set into a URL-glob map
+    /// suitable for driving publish-time credential selection. Basic-auth entries are
+    /// dropped, since publish only supports bearer authentication.
+    pub fn try_into_publish_bearer_auth_map(
+        self,
+    ) -> Result<GlobMap<ForceBearerAuth>, globset::Error> {
+        let mut partial = GlobMapBuilder::new();
+
+        // `GlobMap` stores keys and values in parallel vectors; consume `self` so we
+        // can move bearer tokens into a publish-only map without cloning secrets.
+        for (key, sequence_auth) in self
+            .restricted
+            .keys
+            .into_iter()
+            .zip(self.restricted.values.into_iter())
+        {
+            if let StandardInnerAuthentication::BearerAuth(inner) = sequence_auth.lower {
+                partial.add(key, inner);
+            }
+        }
+
+        partial.build()
+    }
+}
+
 /// Utility to simplify construction of `StandardHTTPAuthentication`
 #[derive(Debug, Default, Clone)]
 pub struct StandardHTTPAuthenticationBuilder {

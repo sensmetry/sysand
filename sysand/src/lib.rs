@@ -40,7 +40,6 @@ use sysand_core::{
     },
     resolve::net_utils::create_reqwest_client,
     stdlib::known_std_libs,
-    workspace::Workspace,
 };
 use url::Url;
 
@@ -59,6 +58,7 @@ use crate::{
         init::command_init,
         lock::command_lock,
         print_root::command_print_root,
+        publish::command_publish,
         remove::command_remove,
         sources::{command_sources_env, command_sources_project},
         sync::command_sync,
@@ -267,7 +267,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
     }
-    let basic_auth_policy = Arc::new(auths_builder.build()?);
+    let auth_policy = Arc::new(auths_builder.build()?);
 
     match args.command {
         Command::Init {
@@ -309,7 +309,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         project_root,
                         client,
                         runtime,
-                        basic_auth_policy,
+                        auth_policy,
                         ctx,
                     )
                 } else {
@@ -322,7 +322,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         project_root,
                         client,
                         runtime,
-                        basic_auth_policy,
+                        auth_policy,
                         ctx,
                     )
                 }
@@ -369,7 +369,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     project_root,
                     client,
                     runtime,
-                    basic_auth_policy,
+                    auth_policy,
                     &ctx,
                 )
                 .map(|_| ())
@@ -414,7 +414,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                             &project_root,
                             client.clone(),
                             runtime.clone(),
-                            basic_auth_policy.clone(),
+                            auth_policy.clone(),
                             &ctx,
                         )?
                     } else {
@@ -429,7 +429,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 client,
                 &provided_iris,
                 runtime,
-                basic_auth_policy,
+                auth_policy,
                 &ctx,
             )
         }
@@ -483,7 +483,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &project_root,
                 &client,
                 runtime.clone(),
-                basic_auth_policy.clone(),
+                auth_policy.clone(),
             )?;
 
             enum Location {
@@ -568,7 +568,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     &excluded_iris,
                     overrides,
                     runtime,
-                    basic_auth_policy,
+                    auth_policy,
                 ),
                 (Location::Iri(iri), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
@@ -581,7 +581,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         index_urls,
                         overrides,
                         runtime,
-                        basic_auth_policy,
+                        auth_policy,
                     )
                 }
                 (Location::Path(path), None) => command_info_path(&path, &excluded_iris),
@@ -614,7 +614,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 ctx,
                 client,
                 runtime,
-                basic_auth_policy,
+                auth_policy,
             )
         }
         Command::Remove { locator } => {
@@ -642,18 +642,17 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 let path = if let Some(path) = path {
                     path
                 } else {
-                    let mut output_dir = ctx
-                        .current_workspace
-                        .as_ref()
-                        .map(Workspace::root_path)
-                        .unwrap_or_else(|| &current_project.project_path)
-                        .join("output");
-                    let name = sysand_core::build::default_kpar_file_name(&current_project)?;
-                    if !wrapfs::is_dir(&output_dir)? {
-                        wrapfs::create_dir(&output_dir)?;
+                    let path = sysand_core::build::default_kpar_path(
+                        &current_project,
+                        ctx.current_workspace.as_ref(),
+                        &current_project.project_path,
+                    )?;
+                    if let Some(output_dir) = path.parent()
+                        && !wrapfs::is_dir(output_dir)?
+                    {
+                        wrapfs::create_dir(output_dir)?;
                     }
-                    output_dir.push(name);
-                    output_dir
+                    path
                 };
                 command_build_for_project(
                     path,
@@ -680,6 +679,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     allow_path_usage,
                 )
             }
+        }
+        cli::Command::Publish { path, index } => {
+            command_publish(path, index, &ctx, auth_policy, client, runtime)
         }
         Command::Sources { sources_opts } => {
             let cli::SourcesOptions {
@@ -711,7 +713,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             &config,
             client,
             runtime,
-            basic_auth_policy,
+            auth_policy,
         ),
     }
 }
