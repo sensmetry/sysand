@@ -48,14 +48,14 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
     let build_request = move |c: &reqwest_middleware::ClientWithMiddleware| {
         let metadata_part = reqwest::multipart::Part::text(metadata.clone())
             .mime_str("application/json")
-            .expect("hard-coded content type must be a valid MIME");
+            .unwrap();
         let kpar_part = reqwest::multipart::Part::stream(kpar_bytes.clone())
             // we declare an arbitrary filename to help server side libraries
             // make reasonable assumptions reading the POST request, such as not
             // trying to parse the binary data as UTF-8 or similar
             .file_name("project.kpar")
             .mime_str("application/zip")
-            .expect("hard-coded content type must be a valid MIME");
+            .unwrap();
 
         let form = reqwest::multipart::Form::new()
             .part("metadata", metadata_part)
