@@ -1,5 +1,5 @@
-// SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::{
     PublishError, build_upload_url, error_body_to_string, is_valid_name, is_valid_publisher,
