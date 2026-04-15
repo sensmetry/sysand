@@ -8,7 +8,7 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    project::ProjectRead,
+    project::{CanonicalizationError, ProjectRead},
     resolve::{ResolveRead, null::NullResolver},
 };
 
@@ -127,6 +127,61 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
         match self {
             RemoteProject::HTTPProject(project) => project.is_definitely_invalid(),
             RemoteProject::GitProject(project) => project.is_definitely_invalid(),
+        }
+    }
+
+    fn get_info(&self) -> Result<Option<crate::model::InterchangeProjectInfoRaw>, Self::Error> {
+        match self {
+            RemoteProject::HTTPProject(project) => {
+                project.get_info().map_err(RemoteProjectError::HTTPRead)
+            }
+            RemoteProject::GitProject(project) => {
+                project.get_info().map_err(RemoteProjectError::GitRead)
+            }
+        }
+    }
+
+    fn get_meta(&self) -> Result<Option<crate::model::InterchangeProjectMetadataRaw>, Self::Error> {
+        match self {
+            RemoteProject::HTTPProject(project) => {
+                project.get_meta().map_err(RemoteProjectError::HTTPRead)
+            }
+            RemoteProject::GitProject(project) => {
+                project.get_meta().map_err(RemoteProjectError::GitRead)
+            }
+        }
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        match self {
+            RemoteProject::HTTPProject(project) => {
+                project.version().map_err(RemoteProjectError::HTTPRead)
+            }
+            RemoteProject::GitProject(project) => {
+                project.version().map_err(RemoteProjectError::GitRead)
+            }
+        }
+    }
+
+    fn usage(&self) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
+        match self {
+            RemoteProject::HTTPProject(project) => {
+                project.usage().map_err(RemoteProjectError::HTTPRead)
+            }
+            RemoteProject::GitProject(project) => {
+                project.usage().map_err(RemoteProjectError::GitRead)
+            }
+        }
+    }
+
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
+        match self {
+            RemoteProject::HTTPProject(project) => project
+                .checksum_canonical_hex()
+                .map_err(|e| e.map_project_read(RemoteProjectError::HTTPRead)),
+            RemoteProject::GitProject(project) => project
+                .checksum_canonical_hex()
+                .map_err(|e| e.map_project_read(RemoteProjectError::GitRead)),
         }
     }
 }

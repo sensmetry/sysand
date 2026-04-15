@@ -35,6 +35,19 @@ pub type InterchangeProjectUsage =
 
 impl InterchangeProjectUsageRaw {
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
+        // `pkg:sysand/<publisher>/<name>` is the canonical sysand project
+        // identifier; the index protocol routes it directly under
+        // `<publisher>/<name>/`. Reject malformed or non-normalized
+        // `pkg:sysand` IRIs at validation time so users get an actionable
+        // error (with a suggested normalized form) instead of a downstream
+        // "not found" — see `crate::purl::parse_sysand_purl`.
+        if let Err(source) = crate::purl::parse_sysand_purl(&self.resource) {
+            return Err(InterchangeProjectValidationError::MalformedSysandPurl {
+                iri: self.resource.clone(),
+                source,
+            });
+        }
+
         Ok(InterchangeProjectUsage {
             resource: fluent_uri::Iri::parse(self.resource.clone())
                 .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
@@ -468,13 +481,21 @@ pub enum InterchangeProjectValidationError {
     },
     #[error("checksum `{cksum}`\ncontains invalid symbols (only `A-Fa-f0-9` are allowed)")]
     NonHexChecksumChars { cksum: Box<str> },
+    #[error("malformed `pkg:sysand` IRI `{iri}`: {source}")]
+    MalformedSysandPurl {
+        iri: String,
+        #[source]
+        source: crate::purl::SysandPurlError,
+    },
 }
 
 impl Default for InterchangeProjectMetadataRaw {
     fn default() -> Self {
         InterchangeProjectMetadataRaw {
             index: IndexMap::default(),
-            created: chrono::Utc::now().to_rfc3339(),
+            // created's format must match the `From<InterchangeProjectMetadata>
+            // for InterchangeProjectMetadataRaw` impl.
+            created: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,

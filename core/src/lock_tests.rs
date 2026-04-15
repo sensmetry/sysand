@@ -307,6 +307,7 @@ fn many_sources_to_toml() {
                 Source::RemoteKpar {
                     remote_kpar: "www.example.com/remote.kpar".to_string(),
                     remote_kpar_size: Some(64),
+                    remote_kpar_digest: None,
                 },
                 Source::RemoteSrc {
                     remote_src: "www.example.com/remote".to_string(),

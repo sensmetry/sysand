@@ -8,7 +8,7 @@ use std::{
 
 use sysand_core::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectMut, ProjectRead, memory::InMemoryProject},
+    project::{CanonicalizationError, ProjectMut, ProjectRead, memory::InMemoryProject},
 };
 
 // Have to have these in scope for ProjectRead
@@ -189,6 +189,77 @@ enum GenericProjectRead<SomeProject: ProjectRead> {
 #[test]
 fn test_macro_generic_read() {
     let _project = GenericProjectRead::<InMemoryProject>::Variant(InMemoryProject::new());
+}
+
+/// Test double that returns a fixed canonical digest without touching
+/// info/meta/sources — mimics a leaf type (e.g. a remote-index-backed
+/// project) that supplies a prefetched `project_digest` out of band.
+#[derive(Debug)]
+struct FixedDigestProject {
+    digest: String,
+}
+
+impl ProjectRead for FixedDigestProject {
+    type Error = std::convert::Infallible;
+
+    fn get_project(
+        &self,
+    ) -> Result<
+        (
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
+        ),
+        Self::Error,
+    > {
+        // Intentionally return None/None: the test asserts the derived
+        // enum returns the *prefetched* digest directly; if the enum
+        // falls through to the trait default it would call `get_info`
+        // and `canonical_meta` here, see None, and return Ok(None) —
+        // which would fail the assertion below.
+        Ok((None, None))
+    }
+
+    type SourceReader<'a>
+        = Cursor<Vec<u8>>
+    where
+        Self: 'a;
+
+    fn read_source<P: AsRef<Utf8UnixPath>>(
+        &self,
+        _path: P,
+    ) -> Result<Self::SourceReader<'_>, Self::Error> {
+        Ok(Cursor::new(vec![]))
+    }
+
+    fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        Ok(vec![])
+    }
+
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
+        Ok(Some(self.digest.clone()))
+    }
+}
+
+#[derive(ProjectRead)]
+enum WrappingEnum<Inner: ProjectRead> {
+    Variant(Inner),
+}
+
+#[test]
+fn test_derive_forwards_checksum_canonical_hex() {
+    // A derived enum must delegate `checksum_canonical_hex` to the active
+    // variant. Without this, a leaf type that supplies a prefetched digest
+    // (like the remote-index project after versions.json lands) would be
+    // bypassed by the trait default's info+canonical_meta fallback.
+    let leaf = FixedDigestProject {
+        digest: "deadbeef".to_string(),
+    };
+    let wrapped = WrappingEnum::Variant(leaf);
+    let got = wrapped
+        .checksum_canonical_hex()
+        .expect("forwarded impl must succeed")
+        .expect("leaf returns Some");
+    assert_eq!(got, "deadbeef");
 }
 
 #[derive(ProjectRead, ProjectMut)]

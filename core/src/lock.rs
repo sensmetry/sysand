@@ -186,6 +186,13 @@ pub enum ValidationError {
         checksum: String,
         project_with_name: String,
     },
+    #[error(
+        "invalid format of source SHA256 checksum `{checksum}` for {project_with_name} in lockfile"
+    )]
+    InvalidSourceChecksumFormat {
+        checksum: String,
+        project_with_name: String,
+    },
 }
 
 pub type ProjectResolution<Env> = (
@@ -266,6 +273,7 @@ impl Lock {
         self.check_name_collision()?;
         self.validate_usages()?;
         self.validate_checksum_format()?;
+        self.validate_source_checksum_format()?;
         Ok(())
     }
 
@@ -349,6 +357,34 @@ impl Lock {
         }
     }
 
+    fn validate_source_checksum_format(&self) -> Result<(), ValidationError> {
+        let fail = self.projects.iter().find_map(|project| {
+            project.sources.iter().find_map(|source| match source {
+                Source::RemoteKpar {
+                    remote_kpar_digest: Some(remote_kpar_digest),
+                    ..
+                } if remote_kpar_digest.len() != 64
+                    || !remote_kpar_digest.bytes().all(|c| c.is_ascii_hexdigit()) =>
+                {
+                    Some((
+                        remote_kpar_digest.clone(),
+                        project.name.clone(),
+                        project.identifiers.first().cloned(),
+                    ))
+                }
+                _ => None,
+            })
+        });
+        if let Some((checksum, name, identifier)) = fail {
+            Err(ValidationError::InvalidSourceChecksumFormat {
+                checksum,
+                project_with_name: identifier.unwrap_or_else(|| project_with(name)),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
     /// Should always be called before writing lock to file.
     /// Makes lock canonical:
     ///
@@ -377,6 +413,15 @@ impl Lock {
     pub fn canonicalize_checksums(&mut self) {
         for project in &mut self.projects {
             project.checksum.make_ascii_lowercase();
+            for source in &mut project.sources {
+                if let Source::RemoteKpar {
+                    remote_kpar_digest: Some(remote_kpar_digest),
+                    ..
+                } = source
+                {
+                    remote_kpar_digest.make_ascii_lowercase();
+                }
+            }
         }
     }
 }
@@ -493,6 +538,7 @@ const SOURCE_ENTRIES: &[&str] = &[
     "remote_src",
     "remote_kpar",
     "remote_kpar_size",
+    "remote_kpar_digest",
     "remote_git",
     "remote_api",
 ];
@@ -522,12 +568,17 @@ pub enum Source {
         )]
         kpar_path: Utf8UnixPathBuf,
     },
+    // TODO(index-vocab): rename to `Index` with a serde-renamed `index` TOML key
+    // in the next lockfile-version bump; the rest of the codebase and the
+    // index-protocol spec now use "index" rather than "registry".
     Registry {
         registry: String,
     },
     RemoteKpar {
         remote_kpar: String,
         remote_kpar_size: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        remote_kpar_digest: Option<String>,
     },
     RemoteSrc {
         remote_src: String,
@@ -569,11 +620,15 @@ impl Source {
             Source::RemoteKpar {
                 remote_kpar,
                 remote_kpar_size,
+                remote_kpar_digest,
             } => {
                 table.insert("remote_kpar", Value::from(remote_kpar));
                 if let Some(remote_kpar_size) = remote_kpar_size {
                     let size = i64::try_from(*remote_kpar_size).unwrap();
                     table.insert("remote_kpar_size", Value::Integer(Formatted::new(size)));
+                }
+                if let Some(remote_kpar_digest) = remote_kpar_digest {
+                    table.insert("remote_kpar_digest", Value::from(remote_kpar_digest));
                 }
             }
             Source::RemoteSrc { remote_src } => {

@@ -34,6 +34,8 @@ pub mod any;
 pub mod editable;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod gix_git_download;
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod index_entry;
 #[cfg(feature = "filesystem")]
 pub mod local_kpar;
 #[cfg(feature = "filesystem")]
@@ -53,6 +55,54 @@ pub mod cached;
 pub mod reference;
 
 pub mod utils;
+
+/// Attempts to compute the canonical project digest without reading any
+/// source files.
+///
+/// Canonicalization (see [`ProjectRead::canonical_meta`]) lowercases SHA256
+/// checksum values and rewrites non-SHA256 checksum entries to SHA256 —
+/// the latter requires reading the corresponding source file. This helper
+/// handles the first case inline and signals the caller to defer to the
+/// full (source-reading) canonical digest path in the second case.
+///
+/// Returns `Some(hash)` when every `meta.checksum` entry uses the `SHA256`
+/// algorithm (mixed-case hex values are lowercased inline before hashing).
+/// Returns `None` when at least one entry uses a non-SHA256 algorithm, since
+/// canonicalizing that entry would require reading its source.
+///
+/// Callers verifying an advertised `project_digest` against a locally
+/// reconstructed (info, meta) pair should use this to perform the check
+/// without materializing the project's archive, and fall back to
+/// [`ProjectRead::checksum_canonical_hex`] / the async equivalent when this
+/// returns `None`.
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub(crate) fn canonical_project_digest_inline(
+    info: &InterchangeProjectInfoRaw,
+    meta: &InterchangeProjectMetadataRaw,
+) -> Option<ProjectHash> {
+    let sha256_alg: &str = KerMlChecksumAlg::Sha256.into();
+
+    // Fast path: no checksums at all means canonical == raw.
+    let needs_canonicalization = meta
+        .checksum
+        .as_ref()
+        .is_some_and(|entries| entries.values().any(|entry| entry.algorithm != sha256_alg));
+
+    if needs_canonicalization {
+        return None;
+    }
+
+    let mut canonical = meta.clone();
+    if let Some(entries) = canonical.checksum.as_mut() {
+        for (_path, entry) in entries.iter_mut() {
+            // All entries are SHA256 here (checked above); lowercase the hex
+            // value to match `canonical_meta`'s output.
+            entry.value = entry.value.to_lowercase();
+        }
+    }
+
+    Some(project_hash_raw(info, &canonical))
+}
 
 fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, io::Error> {
     let mut hasher = Sha256::new();
@@ -100,6 +150,22 @@ pub enum CanonicalizationError<ReadError: ErrorBound> {
     ProjectRead(ReadError),
     #[error("failed to read from file\n  `{0}`:\n  {1}")]
     FileRead(Box<str>, io::Error),
+}
+
+impl<E: ErrorBound> CanonicalizationError<E> {
+    /// Map the inner `ProjectRead` error type while leaving the `FileRead`
+    /// variant untouched. Convenient when forwarding a canonicalization
+    /// result across a wrapper type that rewraps the underlying read error.
+    pub fn map_project_read<F, E2>(self, f: F) -> CanonicalizationError<E2>
+    where
+        F: FnOnce(E) -> E2,
+        E2: ErrorBound,
+    {
+        match self {
+            Self::ProjectRead(e) => CanonicalizationError::ProjectRead(f(e)),
+            Self::FileRead(p, io) => CanonicalizationError::FileRead(p, io),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -243,7 +309,19 @@ pub trait ProjectRead {
             .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
     }
 
-    /// Produces a project hash based on project information and the *canonicalized* metadata.
+    /// Produces a project hash based on project information and the
+    /// *canonicalized* metadata.
+    ///
+    /// Wrapper/project-adapter impls **must** forward this method explicitly
+    /// — the trait default calls `get_info` + `canonical_meta` and will
+    /// bypass any leaf override that provides an authoritative digest
+    /// cheaply (e.g. the advertised `project_digest` carried inline by
+    /// [`crate::project::index_entry::IndexEntryProject`]). A wrapper
+    /// that doesn't forward can silently trigger a full archive download
+    /// during solving — the specific bug this contract exists to prevent.
+    /// Leaf backends may override the method to expose a prefetched digest.
+    /// See `canonical_project_digest_inline` for the inline-only
+    /// canonicalization rule used by the indexed-remote path.
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         let info = self
             .get_info()
@@ -566,7 +644,18 @@ pub trait ProjectReadAsync {
         }
     }
 
-    /// Produces a project hash based on project information and the *canonicalized* metadata.
+    /// Produces a project hash based on project information and the
+    /// *canonicalized* metadata.
+    ///
+    /// Async wrapper/project-adapter impls **must** forward this method
+    /// explicitly — the trait default calls `get_info_async` +
+    /// `canonical_meta_async` and will bypass any leaf override that
+    /// provides an authoritative digest cheaply (e.g. the advertised
+    /// `project_digest` carried inline by
+    /// [`crate::project::index_entry::IndexEntryProject`]). A wrapper
+    /// that doesn't forward can silently trigger a full archive download
+    /// during solving — the specific bug this contract exists to prevent.
+    /// Leaf backends may override the method to expose a prefetched digest.
     fn checksum_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
@@ -1053,6 +1142,38 @@ where
     async fn sources_async(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         self.inner.sources(ctx)
     }
+
+    // Forward the remaining `ProjectRead` methods explicitly so that any
+    // sync-side override on the wrapped `T` is honoured on the async
+    // side too. See `ProjectRead::checksum_canonical_hex`'s contract
+    // docstring — without these forwards, wrapping a `T` that exposes a
+    // prefetched digest (e.g. `CachedProject`) would silently fall back
+    // to a full download on the async side.
+    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        self.inner.get_info()
+    }
+
+    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        self.inner.get_meta()
+    }
+
+    async fn version_async(&self) -> Result<Option<String>, Self::Error> {
+        self.inner.version()
+    }
+
+    async fn usage_async(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        self.inner.usage()
+    }
+
+    async fn is_definitely_invalid_async(&self) -> bool {
+        self.inner.is_definitely_invalid()
+    }
+
+    async fn checksum_canonical_hex_async(
+        &self,
+    ) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
+        self.inner.checksum_canonical_hex()
+    }
 }
 
 /// Wrapper intended to wrap a `ProjectReadAsync`, indicating that it be treated as
@@ -1114,9 +1235,30 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
         self.runtime.block_on(self.inner.sources_async(ctx))
     }
 
+    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        self.runtime.block_on(self.inner.get_info_async())
+    }
+
+    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        self.runtime.block_on(self.inner.get_meta_async())
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        self.runtime.block_on(self.inner.version_async())
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        self.runtime.block_on(self.inner.usage_async())
+    }
+
     fn is_definitely_invalid(&self) -> bool {
         self.runtime
             .block_on(self.inner.is_definitely_invalid_async())
+    }
+
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
+        self.runtime
+            .block_on(self.inner.checksum_canonical_hex_async())
     }
 }
 

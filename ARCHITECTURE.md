@@ -113,7 +113,8 @@ environment can handle allocation and cleanup), `del_project_version`, and
 
 Notable implementations include `LocalDirectoryEnvironment` (filesystem),
 `MemoryStorageEnvironment<Project>` (in-memory), and
-`HTTPEnvironmentAsync<Policy>` (HTTP registry).
+`IndexEnvironmentAsync<Policy>` (remote sysand index; see
+"Index structure" below).
 
 ### Async variants
 
@@ -279,40 +280,31 @@ Refer to the [work in GitLab] for the latest details for now.
 
 ### Index environment
 
-An index environment for use by index webservers. Exactly how its managed isn't
-yet defined, but tracked in [GitHub issue
-279](https://github.com/sensmetry/sysand/issues/279).
+An index environment backs sysand index servers. The **wire contract**
+— directory layout, `index.json`, `versions.json`, per-version files,
+IRI→path resolution, required digests, and server/client obligations —
+is specified in [`docs/src/index-protocol.md`](docs/src/index-protocol.md)
+and deliberately not duplicated here.
 
-As of 2026-04 and not concluded [work in GitLab], the index environment will
-looks something like below.
+How an index is _managed_ (who publishes, how the tree is hosted and
+updated) is not yet defined; tracked in
+[GitHub issue 279](https://github.com/sensmetry/sysand/issues/279).
+Refer to the [work in GitLab] for the latest in-flight design notes.
 
-```text
-index_root
- ├──index.json
- ├──_iri
- │  ├──package_ID1
- │  │  ├──0.0.1
- │  │  └──meta.json
- │  ├──package_ID2
- │  └──package_ID3
- ├──publisher1
- │  ├──name1
- │  │  ├──0.0.1
- │  │  └──meta.json
- │  └──name2
- └──publisher2
-    └──name1
-```
+#### Client implementation notes
 
-where `index.json` should have a structure like below.
+Sysand-core specifics that aren't part of the protocol:
 
-```json
-{
-  "projects": [
-    { i = "pkg:sysand/abc/def", v = ["0.0.1", "2.3.4"] },
-    { i = "https://example.org/project.kpar", v = ["0.0.1"] }
-  ]
-}
-```
-
-Refer to the [work in GitLab] for the latest details for now.
+- `IndexEnvironmentAsync` is the client implementation; its per-version
+  leaf is `IndexEntryProject`. The three trust tiers from
+  [index-protocol.md §10](docs/src/index-protocol.md) map onto code as:
+  advertised reads return `versions.json` fields with no I/O
+  (`version_async`, `usage_async`, `checksum_canonical_hex_async`);
+  per-version `.project.json` / `.meta.json` are fetched once behind an
+  internal `OnceCell`; and `project.kpar` is verified against the
+  advertised `kpar_digest` during the streamed download (see
+  `core/src/project/reqwest_kpar_download.rs`).
+- Because the kpar isn't on disk during resolution, `Source::RemoteKpar`
+  populates `remote_kpar_size` directly from `versions.json`'s
+  `kpar_size`, so lockfile writing records the archive size without a
+  HEAD round-trip.

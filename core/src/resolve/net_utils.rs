@@ -26,15 +26,6 @@ pub fn kpar_get_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -
     }
 }
 
-pub fn kpar_head_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder {
-    let this_url = url.into();
-    move |client: &ClientWithMiddleware| -> RequestBuilder {
-        client
-            .head(this_url.clone())
-            .header(header::ACCEPT, KPAR_ACCEPT)
-    }
-}
-
 /// For JSON files
 pub fn json_get_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder {
     let this_url = url.into();
@@ -89,6 +80,15 @@ impl Error for ReqwestClientBuildError {}
 /// Create a reqwest client. This must be used where possible.
 /// Note that gix manages its own HTTP client, so logs may indicate
 /// duplicate initialization.
+///
+/// **Redirect policy.** This client relies on `reqwest`'s default
+/// redirect behaviour — up to 10 automatic redirects. Clients MUST
+/// follow HTTP redirects on the discovery fetch and on every index
+/// resource. Overriding the builder here with `redirect(Policy::none())`
+/// would silently break conformance — any change to the redirect policy
+/// here needs matching updates in the discovery / fetch regression
+/// tests (`test_*_follows_redirect` in `env/index_tests.rs` and
+/// `discovery.rs`).
 pub fn create_reqwest_client()
 -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
     const UA: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));

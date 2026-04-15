@@ -1,0 +1,129 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
+use super::*;
+
+#[test]
+fn publisher_field_validation() {
+    assert!(is_valid_publisher("Acme Labs"));
+    assert!(is_valid_publisher("ACME-LABS-42"));
+    assert!(is_valid_publisher("abc"));
+    assert!(is_valid_publisher(
+        "abcdefghijklmnopqrstuvxyzabcdefghijklmnopqrstuvxyz"
+    ));
+    assert!(!is_valid_publisher("ab"));
+    assert!(!is_valid_publisher(
+        "abcdefghijklmnopqrstuvxyzabcdefghijklmnopqrstuvxyza"
+    ));
+    assert!(!is_valid_publisher("Acme.Labs"));
+    assert!(!is_valid_publisher("Åcme Labs"));
+    assert!(!is_valid_publisher("Acme  Labs"));
+    assert!(!is_valid_publisher("Acme. Labs"));
+    assert!(!is_valid_publisher("Acme- Labs"));
+    assert!(!is_valid_publisher("Acme__Labs"));
+    assert!(!is_valid_publisher("Acme."));
+}
+
+#[test]
+fn name_field_validation() {
+    assert!(is_valid_name("My.Project Alpha"));
+    assert!(is_valid_name("Alpha-2"));
+    assert!(!is_valid_name("ab"));
+    assert!(!is_valid_name("My..Project"));
+    assert!(!is_valid_name("My__Project"));
+    assert!(!is_valid_name(".Project"));
+}
+
+#[test]
+fn normalize_field_preserves_dot() {
+    assert_eq!(normalize_field("My.Project Alpha"), "my.project-alpha");
+    assert_eq!(normalize_field("ACME LABS"), "acme-labs");
+}
+
+#[test]
+fn parse_sysand_purl_recognises_other_schemes_as_not_sysand_purl() {
+    assert_eq!(parse_sysand_purl("urn:kpar:foo"), Ok(None));
+    assert_eq!(parse_sysand_purl("https://example.com/x"), Ok(None));
+    assert_eq!(parse_sysand_purl("pkg:npm/lodash"), Ok(None));
+}
+
+#[test]
+fn parse_sysand_purl_accepts_normalized_two_segment() {
+    assert_eq!(
+        parse_sysand_purl("pkg:sysand/admin/proj0"),
+        Ok(Some(("admin", "proj0")))
+    );
+    assert_eq!(
+        parse_sysand_purl("pkg:sysand/acme-labs/my.project"),
+        Ok(Some(("acme-labs", "my.project")))
+    );
+}
+
+#[test]
+fn parse_sysand_purl_rejects_wrong_segment_count() {
+    assert_eq!(
+        parse_sysand_purl("pkg:sysand/"),
+        Err(SysandPurlError::WrongShape { segments: 1 })
+    );
+    assert_eq!(
+        parse_sysand_purl("pkg:sysand/a"),
+        Err(SysandPurlError::WrongShape { segments: 1 })
+    );
+    assert_eq!(
+        parse_sysand_purl("pkg:sysand/a/b/c"),
+        Err(SysandPurlError::WrongShape { segments: 3 })
+    );
+    // Trailing-slash form parses to two segments (`["a", ""]`); the publisher
+    // is too short, so we reject on InvalidPublisher rather than WrongShape.
+    assert!(matches!(
+        parse_sysand_purl("pkg:sysand/a/"),
+        Err(SysandPurlError::InvalidPublisher { .. })
+    ));
+}
+
+#[test]
+fn parse_sysand_purl_rejects_traversal_and_dot_publishers() {
+    assert!(matches!(
+        parse_sysand_purl("pkg:sysand/../attacker"),
+        Err(SysandPurlError::WrongShape { .. } | SysandPurlError::InvalidPublisher { .. })
+    ));
+    assert!(matches!(
+        parse_sysand_purl("pkg:sysand/.hidden/proj"),
+        Err(SysandPurlError::InvalidPublisher { .. })
+    ));
+    assert!(matches!(
+        parse_sysand_purl("pkg:sysand/pub/.hidden"),
+        Err(SysandPurlError::InvalidName { .. })
+    ));
+}
+
+#[test]
+fn parse_sysand_purl_rejects_non_normalized_with_suggestion() {
+    let err = parse_sysand_purl("pkg:sysand/Admin/Proj0").unwrap_err();
+    let SysandPurlError::NotNormalized { suggested } = err else {
+        panic!("expected NotNormalized, got {err:?}");
+    };
+    assert_eq!(suggested, "pkg:sysand/admin/proj0");
+
+    let err = parse_sysand_purl("pkg:sysand/Acme Labs/My.Project").unwrap_err();
+    let SysandPurlError::NotNormalized { suggested } = err else {
+        panic!("expected NotNormalized, got {err:?}");
+    };
+    assert_eq!(suggested, "pkg:sysand/acme-labs/my.project");
+}
+
+#[test]
+fn parse_sysand_purl_rejects_non_ascii_and_invalid_chars() {
+    assert!(matches!(
+        parse_sysand_purl("pkg:sysand/Åcme/proj"),
+        Err(SysandPurlError::InvalidPublisher { .. })
+    ));
+    assert!(matches!(
+        parse_sysand_purl("pkg:sysand/pub\t/proj"),
+        Err(SysandPurlError::InvalidPublisher { .. })
+    ));
+    assert!(matches!(
+        parse_sysand_purl("pkg:sysand/ab/proj0"),
+        Err(SysandPurlError::InvalidPublisher { .. })
+    ));
+}

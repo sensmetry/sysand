@@ -149,7 +149,7 @@ fn skip_file_resolver_if_unsupported_iri() {
 }
 
 #[test]
-fn prefer_remote_over_registry_if_valid_cached() {
+fn prefer_remote_over_index_if_valid_cached() {
     let example_uri = "http://example.com";
 
     let project_a = minimal_project("a", "1.2.3");
@@ -169,7 +169,7 @@ fn prefer_remote_over_registry_if_valid_cached() {
 }
 
 #[test]
-fn prefer_remote_over_registry_if_valid_uncached() {
+fn prefer_remote_over_index_if_valid_uncached() {
     let example_uri = "http://example.com";
 
     let project_a = minimal_project("a", "1.2.3");

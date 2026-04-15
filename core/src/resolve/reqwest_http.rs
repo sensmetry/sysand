@@ -13,8 +13,8 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        ProjectRead, ProjectReadAsync, reqwest_kpar_download::ReqwestKparDownloadedProject,
-        reqwest_src::ReqwestSrcProjectAsync,
+        CanonicalizationError, ProjectRead, ProjectReadAsync,
+        reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProjectAsync,
     },
     resolve::ResolveReadAsync,
 };
@@ -37,7 +37,7 @@ pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 pub enum HTTPProjectAsync<Policy> {
     HTTPSrcProject(ReqwestSrcProjectAsync<Policy>),
     // HTTPKParProjectRanged(ReqwestKparRangedProject),
-    HTTPKParProjectDownloaded(ReqwestKparDownloadedProject<Policy>),
+    HTTPKParProjectDownloaded(Box<ReqwestKparDownloadedProject<Policy>>),
 }
 
 #[derive(Error, Debug)]
@@ -147,6 +147,75 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
                 .map_err(HTTPProjectError::KparDownloaded),
         }
     }
+
+    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .get_info_async()
+                .await
+                .map_err(HTTPProjectError::SrcProject),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .get_info_async()
+                .await
+                .map_err(HTTPProjectError::KparDownloaded),
+        }
+    }
+
+    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .get_meta_async()
+                .await
+                .map_err(HTTPProjectError::SrcProject),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .get_meta_async()
+                .await
+                .map_err(HTTPProjectError::KparDownloaded),
+        }
+    }
+
+    async fn version_async(&self) -> Result<Option<String>, Self::Error> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .version_async()
+                .await
+                .map_err(HTTPProjectError::SrcProject),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .version_async()
+                .await
+                .map_err(HTTPProjectError::KparDownloaded),
+        }
+    }
+
+    async fn usage_async(
+        &self,
+    ) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .usage_async()
+                .await
+                .map_err(HTTPProjectError::SrcProject),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .usage_async()
+                .await
+                .map_err(HTTPProjectError::KparDownloaded),
+        }
+    }
+
+    async fn checksum_canonical_hex_async(
+        &self,
+    ) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .checksum_canonical_hex_async()
+                .await
+                .map_err(|e| e.map_project_read(HTTPProjectError::SrcProject)),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .checksum_canonical_hex_async()
+                .await
+                .map_err(|e| e.map_project_read(HTTPProjectError::KparDownloaded)),
+        }
+    }
 }
 
 pub struct HTTPProjects<Policy> {
@@ -186,14 +255,14 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
         //     }
         // }
 
-        Some(HTTPProjectAsync::HTTPKParProjectDownloaded(
+        Some(HTTPProjectAsync::HTTPKParProjectDownloaded(Box::new(
             ReqwestKparDownloadedProject::new_guess_root(
                 &url,
                 self.client.clone(),
                 self.auth_policy.clone(),
             )
             .expect("internal IO error"),
-        ))
+        )))
     }
 
     pub fn try_resolve_as_src(&self, auth_policy: Arc<Policy>) -> Option<HTTPProjectAsync<Policy>> {

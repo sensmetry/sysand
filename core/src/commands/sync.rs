@@ -103,7 +103,7 @@ where
     RemoteSrcStorage: ProjectRead,
     CreateKParPathStorage: Fn(&Utf8Path) -> KParPathStorage,
     KParPathStorage: ProjectRead,
-    CreateRemoteKParStorage: Fn(String) -> Result<RemoteKParStorage, UrlParseError>,
+    CreateRemoteKParStorage: Fn(String, Option<String>) -> Result<RemoteKParStorage, UrlParseError>,
     RemoteKParStorage: ProjectRead,
     CreateRemoteGitStorage: Fn(String) -> Result<RemoteGitStorage, GitError>,
     RemoteGitStorage: ProjectRead,
@@ -211,6 +211,7 @@ where
                 Source::RemoteKpar {
                     remote_kpar,
                     remote_kpar_size: _,
+                    remote_kpar_digest,
                 } => {
                     let uri = main_uri.as_ref().ok_or_else(|| {
                         SyncError::MissingIriRemoteKparPath(remote_kpar.as_str().into())
@@ -218,9 +219,11 @@ where
                     let remote_kpar_storage = remote_kpar_storage.as_ref().ok_or_else(|| {
                         SyncError::MissingRemoteKparStorage(remote_kpar.as_str().into())
                     })?;
-                    let storage = remote_kpar_storage(remote_kpar.clone()).map_err(|e| {
-                        SyncError::InvalidRemoteSource(remote_kpar.as_str().into(), e)
-                    })?;
+                    let storage =
+                        remote_kpar_storage(remote_kpar.clone(), remote_kpar_digest.clone())
+                            .map_err(|e| {
+                                SyncError::InvalidRemoteSource(remote_kpar.as_str().into(), e)
+                            })?;
                     log::debug!("trying to install `{uri}` from remote_kpar: {remote_kpar}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
