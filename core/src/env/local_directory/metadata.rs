@@ -259,11 +259,7 @@ pub struct EnvProject {
     /// the environment or located elsewhere.
     #[serde(default)]
     pub editable: bool,
-    /// In case of an `editable` project these are the files
-    /// belonging to the project. Intended for tools that
-    /// are not able to natively parse and understand the
-    /// projects `.meta.json` file. Paths should be relative
-    /// to the `path` of the project.
+    /// Indicator of wether the project is part of a workspace.
     #[serde(default)]
     pub workspace: bool,
 }
