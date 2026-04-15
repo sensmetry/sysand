@@ -13,8 +13,8 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        ProjectRead, ProjectReadAsync, reqwest_kpar_download::ReqwestKparDownloadedProject,
-        reqwest_src::ReqwestSrcProjectAsync,
+        CanonicalizationError, ProjectRead, ProjectReadAsync,
+        reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProjectAsync,
     },
     resolve::ResolveReadAsync,
 };
@@ -145,6 +145,75 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
                 .sources_async(ctx)
                 .await
                 .map_err(HTTPProjectError::KparDownloaded),
+        }
+    }
+
+    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .get_info_async()
+                .await
+                .map_err(HTTPProjectError::SrcProject),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .get_info_async()
+                .await
+                .map_err(HTTPProjectError::KparDownloaded),
+        }
+    }
+
+    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .get_meta_async()
+                .await
+                .map_err(HTTPProjectError::SrcProject),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .get_meta_async()
+                .await
+                .map_err(HTTPProjectError::KparDownloaded),
+        }
+    }
+
+    async fn version_async(&self) -> Result<Option<String>, Self::Error> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .version_async()
+                .await
+                .map_err(HTTPProjectError::SrcProject),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .version_async()
+                .await
+                .map_err(HTTPProjectError::KparDownloaded),
+        }
+    }
+
+    async fn usage_async(
+        &self,
+    ) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .usage_async()
+                .await
+                .map_err(HTTPProjectError::SrcProject),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .usage_async()
+                .await
+                .map_err(HTTPProjectError::KparDownloaded),
+        }
+    }
+
+    async fn checksum_canonical_hex_async(
+        &self,
+    ) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .checksum_canonical_hex_async()
+                .await
+                .map_err(|e| e.map_project_read(HTTPProjectError::SrcProject)),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .checksum_canonical_hex_async()
+                .await
+                .map_err(|e| e.map_project_read(HTTPProjectError::KparDownloaded)),
         }
     }
 }

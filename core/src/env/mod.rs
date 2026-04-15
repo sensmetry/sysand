@@ -21,7 +21,7 @@ pub mod local_directory;
 pub mod memory;
 pub mod null;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
-pub mod reqwest_http;
+pub mod reqwest_index_http;
 
 pub mod utils;
 

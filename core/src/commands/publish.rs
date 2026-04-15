@@ -330,65 +330,7 @@ fn map_publish_response(
     }
 }
 
-/// Validates a publisher or name field for modern project IDs.
-///
-/// Rules: 3-50 ASCII alphanumeric characters, with single separators (space,
-/// hyphen, and optionally dot when `allow_dot` is true) allowed between words.
-/// Must start and end with an alphanumeric character.
-///
-/// Publish-only; if additional surfaces need this, extract to a shared module.
-fn is_valid_field(s: &str, allow_dot: bool) -> bool {
-    if !s.is_ascii() {
-        return false;
-    }
-    let bytes = s.as_bytes();
-
-    // check length between 3-50
-    if !(3..=50).contains(&bytes.len()) {
-        return false;
-    }
-
-    // check first and last characters are alphanum
-    if !bytes[0].is_ascii_alphanumeric() || !bytes[bytes.len() - 1].is_ascii_alphanumeric() {
-        return false;
-    }
-
-    // check all characters, except first and last
-    for i in 1..(bytes.len() - 1) {
-        let b = bytes[i];
-
-        // alphanums are ok
-        if b.is_ascii_alphanumeric() {
-            continue;
-        }
-
-        // and separators are ok
-        let is_separator = b == b'-' || b == b' ' || (allow_dot && b == b'.');
-        if !is_separator {
-            return false;
-        }
-
-        // but only isolated separators characters are ok
-        // knowing first/last is an alphanum, this is sufficient
-        if !bytes[i - 1].is_ascii_alphanumeric() {
-            return false;
-        }
-    }
-
-    true
-}
-
-fn is_valid_publisher(s: &str) -> bool {
-    is_valid_field(s, false)
-}
-
-fn is_valid_name(s: &str) -> bool {
-    is_valid_field(s, true)
-}
-
-fn normalize_field(s: &str) -> String {
-    s.to_ascii_lowercase().replace(' ', "-")
-}
+use crate::purl::{is_valid_name, is_valid_publisher, normalize_field};
 
 #[derive(Deserialize)]
 struct ErrorResponse {

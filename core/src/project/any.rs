@@ -15,7 +15,7 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        AsSyncProjectTokio, ProjectRead, ProjectReadAsync,
+        AsSyncProjectTokio, CanonicalizationError, ProjectRead, ProjectReadAsync,
         editable::EditableProject,
         gix_git_download::{GixDownloadedError, GixDownloadedProject},
         local_kpar::LocalKParProject,

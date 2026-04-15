@@ -9,6 +9,7 @@ use std::{
 };
 
 use futures::AsyncRead;
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
 use crate::{
@@ -61,6 +62,12 @@ pub enum ReqwestKparDownloadedError {
     KPar(#[from] LocalKParError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
+    #[error("kpar at `{url}` has sha256 `{actual}` but the expected digest was `{expected}`")]
+    DigestMismatch {
+        url: Box<str>,
+        expected: String,
+        actual: String,
+    },
 }
 
 impl From<FsIoError> for ReqwestKparDownloadedError {
@@ -69,27 +76,61 @@ impl From<FsIoError> for ReqwestKparDownloadedError {
     }
 }
 
+/// Sibling staging path used for atomic-rename downloads. Sits next to the
+/// final path inside the same tempdir so `rename` is a cheap same-filesystem
+/// operation.
+fn staging_path_for(final_path: &camino::Utf8Path) -> camino::Utf8PathBuf {
+    let file_name = final_path.file_name().unwrap_or("project.kpar");
+    let staging_name = format!("{file_name}.download");
+    match final_path.parent() {
+        Some(parent) => parent.join(staging_name),
+        None => camino::Utf8PathBuf::from(staging_name),
+    }
+}
+
 impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
-    pub fn new_guess_root<S: AsRef<str>>(
-        url: S,
+    pub fn new(
+        url: reqwest::Url,
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
-        Ok(ReqwestKparDownloadedProject {
-            url: reqwest::Url::parse(url.as_ref())
-                .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?,
+        Ok(Self {
+            url,
             inner: LocalKParProject::new_temporary()?,
             client,
             auth_policy,
         })
     }
 
-    pub async fn ensure_downloaded(&self) -> Result<(), ReqwestKparDownloadedError> {
+    pub fn new_guess_root<S: AsRef<str>>(
+        url: S,
+        client: reqwest_middleware::ClientWithMiddleware,
+        auth_policy: Arc<Policy>,
+    ) -> Result<Self, ReqwestKparDownloadedError> {
+        Self::new(
+            reqwest::Url::parse(url.as_ref())
+                .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?,
+            client,
+            auth_policy,
+        )
+    }
+
+    pub async fn ensure_downloaded_with_sha256_digest(
+        &self,
+        expected_digest: Option<&str>,
+    ) -> Result<(), ReqwestKparDownloadedError> {
         if self.inner.archive_path.is_file() {
             return Ok(());
         }
 
-        let mut file = wrapfs::File::create(&self.inner.archive_path)?;
+        // Download to a sibling staging path and atomic-rename on success.
+        // `archive_path.is_file()` is then the "verified" sentinel: a failed
+        // verification leaves only the staging file (best-effort cleaned up),
+        // never the final path, so a retry can never serve tampered bytes
+        // even if cleanup itself fails.
+        let final_path = &self.inner.archive_path;
+        let staging_path = staging_path_for(final_path);
+        let mut file = wrapfs::File::create(&staging_path)?;
 
         let resp = self
             .auth_policy
@@ -97,6 +138,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             .await?;
 
         if !resp.status().is_success() {
+            let _ = std::fs::remove_file(&staging_path);
             return Err(ReqwestKparDownloadedError::BadHttpStatus {
                 url: self.url.as_str().into(),
                 status: resp.status(),
@@ -106,16 +148,53 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
 
         use futures::StreamExt as _;
 
+        let expected_digest = expected_digest.map(ToOwned::to_owned);
+        let mut hasher = expected_digest.as_ref().map(|_| Sha256::new());
+
         while let Some(bytes) = bytes_stream.next().await {
-            let bytes = bytes.map_err(ReqwestKparDownloadedError::Reqwest)?;
-            file.write_all(&bytes)
-                .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
+            let bytes = match bytes {
+                Ok(b) => b,
+                Err(e) => {
+                    let _ = std::fs::remove_file(&staging_path);
+                    return Err(ReqwestKparDownloadedError::Reqwest(e));
+                }
+            };
+            if let Some(h) = hasher.as_mut() {
+                h.update(&bytes);
+            }
+            if let Err(e) = file.write_all(&bytes) {
+                let _ = std::fs::remove_file(&staging_path);
+                return Err(FsIoError::WriteFile(staging_path.clone(), e).into());
+            }
         }
 
-        file.sync_all()
-            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
+        // Verify before any sync_all/rename so a mismatched archive never
+        // gets durably installed at `final_path`.
+        if let (Some(h), Some(expected)) = (hasher, expected_digest.as_ref()) {
+            let actual = format!("{:x}", h.finalize());
+            if &actual != expected {
+                let _ = std::fs::remove_file(&staging_path);
+                return Err(ReqwestKparDownloadedError::DigestMismatch {
+                    url: self.url.as_str().into(),
+                    expected: expected.clone(),
+                    actual,
+                });
+            }
+        }
+
+        if let Err(e) = file.sync_all() {
+            let _ = std::fs::remove_file(&staging_path);
+            return Err(FsIoError::WriteFile(staging_path.clone(), e).into());
+        }
+        drop(file);
+
+        wrapfs::rename(&staging_path, final_path)?;
 
         Ok(())
+    }
+
+    pub async fn ensure_downloaded(&self) -> Result<(), ReqwestKparDownloadedError> {
+        self.ensure_downloaded_with_sha256_digest(None).await
     }
 }
 
@@ -147,7 +226,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         Self::Error,
     > {
         self.ensure_downloaded().await?;
-
         Ok(self.inner.get_project()?)
     }
 

@@ -474,7 +474,9 @@ impl Default for InterchangeProjectMetadataRaw {
     fn default() -> Self {
         InterchangeProjectMetadataRaw {
             index: IndexMap::default(),
-            created: chrono::Utc::now().to_rfc3339(),
+            // created's format must match the `From<InterchangeProjectMetadata>
+            // for InterchangeProjectMetadataRaw` impl.
+            created: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,

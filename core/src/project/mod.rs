@@ -34,6 +34,8 @@ pub mod any;
 pub mod editable;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod gix_git_download;
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod indexed_remote;
 #[cfg(feature = "filesystem")]
 pub mod local_kpar;
 #[cfg(feature = "filesystem")]
@@ -100,6 +102,22 @@ pub enum CanonicalizationError<ReadError: ErrorBound> {
     ProjectRead(ReadError),
     #[error("failed to read from file\n  `{0}`:\n  {1}")]
     FileRead(Box<str>, io::Error),
+}
+
+impl<E: ErrorBound> CanonicalizationError<E> {
+    /// Map the inner `ProjectRead` error type while leaving the `FileRead`
+    /// variant untouched. Convenient when forwarding a canonicalization
+    /// result across a wrapper type that rewraps the underlying read error.
+    pub fn map_project_read<F, E2>(self, f: F) -> CanonicalizationError<E2>
+    where
+        F: FnOnce(E) -> E2,
+        E2: ErrorBound,
+    {
+        match self {
+            Self::ProjectRead(e) => CanonicalizationError::ProjectRead(f(e)),
+            Self::FileRead(p, io) => CanonicalizationError::FileRead(p, io),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -243,7 +261,13 @@ pub trait ProjectRead {
             .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
     }
 
-    /// Produces a project hash based on project information and the *canonicalized* metadata.
+    /// Produces a project hash based on project information and the
+    /// *canonicalized* metadata.
+    ///
+    /// Wrapper/project-adapter impls should forward this method to their
+    /// active inner project instead of relying on the trait default. Leaf
+    /// backends may override it to provide an authoritative digest without
+    /// first materializing full project contents.
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         let info = self
             .get_info()
@@ -566,7 +590,13 @@ pub trait ProjectReadAsync {
         }
     }
 
-    /// Produces a project hash based on project information and the *canonicalized* metadata.
+    /// Produces a project hash based on project information and the
+    /// *canonicalized* metadata.
+    ///
+    /// Async wrappers/project adapters should forward this method to their
+    /// active inner project instead of relying on the trait default. Leaf
+    /// backends may override it to provide an authoritative digest without
+    /// first materializing full project contents.
     fn checksum_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
@@ -1114,9 +1144,30 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
         self.runtime.block_on(self.inner.sources_async(ctx))
     }
 
+    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        self.runtime.block_on(self.inner.get_info_async())
+    }
+
+    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        self.runtime.block_on(self.inner.get_meta_async())
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        self.runtime.block_on(self.inner.version_async())
+    }
+
+    fn usage(&self) -> Result<Option<Vec<InterchangeProjectUsageRaw>>, Self::Error> {
+        self.runtime.block_on(self.inner.usage_async())
+    }
+
     fn is_definitely_invalid(&self) -> bool {
         self.runtime
             .block_on(self.inner.is_definitely_invalid_async())
+    }
+
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
+        self.runtime
+            .block_on(self.inner.checksum_canonical_hex_async())
     }
 }
 

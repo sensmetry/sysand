@@ -8,7 +8,9 @@ use reqwest_middleware::ClientWithMiddleware;
 
 use crate::{
     auth::HTTPAuthentication,
-    env::{local_directory::LocalDirectoryEnvironment, reqwest_http::HTTPEnvironmentAsync},
+    env::{
+        local_directory::LocalDirectoryEnvironment, reqwest_index_http::HTTPIndexEnvironmentAsync,
+    },
     resolve::{
         AsSyncResolveTokio, ResolveRead, ResolveReadAsync,
         combined::CombinedResolver,
@@ -24,7 +26,7 @@ use crate::{
 pub type LocalEnvResolver = EnvResolver<LocalDirectoryEnvironment>;
 
 pub type RemoteIndexResolver<Policy> =
-    SequentialResolver<EnvResolver<HTTPEnvironmentAsync<Policy>>>;
+    SequentialResolver<EnvResolver<HTTPIndexEnvironmentAsync<Policy>>>;
 
 type StandardResolverInner<Policy> = CombinedResolver<
     FileResolver,
@@ -97,12 +99,11 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
 ) -> AsSyncResolveTokio<RemoteIndexResolver<Policy>> {
     SequentialResolver::new(urls.into_iter().map(|url| EnvResolver {
-        env: HTTPEnvironmentAsync {
+        env: HTTPIndexEnvironmentAsync {
             client: client.clone(),
             base_url: url,
-            prefer_src: true,
             auth_policy: auth_policy.clone(),
-            //try_ranged: true,
+            versions_cache: Default::default(),
         },
     }))
     .to_tokio_sync(runtime)

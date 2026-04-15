@@ -136,17 +136,29 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     logging.basicConfig(level=level)
     caplog.set_level(level)
 
-    httpserver.expect_request(
-        "/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536/versions.txt"
-    ).respond_with_data("1.2.3\n")
-    httpserver.expect_request(
-        "/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536/1.2.3.kpar/.project.json"
-    ).respond_with_json(
-        {"name": "test_index_info", "publisher": "a", "version": "1.2.3", "usage": []}
+    # `urn:kpar:test_index_info` does not match the `pkg:sysand/<pub>/<name>`
+    # layout, so the client looks it up under `_iri/<sha256(iri)>/…`.
+    filler_digest = "sha256:" + ("a" * 64)
+    iri_dir = "/_iri/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536"
+    httpserver.expect_request(f"{iri_dir}/versions.json").respond_with_json(
+        {
+            "versions": [
+                {
+                    "version": "1.2.3",
+                    "usage": [],
+                    "project_digest": filler_digest,
+                    "kpar_size": 42,
+                    "kpar_digest": filler_digest,
+                }
+            ]
+        }
     )
-    httpserver.expect_request(
-        "/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536/1.2.3.kpar/.meta.json"
-    ).respond_with_json({"index": {}, "created": "0000-00-00T00:00:00.123456789Z"})
+    httpserver.expect_request(f"{iri_dir}/1.2.3/.project.json").respond_with_json(
+        {"name": "test_index_info", "version": "1.2.3", "usage": []}
+    )
+    httpserver.expect_request(f"{iri_dir}/1.2.3/.meta.json").respond_with_json(
+        {"index": {}, "created": "2026-01-01T00:00:00.000000000Z"}
+    )
 
     info_metas = sysand.info(
         "urn:kpar:test_index_info", index_urls=httpserver.url_for("")
@@ -155,17 +167,10 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     assert len(info_metas) == 1
     info, meta = info_metas[0]
 
-    assert info == {
-        "name": "test_index_info",
-        "publisher": "a",
-        "description": None,
-        "version": "1.2.3",
-        "license": None,
-        "maintainer": [],
-        "website": None,
-        "topic": [],
-        "usage": [],
-    }
+    assert info["name"] == "test_index_info"
+    assert info["version"] == "1.2.3"
+    assert info["usage"] == []
+    assert info["publisher"] is None
 
     assert meta["index"] == {}
     assert isinstance(meta["created"], str)
