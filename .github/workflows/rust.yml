@@ -149,18 +149,15 @@ jobs:
       - name: Package binary (unix)
         if: runner.os != 'Windows'
         run: |
-          mkdir -p dist stage
-          cp target/release/sysand stage/sysand
-          chmod +x stage/sysand
-          tar -C stage -cJf "dist/${{ matrix.asset }}.tar.xz" sysand
+          mkdir dist
+          tar -cJf "dist/${{ matrix.asset }}.tar.xz" -C target/release sysand
 
       - name: Package binary (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist, stage | Out-Null
-          Copy-Item target/release/sysand.exe stage/sysand.exe
-          Compress-Archive -Path stage\sysand.exe -DestinationPath "dist\${{ matrix.asset }}.zip" -Force
+          mkdir dist
+          Compress-Archive -DestinationPath "dist\${{ matrix.asset }}.zip" -Path target\release\sysand.exe
 
       - name: Upload binaries
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
