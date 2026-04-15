@@ -120,13 +120,25 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os:
-          - ubuntu-24.04
-          - ubuntu-24.04-arm
-          - windows-latest
-          - windows-11-arm
-          - macos-15-intel # x86
-          - macos-latest # arm64
+        include:
+          - os: ubuntu-24.04
+            asset: sysand-linux-x86_64
+            ext: tar.xz
+          - os: ubuntu-24.04-arm
+            asset: sysand-linux-arm64
+            ext: tar.xz
+          - os: windows-latest
+            asset: sysand-windows-x86_64
+            ext: zip
+          - os: windows-11-arm
+            asset: sysand-windows-arm64
+            ext: zip
+          - os: macos-15-intel
+            asset: sysand-macos-x86_64
+            ext: tar.xz
+          - os: macos-latest
+            asset: sysand-macos-arm64
+            ext: tar.xz
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -134,17 +146,27 @@ jobs:
       - name: cargo build ...
         run: cargo build --locked --bin sysand --release
 
-      - name: Relocate binaries
+      - name: Package binary (unix)
+        if: runner.os != 'Windows'
         run: |
-          mkdir -p dist
-          ext=${{ (matrix.os == 'windows-latest' || matrix.os == 'windows-11-arm') && '.exe' || '' }}
-          cp target/release/sysand${ext} dist/sysand-${{ matrix.os }}${ext}
+          mkdir -p dist stage
+          cp target/release/sysand stage/sysand
+          chmod +x stage/sysand
+          tar -C stage -cJf "dist/${{ matrix.asset }}.tar.xz" sysand
+
+      - name: Package binary (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist, stage | Out-Null
+          Copy-Item target/release/sysand.exe stage/sysand.exe
+          Compress-Archive -Path stage\sysand.exe -DestinationPath "dist\${{ matrix.asset }}.zip" -Force
 
       - name: Upload binaries
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
         with:
-          name: sysand-cli-${{ matrix.os }}
-          path: dist
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}.${{ matrix.ext }}
           if-no-files-found: error
 
   ci-gate:
@@ -180,15 +202,6 @@ jobs:
         with:
           subject-path: "artifacts/*"
 
-      - name: Rename artifacts
-        run: |
-          mv artifacts/sysand-ubuntu-24.04 artifacts/sysand-linux-x86_64
-          mv artifacts/sysand-ubuntu-24.04-arm artifacts/sysand-linux-arm64
-          mv artifacts/sysand-windows-latest.exe artifacts/sysand-windows-x86_64.exe
-          mv artifacts/sysand-windows-11-arm.exe artifacts/sysand-windows-arm64.exe
-          mv artifacts/sysand-macos-15-intel artifacts/sysand-macos-x86_64
-          mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
-
       - name: Create a nightly release
         run: |
           NEW_TAG=$(date +v-%Y-%m-%d-%H%M)
@@ -196,7 +209,7 @@ jobs:
               --title "Nightly Release $NEW_TAG" \
               --prerelease \
               --target "$GITHUB_SHA" \
-              artifacts/*
+              artifacts/sysand-*.tar.xz artifacts/sysand-*.zip
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -223,21 +236,12 @@ jobs:
         with:
           subject-path: "artifacts/*"
 
-      - name: Rename artifacts
-        run: |
-          mv artifacts/sysand-ubuntu-24.04 artifacts/sysand-linux-x86_64
-          mv artifacts/sysand-ubuntu-24.04-arm artifacts/sysand-linux-arm64
-          mv artifacts/sysand-windows-latest.exe artifacts/sysand-windows-x86_64.exe
-          mv artifacts/sysand-windows-11-arm.exe artifacts/sysand-windows-arm64.exe
-          mv artifacts/sysand-macos-15-intel artifacts/sysand-macos-x86_64
-          mv artifacts/sysand-macos-latest artifacts/sysand-macos-arm64
-
       - name: Create a release
         run: |
           gh release create "$TRIGGERING_TAG" \
               --title "Release $TRIGGERING_TAG" \
               --verify-tag \
-              artifacts/*
+              artifacts/sysand-*.tar.xz artifacts/sysand-*.zip
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
