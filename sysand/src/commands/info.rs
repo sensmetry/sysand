@@ -25,6 +25,7 @@ use sysand_core::{
 use anstream::{print, println};
 use anyhow::{Result, bail};
 use fluent_uri::Iri;
+use semver::Version;
 use std::{collections::HashSet, sync::Arc};
 use sysand_core::{
     info::{do_info, do_info_project},
@@ -34,21 +35,21 @@ use sysand_core::{
 use url::Url;
 
 pub fn pprint_interchange_project(
-    info: InterchangeProjectInfoRaw,
+    info: &InterchangeProjectInfoRaw,
     excluded_iris: &HashSet<String>,
 ) {
     println!("Name: {}", info.name);
-    if let Some(publisher) = info.publisher {
+    if let Some(ref publisher) = info.publisher {
         println!("Publisher: {}", publisher);
     }
-    if let Some(description) = info.description {
+    if let Some(ref description) = info.description {
         println!("Description: {}", description);
     }
     println!("Version: {}", info.version);
-    if let Some(license) = info.license {
+    if let Some(ref license) = info.license {
         println!("License: {}", license);
     }
-    if let Some(website) = info.website {
+    if let Some(ref website) = info.website {
         println!("Website: {}", website);
     }
     if !info.maintainer.is_empty() {
@@ -60,19 +61,32 @@ pub fn pprint_interchange_project(
 
     if info.usage.is_empty() {
         println!("No usages.");
-    } else {
-        println!("Usages:");
-        for usage in info.usage {
-            if excluded_iris.contains(&usage.resource) {
-                continue;
-            }
-            print!("    {}", usage.resource);
-            if let Some(v) = usage.version_constraint {
-                println!(" ({})", v);
-            } else {
-                println!();
-            }
+        return;
+    }
+    let is_usage_ignored = info
+        .usage
+        .iter()
+        .any(|u| excluded_iris.contains(&u.resource));
+    let usages_to_print: Vec<_> = info
+        .usage
+        .iter()
+        .filter(|u| !excluded_iris.contains(&u.resource))
+        .collect();
+    if is_usage_ignored && usages_to_print.is_empty() {
+        println!("All usages are ignored");
+        return;
+    }
+    println!("Usages:");
+    for usage in usages_to_print.iter() {
+        print!("    {}", usage.resource);
+        if let Some(ref v) = usage.version_constraint {
+            println!(" ({})", v);
+        } else {
+            println!();
         }
+    }
+    if is_usage_ignored {
+        println!("Some usages are ignored");
     }
 }
 
@@ -99,7 +113,7 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
 
     match do_info_project(&project) {
         Some((info, _)) => {
-            pprint_interchange_project(info, excluded_iris);
+            pprint_interchange_project(&info, excluded_iris);
 
             Ok(())
         }
@@ -144,10 +158,26 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
         ),
     );
 
-    for (info, _) in do_info(&uri, &combined_resolver)? {
-        pprint_interchange_project(info, excluded_iris);
-    }
+    let projects = do_info(&uri, &combined_resolver)?;
 
+    let mut best_version_info: Option<(Version, _)> = None;
+    for (info, _) in projects.iter() {
+        best_version_info = match (Version::parse(&info.version), &best_version_info) {
+            (Ok(cur_version), Some((best_version, _))) if &cur_version > best_version => {
+                Some((cur_version, info))
+            }
+            (Ok(_), Some(_)) => best_version_info,
+            (Ok(cur_version), None) => Some((cur_version, info)),
+            (Err(_), _) => {
+                log::warn!("Version {} is not a valid semantic version", info.version);
+                best_version_info
+            }
+        };
+    }
+    match best_version_info {
+        Some((_, info)) => pprint_interchange_project(info, excluded_iris),
+        None => log::warn!("No semantic versions found"),
+    }
     Ok(())
 }
 
