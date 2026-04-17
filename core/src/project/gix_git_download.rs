@@ -187,14 +187,20 @@ mod tests {
     #[cfg(feature = "alltests")]
     #[test]
     pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
-        let repo_dir = tempdir()?;
-        git_init(repo_dir.path())?;
+        use camino::{Utf8Path, Utf8PathBuf};
+
+        use crate::test_utils::{Created, ProjectMock};
+
+        let repo_dir = camino_tempfile::tempdir()?;
+        git_init(repo_dir.path().as_ref())?;
+
+        let project =
+            ProjectMock::builder("basic_gix_access", "1.2.3", Created::Custom("123".into()))
+                .with_files([("test.sysml", "package Test;")], false, false)
+                .build();
+        project.save_to_folder(repo_dir.path());
 
         // TODO: Replace by commands::*::do_* when sufficiently complete, also use gix to create repo?
-        std::fs::write(
-            repo_dir.path().join(".project.json"),
-            r#"{"name":"basic_gix_access","version":"1.2.3","usage":[]}"#,
-        )?;
         Command::new("git")
             .arg("add")
             .arg(".project.json")
@@ -203,10 +209,6 @@ mod tests {
             .assert()
             .success();
 
-        std::fs::write(
-            repo_dir.path().join(".meta.json"),
-            r#"{"index":{},"created":"123"}"#,
-        )?;
         Command::new("git")
             .arg("add")
             .arg(".meta.json")
@@ -215,7 +217,6 @@ mod tests {
             .assert()
             .success();
 
-        std::fs::write(repo_dir.path().join("test.sysml"), "package Test;")?;
         Command::new("git")
             .arg("add")
             .arg("test.sysml")

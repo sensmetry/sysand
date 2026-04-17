@@ -181,29 +181,22 @@ mod tests {
         auth::Unauthenticated,
         project::{ProjectRead, ProjectReadAsync},
         resolve::net_utils::create_reqwest_client,
-        test_utils::ProjectMock,
+        test_utils::{Created, ProjectMock, ZipOptions},
     };
     use std::{io::Read, sync::Arc};
 
     #[test]
     fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         let buf = {
-            let project = ProjectMock::new_raw([
-                (
-                    "some_root_dir/.project.json",
-                    r#"{"name":"test_basic_download_request","version":"1.2.3","usage":[]}"#,
-                ),
-                (
-                    "some_root_dir/.meta.json",
-                    r#"{"index":{},"created":"123"}"#,
-                ),
-                ("some_root_dir/test.sysml", r#"package Test;"#),
-            ]);
-            let options = zip::write::SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Stored)
-                .unix_permissions(0o755);
+            let project = ProjectMock::builder(
+                "test_basic_download_request",
+                "1.2.3",
+                Created::Custom("123".into()),
+            )
+            .with_files([("test.sysml", "package Test;")], false, false)
+            .build();
 
-            project.to_zip(options)?
+            project.to_zip_non_standard("some_root_dir", ZipOptions::Default)?
         };
 
         let mut server = mockito::Server::new();

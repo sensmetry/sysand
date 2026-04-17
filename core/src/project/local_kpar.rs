@@ -389,10 +389,9 @@ mod tests {
     use std::{fs, io::Read as _};
 
     use camino_tempfile::tempdir;
-    use zip::write::SimpleFileOptions;
 
     use super::ProjectRead;
-    use crate::test_utils::ProjectMock;
+    use crate::test_utils::{Created, ProjectMock, ZipOptions};
 
     #[test]
     fn test_basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
@@ -400,16 +399,15 @@ mod tests {
         let zip_path = cwd.path().join("test.kpar");
 
         {
-            let project_mock = ProjectMock::builder("test_basic_kpar_archive", "1.2.3")
-                .with_created("123")
-                .with_files([("test.sysml", "package Test;")], false, false)
-                .build();
+            let project_mock = ProjectMock::builder(
+                "test_basic_kpar_archive",
+                "1.2.3",
+                Created::Custom("123".into()),
+            )
+            .with_files([("test.sysml", "package Test;")], false, false)
+            .build();
 
-            let options = SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Stored)
-                .unix_permissions(0o755);
-
-            let zip_content = project_mock.to_zip(options)?;
+            let zip_content = project_mock.to_zip(ZipOptions::Default)?;
             fs::write(&zip_path, zip_content)?;
         }
 
@@ -439,22 +437,15 @@ mod tests {
         let zip_path = cwd.path().join("test.kpar");
 
         {
-            let project = ProjectMock::new_raw([
-                (
-                    "some_root_dir/.project.json",
-                    r#"{"name":"test_nested_kpar_archive","version":"1.2.3","usage":[]}"#,
-                ),
-                (
-                    "some_root_dir/.meta.json",
-                    r#"{"index":{},"created":"123"}"#,
-                ),
-                ("some_root_dir/test.sysml", r#"package Test;"#),
-            ]);
+            let project = ProjectMock::builder(
+                "test_nested_kpar_archive",
+                "1.2.3",
+                Created::Custom("123".into()),
+            )
+            .with_files([("test.sysml", "package Test;")], false, false)
+            .build();
 
-            let options = SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Stored)
-                .unix_permissions(0o755);
-            let zip_content = project.to_zip(options)?;
+            let zip_content = project.to_zip_non_standard("some_root_dir", ZipOptions::Default)?;
             fs::write(&zip_path, zip_content)?;
         }
 

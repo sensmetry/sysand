@@ -203,61 +203,11 @@ impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<H
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use fluent_uri::Iri;
-    use indexmap::IndexMap;
-
     use crate::{
-        model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-        project::{ProjectRead as _, memory::InMemoryProject},
-        resolve::{
-            ResolutionOutcome, ResolveRead,
-            memory::{AcceptAll, MemoryResolver},
-        },
+        project::ProjectRead as _,
+        resolve::{ResolutionOutcome, ResolveRead},
+        test_utils::{Created, ProjectMock, mock_resolver},
     };
-
-    fn mock_project<S: AsRef<str>, T: AsRef<str>, V: AsRef<str>>(
-        uri: S,
-        name: T,
-        version: V,
-    ) -> (Iri<String>, InMemoryProject) {
-        (
-            Iri::parse(uri.as_ref().to_string()).unwrap(),
-            InMemoryProject {
-                info: Some(InterchangeProjectInfoRaw {
-                    name: name.as_ref().to_string(),
-                    publisher: None,
-                    description: None,
-                    version: version.as_ref().to_string(),
-                    license: None,
-                    maintainer: vec![],
-                    website: None,
-                    topic: vec![],
-                    usage: vec![],
-                }),
-                meta: Some(InterchangeProjectMetadataRaw {
-                    index: IndexMap::default(),
-                    created: chrono::Utc::now().to_rfc3339(),
-                    metamodel: None,
-                    includes_derived: None,
-                    includes_implied: None,
-                    checksum: Some(IndexMap::default()),
-                }),
-                files: HashMap::default(),
-                nominal_sources: vec![],
-            },
-        )
-    }
-
-    fn mock_resolver<I: IntoIterator<Item = (Iri<String>, InMemoryProject)>>(
-        projects: I,
-    ) -> MemoryResolver<AcceptAll, InMemoryProject> {
-        MemoryResolver {
-            iri_predicate: AcceptAll {},
-            projects: HashMap::from_iter(projects.into_iter().map(|(k, v)| (k, vec![v]))),
-        }
-    }
 
     fn expect_to_resolve<R: ResolveRead, S: AsRef<str>>(
         resolver: &R,
@@ -278,13 +228,25 @@ mod tests {
     #[test]
     fn resolution_priority() -> Result<(), Box<dyn std::error::Error>> {
         let higher = mock_resolver([
-            mock_project("urn:kpar:foo", "foo", "1.2.3"),
-            mock_project("urn:kpar:bar", "bar", "1.2.3"),
+            (
+                "urn:kpar:foo",
+                ProjectMock::builder("foo", "1.2.3", Created::Now).build(),
+            ),
+            (
+                "urn:kpar:bar",
+                ProjectMock::builder("bar", "1.2.3", Created::Now).build(),
+            ),
         ]);
 
         let lower = mock_resolver([
-            mock_project("urn:kpar:bar", "bar", "3.2.1"),
-            mock_project("urn:kpar:baz", "baz", "3.2.1"),
+            (
+                "urn:kpar:bar",
+                ProjectMock::builder("bar", "3.2.1", Created::Now).build(),
+            ),
+            (
+                "urn:kpar:baz",
+                ProjectMock::builder("baz", "3.2.1", Created::Now).build(),
+            ),
         ]);
 
         let resolver = super::PriorityResolver::new(higher, lower);

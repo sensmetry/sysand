@@ -15,7 +15,13 @@ use predicates::prelude::*;
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
-use sysand_core::test_utils::ProjectMock;
+use sysand_core::test_utils::{
+    Created, ProjectMock, ZipOptions,
+    httpmock::{
+        Method::{GET, HEAD},
+        MockServer,
+    },
+};
 
 #[test]
 fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
@@ -134,76 +140,53 @@ fn info_basic_iri_auto() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
-    let mut server = mockito::Server::new();
+fn info_basic_http_url_no_auth() -> Result<(), Box<dyn Error>> {
+    let _ = env_logger::try_init();
+    let project = ProjectMock::builder(
+        "info_basic_http_url",
+        "1.2.3",
+        Created::Custom("0000-00-00T00:00:00.123456789Z".into()),
+    )
+    .build();
 
-    let git_mock = server
-        .mock("GET", "/info/refs?service=git-upload-pack")
-        .with_status(404)
-        .expect_at_most(2) // TODO: Reduce this to 1
-        .create();
+    let server = MockServer::start();
 
-    let kpar_range_probe = server
-        .mock("HEAD", "/")
-        .with_status(404)
-        .expect_at_most(1)
-        .create();
+    let git_mock = server.mock(|when, then| {
+        when.method(GET)
+            .path("/info/refs")
+            .query_param("service", "git-upload-pack");
+        then.status(404);
+    });
 
-    let kpar_download_try = server
-        .mock("GET", "/")
-        .with_status(404)
-        .expect_at_most(1)
-        .create();
+    let kpar_download_try = server.mock(|when, then| {
+        when.method(GET).path("/");
+        then.status(404);
+    });
 
-    let info_mock_head = server
-        .mock("HEAD", "/.project.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(1) // TODO: Reduce this
-        .create();
+    let kpar_range_probe = server.mock(|when, then| {
+        when.method(HEAD).path("/");
+        then.status(404);
+    });
 
-    let info_mock = server
-        .mock("GET", "/.project.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(3) // TODO: Reduce this to 1
-        .create();
+    let mocks = project.add_files_to_server(&server, |when| when, |then| then);
 
-    let meta_mock_head = server
-        .mock("HEAD", "/.meta.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(1)
-        .create();
-
-    let meta_mock = server
-        .mock("GET", "/.meta.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(3) // TODO: Reduce this to 1
-        .create();
-
-    let (_, _, out) = run_sysand(["info", "--iri", &server.url()], None)?;
+    let (_, _, out) = run_sysand(["info", "--iri", &server.base_url()], None)?;
 
     out.assert()
         .success()
         .stdout(predicate::str::contains("Name: info_basic_http_url"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
-    git_mock.assert();
+    git_mock.assert_calls(2); // TODO: Reduce this to 1
+    kpar_range_probe.assert_calls(0);
+    kpar_download_try.assert_calls(1);
 
-    info_mock_head.assert();
-    meta_mock_head.assert();
-
-    kpar_range_probe.assert();
-    kpar_download_try.assert();
-
-    info_mock.assert();
-    meta_mock.assert();
+    for (_, head_mock) in mocks.head.iter() {
+        head_mock.assert_calls(1); // TODO: Reduce this
+    }
+    for (_, get_mock) in mocks.get.iter() {
+        get_mock.assert_calls(3); // TODO: Reduce this to 1
+    }
 
     Ok(())
 }
@@ -658,22 +641,14 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
     let zip_path = cwd.path().canonicalize()?.join("test.kpar");
 
     {
-        let project = ProjectMock::new_raw([
-            (
-                "some_root_dir/.project.json",
-                r#"{"name":"info_basic_local_kpar","version":"1.2.3","usage":[]}"#,
-            ),
-            (
-                "some_root_dir/.meta.json",
-                r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#,
-            ),
-        ]);
+        let project = ProjectMock::builder(
+            "info_basic_local_kpar",
+            "1.2.3",
+            Created::Custom("0000-00-00T00:00:00.123456789Z".into()),
+        )
+        .build();
 
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .unix_permissions(0o755);
-
-        let zip_content = project.to_zip(options)?;
+        let zip_content = project.to_zip(ZipOptions::Default)?;
         fs::write(&zip_path, zip_content)?;
     }
 

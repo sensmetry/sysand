@@ -214,7 +214,7 @@ mod tests {
         auth::Unauthenticated,
         project::{ProjectRead, ProjectReadAsync, reqwest_src::ReqwestSrcProjectAsync},
         resolve::net_utils::create_reqwest_client,
-        test_utils::ProjectMock,
+        test_utils::{Created, ProjectMock},
     };
 
     #[test]
@@ -246,13 +246,20 @@ mod tests {
         let file_path = "Mekanïk/Kommandöh.sysml";
         let file_src = "package 'Mekanïk Kommandöh';";
 
-        let project_mock = ProjectMock::builder("test_basic_project_urls", "1.2.3")
-            .with_created("0000-00-00T00:00:00.123456789Z")
-            .with_files([(file_path, file_src)], true, true)
-            .build();
+        let project_mock = ProjectMock::builder(
+            "test_basic_project_urls",
+            "1.2.3",
+            Created::Custom("0000-00-00T00:00:00.123456789Z".into()),
+        )
+        .with_files([(file_path, file_src)], true, true)
+        .build();
         let server = MockServer::start();
         let url = reqwest::Url::parse(&server.base_url()).unwrap();
-        let mocks = project_mock.add_to_server(&server, |when| when.header_exists(header::USER_AGENT.as_str()), |then| then);
+        let mocks = project_mock.add_files_to_server(
+            &server,
+            |when| when.header_exists(header::USER_AGENT.as_str()),
+            |then| then,
+        );
 
         let client = create_reqwest_client()?;
 
@@ -293,7 +300,10 @@ mod tests {
             panic!();
         };
 
-        for (_path, mock) in mocks.iter() {
+        for (_path, mock) in mocks.head.iter() {
+            mock.assert_calls(0);
+        }
+        for (_path, mock) in mocks.get.iter() {
             mock.assert_calls(1);
         }
 

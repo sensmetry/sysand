@@ -2,15 +2,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use assert_cmd::prelude::*;
-use camino::Utf8PathBuf;
 use indexmap::IndexMap;
 use mockito::Matcher;
 use predicates::prelude::*;
 use reqwest::header;
 use sysand_core::{
-    test_utils::{ProjectMock, httpmock::MockServer},
     commands::lock::DEFAULT_LOCKFILE_NAME,
     env::local_directory::{DEFAULT_ENV_NAME, ENTRIES_PATH, METADATA_PATH},
+    test_utils::{Created, ProjectMock, httpmock::MockServer, info_path, metadata_path},
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -163,11 +162,20 @@ identifiers = [
 fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
 
-    let project_mock = ProjectMock::builder("sync_to_remote", "1.2.3").build();
+    let project_mock = ProjectMock::builder(
+        "sync_to_remote",
+        "1.2.3",
+        Created::Custom("0000-00-00T00:00:00.123456789Z".into()),
+    )
+    .build();
 
     let server = MockServer::start();
 
-    let mocks = project_mock.add_to_server(&server, |when| when.header_exists(header::USER_AGENT.as_str()), |then| then);
+    let mocks = project_mock.add_files_to_server(
+        &server,
+        |when| when.header_exists(header::USER_AGENT.as_str()),
+        |then| then,
+    );
 
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
@@ -184,7 +192,7 @@ sources = [
 ]
 "#,
             &server.base_url()
-        )
+        ),
     )?;
 
     let out = run_sysand_in(&cwd, ["sync"], None)?;
@@ -195,8 +203,10 @@ sources = [
         .stderr(predicate::str::contains("Syncing"))
         .stderr(predicate::str::contains("Installing"));
 
-    mocks[&Utf8PathBuf::from("/.project.json")].assert_calls(4); // TODO: Reduce this to 1 after caching
-    mocks[&Utf8PathBuf::from("/.meta.json")].assert_calls(4); // TODO: Reduce this to 1 after caching
+    mocks.head[&info_path()].assert_calls(0);
+    mocks.head[&metadata_path()].assert_calls(0);
+    mocks.get[&info_path()].assert_calls(4); // TODO: Reduce this to 1 after caching
+    mocks.get[&metadata_path()].assert_calls(4); // TODO: Reduce this to 1 after caching
 
     let env_metadata = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
 

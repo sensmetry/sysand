@@ -1,7 +1,9 @@
 {
     "cSpell.words": [
+        "bazs",
         "camino",
         "clippy",
+        "foos",
         "httpmock",
         "kerml",
         "Kommandöh",
@@ -26,5 +28,9 @@
         "werr",
         "wrapfs"
     ],
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    }
 }
