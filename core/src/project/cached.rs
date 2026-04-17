@@ -5,7 +5,7 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectRead, Utf8UnixPath},
+    project::{CanonicalizationError, ProjectRead, Utf8UnixPath},
 };
 
 /// Pair of project storages where `local` and `remote` contain the same project
@@ -60,7 +60,32 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         Ok(self.remote.sources(ctx).unwrap())
     }
 
+    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        self.local.get_info()
+    }
+
+    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        self.local.get_meta()
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        self.local.version()
+    }
+
+    fn usage(&self) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
+        self.local.usage()
+    }
+
     fn is_definitely_invalid(&self) -> bool {
         self.local.is_definitely_invalid()
+    }
+
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
+        // Delegate to `local`: the cached archive is the authoritative
+        // content and any checksum it produces matches the remote's.
+        // Delegating through the default would short-circuit back to
+        // `self.get_project` (also local) but without picking up any
+        // override a leaf might install.
+        self.local.checksum_canonical_hex()
     }
 }

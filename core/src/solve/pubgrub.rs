@@ -13,11 +13,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{
-    model::{InterchangeProjectInfo, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
-    project::ProjectRead,
-    resolve::ResolveRead,
-};
+use crate::{model::InterchangeProjectUsage, project::ProjectRead, resolve::ResolveRead};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum DependencyIdentifier {
@@ -176,14 +172,14 @@ impl VersionSet for DiscreteHashSet {
     }
 }
 
-type ResolvedCandidates<ProjectStorage> = HashMap<
-    fluent_uri::Iri<String>,
-    Vec<(
-        InterchangeProjectInfo,
-        InterchangeProjectMetadataRaw,
-        ProjectStorage,
-    )>,
->;
+type ResolvedCandidates<ProjectStorage> =
+    HashMap<fluent_uri::Iri<String>, Vec<(ResolvedCandidate, ProjectStorage)>>;
+
+#[derive(Clone, Debug)]
+struct ResolvedCandidate {
+    version: semver::Version,
+    usage: Vec<InterchangeProjectUsage>,
+}
 
 pub struct ProjectSolver<R: ResolveRead> {
     // Internal RefCell, used in order to lazily populate the cache during resolution
@@ -197,14 +193,14 @@ fn resolve_candidates<R: ResolveRead>(
     resolver: &R,
     uri: &fluent_uri::Iri<String>,
     cache: &mut ResolvedCandidates<R::ProjectStorage>,
-) -> Result<Vec<(InterchangeProjectInfo, InterchangeProjectMetadataRaw)>, InternalSolverError<R>> {
+) -> Result<Vec<ResolvedCandidate>, InternalSolverError<R>> {
     let entry = cache.entry(uri.clone());
 
     match entry {
         Entry::Occupied(occupied_entry) => Ok(occupied_entry
             .get()
             .iter()
-            .map(|(info, meta, _)| (info.clone(), meta.clone()))
+            .map(|(candidate, _)| candidate.clone())
             .collect()),
         Entry::Vacant(vacant_entry) => {
             let mut found = vec![];
@@ -231,31 +227,57 @@ fn resolve_candidates<R: ResolveRead>(
                             }
                         };
 
-                        let (info, meta) = match project.get_project() {
-                            Ok((Some(info), Some(meta))) => (info, meta),
-                            Ok(incomplete) => {
+                        let version = match project.version() {
+                            Ok(Some(version)) => match semver::Version::parse(&version) {
+                                Ok(version) => version,
+                                Err(e) => {
+                                    log::debug!(
+                                        "candidate project for `{uri}` has invalid version `{version}`: {e}"
+                                    );
+                                    continue;
+                                }
+                            },
+                            Ok(None) => {
                                 log::debug!(
-                                    "candidate project for `{uri}` failed to get info or meta: {incomplete:?}"
+                                    "candidate project for `{uri}` did not expose a version"
                                 );
                                 continue;
                             }
                             Err(e) => {
                                 log::debug!(
-                                    "candidate project for `{uri}` failed to get info and meta: {e}"
+                                    "candidate project for `{uri}` failed to get version: {e}"
                                 );
                                 continue;
                             }
                         };
 
-                        let validated_info: InterchangeProjectInfo = match info.try_into() {
-                            Ok(i) => i,
+                        let usage = match project.usage() {
+                            Ok(Some(usage)) => {
+                                let validated: Result<Vec<InterchangeProjectUsage>, _> =
+                                    usage.into_iter().map(|usage| usage.validate()).collect();
+                                match validated {
+                                    Ok(usage) => usage,
+                                    Err(e) => {
+                                        log::debug!(
+                                            "candidate project for `{uri}` has invalid usage: {e}"
+                                        );
+                                        continue;
+                                    }
+                                }
+                            }
+                            Ok(None) => {
+                                log::debug!("candidate project for `{uri}` did not expose usages");
+                                continue;
+                            }
                             Err(e) => {
-                                log::debug!("candidate project for `{uri}` has invalid info: {e}");
+                                log::debug!(
+                                    "candidate project for `{uri}` failed to get usages: {e}"
+                                );
                                 continue;
                             }
                         };
 
-                        found.push((validated_info, meta, project));
+                        found.push((ResolvedCandidate { version, usage }, project));
                     }
                     if found.is_empty() {
                         return Err(InternalSolverError::NoValidCandidates(uri.as_str().into()));
@@ -263,9 +285,9 @@ fn resolve_candidates<R: ResolveRead>(
                 }
             }
 
-            let result: Vec<(InterchangeProjectInfo, InterchangeProjectMetadataRaw)> = found
+            let result: Vec<ResolvedCandidate> = found
                 .iter()
-                .map(|(info, meta, _)| (info.clone(), meta.clone()))
+                .map(|(candidate, _)| candidate.clone())
                 .collect();
 
             vacant_entry.insert(found);
@@ -290,7 +312,7 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
             let mut valid_candidates = HashSet::new();
 
             let mut found_versions = Vec::new();
-            for (i, (candidate_info, _)) in resolve_candidates(resolver, &usage.resource, cache)?
+            for (i, candidate_info) in resolve_candidates(resolver, &usage.resource, cache)?
                 .iter()
                 .enumerate()
             {
@@ -495,7 +517,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                                 // Since we need them in descending order, sort will need
                                 // to perform less work if the iterator is reversed
                                 .rev()
-                                .map(|(idx, el)| (idx, el.0.version))
+                                .map(|(idx, el)| (idx, el.version.clone()))
                                 .collect();
                         // Choose the highest version. We'll assume that version
                         // order is stable across multiple `resolve_candidates()`
@@ -549,7 +571,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                             iri
                         )));
                     } else {
-                        candidates[*version].0.clone()
+                        candidates[*version].clone()
                     }
                 };
 
@@ -563,14 +585,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
     }
 }
 
-type Solution<ProjectStorage> = HashMap<
-    Iri<String>,
-    (
-        InterchangeProjectInfo,
-        InterchangeProjectMetadataRaw,
-        ProjectStorage,
-    ),
->;
+type Solution<ProjectStorage> = HashMap<Iri<String>, ProjectStorage>;
 
 pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
@@ -586,21 +601,14 @@ pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
 
     let mut map = solver.resolved_candidates.replace(HashMap::default());
 
-    let mut result: HashMap<
-        fluent_uri::Iri<String>,
-        (
-            InterchangeProjectInfo,
-            InterchangeProjectMetadataRaw,
-            <R as ResolveRead>::ProjectStorage,
-        ),
-        _,
-    > = HashMap::default();
+    let mut result: HashMap<fluent_uri::Iri<String>, <R as ResolveRead>::ProjectStorage, _> =
+        HashMap::default();
 
     for (k, idx) in solution {
         if let DependencyIdentifier::Remote(uri) = k {
             let mut extracted = map.remove(&uri).expect("internal solver error");
 
-            result.insert(uri, extracted.swap_remove(idx));
+            result.insert(uri, extracted.swap_remove(idx).1);
         }
     }
 

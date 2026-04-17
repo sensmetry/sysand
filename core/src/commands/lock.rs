@@ -184,7 +184,15 @@ pub fn do_lock_extend<
         }
     }
 
-    for (iri, (info, meta, project)) in solution {
+    for (iri, project) in solution {
+        let info = project
+            .get_info()
+            .map_err(LockError::DependencyProject)?
+            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
+        let meta = project
+            .get_meta()
+            .map_err(LockError::DependencyProject)?
+            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
         let canonical_hash = project
             .checksum_canonical_hex()
             .map_err(LockError::DependencyProjectCanonicalization)?

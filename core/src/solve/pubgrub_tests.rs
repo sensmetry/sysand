@@ -12,7 +12,7 @@ use crate::{
         InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage,
         InterchangeProjectUsageRaw,
     },
-    project::memory::InMemoryProject,
+    project::{ProjectRead, memory::InMemoryProject},
     resolve::env::EnvResolver,
 };
 
@@ -104,11 +104,11 @@ fn test_version_selection() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(solution.len(), 1);
 
-    let (install_info, _, _) = solution
+    let install = solution
         .get(Iri::parse("urn:kpar:test_version_selection")?.into())
         .unwrap();
 
-    assert_eq!(install_info.version, semver::Version::new(2, 0, 1));
+    assert_eq!(install.version()?.unwrap(), "2.0.1");
 
     Ok(())
 }
@@ -167,20 +167,20 @@ fn test_diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(solution.len(), 3);
 
-    let (install_info_a, _, _) = solution
+    let install_a = solution
         .get(Iri::parse("urn:kpar:test_diamond_selection_a")?.into())
         .unwrap();
-    assert_eq!(install_info_a.version, semver::Version::new(1, 0, 1));
+    assert_eq!(install_a.version()?.unwrap(), "1.0.1");
 
-    let (install_info_b, _, _) = solution
+    let install_b = solution
         .get(Iri::parse("urn:kpar:test_diamond_selection_b")?.into())
         .unwrap();
-    assert_eq!(install_info_b.version, semver::Version::new(1, 0, 2));
+    assert_eq!(install_b.version()?.unwrap(), "1.0.2");
 
-    let (install_info_a, _, _) = solution
+    let install_c = solution
         .get(Iri::parse("urn:kpar:test_diamond_selection_c")?.into())
         .unwrap();
-    assert_eq!(install_info_a.version, semver::Version::new(2, 0, 3));
+    assert_eq!(install_c.version()?.unwrap(), "2.0.3");
 
     Ok(())
 }

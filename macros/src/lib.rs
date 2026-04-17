@@ -48,6 +48,10 @@ use syn::{Data, DataEnum, DeriveInput, parse_macro_input};
 /// - [`ProjectRead::read_source`] delegates to the active variant and wraps
 ///   the returned reader in `<EnumName>SourceReader<'_>`.
 /// - [`ProjectRead::sources`] delegates directly to the active variant.
+/// - [`ProjectRead::get_info`], [`ProjectRead::get_meta`],
+///   [`ProjectRead::version`], and [`ProjectRead::usage`] delegate directly to
+///   the active variant so leaf overrides survive wrapper enums.
+/// - [`ProjectRead::checksum_canonical_hex`] delegates to the active variant.
 ///
 /// All other methods are handled by the default implementation of the
 /// `ProjectRead` trait.
@@ -156,6 +160,38 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                     #enum_ident::#variant_ident(project) => project.sources(ctx)
                         .map_err(#error_ident::#variant_ident)
                 },
+                // get_info_match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .get_info()
+                        .map_err(#error_ident::#variant_ident)
+                },
+                // get_meta_match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .get_meta()
+                        .map_err(#error_ident::#variant_ident)
+                },
+                // version_match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .version()
+                        .map_err(#error_ident::#variant_ident)
+                },
+                // usage_match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .usage()
+                        .map_err(#error_ident::#variant_ident)
+                },
+                // checksum_canonical_hex_match — forward so that any leaf
+                // override (e.g. a remote-index project with a prefetched
+                // digest) isn't bypassed by the trait default.
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .checksum_canonical_hex()
+                        .map_err(|e| e.map_project_read(#error_ident::#variant_ident))
+                },
             ))
         })
         .collect();
@@ -167,29 +203,58 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (
-        variant_list,
-        error_variants,
-        error_args,
-        source_reader_variants,
-        variants_read,
-        source_reader_match,
-        source_reader_args,
-        get_project_match,
-        read_source_match,
-        sources_match,
-    ): (
-        Vec<_>,
-        Vec<_>,
-        Vec<_>,
-        Vec<_>,
-        Vec<_>,
-        Vec<_>,
-        Vec<_>,
-        Vec<_>,
-        Vec<_>,
-        Vec<_>,
-    ) = variant_parts.iter().cloned().multiunzip();
+    // Manual loop instead of `multiunzip` because the 15-element tuple
+    // exceeds the arity limit of `itertools::Itertools::multiunzip`.
+    let mut variant_list = vec![];
+    let mut error_variants = vec![];
+    let mut error_args = vec![];
+    let mut source_reader_variants = vec![];
+    let mut variants_read = vec![];
+    let mut source_reader_match = vec![];
+    let mut source_reader_args = vec![];
+    let mut get_project_match = vec![];
+    let mut read_source_match = vec![];
+    let mut sources_match = vec![];
+    let mut get_info_match = vec![];
+    let mut get_meta_match = vec![];
+    let mut version_match = vec![];
+    let mut usage_match = vec![];
+    let mut checksum_canonical_hex_match = vec![];
+
+    for (
+        variant_list_part,
+        error_variants_part,
+        error_args_part,
+        source_reader_variants_part,
+        variants_read_part,
+        source_reader_match_part,
+        source_reader_args_part,
+        get_project_match_part,
+        read_source_match_part,
+        sources_match_part,
+        get_info_match_part,
+        get_meta_match_part,
+        version_match_part,
+        usage_match_part,
+        checksum_canonical_hex_match_part,
+    ) in variant_parts.iter().cloned()
+    {
+        variant_list.push(variant_list_part);
+        error_variants.push(error_variants_part);
+        error_args.push(error_args_part);
+        source_reader_variants.push(source_reader_variants_part);
+        variants_read.push(variants_read_part);
+        source_reader_match.push(source_reader_match_part);
+        source_reader_args.push(source_reader_args_part);
+        get_project_match.push(get_project_match_part);
+        read_source_match.push(read_source_match_part);
+        sources_match.push(sources_match_part);
+        get_info_match.push(get_info_match_part);
+        get_meta_match.push(get_meta_match_part);
+        version_match.push(version_match_part);
+        usage_match.push(usage_match_part);
+        checksum_canonical_hex_match.push(checksum_canonical_hex_match_part);
+    }
 
     let expanded = quote! {
         #[derive(::std::fmt::Debug, ::thiserror::Error)]
@@ -256,6 +321,54 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             fn sources(&self, ctx: &ProjectContext) -> ::std::result::Result<::std::vec::Vec<Source>, Self::Error> {
                 match self {
                     #( #sources_match ),*
+                }
+            }
+
+            fn get_info(
+                &self,
+            ) -> ::std::result::Result<::std::option::Option<InterchangeProjectInfoRaw>, Self::Error> {
+                match self {
+                    #( #get_info_match ),*
+                }
+            }
+
+            fn get_meta(
+                &self,
+            ) -> ::std::result::Result<::std::option::Option<InterchangeProjectMetadataRaw>, Self::Error> {
+                match self {
+                    #( #get_meta_match ),*
+                }
+            }
+
+            fn version(
+                &self,
+            ) -> ::std::result::Result<::std::option::Option<::std::string::String>, Self::Error> {
+                match self {
+                    #( #version_match ),*
+                }
+            }
+
+            fn usage(
+                &self,
+            ) -> ::std::result::Result<
+                ::std::option::Option<
+                    ::std::vec::Vec<::sysand_core::model::InterchangeProjectUsageRaw>,
+                >,
+                Self::Error,
+            > {
+                match self {
+                    #( #usage_match ),*
+                }
+            }
+
+            fn checksum_canonical_hex(
+                &self,
+            ) -> ::std::result::Result<
+                ::std::option::Option<::std::string::String>,
+                CanonicalizationError<Self::Error>,
+            > {
+                match self {
+                    #( #checksum_canonical_hex_match ),*
                 }
             }
         }

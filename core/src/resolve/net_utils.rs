@@ -26,15 +26,6 @@ pub fn kpar_get_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -
     }
 }
 
-pub fn kpar_head_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder {
-    let this_url = url.into();
-    move |client: &ClientWithMiddleware| -> RequestBuilder {
-        client
-            .head(this_url.clone())
-            .header(header::ACCEPT, KPAR_ACCEPT)
-    }
-}
-
 /// For JSON files
 pub fn json_get_request(url: impl Into<Url>) -> impl Fn(&ClientWithMiddleware) -> RequestBuilder {
     let this_url = url.into();

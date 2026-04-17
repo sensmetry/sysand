@@ -148,10 +148,16 @@ fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
         .expect_at_most(1)
         .create();
 
+    // Two calls expected: the resolver tries the URL as a kpar via two
+    // candidate paths (chained through any-resolver). Each path now actually
+    // re-issues the GET on 404 because the failed-download cleanup no longer
+    // leaves an empty file at `archive_path` to short-circuit the second
+    // attempt. Cap at 2 to lock in the new behavior; further reductions
+    // would be a resolver-level change.
     let kpar_download_try = server
         .mock("GET", "/")
         .with_status(404)
-        .expect_at_most(1)
+        .expect_at_most(2)
         .create();
 
     let info_mock_head = server
@@ -226,7 +232,8 @@ fn info_basic_http_url_irrelevant_auth() -> Result<(), Box<dyn Error>> {
     let kpar_download_try = server
         .mock("GET", "/")
         .with_status(404)
-        .expect_at_most(1)
+        // See the matching comment in `info_basic_http_url_noauth`.
+        .expect_at_most(2)
         .create();
 
     let info_mock_head = server
@@ -312,7 +319,8 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect(1)
+        // See the matching comment in `info_basic_http_url_noauth`.
+        .expect_at_most(2)
         .create();
 
     let kpar_download_try_auth = server
@@ -322,7 +330,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
             Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
         )
         .with_status(404)
-        .expect(1)
+        .expect_at_most(2)
         .create();
 
     let info_mock_head = server
@@ -466,7 +474,8 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect(1)
+        // See the matching comment in `info_basic_http_url_noauth`.
+        .expect_at_most(2)
         .create();
 
     let kpar_download_try_auth = server
@@ -476,7 +485,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
             Matcher::Exact("Bearer this_is_a_token".to_string()),
         )
         .with_status(404)
-        .expect(1)
+        .expect_at_most(2)
         .create();
 
     let info_mock_head = server
@@ -748,43 +757,70 @@ fn info_basic_file_git() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Render a minimal `.project.json` body for the given name/version.
+fn project_json_for(name: &str, version: &str) -> String {
+    format!(r#"{{"name":"{name}","version":"{version}","usage":[]}}"#)
+}
+
+/// Render a minimal `.meta.json` body. The fixed timestamp keeps any test
+/// that hashes the body reproducible.
+const TEST_META_JSON_BODY: &str = r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#;
+
+/// Build a `versions.json` body advertising a single entry with the correct
+/// canonical `project_digest` for the supplied `.project.json` / `.meta.json`
+/// bodies. The kpar digest is a placeholder because `sysand info` reads the
+/// per-version JSON directly and never downloads the archive.
+fn versions_json_for(version: &str, project_body: &str, meta_body: &str) -> String {
+    use sysand_core::model::{
+        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, project_hash_raw,
+    };
+    let info: InterchangeProjectInfoRaw = serde_json::from_str(project_body).unwrap();
+    let meta: InterchangeProjectMetadataRaw = serde_json::from_str(meta_body).unwrap();
+    let digest_hex = format!("{:x}", project_hash_raw(&info, &meta));
+    format!(
+        r#"{{"versions":[{{"version":"{version}","usage":[],"project_digest":"sha256:{digest_hex}","kpar_size":42,"kpar_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}]}}"#
+    )
+}
+
 #[test]
 fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
 
+    let iri_dir = "/_iri/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe";
+
+    let project_body = project_json_for("info_basic_index_url", "1.2.3");
+    let versions_body = versions_json_for("1.2.3", &project_body, TEST_META_JSON_BODY);
+
     let versions_mock = server
-        .mock(
-            "GET",
-            "/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe/versions.txt",
-        )
-        .with_status(200)
-        .with_header("content-type", "text/plain")
-        .with_body("1.2.3\n")
-        .expect_at_most(1)
-        .create();
-
-    let project_mock_head = server
-        .mock("HEAD", "/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe/1.2.3.kpar/.project.json")
+        .mock("GET", format!("{iri_dir}/versions.json").as_str())
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_index_url","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(1)
+        .with_body(&versions_body)
+        .expect_at_least(1)
         .create();
 
-    let project_mock = server
-        .mock("GET", "/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe/1.2.3.kpar/.project.json")
+    let project_json_mock = server
+        .mock("GET", format!("{iri_dir}/1.2.3/.project.json").as_str())
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_index_url","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1
+        .with_body(&project_body)
+        .expect_at_least(1)
         .create();
 
-    let meta_mock = server
-        .mock("GET", "/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe/1.2.3.kpar/.meta.json")
+    let meta_json_mock = server
+        .mock("GET", format!("{iri_dir}/1.2.3/.meta.json").as_str())
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1
+        .with_body(TEST_META_JSON_BODY)
+        .expect_at_least(1)
+        .create();
+
+    // `info` reads the per-version `.project.json` / `.meta.json` directly;
+    // the kpar endpoint must not be touched. expect(0) catches any regression
+    // that would re-introduce a kpar download during info.
+    let kpar_mock = server
+        .mock("GET", format!("{iri_dir}/1.2.3/project.kpar").as_str())
+        .expect(0)
         .create();
 
     let (_, _, out) = run_sysand(
@@ -804,9 +840,20 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     versions_mock.assert();
-    project_mock_head.assert();
-    project_mock.assert();
-    meta_mock.assert();
+    project_json_mock.assert();
+    meta_json_mock.assert();
+    kpar_mock.assert();
+
+    // Catch-all for any _iri/<hash>/versions.json we didn't explicitly mock —
+    // return 404 so the resolver treats the IRI as absent from this index.
+    let missing_versions_mock = server
+        .mock(
+            "GET",
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+        )
+        .with_status(404)
+        .expect_at_least(0)
+        .create();
 
     let (_, _, out) = run_sysand(
         [
@@ -822,6 +869,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     out.assert().failure().stderr(predicate::str::contains(
         "failed to resolve IRI `urn:kpar:other`: no resolver was able to resolve the IRI",
     ));
+    let _ = missing_versions_mock;
 
     Ok(())
 }
@@ -831,74 +879,94 @@ fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
 
+    let iri_dir = "/_iri/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042";
+    let iri_dir_alt = "/_iri/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565";
+
+    let project_body = project_json_for("info_multi_index_url", "1.2.3");
+    let project_alt_body = project_json_for("info_multi_index_url_alt", "1.2.3");
+    let versions_body = versions_json_for("1.2.3", &project_body, TEST_META_JSON_BODY);
+    let versions_alt_body = versions_json_for("1.2.3", &project_alt_body, TEST_META_JSON_BODY);
+
     let versions_mock = server
-        .mock(
-            "GET",
-            "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/versions.txt",
-        )
-        .with_status(200)
-        .with_header("content-type", "text/plain")
-        .with_body("1.2.3\n")
-        .expect_at_most(1)
-        .create();
-
-    let project_mock_head = server
-        .mock("HEAD", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
+        .mock("GET", format!("{iri_dir}/versions.json").as_str())
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(1)
+        .with_body(&versions_body)
+        .expect_at_least(1)
         .create();
 
-    let project_mock = server
-        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
+    let project_json_mock = server
+        .mock("GET", format!("{iri_dir}/1.2.3/.project.json").as_str())
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1
+        .with_body(&project_body)
+        .expect_at_least(1)
         .create();
 
-    let meta_mock = server
-        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.meta.json")
+    let meta_json_mock = server
+        .mock("GET", format!("{iri_dir}/1.2.3/.meta.json").as_str())
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1
+        .with_body(TEST_META_JSON_BODY)
+        .expect_at_least(1)
+        .create();
+
+    // expect(0): `sysand info` resolves info from the per-version
+    // `.project.json` / `.meta.json` and never downloads the archive.
+    // A regression that re-enables a download during info would fire this
+    // mock and fail the assertion.
+    let kpar_mock = server
+        .mock("GET", format!("{iri_dir}/1.2.3/project.kpar").as_str())
+        .expect(0)
         .create();
 
     let versions_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/versions.json").as_str())
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(&versions_alt_body)
+        .expect_at_least(1)
+        .create();
+
+    let project_json_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/1.2.3/.project.json").as_str())
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(&project_alt_body)
+        .expect_at_least(1)
+        .create();
+
+    let meta_json_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/1.2.3/.meta.json").as_str())
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(TEST_META_JSON_BODY)
+        .expect_at_least(1)
+        .create();
+
+    let kpar_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/1.2.3/project.kpar").as_str())
+        .expect(0)
+        .create();
+
+    // 404 for IRIs not explicitly mocked: required for the cross-index miss
+    // (server hit for `_alt`, server_alt hit for the primary) and for the
+    // final "urn:kpar:other" lookup below.
+    let server_missing_mock = server
         .mock(
             "GET",
-            "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/versions.txt",
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
         )
-        .with_status(200)
-        .with_header("content-type", "text/plain")
-        .with_body("1.2.3\n")
-        .expect_at_most(1)
+        .with_status(404)
+        .expect_at_least(0)
         .create();
-
-    let project_alt_mock_head = server_alt
-        .mock("HEAD", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.project.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url_alt","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(1)
-        .create();
-
-    let project_alt_mock = server_alt
-        .mock("GET", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.project.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url_alt","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1
-        .create();
-
-    let meta_alt_mock = server_alt
-        .mock("GET", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.meta.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1
+    let server_alt_missing_mock = server_alt
+        .mock(
+            "GET",
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+        )
+        .with_status(404)
+        .expect_at_least(0)
         .create();
 
     let (_, _, out) = run_sysand(
@@ -938,14 +1006,13 @@ fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     versions_mock.assert();
-    project_mock_head.assert();
-    project_mock.assert();
-    meta_mock.assert();
-
+    project_json_mock.assert();
+    meta_json_mock.assert();
+    kpar_mock.assert();
     versions_alt_mock.assert();
-    project_alt_mock_head.assert();
-    project_alt_mock.assert();
-    meta_alt_mock.assert();
+    project_json_alt_mock.assert();
+    meta_json_alt_mock.assert();
+    kpar_alt_mock.assert();
 
     let (_, _, out) = run_sysand(
         [
@@ -961,6 +1028,7 @@ fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
     out.assert().failure().stderr(predicate::str::contains(
         "failed to resolve IRI `urn:kpar:other`: no resolver was able to resolve the IRI",
     ));
+    let _ = (server_missing_mock, server_alt_missing_mock);
 
     Ok(())
 }
@@ -970,124 +1038,117 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
 
+    let iri_dir = "/_iri/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042";
+    let iri_dir_alt = "/_iri/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565";
+    let basic_auth = "Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==";
+
+    let project_body = project_json_for("info_multi_index_url", "1.2.3");
+    let project_alt_body = project_json_for("info_multi_index_url_alt", "1.2.3");
+    let versions_body = versions_json_for("1.2.3", &project_body, TEST_META_JSON_BODY);
+    let versions_alt_body = versions_json_for("1.2.3", &project_alt_body, TEST_META_JSON_BODY);
+
     let versions_mock = server
-        .mock(
-            "GET",
-            "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/versions.txt",
-        )
+        .mock("GET", format!("{iri_dir}/versions.json").as_str())
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "text/plain")
-        .with_body("1.2.3\n")
-        .expect(1)
         .create();
 
     let versions_mock_auth = server
-        .mock(
-            "GET",
-            "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/versions.txt",
-        )
-        .match_header(
-            "authorization",
-            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
-        )
+        .mock("GET", format!("{iri_dir}/versions.json").as_str())
+        .match_header("authorization", Matcher::Exact(basic_auth.to_string()))
         .with_status(200)
-        .with_header("content-type", "text/plain")
-        .with_body("1.2.3\n")
-        .expect(1)
+        .with_header("content-type", "application/json")
+        .with_body(&versions_body)
+        .expect_at_least(1)
         .create();
 
-    let project_mock_head = server
-        .mock("HEAD", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
+    // Unauthenticated 404 lets the auth policy retry with credentials —
+    // matches the same retry-on-404 pattern as the versions.json pair above.
+    let _project_json_mock_404 = server
+        .mock("GET", format!("{iri_dir}/1.2.3/.project.json").as_str())
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
-        .expect(1)
         .create();
 
-    let project_mock_head_auth = server
-        .mock("HEAD", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+    let project_json_mock_auth = server
+        .mock("GET", format!("{iri_dir}/1.2.3/.project.json").as_str())
+        .match_header("authorization", Matcher::Exact(basic_auth.to_string()))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
-        .expect(1)
+        .with_body(&project_body)
+        .expect_at_least(1)
         .create();
 
-    let project_mock = server
-        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
+    let _meta_json_mock_404 = server
+        .mock("GET", format!("{iri_dir}/1.2.3/.meta.json").as_str())
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
-        .expect(2) // TODO: Reduce this to 1
         .create();
 
-    let project_mock_auth = server
-        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.project.json")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
+    let meta_json_mock_auth = server
+        .mock("GET", format!("{iri_dir}/1.2.3/.meta.json").as_str())
+        .match_header("authorization", Matcher::Exact(basic_auth.to_string()))
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url","version":"1.2.3","usage":[]}"#)
-        .expect(2) // TODO: Reduce this to 1
+        .with_body(TEST_META_JSON_BODY)
+        .expect_at_least(1)
         .create();
 
-    let meta_mock = server
-        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.meta.json")
-        .match_header("authorization", Matcher::Missing)
-        .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(2) // TODO: Reduce this to 1
-        .create();
-
-    let meta_mock_auth = server
-        .mock("GET", "/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042/1.2.3.kpar/.meta.json")
-        .match_header("authorization", Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()))
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(2) // TODO: Reduce this to 1
+    // expect(0): info reads `.project.json` / `.meta.json` directly and never
+    // hits the kpar endpoint, in either auth branch.
+    let kpar_mock = server
+        .mock("GET", format!("{iri_dir}/1.2.3/project.kpar").as_str())
+        .expect(0)
         .create();
 
     let versions_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/versions.json").as_str())
+        .match_header("authorization", Matcher::Missing)
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(&versions_alt_body)
+        .expect_at_least(1)
+        .create();
+
+    let project_json_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/1.2.3/.project.json").as_str())
+        .match_header("authorization", Matcher::Missing)
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(&project_alt_body)
+        .expect_at_least(1)
+        .create();
+
+    let meta_json_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/1.2.3/.meta.json").as_str())
+        .match_header("authorization", Matcher::Missing)
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(TEST_META_JSON_BODY)
+        .expect_at_least(1)
+        .create();
+
+    let kpar_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/1.2.3/project.kpar").as_str())
+        .expect(0)
+        .create();
+
+    // 404 for any other IRI's versions.json, on both servers.
+    let server_missing_mock = server
         .mock(
             "GET",
-            "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/versions.txt",
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
         )
-        .match_header("authorization", Matcher::Missing)
-        .with_status(200)
-        .with_header("content-type", "text/plain")
-        .with_body("1.2.3\n")
-        .expect(1)
+        .with_status(404)
+        .expect_at_least(0)
         .create();
-
-    let project_alt_mock_head = server_alt
-        .mock("HEAD", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.project.json")
-        .match_header("authorization", Matcher::Missing)
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url_alt","version":"1.2.3","usage":[]}"#)
-        .expect(1)
-        .create();
-
-    let project_alt_mock = server_alt
-        .mock("GET", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.project.json")
-        .match_header("authorization", Matcher::Missing)
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url_alt","version":"1.2.3","usage":[]}"#)
-        .expect(2) // TODO: Reduce this to 1
-        .create();
-
-    let meta_alt_mock = server_alt
-        .mock("GET", "/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565/1.2.3.kpar/.meta.json")
-        .match_header("authorization", Matcher::Missing)
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(2) // TODO: Reduce this to 1
+    let server_alt_missing_mock = server_alt
+        .mock(
+            "GET",
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+        )
+        .with_status(404)
+        .expect_at_least(0)
         .create();
 
     let server_pattern = format!("http://{}/**", server.host_with_port());
@@ -1113,12 +1174,9 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
 
     versions_mock.assert();
     versions_mock_auth.assert();
-    project_mock_head.assert();
-    project_mock_head_auth.assert();
-    project_mock.assert();
-    project_mock_auth.assert();
-    meta_mock.assert();
-    meta_mock_auth.assert();
+    project_json_mock_auth.assert();
+    meta_json_mock_auth.assert();
+    kpar_mock.assert();
 
     out.assert()
         .success()
@@ -1145,9 +1203,9 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     versions_alt_mock.assert();
-    project_alt_mock_head.assert();
-    project_alt_mock.assert();
-    meta_alt_mock.assert();
+    project_json_alt_mock.assert();
+    meta_json_alt_mock.assert();
+    kpar_alt_mock.assert();
 
     let (_, _, out) = run_sysand_with(
         [
@@ -1164,6 +1222,7 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
     out.assert().failure().stderr(predicate::str::contains(
         "failed to resolve IRI `urn:kpar:other`",
     ));
+    let _ = (server_missing_mock, server_alt_missing_mock);
 
     Ok(())
 }
@@ -1173,74 +1232,89 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
 
+    let iri_dir = "/_iri/1206faf209922d2c3c3ce220d5b78b6001b1ec42ab1304d65590d1749453c5b5";
+    let iri_dir_alt = "/_iri/bf1998eaeb56282e6dd62686b1ea51dfeffded6964aa53cc89cf70a9a2627c97";
+
+    let project_body = project_json_for("info_multi_index_url_config", "1.2.3");
+    let project_alt_body = project_json_for("info_multi_index_url_config_alt", "1.2.3");
+    let versions_body = versions_json_for("1.2.3", &project_body, TEST_META_JSON_BODY);
+    let versions_alt_body = versions_json_for("1.2.3", &project_alt_body, TEST_META_JSON_BODY);
+
     let versions_mock = server
-        .mock(
-            "GET",
-            "/1206faf209922d2c3c3ce220d5b78b6001b1ec42ab1304d65590d1749453c5b5/versions.txt",
-        )
-        .with_status(200)
-        .with_header("content-type", "text/plain")
-        .with_body("1.2.3\n")
-        .expect_at_most(2)
-        .create();
-
-    let project_mock_head = server
-        .mock("HEAD", "/1206faf209922d2c3c3ce220d5b78b6001b1ec42ab1304d65590d1749453c5b5/1.2.3.kpar/.project.json")
+        .mock("GET", format!("{iri_dir}/versions.json").as_str())
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url_config","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2)
+        .with_body(&versions_body)
+        .expect_at_least(1)
         .create();
 
-    let project_mock = server
-        .mock("GET", "/1206faf209922d2c3c3ce220d5b78b6001b1ec42ab1304d65590d1749453c5b5/1.2.3.kpar/.project.json")
+    let project_json_mock = server
+        .mock("GET", format!("{iri_dir}/1.2.3/.project.json").as_str())
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url_config","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1
+        .with_body(&project_body)
+        .expect_at_least(1)
         .create();
 
-    let meta_mock = server
-        .mock("GET", "/1206faf209922d2c3c3ce220d5b78b6001b1ec42ab1304d65590d1749453c5b5/1.2.3.kpar/.meta.json")
+    let meta_json_mock = server
+        .mock("GET", format!("{iri_dir}/1.2.3/.meta.json").as_str())
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1
+        .with_body(TEST_META_JSON_BODY)
+        .expect_at_least(1)
+        .create();
+
+    // expect(0): info reads `.project.json` / `.meta.json` and never hits
+    // the kpar endpoint.
+    let kpar_mock = server
+        .mock("GET", format!("{iri_dir}/1.2.3/project.kpar").as_str())
+        .expect(0)
         .create();
 
     let versions_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/versions.json").as_str())
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(&versions_alt_body)
+        .expect_at_least(1)
+        .create();
+
+    let project_json_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/1.2.3/.project.json").as_str())
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(&project_alt_body)
+        .expect_at_least(1)
+        .create();
+
+    let meta_json_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/1.2.3/.meta.json").as_str())
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(TEST_META_JSON_BODY)
+        .expect_at_least(1)
+        .create();
+
+    let kpar_alt_mock = server_alt
+        .mock("GET", format!("{iri_dir_alt}/1.2.3/project.kpar").as_str())
+        .expect(0)
+        .create();
+
+    let server_missing_mock = server
         .mock(
             "GET",
-            "/bf1998eaeb56282e6dd62686b1ea51dfeffded6964aa53cc89cf70a9a2627c97/versions.txt",
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
         )
-        .with_status(200)
-        .with_header("content-type", "text/plain")
-        .with_body("1.2.3\n")
-        .expect_at_most(1)
+        .with_status(404)
+        .expect_at_least(0)
         .create();
-
-    let project_alt_mock_head = server_alt
-        .mock("HEAD", "/bf1998eaeb56282e6dd62686b1ea51dfeffded6964aa53cc89cf70a9a2627c97/1.2.3.kpar/.project.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url_config_alt","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(1)
-        .create();
-
-    let project_alt_mock = server_alt
-        .mock("GET", "/bf1998eaeb56282e6dd62686b1ea51dfeffded6964aa53cc89cf70a9a2627c97/1.2.3.kpar/.project.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_multi_index_url_config_alt","version":"1.2.3","usage":[]}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1
-        .create();
-
-    let meta_alt_mock = server_alt
-        .mock("GET", "/bf1998eaeb56282e6dd62686b1ea51dfeffded6964aa53cc89cf70a9a2627c97/1.2.3.kpar/.meta.json")
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_most(2) // TODO: Reduce this to 1
+    let server_alt_missing_mock = server_alt
+        .mock(
+            "GET",
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+        )
+        .with_status(404)
+        .expect_at_least(0)
         .create();
 
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1286,14 +1360,14 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
     versions_mock.assert();
-    project_mock_head.assert();
-    project_mock.assert();
-    meta_mock.assert();
-
+    project_json_mock.assert();
+    meta_json_mock.assert();
+    kpar_mock.assert();
     versions_alt_mock.assert();
-    project_alt_mock_head.assert();
-    project_alt_mock.assert();
-    meta_alt_mock.assert();
+    project_json_alt_mock.assert();
+    meta_json_alt_mock.assert();
+    kpar_alt_mock.assert();
+    let _ = (server_missing_mock, server_alt_missing_mock);
 
     Ok(())
 }

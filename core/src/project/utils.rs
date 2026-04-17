@@ -189,6 +189,14 @@ pub mod wrapfs {
             .map_err(|e| Box::new(FsIoError::RmFile(path.as_ref().into(), e)))
     }
 
+    pub fn rename<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+        from: P,
+        to: Q,
+    ) -> Result<(), Box<FsIoError>> {
+        fs::rename(from.as_ref(), to.as_ref())
+            .map_err(|e| Box::new(FsIoError::Move(from.as_ref().into(), to.as_ref().into(), e)))
+    }
+
     pub fn copy<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
         from: P,
         to: Q,

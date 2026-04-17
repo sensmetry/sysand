@@ -10,10 +10,8 @@ use typed_path::Utf8UnixPath;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{
-        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, ProjectHash, project_hash_raw,
-    },
-    project::{ProjectRead, cached::CachedProject},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::{CanonicalizationError, ProjectRead, cached::CachedProject},
     resolve::{ResolutionOutcome, ResolveRead, null::NullResolver},
 };
 
@@ -115,7 +113,7 @@ pub struct CombinedIterator<
     RegistryResolver: ResolveRead,
 > {
     pub state: CombinedIteratorState<FileResolver, RemoteResolver, RegistryResolver>,
-    pub locals: IndexMap<ProjectHash, LocalResolver::ProjectStorage>,
+    pub locals: IndexMap<String, LocalResolver::ProjectStorage>,
 }
 
 impl<
@@ -153,12 +151,10 @@ impl<
             CombinedIteratorState::ResolvedRemote(iter) => match iter.next() {
                 Some(r) => Some(r.map_err(CombinedResolverError::Remote).map(|project| {
                     let cached = project
-                        .get_project()
+                        .checksum_canonical_hex()
                         .ok()
-                        .and_then(|(spec, meta)| spec.zip(meta))
-                        .and_then(|(spec, meta)| {
-                            self.locals.shift_remove(&project_hash_raw(&spec, &meta))
-                        });
+                        .flatten()
+                        .and_then(|checksum| self.locals.shift_remove(&checksum));
 
                     if let Some(local_project) = cached {
                         CombinedProjectStorage::CachedRemoteProject(CachedProject::new(
@@ -177,12 +173,10 @@ impl<
             CombinedIteratorState::ResolvedRegistry(iter) => match iter.next() {
                 Some(r) => Some(r.map_err(CombinedResolverError::Registry).map(|project| {
                     let cached = project
-                        .get_project()
+                        .checksum_canonical_hex()
                         .ok()
-                        .and_then(|(spec, meta)| spec.zip(meta))
-                        .and_then(|(spec, meta)| {
-                            self.locals.shift_remove(&project_hash_raw(&spec, &meta))
-                        });
+                        .flatten()
+                        .and_then(|checksum| self.locals.shift_remove(&checksum));
 
                     if let Some(local_project) = cached {
                         CombinedProjectStorage::CachedRegistryProject(CachedProject::new(
@@ -260,7 +254,7 @@ impl<
         }
 
         // Collect local cached projects
-        let mut locals: IndexMap<ProjectHash, LocalResolver::ProjectStorage> = IndexMap::new();
+        let mut locals: IndexMap<String, LocalResolver::ProjectStorage> = IndexMap::new();
 
         if let Some(local_resolver) = &self.local_resolver {
             match local_resolver
@@ -276,13 +270,13 @@ impl<
                                     "local resolver rejected project with IRI `{uri}`: {err}",
                                 );
                             }
-                            Ok(project) => match project.get_project() {
-                                Ok((Some(info), Some(meta))) => {
-                                    locals.insert(project_hash_raw(&info, &meta), project);
+                            Ok(project) => match project.checksum_canonical_hex() {
+                                Ok(Some(checksum)) => {
+                                    locals.insert(checksum, project);
                                 }
-                                Ok(_) => {
+                                Ok(None) => {
                                     log::debug!(
-                                        "local resolver rejected project with IRI `{uri}` due to missing project info/meta",
+                                        "local resolver rejected project with IRI `{uri}` due to missing canonical checksum",
                                     );
                                 }
                                 Err(err) => {

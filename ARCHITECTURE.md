@@ -113,7 +113,8 @@ environment can handle allocation and cleanup), `del_project_version`, and
 
 Notable implementations include `LocalDirectoryEnvironment` (filesystem),
 `MemoryStorageEnvironment<Project>` (in-memory), and
-`HTTPEnvironmentAsync<Policy>` (HTTP registry).
+`HTTPIndexEnvironmentAsync<Policy>` (remote sysand index; see
+"Index structure" below).
 
 ### Async variants
 
@@ -290,29 +291,114 @@ looks something like below.
 index_root
  ├──index.json
  ├──_iri
- │  ├──package_ID1
- │  │  ├──0.0.1
- │  │  └──meta.json
- │  ├──package_ID2
- │  └──package_ID3
+ │  ├──iri_hash_1
+ │  │  ├──versions.json
+ │  │  ├──1.1.0
+ │  │  │  ├──project.kpar
+ │  │  │  ├──.project.json
+ │  │  │  └──.meta.json
+ │  │  └──1.0.0
+ │  │     ├──project.kpar
+ │  │     ├──.project.json
+ │  │     └──.meta.json
+ │  └──iri_hash_2 (contains same structure as iri_hash_1)
  ├──publisher1
- │  ├──name1
- │  │  ├──0.0.1
- │  │  └──meta.json
- │  └──name2
+ │  ├──name1 (contains same structure as iri_hash_1)
+ │  └──name2 (contains same structure as iri_hash_1)
  └──publisher2
-    └──name1
+    └──name1 (contains same structure as iri_hash_1)
 ```
 
-where `index.json` should have a structure like below.
+Each version directory contains the kpar archive (`project.kpar`), the project
+info (`.project.json`), and the project metadata (`.meta.json`).
+
+`index.json` is a flat list of the project IRIs the index knows about:
 
 ```json
 {
   "projects": [
-    { i = "pkg:sysand/abc/def", v = ["0.0.1", "2.3.4"] },
-    { i = "https://example.org/project.kpar", v = ["0.0.1"] }
+    { "iri": "pkg:sysand/abc/def" },
+    { "iri": "https://example.org/project.kpar" }
   ]
 }
 ```
+
+`versions.json` is a per-project file listing every version, its resolution
+dependencies (the `usage` field from `.project.json`), and the publish-time
+artifact metadata the client needs to decide which version to lock without
+fetching any per-version files. In protocol terms, `versions.json` must be
+sufficient for candidate enumeration and solver input; once the solver has
+picked a specific version to lock, the client may then fetch that version's
+`.project.json` and `.meta.json` to materialize the locked project record and
+reconcile it with the advertised digests:
+
+```json
+{
+  "versions": [
+    {
+      "version": "2.3.4",
+      "usage": [
+        { "resource": "pkg:sysand/abc/dep", "versionConstraint": "<2" }
+      ],
+      "project_digest": "sha256:<64-hex>",
+      "kpar_size": 12345,
+      "kpar_digest": "sha256:<64-hex>"
+    },
+    {
+      "version": "0.0.1",
+      "usage": [],
+      "project_digest": "sha256:<64-hex>",
+      "kpar_size": 6789,
+      "kpar_digest": "sha256:<64-hex>"
+    }
+  ]
+}
+```
+
+All five per-entry fields are required; the client rejects a `versions.json`
+that omits any of them.
+
+- `project_digest` — sha256 over the canonicalized `info` + `meta` pair of
+  the kpar's `.project.json` / `.meta.json`. The client writes this into the
+  lockfile at `lock` time without fetching the archive.
+- `kpar_size` — byte length of the kpar archive, recorded on the lockfile
+  source entry so the client never has to issue a HEAD.
+- `kpar_digest` — sha256 over the kpar archive bytes. The client verifies
+  the streamed body against this value at download time and rejects a
+  mismatched archive with a `DigestMismatch` error.
+
+With this file in place, pubgrub can build its dependency graph without
+downloading any kpar; the archive is only pulled for the version it picks,
+and then only if the caller actually needs its contents (lockfile writing
+does not).
+
+The server sorts entries by semver with the newest version first. Pubgrub
+re-sorts internally when solving, but display-oriented consumers (e.g.
+`sysand list-versions`) can rely on newest-first without further sorting.
+
+The client (`HTTPIndexEnvironmentAsync`) resolves IRIs as follows:
+
+- `pkg:sysand/<publisher>/<name>` is looked up under `<publisher>/<name>/`.
+- Any other IRI is looked up under `_iri/<sha256_hex(iri)>/`.
+
+`versions_async` reads `<project-path>/versions.json` per IRI; `uris_async`
+(list-all enumeration) reads the root `index.json`.
+
+The intended split of responsibility is:
+
+- `versions.json` is sufficient to answer "which version should be locked?".
+  Candidate enumeration and dependency solving must not require fetching any
+  per-version `.project.json`, `.meta.json`, or kpar.
+- After a concrete version has been selected for locking, the client may
+  fetch that version's real `.project.json` and `.meta.json` to populate the
+  resulting lockfile entry and to reconcile the selected version's metadata
+  with the digests advertised by `versions.json`.
+- The kpar itself remains install-time material: lockfile writing should not
+  require downloading it.
+
+Because the kpar isn't on disk during resolution, the `remote_kpar_size`
+field of a produced `Source::RemoteKpar` is populated straight from the
+entry's `kpar_size` without an extra round-trip, so lockfiles still record
+the archive size.
 
 Refer to the [work in GitLab] for the latest details for now.

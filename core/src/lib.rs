@@ -3,6 +3,8 @@
 
 #![allow(refining_impl_trait)]
 
+extern crate self as sysand_core;
+
 pub mod commands;
 pub use commands::*;
 
@@ -15,6 +17,7 @@ pub mod context;
 pub mod env;
 pub mod lock;
 pub mod project;
+pub mod purl;
 pub mod resolve;
 pub mod solve;
 pub mod stdlib;

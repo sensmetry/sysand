@@ -3338,6 +3338,7 @@ dependencies = [
  "rexpect",
  "semver",
  "serde_json",
+ "sha2",
  "spdx",
  "sysand-core",
  "tempfile",
