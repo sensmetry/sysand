@@ -39,7 +39,7 @@ spdx = "0.13.4"
 fluent-uri = { version = "0.4.1", default-features = false }
 typed-path = { version = "0.12.3", default-features = false }
 url = { version = "2.5.8", default-features = false }
-pubgrub = { version = "0.3.0", default-features = false }
+pubgrub = { version = "0.4.0", default-features = false }
 indexmap = "2.13.0"
 tokio = { version = "1.50.0", default-features = false }
 reqwest-middleware = { version = "0.5.1", features = ["multipart"] }

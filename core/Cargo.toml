@@ -42,7 +42,7 @@ fluent-uri = { version = "0.4.1", features = ["serde"] }
 indexmap = { version = "2.13.0", default-features = false, features = ["serde"] }
 # icu_normalizer = { version = "2.0.0", default-features = false, features = ["compiled_data"] }
 log = { version = "0.4.29", default-features = false }
-pubgrub = { version = "0.3.0", default-features = false }
+pubgrub = { version = "0.4.0", default-features = false }
 # partialzip = { version = "5.0.0", default-features = false, optional = true }
 pyo3 = { version = "0.28.2", default-features = false, features = ["macros", "chrono", "indexmap"], optional = true }
 reqwest-middleware = { version = "0.5.1", features = ["multipart"] }
