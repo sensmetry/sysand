@@ -63,6 +63,14 @@ manually. Sensmetry is currently working on automating this process.
 
      Add usage to the list with `sysand add <IRI>`
 
+   - **Metamodel**: This field is neccessary to let the library consumers know
+     which language standard (KerML, SysML, other KerML-based languages) and
+     version to use when parsing the library.
+
+     Set metamodel to the list with
+     `sysand info metamodel --set <kerml|sysml> --release <date of release>`.
+     Refer to `sysand info metamodel --help` for all the available choices.
+
 3. **(Optional) Package the project into `.kpar`**
 
    Once you have filled out the metadata requested above, you can use Sysand
