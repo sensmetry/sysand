@@ -400,17 +400,14 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
                 format!("Workspace read error: {}", error),
             );
         }
-        KParBuildError::PathUsage(usage) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!(
-                    "project includes a path usage `{usage}`,\n\
-        which is unlikely to be available on other computers at the same path"
-                ),
-            );
+        KParBuildError::PathUsage(_) => {
+            env.throw_exception(ExceptionKind::SysandException, error.to_string());
         }
         KParBuildError::WorkspaceMetamodelConflict { .. } => {
             env.throw_exception(ExceptionKind::SysandException, error.to_string());
+        }
+        KParBuildError::MissingIndexSymbol(_, _) => {
+            env.throw_exception(ExceptionKind::InvalidValue, error.to_string())
         }
     }
 }
@@ -424,12 +421,6 @@ fn compression_from_java_string(
         Err(err) => {
             env.throw_exception(ExceptionKind::SysandException, err.to_string());
             None
-        }
-        KParBuildError::MissingIndexSymbol(path, symbol) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("file `{path}` is missing symbol `{symbol}` found in index"),
-            );
         }
     }
 }
