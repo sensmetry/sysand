@@ -88,11 +88,36 @@ fn misc_iris() -> Result<(), Box<dyn Error>> {
         ("a:b%42", "bb"),
         // Decode array correctly deals with multiple multibyte char start bytes
         ("a:b%F0%F0%F0%F0%F0c", "bc"),
+        // Multibyte chars split among two disjoint chunks are stripped
+        ("ab:b%F0%9F%92C%96", "bc"),
         // Punycode and case folding works
         ("http://ąčĘė", "ąčęė"),
+        // Replacement character is stripped
+        ("a:b%EF%BF%BDcd", "b-cd"),
     ] {
         let iri = Iri::parse(iri)?;
         let normalized = normalize_iri(&iri);
+        assert_eq!(normalized, expected);
+    }
+    Ok(())
+}
+
+#[test]
+fn misc_versions() -> Result<(), Box<dyn Error>> {
+    for (version, expected) in [
+        ("1.2.3", "1.2.3"),
+        ("1.2.3-alpha1", "1.2.3-alpha1"),
+        ("1.2.3-a.b.c", "1.2.3-a.b.c"),
+        // Allows arbitrary contents, lowercases
+        ("Mekanïk/Kommandöh", "mekanïk-kommandöh"),
+        // Strips end punctuation
+        ("1.", "1"),
+        ("0.0.1-a+build1", "0.0.1-a-build1"),
+        (".1.2", "1.2"),
+        // Replacement character is stripped
+        ("abc�d.1", "abc-d.1"),
+    ] {
+        let normalized = normalize_version(version);
         assert_eq!(normalized, expected);
     }
     Ok(())

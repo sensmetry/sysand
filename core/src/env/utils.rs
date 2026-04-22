@@ -1,7 +1,10 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-use std::{char, fmt::Write};
+use std::{
+    char::{self, REPLACEMENT_CHARACTER},
+    fmt::Write,
+};
 
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
@@ -316,8 +319,12 @@ pub fn normalize_iri<T: Bos<str>>(iri: &Iri<T>) -> String {
             } else {
                 sanitized.push('-');
             }
-        } else if !BIDI_CONTROL.contains(c) {
+        // Windows does not work well with U+FFFD (replacement character) in file name.
+        // IRIs can't contain U+FFFD literally, but it can be present if percent-encoded
+        } else if !BIDI_CONTROL.contains(c) && c != REPLACEMENT_CHARACTER {
             sanitized.push(c);
+        } else if !sanitized.ends_with('.') && !sanitized.ends_with('-') {
+            sanitized.push('-');
         }
     }
 
@@ -482,7 +489,8 @@ pub fn normalize_version<V: AsRef<str>>(version: V) -> String {
                     sanitized.push('-');
                 }
             }
-        } else if !BIDI_CONTROL.contains(c) {
+        // Windows does not work well with U+FFFD (replacement character) in file name
+        } else if !BIDI_CONTROL.contains(c) && c != REPLACEMENT_CHARACTER {
             sanitized.push(c);
         } else if !sanitized.ends_with('.') && !sanitized.ends_with('-') {
             sanitized.push('-');
