@@ -122,3 +122,16 @@ fn misc_versions() -> Result<(), Box<dyn Error>> {
     }
     Ok(())
 }
+
+// This should not pass, because name `con.<ext>` is invalid on Windows.
+// TODO: if semver is mandated, this issue is impossible to hit, because
+// version always contains two dots. Can we mandate semver here?
+#[test]
+fn invalid_windows_name() -> Result<(), Box<dyn Error>> {
+    let iri = Iri::parse("a:con.b")?;
+    let version = "a";
+    let mut name_gen = IriVersionFilename::new(&iri, version);
+    assert_eq!(name_gen.next_candidate(), "con.b_a");
+
+    Ok(())
+}
