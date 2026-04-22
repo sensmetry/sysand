@@ -101,6 +101,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         current_workspace: None,
         current_project: Some(local_project.clone()),
         current_directory: ctx.current_directory,
+        env: None,
     };
 
     if !no_deps {
@@ -150,7 +151,12 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             lock.to_string(),
         )?;
 
-        let mut env = get_or_create_env(&project.inner().project_path)?;
+        let mut env = get_or_create_env(
+            ctx.env,
+            ctx.current_workspace.as_ref(),
+            ctx.current_project.as_ref(),
+            ctx.current_directory,
+        )?;
         command_sync(
             &lock,
             &project.inner().project_path,
@@ -159,7 +165,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             &provided_iris,
             runtime,
             auth_policy,
-            &ctx,
+            ctx.current_workspace.as_ref(),
         )?;
     }
 

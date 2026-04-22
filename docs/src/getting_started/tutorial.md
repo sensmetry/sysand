@@ -112,7 +112,7 @@ $ sysand sources
 warning: SysML v2/KerML standard library packages are omitted by default.
          If you want to include them, pass `--include-std` flag
 /path/to/my_project/MyProject.sysml
-/path/to/my_project/sysand_env/a0aacee34dd4cd5e2d07ab43d5e30772ec86dbf3c8fafb033bad338dd7a0f02e/5.0.0-alpha.2.kpar/SYSMOD.sysml
+/path/to/my_project/sysand_env/lib/kpar.sysmod_5.0.0-alpha.2/SYSMOD.sysml
 ```
 
 > [!note]

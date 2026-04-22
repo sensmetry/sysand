@@ -43,8 +43,6 @@ fn minimal_project<S: AsRef<str>, T: AsRef<str>>(name: S, version: T) -> InMemor
     }
 }
 
-// const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
-
 fn empty_any_resolver() -> Option<MemoryResolver<AcceptAll, InMemoryProject>> {
     Some(MemoryResolver {
         iri_predicate: AcceptAll {},

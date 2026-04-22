@@ -202,6 +202,8 @@ pub type ProjectResolution<Env> = (
 );
 
 impl Lock {
+    /// Find all projects that are both in lockfile and in `env`. Additionally
+    /// includes all projects where `editable = true`
     pub fn resolve_projects<Env: ReadEnvironment>(
         &self,
         env: &Env,
@@ -532,7 +534,6 @@ const SOURCE_ENTRIES: &[&str] = &[
     "editable",
     "src_path",
     "kpar_path",
-    "index",
     "remote_src",
     "remote_kpar",
     "remote_kpar_size",
@@ -567,9 +568,6 @@ pub enum Source {
             serialize_with = "serialize_unix_path"
         )]
         kpar_path: Utf8UnixPathBuf,
-    },
-    Index {
-        index: String,
     },
     RemoteKpar {
         remote_kpar: String,
@@ -607,9 +605,6 @@ impl Source {
             }
             Source::LocalSrc { src_path } => {
                 table.insert("src_path", Value::from(src_path.as_str()));
-            }
-            Source::Index { index } => {
-                table.insert("index", Value::from(index));
             }
             Source::RemoteApi { remote_api } => {
                 table.insert("remote_api", Value::from(remote_api));

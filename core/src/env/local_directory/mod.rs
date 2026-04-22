@@ -1,78 +1,227 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::io::{self, BufRead, BufReader, Write};
+use std::{fs, io::ErrorKind, slice, vec};
 
 use camino::{Utf8Path, Utf8PathBuf};
-use camino_tempfile::NamedUtf8TempFile;
+use fluent_uri::Iri;
 use thiserror::Error;
 
 use crate::{
-    env::{PutProjectError, ReadEnvironment, WriteEnvironment},
+    env::{
+        PutProjectError, ReadEnvironment, WriteEnvironment,
+        iri_normalize::IriVersionFilename,
+        local_directory::metadata::{
+            AddProjectError, EnvMetadata, EnvMetadataError, EnvProject, load_env_metadata,
+            parse_env_metadata,
+        },
+    },
+    lock::{Lock, Source},
     project::{
         local_src::{LocalSrcError, LocalSrcProject, PathError},
         utils::{
             FsIoError, ProjectDeserializationError, ProjectSerializationError, RelativizePathError,
-            ToPathBuf, wrapfs,
+            wrapfs,
         },
     },
+    workspace::Workspace,
 };
 
 pub mod metadata;
 pub(crate) mod utils;
 
-use utils::{
-    TryMoveError, add_line_temp, path_encode_uri, remove_dir_if_empty, remove_empty_dirs,
-    singleton_line_temp, try_move_files, try_remove_files,
-};
+use utils::{TryMoveError, remove_empty_dirs, try_move_files, try_remove_files};
 
-#[derive(Clone, Debug)]
+// TODO: avoid cloning, maybe use `Arc`?
+/// `sysand_env` metadata. Metadata changes have to be written to `env.toml` explicitly
+#[derive(Debug, Clone)]
 pub struct LocalDirectoryEnvironment {
-    pub environment_path: Utf8PathBuf,
+    /// Path of the env, including `sysand_env` part. Must be canonical
+    root_dir: Utf8PathBuf,
+    metadata: EnvMetadata,
 }
 
-pub const DEFAULT_ENV_NAME: &str = "sysand_env";
-
 pub const METADATA_PATH: &str = "env.toml";
-pub const ENTRIES_PATH: &str = "entries.txt";
-pub const VERSIONS_PATH: &str = "versions.txt";
+pub const PROJECT_PATH_PREFIX: &str = "lib/";
 
 impl LocalDirectoryEnvironment {
+    /// `root_dir` can be any cwd-relative/absolute path
+    pub fn read<P: AsRef<Utf8Path>>(root_dir: P) -> Result<Self, EnvMetadataError> {
+        let root_dir = wrapfs::canonicalize(root_dir).unwrap();
+        let metadata = load_env_metadata(root_dir.join(METADATA_PATH))?;
+        Ok(Self { root_dir, metadata })
+    }
+
+    /// `root_dir` can be any cwd-relative/absolute path
+    pub fn create<P: AsRef<Utf8Path>>(root_dir: P) -> Result<Self, Box<FsIoError>> {
+        let root_dir = wrapfs::canonicalize(root_dir).unwrap();
+
+        let metadata = EnvMetadata::default();
+        wrapfs::write(root_dir.join(METADATA_PATH), metadata.to_string())?;
+
+        Ok(Self { root_dir, metadata })
+    }
+
+    /// Try reading the environment metadata. If it does not exist,
+    /// returns `Ok(None)`.
+    /// `root_dir` can be any cwd-relative/absolute path
+    pub fn try_read<P: AsRef<Utf8Path>>(root_dir: P) -> Result<Option<Self>, EnvMetadataError> {
+        let root_dir = root_dir.as_ref();
+        let meta_path = root_dir.join(METADATA_PATH);
+        match fs::read_to_string(&meta_path) {
+            Ok(s) => {
+                let metadata = parse_env_metadata(meta_path, s)?;
+
+                let root_dir = wrapfs::canonicalize(root_dir).unwrap();
+                Ok(Some(Self { root_dir, metadata }))
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(EnvMetadataError::Io(
+                FsIoError::ReadFile(meta_path, e).into(),
+            )),
+        }
+    }
+
+    // TODO:
+    // - if there is identifier overlap and name/version match between projects in lock and env,
+    //   merge identifiers
+    // TODO: Integrate the updating of editable metadata into `WriteEnvironment` trait.
+    //       This will likely require updating it to support
+    //       multiple identifiers per project.
+    /// Precondition: sync has completed, i.e. projects from `lock` are installed by `put_project`
+    /// in `self`.
+    /// Call is not idempotent.
+    pub fn merge_lock(&mut self, lock: &Lock, ws: Option<&Workspace>) {
+        for project in &lock.projects {
+            // Projects that are installed in the environment are ignored, so only
+            // editable (and workspace, which are a subset of editable) projects have to be added
+            if let [Source::Editable { editable }, ..] = project.sources.as_slice() {
+                let usages = project
+                    .usages
+                    .iter()
+                    .map(|usage| usage.resource.clone())
+                    .collect();
+
+                let workspace_member = ws
+                    .map(|w| w.projects().iter().any(|p| p.path.as_str() == editable))
+                    .unwrap_or_default();
+                self.metadata.projects.push(EnvProject {
+                    publisher: project.publisher.to_owned(),
+                    name: project.name.to_owned(),
+                    version: project.version.to_owned(),
+                    path: editable.as_str().into(),
+                    identifiers: project.identifiers.to_owned(),
+                    usages,
+                    editable: true,
+                    workspace: workspace_member,
+                });
+            }
+        }
+    }
+
     pub fn root_path(&self) -> &Utf8Path {
-        &self.environment_path
+        &self.root_dir
     }
 
     pub fn metadata_path(&self) -> Utf8PathBuf {
-        self.environment_path.join(METADATA_PATH)
+        self.root_dir.join(METADATA_PATH)
     }
 
-    pub fn entries_path(&self) -> Utf8PathBuf {
-        self.environment_path.join(ENTRIES_PATH)
+    pub fn write(&self) -> Result<(), Box<FsIoError>> {
+        wrapfs::write(self.metadata_path(), self.metadata.to_string())
     }
 
-    pub fn uri_path<S: AsRef<str>>(&self, uri: S) -> Utf8PathBuf {
-        self.environment_path.join(path_encode_uri(uri))
+    /// Determine absolute path of `project`
+    pub fn absolute_project_path(&self, project: &EnvProject) -> Utf8PathBuf {
+        if project.editable {
+            // Will assume that workspace root is the parent of `sysand_env`
+            // FIXME: be more robust
+            self.root_dir.parent().unwrap().join(project.path.as_str())
+        } else {
+            self.root_dir.join(project.path.as_str())
+        }
     }
 
-    pub fn versions_path<S: AsRef<str>>(&self, uri: S) -> Utf8PathBuf {
-        let mut p = self.uri_path(uri);
-        p.push(VERSIONS_PATH);
-        p
+    pub fn projects(&self) -> &[EnvProject] {
+        &self.metadata.projects
     }
 
-    pub fn project_path<S: AsRef<str>, T: AsRef<str>>(&self, uri: S, version: T) -> Utf8PathBuf {
-        let mut p = self.uri_path(uri);
-        p.push(format!("{}.kpar", version.as_ref()));
-        p
+    /// Find a project `uri` version `version` and determine its absolute path
+    pub fn absolute_project_path_find<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Option<Utf8PathBuf> {
+        self.metadata
+            .find_project_version(slice::from_ref(&uri), version)
+            .map(|p| {
+                if p.editable {
+                    // TODO: this assumes that parent is workspace root
+                    self.root_dir.parent().unwrap().join(p.path.as_str())
+                } else {
+                    self.root_dir.join(p.path.as_str())
+                }
+            })
+
+        // let mut p = self.uri_path(uri);
+        // p.push(format!("{}.kpar", version.as_ref()));
+        // p
+    }
+
+    /// Project path relative to the env directory
+    pub fn relative_project_path<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        uri: S,
+        version: T,
+    ) -> Option<Utf8PathBuf> {
+        self.metadata
+            .find_project_version(slice::from_ref(&uri), version)
+            .map(|p| {
+                if p.editable {
+                    // TODO: this assumes that parent is workspace root
+                    Utf8Path::new("../").join(p.path.as_str())
+                } else {
+                    p.path.as_str().into()
+                }
+            })
+
+        // let mut p = self.uri_path(uri);
+        // p.push(format!("{}.kpar", version.as_ref()));
+        // p
+    }
+
+    fn ensure_lib_dir_exists(&self) -> Result<(), Box<FsIoError>> {
+        let lib_dir = self.root_dir.join(PROJECT_PATH_PREFIX);
+        match fs::create_dir(&lib_dir) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if e.kind() != ErrorKind::AlreadyExists {
+                    Err(FsIoError::MkDir(lib_dir, e).into())
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+
+    /// Determine a path for a new project/version. Path will be relative to `self.root_path()`
+    fn compute_project_path(&self, iri: impl AsRef<str>, version: impl AsRef<str>) -> Utf8PathBuf {
+        let iri = Iri::parse(iri.as_ref()).unwrap();
+        let mut path_iter = IriVersionFilename::new(iri, version);
+        let mut candidate = path_iter.next_candidate();
+        while self.metadata.project_dir_exists(candidate) {
+            candidate = path_iter.next_candidate();
+        }
+        let mut path = String::from(candidate);
+        path.insert_str(0, PROJECT_PATH_PREFIX);
+        path.into()
     }
 }
 
 #[derive(Error, Debug)]
 pub enum LocalReadError {
-    #[error("failed to read project list file `entries.txt`: {0}")]
-    ProjectListFileRead(io::Error),
-    #[error("failed to read project versions file `versions.txt`: {0}")]
-    ProjectVersionsFileRead(io::Error),
+    #[error("prioject {0} is not present in environment")]
+    ProjectNotFound(Box<str>),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
 }
@@ -86,45 +235,30 @@ impl From<FsIoError> for LocalReadError {
 impl ReadEnvironment for LocalDirectoryEnvironment {
     type ReadError = LocalReadError;
 
-    type UriIter = std::iter::Map<
-        io::Lines<BufReader<std::fs::File>>,
-        fn(Result<String, io::Error>) -> Result<String, LocalReadError>,
-    >;
+    // TODO: avoid this mess of wrapping in result, avoid
+    // collecting
+    type UriIter = Vec<Result<String, LocalReadError>>;
 
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-        Ok(BufReader::new(wrapfs::File::open(self.entries_path())?)
-            .lines()
-            .map(|x| match x {
-                Ok(line) => Ok(line),
-                Err(err) => Err(LocalReadError::ProjectListFileRead(err)),
-            }))
+        Ok(self
+            .metadata
+            .projects
+            .iter()
+            .flat_map(|p| p.identifiers.iter())
+            .cloned()
+            .map(Ok)
+            .collect())
     }
 
-    type VersionIter = std::iter::Map<
-        io::Lines<BufReader<std::fs::File>>,
-        fn(Result<String, io::Error>) -> Result<String, LocalReadError>,
-    >;
+    type VersionIter = Vec<Result<String, LocalReadError>>;
 
     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
-        let vp = self.versions_path(uri);
-
-        // TODO: Better refactor the interface to return a
-        // maybe (similar to *Map::get)
-        if !vp.exists() {
-            if let Some(vpp) = vp.parent()
-                && !vpp.exists()
-            {
-                wrapfs::create_dir(vpp)?;
-            }
-            wrapfs::File::create(&vp)?;
-        }
-
-        Ok(BufReader::new(wrapfs::File::open(&vp)?)
-            .lines()
-            .map(|x| match x {
-                Ok(line) => Ok(line),
-                Err(err) => Err(LocalReadError::ProjectVersionsFileRead(err)),
-            }))
+        let identifier = uri.as_ref();
+        Ok(self
+            .metadata
+            .find_project(slice::from_ref(&identifier))
+            .map(|p| Ok(p.version.to_owned()))
+            .collect())
     }
 
     type InterchangeProjectRead = LocalSrcProject;
@@ -134,17 +268,28 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
         uri: S,
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
-        let path = self.project_path(&uri, version);
-        let project_path = wrapfs::canonicalize(path)?;
-        let root_path = wrapfs::canonicalize(self.root_path())?;
-        let nominal_path = root_path
+        let Some(absolute_path) = self.absolute_project_path_find(&uri, version) else {
+            return Err(LocalReadError::ProjectNotFound(uri.as_ref().into()));
+        };
+        // Canonicalization is needed here to remove possible `../` of
+        // editable projects, which can reside anywhere. Their path is relative
+        // to workspace or project root, which is the parent of `sysand_env`
+        let absolute_path = wrapfs::canonicalize(absolute_path)?;
+        let env_parent = self
+            .root_path()
+            // Will fail only if env is at root
             .parent()
-            .and_then(|r| project_path.strip_prefix(r).ok())
-            .map(|p| p.to_path_buf());
+            .unwrap();
+        // TODO: deal with windows different drive paths (in lockfile,env,new dep types) like
+        // Cargo does: relative paths where possible, absolute paths for different drives and such
+        let nominal_path = absolute_path
+            .strip_prefix(env_parent)
+            .unwrap()
+            .to_path_buf();
 
         Ok(LocalSrcProject {
-            nominal_path,
-            project_path,
+            nominal_path: Some(nominal_path),
+            project_path: absolute_path,
         })
     }
 }
@@ -165,6 +310,8 @@ pub enum LocalWriteError {
     TryMove(#[from] TryMoveError),
     #[error(transparent)]
     LocalRead(LocalReadError),
+    #[error(transparent)]
+    AddProject(#[from] AddProjectError),
     #[error(
         "cannot construct a relative path from the workspace/project
         directory to one of its dependencies' directory:\n\
@@ -185,8 +332,7 @@ impl From<LocalReadError> for LocalWriteError {
     fn from(value: LocalReadError) -> Self {
         match value {
             LocalReadError::Io(error) => Self::Io(error),
-            e @ (LocalReadError::ProjectListFileRead(_)
-            | LocalReadError::ProjectVersionsFileRead(_)) => Self::LocalRead(e),
+            LocalReadError::ProjectNotFound(_) => Self::LocalRead(value),
         }
     }
 }
@@ -210,65 +356,83 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
 
     type InterchangeProjectMut = LocalSrcProject;
 
-    fn put_project<S: AsRef<str>, T: AsRef<str>, F, E>(
+    /// Will overwrite the specified project version if it exists
+    fn put_project<S: AsRef<str>, T: AsRef<str>, F, CE>(
         &mut self,
         uri: S,
         version: T,
         write_project: F,
-    ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, E>>
+    ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, CE>>
     where
-        F: FnOnce(&mut Self::InterchangeProjectMut) -> Result<(), E>,
+        F: FnOnce(&mut Self::InterchangeProjectMut) -> Result<(), CE>,
     {
-        let uri_path = self.uri_path(&uri);
-        let versions_path = self.versions_path(&uri);
-
-        let entries_temp = add_line_temp(
-            wrapfs::File::open(self.entries_path()).map_err(LocalWriteError::from)?,
-            &uri,
-        )?;
-
-        let versions_temp = if !versions_path.exists() {
-            singleton_line_temp(version.as_ref())
-        } else {
-            let current_versions_f =
-                wrapfs::File::open(&versions_path).map_err(LocalWriteError::from)?;
-            add_line_temp(current_versions_f, version.as_ref())
-        }?;
+        let identifier = uri.as_ref();
+        let version = version.as_ref();
 
         let project_temp = camino_tempfile::tempdir()
             .map_err(|e| LocalWriteError::from(FsIoError::MkTempDir(e)))?;
-
         let mut tentative_project = LocalSrcProject {
             nominal_path: None,
             project_path: project_temp.path().to_path_buf(),
         };
 
-        write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
+        if let Some(existing) = self
+            .metadata
+            .find_project_version(slice::from_ref(&identifier), version)
+        {
+            // Create a temp clone and change it to avoid modifying env in case of errors
+            // TODO: check that publisher/name match?
+            // Will assume that usages/publisher/name/etc remain unchanged
+            // TODO: how to handle editable projects here?
+            assert!(!existing.editable);
+            assert!(!existing.workspace);
 
-        // Project write was successful
+            write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
 
-        if !uri_path.exists() {
-            wrapfs::create_dir(&uri_path).map_err(LocalWriteError::from)?;
+            let path = self.absolute_project_path(existing);
+            try_move_files(&[(project_temp.path(), &path)]).map_err(LocalWriteError::from)?;
+
+            // Metadata didn't change, nothing to write
+
+            tentative_project.project_path = self.root_path().join(&path);
+            tentative_project.nominal_path = Some(path);
+
+            Ok(tentative_project)
+        } else {
+            // TODO: be optimistic: move existing target out of the way, try writing to
+            // the target directly and on failure revert.
+            write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
+
+            // Project write was successful
+
+            let path = self.compute_project_path(identifier, version);
+            let absolute_project_path = self.root_path().join(&path);
+
+            // Tolerate missing `lib/`
+            self.ensure_lib_dir_exists()
+                .map_err(LocalWriteError::from)?;
+
+            // Move existing stuff out of the way
+            // TODO: Handle catastrophic errors differently
+            try_move_files(&[(project_temp.path(), &absolute_project_path)])
+                .map_err(LocalWriteError::from)?;
+
+            tentative_project.project_path = absolute_project_path;
+            tentative_project.nominal_path = Some(path);
+
+            self.metadata
+                .add_local_project(
+                    vec![identifier.to_owned()],
+                    &tentative_project,
+                    false,
+                    false,
+                )
+                .map_err(LocalWriteError::from)?;
+
+            self.write().map_err(LocalWriteError::from)?;
+
+            Ok(tentative_project)
         }
-
-        // Move existing stuff out of the way
-        let project_path = self.project_path(&uri, &version);
-
-        // TODO: Handle catastrophic errors differently
-        try_move_files(&vec![
-            (project_temp.path(), &project_path),
-            (versions_temp.path(), &versions_path),
-            (entries_temp.path(), &self.entries_path()),
-        ])
-        .map_err(LocalWriteError::from)?;
-
-        Ok(LocalSrcProject {
-            nominal_path: project_path
-                .parent()
-                .and_then(|p| p.strip_prefix(self.root_path()).ok())
-                .map(|p| p.to_path_buf()),
-            project_path,
-        })
     }
 
     fn del_project_version<S: AsRef<str>, T: AsRef<str>>(
@@ -276,35 +440,16 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         uri: S,
         version: T,
     ) -> Result<(), Self::WriteError> {
-        let mut versions_temp =
-            NamedUtf8TempFile::with_suffix("versions.txt").map_err(FsIoError::CreateTempFile)?;
+        let identifier = uri.as_ref();
+        let version = version.as_ref();
+        let existing = self
+            .metadata
+            .find_project_version_idx(slice::from_ref(&identifier), version);
 
-        let versions_path = self.versions_path(&uri);
-        let mut found = false;
-        let mut empty = true;
-
-        // I think this may be needed on Windows in order to drop the
-        // file handle before overwriting
-        {
-            let current_versions_f = BufReader::new(wrapfs::File::open(&versions_path)?);
-            for version_line_ in current_versions_f.lines() {
-                let version_line = version_line_
-                    .map_err(|e| FsIoError::ReadFile(versions_path.to_path_buf(), e))?;
-
-                if version.as_ref() != version_line {
-                    writeln!(versions_temp, "{}", version_line)
-                        .map_err(|e| FsIoError::WriteFile(versions_path.clone(), e))?;
-
-                    empty = false;
-                } else {
-                    found = true;
-                }
-            }
-        }
-
-        if found {
+        if let Some(idx) = existing {
+            // TODO: return Option<something> from get_project()
             let project: LocalSrcProject = self
-                .get_project(&uri, version)
+                .get_project(identifier, version)
                 .map_err(LocalWriteError::from)?;
 
             // TODO: Add better error messages for catastrophic errors
@@ -316,40 +461,28 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             ) {
                 match err {
                     TryMoveError::CatastrophicIO { .. } => {
-                        // Censor the version if a partial delete happened, better pretend
-                        // like it does not exist than to pretend like a broken
+                        // Still remove version from metadata if a partial delete happened,
+                        // better pretend like it does not exist than to pretend like a broken
                         // package is properly installed
-                        wrapfs::copy(versions_temp.path(), &versions_path)?;
+                        self.metadata.projects.remove(idx);
+                        self.write().map_err(LocalWriteError::from)?;
                         return Err(err.into());
                     }
+                    // Failed to remove project
                     TryMoveError::RecoveredIO(_) => return Err(LocalWriteError::from(err)),
                 }
             }
 
-            wrapfs::copy(versions_temp.path(), &versions_path)?;
+            self.metadata.projects.remove(idx);
+            self.write().map_err(LocalWriteError::from)?;
 
             remove_empty_dirs(project.project_path)?;
-            if empty {
-                let current_uris_: Result<Vec<String>, LocalReadError> = self.uris()?.collect();
-                let current_uris: Vec<String> = current_uris_?;
-                let entries_path = self.entries_path();
-                let mut f = io::BufWriter::new(wrapfs::File::create(&entries_path)?);
-                for existing_uri in current_uris {
-                    if uri.as_ref() != existing_uri {
-                        writeln!(f, "{}", existing_uri)
-                            .map_err(|e| FsIoError::WriteFile(entries_path.clone(), e))?;
-                    }
-                }
-                wrapfs::remove_file(versions_path)?;
-                remove_dir_if_empty(self.uri_path(&uri))?;
-            }
         }
-
         Ok(())
     }
 
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
-        let current_uris_: Result<Vec<String>, LocalReadError> = self.uris()?.collect();
+        let current_uris_: Result<Vec<String>, LocalReadError> = self.uris()?.into_iter().collect();
         let current_uris: Vec<String> = current_uris_?;
 
         if current_uris.contains(&uri.as_ref().to_string()) {

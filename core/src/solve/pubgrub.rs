@@ -202,6 +202,8 @@ struct CandidateSummary {
 
 pub struct ProjectSolver<R: ResolveRead> {
     // Internal RefCell, used in order to lazily populate the cache during resolution
+    // TODO: see if this can be removed by passing around `ProjectSolver` instead of separate
+    // resolver and cache
     resolved_candidates: RefCell<CandidateMap<R::ProjectStorage>>,
     // dependency_provider: OfflineDependencyProvider<DependencyIdentifier, DiscreteHashSet>,
     resolver: R,

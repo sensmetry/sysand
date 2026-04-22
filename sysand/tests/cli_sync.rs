@@ -8,7 +8,7 @@ use predicates::prelude::*;
 use reqwest::header;
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
-    env::local_directory::{DEFAULT_ENV_NAME, ENTRIES_PATH, METADATA_PATH},
+    env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH},
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -67,7 +67,7 @@ editable = true
 
     entry_names.sort();
 
-    assert_eq!(entry_names, [ENTRIES_PATH, METADATA_PATH]);
+    assert_eq!(entry_names, [METADATA_PATH]);
 
     Ok(())
 }
@@ -134,7 +134,7 @@ version = "0.1"
 [[project]]
 name = "sync_to_local"
 version = "1.2.3"
-path = "5ddc0a2e8aaa88ac2bfc71aa0a8d08e020bceac4a90a4b72d8fb7f97ec5bfcc5/1.2.3.kpar"
+path = "lib/kpar.sync_to_local_1.2.3"
 identifiers = [
     "urn:kpar:sync_to_local",
 ]
@@ -168,7 +168,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
-        .expect(3) // TODO: Reduce this to 1 after caching
+        .expect(2) // TODO: Reduce this to 1 after caching
         .match_request(|r| r.has_header(header::USER_AGENT))
         .create();
 
@@ -222,7 +222,7 @@ version = "0.1"
 [[project]]
 name = "sync_to_remote"
 version = "1.2.3"
-path = "2b95cb7c6d6c08695b0e7c4b7e9d836c21de37fb9c72b0cfa26f53fd84a1b459/1.2.3.kpar"
+path = "lib/kpar.sync_to_remote_1.2.3"
 identifiers = [
     "urn:kpar:sync_to_remote",
 ]
@@ -258,7 +258,9 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.project.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect(3) // TODO: Reduce this to 1
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let info_mock_auth = server
@@ -270,13 +272,15 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock = server
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
         .expect(2) // TODO: Reduce this to 1
         .create();
 

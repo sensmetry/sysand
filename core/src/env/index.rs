@@ -35,7 +35,7 @@ use crate::{
     env::{
         ReadEnvironmentAsync,
         discovery::{DiscoveryError, ResolvedEndpoints, fetch_index_config},
-        iri_normalize::normalize_iri_for_hash,
+        iri_normalize::canonicalize_iri,
         segment_uri_generic,
     },
     model::InterchangeProjectUsageRaw,
@@ -437,7 +437,7 @@ pub(crate) fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironme
             };
             let parsed = fluent_uri::Iri::parse(iri)
                 .map_err(|e| malformed(super::iri_normalize::IriNormalizeError::Parse(e)))?;
-            let normalized = normalize_iri_for_hash(parsed).map_err(malformed)?;
+            let normalized = canonicalize_iri(parsed).map_err(malformed)?;
             let hash = segment_uri_generic::<_, Sha256>(normalized.as_str())
                 .next()
                 .expect("segment_uri_generic always yields one segment");

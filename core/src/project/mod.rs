@@ -240,6 +240,7 @@ pub trait ProjectRead {
         None
     }
 
+    // TODO: make get_project have default impl and get_info/get_meta mandatory to implement
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         Ok(self.get_project()?.0)
     }

@@ -13,15 +13,11 @@ use sysand_core::{
     commands::{env::do_env_local_dir, lock::LockOutcome},
     config::Config,
     context::ProjectContext,
-    env::local_directory::{
-        LocalDirectoryEnvironment,
-        metadata::{EnvMetadata, load_env_metadata},
-    },
+    env::local_directory::{LocalDirectoryEnvironment, metadata::load_env_metadata},
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
-        ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
-        local_src::LocalSrcProject, utils::wrapfs,
+        ProjectRead, local_kpar::LocalKParProject, local_src::LocalSrcProject, utils::wrapfs,
     },
     resolve::{
         file::FileResolverProject,
@@ -40,7 +36,6 @@ use crate::{
 
 pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironment> {
     let env = do_env_local_dir(path)?;
-    wrapfs::write(env.metadata_path(), EnvMetadata::default().to_string())?;
     Ok(env)
 }
 
@@ -56,10 +51,17 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    ctx: ProjectContext,
+    mut ctx: ProjectContext,
 ) -> Result<()> {
-    let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
-    let mut env = crate::get_or_create_env(project_root.as_path())?;
+    let project_root = project_root.unwrap_or(ctx.current_directory.clone());
+    let env = crate::get_or_create_env(
+        ctx.env,
+        ctx.current_workspace.as_ref(),
+        ctx.current_project.as_ref(),
+        &ctx.current_directory,
+    )?;
+    ctx.env = Some(env);
+
     let InstallOptions {
         allow_overwrite,
         allow_multiple,
@@ -129,12 +131,12 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             crate::commands::clone::get_project_version(&iri, version, &resolver)?;
         sysand_core::commands::env::do_env_install_project(
             &iri,
+            &version.to_string(),
             &storage,
-            &mut env,
+            &mut ctx.env.unwrap(),
             allow_overwrite,
             allow_multiple,
         )?;
-        add_single_env_project(iri, version.to_string(), env)?;
     } else {
         let usages = vec![InterchangeProjectUsage {
             resource: fluent_uri::Iri::from_str(iri.as_ref())?,
@@ -165,12 +167,12 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         command_sync(
             &lock,
             project_root,
-            &mut env,
+            &mut ctx.env.unwrap(),
             client,
             &provided_iris,
             runtime,
             auth_policy,
-            &ctx,
+            ctx.current_workspace.as_ref(),
         )?;
     }
 
@@ -190,10 +192,17 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    ctx: ProjectContext,
+    mut ctx: ProjectContext,
 ) -> Result<()> {
-    let project_root = project_root.unwrap_or(wrapfs::current_dir()?);
-    let mut env = crate::get_or_create_env(project_root.as_path())?;
+    let project_root = project_root.unwrap_or(ctx.current_directory.clone());
+    let env = crate::get_or_create_env(
+        ctx.env,
+        ctx.current_workspace.as_ref(),
+        ctx.current_project.as_ref(),
+        &ctx.current_directory,
+    )?;
+    ctx.env = Some(env);
+
     let InstallOptions {
         allow_overwrite,
         allow_multiple,
@@ -209,7 +218,9 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     let metadata = wrapfs::metadata(&path)?;
     let project = if metadata.is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
-            nominal_path: None,
+            // Provide an empty nominal path to satisfy lock. It won't be used for actual
+            // syncing, as the project is installed manually
+            nominal_path: Some(Utf8PathBuf::new()),
             project_path: path.as_str().into(),
         })
     } else if metadata.is_file() {
@@ -247,18 +258,18 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         bail!("given version {version} does not match project version {project_version}")
     }
 
-    // TODO: Fix this hack. Currently installing manually then turning project into Editable to
-    // avoid errors when syncing. Lockfile generation should be configurable.
+    // TODO: Fix this hack. Manual installation needed to respect `allow_overwrite`/`allow_multiple`.
+    // Lockfile generation should be configurable. How to handle allow_overwrite/allow_multiple
+    // for dependencies? How about when syncing (e.g. after `add`)?
     sysand_core::commands::env::do_env_install_project(
         iri.as_str(),
+        &project_version,
         &project,
-        &mut env,
+        ctx.env.as_mut().unwrap(),
         allow_overwrite,
         allow_multiple,
     )?;
     if !no_deps {
-        let project = EditableProject::new(Utf8PathBuf::new(), project);
-
         let overrides = get_overrides(
             config,
             &project_root,
@@ -291,7 +302,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             )?,
         );
         let LockOutcome {
-            lock,
+            mut lock,
             dependencies: _dependencies,
         } = sysand_core::commands::lock::do_lock_projects(
             [(Some(vec![iri]), &project)],
@@ -299,37 +310,21 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             &provided_iris,
             &ctx,
         )?;
+        // FIXME: part of hack above, the project is already installed
+        // If it's not removed from lock here, sync will try to install it again,
+        // and fail because of missing sources path
+        lock.projects.swap_remove(0);
         command_sync(
             &lock,
             project_root,
-            &mut env,
+            &mut ctx.env.unwrap(),
             client,
             &provided_iris,
             runtime,
             auth_policy,
-            &ctx,
+            ctx.current_workspace.as_ref(),
         )?;
-    } else {
-        add_single_env_project(iri, project_version, env)?;
     }
-
-    Ok(())
-}
-
-fn add_single_env_project<S: AsRef<str>, V: AsRef<str>>(
-    iri: S,
-    version: V,
-    env: LocalDirectoryEnvironment,
-) -> Result<()> {
-    let metadata_path = env.metadata_path();
-    let mut env_metadata = load_env_metadata(&metadata_path)?;
-    let project_path = env.project_path(&iri, version);
-    let project = LocalSrcProject {
-        nominal_path: Some(project_path.strip_prefix(env.root_path())?.to_owned()),
-        project_path,
-    };
-    env_metadata.add_local_project(vec![iri.as_ref().to_owned()], project, false, false)?;
-    wrapfs::write(metadata_path, env_metadata.to_string())?;
 
     Ok(())
 }

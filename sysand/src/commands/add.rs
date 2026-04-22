@@ -86,6 +86,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         };
         let std_resolver = standard_resolver(
             None,
+            // TODO: why not use env here?
             None,
             Some(client.clone()),
             index_urls,
@@ -214,7 +215,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             current_project.root_path(),
             alias_iris,
             provided_iris,
-            &ctx,
+            ctx,
         ) {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -240,14 +241,14 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     project_root: P,
     project_identifiers: Option<Vec<Iri<String>>>,
     provided_iris: HashMap<String, Vec<sysand_core::project::memory::InMemoryProject>>,
-    ctx: &ProjectContext,
+    ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
     // FIXME: use path relative to workspace root.
     let resolver = create_resolver(
-        ".",
         resolution_opts,
         config,
         &project_root,
+        &ctx,
         provided_iris.clone(),
         client.clone(),
         runtime.clone(),
@@ -259,7 +260,7 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         project_identifiers,
         &provided_iris,
         resolver,
-        ctx,
+        &ctx,
     )?;
     let lock = lock.canonicalize();
     wrapfs::write(
@@ -267,7 +268,12 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         lock.to_string(),
     )?;
     if !no_sync {
-        let mut env = crate::get_or_create_env(&project_root)?;
+        let mut env = crate::get_or_create_env(
+            ctx.env,
+            ctx.current_workspace.as_ref(),
+            ctx.current_project.as_ref(),
+            ctx.current_directory,
+        )?;
         command_sync(
             &lock,
             project_root,
@@ -276,7 +282,7 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             &provided_iris,
             runtime,
             auth_policy,
-            ctx,
+            ctx.current_workspace.as_ref(),
         )?;
     }
     Ok(())

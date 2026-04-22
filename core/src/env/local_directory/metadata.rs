@@ -10,9 +10,8 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value, value};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::{
-    context::ProjectContext,
-    env::local_directory::{LocalDirectoryEnvironment, LocalReadError},
-    lock::{Lock, ResolutionError, Source, multiline_array},
+    env::local_directory::LocalReadError,
+    lock::{ResolutionError, multiline_array},
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ToUnixPathBuf, deserialize_unix_path, wrapfs},
@@ -31,63 +30,7 @@ pub enum LockToEnvMetadataError {
     Canonicalization(#[from] Box<FsIoError>),
 }
 
-impl Lock {
-    pub fn to_env_metadata(
-        &self,
-        env: &LocalDirectoryEnvironment,
-        ctx: &ProjectContext,
-    ) -> Result<EnvMetadata, LockToEnvMetadataError> {
-        let resolved_projects = self.resolve_projects(env)?;
-
-        let mut metadata = EnvMetadata::default();
-        for (project, storage) in resolved_projects {
-            let usages = project
-                .usages
-                .iter()
-                .map(|usage| usage.resource.clone())
-                .collect();
-
-            if let Some(storage) = storage {
-                let project_path = wrapfs::canonicalize(storage.root_path())?;
-                let env_path = wrapfs::canonicalize(env.root_path())?;
-                let path = project_path
-                    .strip_prefix(env_path)
-                    .expect("path to project in env does not share a prefix with path to env")
-                    .to_unix_path_buf();
-                metadata.projects.push(EnvProject {
-                    publisher: project.publisher,
-                    name: project.name,
-                    version: project.version,
-                    path,
-                    identifiers: project.identifiers,
-                    usages,
-                    editable: false,
-                    workspace: false,
-                });
-            } else if let [Source::Editable { editable }, ..] = project.sources.as_slice() {
-                let workspace = ctx
-                    .current_workspace
-                    .iter()
-                    .flat_map(|ws| ws.projects().iter())
-                    .any(|p| p.path.as_str() == editable);
-                metadata.projects.push(EnvProject {
-                    publisher: project.publisher,
-                    name: project.name,
-                    version: project.version,
-                    path: editable.as_str().into(),
-                    identifiers: project.identifiers,
-                    usages,
-                    editable: true,
-                    workspace,
-                });
-            }
-        }
-
-        Ok(metadata)
-    }
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct EnvMetadata {
     pub version: String,
     #[serde(rename = "project", default)]
@@ -160,13 +103,20 @@ impl EnvMetadata {
         doc
     }
 
-    fn find_project(&self, identifiers: &[String], version: &String) -> Option<usize> {
+    /// Prefer [`find_project_version`] or [`find_project_version_mut`] where
+    /// possible.
+    pub fn find_project_version_idx<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        identifiers: &[S],
+        version: V,
+    ) -> Option<usize> {
+        let version = version.as_ref();
         for (index, project) in self.projects.iter().enumerate() {
-            if &project.version == version
+            if project.version == version
                 && project
                     .identifiers
                     .iter()
-                    .any(|iri| identifiers.contains(iri))
+                    .any(|iri| identifiers.iter().any(|i| i.as_ref() == iri))
             {
                 return Some(index);
             }
@@ -174,9 +124,44 @@ impl EnvMetadata {
         None
     }
 
+    pub fn find_project_version<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        identifiers: &[S],
+        version: V,
+    ) -> Option<&EnvProject> {
+        let version = version.as_ref();
+        self.projects.iter().find(|p| {
+            p.version == version
+                && p.identifiers
+                    .iter()
+                    .any(|iri| identifiers.iter().any(|i| i.as_ref() == iri))
+        })
+    }
+    pub fn find_project_version_mut<S: AsRef<str>, V: AsRef<str>>(
+        &mut self,
+        identifiers: &[S],
+        version: V,
+    ) -> Option<&mut EnvProject> {
+        let version = version.as_ref();
+        self.projects.iter_mut().find(|p| {
+            p.version == version
+                && p.identifiers
+                    .iter()
+                    .any(|iri| identifiers.iter().any(|i| i.as_ref() == iri))
+        })
+    }
+
+    pub fn find_project(&self, identifiers: &[&str]) -> impl Iterator<Item = &EnvProject> {
+        self.projects.iter().filter(|p| {
+            p.identifiers
+                .iter()
+                .any(|iri| identifiers.contains(&iri.as_str()))
+        })
+    }
+
     pub fn add_project(&mut self, project: EnvProject) {
-        if let Some(found) = self.find_project(&project.identifiers, &project.version) {
-            self.projects[found].merge_identifiers(&project);
+        if let Some(found) = self.find_project_version_mut(&project.identifiers, &project.version) {
+            found.merge_identifiers(&project);
         } else {
             self.projects.push(project);
         }
@@ -197,7 +182,7 @@ impl EnvMetadata {
     pub fn add_local_project(
         &mut self,
         identifiers: Vec<String>,
-        project: LocalSrcProject,
+        project: &LocalSrcProject,
         editable: bool,
         workspace: bool,
     ) -> Result<(), AddProjectError> {
@@ -210,7 +195,8 @@ impl EnvMetadata {
             version: info.version,
             path: project
                 .nominal_path
-                .expect("expected nominal path for project")
+                .as_ref()
+                .expect("BUG: no nominal path for project")
                 .to_unix_path_buf(),
             identifiers,
             usages: info.usage.into_iter().map(|u| u.resource).collect(),
@@ -222,15 +208,15 @@ impl EnvMetadata {
         Ok(())
     }
 
-    pub fn merge(&mut self, other: EnvMetadata) {
-        for project in other.projects {
-            self.add_project(project)
-        }
+    pub fn project_dir_exists(&self, dir_name: &str) -> bool {
+        self.projects
+            .iter()
+            .any(|p| p.path.file_name().unwrap() == dir_name)
     }
 }
 
 /// Metadata describing a project belonging to an environment.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct EnvProject {
     /// Publisher of the project. Intended for display purposes.
     pub publisher: Option<String>,
@@ -312,7 +298,7 @@ impl EnvProject {
 }
 
 #[derive(Error, Debug)]
-pub enum EnvMetadataReadError {
+pub enum EnvMetadataError {
     #[error("failed to deserialize TOML file `{0}`: {1}")]
     Toml(Box<Utf8Path>, toml::de::Error),
     #[error(transparent)]
@@ -321,11 +307,19 @@ pub enum EnvMetadataReadError {
     Unsupported(UnsupportedVersionError),
 }
 
-pub fn load_env_metadata<P: AsRef<Utf8Path>>(path: P) -> Result<EnvMetadata, EnvMetadataReadError> {
-    let result = EnvMetadata::from_str(wrapfs::read_to_string(path.as_ref())?.as_str());
+pub fn load_env_metadata<P: AsRef<Utf8Path>>(path: P) -> Result<EnvMetadata, EnvMetadataError> {
+    let metadata = wrapfs::read_to_string(path.as_ref())?;
+    parse_env_metadata(path, metadata)
+}
+
+pub fn parse_env_metadata<P: AsRef<Utf8Path>>(
+    path: P,
+    metadata: String,
+) -> Result<EnvMetadata, EnvMetadataError> {
+    let result = EnvMetadata::from_str(metadata.as_str());
 
     result.map_err(|parse_err| match parse_err {
-        ParseError::Toml(err) => EnvMetadataReadError::Toml(path.as_ref().to_owned().into(), err),
-        ParseError::Unsupported(err) => EnvMetadataReadError::Unsupported(err),
+        ParseError::Toml(err) => EnvMetadataError::Toml(path.as_ref().to_owned().into(), err),
+        ParseError::Unsupported(err) => EnvMetadataError::Unsupported(err),
     })
 }

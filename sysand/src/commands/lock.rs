@@ -12,7 +12,6 @@ use sysand_core::{
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
     config::Config,
     context::ProjectContext,
-    env::local_directory::DEFAULT_ENV_NAME,
     project::{memory::InMemoryProject, utils::wrapfs},
     resolve::{
         memory::{AcceptAll, MemoryResolver},
@@ -25,9 +24,6 @@ use sysand_core::{
 use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions, get_overrides};
 
 /// Generate a lockfile for `current_project`.
-/// `path` must be relative to workspace root.
-// TODO: this will not work properly if run in subdir of workspace,
-// as `path` will then refer to a deeper subdir
 #[expect(clippy::too_many_arguments)]
 pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
     path: P,
@@ -39,18 +35,16 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
 ) -> Result<sysand_core::lock::Lock> {
-    assert!(path.as_ref().is_relative(), "{}", path.as_ref());
-
     let provided_iris = if !resolution_opts.include_std {
         known_std_libs()
     } else {
         HashMap::default()
     };
     let wrapped_resolver = create_resolver(
-        &path,
         resolution_opts,
         config,
         &project_root,
+        ctx,
         // TODO: avoid expensive clone here
         provided_iris.clone(),
         client,
@@ -58,10 +52,12 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
         auth_policy,
     )?;
 
-    let alias_iris = if let Some(w) = &ctx.current_workspace {
+    let alias_iris = if let Some(w) = &ctx.current_workspace
+        && let Some(project) = &ctx.current_project
+    {
         w.projects()
             .iter()
-            .find(|p| Utf8Path::new(&p.path) == path.as_ref())
+            .find(|p| Utf8Path::new(&p.path) == project.nominal_path.as_ref().unwrap())
             .map(|p| p.iris.clone())
     } else {
         None
@@ -88,11 +84,11 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
 }
 
 #[expect(clippy::too_many_arguments, clippy::type_complexity)]
-pub fn create_resolver<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
-    path: P,
+pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     resolution_opts: ResolutionOptions,
     config: &Config,
     project_root: R,
+    ctx: &ProjectContext,
     provided_iris: HashMap<String, Vec<InMemoryProject>>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -118,8 +114,6 @@ pub fn create_resolver<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>, Policy: HTTPAuthe
         no_index,
         include_std: _,
     } = resolution_opts;
-
-    let local_env_path = path.as_ref().join(DEFAULT_ENV_NAME);
 
     let index_urls = if no_index {
         None
@@ -153,11 +147,8 @@ pub fn create_resolver<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>, Policy: HTTPAuthe
         override_resolver,
         standard_resolver(
             None,
-            if wrapfs::is_dir(&local_env_path)? {
-                Some(local_env_path)
-            } else {
-                None
-            },
+            // TODO: borrow?
+            ctx.env.to_owned(),
             Some(client),
             index_urls,
             runtime,

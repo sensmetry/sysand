@@ -15,6 +15,7 @@
 # FIXME: transition to a prek official config as we now require prek
 # FIXME: ensure hooks gets updated over time automatically
 #
+fail_fast: true
 repos:
   # Autoformat: markdown, yaml, json, js
   - repo: https://github.com/rbubley/mirrors-prettier

@@ -59,9 +59,9 @@ pub fn do_init_js_local_storage(
 #[cfg(feature = "browser")]
 #[wasm_bindgen(js_name = do_env_js_local_storage)]
 pub fn do_env_js_local_storage(prefix: &str, root_path: &str) -> Result<(), JsValue> {
+    use crate::env::local_storage::empty_environment_local_storage;
+    use sysand_core::env::DEFAULT_ENV_NAME;
     use typed_path::Utf8UnixPath;
-
-    use crate::env::local_storage::{DEFAULT_ENV_NAME, empty_environment_local_storage};
 
     empty_environment_local_storage(prefix, Utf8UnixPath::new(root_path).join(DEFAULT_ENV_NAME))
         .map_err(|e| JsValue::from_str(&e.to_string()))?;

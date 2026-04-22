@@ -13,7 +13,7 @@ use sysand_core::{
     auth::Unauthenticated,
     build::{KParBuildError, KparCompressionMethod},
     commands,
-    env::local_directory::{self, LocalWriteError},
+    env::{DEFAULT_ENV_NAME, local_directory::LocalWriteError},
     info::InfoError,
     init::InitError,
     project::{
@@ -118,7 +118,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_defaultEnvName<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> JString<'local> {
-    match env.new_string(local_directory::DEFAULT_ENV_NAME) {
+    match env.new_string(DEFAULT_ENV_NAME) {
         Ok(s) => s,
         Err(e) => {
             env.throw_runtime_exception(format!("Failed to create String: {e}"));
@@ -171,6 +171,9 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
                 }
                 LocalWriteError::MissingMeta => {
                     env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
+                }
+                LocalWriteError::AddProject(subsuberror) => {
+                    env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
                 }
             },
         },

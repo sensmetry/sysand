@@ -9,8 +9,7 @@ use url::ParseError;
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    context::ProjectContext,
-    env::local_directory::{LocalDirectoryEnvironment, metadata::load_env_metadata},
+    env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     project::{
         AsSyncProjectTokio, ProjectReadAsync,
@@ -20,8 +19,8 @@ use sysand_core::{
         memory::InMemoryProject,
         reqwest_kpar_download::ReqwestKparDownloadedProject,
         reqwest_src::ReqwestSrcProjectAsync,
-        utils::wrapfs,
     },
+    workspace::Workspace,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -33,7 +32,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-    ctx: &ProjectContext,
+    ws: Option<&Workspace>,
 ) -> Result<()> {
     sysand_core::commands::sync::do_sync(
         lock,
@@ -88,19 +87,8 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         provided_iris,
     )?;
 
-    // TODO: Integrate the updating of metadata into `LocalDirectoryEnvironment` itself.
-    //       This will likely require updating the `WriteEnvironment` trait to support
-    //       multiple identifiers per project.
-    let lock_metadata = lock.to_env_metadata(env, ctx)?;
-    let env_metadata = if wrapfs::is_file(env.metadata_path())? {
-        let mut env_metadata = load_env_metadata(env.metadata_path())?;
-        env_metadata.merge(lock_metadata);
-        env_metadata
-    } else {
-        lock_metadata
-    };
-
-    wrapfs::write(env.metadata_path(), env_metadata.to_string())?;
+    env.merge_lock(lock, ws);
+    env.write()?;
 
     Ok(())
 }
