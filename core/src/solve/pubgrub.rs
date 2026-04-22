@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use fluent_uri::Iri;
-use pubgrub::{DefaultStringReporter, DependencyProvider, Reporter, VersionSet};
+use pubgrub::{
+    DefaultStringReporter, DependencyConstraints, DependencyProvider, Reporter, VersionSet,
+};
 
 use std::{
     cell::RefCell,
@@ -283,7 +285,7 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
     pubgrub::Dependencies<DependencyIdentifier, DiscreteHashSet, String>,
     InternalSolverError<R>,
 > {
-    let mut depmap: HashMap<DependencyIdentifier, DiscreteHashSet, _> = pubgrub::Map::default();
+    let mut deps: Vec<(DependencyIdentifier, DiscreteHashSet)> = Vec::new();
 
     for usage in usages {
         if let Some(constraint) = &usage.version_constraint {
@@ -315,10 +317,10 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                 )));
             }
 
-            depmap.insert(
+            deps.push((
                 DependencyIdentifier::Remote(usage.resource.clone()),
                 DiscreteHashSet::Finite(valid_candidates),
-            );
+            ));
         } else {
             // Check that the project can be found
             resolve_candidates(resolver, &usage.resource, cache)?;
@@ -329,14 +331,17 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
             //     Err(err) => return Ok(pubgrub::Dependencies::Unavailable(err.to_string())),
             // };
 
-            depmap.insert(
+            deps.push((
                 DependencyIdentifier::Remote(usage.resource.clone()),
                 DiscreteHashSet::empty().complement(),
-            );
+            ));
         }
     }
 
-    Ok(pubgrub::Dependencies::Available(depmap))
+    // TODO: replace this with `from(deps)` when https://github.com/pubgrub-rs/pubgrub/pull/423
+    // is merged and released
+    let constraints = DependencyConstraints::from_iter(deps);
+    Ok(pubgrub::Dependencies::Available(constraints))
 }
 
 #[derive(Debug)]
