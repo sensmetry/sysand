@@ -16,7 +16,8 @@ Python development as well.
 If using VS Code (or other compatible editor like e.g. Codium or Cursor) we
 recommended the official [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
 extension from Microsoft. This will also install the Pylance, Python Debugger
-and Python Environments extensions.
+and Python Environments extensions. For formatting and linting we use [Ruff](https://marketplace.visualstudio.com/items?itemName=charliermarsh.ruff)
+and typechecking is done by [Mypy](https://marketplace.visualstudio.com/items?itemName=ms-python.mypy-type-checker).
 
 If your editor is having problems finding imports even after installing all
 dependencies (see below), you can try to go into the settings of the Python
