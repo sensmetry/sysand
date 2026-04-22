@@ -30,16 +30,18 @@ use sysand_core::{
     },
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
-    env::local_directory::{DEFAULT_ENV_NAME, LocalDirectoryEnvironment},
+    env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
     init::InitError,
     lock::Lock,
     project::{
         any::{AnyProject, OverrideProject},
+        local_src::LocalSrcProject,
         reference::ProjectReference,
         utils::wrapfs,
     },
     resolve::net_utils::create_reqwest_client,
     stdlib::known_std_libs,
+    workspace::Workspace,
 };
 use url::Url;
 
@@ -144,20 +146,25 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     }
     log::debug!("sysand v{}", env!("CARGO_PKG_VERSION"));
 
+    let current_project = discover_project(&cwd)?;
+    let current_workspace = discover_workspace(&cwd)?;
+    let env = match (&current_workspace, &current_project) {
+        // TODO: does it make sense to support env unassociated with a project
+        // when index and env are different?
+        (None, None) => get_env(&cwd)?,
+        (None, Some(pr)) => get_env(pr.root_path())?,
+        (Some(w), _) => get_env(w.root_path())?,
+    };
     let ctx = ProjectContext {
-        current_workspace: discover_workspace(&cwd)?,
-        current_project: discover_project(&cwd)?,
+        env,
+        current_workspace,
+        current_project,
         current_directory: cwd,
     };
     let project_root = ctx
         .current_project
         .as_ref()
         .map(|p| p.root_path().to_owned());
-
-    let current_environment = {
-        let dir = project_root.as_ref().unwrap_or(&ctx.current_directory);
-        crate::get_env(dir)?
-    };
 
     let auto_config = if args.global_opts.no_config {
         Config::default()
@@ -327,14 +334,14 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     )
                 }
             }
-            Some(cli::EnvCommand::Uninstall { iri, version }) => match current_environment {
+            Some(cli::EnvCommand::Uninstall { iri, version }) => match ctx.env {
                 Some(local_environment) => command_env_uninstall(iri, version, local_environment),
                 None => {
                     log::warn!("no environment to uninstall from");
                     Ok(())
                 }
             },
-            Some(cli::EnvCommand::List) => command_env_list(current_environment),
+            Some(cli::EnvCommand::List) => command_env_list(ctx.env),
             Some(cli::EnvCommand::Sources {
                 iri,
                 version,
@@ -350,14 +357,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     HashMap::default()
                 };
 
-                command_sources_env(
-                    iri,
-                    version,
-                    !no_deps,
-                    current_environment,
-                    &provided_iris,
-                    include_std,
-                )
+                command_sources_env(iri, version, !no_deps, ctx.env, &provided_iris, include_std)
             }
         },
         Command::Lock { resolution_opts } => {
@@ -380,16 +380,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         Command::Sync { resolution_opts } => {
-            let mut local_environment = match current_environment {
-                Some(env) => env,
-                None => command_env(
-                    project_root
-                        .as_ref()
-                        .unwrap_or(&ctx.current_directory)
-                        .join(DEFAULT_ENV_NAME),
-                )?,
-            };
-
             let provided_iris = if !resolution_opts.include_std {
                 crate::logger::warn_std_deps();
                 known_std_libs()
@@ -422,6 +412,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     }
                 }
             };
+            let mut local_environment = get_or_create_env(
+                ctx.env,
+                ctx.current_workspace.as_ref(),
+                ctx.current_project.as_ref(),
+                &ctx.current_directory,
+            )?;
             command_sync(
                 &lock,
                 project_root,
@@ -430,7 +426,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 &provided_iris,
                 runtime,
                 auth_policy,
-                &ctx,
+                ctx.current_workspace.as_ref(),
             )
         }
         Command::PrintRoot => command_print_root(ctx.current_directory),
@@ -477,10 +473,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashSet::default()
             };
 
-            let project_root = project_root.unwrap_or(ctx.current_directory);
+            let project_root = project_root.as_ref().unwrap_or(&ctx.current_directory);
             let overrides = get_overrides(
                 &config,
-                &project_root,
+                project_root,
                 &client,
                 runtime.clone(),
                 auth_policy.clone(),
@@ -569,6 +565,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     overrides,
                     runtime,
                     auth_policy,
+                    ctx,
                 ),
                 (Location::Iri(iri), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
@@ -582,6 +579,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         overrides,
                         runtime,
                         auth_policy,
+                        ctx,
                     )
                 }
                 (Location::Path(path), None) => command_info_path(&path, &excluded_iris),
@@ -695,7 +693,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 HashMap::default()
             };
 
-            command_sources_project(!no_deps, ctx, current_environment, &provided_iris)
+            command_sources_project(!no_deps, ctx, &provided_iris)
         }
         Command::Clone {
             locator,
@@ -735,19 +733,27 @@ fn iri_or_path_to_iri(
     })
 }
 
-pub fn get_env(project_root: impl AsRef<Utf8Path>) -> Result<Option<LocalDirectoryEnvironment>> {
-    let environment_path = project_root.as_ref().join(DEFAULT_ENV_NAME);
-    let env = wrapfs::is_dir(&environment_path)?
-        .then_some(LocalDirectoryEnvironment { environment_path });
-    Ok(env)
+/// Create `sysand_env` at `root`
+pub fn get_env(root: impl AsRef<Utf8Path>) -> Result<Option<LocalDirectoryEnvironment>> {
+    let environment_path = root.as_ref().join(DEFAULT_ENV_NAME);
+    LocalDirectoryEnvironment::try_read(environment_path).map_err(anyhow::Error::from)
 }
 
-pub fn get_or_create_env(project_root: impl AsRef<Utf8Path>) -> Result<LocalDirectoryEnvironment> {
-    let project_root = project_root.as_ref();
-    match get_env(project_root)? {
-        Some(env) => Ok(env),
-        None => command_env(project_root.join(DEFAULT_ENV_NAME)),
+pub fn get_or_create_env(
+    env: Option<LocalDirectoryEnvironment>,
+    workspace: Option<&Workspace>,
+    project: Option<&LocalSrcProject>,
+    cwd: impl AsRef<Utf8Path>,
+) -> Result<LocalDirectoryEnvironment> {
+    if let Some(env) = env {
+        return Ok(env);
     }
+    let base_path = match (workspace, project) {
+        (None, None) => cwd.as_ref(),
+        (None, Some(pr)) => pr.root_path(),
+        (Some(w), _) => w.root_path(),
+    };
+    command_env(base_path.join(DEFAULT_ENV_NAME))
 }
 
 fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {

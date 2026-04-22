@@ -8,7 +8,7 @@ use mockito::{Server, ServerGuard};
 use predicates::{prelude::*, str::contains};
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
-    env::local_directory::{DEFAULT_ENV_NAME, ENTRIES_PATH},
+    env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
     lock::{Lock, Source},
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
 };
@@ -302,11 +302,11 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
         .success()
         .stdout(predicate::str::is_empty());
 
-    let entries: Vec<String> =
-        std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(ENTRIES_PATH))?
-            .lines()
-            .map(|x| x.to_string())
-            .collect();
+    let entries: Vec<String> = LocalDirectoryEnvironment::read(cwd.join(DEFAULT_ENV_NAME))?
+        .projects()
+        .iter()
+        .flat_map(|p| p.identifiers.iter().cloned())
+        .collect();
 
     assert_eq!(entries.len(), 3);
 

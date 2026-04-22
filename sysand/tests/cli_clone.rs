@@ -7,7 +7,7 @@ use assert_cmd::prelude::*;
 use camino::Utf8Path;
 use camino_tempfile::tempdir;
 use predicates::prelude::*;
-use sysand_core::{env::local_directory::DEFAULT_ENV_NAME, project::utils::wrapfs};
+use sysand_core::{env::DEFAULT_ENV_NAME, project::utils::wrapfs};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -28,7 +28,7 @@ fn assert_libtest_cloned_synced(target: impl AsRef<Path>) {
     assert!(target.join("libtest.sysml").is_file());
     assert!(target.join("extras").is_dir());
     assert!(target.join(env_path).is_dir());
-    assert!(target.join(env_path).join("entries.txt").is_file());
+    assert!(target.join(env_path).join("env.toml").is_file());
 }
 
 fn assert_only_libtest_cloned(target: impl AsRef<Path>) {
@@ -41,7 +41,7 @@ fn assert_only_libtest_cloned(target: impl AsRef<Path>) {
     assert!(target.join("extras").is_dir());
     assert!(!target.join("sysand-lock.toml").exists());
     assert!(!target.join(env_path).exists());
-    assert!(!target.join(env_path).join("entries.txt").exists());
+    assert!(!target.join(env_path).join("env.toml").exists());
 }
 
 /// Assert that the given path is an empty dir

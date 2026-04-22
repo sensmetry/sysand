@@ -3,28 +3,13 @@
 
 use std::{
     fs,
-    io::{self, BufRead, BufReader, Read, Write},
+    io::{self},
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
-use camino_tempfile::NamedUtf8TempFile;
-use sha2::Sha256;
 use thiserror::Error;
 
-use crate::{
-    env::{local_directory::LocalWriteError, segment_uri_generic},
-    project::utils::{FsIoError, ToPathBuf, wrapfs},
-};
-
-/// Get a relative path corresponding to the given `uri`
-pub fn path_encode_uri<S: AsRef<str>>(uri: S) -> Utf8PathBuf {
-    let mut result = Utf8PathBuf::new();
-    for segment in segment_uri_generic::<S, Sha256>(uri) {
-        result.push(segment);
-    }
-
-    result
-}
+use crate::project::utils::{FsIoError, ToPathBuf, wrapfs};
 
 pub fn remove_dir_if_empty<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
     match fs::remove_dir(path.as_ref()) {
@@ -149,13 +134,14 @@ fn move_fs_item<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     }
 }
 
-pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMoveError> {
+pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveError> {
     let tempdir = camino_tempfile::tempdir()
         .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
 
     let mut last_err = None;
 
     // move source files out of the way
+    // TODO: why is this needed?
     for (i, (path, _)) in paths.iter().enumerate() {
         let src_path = tempdir.path().join(format!("src_{}", i));
         if let Err(e) = move_fs_item(path, src_path) {
@@ -265,45 +251,4 @@ pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMove
     }
 
     Ok(())
-}
-
-pub fn add_line_temp<R: Read, S: AsRef<str>>(
-    reader: R,
-    line: S,
-) -> Result<NamedUtf8TempFile, LocalWriteError> {
-    let mut temp_file = NamedUtf8TempFile::new().map_err(FsIoError::CreateTempFile)?;
-
-    let mut line_added = false;
-    for this_line in BufReader::new(reader).lines() {
-        let this_line = this_line.map_err(|e| FsIoError::ReadFile(temp_file.to_path_buf(), e))?;
-
-        if !line_added && line.as_ref() < this_line.as_str() {
-            writeln!(temp_file, "{}", line.as_ref())
-                .map_err(|e| FsIoError::WriteFile(temp_file.path().into(), e))?;
-            line_added = true;
-        }
-
-        writeln!(temp_file, "{}", this_line)
-            .map_err(|e| FsIoError::WriteFile(temp_file.path().into(), e))?;
-
-        if line.as_ref() == this_line {
-            line_added = true;
-        }
-    }
-
-    if !line_added {
-        writeln!(temp_file, "{}", line.as_ref())
-            .map_err(|e| FsIoError::WriteFile(temp_file.path().into(), e))?;
-    }
-
-    Ok(temp_file)
-}
-
-pub fn singleton_line_temp<S: AsRef<str>>(line: S) -> Result<NamedUtf8TempFile, LocalWriteError> {
-    let mut temp_file = NamedUtf8TempFile::new().map_err(FsIoError::CreateTempFile)?;
-
-    writeln!(temp_file, "{}", line.as_ref())
-        .map_err(|e| FsIoError::WriteFile(temp_file.path().into(), e))?;
-
-    Ok(temp_file)
 }

@@ -130,6 +130,7 @@ where
 
                 for project_version in versions {
                     if let Some(provided_checksum) =
+                        // TODO: don't eat potential errors
                         project_version.checksum_canonical_hex().ok().flatten()
                     {
                         if checksum == &provided_checksum {
@@ -182,7 +183,7 @@ where
                         .ok_or_else(|| SyncError::MissingSrcPathStorage(uri.as_str().into()))?;
                     let storage = src_path_storage(src_path.as_str().into());
                     log::debug!("trying to install `{uri}` from src_path `{src_path}`");
-                    try_install(uri, &project.checksum, storage, env)?;
+                    try_install(uri, &project.version, &project.checksum, storage, env)?;
                 }
                 Source::RemoteSrc { remote_src } => {
                     let uri = main_uri.as_ref().ok_or_else(|| {
@@ -195,7 +196,7 @@ where
                         SyncError::InvalidRemoteSource(remote_src.as_str().into(), e)
                     })?;
                     log::debug!("trying to install `{uri}` from remote_src: {remote_src}");
-                    try_install(uri, &project.checksum, storage, env)?;
+                    try_install(uri, &project.version, &project.checksum, storage, env)?;
                 }
                 Source::LocalKpar { kpar_path } => {
                     let uri = main_uri.as_ref().ok_or_else(|| {
@@ -206,7 +207,7 @@ where
                     })?;
                     let storage = kpar_path_storage(kpar_path.as_str().into());
                     log::debug!("trying to install `{uri}` from kpar_path: {kpar_path}");
-                    try_install(uri, &project.checksum, storage, env)?;
+                    try_install(uri, &project.version, &project.checksum, storage, env)?;
                 }
                 Source::RemoteKpar {
                     remote_kpar,
@@ -222,7 +223,7 @@ where
                         SyncError::InvalidRemoteSource(remote_kpar.as_str().into(), e)
                     })?;
                     log::debug!("trying to install `{uri}` from remote_kpar: {remote_kpar}");
-                    try_install(uri, &project.checksum, storage, env)?;
+                    try_install(uri, &project.version, &project.checksum, storage, env)?;
                 }
                 Source::RemoteGit { remote_git } => {
                     let uri = main_uri.as_ref().ok_or_else(|| {
@@ -234,7 +235,7 @@ where
                     let storage = remote_git_storage(remote_git.clone())
                         .map_err(|e| SyncError::GitDownload(remote_git.as_str().into(), e))?;
                     log::debug!("trying to install `{uri}` from remote_git: {remote_git}");
-                    try_install(uri, &project.checksum, storage, env)?;
+                    try_install(uri, &project.version, &project.checksum, storage, env)?;
                 }
                 _ => supported = false,
             }
@@ -257,6 +258,7 @@ where
     Ok(())
 }
 
+// TODO: move functionality to check if any of a set of IRIs is installed to env trait
 fn is_installed<E: ReadEnvironment, U: ErrorBound, G: ErrorBound, S: AsRef<str>, P: AsRef<str>>(
     uri: S,
     checksum: P,
@@ -295,6 +297,7 @@ fn try_install<
     S2: AsRef<str>,
 >(
     uri: S1,
+    version: &str,
     checksum: S2,
     storage: P,
     env: &mut E,
@@ -307,7 +310,7 @@ fn try_install<
         .ok_or_else(|| SyncError::BadProject(uri.to_owned()))?;
     if checksum == project_checksum {
         // TODO: Need to decide how to handle existing installations and possible flags to modify behavior
-        do_env_install_project(uri, &storage, env, true, true).map_err(|e| {
+        do_env_install_project(uri, version, &storage, env, true, true).map_err(|e| {
             SyncError::InstallFail {
                 uri: uri.into(),
                 cause: e.to_string(),
@@ -436,7 +439,7 @@ mod tests {
             Infallible,
             _,
             _,
-        >(uri, &checksum, storage, &mut env)
+        >(uri, "1.2.3", &checksum, storage, &mut env)
         .unwrap();
 
         let uris = env.uris().unwrap();
@@ -465,7 +468,7 @@ mod tests {
             Infallible,
             _,
             _,
-        >(&uri, &checksum, storage, &mut env)
+        >(&uri, "1.2.3", &checksum, storage, &mut env)
         .unwrap_err() else {
             panic!()
         };

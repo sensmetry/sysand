@@ -11,7 +11,7 @@ use crate::{
 use camino::Utf8Path;
 use sysand_core::{
     auth::HTTPAuthentication,
-    env::local_directory::DEFAULT_ENV_NAME,
+    context::ProjectContext,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     },
@@ -117,6 +117,7 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
     overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    ctx: ProjectContext,
 ) -> Result<()> {
     // FIXME: The more precise error messages are ignored here. For example,
     // if a user provides a relative file URI (this is invalid since file
@@ -124,19 +125,11 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
     // interchange project was not found without any hints that the provided
     // URI is invalid.
 
-    let cwd = wrapfs::current_dir().ok();
-
-    let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
-
     let combined_resolver = PriorityResolver::new(
         MemoryResolver::from(overrides),
         standard_resolver(
-            cwd,
-            if wrapfs::is_dir(&local_env_path)? {
-                Some(local_env_path)
-            } else {
-                None
-            },
+            Some(ctx.current_directory),
+            ctx.env,
             Some(client),
             index_urls,
             runtime,
@@ -202,22 +195,15 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
+    ctx: ProjectContext,
 ) -> Result<()> {
     match verb {
         InfoCommandVerb::Get(get_verb) => {
-            let cwd = wrapfs::current_dir().ok();
-
-            let local_env_path = Utf8Path::new(".").join(DEFAULT_ENV_NAME);
-
             let combined_resolver = PriorityResolver::new(
                 MemoryResolver::from(overrides),
                 standard_resolver(
-                    cwd,
-                    if wrapfs::is_dir(&local_env_path)? {
-                        Some(local_env_path)
-                    } else {
-                        None
-                    },
+                    Some(ctx.current_directory),
+                    ctx.env,
                     Some(client),
                     index_urls,
                     runtime,

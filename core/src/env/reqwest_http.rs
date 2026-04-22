@@ -16,8 +16,7 @@ use thiserror::Error;
 use crate::{
     auth::{HTTPAuthentication, StandardHTTPAuthentication},
     env::{
-        AsSyncEnvironmentTokio, ReadEnvironmentAsync,
-        local_directory::{ENTRIES_PATH, VERSIONS_PATH},
+        AsSyncEnvironmentTokio, ENTRIES_PATH, ReadEnvironmentAsync, VERSIONS_PATH,
         segment_uri_generic,
     },
     project::{

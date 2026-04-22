@@ -194,6 +194,8 @@ pub type ProjectResolution<Env> = (
 );
 
 impl Lock {
+    /// Find all projects that are both in lockfile and in `env`. Additionally
+    /// includes all projects where `editable = true`
     pub fn resolve_projects<Env: ReadEnvironment>(
         &self,
         env: &Env,

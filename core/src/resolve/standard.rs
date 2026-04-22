@@ -82,12 +82,8 @@ pub fn standard_remote_resolver<Policy: HTTPAuthentication>(
     }
 }
 
-pub fn standard_local_resolver(local_env_path: Utf8PathBuf) -> LocalEnvResolver {
-    EnvResolver {
-        env: LocalDirectoryEnvironment {
-            environment_path: local_env_path,
-        },
-    }
+pub fn standard_local_resolver(local_env: LocalDirectoryEnvironment) -> LocalEnvResolver {
+    EnvResolver { env: local_env }
 }
 
 pub fn standard_index_resolver<Policy: HTTPAuthentication>(
@@ -111,14 +107,14 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
 // TODO: Replace most of these arguments by some general CLIOptions object
 pub fn standard_resolver<Policy: HTTPAuthentication>(
     cwd: Option<Utf8PathBuf>,
-    local_env_path: Option<Utf8PathBuf>,
+    local_env: Option<LocalDirectoryEnvironment>,
     client: Option<ClientWithMiddleware>,
     index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> StandardResolver<Policy> {
     let file_resolver = standard_file_resolver(cwd);
-    let local_resolver = local_env_path.map(standard_local_resolver);
+    let local_resolver = local_env.map(standard_local_resolver);
     let remote_resolver = client
         .clone()
         .map(|x| standard_remote_resolver(x, runtime.clone(), auth_policy.clone()));

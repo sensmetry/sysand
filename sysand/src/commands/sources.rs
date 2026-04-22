@@ -86,7 +86,6 @@ pub fn command_sources_env<S: AsRef<str>>(
 pub fn command_sources_project(
     include_deps: bool,
     ctx: ProjectContext,
-    env: Option<LocalDirectoryEnvironment>,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
     let current_project = ctx
@@ -103,7 +102,7 @@ pub fn command_sources_project(
             bail!("project is missing project information")
         };
 
-        let deps = match env {
+        let deps = match ctx.env {
             Some(env) => find_project_dependencies(info.validate()?.usage, env, provided_iris)?,
             None => {
                 let env = NullEnvironment::new();

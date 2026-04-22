@@ -25,6 +25,10 @@ pub mod reqwest_http;
 
 pub mod utils;
 
+pub const DEFAULT_ENV_NAME: &str = "sysand_env";
+pub const ENTRIES_PATH: &str = "entries.txt";
+pub const VERSIONS_PATH: &str = "versions.txt";
+
 /// Get path segment(s) corresponding to the given `uri`
 pub fn segment_uri_generic<S: AsRef<str>, D: Digest>(uri: S) -> std::vec::IntoIter<String>
 where
@@ -301,6 +305,8 @@ pub enum PutProjectError<WE, CE> {
     Write(#[from] WE),
     #[error(transparent)]
     Callback(CE),
+    // #[error(transparent)]
+    // AddProject(AE),
 }
 
 pub trait WriteEnvironment {
@@ -309,16 +315,16 @@ pub trait WriteEnvironment {
     type InterchangeProjectMut: ProjectMut;
 
     // TODO: Should this be replaced by a transactional interface?
-    fn put_project<S: AsRef<str>, T: AsRef<str>, F, E>(
+    fn put_project<S: AsRef<str>, T: AsRef<str>, F, CE>(
         &mut self,
         uri: S,
         version: T,
         // Callback allows the implementation to gracefully recover
         // in case of an error, to just "allocate"
         write_project: F,
-    ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, E>>
+    ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, CE>>
     where
-        F: FnOnce(&mut Self::InterchangeProjectMut) -> Result<(), E>;
+        F: FnOnce(&mut Self::InterchangeProjectMut) -> Result<(), CE>;
 
     fn del_project_version<S: AsRef<str>, T: AsRef<str>>(
         &mut self,

@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use sha2::{Digest, Sha256};
-use sysand_core::env::{PutProjectError, ReadEnvironment, WriteEnvironment};
+use sysand_core::env::{
+    ENTRIES_PATH, PutProjectError, ReadEnvironment, VERSIONS_PATH, WriteEnvironment,
+};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
@@ -48,11 +50,6 @@ pub fn open_environment_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
 
     Ok(result)
 }
-
-pub const DEFAULT_ENV_NAME: &str = "sysand_env";
-
-const ENTRIES_PATH: &str = "entries.txt";
-const VERSIONS_PATH: &str = "versions.txt";
 
 impl LocalBrowserStorageEnvironment {
     pub fn segment_uri<S: AsRef<str>>(&self, uri: S) -> String {
