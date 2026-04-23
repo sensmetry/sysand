@@ -70,9 +70,11 @@ jobs:
           - runner: windows-latest
             target: x64
             rust_target: x86_64-pc-windows-msvc
-          - runner: windows-11-arm
-            target: arm64 # not aarch64 because expected by setup-python
-            rust_target: aarch64-pc-windows-msvc
+            # arm64 fails in setup-python, see
+            # https://github.com/actions/partner-runner-images/issues/154
+          # - runner: windows-11-arm
+          #   target: arm64 # not aarch64 because expected by setup-python
+          #   rust_target: aarch64-pc-windows-msvc
         # It is sufficient to build wheels for the lowest supported Python
         # version, but we need to build wheels for each supported free-threaded
         # version.
