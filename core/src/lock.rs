@@ -181,15 +181,17 @@ pub enum ValidationError {
     //     version: String,
     //     project_with_name: String,
     // },
-    #[error("invalid format of SHA256 checksum `{checksum}` for {project_with_name} in lockfile")]
-    InvalidChecksumFormat {
+    #[error(
+        "invalid format of canonical project-digest `{checksum}` for {project_with_name} in lockfile"
+    )]
+    InvalidProjectDigestFormat {
         checksum: String,
         project_with_name: String,
     },
     #[error(
-        "invalid format of source SHA256 checksum `{checksum}` for {project_with_name} in lockfile"
+        "invalid format of `remote_kpar_digest` `{checksum}` for {project_with_name} in lockfile"
     )]
-    InvalidSourceChecksumFormat {
+    InvalidRemoteKparDigestFormat {
         checksum: String,
         project_with_name: String,
     },
@@ -342,47 +344,42 @@ impl Lock {
     }
 
     fn validate_checksum_format(&self) -> Result<(), ValidationError> {
-        let fail = self
-            .projects
-            .iter()
-            .map(|p| (p.checksum.clone(), p.name.clone()))
-            .find(|(cs, _)| cs.len() != 64 || !cs.bytes().all(|c| c.is_ascii_hexdigit()));
-        if let Some((checksum, name)) = fail {
-            Err(ValidationError::InvalidChecksumFormat {
-                checksum,
-                project_with_name: project_with(name),
-            })
-        } else {
-            Ok(())
+        for project in &self.projects {
+            let cs = &project.checksum;
+            if cs.len() != 64 || !cs.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return Err(ValidationError::InvalidProjectDigestFormat {
+                    checksum: cs.clone(),
+                    project_with_name: project_with(project.name.clone()),
+                });
+            }
         }
+        Ok(())
     }
 
     fn validate_source_checksum_format(&self) -> Result<(), ValidationError> {
-        let fail = self.projects.iter().find_map(|project| {
-            project.sources.iter().find_map(|source| match source {
-                Source::RemoteKpar {
-                    remote_kpar_digest: Some(remote_kpar_digest),
+        for project in &self.projects {
+            for source in &project.sources {
+                let Source::RemoteKpar {
+                    remote_kpar_digest: Some(digest),
                     ..
-                } if remote_kpar_digest.len() != 64
-                    || !remote_kpar_digest.bytes().all(|c| c.is_ascii_hexdigit()) =>
-                {
-                    Some((
-                        remote_kpar_digest.clone(),
-                        project.name.clone(),
-                        project.identifiers.first().cloned(),
-                    ))
+                } = source
+                else {
+                    continue;
+                };
+                if digest.len() == 64 && digest.bytes().all(|c| c.is_ascii_hexdigit()) {
+                    continue;
                 }
-                _ => None,
-            })
-        });
-        if let Some((checksum, name, identifier)) = fail {
-            Err(ValidationError::InvalidSourceChecksumFormat {
-                checksum,
-                project_with_name: identifier.unwrap_or_else(|| project_with(name)),
-            })
-        } else {
-            Ok(())
+                return Err(ValidationError::InvalidRemoteKparDigestFormat {
+                    checksum: digest.clone(),
+                    project_with_name: project
+                        .identifiers
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| project_with(project.name.clone())),
+                });
+            }
         }
+        Ok(())
     }
 
     /// Should always be called before writing lock to file.
@@ -534,7 +531,7 @@ const SOURCE_ENTRIES: &[&str] = &[
     "editable",
     "src_path",
     "kpar_path",
-    "registry",
+    "index",
     "remote_src",
     "remote_kpar",
     "remote_kpar_size",
@@ -568,11 +565,8 @@ pub enum Source {
         )]
         kpar_path: Utf8UnixPathBuf,
     },
-    // TODO(index-vocab): rename to `Index` with a serde-renamed `index` TOML key
-    // in the next lockfile-version bump; the rest of the codebase and the
-    // index-protocol spec now use "index" rather than "registry".
-    Registry {
-        registry: String,
+    Index {
+        index: String,
     },
     RemoteKpar {
         remote_kpar: String,
@@ -608,8 +602,8 @@ impl Source {
             Source::LocalSrc { src_path } => {
                 table.insert("src_path", Value::from(src_path.as_str()));
             }
-            Source::Registry { registry } => {
-                table.insert("registry", Value::from(registry));
+            Source::Index { index } => {
+                table.insert("index", Value::from(index));
             }
             Source::RemoteApi { remote_api } => {
                 table.insert("remote_api", Value::from(remote_api));

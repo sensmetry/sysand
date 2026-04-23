@@ -8,7 +8,7 @@
 //! input to the hash. The canonicalization pipeline is intentionally thin glue
 //! over well-known libraries — all substantive work is delegated:
 //!
-//! 1. [`fluent_uri::IriRef::normalize`] — RFC 3986 §6.2.2 + RFC 3987 §5.3.2
+//! 1. [`fluent_uri::Iri::normalize`] — RFC 3986 §6.2.2 + RFC 3987 §5.3.2
 //!    syntax-based normalization plus IPv6 canonicalization (RFC 5952) and
 //!    scheme-default port stripping.
 //! 2. [`idna::domain_to_ascii`] — WHATWG URL `domainToASCII` for any RegName
@@ -17,23 +17,30 @@
 //!    `http`/`https` and the parsed path is empty, matching WHATWG URL
 //!    serialization.
 
-use fluent_uri::{IriRef, ParseError, component::Host};
+use fluent_uri::{Iri, ParseError, component::Host};
+
+use crate::resolve::reqwest_http::{SCHEME_HTTP, SCHEME_HTTPS};
 
 /// Canonicalize `iri` into the byte sequence that will be SHA-256'd to form
-/// the `_iri/<hash>` bucket name. Returns an error if the input is not a
-/// well-formed IRI reference or if the host fails IDN conversion.
-pub(crate) fn normalize_iri_for_hash(iri: &str) -> Result<String, IriNormalizeError> {
-    let parsed = IriRef::parse(iri).map_err(IriNormalizeError::Parse)?;
-    let normalized = parsed.normalize();
-    let with_idn = punycode_host(normalized.as_str())?;
-    Ok(ensure_http_root_path(&with_idn))
+/// the `_iri/<hash>` bucket name. Returns an error if the host fails IDN
+/// conversion.
+///
+/// The caller is responsible for parsing the IRI up front: accepting an
+/// already-parsed `Iri` means no stage in the pipeline re-parses its input.
+pub(crate) fn normalize_iri_for_hash(iri: &Iri<&str>) -> Result<String, IriNormalizeError> {
+    let normalized = iri.normalize();
+    let with_idn = punycode_host(&normalized)?;
+    Ok(ensure_http_root_path(&normalized, with_idn))
 }
 
 /// Replace a non-ASCII RegName host with its `domainToASCII` (Punycode) form.
 /// IPv4, IPv6 literals, and already-ASCII RegNames pass through untouched.
-fn punycode_host(s: &str) -> Result<String, IriNormalizeError> {
-    let parsed = IriRef::parse(s).expect("output of normalize() must re-parse as IriRef");
-    let Some(authority) = parsed.authority() else {
+/// Returns the resulting serialization as an owned `String`; the rewrite is a
+/// localized splice on a known-valid IRI and does not rebuild via the IRI
+/// builder (whose strict typestate is awkward for "change only the host").
+fn punycode_host(iri: &Iri<String>) -> Result<String, IriNormalizeError> {
+    let s = iri.as_str();
+    let Some(authority) = iri.authority() else {
         return Ok(s.to_owned());
     };
     let raw_host = authority.host();
@@ -57,17 +64,14 @@ fn punycode_host(s: &str) -> Result<String, IriNormalizeError> {
 
 /// For `http` / `https` IRIs with an empty path, insert `/` before any query
 /// or fragment. `fluent_uri::normalize` deliberately leaves the empty path
-/// untouched; WHATWG URL serialization produces the slash.
-fn ensure_http_root_path(s: &str) -> String {
-    let Ok(parsed) = IriRef::parse(s) else {
-        return s.to_owned();
-    };
-    let is_http_scheme = matches!(
-        parsed.scheme().map(|sc| sc.as_str()),
-        Some("http") | Some("https")
-    );
-    if !is_http_scheme || !parsed.path().as_str().is_empty() {
-        return s.to_owned();
+/// untouched; WHATWG URL serialization produces the slash. Scheme and path
+/// are read from `iri` (a preceding host rewrite does not affect either), so
+/// no re-parse of `s` is needed.
+fn ensure_http_root_path(iri: &Iri<String>, s: String) -> String {
+    let scheme = iri.scheme();
+    let is_http = scheme == SCHEME_HTTP || scheme == SCHEME_HTTPS;
+    if !is_http || !iri.path().as_str().is_empty() {
+        return s;
     }
     match s.find(['?', '#']) {
         Some(i) => format!("{}/{}", &s[..i], &s[i..]),
@@ -77,7 +81,7 @@ fn ensure_http_root_path(s: &str) -> String {
 
 #[derive(Debug, thiserror::Error)]
 pub enum IriNormalizeError {
-    #[error("IRI is not a well-formed RFC 3987 IRI reference: {0}")]
+    #[error("IRI is not a well-formed RFC 3987 IRI: {0}")]
     Parse(ParseError),
     #[error("host `{host}` is not a valid IDN and cannot be converted to Punycode")]
     IdnConversion { host: String },

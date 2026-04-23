@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::*;
+use fluent_uri::Iri;
 
 fn normalize(iri: &str) -> String {
-    normalize_iri_for_hash(iri).expect("fixture IRI must normalize cleanly")
+    let parsed = Iri::parse(iri).expect("fixture IRI must parse cleanly");
+    normalize_iri_for_hash(&parsed).expect("fixture IRI must normalize cleanly")
 }
 
 #[test]
@@ -93,10 +95,4 @@ fn userinfo_and_non_default_port_preserved() {
         normalize("http://User@Example.COM:8080/path"),
         "http://User@example.com:8080/path"
     );
-}
-
-#[test]
-fn malformed_iri_is_rejected() {
-    // Empty scheme, space in authority — not a valid IRI reference.
-    assert!(normalize_iri_for_hash("http://exa mple.com/").is_err());
 }

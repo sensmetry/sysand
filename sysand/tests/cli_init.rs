@@ -23,7 +23,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
     let meta = std::fs::read_to_string(proj_dir_path.join(".meta.json"))?;
 
     let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}\n"#,
+        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n"#,
     )?;
 
     assert_eq!(
@@ -57,7 +57,7 @@ fn init_basic_cwd() -> Result<(), Box<dyn std::error::Error>> {
     let meta = std::fs::read_to_string(cwd.join(".meta.json"))?;
 
     let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}\n"#,
+        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n"#,
     )?;
 
     assert_eq!(
@@ -101,7 +101,7 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
     let meta = std::fs::read_to_string(proj_dir_path.join(".meta.json"))?;
 
     let meta_match = predicate::str::is_match(
-        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}\n"#,
+        r#"\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n"#,
     )?;
 
     assert_eq!(

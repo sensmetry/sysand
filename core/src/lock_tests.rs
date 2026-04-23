@@ -301,8 +301,8 @@ fn many_sources_to_toml() {
                 Source::LocalSrc {
                     src_path: Utf8UnixPathBuf::from("example/path"),
                 },
-                Source::Registry {
-                    registry: "www.example.com".to_string(),
+                Source::Index {
+                    index: "www.example.com".to_string(),
                 },
                 Source::RemoteKpar {
                     remote_kpar: "www.example.com/remote.kpar".to_string(),
@@ -329,7 +329,7 @@ version = "0.4.7"
 sources = [
     {{ kpar_path = "example.kpar" }},
     {{ src_path = "example/path" }},
-    {{ registry = "www.example.com" }},
+    {{ index = "www.example.com" }},
     {{ remote_kpar = "www.example.com/remote.kpar", remote_kpar_size = 64 }},
     {{ remote_src = "www.example.com/remote" }},
     {{ remote_git = "github.com/example/remote.git" }},
@@ -728,7 +728,7 @@ fn validate_checksum() {
     .validate() else {
         panic!()
     };
-    let ValidationError::InvalidChecksumFormat {
+    let ValidationError::InvalidProjectDigestFormat {
         checksum,
         project_with_name,
     } = err

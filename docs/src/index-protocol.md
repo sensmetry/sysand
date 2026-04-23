@@ -6,15 +6,18 @@
 ## 1. Scope
 
 This document specifies the **sysand index** — the tree of files a sysand
-index server exposes over HTTP for clients to read. It covers file layout,
-JSON shapes, discovery, and the verification rules clients use.
+index server exposes over HTTP. It covers file layout, JSON shapes,
+discovery, the obligations an index server must uphold (§11), and the
+verification rules clients apply (§12).
 
 A _sysand index server_ is any service that hosts a sysand index. It MAY
 additionally expose a _sysand index API_ (publish, yank, and other
 management endpoints); that API is specified separately and is not covered
 here.
 
-Keywords MUST, MUST NOT, SHOULD, MAY are used per RFC 2119.
+The keywords MUST, MUST NOT, REQUIRED, SHALL, SHALL NOT, SHOULD, SHOULD
+NOT, RECOMMENDED, MAY, and OPTIONAL are to be interpreted as described in
+[RFC 2119][rfc2119].
 
 ## 2. Implementability
 
@@ -24,8 +27,9 @@ corresponds to literal bytes on disk.
 
 A smart server MAY respond to requests for `.project.json`, `.meta.json`,
 or `project.kpar` with HTTP redirects (e.g. to an object store or CDN);
-clients MUST follow such redirects. The digest commitments in §10 provide
-end-to-end integrity regardless of transport.
+clients MUST follow such redirects. The digest commitments in
+[§10] provide end-to-end integrity
+regardless of transport.
 
 The `sysand index` CLI command group (in development) produces and
 maintains index trees.
@@ -58,12 +62,12 @@ fields:
   other endpoints live). When absent, defaults to the discovery root.
 
 `index_root` and `api_root`, when present, MUST be absolute URLs
-(RFC 3986 §4.3: scheme + hier-part, no relative references). Clients
-MUST reject a discovery document that supplies a relative URL for either
-field rather than attempting to resolve it against the discovery root or
-the final URL of the discovery-document fetch. Relative URLs have been
-explicitly excluded in v0 to avoid ambiguity around the resolution base
-after redirects; a future version MAY relax this.
+([RFC 3986 §4.3][rfc3986-43]: scheme + hier-part, no relative
+references). Clients MUST reject a discovery document that supplies a
+relative URL for either field rather than attempting to resolve it
+against the discovery root or the final URL of the discovery-document
+fetch. Relative URLs are excluded to avoid ambiguity around the
+resolution base after redirects.
 
 If the discovery document is absent (HTTP 404) the client proceeds as
 though it were present with no fields set: `index_root` and `api_root`
@@ -72,7 +76,7 @@ both default to the discovery root. Any other non-success response (e.g.
 from a broken server.
 
 Clients MUST follow HTTP redirects on the discovery fetch. Unknown fields
-in the document are silently ignored (see §13).
+in the document are silently ignored (see [§14]).
 
 ## 4. Layout
 
@@ -98,22 +102,26 @@ Anchored at `index_root`, a sysand index is a tree:
 ```
 
 A project lives in exactly one of the two trees — `_iri/...` or
-`<publisher>/<name>/...` — depending on its IRI shape (§5).
+`<publisher>/<name>/...` — depending on its IRI shape
+([§5]).
 
 ## 5. IRI → path resolution
 
 Given a project IRI, clients resolve the project directory as follows:
 
 - If the IRI matches `pkg:sysand/<publisher>/<name>` and both segments
-  satisfy the canonicalization rules in §6, the project directory is
+  satisfy the canonicalization rules in
+  [§6], the project directory is
   `<index_root>/<publisher>/<name>/`.
 - Otherwise, the project directory is
   `<index_root>/_iri/<sha256_hex(normalized_iri)>/`, where
   `sha256_hex(normalized_iri)` is the lowercase hex SHA-256 of the IRI
-  after applying the normalization defined in §5.1.
+  after applying the normalization defined in
+  [§5.1].
 
-A `pkg:sysand/` IRI that is not canonical (§6) MUST NOT be transparently
-rerouted to the `_iri/...` path; clients MUST reject it.
+A `pkg:sysand/` IRI that is not canonical
+([§6]) MUST NOT be transparently rerouted
+to the `_iri/...` path; clients MUST reject it.
 
 ### 5.1. IRI canonicalization for the `_iri` hash bucket
 
@@ -122,11 +130,13 @@ steps in order. The intent is to delegate to well-specified external
 algorithms so that any two implementations produce byte-identical output:
 
 1. **Syntax-based normalization** — apply
-   [`fluent_uri::Iri::normalize`][fluent-uri-normalize] semantics, which
-   are equivalent to RFC 3986 §6.2.2 plus RFC 3987 §5.3.2 plus the
-   following commonly-used scheme-based adjustments:
+   [`fluent_uri::Iri::normalize`][fluent-uri-normalize] semantics. This
+   is effectively equivalent to taking the following steps in order,
+   drawing on [RFC 3986 §6.2.2][rfc3986-622] syntax-based normalization,
+   [RFC 3987 §5.3.2][rfc3987-532] IRI additions, and commonly-used
+   scheme-based adjustments:
    1. Decode percent-encoded octets that correspond to unreserved
-      characters (RFC 3986 §2.3).
+      characters ([RFC 3986 §2.3][rfc3986-23]).
    2. Uppercase the hexadecimal digits in every remaining `%HH` triplet.
    3. Lowercase ASCII characters in the scheme and host (outside of
       percent-encoded octets).
@@ -134,8 +144,8 @@ algorithms so that any two implementations produce byte-identical output:
    5. Remove a port that is empty or equals the scheme's default (all
       IANA-assigned defaults).
    6. If the IRI has a scheme and an absolute path, apply
-      `remove_dot_segments` (RFC 3986 §5.2.4), including percent-encoded
-      dot segments (`%2E`, `%2E%2E`, etc).
+      `remove_dot_segments` ([RFC 3986 §5.2.4][rfc3986-524]), including
+      percent-encoded dot segments (`%2E`, `%2E%2E`, etc).
    7. If the IRI has no authority and its path would start with `//`,
       prepend `/.` to the path.
 2. **Host → Punycode** — if the authority host is a RegName containing
@@ -150,17 +160,12 @@ project for the purposes of this protocol; any other difference yields a
 different project even if a scheme-specific interpretation would consider
 them equivalent.
 
-[fluent-uri-normalize]: https://docs.rs/fluent-uri/0.4.1/fluent_uri/struct.Iri.html#method.normalize
-[rfc5952]: https://datatracker.ietf.org/doc/html/rfc5952
-[whatwg-url-domain-to-ascii]: https://url.spec.whatwg.org/#concept-domain-to-ascii
-[idna-crate]: https://docs.rs/idna/
-
 ## 6. `pkg:sysand` canonicalization
 
 A `pkg:sysand/<publisher>/<name>` IRI has exactly two slash-separated
 segments after the `pkg:sysand/` prefix. Each segment MUST satisfy:
 
-- 3–50 ASCII characters in total.
+- Length: 3–50 ASCII characters.
 - Starts and ends with an ASCII alphanumeric character.
 - Between the first and last character: ASCII alphanumeric characters,
   with isolated separators. No two separators may be adjacent.
@@ -188,15 +193,16 @@ IRI the index knows about:
 }
 ```
 
-- A 200 response with `"projects": []` is the "empty index" signal.
+- A 200 response with `{ "projects": [] }` is the "empty index" signal.
 - A 404 on `index.json` means "this URL is not a sysand index" — it MUST
-  NOT be treated as an empty index. Clients surface it as a hard error so
-  the resolver chain can skip this source rather than silently continue
-  against a misconfigured base URL.
+  NOT be treated as an empty index. Clients MUST surface the 404 to the
+  user (e.g. as a warning) rather than silently continuing against a
+  misconfigured base URL; a resolver chain MAY skip this source and
+  continue with the next.
 
 ## 8. `versions.json`
 
-Served at the project directory (§5). Lists every version of the project
+Served at the project directory ([§5]). Lists every version of the project
 along with the metadata a client needs to solve without fetching any
 per-version file:
 
@@ -223,11 +229,16 @@ Per-entry rules:
   that omits any of them.
 - `version` MUST parse as a [semver 2.0.0][semver] version and MUST NOT
   carry build metadata (the `+build…` suffix). Pre-release identifiers
-  (`-beta.1` etc.) are permitted.
+  (`-beta.1` etc.) are permitted. Build metadata is excluded because
+  semver specifies that two versions differing only in their build
+  metadata have equal precedence (semver §10); permitting it in the
+  index would create two entries that sort identically but address
+  different artifacts, breaking the `(iri, version)` identity contract
+  (see [§13]).
 - `usage` is an array of dependency declarations in the same shape as in
   `.project.json`. It is the solver's authoritative input.
 - `project_digest` and `kpar_digest` are lowercase SHA-256 in
-  `sha256:<64-hex>` form (§10).
+  `sha256:<64-hex>` form ([§10]).
 - `kpar_size` is the byte length of the archive.
 
 Ordering:
@@ -249,7 +260,8 @@ Absence:
 - A project that legitimately has no published versions is represented
   by a 200 response with `"versions": []`. A 404 on `versions.json` is
   a server-side protocol violation — symmetric with the `index.json`
-  rule in §7 and the per-version file rule in §9.
+  rule in [§7] and the per-version file rule in
+  [§9].
 - Clients MUST surface the 404 to the user (e.g. as a warning) rather
   than treating it silently as "project has no versions"; the
   `(iri, 404)` case is a misconfigured mirror or a project that was
@@ -260,8 +272,6 @@ Absence:
   404 applies to that source, not to the IRI globally. A specific
   `get_project` call targeting a version whose `versions.json` 404s
   MUST hard-fail (there is nothing to validate the selection against).
-
-[semver]: https://semver.org/spec/v2.0.0.html
 
 ## 9. Per-version files
 
@@ -286,7 +296,7 @@ it needs:
 
 `sync` does not re-read `versions.json` or the per-version JSON files —
 the lockfile already records the artifact's source URL, digests, and
-everything else `sync` needs. Immutability (§11) is what makes this
+everything else `sync` needs. Immutability ([§11]) is what makes this
 safe: the lockfile's recorded `kpar_digest` is still the correct digest
 to verify against when the `.kpar` is fetched.
 
@@ -302,9 +312,11 @@ NOT appear in v0 documents.
 ### `project_digest`
 
 `project_digest` is SHA-256 over the canonical form of the `(info, meta)`
-pair served at the same version directory. The canonical form is defined
-such that it can be computed from the contents of `.project.json` and
-`.meta.json` alone, with no need to read `project.kpar` sources.
+pair served at the same version directory. Because the `meta.checksum`
+rule above constrains `.meta.json` to carry SHA-256 per-file digests
+directly, the canonical form of conforming index content can be
+computed from `.project.json` and `.meta.json` alone, without reading
+`project.kpar` sources.
 
 ### `kpar_digest`
 
@@ -312,9 +324,11 @@ such that it can be computed from the contents of `.project.json` and
 
 ### `meta.checksum` values
 
-Per-source-file checksums inside `.meta.json` (`meta.checksum`) use raw
-lowercase SHA-256 hex — no `sha256:` prefix, no algorithm selector. SHA-256
-is the only algorithm supported in v0.
+Per-source-file checksums inside `.meta.json` (`meta.checksum`) are
+`{ "value", "algorithm" }` pairs. In v0, `algorithm` MUST be `SHA256`
+and `value` MUST be raw lowercase SHA-256 hex (no `sha256:` prefix).
+Other algorithms are reserved for future versions and MUST NOT appear
+in v0 documents.
 
 ## 11. Server obligations
 
@@ -351,11 +365,12 @@ A conforming sysand index client:
 - MUST reject any version whose advertised digest disagrees with computed
   content.
 - Beyond the above, does not cross-check textual fields between
-  `versions.json` and `.project.json` — the server is authoritative (§11).
+  `versions.json` and `.project.json` — the server is authoritative
+  ([§11]).
 
 ## 13. Immutability and lockfile reproducibility
 
-Immutability (§11) has a direct consequence for sysand lockfiles:
+Immutability ([§11]) has a direct consequence for sysand lockfiles:
 
 - The pair `(iri, version)` is a stable identifier for a specific set of
   bytes; a lockfile referencing it is valid indefinitely against a
@@ -384,4 +399,46 @@ specified in v0.
 
 The `sysand index` command group (in development) produces and maintains
 a sysand index tree: laying out files, generating digests, and keeping
-`versions.json` consistent with the per-version artifacts.
+`versions.json` consistent with the per-version artifacts. This is the
+only supported path for creating and mutating an index tree —
+third-party tooling may serve a tree that happens to conform, but the
+project does not support creation or maintenance by means other than
+`sysand index`.
+
+The `sysand index` CLI and sysand index clients enforce only the
+wire-level rules this document defines — tier consistency, digest
+agreement, `meta.checksum` format, `pkg:sysand` canonicalization,
+`versions.json` ordering and uniqueness. Semantic project-quality
+checks (is `.meta.json`'s `checksum` map complete, does the archive
+shape match the interchange spec, are referenced files reachable,
+etc.) are the publish pipeline's responsibility: tooling built on top
+of the protocol (e.g. `sysand publish` and a sysand index server's
+upload handler) SHOULD enforce those at the publish boundary.
+
+[§1]: #1-scope
+[§2]: #2-implementability
+[§3]: #3-discovery-and-configuration
+[§4]: #4-layout
+[§5]: #5-iri--path-resolution
+[§5.1]: #51-iri-canonicalization-for-the-_iri-hash-bucket
+[§6]: #6-pkgsysand-canonicalization
+[§7]: #7-indexjson
+[§8]: #8-versionsjson
+[§9]: #9-per-version-files
+[§10]: #10-digests-and-canonicalization
+[§11]: #11-server-obligations
+[§12]: #12-client-obligations
+[§13]: #13-immutability-and-lockfile-reproducibility
+[§14]: #14-forward-compatibility
+[§15]: #15-sysand-index-cli-preview
+[rfc2119]: https://www.rfc-editor.org/rfc/rfc2119.html
+[rfc3986-23]: https://www.rfc-editor.org/rfc/rfc3986.html#section-2.3
+[rfc3986-43]: https://www.rfc-editor.org/rfc/rfc3986.html#section-4.3
+[rfc3986-524]: https://www.rfc-editor.org/rfc/rfc3986.html#section-5.2.4
+[rfc3986-622]: https://www.rfc-editor.org/rfc/rfc3986.html#section-6.2.2
+[rfc3987-532]: https://www.rfc-editor.org/rfc/rfc3987.html#section-5.3.2
+[rfc5952]: https://www.rfc-editor.org/rfc/rfc5952.html
+[semver]: https://semver.org/spec/v2.0.0.html
+[fluent-uri-normalize]: https://docs.rs/fluent-uri/0.4.1/fluent_uri/struct.Iri.html#method.normalize
+[whatwg-url-domain-to-ascii]: https://url.spec.whatwg.org/#concept-domain-to-ascii
+[idna-crate]: https://docs.rs/idna/

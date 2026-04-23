@@ -312,6 +312,11 @@ pub trait ProjectRead {
     /// Produces a project hash based on project information and the
     /// *canonicalized* metadata.
     ///
+    /// `Ok(None)` means the project has no `.project.json` or no
+    /// `.meta.json` — one of the two required inputs is absent — and
+    /// callers can rely on that meaning rather than treating `None` as
+    /// an unspecified failure mode.
+    ///
     /// Wrapper/project-adapter impls **must** forward this method explicitly
     /// — the trait default calls `get_info` + `canonical_meta` and will
     /// bypass any leaf override that provides an authoritative digest

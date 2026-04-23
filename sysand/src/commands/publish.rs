@@ -13,7 +13,7 @@ use sysand_core::{
         validate_endpoint_url_shape,
     },
     context::ProjectContext,
-    env::discovery::fetch_index_config,
+    env::discovery::{ResolvedEndpoints, fetch_index_config},
     project::utils::wrapfs,
 };
 use url::Url;
@@ -61,7 +61,7 @@ pub fn command_publish(
     // bearer-credential map. Upload is bearer-only; basic-auth entries
     // are intentionally dropped at this step.
     let bearer_map = Arc::unwrap_or_clone(auth_policy).try_into_publish_bearer_auth_map()?;
-    let api_root = endpoints.api_root.clone();
+    let ResolvedEndpoints { api_root, .. } = endpoints;
     let upload_url = build_upload_url(&api_root)?;
     let bearer = match bearer_map.lookup(upload_url.as_str()) {
         GlobMapResult::Found(_, token) => token.clone(),

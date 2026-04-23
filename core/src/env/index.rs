@@ -392,12 +392,13 @@ fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironmentError> {
     match parse_sysand_purl(iri) {
         Ok(Some((publisher, name))) => Ok(vec![publisher.to_string(), name.to_string()]),
         Ok(None) => {
-            let normalized = normalize_iri_for_hash(iri).map_err(|source| {
-                IndexEnvironmentError::MalformedIri {
-                    iri: iri.to_string(),
-                    source,
-                }
-            })?;
+            let malformed = |source| IndexEnvironmentError::MalformedIri {
+                iri: iri.to_string(),
+                source,
+            };
+            let parsed = fluent_uri::Iri::parse(iri)
+                .map_err(|e| malformed(super::iri_normalize::IriNormalizeError::Parse(e)))?;
+            let normalized = normalize_iri_for_hash(&parsed).map_err(malformed)?;
             let hash = segment_uri_generic::<_, Sha256>(&normalized)
                 .next()
                 .expect("segment_uri_generic always yields one segment");

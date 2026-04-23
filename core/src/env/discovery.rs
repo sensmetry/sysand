@@ -171,22 +171,37 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
 }
 
 /// Return `url` with a guaranteed trailing slash on its path so that
-/// `Url::join` treats it as a directory.
-fn with_trailing_slash(mut url: url::Url) -> url::Url {
-    if url.path().is_empty() {
-        url.set_path("/");
-    } else if !url.path().ends_with('/') {
-        let new_path = format!("{}/", url.path());
-        url.set_path(&new_path);
+/// `Url::join` treats it as a directory. Operates via `path_segments_mut`
+/// rather than touching the serialized path string, so percent-encoded
+/// segments survive the round-trip unchanged.
+///
+/// Callers must pass a URL that can be a base (`http(s)://…` etc.). The
+/// `path_segments_mut` call returns `Err(())` only for cannot-be-a-base
+/// URLs, which the discovery pipeline rejects up front via
+/// [`url::Url::cannot_be_a_base`].
+pub(crate) fn with_trailing_slash(mut url: url::Url) -> url::Url {
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .expect("caller passes a URL that can be a base");
+        segments.pop_if_empty();
+        segments.push("");
     }
     url
 }
 
-/// Shared handle to a lazily-resolved `ResolvedEndpoints`. Wrapped in an
-/// `Arc<OnceCell<_>>` so concurrent callers fan in to a single discovery
-/// fetch and later callers see the cached result. Errors are not cached
-/// (`OnceCell::get_or_try_init` discards `Err` values) — a transient 5xx
-/// on the discovery endpoint is retryable within the same env lifetime.
+/// Shared handle to a lazily-resolved `ResolvedEndpoints`.
+///
+/// `IndexEnvironmentAsync` is constructed synchronously but the discovery
+/// fetch is async, so resolution is deferred to the first async entry
+/// point that needs a URL. Under parallel solving, many concurrent
+/// `versions_async` / `get_project_async` calls on the same env can
+/// race that first use — the `OnceCell` collapses them into a single
+/// discovery fetch whose result all callers then share.
+///
+/// Errors are not cached (`OnceCell::get_or_try_init` discards `Err`) —
+/// a transient 5xx on the discovery endpoint is retryable within the
+/// same env lifetime.
 pub(crate) type EndpointsCell = Arc<OnceCell<ResolvedEndpoints>>;
 
 #[cfg(test)]

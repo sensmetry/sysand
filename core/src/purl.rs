@@ -29,7 +29,7 @@ pub enum FieldKind {
 
 impl FieldKind {
     fn dot_is_separator(self) -> bool {
-        matches!(self, FieldKind::Name)
+        self == FieldKind::Name
     }
 }
 

@@ -189,12 +189,57 @@ pub mod wrapfs {
             .map_err(|e| Box::new(FsIoError::RmFile(path.as_ref().into(), e)))
     }
 
+    /// Move a file or directory from `from` to `to`.
+    ///
+    /// Tries `fs::rename` first; if that fails with `CrossesDevices`
+    /// (staging path and target on different mount points / drives),
+    /// falls back to a recursive copy + remove. Callers that want the
+    /// plain single-syscall rename without the cross-device fallback
+    /// should use `std::fs::rename` directly.
     pub fn rename<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
         from: P,
         to: Q,
     ) -> Result<(), Box<FsIoError>> {
-        fs::rename(from.as_ref(), to.as_ref())
-            .map_err(|e| Box::new(FsIoError::Move(from.as_ref().into(), to.as_ref().into(), e)))
+        match fs::rename(from.as_ref(), to.as_ref()) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == ErrorKind::CrossesDevices => {
+                let meta = metadata(&from)?;
+                if meta.is_dir() {
+                    copy_dir_recursive(&from, &to)?;
+                    remove_dir_all(&from)?;
+                } else {
+                    copy(&from, &to)?;
+                    remove_file(&from)?;
+                }
+                Ok(())
+            }
+            Err(e) => Err(Box::new(FsIoError::Move(
+                from.as_ref().into(),
+                to.as_ref().into(),
+                e,
+            ))),
+        }
+    }
+
+    fn copy_dir_recursive<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+        src: P,
+        dst: Q,
+    ) -> Result<(), Box<FsIoError>> {
+        create_dir(&dst)?;
+        for entry in read_dir(&src)? {
+            let entry = entry.map_err(|e| Box::new(FsIoError::ReadDir(src.as_ref().into(), e)))?;
+            let file_type = entry
+                .file_type()
+                .map_err(|e| Box::new(FsIoError::ReadDir(src.as_ref().into(), e)))?;
+            let src_path = entry.path();
+            let dst_path = dst.as_ref().join(entry.file_name());
+            if file_type.is_dir() {
+                copy_dir_recursive(src_path, dst_path)?;
+            } else {
+                copy(src_path, dst_path)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn copy<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(

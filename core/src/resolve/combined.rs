@@ -154,15 +154,13 @@ impl<
                         Ok(opt) => opt
                             .and_then(|checksum| self.locals.shift_remove(&checksum)),
                         Err(err) => {
-                            // A failure here is load-bearing: it may signal
-                            // remote/local digest drift (e.g.
-                            // `AdvertisedDigestDrift` from an indexed-remote
-                            // project) or a stale local cache. Falling through
-                            // to "no cache hit" silently would hide that from
-                            // the user. Log at `warn!` so at least the
-                            // diagnostic survives; downstream `get_project`
-                            // will surface the same error as a hard failure
-                            // when it's actually consulted.
+                            // The remote resolver in this branch is the
+                            // non-index network resolver, so a failure here is
+                            // an I/O or parse error on the fetched project
+                            // files rather than an advertised-digest check.
+                            // Skip the local-cache match and let downstream
+                            // `get_project` re-surface the same error as a
+                            // hard failure.
                             log::warn!(
                                 "remote-project checksum_canonical_hex failed; skipping local-cache match: {err}"
                             );
@@ -295,7 +293,7 @@ impl<
                                 }
                                 Ok(None) => {
                                     log::debug!(
-                                        "local resolver rejected project with IRI `{uri}` due to missing canonical checksum",
+                                        "local resolver rejected project with IRI `{uri}`: no `.project.json` or `.meta.json`",
                                     );
                                 }
                                 Err(err) => {

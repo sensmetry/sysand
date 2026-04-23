@@ -148,16 +148,8 @@ pub fn build_upload_url(api_root: &Url) -> Result<Url, PublishError> {
     // The `v1/upload` suffix rejection is part of shape validation.
     validate_endpoint_url_shape(api_root, EndpointKind::ApiRoot)?;
 
-    let mut base = api_root.to_owned();
-    {
-        // Ensure trailing slash so `join` treats the base as a
-        // directory. Guaranteed for validated http(s) URLs.
-        let mut segments = base.path_segments_mut().unwrap();
-        segments.pop_if_empty();
-        segments.push(""); // re-add trailing slash
-    }
-
-    base.join(UPLOAD_ENDPOINT_PATH)
+    crate::env::discovery::with_trailing_slash(api_root.clone())
+        .join(UPLOAD_ENDPOINT_PATH)
         .map_err(|source| PublishError::InvalidApiRoot {
             url: api_root.as_str().into(),
             reason: format!("failed to compose upload URL: {source}"),
@@ -252,10 +244,7 @@ pub enum PublishError {
 
 // --- Preparation helpers ---
 
-/// Payload ready to POST to the upload endpoint. The caller should run
-/// [`prepare_publish_payload`] before doing any network work, so that
-/// kpar-content errors (invalid semver, bad publisher/name, oversized
-/// archive) surface before DNS lookups or discovery fetches.
+/// Payload ready to POST to the upload endpoint.
 pub struct PublishPreparation {
     purl_versioned: String,
     // Keep upload payload in `Bytes` so request retries clone cheaply.
@@ -264,9 +253,8 @@ pub struct PublishPreparation {
 }
 
 /// Reads and validates a `.kpar` file, returning the upload payload and
-/// metadata. Pure — does no network work — so the CLI can call this
-/// before discovery to catch input errors without round-tripping to the
-/// index server.
+/// metadata. Does not touch network. Should be called before any network
+/// activity.
 pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, PublishError> {
     // Open and validate kpar.
     let kpar_project = LocalKParProject::new_guess_root(path)

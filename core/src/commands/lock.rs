@@ -105,6 +105,17 @@ pub struct NameCollisionError {
 }
 
 #[derive(Error, Debug)]
+#[error(
+    "symbol name `{}` is exported more than once by the same project:\n{:#}",
+    .symbol,
+    .project.to_toml(),
+)]
+pub struct SelfNameCollisionError {
+    pub symbol: String,
+    pub project: Project,
+}
+
+#[derive(Error, Debug)]
 pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     DependencyProject(PD::Error),
@@ -130,6 +141,8 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     Solver(SolverError<R>),
     #[error(transparent)]
     NameCollision(Box<NameCollisionError>),
+    #[error(transparent)]
+    SelfNameCollision(Box<SelfNameCollisionError>),
 }
 
 pub struct LockOutcome<PD> {
@@ -175,15 +188,15 @@ pub fn do_lock_projects<
         } = read_lock_entry_parts(
             project,
             |info| match info {
-                Some(info) => format!("{} {}", info.name, info.version),
+                Some(info) => format!("`{}` {}", info.name, info.version),
                 None => {
                     if let Some(ids) = &identifiers
                         && let Some(iri) = ids.first()
                     {
-                        return iri.as_str().to_owned();
+                        return format!("`{iri}`");
                     }
                     match project.name() {
-                        Ok(Some(name)) => name,
+                        Ok(Some(name)) => format!("`{name}`"),
                         _ => "<unknown input project>".to_owned(),
                     }
                 }
@@ -312,23 +325,15 @@ pub fn do_lock_extend<
                 lock_project.version
             );
         } else {
-            // Two-pass: first validate every export against `lock_symbols`
-            // (and against the other exports of this same project) without
-            // mutating either, then commit on success. Mutating
-            // `lock_symbols` on the failure path would leave the caller's
-            // collision table polluted with an index pointing at a project
-            // that was never `push`ed, breaking any future operation on the
-            // same `LockOutcome` even though `Err` was returned.
             let new_idx = lock.projects.len();
             let mut local_seen = HashSet::new();
             for s in &lock_project.exports {
                 let h = hash_str(s);
                 if !local_seen.insert(h) {
-                    return Err(LockError::NameCollision(
-                        NameCollisionError {
+                    return Err(LockError::SelfNameCollision(
+                        SelfNameCollisionError {
                             symbol: s.to_owned(),
-                            pr1: lock_project.clone(),
-                            pr2: lock_project,
+                            project: lock_project,
                         }
                         .into(),
                     ));
@@ -343,9 +348,7 @@ pub fn do_lock_extend<
                         .into(),
                     ));
                 }
-            }
-            for s in &lock_project.exports {
-                lock_symbols.insert(hash_str(s), new_idx);
+                lock_symbols.insert(h, new_idx);
             }
             lock.projects.push(lock_project);
         }

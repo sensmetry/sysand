@@ -1411,7 +1411,8 @@ mod iri {
         let raw_request_iri = "HTTP://Example.COM/%7euser";
 
         use crate::env::iri_normalize::normalize_iri_for_hash;
-        assert_eq!(normalize_iri_for_hash(raw_request_iri)?, normalized_iri);
+        let parsed = fluent_uri::Iri::parse(raw_request_iri)?;
+        assert_eq!(normalize_iri_for_hash(&parsed)?, normalized_iri);
 
         // Compute what the env will look up.
         use sha2::{Digest, Sha256};

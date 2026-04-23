@@ -421,6 +421,15 @@ pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
     InterchangeProjectChecksum,
 >;
 
+/// Canonical RFC 3339 serialization of the `created` timestamp. All code
+/// that writes `InterchangeProjectMetadataRaw::created` goes through this
+/// helper so the format stays consistent across producers (default
+/// constructors, conversions, test fixtures) — two documents with the
+/// same instant serialize byte-for-byte the same.
+pub fn format_created(value: &chrono::DateTime<chrono::Utc>) -> String {
+    value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
 impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
     fn from(value: InterchangeProjectMetadata) -> InterchangeProjectMetadataRaw {
         InterchangeProjectMetadataRaw {
@@ -429,9 +438,7 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
                 .into_iter()
                 .map(|(k, v)| (k, v.into_string()))
                 .collect(),
-            created: value
-                .created
-                .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
+            created: format_created(&value.created),
             metamodel: value.metamodel.map(|iri| iri.into_string()),
             includes_derived: value.includes_derived,
             includes_implied: value.includes_implied,
@@ -493,9 +500,7 @@ impl Default for InterchangeProjectMetadataRaw {
     fn default() -> Self {
         InterchangeProjectMetadataRaw {
             index: IndexMap::default(),
-            // created's format must match the `From<InterchangeProjectMetadata>
-            // for InterchangeProjectMetadataRaw` impl.
-            created: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
+            created: format_created(&chrono::Utc::now()),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,

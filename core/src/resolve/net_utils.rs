@@ -81,14 +81,9 @@ impl Error for ReqwestClientBuildError {}
 /// Note that gix manages its own HTTP client, so logs may indicate
 /// duplicate initialization.
 ///
-/// **Redirect policy.** This client relies on `reqwest`'s default
-/// redirect behaviour — up to 10 automatic redirects. Clients MUST
-/// follow HTTP redirects on the discovery fetch and on every index
-/// resource. Overriding the builder here with `redirect(Policy::none())`
-/// would silently break conformance — any change to the redirect policy
-/// here needs matching updates in the discovery / fetch regression
-/// tests (`test_*_follows_redirect` in `env/index_tests.rs` and
-/// `discovery.rs`).
+/// Relies on `reqwest`'s default redirect behaviour (up to 10
+/// automatic redirects); clients MUST follow HTTP redirects on the
+/// discovery fetch and on every index resource.
 pub fn create_reqwest_client()
 -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
     const UA: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
