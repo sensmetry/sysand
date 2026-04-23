@@ -177,10 +177,9 @@ pub fn do_lock_projects<
     let mut all_deps = vec![];
 
     for (identifiers, project) in projects {
-        // Before `info` is known: prefer a caller-supplied IRI, fall back to
-        // `project.name()`, and only last resort to a placeholder. After
-        // `info` is available (meta/canonical paths), the name+version is a
-        // strictly better label than whatever was guessed upstream.
+        // Before `info` is known: prefer a caller-supplied IRI, else a
+        // placeholder. After `info` is available (meta/canonical paths),
+        // the name+version is a strictly better label.
         let LockEntryParts {
             info,
             meta,
@@ -189,17 +188,10 @@ pub fn do_lock_projects<
             project,
             |info| match info {
                 Some(info) => format!("`{}` {}", info.name, info.version),
-                None => {
-                    if let Some(ids) = &identifiers
-                        && let Some(iri) = ids.first()
-                    {
-                        return format!("`{iri}`");
-                    }
-                    match project.name() {
-                        Ok(Some(name)) => format!("`{name}`"),
-                        _ => "<unknown input project>".to_owned(),
-                    }
-                }
+                None => match identifiers.as_ref().and_then(|ids| ids.first()) {
+                    Some(iri) => format!("`{iri}`"),
+                    None => "<unknown input project>".to_string(),
+                },
             },
             LockProjectError::InputProjectError,
             LockProjectError::InputProjectCanonicalizationError,

@@ -258,7 +258,7 @@ Duplicates:
 Absence:
 
 - A project that legitimately has no published versions is represented
-  by a 200 response with `"versions": []`. A 404 on `versions.json` is
+  by a 200 response with `{ "versions": [] }`. A 404 on `versions.json` is
   a server-side protocol violation — symmetric with the `index.json`
   rule in [§7] and the per-version file rule in
   [§9].
@@ -306,8 +306,7 @@ to verify against when the `.kpar` is fetched.
 
 Advertised digests (`project_digest`, `kpar_digest` in `versions.json`)
 MUST use the form `sha256:<64 lowercase hex>`. Uppercase hex is invalid
-on the wire. Other algorithms are reserved for future versions and MUST
-NOT appear in v0 documents.
+on the wire.
 
 ### `project_digest`
 
@@ -327,8 +326,6 @@ computed from `.project.json` and `.meta.json` alone, without reading
 Per-source-file checksums inside `.meta.json` (`meta.checksum`) are
 `{ "value", "algorithm" }` pairs. In v0, `algorithm` MUST be `SHA256`
 and `value` MUST be raw lowercase SHA-256 hex (no `sha256:` prefix).
-Other algorithms are reserved for future versions and MUST NOT appear
-in v0 documents.
 
 ## 11. Server obligations
 
@@ -345,10 +342,10 @@ A conforming sysand index server MUST uphold:
   those bytes change — ever. Mechanisms for yanking, unlisting, or
   withdrawing a version are not specified in v0; they cannot be
   implemented by mutating published bytes.
-- **Well-formed archives.** A published `project.kpar` MUST be paired
-  with a `.meta.json` whose `checksum` map carries a SHA-256 checksum for
-  every model interchange file the archive contains. Build tooling that
-  produces archives for a sysand index MUST satisfy this.
+- **Well-formed archives.** The full set of criteria for a well-formed
+  archive is not frozen in v0 and is expected to evolve alongside the
+  `sysand index` CLI; see [§15] for the division between wire-level
+  enforcement and publish-time project-quality checks.
 
 ## 12. Client obligations
 
