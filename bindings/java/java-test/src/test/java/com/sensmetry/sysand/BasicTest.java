@@ -34,7 +34,7 @@ public class BasicTest {
             // String metaJson = Files.readString(tempDir.resolve(".meta.json"));
             String metaJson = new String(Files.readAllBytes(tempDir.resolve(".meta.json")));
             Pattern regex = Pattern.compile(
-                    "\\{\\s*\"index\":\\s*\\{\\},\\s*\"created\":\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{6,9}Z\"\\s*\\}\n",
+                    "\\{\\s*\"index\":\\s*\\{\\},\\s*\"created\":\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z\"\\s*\\}\n",
                     Pattern.DOTALL);
             assertTrue(regex.matcher(metaJson).matches(), "Metadata file content should match expected pattern");
         } catch (java.io.IOException e) {
@@ -78,7 +78,7 @@ public class BasicTest {
 
         assertEquals(project.metadata.getIndex(), new java.util.HashMap<String, String>());
         assertNotNull(project.metadata.getCreated());
-        assertTrue(project.metadata.getCreated().matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{6,9}Z"));
+        assertTrue(project.metadata.getCreated().matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z"));
         assertEquals(project.metadata.getMetamodel(), null);
         assertEquals(project.metadata.getIncludesDerived(), null);
         assertEquals(project.metadata.getIncludesImplied(), null);

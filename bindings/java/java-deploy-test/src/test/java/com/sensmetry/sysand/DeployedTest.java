@@ -28,7 +28,7 @@ public class DeployedTest {
 
             String metaJson = java.nio.file.Files.readString(tempDir.resolve(".meta.json"));
             Pattern regex = Pattern.compile(
-                    "\\{\\s*\"index\":\\s*\\{\\},\\s*\"created\":\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.\\d{6,9}Z\"\\s*\\}",
+                    "\\{\\s*\"index\":\\s*\\{\\},\\s*\"created\":\\s*\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z\"\\s*\\}",
                     Pattern.DOTALL);
             assertTrue(regex.matcher(metaJson).matches(), "Metadata file content should match expected pattern");
         } catch (java.io.IOException e) {

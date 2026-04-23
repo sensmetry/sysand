@@ -36,7 +36,7 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
             )
         with open(Path(tmpdirname) / ".meta.json", "r") as f:
             assert re.match(
-                r'\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}\n',
+                r'\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n',
                 f.read(),
             )
 
@@ -76,11 +76,9 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
         }
 
         assert meta["index"] == {}
-        # Python's datetime.fromisoformat() does not support nanoseconds yet, so
-        # we check the validity of the string using a regex.
         assert isinstance(meta["created"], str)
         assert re.match(
-            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(\d{6}|\d{9})Z$", meta["created"]
+            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"]
         )
         assert meta["metamodel"] is None
         assert meta["includes_derived"] is None
@@ -143,7 +141,7 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     # surfacing results. `kpar_digest` is not verified here because
     # `sysand.info` doesn't download the archive.
     project_digest = (
-        "sha256:51f51e675232511a4ccded32c9bb92d2443f68cf2265a460f74204655547b409"
+        "sha256:35ed1f7670d4c5b886f63ce9dd94e98dc9cd25c3466dba78c6d135db0092a055"
     )
     filler_digest = "sha256:" + ("a" * 64)
     # On first contact, the client fetches the discovery document
@@ -170,7 +168,7 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
         {"name": "test_index_info", "version": "1.2.3", "usage": []}
     )
     httpserver.expect_request(f"{iri_dir}/1.2.3/.meta.json").respond_with_json(
-        {"index": {}, "created": "2026-01-01T00:00:00.000000000Z"}
+        {"index": {}, "created": "2026-01-01T00:00:00Z"}
     )
 
     info_metas = sysand.info(
@@ -188,7 +186,7 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     assert meta["index"] == {}
     assert isinstance(meta["created"], str)
     assert re.match(
-        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(\d{6}|\d{9})Z$", meta["created"]
+        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"]
     )
     assert meta["metamodel"] is None
     assert meta["includes_derived"] is None
