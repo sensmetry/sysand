@@ -338,8 +338,6 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
         }
     }
 
-    // TODO: replace this with `from(deps)` when https://github.com/pubgrub-rs/pubgrub/pull/423
-    // is merged and released
     let constraints = DependencyConstraints::from_iter(deps);
     Ok(pubgrub::Dependencies::Available(constraints))
 }
