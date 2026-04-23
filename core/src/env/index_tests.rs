@@ -141,17 +141,16 @@ fn make_runtime() -> Result<Arc<tokio::runtime::Runtime>, Box<dyn std::error::Er
 
 /// Build an unauthenticated async index environment whose discovery root
 /// is `base_url`. `base_url` serves both as the discovery root and the
-/// index/api root for tests that don't cover the well-known discovery
-/// flow — those tests seed the `resolved` cell directly so no discovery
-/// fetch is issued against the mock server.
+/// index/api root for tests that don't cover the discovery flow — those
+/// tests seed the `resolved` cell directly so no discovery fetch is
+/// issued against the mock server.
 fn test_env_async(
     base_url: &str,
 ) -> Result<super::IndexEnvironmentAsync<Unauthenticated>, Box<dyn std::error::Error>> {
     let base = url::Url::parse(base_url)?;
     // Seed the resolved endpoints with a flat topology (index_root =
     // api_root = discovery root). Tests that specifically cover
-    // well-known discovery construct their own env with an empty
-    // `resolved` cell.
+    // discovery construct their own env with an empty `resolved` cell.
     let endpoints = ResolvedEndpoints::flat(with_trailing_slash(base.clone()));
     let resolved = EndpointsCell::default();
     resolved
@@ -190,7 +189,7 @@ fn test_endpoints(env: &super::IndexEnvironmentAsync<Unauthenticated>) -> &Resol
 }
 
 /// Build an env whose resolved cell is **empty**, so that the first
-/// operation against it triggers the real `.well-known/sysand-index.json`
+/// operation against it triggers the real `sysand-index-config.json`
 /// discovery fetch. Used by tests that exercise the discovery step.
 fn test_env_sync_discovery(
     server: &mockito::Server,
@@ -2240,13 +2239,14 @@ mod sources {
     }
 }
 
-/// Tests for well-known discovery of `index_root` / `api_root`.
+/// Tests for discovery of `index_root` / `api_root` via
+/// `sysand-index-config.json`.
 ///
 /// Discovery-specific rules (see module-level doc for cross-cutting
 /// ones):
-/// - 200 parses the document; 404 treats the well-known as absent and
-///   defaults both roots to the discovery root; any other non-2xx is
-///   a hard error.
+/// - 200 parses the document; 404 treats the discovery document as
+///   absent and defaults both roots to the discovery root; any other
+///   non-2xx is a hard error.
 /// - `index_root` and `api_root` MUST be absolute URLs; relative
 ///   values are rejected rather than resolved against the discovery
 ///   root (avoids redirect-dependent resolution).
@@ -2254,15 +2254,15 @@ mod discovery {
     use super::*;
 
     #[test]
-    fn test_discovery_absent_well_known_defaults_to_discovery_root()
+    fn test_discovery_absent_config_defaults_to_discovery_root()
     -> Result<(), Box<dyn std::error::Error>> {
         // Index reads proceed against the discovery root when the
-        // well-known is absent.
+        // discovery document is absent.
         let mut server = mockito::Server::new();
         let env = test_env_sync_discovery(&server)?;
 
-        let well_known_mock = server
-            .mock("GET", "/.well-known/sysand-index.json")
+        let config_mock = server
+            .mock("GET", "/sysand-index-config.json")
             .with_status(404)
             .expect_at_least(1)
             .create();
@@ -2278,27 +2278,23 @@ mod discovery {
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["1.0.0"]);
 
-        well_known_mock.assert();
+        config_mock.assert();
         versions_mock.assert();
 
         Ok(())
     }
 
     #[test]
-    fn test_discovery_well_known_remaps_index_root() -> Result<(), Box<dyn std::error::Error>> {
-        // An `index_root` in the well-known document redirects index
+    fn test_discovery_config_remaps_index_root() -> Result<(), Box<dyn std::error::Error>> {
+        // An `index_root` in the discovery document redirects index
         // reads to the remapped base. The discovery root has no
         // matching path, so a regression that ignored the remap would
         // 404 here.
         let mut server = mockito::Server::new();
         let env = test_env_sync_discovery(&server)?;
 
-        let well_known_body = format!(r#"{{"index_root":"{}/index/"}}"#, server.url());
-        let well_known_mock = mock_json_get(
-            &mut server,
-            "/.well-known/sysand-index.json",
-            well_known_body,
-        );
+        let config_body = format!(r#"{{"index_root":"{}/index/"}}"#, server.url());
+        let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", config_body);
 
         let remap_mock = mock_json_get(
             &mut server,
@@ -2311,7 +2307,7 @@ mod discovery {
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["1.0.0"]);
 
-        well_known_mock.assert();
+        config_mock.assert();
         remap_mock.assert();
 
         Ok(())
@@ -2323,9 +2319,9 @@ mod discovery {
         let mut server = mockito::Server::new();
         let env = test_env_sync_discovery(&server)?;
 
-        let well_known_mock = mock_json_get(
+        let config_mock = mock_json_get(
             &mut server,
-            "/.well-known/sysand-index.json",
+            "/sysand-index-config.json",
             r#"{"index_root":"/index/"}"#,
         );
 
@@ -2338,7 +2334,7 @@ mod discovery {
             "expected RelativeUrl on index_root, got: {text}"
         );
 
-        well_known_mock.assert();
+        config_mock.assert();
 
         Ok(())
     }
@@ -2351,8 +2347,8 @@ mod discovery {
         let mut server = mockito::Server::new();
         let env = test_env_sync_discovery(&server)?;
 
-        let well_known_mock = server
-            .mock("GET", "/.well-known/sysand-index.json")
+        let config_mock = server
+            .mock("GET", "/sysand-index-config.json")
             .with_status(503)
             .expect_at_least(1)
             .create();
@@ -2366,7 +2362,7 @@ mod discovery {
             "expected BadHttpStatus(503) on discovery, got: {text}"
         );
 
-        well_known_mock.assert();
+        config_mock.assert();
 
         Ok(())
     }
@@ -2375,23 +2371,19 @@ mod discovery {
     fn test_discovery_remapped_versions_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>>
     {
         // Companion to `test_discovery_5xx_is_hard_error` (which covers a
-        // 5xx on the well-known endpoint itself). Here `.well-known`
-        // succeeds and remaps `index_root` to a separate path prefix;
-        // the 5xx happens on the *remapped* `versions.json`. We want
-        // to pin that `versions_async`'s 404→empty-stream downgrade
-        // does NOT extend to 5xx on the remapped root: a broken
-        // per-project endpoint must propagate as a hard error so the
-        // caller sees the failure rather than getting an empty
+        // 5xx on the discovery endpoint itself). Here the discovery
+        // document succeeds and remaps `index_root` to a separate path
+        // prefix; the 5xx happens on the *remapped* `versions.json`.
+        // We want to pin that `versions_async`'s 404→empty-stream
+        // downgrade does NOT extend to 5xx on the remapped root: a
+        // broken per-project endpoint must propagate as a hard error so
+        // the caller sees the failure rather than getting an empty
         // version list.
         let mut server = mockito::Server::new();
         let env = test_env_sync_discovery(&server)?;
 
-        let well_known_body = format!(r#"{{"index_root":"{}/index/"}}"#, server.url());
-        let well_known_mock = mock_json_get(
-            &mut server,
-            "/.well-known/sysand-index.json",
-            well_known_body,
-        );
+        let config_body = format!(r#"{{"index_root":"{}/index/"}}"#, server.url());
+        let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", config_body);
 
         // Remap target returns 503 — a transient server error that is
         // indistinguishable from a misconfiguration and therefore
@@ -2411,7 +2403,7 @@ mod discovery {
             "expected BadHttpStatus(503) on remapped versions.json, got: {text}"
         );
 
-        well_known_mock.assert();
+        config_mock.assert();
         remap_mock.assert();
 
         Ok(())
@@ -2425,13 +2417,13 @@ mod discovery {
         let env = test_env_sync_discovery(&server)?;
 
         let redirect_mock = server
-            .mock("GET", "/.well-known/sysand-index.json")
+            .mock("GET", "/sysand-index-config.json")
             .with_status(302)
-            .with_header("location", "/actual-well-known.json")
+            .with_header("location", "/actual-index-config.json")
             .expect_at_least(1)
             .create();
 
-        let target_mock = mock_json_get(&mut server, "/actual-well-known.json", r#"{}"#);
+        let target_mock = mock_json_get(&mut server, "/actual-index-config.json", r#"{}"#);
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -2457,9 +2449,9 @@ mod discovery {
         let mut server = mockito::Server::new();
         let env = test_env_sync_discovery(&server)?;
 
-        let well_known_mock = mock_json_get(
+        let config_mock = mock_json_get(
             &mut server,
-            "/.well-known/sysand-index.json",
+            "/sysand-index-config.json",
             r#"{"unknown_future_field":"ignore-me","v2_capabilities":["x","y"]}"#,
         );
 
@@ -2474,7 +2466,7 @@ mod discovery {
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["1.0.0"]);
 
-        well_known_mock.assert();
+        config_mock.assert();
         versions_mock.assert();
 
         Ok(())

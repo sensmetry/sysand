@@ -16,15 +16,15 @@ use predicates::prelude::*;
 mod common;
 pub use common::*;
 
-/// Register a `.well-known/sysand-index.json` 404 mock on `server`.
-/// Every `--default-index` invocation goes through the well-known
-/// discovery step, which fetches this URL first and treats any non-2xx
-/// other than 404 as a hard error. These tests don't exercise the
-/// discovery-document path; they just want the client to proceed with
-/// `api_root` / `index_root` defaulting to the discovery root.
-fn mock_well_known_absent(server: &mut mockito::Server) -> mockito::Mock {
+/// Register a `sysand-index-config.json` 404 mock on `server`.
+/// Every `--default-index` invocation goes through the discovery step,
+/// which fetches this URL first and treats any non-2xx other than 404
+/// as a hard error. These tests don't exercise the discovery-document
+/// path; they just want the client to proceed with `api_root` /
+/// `index_root` defaulting to the discovery root.
+fn mock_index_config_absent(server: &mut mockito::Server) -> mockito::Mock {
     server
-        .mock("GET", "/.well-known/sysand-index.json")
+        .mock("GET", "/sysand-index-config.json")
         .with_status(404)
         .expect_at_least(0)
         .create()
@@ -802,7 +802,7 @@ fn versions_json_for(version: &str, project_body: &str, meta_body: &str) -> Stri
 #[test]
 fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
-    let _well_known_mock = mock_well_known_absent(&mut server);
+    let _config_mock = mock_index_config_absent(&mut server);
 
     let iri_dir = "/_iri/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe";
 
@@ -896,8 +896,8 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
 fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
-    let _well_known_mock = mock_well_known_absent(&mut server);
-    let _well_known_mock_alt = mock_well_known_absent(&mut server_alt);
+    let _config_mock = mock_index_config_absent(&mut server);
+    let _config_mock_alt = mock_index_config_absent(&mut server_alt);
 
     let iri_dir = "/_iri/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042";
     let iri_dir_alt = "/_iri/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565";
@@ -1057,8 +1057,8 @@ fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
 fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
-    let _well_known_mock = mock_well_known_absent(&mut server);
-    let _well_known_mock_alt = mock_well_known_absent(&mut server_alt);
+    let _config_mock = mock_index_config_absent(&mut server);
+    let _config_mock_alt = mock_index_config_absent(&mut server_alt);
 
     let iri_dir = "/_iri/f38ace6666fe279c9e856b2a25b14bf0a03b8c23ff1db524acf1afd78f66b042";
     let iri_dir_alt = "/_iri/f0f4203b967855590901dc5c90f525d732015ca10598e333815cc30600874565";
@@ -1253,8 +1253,8 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
 fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
     let mut server = mockito::Server::new();
     let mut server_alt = mockito::Server::new();
-    let _well_known_mock = mock_well_known_absent(&mut server);
-    let _well_known_mock_alt = mock_well_known_absent(&mut server_alt);
+    let _config_mock = mock_index_config_absent(&mut server);
+    let _config_mock_alt = mock_index_config_absent(&mut server_alt);
 
     let iri_dir = "/_iri/1206faf209922d2c3c3ce220d5b78b6001b1ec42ab1304d65590d1749453c5b5";
     let iri_dir_alt = "/_iri/bf1998eaeb56282e6dd62686b1ea51dfeffded6964aa53cc89cf70a9a2627c97";

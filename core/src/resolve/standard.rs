@@ -97,7 +97,7 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
 ) -> AsSyncResolveTokio<RemoteIndexResolver<Policy>> {
     // Each user-configured URL is a **discovery root**: on first use the
-    // env fetches `.well-known/sysand-index.json` to resolve the actual
+    // env fetches `sysand-index-config.json` to resolve the actual
     // `index_root` and `api_root`.
     SequentialResolver::new(urls.into_iter().map(|url| EnvResolver {
         env: IndexEnvironmentAsync {

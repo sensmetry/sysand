@@ -32,11 +32,10 @@ pub fn do_publish(
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<PublishResponse, PublishError> {
     let header = crate::style::get_style_config().header;
-    // Caller is expected to have run well-known discovery and passed
-    // the resolved `api_root`. `discovery_root` is the user-facing URL
-    // (what was passed as `--index`) and is kept only so log messages
-    // match what the user configured — the actual upload targets
-    // `api_root`.
+    // Caller is expected to have run discovery and passed the resolved
+    // `api_root`. `discovery_root` is the user-facing URL (what was
+    // passed as `--index`) and is kept only so log messages match what
+    // the user configured — the actual upload targets `api_root`.
     let upload_url = build_upload_url(&api_root)?;
     let PublishPreparation {
         purl_versioned,
@@ -96,7 +95,7 @@ pub fn do_publish(
 pub enum EndpointKind {
     /// User-supplied URL (pre-discovery) — `--index`.
     DiscoveryRoot,
-    /// Resolved URL coming back from the well-known discovery document.
+    /// Resolved URL coming back from the discovery document.
     ApiRoot,
 }
 
@@ -131,7 +130,7 @@ pub fn validate_endpoint_url_shape(url: &Url, kind: EndpointKind) -> Result<(), 
     // common mistake of pasting the full upload URL into `--index`,
     // which would otherwise either compose to `v1/upload/v1/upload`
     // (after discovery defaulted `api_root` to the discovery root) or
-    // send a `.well-known` request to a path that can never serve one.
+    // send a discovery request to a path that can never serve one.
     if url.path().trim_end_matches('/').ends_with("v1/upload") {
         return Err(err(
             "URL must be a discovery root or `api_root`, not the `v1/upload` endpoint".to_string(),
@@ -142,7 +141,7 @@ pub fn validate_endpoint_url_shape(url: &Url, kind: EndpointKind) -> Result<(), 
 
 /// Build the `POST` URL for the publish endpoint from a resolved
 /// `api_root`. The caller is responsible for having resolved the API
-/// root via `.well-known/sysand-index.json`; this function appends the
+/// root via `sysand-index-config.json`; this function appends the
 /// publish endpoint path to `api_root` as given and does not prepend
 /// any `/api/` segment — that belongs to the API root itself.
 pub fn build_upload_url(api_root: &Url) -> Result<Url, PublishError> {

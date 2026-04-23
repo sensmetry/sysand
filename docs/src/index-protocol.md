@@ -39,7 +39,7 @@ index files are served.
 On first contact, the client fetches:
 
 ```
-<discovery-root>/.well-known/sysand-index.json
+<discovery-root>/sysand-index-config.json
 ```
 
 If present (HTTP 200), the response is a JSON object with these optional
@@ -65,11 +65,11 @@ the final URL of the discovery-document fetch. Relative URLs have been
 explicitly excluded in v0 to avoid ambiguity around the resolution base
 after redirects; a future version MAY relax this.
 
-If the well-known file is absent (HTTP 404) the client proceeds as though
-it were present with no fields set: `index_root` and `api_root` both
-default to the discovery root. Any other non-success response (e.g. 5xx)
-is a hard error — the discovery attempt cannot be differentiated from a
-broken server.
+If the discovery document is absent (HTTP 404) the client proceeds as
+though it were present with no fields set: `index_root` and `api_root`
+both default to the discovery root. Any other non-success response (e.g.
+5xx) is a hard error — the discovery attempt cannot be differentiated
+from a broken server.
 
 Clients MUST follow HTTP redirects on the discovery fetch. Unknown fields
 in the document are silently ignored (see §13).

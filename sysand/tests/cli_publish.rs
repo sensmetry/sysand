@@ -83,17 +83,17 @@ fn bearer_env_for_url(url: &str) -> IndexMap<String, String> {
     env
 }
 
-/// Register a `.well-known/sysand-index.json` mock that tells the client
-/// the `api_root` is at `<server>/api/`. The upload fixtures in this
-/// file POST to `/api/v1/upload`, so the advertised `api_root` must
-/// carry the `/api/` segment. Well-known discovery is mandatory on
-/// first use; without this mock the discovery fetch would 404 and
-/// `api_root` would default to the discovery root (yielding
-/// `/v1/upload`), which doesn't match the mocks in this file.
-fn mock_well_known_api_at_api(server: &mut Server) -> mockito::Mock {
+/// Register a `sysand-index-config.json` mock that tells the client the
+/// `api_root` is at `<server>/api/`. The upload fixtures in this file
+/// POST to `/api/v1/upload`, so the advertised `api_root` must carry
+/// the `/api/` segment. Discovery is mandatory on first use; without
+/// this mock the discovery fetch would 404 and `api_root` would default
+/// to the discovery root (yielding `/v1/upload`), which doesn't match
+/// the mocks in this file.
+fn mock_index_config_api_at_api(server: &mut Server) -> mockito::Mock {
     let body = format!(r#"{{"api_root":"{}/api/"}}"#, server.url());
     server
-        .mock("GET", "/.well-known/sysand-index.json")
+        .mock("GET", "/sysand-index-config.json")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(body)
@@ -167,7 +167,7 @@ fn publish_network_error() -> TestResult {
     out.assert()
         .failure()
         // After discovery, the network error surfaces through the
-        // `.well-known/sysand-index.json` fetch — the wording is
+        // `sysand-index-config.json` fetch — the wording is
         // `HTTP request to \`…\` failed: …`, so match the stable
         // `HTTP request` prefix plus a separate `failed` assertion.
         .stderr(predicate::str::contains("HTTP request"))
@@ -226,7 +226,7 @@ fn publish_requires_index_even_with_config_default() -> TestResult {
 fn publish_with_explicit_index_succeeds() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;
     let mut server = Server::new();
-    let _well_known_mock = mock_well_known_api_at_api(&mut server);
+    let _config_mock = mock_index_config_api_at_api(&mut server);
     let publish_mock = server
         .mock("POST", "/api/v1/upload")
         .match_header("authorization", "Bearer test-token")
@@ -290,7 +290,7 @@ fn publish_explicit_path_outside_project_dir() -> TestResult {
         .failure()
         .stderr(predicate::str::contains("unable to find interchange project").not())
         // After discovery, the network error surfaces through the
-        // `.well-known/sysand-index.json` fetch — the wording is
+        // `sysand-index-config.json` fetch — the wording is
         // `HTTP request to \`…\` failed: …`, so match the stable
         // `HTTP request` prefix plus a separate `failed` assertion.
         .stderr(predicate::str::contains("HTTP request"))
@@ -320,15 +320,15 @@ fn publish_invalid_index_url_errors_early() -> TestResult {
 fn publish_rejects_upload_endpoint_index_url() -> TestResult {
     // If the user pastes the full upload URL as the `--index` value, the
     // discovery step defaults `api_root` to the discovery root (no
-    // well-known document here), and the subsequent `build_upload_url`
+    // discovery document here), and the subsequent `build_upload_url`
     // catches the `v1/upload` suffix and refuses to compose
     // `v1/upload/v1/upload`. The error message points the user back at
     // the API root.
     let (_temp_dir, cwd) = setup_built_project_at("upload-endpoint-index", "artifact.kpar")?;
     let mut server = Server::new();
     // The discovery fetch is expected but absent — 404 is fine.
-    let _well_known_mock = server
-        .mock("GET", "/.well-known/sysand-index.json")
+    let _config_mock = server
+        .mock("GET", "/sysand-index-config.json")
         .with_status(404)
         .create();
     let publish_mock = server.mock("POST", "/v1/upload").expect(0).create();
@@ -439,7 +439,7 @@ fn publish_sends_kpar_with_integrity_metadata() -> TestResult {
     build_kpar_at(&cwd, "artifact.kpar")?;
 
     let mut server = Server::new();
-    let _well_known_mock = mock_well_known_api_at_api(&mut server);
+    let _config_mock = mock_index_config_api_at_api(&mut server);
     let publish_mock = server
         .mock("POST", "/api/v1/upload")
         .match_header("authorization", "Bearer test-token")
@@ -486,7 +486,7 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("publish-basic-auth-ignored")?;
 
     let mut server = Server::new();
-    let _well_known_mock = mock_well_known_api_at_api(&mut server);
+    let _config_mock = mock_index_config_api_at_api(&mut server);
     let publish_mock = server.mock("POST", "/api/v1/upload").expect(0).create();
 
     let pattern = format!("{}/**", server.url());
@@ -524,7 +524,7 @@ fn publish_rejects_ambiguous_bearer_credentials() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("publish-ambiguous-bearer")?;
 
     let mut server = Server::new();
-    let _well_known_mock = mock_well_known_api_at_api(&mut server);
+    let _config_mock = mock_index_config_api_at_api(&mut server);
     let publish_mock = server.mock("POST", "/api/v1/upload").expect(0).create();
 
     let base = server.url();
@@ -565,7 +565,7 @@ fn assert_publish_error_status(
     let (_temp_dir, cwd) = setup_built_project(project_name)?;
 
     let mut server = Server::new();
-    let _well_known_mock = mock_well_known_api_at_api(&mut server);
+    let _config_mock = mock_index_config_api_at_api(&mut server);
     let mut mock = server
         .mock("POST", "/api/v1/upload")
         .with_status(status)

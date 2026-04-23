@@ -13,7 +13,7 @@ use sysand_core::{
         validate_endpoint_url_shape,
     },
     context::ProjectContext,
-    env::discovery::fetch_well_known,
+    env::discovery::fetch_index_config,
     project::utils::wrapfs,
 };
 use url::Url;
@@ -42,20 +42,20 @@ pub fn command_publish(
     // matching does.
     let prepared = prepare_publish_payload(&kpar_path)?;
 
-    // Well-known discovery: the user-configured URL is the discovery
-    // root. Resolve `api_root` via `.well-known/sysand-index.json`
-    // before composing the upload URL, so that credential matching
-    // (below) and the eventual POST in `do_publish` share the same
-    // API-side URL. `fetch_well_known` follows redirects, handles 404
-    // (absent → both roots default to the discovery root) and any
-    // other non-2xx (hard error).
+    // Discovery: the user-configured URL is the discovery root. Resolve
+    // `api_root` via `sysand-index-config.json` before composing the
+    // upload URL, so that credential matching (below) and the eventual
+    // POST in `do_publish` share the same API-side URL.
+    // `fetch_index_config` follows redirects, handles 404 (absent → both
+    // roots default to the discovery root) and any other non-2xx (hard
+    // error).
     //
     // Discovery runs against the *full* auth policy (basic, bearer, or
     // any other scheme the user configured), not the publish-only
-    // bearer subset. RFC 8615 does not prevent well-known URIs from
-    // being auth-gated, and any auth strategy that works for the rest
-    // of the index should work here too.
-    let endpoints = runtime.block_on(fetch_well_known(&client, &*auth_policy, &index))?;
+    // bearer subset. The discovery document may itself be auth-gated,
+    // and any auth strategy that works for the rest of the index should
+    // work here too.
+    let endpoints = runtime.block_on(fetch_index_config(&client, &*auth_policy, &index))?;
     // Only now — after discovery has had access to the full policy —
     // do we consume the Arc to extract the publish-specific
     // bearer-credential map. Upload is bearer-only; basic-auth entries

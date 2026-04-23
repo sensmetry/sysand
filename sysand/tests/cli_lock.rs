@@ -407,10 +407,10 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         .with_body(r#"{"projects":[{"iri":"pkg:sysand/mock/dep"}]}"#)
         .create();
 
-    // Well-known discovery: no document present means `index_root` /
-    // `api_root` both default to the discovery root.
-    let _well_known_mock = server
-        .mock("GET", "/.well-known/sysand-index.json")
+    // Discovery: no document present means `index_root` / `api_root`
+    // both default to the discovery root.
+    let _config_mock = server
+        .mock("GET", "/sysand-index-config.json")
         .with_status(404)
         .create();
 
@@ -534,8 +534,8 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     let locked_project_digest = format!("{:x}", project_hash_raw(&info, &meta));
     let kpar_size = kpar_bytes.len();
 
-    let _well_known_mock = server
-        .mock("GET", "/.well-known/sysand-index.json")
+    let _config_mock = server
+        .mock("GET", "/sysand-index-config.json")
         .with_status(404)
         .create();
 

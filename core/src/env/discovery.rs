@@ -2,23 +2,23 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! Discovery of `index_root` and `api_root` via
-//! `<discovery-root>/.well-known/sysand-index.json`.
+//! `<discovery-root>/sysand-index-config.json`.
 //!
 //! The user configures a **discovery root** — the base URL from which
 //! the client resolves `index_root` and `api_root`. On first contact the
-//! client fetches the well-known document from that discovery root and
+//! client fetches the discovery document from that discovery root and
 //! extracts `index_root` / `api_root` URLs; either missing field defaults
 //! to the discovery root itself. Response-status semantics:
 //!
 //! - 200 → parse the document. Unknown fields are silently ignored.
-//! - 404 → the well-known document is absent. Both roots default to the
+//! - 404 → the discovery document is absent. Both roots default to the
 //!   discovery root.
 //! - Other non-2xx → hard error. The client cannot differentiate a
 //!   misconfigured discovery root from a broken server.
 //!
 //! `index_root` and `api_root`, when present, MUST be absolute URLs.
 //! Relative URLs are rejected rather than resolved against the discovery
-//! root or the final URL of the well-known fetch — this deliberately avoids
+//! root or the final URL of the discovery fetch — this deliberately avoids
 //! the ambiguity that comes with relative URLs after redirects.
 //!
 //! Clients MUST follow HTTP redirects on the discovery fetch; the
@@ -38,7 +38,7 @@ use crate::{
 };
 
 /// Resolved view of a sysand index server's two roots, as produced by the
-/// well-known discovery step.
+/// discovery step.
 #[derive(Debug, Clone)]
 pub struct ResolvedEndpoints {
     /// Base URL of the sysand index (where `index.json` lives).
@@ -49,7 +49,7 @@ pub struct ResolvedEndpoints {
 
 impl ResolvedEndpoints {
     /// Build a `ResolvedEndpoints` that routes both index and API traffic
-    /// at the discovery root itself. Used when the well-known document is
+    /// at the discovery root itself. Used when the discovery document is
     /// absent (HTTP 404) or present with neither field set.
     pub fn flat(discovery_root: url::Url) -> Self {
         Self {
@@ -60,14 +60,14 @@ impl ResolvedEndpoints {
 }
 
 #[derive(Debug, Deserialize)]
-struct WellKnownRaw {
+struct IndexConfigRaw {
     #[serde(default)]
     index_root: Option<String>,
     #[serde(default)]
     api_root: Option<String>,
 }
 
-/// Errors that can occur during the well-known discovery step. Surface as
+/// Errors that can occur during the discovery step. Surface as
 /// [`crate::env::index::IndexEnvironmentError::Discovery`] at the env
 /// boundary.
 #[derive(Error, Debug)]
@@ -92,32 +92,29 @@ pub enum DiscoveryError {
     },
 }
 
-/// Fetch the well-known discovery document from
-/// `<discovery_root>/.well-known/sysand-index.json` and produce the
-/// resolved `(index_root, api_root)` pair. See module docs for the
-/// protocol-level semantics.
-pub async fn fetch_well_known<P: HTTPAuthentication>(
+/// Fetch the discovery document from
+/// `<discovery_root>/sysand-index-config.json` and produce the resolved
+/// `(index_root, api_root)` pair. See module docs for the protocol-level
+/// semantics.
+pub async fn fetch_index_config<P: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
     auth: &P,
     discovery_root: &url::Url,
 ) -> Result<ResolvedEndpoints, DiscoveryError> {
     // Normalize the discovery root so `join` treats it as a directory.
     let directory_root = with_trailing_slash(discovery_root.clone());
-    // `.join` handles the leading dot in `.well-known/…` correctly
-    // because `join` does path resolution (RFC 3986 §5.3) and the
-    // intermediate `.` is harmless when there is no parent segment to
-    // consume. Build the URL through `join` so that trailing slashes on
-    // the discovery root behave consistently.
-    let well_known_url = directory_root
-        .join(".well-known/sysand-index.json")
+    // Build the URL through `join` so that trailing slashes on the
+    // discovery root behave consistently (RFC 3986 §5.3 path resolution).
+    let config_url = directory_root
+        .join("sysand-index-config.json")
         .map_err(|source| DiscoveryError::InvalidUrl {
             url: discovery_root.as_str().into(),
             field: "<discovery_root>",
             source,
         })?;
 
-    let parsed: Option<WellKnownRaw> =
-        fetch_json(client, auth, &well_known_url, MissingPolicy::AllowNotFound).await?;
+    let parsed: Option<IndexConfigRaw> =
+        fetch_json(client, auth, &config_url, MissingPolicy::AllowNotFound).await?;
 
     let Some(raw) = parsed else {
         return Ok(ResolvedEndpoints::flat(directory_root));
@@ -128,7 +125,7 @@ pub async fn fetch_well_known<P: HTTPAuthentication>(
             return Ok(default.clone());
         };
         let parsed = url::Url::parse(s).map_err(|source| DiscoveryError::InvalidUrl {
-            url: well_known_url.as_str().into(),
+            url: config_url.as_str().into(),
             field,
             source,
         })?;
@@ -138,7 +135,7 @@ pub async fn fetch_well_known<P: HTTPAuthentication>(
             // schemes parse successfully as "cannot be a base" URLs.
             // Those aren't valid `index_root` / `api_root` bases either.
             return Err(DiscoveryError::RelativeUrl {
-                url: well_known_url.as_str().into(),
+                url: config_url.as_str().into(),
                 field,
                 value: s.clone(),
             });
@@ -157,7 +154,7 @@ pub async fn fetch_well_known<P: HTTPAuthentication>(
                 source: url::ParseError::RelativeUrlWithoutBase,
                 ..
             }) => Err(DiscoveryError::RelativeUrl {
-                url: well_known_url.as_str().into(),
+                url: config_url.as_str().into(),
                 field,
                 value: value.clone().unwrap_or_default(),
             }),

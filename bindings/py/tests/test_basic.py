@@ -146,10 +146,10 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
         "sha256:51f51e675232511a4ccded32c9bb92d2443f68cf2265a460f74204655547b409"
     )
     filler_digest = "sha256:" + ("a" * 64)
-    # On first contact, the client fetches the well-known discovery
-    # document (`/.well-known/sysand-index.json`). A 404 tells it to fall
-    # back to the discovery root as the index root.
-    httpserver.expect_request("/.well-known/sysand-index.json").respond_with_data(
+    # On first contact, the client fetches the discovery document
+    # (`/sysand-index-config.json`). A 404 tells it to fall back to the
+    # discovery root as the index root.
+    httpserver.expect_request("/sysand-index-config.json").respond_with_data(
         "", status=404
     )
     iri_dir = "/_iri/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536"

@@ -42,7 +42,7 @@ use crate::{
     auth::{HTTPAuthentication, StandardHTTPAuthentication},
     env::{
         AsSyncEnvironmentTokio, ReadEnvironmentAsync,
-        discovery::{DiscoveryError, EndpointsCell, ResolvedEndpoints, fetch_well_known},
+        discovery::{DiscoveryError, EndpointsCell, ResolvedEndpoints, fetch_index_config},
         iri_normalize::normalize_iri_for_hash,
         segment_uri_generic,
     },
@@ -89,9 +89,9 @@ pub type IndexEnvironment =
 ///   route is reserved for non-`pkg:sysand` schemes; a `pkg:sysand` IRI
 ///   never reaches it.
 ///
-/// `index_root` is resolved lazily via `.well-known/sysand-index.json`
-/// on first use. The `discovery_root` the caller supplies is the URL the
-/// user configured; an optional well-known document remaps it to the
+/// `index_root` is resolved lazily via `sysand-index-config.json` on
+/// first use. The `discovery_root` the caller supplies is the URL the
+/// user configured; an optional discovery document remaps it to the
 /// actual `index_root` (and, independently, to the `api_root` used by
 /// `publish`).
 ///
@@ -107,13 +107,13 @@ pub struct IndexEnvironmentAsync<Policy> {
     pub(crate) client: reqwest_middleware::ClientWithMiddleware,
     pub(crate) auth_policy: Arc<Policy>,
     /// Discovery root — the URL the user configured. The client fetches
-    /// `<discovery_root>/.well-known/sysand-index.json` on first use to
+    /// `<discovery_root>/sysand-index-config.json` on first use to
     /// resolve the `index_root` and `api_root`.
     pub(crate) discovery_root: reqwest::Url,
     /// Lazily-resolved `(index_root, api_root)` pair. The first async
     /// entry point that needs a URL triggers discovery; subsequent calls
     /// share the cached result. Errors are NOT cached — a transient 5xx
-    /// on the well-known endpoint is retryable within the same env
+    /// on the discovery endpoint is retryable within the same env
     /// lifetime.
     pub(crate) resolved: EndpointsCell,
     /// Intra-run cache of parsed `versions.json` documents, keyed by IRI.
@@ -484,14 +484,14 @@ impl ResolvedEndpoints {
 impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
     /// Resolve (once per env lifetime) the `(index_root, api_root)` pair
     /// from the discovery root. On first use the client fetches
-    /// `.well-known/sysand-index.json` and extracts the two roots;
-    /// absent fields default to the discovery root. Transient failures
-    /// are not cached — retries can proceed within the same env.
+    /// `sysand-index-config.json` and extracts the two roots; absent
+    /// fields default to the discovery root. Transient failures are not
+    /// cached — retries can proceed within the same env.
     pub(crate) async fn endpoints(&self) -> Result<&ResolvedEndpoints, IndexEnvironmentError> {
         Ok(self
             .resolved
             .get_or_try_init(|| async {
-                fetch_well_known(&self.client, &*self.auth_policy, &self.discovery_root).await
+                fetch_index_config(&self.client, &*self.auth_policy, &self.discovery_root).await
             })
             .await?)
     }

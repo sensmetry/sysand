@@ -28,7 +28,7 @@ The sysand index API is complementary:
 - An index server MAY expose both the sysand index and the sysand index
   API.
 - Clients discover the API's base URL via `api_root` in
-  `.well-known/sysand-index.json` (see
+  `sysand-index-config.json` (see
   [§3 Discovery and configuration](index-protocol.md#3-discovery-and-configuration)
   in the index protocol). When `api_root` is absent, clients default it
   to the discovery root.
