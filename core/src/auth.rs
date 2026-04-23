@@ -427,12 +427,7 @@ impl StandardHTTPAuthentication {
 
         // `GlobMap` stores keys and values in parallel vectors; consume `self` so we
         // can move bearer tokens into a publish-only map without cloning secrets.
-        for (key, sequence_auth) in self
-            .restricted
-            .keys
-            .into_iter()
-            .zip(self.restricted.values.into_iter())
-        {
+        for (key, sequence_auth) in self.restricted.keys.into_iter().zip(self.restricted.values) {
             if let StandardInnerAuthentication::BearerAuth(inner) = sequence_auth.lower {
                 partial.add(key, inner);
             }
