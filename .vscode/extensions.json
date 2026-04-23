@@ -1,9 +1,11 @@
 {
     "recommendations": [
+        "charliermarsh.ruff",
         "davidanson.vscode-markdownlint",
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
         "gruntfuggly.todo-tree",
+        "ms-python.mypy-type-checker",
         "ms-python.python",
         "rust-lang.rust-analyzer",
         "streetsidesoftware.code-spell-checker",
