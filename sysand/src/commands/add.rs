@@ -145,7 +145,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
         Some(sysand_core::lock::Source::RemoteKpar {
             remote_kpar: remote_kpar.into_string(),
             remote_kpar_size: None,
-            remote_kpar_digest: None,
         })
     } else if let Some(remote_git) = source_opts.as_remote_git {
         Some(sysand_core::lock::Source::RemoteGit {

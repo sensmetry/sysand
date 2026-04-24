@@ -55,8 +55,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         // TODO: Fix error handling here
         Some(|kpar_path: &Utf8Path| LocalKParProject::new_guess_root_nominal(project_root.as_ref().join(kpar_path), kpar_path).unwrap()),
         Some(
-            |remote_kpar: String,
-             remote_kpar_digest: Option<String>|
+            |remote_kpar: String|
              -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>, ParseError> {
                 let project = ReqwestKparDownloadedProject::new_guess_root(
                     reqwest::Url::parse(&remote_kpar)?,
@@ -64,10 +63,20 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     auth_policy.clone(),
                 )
                 .unwrap();
-                let project = match remote_kpar_digest {
-                    Some(expected_sha256_hex) => project.with_expected_sha256_hex(expected_sha256_hex),
-                    None => project,
-                };
+                Ok(project.to_tokio_sync(runtime.clone()))
+            },
+        ),
+        Some(
+            |index_kpar: String,
+             index_kpar_digest: String|
+             -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>, ParseError> {
+                let project = ReqwestKparDownloadedProject::new_guess_root(
+                    reqwest::Url::parse(&index_kpar)?,
+                    client.clone(),
+                    auth_policy.clone(),
+                )
+                .unwrap()
+                .with_expected_sha256_hex(index_kpar_digest);
                 Ok(project.to_tokio_sync(runtime.clone()))
             },
         ),

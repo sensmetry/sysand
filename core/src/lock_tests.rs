@@ -288,7 +288,7 @@ checksum = "{CHECKSUM}"
 fn many_sources_to_toml() {
     test_to_toml(
         vec![Project {
-            name: Some("Seven sources".to_string()),
+            name: Some("Eight sources".to_string()),
             publisher: None,
             version: "0.4.7".to_string(),
             exports: vec![],
@@ -307,7 +307,13 @@ fn many_sources_to_toml() {
                 Source::RemoteKpar {
                     remote_kpar: "www.example.com/remote.kpar".to_string(),
                     remote_kpar_size: Some(64),
-                    remote_kpar_digest: None,
+                },
+                Source::IndexKpar {
+                    index_kpar: "www.example.com/index.kpar".to_string(),
+                    index_kpar_size: 128,
+                    index_kpar_digest:
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                            .to_string(),
                 },
                 Source::RemoteSrc {
                     remote_src: "www.example.com/remote".to_string(),
@@ -324,13 +330,14 @@ fn many_sources_to_toml() {
         format!(
             r#"
 [[project]]
-name = "Seven sources"
+name = "Eight sources"
 version = "0.4.7"
 sources = [
     {{ kpar_path = "example.kpar" }},
     {{ src_path = "example/path" }},
     {{ index = "www.example.com" }},
     {{ remote_kpar = "www.example.com/remote.kpar", remote_kpar_size = 64 }},
+    {{ index_kpar = "www.example.com/index.kpar", index_kpar_size = 128, index_kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }},
     {{ remote_src = "www.example.com/remote" }},
     {{ remote_git = "github.com/example/remote.git" }},
     {{ remote_api = "www.example.com/api" }},

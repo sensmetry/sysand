@@ -486,10 +486,10 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         dep.sources.iter().any(|source| {
             matches!(
                 source,
-                Source::RemoteKpar {
-                    remote_kpar_digest: Some(digest),
+                Source::IndexKpar {
+                    index_kpar_digest,
                     ..
-                } if digest == &kpar_sha256_hex
+                } if index_kpar_digest == &kpar_sha256_hex
             )
         }),
         "lockfile must retain the advertised kpar_digest for sync-time verification"
@@ -604,10 +604,10 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         dep.sources.iter().any(|source| {
             matches!(
                 source,
-                Source::RemoteKpar {
-                    remote_kpar_digest: Some(digest),
+                Source::IndexKpar {
+                    index_kpar_digest,
                     ..
-                } if digest == &kpar_digest_hex
+                } if index_kpar_digest == &kpar_digest_hex
             )
         }),
         "lockfile must retain the advertised kpar_digest for sync-time verification"
@@ -626,7 +626,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .with_body(&drifted_kpar_bytes)
         .create();
 
-    // Now sync. The stored `remote_kpar_digest` should reject the drifted bytes
+    // Now sync. The stored `index_kpar_digest` should reject the drifted bytes
     // before any install happens.
     let out = run_sysand_in(&cwd, ["sync", "--default-index", &server_url], None)?;
     out.assert()

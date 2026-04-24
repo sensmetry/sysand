@@ -189,9 +189,9 @@ pub enum ValidationError {
         project_with_name: String,
     },
     #[error(
-        "invalid format of `remote_kpar_digest` `{checksum}` for {project_with_name} in lockfile"
+        "invalid format of `index_kpar_digest` `{checksum}` for {project_with_name} in lockfile"
     )]
-    InvalidRemoteKparDigestFormat {
+    InvalidIndexKparDigestFormat {
         checksum: String,
         project_with_name: String,
     },
@@ -359,18 +359,19 @@ impl Lock {
     fn validate_source_checksum_format(&self) -> Result<(), ValidationError> {
         for project in &self.projects {
             for source in &project.sources {
-                let Source::RemoteKpar {
-                    remote_kpar_digest: Some(digest),
-                    ..
+                let Source::IndexKpar {
+                    index_kpar_digest, ..
                 } = source
                 else {
                     continue;
                 };
-                if digest.len() == 64 && digest.bytes().all(|c| c.is_ascii_hexdigit()) {
+                if index_kpar_digest.len() == 64
+                    && index_kpar_digest.bytes().all(|c| c.is_ascii_hexdigit())
+                {
                     continue;
                 }
-                return Err(ValidationError::InvalidRemoteKparDigestFormat {
-                    checksum: digest.clone(),
+                return Err(ValidationError::InvalidIndexKparDigestFormat {
+                    checksum: index_kpar_digest.clone(),
                     project_with_name: project
                         .identifiers
                         .first()
@@ -411,12 +412,11 @@ impl Lock {
         for project in &mut self.projects {
             project.checksum.make_ascii_lowercase();
             for source in &mut project.sources {
-                if let Source::RemoteKpar {
-                    remote_kpar_digest: Some(remote_kpar_digest),
-                    ..
+                if let Source::IndexKpar {
+                    index_kpar_digest, ..
                 } = source
                 {
-                    remote_kpar_digest.make_ascii_lowercase();
+                    index_kpar_digest.make_ascii_lowercase();
                 }
             }
         }
@@ -535,7 +535,9 @@ const SOURCE_ENTRIES: &[&str] = &[
     "remote_src",
     "remote_kpar",
     "remote_kpar_size",
-    "remote_kpar_digest",
+    "index_kpar",
+    "index_kpar_size",
+    "index_kpar_digest",
     "remote_git",
     "remote_api",
 ];
@@ -571,8 +573,11 @@ pub enum Source {
     RemoteKpar {
         remote_kpar: String,
         remote_kpar_size: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none", default)]
-        remote_kpar_digest: Option<String>,
+    },
+    IndexKpar {
+        index_kpar: String,
+        index_kpar_size: u64,
+        index_kpar_digest: String,
     },
     RemoteSrc {
         remote_src: String,
@@ -614,16 +619,22 @@ impl Source {
             Source::RemoteKpar {
                 remote_kpar,
                 remote_kpar_size,
-                remote_kpar_digest,
             } => {
                 table.insert("remote_kpar", Value::from(remote_kpar));
                 if let Some(remote_kpar_size) = remote_kpar_size {
                     let size = i64::try_from(*remote_kpar_size).unwrap();
                     table.insert("remote_kpar_size", Value::Integer(Formatted::new(size)));
                 }
-                if let Some(remote_kpar_digest) = remote_kpar_digest {
-                    table.insert("remote_kpar_digest", Value::from(remote_kpar_digest));
-                }
+            }
+            Source::IndexKpar {
+                index_kpar,
+                index_kpar_size,
+                index_kpar_digest,
+            } => {
+                table.insert("index_kpar", Value::from(index_kpar));
+                let size = i64::try_from(*index_kpar_size).unwrap();
+                table.insert("index_kpar_size", Value::Integer(Formatted::new(size)));
+                table.insert("index_kpar_digest", Value::from(index_kpar_digest));
             }
             Source::RemoteSrc { remote_src } => {
                 table.insert("remote_src", Value::from(remote_src));

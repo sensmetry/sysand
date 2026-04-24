@@ -394,7 +394,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         Ok(vec![Source::RemoteKpar {
             remote_kpar: self.url.to_string(),
             remote_kpar_size: self.inner.file_size().ok(),
-            remote_kpar_digest: None,
         }])
     }
 }

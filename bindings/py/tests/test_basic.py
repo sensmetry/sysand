@@ -77,9 +77,7 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
 
         assert meta["index"] == {}
         assert isinstance(meta["created"], str)
-        assert re.match(
-            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"]
-        )
+        assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"])
         assert meta["metamodel"] is None
         assert meta["includes_derived"] is None
         assert meta["includes_implied"] is None
@@ -185,9 +183,7 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
 
     assert meta["index"] == {}
     assert isinstance(meta["created"], str)
-    assert re.match(
-        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"]
-    )
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"])
     assert meta["metamodel"] is None
     assert meta["includes_derived"] is None
     assert meta["includes_implied"] is None

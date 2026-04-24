@@ -205,10 +205,10 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
     }
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        Ok(vec![Source::RemoteKpar {
-            remote_kpar: self.archive.url.to_string(),
-            remote_kpar_size: Some(self.advertised.kpar_size),
-            remote_kpar_digest: Some(self.advertised.kpar_digest.as_hex().to_string()),
+        Ok(vec![Source::IndexKpar {
+            index_kpar: self.archive.url.to_string(),
+            index_kpar_size: self.advertised.kpar_size,
+            index_kpar_digest: self.advertised.kpar_digest.as_hex().to_string(),
         }])
     }
 

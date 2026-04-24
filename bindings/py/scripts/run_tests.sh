@@ -11,6 +11,11 @@ PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 
 cd "$PACKAGE_DIR"
 
+# Isolate from an outer conda environment. maturin refuses to run when both
+# CONDA_PREFIX and VIRTUAL_ENV are set, and `uv run` manages the project's
+# .venv itself — no conda involvement is needed or wanted.
+unset CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER CONDA_SHLVL
+
 uv run maturin develop
 
 source ../../scripts/py_path.sh

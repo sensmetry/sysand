@@ -2225,10 +2225,10 @@ mod sources {
 
         assert_eq!(sources.len(), 1);
         match &sources[0] {
-            Source::RemoteKpar {
-                remote_kpar_size, ..
-            } => assert_eq!(*remote_kpar_size, Some(42)),
-            other => panic!("expected Source::RemoteKpar, got {:?}", other),
+            Source::IndexKpar {
+                index_kpar_size, ..
+            } => assert_eq!(*index_kpar_size, 42),
+            other => panic!("expected Source::IndexKpar, got {:?}", other),
         }
 
         versions_mock.assert();
