@@ -6,7 +6,9 @@ use fluent_uri::Iri;
 
 fn normalize(iri: &str) -> String {
     let parsed = Iri::parse(iri).expect("fixture IRI must parse cleanly");
-    normalize_iri_for_hash(&parsed).expect("fixture IRI must normalize cleanly")
+    normalize_iri_for_hash(parsed)
+        .expect("fixture IRI must normalize cleanly")
+        .to_string()
 }
 
 #[test]

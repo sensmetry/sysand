@@ -1532,7 +1532,7 @@ mod iri {
 
         use crate::env::iri_normalize::normalize_iri_for_hash;
         let parsed = fluent_uri::Iri::parse(raw_request_iri)?;
-        assert_eq!(normalize_iri_for_hash(&parsed)?, normalized_iri);
+        assert_eq!(normalize_iri_for_hash(parsed)?.as_str(), normalized_iri);
 
         // Compute what the env will look up.
         use sha2::{Digest, Sha256};

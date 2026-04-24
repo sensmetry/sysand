@@ -21,16 +21,28 @@ use fluent_uri::{Iri, ParseError, component::Host};
 
 use crate::resolve::reqwest_http::{SCHEME_HTTP, SCHEME_HTTPS};
 
-/// Canonicalize `iri` into the byte sequence that will be SHA-256'd to form
-/// the `_iri/<hash>` bucket name. Returns an error if the host fails IDN
+/// Canonicalize `iri` into the form that will be SHA-256'd to build the
+/// `_iri/<hash>` bucket name. Returns a parsed `Iri<String>` so the
+/// IRI-ness survives the round-trip in the type (callers hashing the
+/// result take `.as_str()`); returns an error if the host fails IDN
 /// conversion.
 ///
-/// The caller is responsible for parsing the IRI up front: accepting an
-/// already-parsed `Iri` means no stage in the pipeline re-parses its input.
-pub(crate) fn normalize_iri_for_hash(iri: &Iri<&str>) -> Result<String, IriNormalizeError> {
+/// `iri` is taken by value: `Iri<&str>` wraps a `&str` so the move is
+/// essentially free, and no caller reuses the parsed form after
+/// handing it in.
+pub(crate) fn normalize_iri_for_hash(iri: Iri<&str>) -> Result<Iri<String>, IriNormalizeError> {
     let normalized = iri.normalize();
     let with_idn = punycode_host(&normalized)?;
-    Ok(ensure_http_root_path(&normalized, with_idn))
+    let final_string = ensure_http_root_path(&normalized, with_idn);
+    // The three pipeline stages each preserve RFC 3987 IRI validity:
+    // `Iri::normalize` is a syntax-based rewrite, `domain_to_ascii`
+    // replaces only the RegName host with an ASCII Punycode label,
+    // and the HTTP-root fixup only inserts `/` into an already
+    // structurally valid IRI. Re-parsing is therefore infallible by
+    // construction; expect() lets the returned type carry the
+    // invariant.
+    Ok(Iri::parse(final_string)
+        .expect("normalization pipeline output is RFC 3987 IRI-valid by construction"))
 }
 
 /// Replace a non-ASCII RegName host with its `domainToASCII` (Punycode) form.

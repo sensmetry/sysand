@@ -447,8 +447,8 @@ fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironmentError> {
             };
             let parsed = fluent_uri::Iri::parse(iri)
                 .map_err(|e| malformed(super::iri_normalize::IriNormalizeError::Parse(e)))?;
-            let normalized = normalize_iri_for_hash(&parsed).map_err(malformed)?;
-            let hash = segment_uri_generic::<_, Sha256>(&normalized)
+            let normalized = normalize_iri_for_hash(parsed).map_err(malformed)?;
+            let hash = segment_uri_generic::<_, Sha256>(normalized.as_str())
                 .next()
                 .expect("segment_uri_generic always yields one segment");
             Ok(vec![IRI_HASH_SEGMENT.to_string(), hash])
