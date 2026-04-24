@@ -193,12 +193,10 @@ IRI the index knows about:
 }
 ```
 
-- A 200 response with `{ "projects": [] }` is the "empty index" signal.
-- A 404 on `index.json` means "this URL is not a sysand index" — it MUST
-  NOT be treated as an empty index. Clients MUST surface the 404 to the
-  user (e.g. as a warning) rather than silently continuing against a
-  misconfigured base URL; a resolver chain MAY skip this source and
-  continue with the next.
+- A 404 on `index.json` is a hard error: `{ "projects": [] }` is the
+  empty-index signal, so a 404 means "this URL is not a sysand index".
+  Clients MUST fail the operation, and resolver chains MUST NOT skip
+  this source.
 
 ## 8. `versions.json`
 
