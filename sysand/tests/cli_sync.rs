@@ -251,13 +251,15 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut server = mockito::Server::new();
 
-    // expect_at_least(1): the auth-fallback behaviour is what's being tested;
-    // the exact refetch count varies with internal plumbing.
+    // Exact counts pin the fetch fan-in so a regression that adds a
+    // redundant fetch trips a test rather than passing silently. The
+    // test runs `sysand sync` twice (to exercise "already up to date"),
+    // which is why the 404 mocks see more than one hit.
     let info_mock = server
         .mock("GET", "/.project.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect_at_least(1)
+        .expect(3)
         .create();
 
     let info_mock_auth = server
@@ -269,14 +271,14 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
-        .expect_at_least(1)
+        .expect(3)
         .create();
 
     let meta_mock = server
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect_at_least(1)
+        .expect(2)
         .create();
 
     let meta_mock_auth = server
@@ -288,7 +290,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect_at_least(1)
+        .expect(2)
         .create();
 
     std::fs::write(
@@ -356,14 +358,14 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut server = mockito::Server::new();
 
-    // expect_at_least(1) for the paths that should fire; expect(0) for the
+    // expect(1) for the paths that should fire; expect(0) for the
     // auth paths that must not (credentials don't match this server, so the
     // authenticated retry should never reach the correctly-matched mock).
     let info_mock = server
         .mock("GET", "/.project.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect_at_least(1)
+        .expect(1)
         .create();
 
     let info_mock_auth = server
@@ -382,7 +384,7 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect_at_least(1)
+        .expect(1)
         .create();
 
     let meta_mock_auth = server

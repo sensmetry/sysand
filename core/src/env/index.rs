@@ -41,7 +41,7 @@ use std::{
 };
 
 use semver::Version;
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
 use sha2::Sha256;
 use thiserror::Error;
 
@@ -334,7 +334,7 @@ pub(crate) enum MissingPolicy {
 /// 404 returns `Ok(None)` under [`MissingPolicy::AllowNotFound`] and a
 /// [`HttpFetchError::BadHttpStatus`] under [`MissingPolicy::RequirePresent`];
 /// any other non-success status is always an error.
-pub(crate) async fn fetch_json<T: for<'de> serde::Deserialize<'de>, P: HTTPAuthentication>(
+pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
     auth: &P,
     url: &url::Url,
@@ -543,7 +543,7 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
             .await?)
     }
 
-    async fn fetch_optional_json<T: for<'de> serde::Deserialize<'de>>(
+    async fn fetch_optional_json<T: DeserializeOwned>(
         &self,
         url: &url::Url,
     ) -> Result<Option<T>, IndexEnvironmentError> {
