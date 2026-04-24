@@ -154,13 +154,15 @@ impl<
                         Ok(opt) => opt
                             .and_then(|checksum| self.locals.shift_remove(&checksum)),
                         Err(err) => {
-                            // The remote resolver in this branch is the
-                            // non-index network resolver, so a failure here is
-                            // an I/O or parse error on the fetched project
-                            // files rather than an advertised-digest check.
-                            // Skip the local-cache match and let downstream
-                            // `get_project` re-surface the same error as a
-                            // hard failure.
+                            // Failure here is an I/O or parse error on the
+                            // fetched project files: this arm carries the
+                            // non-index remote resolver, so no advertised
+                            // digest is attached to the project (those flow
+                            // through `ResolvedIndex` below). Cache-match
+                            // is opportunistic — skip on any error; if the
+                            // files are genuinely broken, the downstream
+                            // `get_project` reads the same bytes and
+                            // surfaces the same error as a hard failure.
                             log::warn!(
                                 "remote-project checksum_canonical_hex failed; skipping local-cache match: {err}"
                             );
@@ -188,6 +190,15 @@ impl<
                         Ok(opt) => opt
                             .and_then(|checksum| self.locals.shift_remove(&checksum)),
                         Err(err) => {
+                            // Failure here may be an I/O or parse error
+                            // on fetched files, or an
+                            // `AdvertisedDigestDrift` (computed digest
+                            // disagrees with the index-advertised one).
+                            // The §12 client-obligation check re-verifies
+                            // `(info, meta)` against `project_digest` on
+                            // consumption, so skipping the cache match
+                            // here cannot mask tampering — the hard
+                            // failure lands downstream.
                             log::warn!(
                                 "index-project checksum_canonical_hex failed; skipping local-cache match: {err}"
                             );
