@@ -2100,11 +2100,11 @@ mod caching {
 
     #[test]
     fn test_versions_json_404_refetched_on_every_call() -> Result<(), Box<dyn std::error::Error>> {
-        // Errors aren't cached (OnceCell discards `Err`), so each
-        // retry re-fetches even though the resolver-boundary 404
-        // surfaces as an empty stream. That keeps the diagnostic
-        // visible and avoids a stale "project has no versions"
-        // cache.
+        // Errors aren't cached — the cache slot is only populated on a
+        // successful validate — so each retry re-fetches even though the
+        // resolver-boundary 404 surfaces as an empty stream. That keeps
+        // the diagnostic visible and avoids a stale "project has no
+        // versions" cache.
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;

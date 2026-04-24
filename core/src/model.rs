@@ -430,6 +430,12 @@ pub fn format_created(value: &chrono::DateTime<chrono::Utc>) -> String {
     value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
+/// Shorthand for `format_created(&chrono::Utc::now())`, the most common
+/// call site (default constructors and test fixtures all want "now").
+pub fn format_created_now() -> String {
+    format_created(&chrono::Utc::now())
+}
+
 impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
     fn from(value: InterchangeProjectMetadata) -> InterchangeProjectMetadataRaw {
         InterchangeProjectMetadataRaw {
@@ -500,7 +506,7 @@ impl Default for InterchangeProjectMetadataRaw {
     fn default() -> Self {
         InterchangeProjectMetadataRaw {
             index: IndexMap::default(),
-            created: format_created(&chrono::Utc::now()),
+            created: format_created_now(),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,

@@ -3,7 +3,7 @@
 
 use fluent_uri::Iri;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     fmt::Debug,
 };
 
@@ -318,29 +318,33 @@ pub fn do_lock_extend<
             );
         } else {
             let new_idx = lock.projects.len();
-            let mut local_seen = HashSet::new();
             for s in &lock_project.exports {
                 let h = hash_str(s);
-                if !local_seen.insert(h) {
-                    return Err(LockError::SelfNameCollision(
-                        SelfNameCollisionError {
-                            symbol: s.to_owned(),
-                            project: lock_project,
+                match lock_symbols.entry(h) {
+                    Entry::Occupied(occupied) => {
+                        let conflict_idx = *occupied.get();
+                        if conflict_idx == new_idx {
+                            return Err(LockError::SelfNameCollision(
+                                SelfNameCollisionError {
+                                    symbol: s.to_owned(),
+                                    project: lock_project,
+                                }
+                                .into(),
+                            ));
                         }
-                        .into(),
-                    ));
+                        return Err(LockError::NameCollision(
+                            NameCollisionError {
+                                symbol: s.to_owned(),
+                                pr1: lock.projects[conflict_idx].clone(),
+                                pr2: lock_project,
+                            }
+                            .into(),
+                        ));
+                    }
+                    Entry::Vacant(vacant) => {
+                        vacant.insert(new_idx);
+                    }
                 }
-                if let Some(conflict_idx) = lock_symbols.get(&h) {
-                    return Err(LockError::NameCollision(
-                        NameCollisionError {
-                            symbol: s.to_owned(),
-                            pr1: lock.projects[*conflict_idx].clone(),
-                            pr2: lock_project,
-                        }
-                        .into(),
-                    ));
-                }
-                lock_symbols.insert(h, new_idx);
             }
             lock.projects.push(lock_project);
         }

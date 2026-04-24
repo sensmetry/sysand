@@ -13,6 +13,7 @@ use url::Url;
 use crate::{
     auth::{ForceBearerAuth, HTTPAuthentication},
     project::{ProjectRead, local_kpar::LocalKParProject},
+    purl::{is_valid_name, is_valid_publisher, normalize_field},
 };
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
@@ -148,12 +149,9 @@ pub fn build_upload_url(api_root: &Url) -> Result<Url, PublishError> {
     // The `v1/upload` suffix rejection is part of shape validation.
     validate_endpoint_url_shape(api_root, EndpointKind::ApiRoot)?;
 
-    crate::env::discovery::with_trailing_slash(api_root.clone())
+    Ok(crate::env::discovery::with_trailing_slash(api_root.clone())
         .join(UPLOAD_ENDPOINT_PATH)
-        .map_err(|source| PublishError::InvalidApiRoot {
-            url: api_root.as_str().into(),
-            reason: format!("failed to compose upload URL: {source}"),
-        })
+        .unwrap())
 }
 
 #[derive(Debug)]
@@ -361,8 +359,6 @@ fn map_publish_response(
         }
     }
 }
-
-use crate::purl::{is_valid_name, is_valid_publisher, normalize_field};
 
 #[derive(Deserialize)]
 struct ErrorResponse {

@@ -75,7 +75,7 @@ pub fn try_remove_files<P: AsRef<Utf8Path>, I: Iterator<Item = P>>(
     let mut moved: Vec<Utf8PathBuf> = vec![];
 
     for (i, path) in paths.enumerate() {
-        match wrapfs::rename(&path, tempdir.path().join(i.to_string())) {
+        match move_fs_item(&path, tempdir.path().join(i.to_string())) {
             Ok(_) => {
                 moved.push(path.to_path_buf());
             }
@@ -83,7 +83,7 @@ pub fn try_remove_files<P: AsRef<Utf8Path>, I: Iterator<Item = P>>(
                 // NOTE: This dance is to bypass the fact that std::io::error is not cloneable...
                 let mut catastrophic_error = None;
                 for (j, recover) in moved.iter().enumerate() {
-                    if let Err(err) = wrapfs::rename(tempdir.path().join(j.to_string()), recover) {
+                    if let Err(err) = move_fs_item(tempdir.path().join(j.to_string()), recover) {
                         catastrophic_error = Some(err);
                         break;
                     }
@@ -101,6 +101,54 @@ pub fn try_remove_files<P: AsRef<Utf8Path>, I: Iterator<Item = P>>(
     Ok(())
 }
 
+// Recursively copy a directory from `src` to `dst`.
+// Assumes that all parents of `dst` exist.
+fn copy_dir_recursive<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+    src: P,
+    dst: Q,
+) -> Result<(), Box<FsIoError>> {
+    wrapfs::create_dir(&dst)?;
+
+    for entry_result in wrapfs::read_dir(&src)? {
+        let entry = entry_result.map_err(|e| FsIoError::ReadDir(src.to_path_buf(), e))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| FsIoError::ReadDir(src.to_path_buf(), e))?;
+        let src_path = entry.path();
+        let dst_path = dst.as_ref().join(entry.file_name());
+
+        if file_type.is_dir() {
+            copy_dir_recursive(src_path, dst_path)?;
+        } else {
+            wrapfs::copy(src_path, dst_path)?;
+        }
+    }
+
+    Ok(())
+}
+
+// Rename/move a file or directory from `src` to `dst`.
+fn move_fs_item<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+    src: P,
+    dst: Q,
+) -> Result<(), Box<FsIoError>> {
+    match fs::rename(src.as_ref(), dst.as_ref()) {
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
+            let metadata = wrapfs::metadata(&src)?;
+            if metadata.is_dir() {
+                copy_dir_recursive(&src, &dst)?;
+                wrapfs::remove_dir_all(&src)?;
+            } else {
+                wrapfs::copy(&src, &dst)?;
+                wrapfs::remove_file(&src)?;
+            }
+            Ok(())
+        }
+        Err(e) => Err(FsIoError::Move(src.to_path_buf(), dst.to_path_buf(), e))?,
+    }
+}
+
 pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMoveError> {
     let tempdir = camino_tempfile::tempdir()
         .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
@@ -110,7 +158,7 @@ pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMove
     // move source files out of the way
     for (i, (path, _)) in paths.iter().enumerate() {
         let src_path = tempdir.path().join(format!("src_{}", i));
-        if let Err(e) = wrapfs::rename(path, src_path) {
+        if let Err(e) = move_fs_item(path, src_path) {
             last_err = Some(e);
             break;
         }
@@ -122,7 +170,7 @@ pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMove
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if src_path.exists()
-                && let Err(err) = wrapfs::rename(src_path, path)
+                && let Err(err) = move_fs_item(src_path, path)
             {
                 return Err(TryMoveError::CatastrophicIO { err, cause });
             }
@@ -137,7 +185,7 @@ pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMove
     for (i, (_, path)) in paths.iter().enumerate() {
         if path.exists() {
             let trg_path = tempdir.path().join(format!("trg_{}", i));
-            if let Err(e) = wrapfs::rename(path, trg_path) {
+            if let Err(e) = move_fs_item(path, trg_path) {
                 last_err = Some(e);
                 break;
             }
@@ -150,7 +198,7 @@ pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMove
             let trg_path = tempdir.path().join(format!("trg_{}", i));
 
             if trg_path.exists()
-                && let Err(err) = wrapfs::rename(trg_path, path)
+                && let Err(err) = move_fs_item(trg_path, path)
             {
                 return Err(TryMoveError::CatastrophicIO { err, cause });
             }
@@ -160,7 +208,7 @@ pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMove
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if src_path.exists()
-                && let Err(err) = wrapfs::rename(src_path, path)
+                && let Err(err) = move_fs_item(src_path, path)
             {
                 return Err(TryMoveError::CatastrophicIO { err, cause });
             }
@@ -175,7 +223,7 @@ pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMove
     for (i, (_, target)) in paths.iter().enumerate() {
         let src_path = tempdir.path().join(format!("src_{}", i));
 
-        if let Err(e) = wrapfs::rename(src_path, target) {
+        if let Err(e) = move_fs_item(src_path, target) {
             last_err = Some(e);
             break;
         }
@@ -187,7 +235,7 @@ pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMove
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if path.exists()
-                && let Err(err) = wrapfs::rename(path, src_path)
+                && let Err(err) = move_fs_item(path, src_path)
             {
                 return Err(TryMoveError::CatastrophicIO { err, cause });
             }
@@ -197,7 +245,7 @@ pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMove
             let trg_path = tempdir.path().join(format!("trg_{}", i));
 
             if trg_path.exists()
-                && let Err(err) = wrapfs::rename(trg_path, path)
+                && let Err(err) = move_fs_item(trg_path, path)
             {
                 return Err(TryMoveError::CatastrophicIO { err, cause });
             }
@@ -207,7 +255,7 @@ pub fn try_move_files(paths: &Vec<(&Utf8Path, &Utf8Path)>) -> Result<(), TryMove
             let src_path = tempdir.path().join(format!("src_{}", i));
 
             if src_path.exists()
-                && let Err(err) = wrapfs::rename(src_path, path)
+                && let Err(err) = move_fs_item(src_path, path)
             {
                 return Err(TryMoveError::CatastrophicIO { err, cause });
             }

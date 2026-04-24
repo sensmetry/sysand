@@ -537,7 +537,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                                 // Since we need them in descending order, sort will need
                                 // to perform less work if the iterator is reversed
                                 .rev()
-                                .map(|(idx, el)| (idx, el.version.clone()))
+                                .map(|(idx, el)| (idx, el.version))
                                 .collect();
                         // Choose the highest version. We'll assume that version
                         // order is stable across multiple `resolve_candidates()`

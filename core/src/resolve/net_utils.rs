@@ -82,8 +82,8 @@ impl Error for ReqwestClientBuildError {}
 /// duplicate initialization.
 ///
 /// Relies on `reqwest`'s default redirect behaviour (up to 10
-/// automatic redirects); clients MUST follow HTTP redirects on the
-/// discovery fetch and on every index resource.
+/// automatic redirects); index clients MUST follow HTTP redirects
+/// on the index URL discovery fetch and on every index resource.
 pub fn create_reqwest_client()
 -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
     const UA: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));

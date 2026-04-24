@@ -35,15 +35,15 @@
 //!   one place rather than duplicated across documents.
 
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
+    collections::{HashMap, hash_map::Entry},
+    rc::Rc,
+    sync::Arc,
 };
 
 use semver::Version;
 use serde::Deserialize;
 use sha2::Sha256;
 use thiserror::Error;
-use tokio::sync::OnceCell;
 
 use crate::{
     auth::{HTTPAuthentication, StandardHTTPAuthentication},
@@ -127,25 +127,22 @@ pub struct IndexEnvironmentAsync<Policy> {
     /// Avoids the duplicate fetches that otherwise occur because
     /// `versions_async` and `get_project_async` each independently hit the
     /// endpoint (and `get_project_async` is called once per candidate
-    /// during solving). Each entry is a per-IRI `OnceCell`, so concurrent
-    /// callers requesting the same IRI share a single fetch even under a
-    /// parallel solver.
+    /// during solving).
     ///
     /// Scoped to one env lifetime; never invalidates. There is no
     /// freshness signal in the protocol, and a single `sysand lock` run
     /// should see a stable view of the index. Cached values are already
     /// validated (see [`validate_versions`]); the raw wire form is not
-    /// retained.
-    pub(crate) versions_cache: Mutex<HashMap<String, VersionsCacheEntry>>,
+    /// retained. Transport and validation errors are not cached —
+    /// retries re-fetch.
+    pub(crate) versions_cache: tokio::sync::Mutex<HashMap<String, VersionsCacheEntry>>,
 }
 
-/// Per-IRI cache slot: a `OnceCell` shared by all concurrent callers
-/// requesting the same IRI, holding the validated `versions.json` entries.
-/// The cell never stores a "project missing" value — `fetch_versions_json`
-/// propagates 404 as [`HttpFetchError::BadHttpStatus`] instead, and
-/// `OnceCell::get_or_try_init` discards `Err`, so transport and
-/// validation errors are likewise not cached.
-pub(crate) type VersionsCacheEntry = Arc<OnceCell<Arc<Vec<AdvertisedVersion>>>>;
+/// Per-IRI cache slot: validated `versions.json` entries, shared across
+/// callers by `Rc`. The slot is only populated on a successful fetch
+/// (see `fetch_versions_json`); 404 and validation errors propagate
+/// instead of being cached.
+pub(crate) type VersionsCacheEntry = Rc<Vec<AdvertisedVersion>>;
 
 /// A validated sha256 hex digest — 64 lowercase hex characters, with the
 /// `"sha256:"` prefix already stripped. Constructed via `TryFrom<&str>`
@@ -576,49 +573,34 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
             })
     }
 
-    /// Fetch, validate, and cache `versions.json` for `iri`. Successful
-    /// fetches are served once per IRI via a per-IRI `OnceCell`; failures
-    /// (transport, validation, 404) are not cached — retries re-fetch and
-    /// re-validate. See [`validate_versions`] for the ingest checks.
+    /// Fetch, validate, and cache `versions.json` for `iri`. See
+    /// [`validate_versions`] for the ingest checks.
     async fn fetch_versions_json<S: AsRef<str>>(
         &self,
         iri: S,
-    ) -> Result<Arc<Vec<AdvertisedVersion>>, IndexEnvironmentError> {
+    ) -> Result<Rc<Vec<AdvertisedVersion>>, IndexEnvironmentError> {
         let iri_key = iri.as_ref();
-        let cell = {
-            // Recover from a poisoned mutex rather than panicking the whole
-            // process: the critical section only inserts a fresh `OnceCell`
-            // into the hashmap, so a poisoned slot just reflects a panic
-            // that happened with the lock held — the data read back from
-            // it is well-formed.
-            let mut cache = self
-                .versions_cache
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            Arc::clone(
-                cache
-                    .entry(iri_key.to_string())
-                    .or_insert_with(|| Arc::new(OnceCell::new())),
-            )
+        let mut cache = self.versions_cache.lock().await;
+        let val = match cache.entry(iri_key.to_owned()) {
+            Entry::Occupied(occupied) => Rc::clone(occupied.get()),
+            Entry::Vacant(vacant) => {
+                let value = {
+                    let endpoints = self.endpoints().await?;
+                    let url = endpoints.versions_url(iri_key)?;
+                    let parsed: VersionsJson = fetch_json(
+                        &self.client,
+                        &*self.auth_policy,
+                        &url,
+                        MissingPolicy::RequirePresent,
+                    )
+                    .await?
+                    .expect("RequirePresent never returns Ok(None)");
+                    validate_versions(&url, parsed)?
+                };
+                Rc::clone(vacant.insert_entry(Rc::new(value)).get())
+            }
         };
-
-        let cached = cell
-            .get_or_try_init(|| async {
-                let endpoints = self.endpoints().await?;
-                let url = endpoints.versions_url(iri_key)?;
-                let parsed: VersionsJson = fetch_json(
-                    &self.client,
-                    &*self.auth_policy,
-                    &url,
-                    MissingPolicy::RequirePresent,
-                )
-                .await?
-                .expect("RequirePresent never returns Ok(None)");
-                Ok::<_, IndexEnvironmentError>(Arc::new(validate_versions(&url, parsed)?))
-            })
-            .await?;
-
-        Ok(cached.clone())
+        Ok(val)
     }
 }
 

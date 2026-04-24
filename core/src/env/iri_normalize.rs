@@ -33,7 +33,7 @@ use crate::resolve::reqwest_http::{SCHEME_HTTP, SCHEME_HTTPS};
 pub(crate) fn normalize_iri_for_hash(iri: Iri<&str>) -> Result<Iri<String>, IriNormalizeError> {
     let normalized = iri.normalize();
     let with_idn = punycode_host(&normalized)?;
-    let final_string = ensure_http_root_path(&normalized, with_idn);
+    let final_string = ensure_http_root_path(&normalized, &with_idn).unwrap_or(with_idn);
     // The three pipeline stages each preserve RFC 3987 IRI validity:
     // `Iri::normalize` is a syntax-based rewrite, `domain_to_ascii`
     // replaces only the RegName host with an ASCII Punycode label,
@@ -78,17 +78,18 @@ fn punycode_host(iri: &Iri<String>) -> Result<String, IriNormalizeError> {
 /// or fragment. `fluent_uri::normalize` deliberately leaves the empty path
 /// untouched; WHATWG URL serialization produces the slash. Scheme and path
 /// are read from `iri` (a preceding host rewrite does not affect either), so
-/// no re-parse of `s` is needed.
-fn ensure_http_root_path(iri: &Iri<String>, s: String) -> String {
+/// no re-parse of `s` is needed. Returns `Some(new)` with the fixup applied,
+/// or `None` when no change is needed.
+fn ensure_http_root_path(iri: &Iri<String>, s: &str) -> Option<String> {
     let scheme = iri.scheme();
     let is_http = scheme == SCHEME_HTTP || scheme == SCHEME_HTTPS;
     if !is_http || !iri.path().as_str().is_empty() {
-        return s;
+        return None;
     }
-    match s.find(['?', '#']) {
+    Some(match s.find(['?', '#']) {
         Some(i) => format!("{}/{}", &s[..i], &s[i..]),
         None => format!("{s}/"),
-    }
+    })
 }
 
 #[derive(Debug, thiserror::Error)]

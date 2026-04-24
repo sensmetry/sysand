@@ -11,6 +11,8 @@
 //!
 //! [purl-spec]: https://github.com/package-url/purl-spec
 
+use thiserror::Error;
+
 /// The `pkg:sysand/` URI scheme prefix. A `pkg:sysand` IRI is required to
 /// have exactly two slash-separated segments (`<publisher>/<name>`) after
 /// this prefix, both passing [`is_normalized_field`] for their respective
@@ -94,49 +96,34 @@ pub fn normalize_field(s: &str) -> String {
 /// Reason a `pkg:sysand/...` IRI failed [`parse_sysand_purl`]. Used to
 /// build human-readable validation errors that explain the rejection
 /// without leaking parser internals.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SysandPurlError {
     /// Wrong number of slash-separated segments — expected exactly
     /// `<publisher>/<name>`. `segments` is the count actually seen so the
     /// error message can name it.
+    #[error("expected exactly two `/`-separated segments after `pkg:sysand/`, found {segments}")]
     WrongShape { segments: usize },
     /// The publisher segment did not satisfy [`is_valid_field`] (length,
     /// allowed characters, separator placement).
+    #[error(
+        "publisher segment `{publisher}` is not a valid `pkg:sysand` field \
+         (3-50 ASCII alphanumeric chars, with single ` ` or `-` separators between words)"
+    )]
     InvalidPublisher { publisher: String },
     /// The name segment did not satisfy [`is_valid_field`].
+    #[error(
+        "name segment `{name}` is not a valid `pkg:sysand` field \
+         (3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` separators between words)"
+    )]
     InvalidName { name: String },
     /// Both segments validate, but at least one is not in normalized form
     /// (i.e. [`normalize_field`] would change it). `suggested` carries the
     /// normalized IRI so callers can show "did you mean `<x>`?".
+    #[error(
+        "IRI is valid but not normalized; expected `{suggested}` (lowercase ASCII, spaces replaced with hyphens)"
+    )]
     NotNormalized { suggested: String },
 }
-
-impl std::fmt::Display for SysandPurlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::WrongShape { segments } => write!(
-                f,
-                "expected exactly two `/`-separated segments after `pkg:sysand/`, found {segments}"
-            ),
-            Self::InvalidPublisher { publisher } => write!(
-                f,
-                "publisher segment `{publisher}` is not a valid `pkg:sysand` field \
-                 (3-50 ASCII alphanumeric chars, with single ` ` or `-` separators between words)"
-            ),
-            Self::InvalidName { name } => write!(
-                f,
-                "name segment `{name}` is not a valid `pkg:sysand` field \
-                 (3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` separators between words)"
-            ),
-            Self::NotNormalized { suggested } => write!(
-                f,
-                "IRI is valid but not normalized; expected `{suggested}` (lowercase ASCII, spaces replaced with hyphens)"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for SysandPurlError {}
 
 /// Parse a `pkg:sysand/<publisher>/<name>` IRI into its `(publisher, name)`
 /// segments. Returns `Ok(None)` for IRIs that do not start with the

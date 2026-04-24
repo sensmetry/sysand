@@ -257,8 +257,6 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.project.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
         .expect_at_least(1)
         .create();
 
@@ -278,8 +276,6 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
         .expect_at_least(1)
         .create();
 
@@ -367,8 +363,6 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.project.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
         .expect_at_least(1)
         .create();
 
@@ -388,8 +382,6 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
         .expect_at_least(1)
         .create();
 
