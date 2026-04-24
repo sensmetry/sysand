@@ -282,7 +282,10 @@ Absence:
 
 ## 9. Per-version files
 
-Each version directory MUST contain all three files:
+Each version in `versions.json` has a subdirectory under the project
+directory ([§4]) whose name is byte-identical to the entry's `version`
+field (e.g. `0.3.0/`, `10.0.0-beta.1/`). That directory MUST contain
+all three files:
 
 - `.project.json` — interchange project info.
 - `.meta.json` — interchange project metadata.
