@@ -120,7 +120,7 @@ pub enum SysandPurlError {
     /// (i.e. [`normalize_field`] would change it). `suggested` carries the
     /// normalized IRI so callers can show "did you mean `<x>`?".
     #[error(
-        "IRI is valid but not normalized; expected `{suggested}` (lowercase ASCII, spaces replaced with hyphens)"
+        "IRI is valid but not normalized; did you mean `{suggested}` (lowercase ASCII, spaces replaced with hyphens)?"
     )]
     NotNormalized { suggested: String },
 }
@@ -144,7 +144,7 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
         });
     };
 
-    if !is_valid_field(publisher, FieldKind::Publisher) {
+    if !is_valid_publisher(publisher) {
         return Err(SysandPurlError::InvalidPublisher {
             publisher: (*publisher).to_owned(),
         });
