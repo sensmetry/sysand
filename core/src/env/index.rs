@@ -22,6 +22,13 @@
 //!   an empty stream (so a misconfigured mirror does not block other
 //!   sources), but every other caller — including `get_project_async`
 //!   and `index.json` — propagates it.
+//! - Each entry carries an optional `status` field (§8) —
+//!   `available | yanked | removed`, omitted = available. §12
+//!   excludes `yanked` / `removed` from the `versions_async` stream
+//!   so solve/lock cannot select them; §9 makes `removed` entries'
+//!   per-version files 404, and `get_project_async` rejects them
+//!   up-front with a distinct `VersionRemoved` error so a replayed
+//!   lockfile reports the removal instead of a generic 404.
 //! - Forward compatibility: no type here sets
 //!   `#[serde(deny_unknown_fields)]`; servers may add new optional
 //!   fields, and any future schema-version signal should be added in
@@ -184,6 +191,36 @@ pub(crate) struct AdvertisedVersion {
     pub(crate) project_digest: Sha256HexDigest,
     pub(crate) kpar_size: u64,
     pub(crate) kpar_digest: Sha256HexDigest,
+    pub(crate) status: Status,
+}
+
+/// Retirement state of a `versions.json` entry. See §8 of the index
+/// protocol for the wire contract and §11 for the transition rules
+/// (`Available → Yanked`, `Available → Removed`, `Yanked → Removed`;
+/// no other transitions). An omitted `status` in the JSON parses as
+/// [`Status::Available`] — the field is optional for forward
+/// compatibility with indexes predating the retirement model.
+///
+/// Serializers SHOULD pair the `Serialize` impl with
+/// `#[serde(skip_serializing_if = "Status::is_available")]` on any
+/// field carrying a `Status`, so unretired entries keep their on-wire
+/// shape unchanged (§8 SHOULD).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Status {
+    #[default]
+    Available,
+    Yanked,
+    Removed,
+}
+
+impl Status {
+    /// Predicate for `#[serde(skip_serializing_if = "...")]` so emitters
+    /// drop `status` when it would round-trip as the default.
+    #[allow(dead_code)]
+    pub(crate) fn is_available(&self) -> bool {
+        matches!(self, Status::Available)
+    }
 }
 
 #[derive(Error, Debug)]
@@ -227,6 +264,14 @@ pub enum IndexEnvironmentError {
     },
     #[error("versions.json at `{url}` does not list version `{version}`")]
     VersionNotInIndex { url: Box<str>, version: String },
+    #[error(
+        "version `{version}` of `{iri}` was removed upstream (versions.json at `{url}` marks it `status: \"removed\"`)"
+    )]
+    VersionRemoved {
+        url: Box<str>,
+        iri: String,
+        version: String,
+    },
     #[error("versions.json at `{url}` lists version `{version}` more than once")]
     DuplicateVersion { url: Box<str>, version: String },
     #[error("malformed `pkg:sysand` IRI `{iri}`: {source}")]
@@ -373,6 +418,10 @@ struct VersionEntry {
     /// Digest of the kpar archive bytes, verified against the streamed
     /// body when the archive is downloaded.
     kpar_digest: String,
+    /// Retirement state (§8). Optional on the wire; an omitted field
+    /// deserializes as [`Status::Available`].
+    #[serde(default)]
+    status: Status,
 }
 
 /// Map an IRI to the index path segments that locate its project directory.
@@ -631,6 +680,7 @@ fn validate_versions(
                     project_digest,
                     kpar_size: entry.kpar_size,
                     kpar_digest,
+                    status: entry.status,
                 })
             })
             .collect::<Result<_, _>>()?;
@@ -688,8 +738,30 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         // next source. Non-404 errors propagate.
         match self.fetch_versions_json(uri.as_ref()).await {
             Ok(vs) => {
-                let versions: Vec<Result<String, IndexEnvironmentError>> =
-                    vs.iter().map(|e| Ok(e.version.to_string())).collect();
+                // §12 — resolver-visible stream MUST exclude retired
+                // entries (`yanked` / `removed`) so solve/lock can't
+                // select them for a new resolution. Replaying a pinned
+                // lockfile uses `get_project_async` directly, which
+                // allows `yanked` (files still served) and hard-fails
+                // `removed` — see §13 and the §9 file-presence rule.
+                let versions: Vec<Result<String, IndexEnvironmentError>> = vs
+                    .iter()
+                    .filter(|e| {
+                        if e.status == Status::Available {
+                            true
+                        } else {
+                            log::debug!(
+                                "skipping retired version `{version}` of `{iri}` \
+                                 (status: {status:?}) during candidate enumeration",
+                                version = e.version,
+                                iri = uri.as_ref(),
+                                status = e.status,
+                            );
+                            false
+                        }
+                    })
+                    .map(|e| Ok(e.version.to_string()))
+                    .collect();
                 Ok(futures::stream::iter(versions))
             }
             Err(IndexEnvironmentError::Fetch(HttpFetchError::BadHttpStatus { url, status }))
@@ -741,6 +813,20 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
                 url: versions_url.as_str().into(),
                 version: version.as_ref().to_string(),
             })?;
+
+        // §9 — a `removed` entry's per-version files MUST 404. Refuse
+        // before even issuing the fetch so `sync`'s replay of a pinned
+        // lockfile gets the distinct "removed upstream" diagnostic
+        // rather than a generic 404. `yanked` entries stay reachable
+        // here: files are still served, and §12 excludes them from
+        // new resolutions at the `versions_async` boundary instead.
+        if advertised.status == Status::Removed {
+            return Err(IndexEnvironmentError::VersionRemoved {
+                url: versions_url.as_str().into(),
+                iri: uri.as_ref().to_string(),
+                version: advertised.version.to_string(),
+            });
+        }
 
         // Build leaf URLs from the validated version (i.e. the `Display` of
         // the parsed `semver::Version`), not the caller-supplied string.

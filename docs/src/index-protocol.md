@@ -238,6 +238,15 @@ Per-entry rules:
 - `project_digest` and `kpar_digest` are lowercase SHA-256 in
   `sha256:<64-hex>` form ([§10]).
 - `kpar_size` is the byte length of the archive.
+- `status` is OPTIONAL. When present, it MUST be one of `"available"`,
+  `"yanked"`, or `"removed"`; an omitted `status` is equivalent to
+  `"available"`. Servers SHOULD omit the field when its value would be
+  `"available"`, so unretired entries keep their on-wire shape
+  unchanged from indexes predating the retirement model; clients MUST
+  accept both the omitted form and an explicit `"available"` as
+  equivalent. `yanked` and `removed` entries are collectively
+  "retired"; see [§11] for the server obligations they impose and
+  [§12] for client behaviour.
 
 Ordering:
 
@@ -279,9 +288,17 @@ Each version directory MUST contain all three files:
 - `.meta.json` — interchange project metadata.
 - `project.kpar` — the archive.
 
-Once a version appears in `versions.json`, all three files MUST be
-retrievable. A 404 on any of them is a hard error — clients MUST NOT
-treat it as "version not available".
+A version's file presence is governed by its [§8] `status`:
+
+- `available` and `yanked` — all three files MUST be retrievable;
+  a 404 on any of them is a hard error. Clients MUST NOT treat the
+  404 as "version not available"; `status` is the only mechanism for
+  signalling unavailability.
+- `removed` — the three files MUST 404. A conforming client MUST
+  treat the 404 as the retirement already advertised by
+  `status: "removed"`, and MUST surface it as a distinct error from
+  the `available`/`yanked` 404-is-a-protocol-violation case (typical
+  phrasing: "version X was removed upstream").
 
 The protocol is designed so that each client operation fetches only what
 it needs:
@@ -334,12 +351,21 @@ A conforming sysand index server MUST uphold:
   served at that version's directory. The server is trusted as the source
   of truth for what a version contains; clients do not cross-check textual
   fields.
-- **File presence.** Every version listed in `versions.json` has all
-  three per-version files available for retrieval.
-- **Immutability.** Once a version directory and its files exist, none of
-  those bytes change — ever. Mechanisms for yanking, unlisting, or
-  withdrawing a version are not specified in v0; they cannot be
-  implemented by mutating published bytes.
+- **File presence.** Every version listed in `versions.json` with
+  `status` other than `removed` has all three per-version files
+  available for retrieval.
+- **Byte immutability.** Existing per-version files never have their
+  bytes changed in place; a published `project.kpar` is either served
+  with the same bytes forever or withdrawn (see retirement, below).
+- **Retirement via `status`.** `versions.json` entries are
+  append-only: once an entry exists it is never removed, and its
+  `version`, `usage`, `project_digest`, `kpar_size`, and `kpar_digest`
+  fields never change. The only mutable field on an existing entry is
+  `status` ([§8]). Permitted transitions are `available → yanked`,
+  `available → removed`, and `yanked → removed`; no other transitions
+  are permitted in v0 (in particular, no un-yank). `removed` is
+  terminal, and moving a version to `removed` requires withdrawing
+  its per-version files ([§9]).
 - **Well-formed archives.** The full set of criteria for a well-formed
   archive is not frozen in v0 and is expected to evolve alongside the
   `sysand index` CLI; see [§15] for the division between wire-level
@@ -359,26 +385,39 @@ A conforming sysand index client:
   error.
 - MUST reject any version whose advertised digest disagrees with computed
   content.
+- MUST NOT select a version whose [§8] `status` is not `"available"`
+  for a new resolution. This applies to operations that consult
+  `versions.json` to pick a version (solve, lock); `sync` replays a
+  lockfile's pinned `(iri, version)` without re-solving and is
+  unaffected by `status`.
 - Beyond the above, does not cross-check textual fields between
   `versions.json` and `.project.json` — the server is authoritative
   ([§11]).
 
 ## 13. Immutability and lockfile reproducibility
 
-Immutability ([§11]) has a direct consequence for sysand lockfiles:
+Byte immutability and append-only `versions.json` entries ([§11]) have
+direct consequences for sysand lockfiles:
 
 - The pair `(iri, version)` is a stable identifier for a specific set of
-  bytes; a lockfile referencing it is valid indefinitely against a
-  conforming index.
+  bytes; a lockfile referencing it stays valid against a conforming
+  index for as long as the entry's `status` is not `"removed"`
+  ([§8]).
 - Digest fields recorded in a lockfile (`project_digest`, `kpar_digest`)
   provide a tripwire: a later fetch whose advertised digest differs from
   the lockfile's recorded digest indicates that either the server
-  violated immutability, or the lockfile and server refer to different
-  indices.
+  violated byte immutability, or the lockfile and server refer to
+  different indices.
 
-Yank/unlist semantics — a way to mark a version unavailable for new
-solves while leaving existing lockfiles working — are intentionally not
-specified in v0.
+Retirement ([§8] `status`) and the lockfile contract:
+
+- A `yanked` entry is fully compatible with existing lockfiles — the
+  files are still served, the digests still match. Only _new_
+  resolutions are affected.
+- A `removed` entry breaks `sync` for any lockfile that pins it; the
+  lockfile's recorded digests still serve as a tripwire (the mismatch
+  is "bytes gone" rather than "bytes differ"), and the client reports
+  the removal rather than silently failing.
 
 ## 14. Forward compatibility
 

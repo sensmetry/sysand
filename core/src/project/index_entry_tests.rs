@@ -51,6 +51,7 @@ fn make_fixture() -> IndexEntryProject<Unauthenticated> {
         project_digest,
         kpar_size: 42,
         kpar_digest,
+        status: crate::env::index::Status::Available,
     };
 
     // `test.invalid` is reserved by RFC 2606; any accidental fetch

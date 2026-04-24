@@ -586,6 +586,44 @@ mod versions {
     }
 
     #[test]
+    fn test_versions_async_filters_retired_entries() -> Result<(), Box<dyn std::error::Error>> {
+        // §8 `status` field + §12 "MUST NOT select non-available for a
+        // new resolution". A mixed-status fixture verifies two things
+        // in one document:
+        //   1. Wire-level parsing accepts every `status` value plus
+        //      the omitted default (§14 forward compat + §8 SHOULD-omit
+        //      convention for `available`).
+        //   2. The resolver-facing `versions()` stream exposes only
+        //      `available` entries; `yanked` and `removed` are filtered
+        //      so solve/lock can't pick them.
+        let mut server = mockito::Server::new();
+
+        let env = test_env_sync(&server)?;
+
+        let body = format!(
+            r#"{{"versions":[
+                {{"version":"4.0.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"available"}},
+                {{"version":"3.0.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"yanked"}},
+                {{"version":"2.0.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"removed"}},
+                {{"version":"1.0.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}
+            ]}}"#
+        );
+
+        let versions_mock = mock_json_get(&mut server, "/admin/proj0/versions.json", body);
+
+        let versions: Vec<_> = env
+            .versions("pkg:sysand/admin/proj0")?
+            .collect::<Result<_, _>>()?;
+        // Explicit `"available"` and omitted `status` both survive the
+        // filter; `yanked` and `removed` are dropped.
+        assert_eq!(versions, vec!["4.0.0", "1.0.0"]);
+
+        versions_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
     fn test_versions_json_preserves_server_order() -> Result<(), Box<dyn std::error::Error>> {
         // Semver-tricky fixture makes pass-through visible: a lexicographic-
         // sort regression would reorder `10.0.0` before `10.0.0-beta.1`.
@@ -1001,6 +1039,88 @@ mod get_project {
         }
 
         versions_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_project_on_removed_version_fails_with_version_removed()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // §9 + §13 — when a lockfile replay (or any direct
+        // `get_project`) hits a version whose `versions.json` entry
+        // carries `status: "removed"`, the client MUST surface a
+        // distinct "removed upstream" diagnostic rather than the
+        // generic 404 on the per-version files. We assert the
+        // `VersionRemoved` variant is produced before any file fetch
+        // is issued — no `.project.json` / `.meta.json` / kpar mocks
+        // are registered, so any unexpected fetch would surface as a
+        // mockito miss.
+        let mut server = mockito::Server::new();
+
+        let env = test_env_sync(&server)?;
+
+        let body = format!(
+            r#"{{"versions":[
+                {{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"removed"}}
+            ]}}"#
+        );
+
+        let versions_mock = mock_json_get(&mut server, "/admin/proj0/versions.json", body);
+
+        let err = env
+            .get_project("pkg:sysand/admin/proj0", "0.3.0")
+            .expect_err("removed entries must hard-fail with VersionRemoved");
+        match err {
+            super::IndexEnvironmentError::VersionRemoved { iri, version, url } => {
+                assert_eq!(iri, "pkg:sysand/admin/proj0");
+                assert_eq!(version, "0.3.0");
+                assert!(url.contains("/versions.json"), "url carried: {url}");
+            }
+            other => panic!("expected VersionRemoved, got {other:?}"),
+        }
+
+        versions_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_project_on_yanked_version_still_serves_files()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // §11 Retirement + §13 lockfile contract — a `yanked` entry's
+        // per-version files remain served so existing lockfiles still
+        // `sync` cleanly; only new resolutions are affected (and those
+        // are filtered at the `versions_async` boundary in §12). Direct
+        // `get_project` on a yanked version MUST behave exactly like
+        // `available`.
+        let mut server = mockito::Server::new();
+
+        let env = test_env_sync(&server)?;
+
+        let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
+        let meta_json = meta_json_body();
+        let project_digest = project_digest(&info_json, meta_json)?;
+
+        let body = format!(
+            r#"{{"versions":[
+                {{"version":"0.3.0","usage":[],"project_digest":"{project_digest}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"yanked"}}
+            ]}}"#
+        );
+
+        let versions_mock = mock_json_get(&mut server, "/admin/proj0/versions.json", body);
+        let project_json_mock =
+            mock_json_get(&mut server, "/admin/proj0/0.3.0/.project.json", info_json);
+        let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
+
+        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let (info, _meta) = project.get_project()?;
+        let info = info.expect("info should be prefetched for yanked entries too");
+        assert_eq!(info.name, "proj0");
+        assert_eq!(info.version, "0.3.0");
+
+        versions_mock.assert();
+        project_json_mock.assert();
+        meta_json_mock.assert();
 
         Ok(())
     }
