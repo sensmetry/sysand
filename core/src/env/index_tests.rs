@@ -2232,12 +2232,14 @@ mod sources {
         // An advertised digest that doesn't match the body bytes below.
         let advertised_digest_hex = "0".repeat(64);
         let advertised = format!("sha256:{advertised_digest_hex}");
+        let kpar_body: &[u8] = b"not really a kpar";
 
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
             format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{advertised}"}}]}}"#,
+                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":{},"kpar_digest":"{advertised}"}}]}}"#,
+                kpar_body.len(),
             ),
         );
 
@@ -2250,7 +2252,7 @@ mod sources {
             .mock("GET", "/admin/proj0/0.3.0/project.kpar")
             .with_status(200)
             .with_header("content-type", "application/zip")
-            .with_body(b"not really a kpar")
+            .with_body(kpar_body)
             .expect_at_least(1)
             .create();
 
@@ -2289,12 +2291,14 @@ mod sources {
 
         let advertised_digest_hex = "0".repeat(64);
         let advertised = format!("sha256:{advertised_digest_hex}");
+        let kpar_body: &[u8] = b"not really a kpar";
 
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
             format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{advertised}"}}]}}"#,
+                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":{},"kpar_digest":"{advertised}"}}]}}"#,
+                kpar_body.len(),
             ),
         );
 
@@ -2307,7 +2311,7 @@ mod sources {
             .mock("GET", "/admin/proj0/0.3.0/project.kpar")
             .with_status(200)
             .with_header("content-type", "application/zip")
-            .with_body(b"not really a kpar")
+            .with_body(kpar_body)
             .expect_at_least(1)
             .create();
 

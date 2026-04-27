@@ -114,7 +114,7 @@ where
     KParPathStorage: ProjectRead,
     CreateRemoteKParStorage: Fn(String) -> Result<RemoteKParStorage, UrlParseError>,
     RemoteKParStorage: ProjectRead,
-    CreateIndexKParStorage: Fn(String, String) -> Result<IndexKParStorage, UrlParseError>,
+    CreateIndexKParStorage: Fn(String, u64, String) -> Result<IndexKParStorage, UrlParseError>,
     IndexKParStorage: ProjectRead,
     CreateRemoteGitStorage: Fn(String) -> Result<RemoteGitStorage, GitError>,
     RemoteGitStorage: ProjectRead,
@@ -237,7 +237,7 @@ where
                 }
                 Source::IndexKpar {
                     index_kpar,
-                    index_kpar_size: _,
+                    index_kpar_size,
                     index_kpar_digest,
                 } => {
                     let uri = main_uri.as_ref().ok_or_else(|| {
@@ -246,10 +246,12 @@ where
                     let index_kpar_storage = index_kpar_storage
                         .as_ref()
                         .ok_or_else(|| SyncError::MissingIndexKparStorage(uri.as_str().into()))?;
-                    let storage = index_kpar_storage(index_kpar.clone(), index_kpar_digest.clone())
-                        .map_err(|e| {
-                            SyncError::InvalidRemoteSource(index_kpar.as_str().into(), e)
-                        })?;
+                    let storage = index_kpar_storage(
+                        index_kpar.clone(),
+                        *index_kpar_size,
+                        index_kpar_digest.clone(),
+                    )
+                    .map_err(|e| SyncError::InvalidRemoteSource(index_kpar.as_str().into(), e))?;
                     log::debug!("trying to install `{uri}` from index_kpar: {index_kpar}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }

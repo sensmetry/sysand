@@ -68,6 +68,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         ),
         Some(
             |index_kpar: String,
+             index_kpar_size: u64,
              index_kpar_digest: String|
              -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>, ParseError> {
                 let project = ReqwestKparDownloadedProject::new_guess_root(
@@ -76,6 +77,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     auth_policy.clone(),
                 )
                 .unwrap()
+                .with_expected_size(index_kpar_size)
                 .with_expected_sha256_hex(index_kpar_digest);
                 Ok(project.to_tokio_sync(runtime.clone()))
             },

@@ -103,7 +103,8 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         auth_policy: Arc<Policy>,
     ) -> Result<Self, IndexEntryProjectError> {
         Ok(Self {
-            archive: ReqwestKparDownloadedProject::new(kpar_url, client, auth_policy)?,
+            archive: ReqwestKparDownloadedProject::new(kpar_url, client, auth_policy)?
+                .with_expected_size(advertised.kpar_size),
             advertised,
             project_json_url,
             meta_json_url,

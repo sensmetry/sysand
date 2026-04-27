@@ -271,3 +271,67 @@ fn test_unverified_then_verified_does_not_short_circuit() -> Result<(), Box<dyn 
 
     Ok(())
 }
+
+#[test]
+fn test_expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::Error>> {
+    use sha2::{Digest as _, Sha256};
+
+    let kpar_bytes = {
+        let mut cursor = std::io::Cursor::new(vec![]);
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .unix_permissions(0o755);
+        zip.start_file("root/.project.json", options)?;
+        zip.write_all(br#"{"name":"size-mismatch","version":"1.0.0","usage":[]}"#)?;
+        zip.start_file("root/.meta.json", options)?;
+        zip.write_all(br#"{"index":{},"created":"x"}"#)?;
+        zip.finish().unwrap();
+        cursor.flush()?;
+        cursor.into_inner()
+    };
+    let expected_digest = format!("{:x}", Sha256::digest(&kpar_bytes));
+    let wrong_size = kpar_bytes.len() as u64 - 1;
+
+    let mut server = mockito::Server::new();
+    let url = reqwest::Url::parse(&server.url())?;
+
+    let get_kpar = server
+        .mock("GET", "/size-mismatch.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/zip")
+        .with_body(&kpar_bytes)
+        .expect(1)
+        .create();
+
+    let project = super::ReqwestKparDownloadedProject::new_guess_root(
+        format!("{url}size-mismatch.kpar"),
+        create_reqwest_client()?,
+        Arc::new(Unauthenticated {}),
+    )?
+    .with_expected_size(wrong_size);
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(async {
+        match project.ensure_downloaded_verified(&expected_digest).await {
+            Err(ReqwestKparDownloadedError::SizeMismatch {
+                expected, actual, ..
+            }) => {
+                assert_eq!(expected, wrong_size);
+                assert_eq!(actual, kpar_bytes.len() as u64);
+            }
+            other => panic!("expected SizeMismatch for wrong kpar size, got {other:?}"),
+        }
+    });
+
+    assert!(
+        !project.is_downloaded(),
+        "size-mismatched bytes must not be promoted to final archive path"
+    );
+    get_kpar.assert();
+
+    Ok(())
+}

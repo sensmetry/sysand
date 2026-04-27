@@ -44,6 +44,10 @@ pub struct ReqwestKparDownloadedProject<Policy> {
     /// instance to enforce archive verification before exposing project
     /// contents (e.g. lockfile-driven `sync`).
     expected_sha256_hex: Option<String>,
+    /// Optional expected archive byte length. Index-backed kpars carry this
+    /// in the lockfile / versions index; enforce it while streaming so a
+    /// malicious server cannot exhaust disk before the digest check fails.
+    expected_size: Option<u64>,
     /// Fans concurrent `ensure_downloaded*` calls on the same instance
     /// into a single download — without this, racing tasks would both
     /// truncate the staging file and interleave writes, potentially
@@ -87,6 +91,12 @@ pub enum ReqwestKparDownloadedError {
         expected: String,
         computed: String,
     },
+    #[error("kpar at `{url}` has size {actual} bytes but the expected size was {expected} bytes")]
+    SizeMismatch {
+        url: Box<str>,
+        expected: u64,
+        actual: u64,
+    },
 }
 
 impl From<FsIoError> for ReqwestKparDownloadedError {
@@ -119,6 +129,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             client,
             auth_policy,
             expected_sha256_hex: None,
+            expected_size: None,
             downloaded: tokio::sync::OnceCell::new(),
             verified: tokio::sync::OnceCell::new(),
         })
@@ -126,6 +137,11 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
 
     pub fn with_expected_sha256_hex<S: AsRef<str>>(mut self, expected_sha256_hex: S) -> Self {
         self.expected_sha256_hex = Some(expected_sha256_hex.as_ref().to_owned());
+        self
+    }
+
+    pub fn with_expected_size(mut self, expected_size: u64) -> Self {
+        self.expected_size = Some(expected_size);
         self
     }
 
@@ -178,7 +194,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
     /// digest to check against.
     pub async fn ensure_downloaded(&self) -> Result<(), ReqwestKparDownloadedError> {
         self.downloaded
-            .get_or_try_init(|| self.perform_download(None))
+            .get_or_try_init(|| self.perform_download(None, self.expected_size))
             .await?;
         Ok(())
     }
@@ -224,6 +240,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
                     // A prior *unverified* download already renamed
                     // bytes into place. Re-hash the on-disk file to
                     // publish the authoritative digest.
+                    self.verify_archive_size()?;
                     return hash_archive_sha256_hex(&self.inner.archive_path);
                 }
                 // No prior download. Download with inline verification
@@ -232,7 +249,9 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
                 // aborts before the atomic rename on digest mismatch,
                 // leaving `downloaded` uninitialized (retry-safe).
                 self.downloaded
-                    .get_or_try_init(|| self.perform_download(Some(expected_sha256_hex)))
+                    .get_or_try_init(|| {
+                        self.perform_download(Some(expected_sha256_hex), self.expected_size)
+                    })
                     .await?;
                 // Either our download succeeded (so `expected` matches
                 // the bytes on disk) or a concurrent caller raced past
@@ -268,6 +287,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
     async fn perform_download(
         &self,
         expected_digest: Option<&str>,
+        expected_size: Option<u64>,
     ) -> Result<(), ReqwestKparDownloadedError> {
         use futures::StreamExt as _;
 
@@ -287,16 +307,53 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             });
         }
 
+        if let (Some(actual), Some(expected)) = (resp.content_length(), expected_size)
+            && actual != expected
+        {
+            return Err(ReqwestKparDownloadedError::SizeMismatch {
+                url: self.url.as_str().into(),
+                expected,
+                actual,
+            });
+        }
+
         let mut bytes_stream = resp.bytes_stream();
         let mut hasher = expected_digest.map(|_| Sha256::new());
+        let mut written = 0_u64;
 
         while let Some(bytes) = bytes_stream.next().await {
             let bytes = bytes.map_err(ReqwestKparDownloadedError::Reqwest)?;
+            written = written.checked_add(bytes.len() as u64).ok_or_else(|| {
+                ReqwestKparDownloadedError::SizeMismatch {
+                    url: self.url.as_str().into(),
+                    expected: expected_size.unwrap_or(u64::MAX),
+                    actual: u64::MAX,
+                }
+            })?;
+            if let Some(expected) = expected_size
+                && written > expected
+            {
+                return Err(ReqwestKparDownloadedError::SizeMismatch {
+                    url: self.url.as_str().into(),
+                    expected,
+                    actual: written,
+                });
+            }
             if let Some(h) = hasher.as_mut() {
                 h.update(&bytes);
             }
             file.write_all(&bytes)
                 .map_err(|e| FsIoError::WriteFile(staging_path.clone(), e))?;
+        }
+
+        if let Some(expected) = expected_size
+            && written != expected
+        {
+            return Err(ReqwestKparDownloadedError::SizeMismatch {
+                url: self.url.as_str().into(),
+                expected,
+                actual: written,
+            });
         }
 
         // Verify before any sync_all/rename so a mismatched archive never
@@ -318,6 +375,21 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
 
         crate::env::local_directory::utils::move_fs_item(&staging_path, final_path)?;
 
+        Ok(())
+    }
+
+    fn verify_archive_size(&self) -> Result<(), ReqwestKparDownloadedError> {
+        let Some(expected) = self.expected_size else {
+            return Ok(());
+        };
+        let actual = self.inner.file_size()?;
+        if actual != expected {
+            return Err(ReqwestKparDownloadedError::SizeMismatch {
+                url: self.url.as_str().into(),
+                expected,
+                actual,
+            });
+        }
         Ok(())
     }
 }
