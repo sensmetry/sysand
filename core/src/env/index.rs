@@ -161,7 +161,7 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
 /// "project not in this index" 404 outcome (§8) is intentionally not
 /// cached so a later publish to the same index becomes visible without
 /// restart.
-pub(crate) type VersionsCacheEntry = Rc<Vec<AdvertisedVersion>>;
+pub(crate) type VersionsCacheEntry = Rc<[AdvertisedVersion]>;
 
 /// Per-IRI lazy cache cell. `None` represents a 404 response and is
 /// removed from `versions_cache` immediately after observation so absence
@@ -525,7 +525,7 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
     async fn fetch_versions_json<S: AsRef<str>>(
         &self,
         iri: S,
-    ) -> Result<Option<Rc<Vec<AdvertisedVersion>>>, IndexEnvironmentError> {
+    ) -> Result<Option<Rc<[AdvertisedVersion]>>, IndexEnvironmentError> {
         let iri_key = iri.as_ref();
         // Hold the global cache lock only long enough to find/create the
         // per-IRI cell. The cell, not the map mutex, serializes same-IRI
@@ -593,8 +593,8 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
 fn validate_versions(
     url: &url::Url,
     vs: VersionsJson,
-) -> Result<Vec<AdvertisedVersion>, IndexEnvironmentError> {
-    let validated: Vec<AdvertisedVersion> =
+) -> Result<Rc<[AdvertisedVersion]>, IndexEnvironmentError> {
+    let validated: Rc<[AdvertisedVersion]> =
         vs.versions
             .into_iter()
             .map(|entry| {
