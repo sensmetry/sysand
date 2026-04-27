@@ -28,7 +28,8 @@
 //!   check.
 //! - **`project_digest` MUST be verified before exposing
 //!   `.project.json` or `.meta.json` to callers.** A mismatch surfaces
-//!   as `AdvertisedDigestDrift` and neither document is released.
+//!   as `AdvertisedDigestDrift`; metadata that would require source reads
+//!   to canonicalize is rejected before either document is released.
 //! - **Redirects are followed on every resource** (index docs and
 //!   the discovery fetch alike); `reqwest`'s default policy applies.
 //! - **Unknown JSON fields are silently ignored** for forward
@@ -43,8 +44,8 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, project_hash_raw},
     project::{
-        ProjectRead, canonical_project_digest_inline, index_entry::IndexEntryProjectError,
-        reqwest_kpar_download::ReqwestKparDownloadedError,
+        InlineProjectDigest, ProjectRead, canonical_project_digest_inline,
+        index_entry::IndexEntryProjectError, reqwest_kpar_download::ReqwestKparDownloadedError,
     },
     purl::PKG_SYSAND_PREFIX,
     resolve::net_utils::create_reqwest_client,
@@ -132,8 +133,9 @@ fn canonical_project_digest(
 ) -> Result<String, Box<dyn std::error::Error>> {
     let info: InterchangeProjectInfoRaw = serde_json::from_str(info_json)?;
     let meta: InterchangeProjectMetadataRaw = serde_json::from_str(meta_json)?;
-    let hash = canonical_project_digest_inline(&info, &meta)
-        .expect("canonical digest should be computable inline for this fixture");
+    let InlineProjectDigest::Computed(hash) = canonical_project_digest_inline(&info, &meta) else {
+        panic!("canonical digest should be computable inline for this fixture");
+    };
     Ok(format!("sha256:{:x}", hash))
 }
 
@@ -2016,9 +2018,9 @@ mod digest {
     fn test_get_project_rejects_non_sha256_meta_checksums() -> Result<(), Box<dyn std::error::Error>>
     {
         // A non-SHA256 `meta.checksum` entry makes the canonical digest
-        // uncomputable from (info, meta) alone — the client refuses to
-        // expose either document rather than silently skipping
-        // verification.
+        // require source reads. The index protocol requires verification
+        // from (info, meta) alone, so the client refuses to expose either
+        // document rather than silently skipping verification.
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -2049,13 +2051,8 @@ mod digest {
             .get_info()
             .expect_err("non-SHA256 meta.checksum must refuse to expose info/meta");
         match err {
-            IndexEntryProjectError::AdvertisedDigestDrift { computed, .. } => {
-                assert!(
-                    computed.contains("uncomputable"),
-                    "error must identify the non-SHA256 cause: {computed}"
-                );
-            }
-            other => panic!("expected AdvertisedDigestDrift, got {other:?}"),
+            IndexEntryProjectError::ProjectDigestRequiresSourceReads { .. } => {}
+            other => panic!("expected ProjectDigestRequiresSourceReads, got {other:?}"),
         }
 
         versions_mock.assert();

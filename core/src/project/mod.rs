@@ -56,30 +56,42 @@ pub mod reference;
 
 pub mod utils;
 
+/// Result of trying to compute the canonical project digest from
+/// `.project.json` and `.meta.json` alone.
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub(crate) enum InlineProjectDigest {
+    /// The digest is available without reading source files.
+    Computed(ProjectHash),
+    /// At least one metadata checksum uses a non-SHA256 algorithm, so
+    /// canonicalization would require reading source bytes.
+    RequiresSourceReads,
+}
+
 /// Attempts to compute the canonical project digest without reading any
 /// source files.
 ///
 /// Canonicalization (see [`ProjectRead::canonical_meta`]) lowercases SHA256
 /// checksum values and rewrites non-SHA256 checksum entries to SHA256 —
 /// the latter requires reading the corresponding source file. This helper
-/// handles the first case inline and signals the caller to defer to the
-/// full (source-reading) canonical digest path in the second case.
+/// handles the first case inline and returns
+/// [`InlineProjectDigest::RequiresSourceReads`] in the second case.
 ///
-/// Returns `Some(hash)` when every `meta.checksum` entry uses the `SHA256`
-/// algorithm (mixed-case hex values are lowercased inline before hashing).
-/// Returns `None` when at least one entry uses a non-SHA256 algorithm, since
-/// canonicalizing that entry would require reading its source.
+/// Returns [`InlineProjectDigest::Computed`] when every `meta.checksum` entry
+/// uses the `SHA256` algorithm (mixed-case hex values are lowercased inline
+/// before hashing).
 ///
 /// Callers verifying an advertised `project_digest` against a locally
 /// reconstructed (info, meta) pair should use this to perform the check
-/// without materializing the project's archive, and fall back to
-/// [`ProjectRead::checksum_canonical_hex`] / the async equivalent when this
-/// returns `None`.
+/// without materializing the project's archive. Callers that can read sources
+/// may fall back to [`ProjectRead::checksum_canonical_hex`] / the async
+/// equivalent when this returns [`InlineProjectDigest::RequiresSourceReads`];
+/// protocol surfaces that require `(info, meta)` to be self-verifying can
+/// reject that outcome explicitly.
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub(crate) fn canonical_project_digest_inline(
     info: &InterchangeProjectInfoRaw,
     meta: &InterchangeProjectMetadataRaw,
-) -> Option<ProjectHash> {
+) -> InlineProjectDigest {
     let sha256_alg: &str = KerMlChecksumAlg::Sha256.into();
 
     // Fast path: no checksums at all means canonical == raw.
@@ -89,7 +101,7 @@ pub(crate) fn canonical_project_digest_inline(
         .is_some_and(|entries| entries.values().any(|entry| entry.algorithm != sha256_alg));
 
     if needs_canonicalization {
-        return None;
+        return InlineProjectDigest::RequiresSourceReads;
     }
 
     let mut canonical = meta.clone();
@@ -101,7 +113,7 @@ pub(crate) fn canonical_project_digest_inline(
         }
     }
 
-    Some(project_hash_raw(info, &canonical))
+    InlineProjectDigest::Computed(project_hash_raw(info, &canonical))
 }
 
 fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, io::Error> {

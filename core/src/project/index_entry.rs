@@ -31,7 +31,9 @@
 //!   error surface for digest mismatches, raised both pre-download (from
 //!   the inline canonical digest — see
 //!   [`crate::project::canonical_project_digest_inline`]) and post-download
-//!   (authoritative check using the downloaded archive).
+//!   (authoritative check using the downloaded archive). If the inline
+//!   digest requires source reads, the project is rejected with
+//!   [`IndexEntryProjectError::ProjectDigestRequiresSourceReads`] instead.
 
 use std::sync::Arc;
 
@@ -45,7 +47,8 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw},
     project::{
-        CanonicalizationError, ProjectReadAsync, canonical_project_digest_inline,
+        CanonicalizationError, InlineProjectDigest, ProjectReadAsync,
+        canonical_project_digest_inline,
         reqwest_kpar_download::{ReqwestKparDownloadedError, ReqwestKparDownloadedProject},
     },
 };
@@ -78,6 +81,11 @@ pub enum IndexEntryProjectError {
         expected: String,
         computed: String,
     },
+    #[error(
+        "project at `{url}` cannot be verified from `.project.json` and `.meta.json` alone \
+         because `.meta.json` contains a non-SHA256 source checksum"
+    )]
+    ProjectDigestRequiresSourceReads { url: Box<str> },
     #[error(transparent)]
     Downloaded(#[from] ReqwestKparDownloadedError),
 }
@@ -135,22 +143,18 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
                     self.fetch_required_json(self.meta_json_url.clone()),
                 )?;
 
-                // Pre-expose digest check (see module doc). A `None`
-                // return from `canonical_project_digest_inline` means
-                // `.meta.json` carries a non-SHA256 checksum entry
-                // whose canonical form would require reading source
-                // bytes from the kpar — a protocol violation, since
-                // the canonical form is defined to be computable from
-                // (info, meta) alone. Refuse to expose the document
-                // rather than silently skipping verification.
-                let Some(hash) = canonical_project_digest_inline(&info, &meta) else {
-                    return Err(IndexEntryProjectError::AdvertisedDigestDrift {
-                        url: self.project_json_url.as_str().into(),
-                        expected: self.advertised.project_digest.as_hex().to_string(),
-                        computed: "<uncomputable: meta.checksum uses an \
-                                   unsupported (non-SHA256) algorithm>"
-                            .to_string(),
-                    });
+                // Pre-expose digest check (see module doc). The index
+                // protocol requires `project_digest` to be verifiable from
+                // (info, meta) alone; source-reading canonicalization is not
+                // a valid fallback here because callers receive info/meta
+                // before any kpar bytes are exposed.
+                let hash = match canonical_project_digest_inline(&info, &meta) {
+                    InlineProjectDigest::Computed(hash) => hash,
+                    InlineProjectDigest::RequiresSourceReads => {
+                        return Err(IndexEntryProjectError::ProjectDigestRequiresSourceReads {
+                            url: self.project_json_url.as_str().into(),
+                        });
+                    }
                 };
                 let computed = format!("{:x}", hash);
                 if computed != self.advertised.project_digest.as_hex() {

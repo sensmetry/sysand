@@ -30,7 +30,7 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
     #[error("no IRI given for project with remote_kpar = `{0}` in lockfile")]
     MissingIriRemoteKparPath(Box<str>),
     #[error("no IRI given for project with index_kpar = `{0}` in lockfile")]
-    MissingIriIndexKparPath(Box<str>),
+    MissingIriIndexKparUrl(Box<str>),
     #[error("no IRI given for project with remote_git = `{0}` in lockfile")]
     MissingIriRemoteGitPath(Box<str>),
     #[error(
@@ -241,11 +241,11 @@ where
                     index_kpar_digest,
                 } => {
                     let uri = main_uri.as_ref().ok_or_else(|| {
-                        SyncError::MissingIriIndexKparPath(index_kpar.as_str().into())
+                        SyncError::MissingIriIndexKparUrl(index_kpar.as_str().into())
                     })?;
-                    let index_kpar_storage = index_kpar_storage.as_ref().ok_or_else(|| {
-                        SyncError::MissingIndexKparStorage(index_kpar.as_str().into())
-                    })?;
+                    let index_kpar_storage = index_kpar_storage
+                        .as_ref()
+                        .ok_or_else(|| SyncError::MissingIndexKparStorage(uri.as_str().into()))?;
                     let storage = index_kpar_storage(index_kpar.clone(), index_kpar_digest.clone())
                         .map_err(|e| {
                             SyncError::InvalidRemoteSource(index_kpar.as_str().into(), e)
