@@ -103,15 +103,20 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     // Each user-configured URL is a **discovery root**: fetch
     // `sysand-index-config.json` once here to resolve `index_root` /
     // `api_root` before any solver activity hits the index, then hand
-    // the resolved pair to the env constructor.
-    let envs: Vec<EnvResolver<IndexEnvironmentAsync<Policy>>> = urls
+    // the resolved pair to the env constructor. All discovery fetches
+    // run concurrently under a single `block_on` so total wall time is
+    // bounded by the slowest index rather than the sum.
+    let all_endpoints = runtime.block_on(futures::future::try_join_all(
+        urls.iter()
+            .map(|url| fetch_index_config(&client, &*auth_policy, url)),
+    ))?;
+    let envs: Vec<EnvResolver<IndexEnvironmentAsync<Policy>>> = all_endpoints
         .into_iter()
-        .map(|url| {
-            let endpoints = runtime.block_on(fetch_index_config(&client, &*auth_policy, &url))?;
+        .map(|endpoints| {
             let env = IndexEnvironmentAsync::new(client.clone(), auth_policy.clone(), endpoints);
-            Ok(EnvResolver { env })
+            EnvResolver { env }
         })
-        .collect::<Result<_, DiscoveryError>>()?;
+        .collect();
     Ok(SequentialResolver::new(envs).to_tokio_sync(runtime))
 }
 

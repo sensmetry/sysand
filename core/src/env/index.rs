@@ -56,9 +56,9 @@ use sha2::Sha256;
 use thiserror::Error;
 
 use crate::{
-    auth::{HTTPAuthentication, StandardHTTPAuthentication},
+    auth::HTTPAuthentication,
     env::{
-        AsSyncEnvironmentTokio, ReadEnvironmentAsync,
+        ReadEnvironmentAsync,
         discovery::{DiscoveryError, ResolvedEndpoints},
         iri_normalize::normalize_iri_for_hash,
         segment_uri_generic,
@@ -71,10 +71,7 @@ use crate::{
 
 const IRI_HASH_SEGMENT: &str = "_iri";
 
-
-/// Async HTTP client for the sysand index protocol. This is the
-/// authoritative implementation; [`IndexEnvironment`] is just a
-/// blocking wrapper around it.
+/// Async HTTP client for the sysand index protocol.
 ///
 /// Resolves IRIs as follows:
 ///

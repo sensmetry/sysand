@@ -22,27 +22,45 @@ use fluent_uri::{Iri, ParseError, component::Host};
 use crate::resolve::reqwest_http::{SCHEME_HTTP, SCHEME_HTTPS};
 
 /// Canonicalize `iri` into the form that will be SHA-256'd to build the
-/// `_iri/<hash>` bucket name. Returns a parsed `Iri<String>` so the
-/// IRI-ness survives the round-trip in the type (callers hashing the
-/// result take `.as_str()`); returns an error if the host fails IDN
-/// conversion.
+/// `_iri/<hash>` bucket name. Returns the canonicalized serialization as
+/// a `String`; returns an error if the host fails IDN conversion.
 ///
 /// `iri` is taken by value: `Iri<&str>` wraps a `&str` so the move is
 /// essentially free, and no caller reuses the parsed form after
 /// handing it in.
-pub(crate) fn normalize_iri_for_hash(iri: Iri<&str>) -> Result<Iri<String>, IriNormalizeError> {
+pub(crate) fn normalize_iri_for_hash(iri: Iri<&str>) -> Result<String, IriNormalizeError> {
     let normalized = iri.normalize();
     let with_idn = punycode_host(&normalized)?;
-    let final_string = ensure_http_root_path(&normalized, &with_idn).unwrap_or(with_idn);
+
+    // For `http`/`https` with an empty path, WHATWG URL serialization
+    // produces a `/` before any query/fragment; `fluent_uri::normalize`
+    // deliberately leaves the path untouched, so apply the fixup here.
+    // Scheme and path are read from `normalized` because `punycode_host`
+    // only edits the host — scheme and path are bytewise identical in
+    // `normalized` and `with_idn`, so reading them from either is fine.
+    let scheme = normalized.scheme();
+    let needs_root_slash =
+        (scheme == SCHEME_HTTP || scheme == SCHEME_HTTPS) && normalized.path().as_str().is_empty();
+    let final_string = if needs_root_slash {
+        match with_idn.find(['?', '#']) {
+            Some(i) => format!("{}/{}", &with_idn[..i], &with_idn[i..]),
+            None => format!("{with_idn}/"),
+        }
+    } else {
+        with_idn
+    };
+
     // The three pipeline stages each preserve RFC 3987 IRI validity:
     // `Iri::normalize` is a syntax-based rewrite, `domain_to_ascii`
-    // replaces only the RegName host with an ASCII Punycode label,
-    // and the HTTP-root fixup only inserts `/` into an already
-    // structurally valid IRI. Re-parsing is therefore infallible by
-    // construction; expect() lets the returned type carry the
-    // invariant.
-    Ok(Iri::parse(final_string)
-        .expect("normalization pipeline output is RFC 3987 IRI-valid by construction"))
+    // replaces only the RegName host with an ASCII Punycode label, and
+    // the HTTP-root fixup only inserts `/` into an already structurally
+    // valid IRI. Re-parsing is therefore infallible by construction;
+    // the debug-assert guards against a regression in any of those stages.
+    debug_assert!(
+        Iri::parse(final_string.as_str()).is_ok(),
+        "normalization pipeline output is RFC 3987 IRI-valid by construction"
+    );
+    Ok(final_string)
 }
 
 /// Replace a non-ASCII RegName host with its `domainToASCII` (Punycode) form.
@@ -72,24 +90,6 @@ fn punycode_host(iri: &Iri<String>) -> Result<String, IriNormalizeError> {
         ascii_host,
         &s[host_end..]
     ))
-}
-
-/// For `http` / `https` IRIs with an empty path, insert `/` before any query
-/// or fragment. `fluent_uri::normalize` deliberately leaves the empty path
-/// untouched; WHATWG URL serialization produces the slash. Scheme and path
-/// are read from `iri` (a preceding host rewrite does not affect either), so
-/// no re-parse of `s` is needed. Returns `Some(new)` with the fixup applied,
-/// or `None` when no change is needed.
-fn ensure_http_root_path(iri: &Iri<String>, s: &str) -> Option<String> {
-    let scheme = iri.scheme();
-    let is_http = scheme == SCHEME_HTTP || scheme == SCHEME_HTTPS;
-    if !is_http || !iri.path().as_str().is_empty() {
-        return None;
-    }
-    Some(match s.find(['?', '#']) {
-        Some(i) => format!("{}/{}", &s[..i], &s[i..]),
-        None => format!("{s}/"),
-    })
 }
 
 #[derive(Debug, thiserror::Error)]

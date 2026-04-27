@@ -61,13 +61,13 @@ fields:
 - `api_root` — base URL of the sysand index API (where `v1/upload` and
   other endpoints live). When absent, defaults to the discovery root.
 
-`index_root` and `api_root`, when present, MUST be absolute URLs
-([RFC 3986 §4.3][rfc3986-43]: scheme + hier-part, no relative
-references). Clients MUST reject a discovery document that supplies a
-relative URL for either field rather than attempting to resolve it
-against the discovery root or the final URL of the discovery-document
-fetch. Relative URLs are excluded to avoid ambiguity around the
-resolution base after redirects.
+`index_root` and `api_root`, when present, MUST be absolute `http` or
+`https` URLs ([RFC 3986 §4.3][rfc3986-43]: scheme + hier-part, no
+relative references). Clients MUST reject a discovery document that
+supplies a relative URL for either field rather than attempting to
+resolve it against the discovery root or the final URL of the
+discovery-document fetch — relative URLs are excluded to avoid
+ambiguity around the resolution base after redirects.
 
 If the discovery document is absent (HTTP 404) the client proceeds as
 though it were present with no fields set: `index_root` and `api_root`

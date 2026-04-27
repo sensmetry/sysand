@@ -16,10 +16,11 @@
 //! - Other non-2xx → hard error. The client cannot differentiate a
 //!   misconfigured discovery root from a broken server.
 //!
-//! `index_root` and `api_root`, when present, MUST be absolute URLs.
-//! Relative URLs are rejected rather than resolved against the discovery
-//! root or the final URL of the discovery fetch — this deliberately avoids
-//! the ambiguity that comes with relative URLs after redirects.
+//! `index_root` and `api_root`, when present, MUST be absolute `http`
+//! or `https` URLs. Relative URLs are rejected rather than resolved
+//! against the discovery root or the final URL of the discovery fetch
+//! — this deliberately avoids the ambiguity that comes with relative
+//! URLs after redirects.
 //!
 //! Clients MUST follow HTTP redirects on the discovery fetch; the
 //! underlying `reqwest` middleware applies its default redirect policy
@@ -146,19 +147,31 @@ pub enum DiscoveryError {
     Fetch(#[from] HttpFetchError),
     #[error(
         "discovery document at `{url}` supplied a relative URL `{value}` for `{field}`; \
-         absolute URLs are required"
+         absolute HTTP(S) URLs are required"
     )]
     RelativeUrl {
         url: Box<str>,
         field: &'static str,
         value: String,
     },
-    #[error("discovery document at `{url}` supplied an invalid URL for `{field}`: {source}")]
+    #[error(
+        "discovery document at `{url}` supplied an invalid URL `{value}` for `{field}`: {source}"
+    )]
     InvalidUrl {
         url: Box<str>,
         field: &'static str,
+        value: String,
         #[source]
         source: url::ParseError,
+    },
+    #[error(
+        "discovery document at `{url}` supplied a non-HTTP(S) URL `{value}` for `{field}`; \
+         only `http` and `https` are supported"
+    )]
+    UnsupportedScheme {
+        url: Box<str>,
+        field: &'static str,
+        value: String,
     },
 }
 
@@ -180,6 +193,7 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
         .map_err(|source| DiscoveryError::InvalidUrl {
             url: discovery_root.as_str().into(),
             field: "<discovery_root>",
+            value: discovery_root.as_str().to_owned(),
             source,
         })?;
 
@@ -190,24 +204,30 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
         return Ok(ResolvedEndpoints::flat(directory_root));
     };
 
-    let parse_field = |field: &'static str, value: &Option<String>, default: &url::Url| {
-        let Some(s) = value.as_ref() else {
+    let parse_field = |field: &'static str, value: Option<String>, default: &url::Url| {
+        let Some(s) = value else {
             return Ok(default.clone());
         };
-        let parsed = url::Url::parse(s).map_err(|source| DiscoveryError::InvalidUrl {
-            url: config_url.as_str().into(),
-            field,
-            source,
-        })?;
-        if parsed.cannot_be_a_base() || !parsed.has_host() {
-            // Defensive: `url::Url::parse` rejects most relative forms
-            // outright, but `urn:…` / `data:…` style non-hierarchical
-            // schemes parse successfully as "cannot be a base" URLs.
-            // Those aren't valid `index_root` / `api_root` bases either.
-            return Err(DiscoveryError::RelativeUrl {
+        let parsed = match url::Url::parse(&s) {
+            Ok(parsed) => parsed,
+            Err(source) => {
+                return Err(DiscoveryError::InvalidUrl {
+                    url: config_url.as_str().into(),
+                    field,
+                    value: s,
+                    source,
+                });
+            }
+        };
+        // Requiring an `http`/`https` scheme covers both the relative-
+        // URL case (relative inputs fail to parse and never reach here)
+        // and the non-hierarchical-scheme case (`urn:…`, `data:…`),
+        // since the only schemes the index client speaks are HTTP(S).
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(DiscoveryError::UnsupportedScheme {
                 url: config_url.as_str().into(),
                 field,
-                value: s.clone(),
+                value: s,
             });
         }
         Ok(with_trailing_slash(parsed))
@@ -217,22 +237,20 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
     // `Err(RelativeUrlWithoutBase)` — map that specifically to
     // `RelativeUrl` so the error is actionable.
     let parse_or_relative =
-        |field: &'static str, value: &Option<String>, default: &url::Url| match parse_field(
+        |field: &'static str, value: Option<String>, default: &url::Url| match parse_field(
             field, value, default,
         ) {
             Err(DiscoveryError::InvalidUrl {
-                source: url::ParseError::RelativeUrlWithoutBase,
-                ..
-            }) => Err(DiscoveryError::RelativeUrl {
-                url: config_url.as_str().into(),
+                url,
                 field,
-                value: value.clone().unwrap_or_default(),
-            }),
+                value,
+                source: url::ParseError::RelativeUrlWithoutBase,
+            }) => Err(DiscoveryError::RelativeUrl { url, field, value }),
             other => other,
         };
 
-    let index_root = parse_or_relative("index_root", &raw.index_root, &directory_root)?;
-    let api_root = parse_or_relative("api_root", &raw.api_root, &directory_root)?;
+    let index_root = parse_or_relative("index_root", raw.index_root, &directory_root)?;
+    let api_root = parse_or_relative("api_root", raw.api_root, &directory_root)?;
 
     Ok(ResolvedEndpoints {
         index_root,
