@@ -97,15 +97,19 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
             )),
             Source::IndexKpar {
                 index_kpar,
+                index_kpar_size,
                 index_kpar_digest,
-                ..
             } => Ok(AnyProject::RemoteKpar(
                 ReqwestKparDownloadedProject::<Policy>::new_guess_root(
                     index_kpar,
                     client,
                     auth_policy,
                 )
-                .map(|project| project.with_expected_sha256_hex(index_kpar_digest))
+                .map(|project| {
+                    project
+                        .with_expected_size(index_kpar_size)
+                        .with_expected_sha256_hex(index_kpar_digest)
+                })
                 .map_err(TryFromSourceError::RemoteKpar)?
                 .to_tokio_sync(runtime),
             )),

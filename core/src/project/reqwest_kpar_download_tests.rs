@@ -8,6 +8,8 @@ use std::{
 
 use crate::{
     auth::Unauthenticated,
+    context::ProjectContext,
+    lock::Source,
     project::{ProjectRead, ProjectReadAsync, reqwest_kpar_download::ReqwestKparDownloadedError},
     resolve::net_utils::create_reqwest_client,
 };
@@ -332,6 +334,37 @@ fn test_expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::err
         "size-mismatched bytes must not be promoted to final archive path"
     );
     get_kpar.assert();
+
+    Ok(())
+}
+
+#[test]
+fn test_index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::error::Error>> {
+    let index_kpar = "https://example.com/project.kpar";
+    let index_kpar_size = 1234;
+    let index_kpar_digest = "a".repeat(64);
+
+    let project = super::ReqwestKparDownloadedProject::new_guess_root(
+        index_kpar,
+        create_reqwest_client()?,
+        Arc::new(Unauthenticated {}),
+    )?
+    .with_expected_size(index_kpar_size)
+    .with_expected_sha256_hex(&index_kpar_digest);
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let sources = runtime.block_on(project.sources_async(&ProjectContext::default()))?;
+
+    assert_eq!(
+        sources,
+        vec![Source::IndexKpar {
+            index_kpar: index_kpar.to_string(),
+            index_kpar_size,
+            index_kpar_digest,
+        }]
+    );
 
     Ok(())
 }
