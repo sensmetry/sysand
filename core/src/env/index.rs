@@ -542,7 +542,7 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
                 {
                     Some(parsed) => {
                         let validated = validate_versions(&url, parsed)?;
-                        Some(Rc::clone(vacant.insert_entry(Rc::new(validated)).get()))
+                        Some(Rc::clone(vacant.insert_entry(validated).get()))
                     }
                     None => None,
                 }
@@ -619,7 +619,7 @@ fn validate_versions(
     // reach `resolve_candidates` would leak non-determinism into
     // pubgrub, so reject here.
     let mut seen = std::collections::HashSet::new();
-    for v in &validated {
+    for v in validated.iter() {
         if !seen.insert(v.version.clone()) {
             return Err(IndexEnvironmentError::DuplicateVersion {
                 url: url.as_str().into(),
