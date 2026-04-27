@@ -182,17 +182,15 @@ pub enum ValidationError {
     //     project_with_name: String,
     // },
     #[error(
-        "invalid format of canonical project-digest `{checksum}` for {project_with_name} in lockfile"
+        "invalid format of canonical project-digest `{digest}` for {project_with_name} in lockfile"
     )]
     InvalidProjectDigestFormat {
-        checksum: String,
+        digest: String,
         project_with_name: String,
     },
-    #[error(
-        "invalid format of `index_kpar_digest` `{checksum}` for {project_with_name} in lockfile"
-    )]
+    #[error("invalid format of `index_kpar_digest` `{digest}` for {project_with_name} in lockfile")]
     InvalidIndexKparDigestFormat {
-        checksum: String,
+        digest: String,
         project_with_name: String,
     },
 }
@@ -274,8 +272,8 @@ impl Lock {
         self.validate_lock_version()?;
         self.check_name_collision()?;
         self.validate_usages()?;
-        self.validate_checksum_format()?;
-        self.validate_source_checksum_format()?;
+        self.validate_project_digest_format()?;
+        self.validate_source_digest_format()?;
         Ok(())
     }
 
@@ -343,12 +341,12 @@ impl Lock {
         Ok(())
     }
 
-    fn validate_checksum_format(&self) -> Result<(), ValidationError> {
+    fn validate_project_digest_format(&self) -> Result<(), ValidationError> {
         for project in &self.projects {
-            let cs = &project.checksum;
-            if cs.len() != 64 || !cs.bytes().all(|c| c.is_ascii_hexdigit()) {
+            let digest = &project.checksum;
+            if digest.len() != 64 || !digest.bytes().all(|c| c.is_ascii_hexdigit()) {
                 return Err(ValidationError::InvalidProjectDigestFormat {
-                    checksum: cs.clone(),
+                    digest: digest.clone(),
                     project_with_name: project_with(project.name.clone()),
                 });
             }
@@ -356,7 +354,7 @@ impl Lock {
         Ok(())
     }
 
-    fn validate_source_checksum_format(&self) -> Result<(), ValidationError> {
+    fn validate_source_digest_format(&self) -> Result<(), ValidationError> {
         for project in &self.projects {
             for source in &project.sources {
                 let Source::IndexKpar {
@@ -371,7 +369,7 @@ impl Lock {
                     continue;
                 }
                 return Err(ValidationError::InvalidIndexKparDigestFormat {
-                    checksum: index_kpar_digest.clone(),
+                    digest: index_kpar_digest.clone(),
                     project_with_name: project
                         .identifiers
                         .first()

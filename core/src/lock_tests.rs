@@ -736,13 +736,13 @@ fn validate_checksum() {
         panic!()
     };
     let ValidationError::InvalidProjectDigestFormat {
-        checksum,
+        digest,
         project_with_name,
     } = err
     else {
         panic!()
     };
-    assert_eq!(checksum, invalid_checksum);
+    assert_eq!(digest, invalid_checksum);
     assert_eq!(project_with_name, project_with::<Infallible>(None));
 }
 

@@ -304,7 +304,7 @@ Sysand-core specifics that aren't part of the protocol:
   internal `OnceCell`; and `project.kpar` is verified against the
   advertised `kpar_digest` during the streamed download (see
   `core/src/project/reqwest_kpar_download.rs`).
-- Because the kpar isn't on disk during resolution, `Source::RemoteKpar`
-  populates `remote_kpar_size` directly from `versions.json`'s
-  `kpar_size`, so lockfile writing records the archive size without a
+- Because the kpar isn't on disk during resolution, `Source::IndexKpar`
+  populates `index_kpar_size` and `index_kpar_digest` directly from
+  `versions.json`, so lockfile writing records archive metadata without a
   HEAD round-trip.

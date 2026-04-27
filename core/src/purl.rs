@@ -15,7 +15,7 @@ use thiserror::Error;
 
 /// The `pkg:sysand/` URI scheme prefix. A `pkg:sysand` IRI is required to
 /// have exactly two slash-separated segments (`<publisher>/<name>`) after
-/// this prefix, both passing [`is_normalized_field`] for their respective
+/// this prefix, both passing [`is_valid_field`] for their respective
 /// [`FieldKind`].
 pub const PKG_SYSAND_PREFIX: &str = "pkg:sysand/";
 
@@ -30,7 +30,7 @@ pub enum FieldKind {
 }
 
 impl FieldKind {
-    fn dot_is_separator(self) -> bool {
+    fn allows_dot_separator(self) -> bool {
         self == FieldKind::Name
     }
 }
@@ -61,7 +61,7 @@ pub fn is_valid_field(s: &str, kind: FieldKind) -> bool {
             continue;
         }
 
-        let is_separator = b == b'-' || b == b' ' || (kind.dot_is_separator() && b == b'.');
+        let is_separator = b == b'-' || b == b' ' || (kind.allows_dot_separator() && b == b'.');
         if !is_separator {
             return false;
         }

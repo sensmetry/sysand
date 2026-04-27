@@ -40,5 +40,6 @@ other.
 ## Status
 
 The sysand index API is in use today — `sysand publish` posts to
-`api/v1/upload` — but has not yet been written up as a standalone spec.
+`v1/upload` under the resolved `api_root` — but has not yet been written
+up as a standalone spec.
 This document will be populated as the API surface is formalized.

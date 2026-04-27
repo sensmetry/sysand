@@ -705,11 +705,8 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
         // Validate the requested version against the advertised set
-        // before constructing per-version leaf URLs — defense in depth
-        // so a malformed `version` argument (e.g. `"../evil"`) cannot
-        // be spliced into URL paths even though `Url::join` would
-        // otherwise resolve such a segment relative to the project
-        // base.
+        // before constructing per-version leaf URLs. We only fetch
+        // versions the index has explicitly listed in `versions.json`.
         let versions_url = self.endpoints.versions_url(uri.as_ref())?;
         // §8 — a `versions.json` 404 means the project is not in this
         // index. Surface it as a distinct `ProjectNotInIndex` error so

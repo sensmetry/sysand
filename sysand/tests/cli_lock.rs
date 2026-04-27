@@ -380,8 +380,7 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
     // accepts the download. Tests that need to exercise the canonicalization
     // step proper (mixed-case SHA256 hex values, non-SHA256 entries that get
     // rewritten on canonicalize) should compute the advertised digest with
-    // `canonical_project_digest_inline` instead — see Block T3 in the PR
-    // review for the gap.
+    // `canonical_project_digest_inline` instead.
     //
     // A regression in which the advertised digest cannot actually round-trip
     // through lock+sync (e.g. a non-deterministic fallback hash) would fail

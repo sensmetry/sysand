@@ -4,7 +4,7 @@
 use fluent_uri::Iri;
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
-    fmt::Debug,
+    fmt::{self, Debug},
 };
 
 #[cfg(feature = "filesystem")]
@@ -18,70 +18,27 @@ use crate::project::{editable::EditableProject, local_src::LocalSrcProject, util
 use crate::{
     context::ProjectContext,
     lock::{Lock, Project, Usage, hash_str},
-    model::{
-        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage,
-        InterchangeProjectValidationError,
-    },
+    model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{CanonicalizationError, ProjectRead, memory::InMemoryProject, utils::FsIoError},
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
 };
 
-/// The per-project trio every lockfile entry needs: the info/meta records
-/// the entry describes plus the canonical digest that identifies it. Both
-/// `do_lock_projects` (input-project path) and `do_lock_extend` (resolved
-/// dependency path) compute this same trio, which is why
-/// [`read_lock_entry_parts`] lives here — each caller differs only in
-/// which error variants to map into and how to label a project whose
-/// `info` hasn't been read yet.
-struct LockEntryParts {
-    info: InterchangeProjectInfoRaw,
-    meta: InterchangeProjectMetadataRaw,
-    canonical_digest: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncompleteField {
+    Info,
+    Meta,
+    CanonicalDigest,
 }
 
-/// Read `info` / `meta` / `canonical digest` from `project`, mapping each
-/// potential failure into the caller's error type via the four closures:
-///
-/// - `identifier`: produces a human-readable project id for
-///   `IncompleteProject` messages. Called with `None` before `info` is
-///   known (caller decides a fallback — an IRI, a workspace path, etc.),
-///   and with `Some(&info)` afterwards so the message can name the project
-///   precisely.
-/// - `on_project_err`: lifts `P::Error` into the caller's error (e.g.
-///   `LockError::DependencyProject`).
-/// - `on_canon_err`: lifts `CanonicalizationError<P::Error>` similarly.
-/// - `on_incomplete`: constructs the "missing field" error variant.
-fn read_lock_entry_parts<P, E>(
-    project: &P,
-    identifier: impl Fn(Option<&InterchangeProjectInfoRaw>) -> String,
-    on_project_err: impl Fn(P::Error) -> E,
-    on_canon_err: impl FnOnce(CanonicalizationError<P::Error>) -> E,
-    on_incomplete: impl Fn(String, &'static str) -> E,
-) -> Result<LockEntryParts, E>
-where
-    P: ProjectRead,
-{
-    let info = project
-        .get_info()
-        .map_err(&on_project_err)?
-        .ok_or_else(|| on_incomplete(identifier(None), "info"))?;
-
-    let meta = project
-        .get_meta()
-        .map_err(&on_project_err)?
-        .ok_or_else(|| on_incomplete(identifier(Some(&info)), "meta"))?;
-
-    let canonical_digest = project
-        .checksum_canonical_hex()
-        .map_err(on_canon_err)?
-        .ok_or_else(|| on_incomplete(identifier(Some(&info)), "canonical digest"))?;
-
-    Ok(LockEntryParts {
-        info,
-        meta,
-        canonical_digest,
-    })
+impl fmt::Display for IncompleteField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IncompleteField::Info => f.write_str("info"),
+            IncompleteField::Meta => f.write_str("meta"),
+            IncompleteField::CanonicalDigest => f.write_str("canonical digest"),
+        }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -123,17 +80,17 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     DependencyProjectCanonicalization(CanonicalizationError<PD::Error>),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("incomplete project {identifier}: missing {field}")]
+    #[error("incomplete project {project_label}: missing {field}")]
     IncompleteProject {
-        /// Human-readable identifier for the project (an IRI when the project
+        /// Human-readable label for the project (an IRI when the project
         /// was resolved for a usage, a name+version when available locally, or
         /// `<unknown>` as a last resort). Deliberately avoids dumping the
         /// whole `project` via `{:?}` — that output is large, full of impl
         /// detail, and almost never actionable.
-        identifier: String,
+        project_label: String,
         /// Which required piece was missing: `info`, `meta`, or
         /// `canonical digest`.
-        field: &'static str,
+        field: IncompleteField,
     },
     #[error(transparent)]
     Validation(InterchangeProjectValidationError),
@@ -180,23 +137,39 @@ pub fn do_lock_projects<
         // Before `info` is known: prefer a caller-supplied IRI, else a
         // placeholder. After `info` is available (meta/canonical paths),
         // the name+version is a strictly better label.
-        let LockEntryParts {
-            info,
-            meta,
-            canonical_digest,
-        } = read_lock_entry_parts(
-            project,
-            |info| match info {
-                Some(info) => format!("`{}` {}", info.name, info.version),
-                None => match identifiers.as_ref().and_then(|ids| ids.first()) {
-                    Some(iri) => format!("`{iri}`"),
-                    None => "<unknown input project>".to_string(),
-                },
-            },
-            LockProjectError::InputProjectError,
-            LockProjectError::InputProjectCanonicalizationError,
-            |identifier, field| LockError::IncompleteProject { identifier, field }.into(),
-        )?;
+        let input_project_label = || match identifiers.as_ref().and_then(|ids| ids.first()) {
+            Some(iri) => format!("`{iri}`"),
+            None => "<unknown input project>".to_string(),
+        };
+
+        let info = project
+            .get_info()
+            .map_err(LockProjectError::InputProjectError)?
+            .ok_or_else(|| {
+                LockProjectError::LockError(LockError::IncompleteProject {
+                    project_label: input_project_label(),
+                    field: IncompleteField::Info,
+                })
+            })?;
+        let named_project_label = format!("`{}` {}", info.name, info.version);
+        let meta = project
+            .get_meta()
+            .map_err(LockProjectError::InputProjectError)?
+            .ok_or_else(|| {
+                LockProjectError::LockError(LockError::IncompleteProject {
+                    project_label: named_project_label.clone(),
+                    field: IncompleteField::Meta,
+                })
+            })?;
+        let canonical_digest = project
+            .checksum_canonical_hex()
+            .map_err(LockProjectError::InputProjectCanonicalizationError)?
+            .ok_or_else(|| {
+                LockProjectError::LockError(LockError::IncompleteProject {
+                    project_label: named_project_label,
+                    field: IncompleteField::CanonicalDigest,
+                })
+            })?;
 
         let sources = project
             .sources(ctx)
@@ -276,17 +249,27 @@ pub fn do_lock_extend<
 
     for (iri, project) in solution {
         let iri_str = iri.as_str().to_owned();
-        let LockEntryParts {
-            info,
-            meta,
-            canonical_digest,
-        } = read_lock_entry_parts(
-            &project,
-            |_| iri_str.clone(),
-            LockError::DependencyProject,
-            LockError::DependencyProjectCanonicalization,
-            |identifier, field| LockError::IncompleteProject { identifier, field },
-        )?;
+        let info = project
+            .get_info()
+            .map_err(LockError::DependencyProject)?
+            .ok_or_else(|| LockError::IncompleteProject {
+                project_label: iri_str.clone(),
+                field: IncompleteField::Info,
+            })?;
+        let meta = project
+            .get_meta()
+            .map_err(LockError::DependencyProject)?
+            .ok_or_else(|| LockError::IncompleteProject {
+                project_label: iri_str.clone(),
+                field: IncompleteField::Meta,
+            })?;
+        let canonical_digest = project
+            .checksum_canonical_hex()
+            .map_err(LockError::DependencyProjectCanonicalization)?
+            .ok_or_else(|| LockError::IncompleteProject {
+                project_label: iri_str.clone(),
+                field: IncompleteField::CanonicalDigest,
+            })?;
 
         let sources = if !provided_iris.contains_key(iri.as_str()) {
             let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;

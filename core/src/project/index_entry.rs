@@ -84,10 +84,8 @@ pub enum IndexEntryProjectError {
 
 impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
     /// Construct a project wrapper for a version that has already been
-    /// selected out of `versions.json`. URL arguments are in
-    /// archive → manifest → meta order (`kpar_url`, `project_json_url`,
-    /// `meta_json_url`) so transposition across the three is hard to do
-    /// silently.
+    /// selected out of `versions.json`. URL arguments are ordered to
+    /// match the protocol sequence: archive, project manifest, metadata.
     pub(crate) fn new(
         kpar_url: reqwest::Url,
         project_json_url: reqwest::Url,

@@ -203,8 +203,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Manual loop instead of `multiunzip` because the 15-element tuple
-    // exceeds the arity limit of `itertools::Itertools::multiunzip`.
+    // Manual loop instead of `multiunzip` because the tuple is too wide for it.
     let mut variant_list = vec![];
     let mut error_variants = vec![];
     let mut error_args = vec![];
