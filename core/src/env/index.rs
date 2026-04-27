@@ -124,8 +124,10 @@ pub struct IndexEnvironmentAsync<Policy> {
     /// it — discovery happens once.
     endpoints: ResolvedEndpoints,
     /// Intra-run cache of parsed `versions.json` documents, keyed by IRI.
-    /// The map stores per-IRI cells so unrelated IRIs can fetch in
-    /// parallel while same-IRI misses share one in-flight request.
+    /// Avoids the duplicate fetches that otherwise occur because
+    /// `versions_async` and `get_project_async` each independently hit the
+    /// endpoint (and `get_project_async` is called once per candidate
+    /// during solving).
     ///
     /// Scoped to one env lifetime; never invalidates. There is no
     /// freshness signal in the protocol, and a single `sysand lock` run
@@ -133,7 +135,7 @@ pub struct IndexEnvironmentAsync<Policy> {
     /// validated (see [`validate_versions`]); the raw wire form is not
     /// retained. Transport and validation errors are not cached —
     /// retries re-fetch.
-    versions_cache: tokio::sync::Mutex<HashMap<String, VersionsCacheCell>>,
+    versions_cache: tokio::sync::Mutex<HashMap<String, VersionsCacheEntry>>,
 }
 
 impl<Policy> IndexEnvironmentAsync<Policy> {
@@ -165,11 +167,6 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
 /// cached so a later publish to the same index becomes visible without
 /// restart.
 pub(crate) type VersionsCacheEntry = Rc<[AdvertisedVersion]>;
-
-/// Per-IRI lazy cache cell. `None` represents a 404 response and is
-/// removed from `versions_cache` immediately after observation so absence
-/// remains retryable.
-type VersionsCacheCell = Rc<tokio::sync::OnceCell<Option<VersionsCacheEntry>>>;
 
 /// A validated sha256 hex digest — 64 lowercase hex characters, with the
 /// `"sha256:"` prefix already stripped. Constructed via `TryFrom<&str>`
@@ -530,53 +527,28 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
         iri: S,
     ) -> Result<Option<Rc<[AdvertisedVersion]>>, IndexEnvironmentError> {
         let iri_key = iri.as_ref();
-        // Hold the global cache lock only long enough to find/create the
-        // per-IRI cell. The cell, not the map mutex, serializes same-IRI
-        // misses; different IRIs can fetch in parallel.
-        let cell = {
-            let mut cache = self.versions_cache.lock().await;
-            match cache.entry(iri_key.to_owned()) {
-                Entry::Occupied(occupied) => Rc::clone(occupied.get()),
-                Entry::Vacant(vacant) => Rc::clone(vacant.insert(Rc::new(Default::default()))),
-            }
-        };
-
-        // `get_or_try_init` coalesces concurrent callers for this IRI. A
-        // returned error leaves the cell empty, so transport/validation
-        // failures remain retryable.
-        let cached = cell
-            .get_or_try_init(|| async {
+        let mut cache = self.versions_cache.lock().await;
+        let val = match cache.entry(iri_key.to_owned()) {
+            Entry::Occupied(occupied) => Some(Rc::clone(occupied.get())),
+            Entry::Vacant(vacant) => {
                 let url = self.endpoints.versions_url(iri_key)?;
-                let Some(parsed) = fetch_json::<VersionsJson, _>(
+                match fetch_json::<VersionsJson, _>(
                     &self.client,
                     &*self.auth_policy,
                     &url,
                     MissingPolicy::AllowNotFound,
                 )
                 .await?
-                else {
-                    return Ok::<Option<VersionsCacheEntry>, IndexEnvironmentError>(None);
-                };
-
-                Ok::<Option<VersionsCacheEntry>, IndexEnvironmentError>(Some(Rc::new(
-                    validate_versions(&url, parsed)?,
-                )))
-            })
-            .await?;
-
-        // A 404 (`None`) is an absence signal, not a stable cache value:
-        // remove our cell if it is still the map entry so a later publish
-        // can become visible without recreating the environment.
-        if cached.is_none() {
-            let mut cache = self.versions_cache.lock().await;
-            if let Some(current) = cache.get(iri_key)
-                && Rc::ptr_eq(current, &cell)
-            {
-                cache.remove(iri_key);
+                {
+                    Some(parsed) => {
+                        let validated = validate_versions(&url, parsed)?;
+                        Some(Rc::clone(vacant.insert_entry(Rc::new(validated)).get()))
+                    }
+                    None => None,
+                }
             }
-        }
-
-        Ok(cached.clone())
+        };
+        Ok(val)
     }
 }
 
