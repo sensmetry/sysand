@@ -17,11 +17,18 @@
 //!   downstream code relies on newest-first.
 //! - Every digest is `sha256:<64 lowercase hex>`; any other shape is a
 //!   protocol violation and rejects the whole `versions.json`.
-//! - A 404 on any required document is a hard error. At the
-//!   resolver-facing `versions_async` boundary the 404 is converted to
-//!   an empty stream (so a misconfigured mirror does not block other
-//!   sources), but every other caller — including `get_project_async`
-//!   and `index.json` — propagates it.
+//! - 404 handling splits by document (§8):
+//!   - `versions.json` 404 means the project is not in this index;
+//!     `versions_async` yields an empty stream and `get_project_async`
+//!     surfaces a distinct [`IndexEnvironmentError::ProjectNotInIndex`]
+//!     so multi-index callers can fall through cleanly.
+//!   - `index.json` 404 stays a hard error: an empty-but-live index
+//!     serves `{"projects": []}` with 200 OK, so 404 means "this URL
+//!     is not a sysand index".
+//!   - Per-version files (`.project.json`, `.meta.json`, `project.kpar`)
+//!     for an `available` or `yanked` entry are required to exist, so
+//!     a 404 there remains a hard error (§9). `removed` entries are
+//!     short-circuited up-front in `get_project_async`.
 //! - Each entry carries an optional `status` field (§8) —
 //!   `available | yanked | removed`, omitted = available. §12
 //!   excludes `yanked` / `removed` from the `versions_async` stream
@@ -152,8 +159,10 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
 
 /// Per-IRI cache slot: validated `versions.json` entries, shared across
 /// callers by `Rc`. The slot is only populated on a successful fetch
-/// (see `fetch_versions_json`); 404 and validation errors propagate
-/// instead of being cached.
+/// (see `fetch_versions_json`); validation errors propagate, and the
+/// "project not in this index" 404 outcome (§8) is intentionally not
+/// cached so a later publish to the same index becomes visible without
+/// restart.
 pub(crate) type VersionsCacheEntry = Rc<Vec<AdvertisedVersion>>;
 
 /// A validated sha256 hex digest — 64 lowercase hex characters, with the
@@ -273,6 +282,8 @@ pub enum IndexEnvironmentError {
     },
     #[error("versions.json at `{url}` does not list version `{version}`")]
     VersionNotInIndex { url: Box<str>, version: String },
+    #[error("project `{iri}` is not in this index (versions.json at `{url}` returned 404)")]
+    ProjectNotInIndex { url: Box<str>, iri: String },
     #[error(
         "version `{version}` of `{iri}` was removed upstream (versions.json at `{url}` marks it `status: \"removed\"`)"
     )]
@@ -332,10 +343,11 @@ pub enum HttpFetchError {
 }
 
 /// Whether a 404 on the requested URL is a successful "no such document"
-/// signal (`AllowNotFound` — e.g. an optional `versions.json`) or a hard
-/// error (`RequirePresent` — e.g. the per-version `.project.json` that must
+/// signal (`AllowNotFound` — e.g. `versions.json`, where 404 means the
+/// project is not in this index per §8) or a hard error
+/// (`RequirePresent` — e.g. the per-version `.project.json` that must
 /// exist once a version has been selected). This is the only policy
-/// difference between the two callers of [`fetch_json`].
+/// difference between callers of [`fetch_json`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MissingPolicy {
     AllowNotFound,
@@ -501,29 +513,36 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
     }
 
     /// Fetch, validate, and cache `versions.json` for `iri`. See
-    /// [`validate_versions`] for the ingest checks.
+    /// [`validate_versions`] for the ingest checks. Returns `Ok(None)`
+    /// when the server returns 404 — per §8 that means the project is
+    /// not in this index, which the callers (`versions_async`,
+    /// `get_project_async`) translate into their respective absence
+    /// signals. The absence outcome is intentionally not cached so a
+    /// later publish to the same index is observable without restart.
     async fn fetch_versions_json<S: AsRef<str>>(
         &self,
         iri: S,
-    ) -> Result<Rc<Vec<AdvertisedVersion>>, IndexEnvironmentError> {
+    ) -> Result<Option<Rc<Vec<AdvertisedVersion>>>, IndexEnvironmentError> {
         let iri_key = iri.as_ref();
         let mut cache = self.versions_cache.lock().await;
         let val = match cache.entry(iri_key.to_owned()) {
-            Entry::Occupied(occupied) => Rc::clone(occupied.get()),
+            Entry::Occupied(occupied) => Some(Rc::clone(occupied.get())),
             Entry::Vacant(vacant) => {
-                let value = {
-                    let url = self.endpoints.versions_url(iri_key)?;
-                    let parsed: VersionsJson = fetch_json(
-                        &self.client,
-                        &*self.auth_policy,
-                        &url,
-                        MissingPolicy::RequirePresent,
-                    )
-                    .await?
-                    .expect("RequirePresent never returns Ok(None)");
-                    validate_versions(&url, parsed)?
-                };
-                Rc::clone(vacant.insert_entry(Rc::new(value)).get())
+                let url = self.endpoints.versions_url(iri_key)?;
+                match fetch_json::<VersionsJson, _>(
+                    &self.client,
+                    &*self.auth_policy,
+                    &url,
+                    MissingPolicy::AllowNotFound,
+                )
+                .await?
+                {
+                    Some(parsed) => {
+                        let validated = validate_versions(&url, parsed)?;
+                        Some(Rc::clone(vacant.insert_entry(Rc::new(validated)).get()))
+                    }
+                    None => None,
+                }
             }
         };
         Ok(val)
@@ -639,52 +658,43 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         &self,
         uri: S,
     ) -> Result<Self::VersionStream, Self::ReadError> {
-        // Downgrade a 404 to an empty stream at the resolver-chain
-        // boundary (with a warning so the misconfiguration stays
-        // visible) so a broken mirror doesn't block
-        // `SequentialResolver` / `CombinedResolver` from trying the
-        // next source. Non-404 errors propagate.
-        match self.fetch_versions_json(uri.as_ref()).await {
-            Ok(vs) => {
-                // §12 — resolver-visible stream MUST exclude retired
-                // entries (`yanked` / `removed`) so solve/lock can't
-                // select them for a new resolution. Replaying a pinned
-                // lockfile uses `get_project_async` directly, which
-                // allows `yanked` (files still served) and hard-fails
-                // `removed` — see §13 and the §9 file-presence rule.
-                let versions: Vec<Result<String, IndexEnvironmentError>> = vs
-                    .iter()
-                    .filter(|e| {
-                        if e.status == Status::Available {
-                            true
-                        } else {
-                            log::debug!(
-                                "skipping retired version `{version}` of `{iri}` \
-                                 (status: {status:?}) during candidate enumeration",
-                                version = e.version,
-                                iri = uri.as_ref(),
-                                status = e.status,
-                            );
-                            false
-                        }
-                    })
-                    .map(|e| Ok(e.version.to_string()))
-                    .collect();
-                Ok(futures::stream::iter(versions))
-            }
-            Err(IndexEnvironmentError::Fetch(HttpFetchError::BadHttpStatus { url, status }))
-                if status == reqwest::StatusCode::NOT_FOUND =>
-            {
-                log::warn!(
-                    "versions.json at `{url}` returned 404; this is a server-side \
-                     protocol violation (missing mirrors should 200 an empty list). \
-                     Skipping this source for `{iri}`.",
-                    iri = uri.as_ref(),
-                );
-                Ok(futures::stream::iter(vec![]))
-            }
-            Err(other) => Err(other),
-        }
+        // §8 — a 404 on `versions.json` means the project is not in
+        // this index. Yield an empty stream so `SequentialResolver` /
+        // `CombinedResolver` cleanly fall through to the next source;
+        // non-404 errors still propagate.
+        let Some(vs) = self.fetch_versions_json(uri.as_ref()).await? else {
+            log::debug!(
+                "versions.json 404 for `{iri}`: project not in this index, \
+                 yielding empty candidate stream",
+                iri = uri.as_ref(),
+            );
+            return Ok(futures::stream::iter(vec![]));
+        };
+        // §12 — resolver-visible stream MUST exclude retired entries
+        // (`yanked` / `removed`) so solve/lock can't select them for a
+        // new resolution. Replaying a pinned lockfile uses
+        // `get_project_async` directly, which allows `yanked` (files
+        // still served) and hard-fails `removed` — see §13 and the §9
+        // file-presence rule.
+        let versions: Vec<Result<String, IndexEnvironmentError>> = vs
+            .iter()
+            .filter(|e| {
+                if e.status == Status::Available {
+                    true
+                } else {
+                    log::debug!(
+                        "skipping retired version `{version}` of `{iri}` \
+                         (status: {status:?}) during candidate enumeration",
+                        version = e.version,
+                        iri = uri.as_ref(),
+                        status = e.status,
+                    );
+                    false
+                }
+            })
+            .map(|e| Ok(e.version.to_string()))
+            .collect();
+        Ok(futures::stream::iter(versions))
     }
 
     type InterchangeProjectRead = IndexEntryProject<Policy>;
@@ -701,7 +711,19 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         // otherwise resolve such a segment relative to the project
         // base.
         let versions_url = self.endpoints.versions_url(uri.as_ref())?;
-        let versions = self.fetch_versions_json(uri.as_ref()).await?;
+        // §8 — a `versions.json` 404 means the project is not in this
+        // index. Surface it as a distinct `ProjectNotInIndex` error so
+        // callers (e.g. lockfile replay across multiple indexes) can
+        // tell "not here, try elsewhere" apart from "the index spoke
+        // but doesn't list this version" (`VersionNotInIndex`) or any
+        // other transport failure.
+        let versions = self
+            .fetch_versions_json(uri.as_ref())
+            .await?
+            .ok_or_else(|| IndexEnvironmentError::ProjectNotInIndex {
+                url: versions_url.as_str().into(),
+                iri: uri.as_ref().to_string(),
+            })?;
         // Compare parsed-to-parsed so semver-equivalent but
         // non-byte-identical caller inputs match. A parse failure
         // surfaces as `VersionNotInIndex` — a non-semver string

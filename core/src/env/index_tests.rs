@@ -6,13 +6,14 @@
 //! Cross-cutting protocol assumptions these tests exercise (hoisted here
 //! so per-test comments can focus on what each test adds):
 //!
-//! - **404 is a hard error** on every required index resource
-//!   (`index.json`, `versions.json` when reached via `get_project`,
-//!   and the per-version `.project.json` / `.meta.json`). Empty-but-
-//!   live collections are served as 200 with an empty payload.
-//!   `versions_async` is the one exception: at the resolver-chain
-//!   boundary a 404 is downgraded to an empty stream so a single
-//!   misconfigured mirror does not block other index sources.
+//! - **404 handling splits by document.** `index.json` and the
+//!   per-version `.project.json` / `.meta.json` 404s remain hard
+//!   errors (empty-but-live collections are served as 200 with an
+//!   empty payload). `versions.json` 404 means "project not in this
+//!   index" (§8): `versions_async` yields an empty stream so a
+//!   resolver chain falls through cleanly, and `get_project_async`
+//!   surfaces a distinct `ProjectNotInIndex` error so multi-index
+//!   callers can tell "not here" apart from a transport failure.
 //! - **`versions.json` entries MUST be in descending semver
 //!   precedence** and unique. The client validates ordering at
 //!   ingest (not lexically) and does not re-sort; downstream code
@@ -795,12 +796,10 @@ mod versions {
     #[test]
     fn test_missing_versions_json_surfaces_as_empty_at_resolver_boundary()
     -> Result<(), Box<dyn std::error::Error>> {
-        // Resolver-chain soft-fall-through: a 404 on `versions.json` is
-        // a server-side protocol violation (the protocol requires an
-        // empty-list 200), but a single misconfigured mirror must not
-        // block other sources from resolving the IRI. `versions_async`
-        // logs a warning and yields an empty stream; non-404 errors
-        // propagate as hard errors.
+        // §8 — a 404 on `versions.json` means the project is not in
+        // this index. `versions_async` yields an empty stream so a
+        // resolver chain falls through to the next source; non-404
+        // errors still propagate as hard errors.
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -814,7 +813,7 @@ mod versions {
         let versions: Vec<_> = env.versions(purl("nope/nope"))?.collect::<Result<_, _>>()?;
         assert!(
             versions.is_empty(),
-            "versions.json 404 must yield an empty stream at the resolver boundary; \
+            "versions.json 404 must yield an empty stream (project not in this index); \
              got {versions:?}"
         );
 
@@ -993,11 +992,14 @@ mod versions {
 /// its artifacts.
 ///
 /// Rules exercised here (see module-level doc for cross-cutting ones):
-/// - Inside `get_project`, a 404 on any required resource
-///   (`versions.json`, `.project.json`, `.meta.json`) surfaces as a
-///   hard `BadHttpStatus(404)` — the resolver-boundary soft-fallthrough
-///   for `versions.json` does NOT apply here because a version has
-///   already been selected.
+/// - A `versions.json` 404 surfaces as `ProjectNotInIndex` (§8): the
+///   project is not in this index, so a multi-index caller can fall
+///   through to the next source rather than treating the 404 as a
+///   transport failure.
+/// - A 404 on a per-version file (`.project.json`, `.meta.json`)
+///   for an `available` / `yanked` entry remains a hard
+///   `BadHttpStatus(404)`: §9 requires those files to exist whenever
+///   the version is so listed.
 /// - `.project.json` / `.meta.json` are the source of truth for
 ///   info/meta (not IRI heuristics and not the advertised usage).
 /// - A caller-supplied version not listed in `versions.json` surfaces
@@ -1006,12 +1008,14 @@ mod get_project {
     use super::*;
 
     #[test]
-    fn test_get_project_on_versions_json_404_is_hard_error()
+    fn test_get_project_on_versions_json_404_surfaces_project_not_in_index()
     -> Result<(), Box<dyn std::error::Error>> {
-        // Contrasts with the resolver-boundary soft-fallthrough: once
-        // a specific version has been requested, the 404 is not
-        // recoverable and must surface as `BadHttpStatus(404)` rather
-        // than silently becoming `VersionNotInIndex`.
+        // §8 — a `versions.json` 404 means the project is not in this
+        // index. `get_project_async` MUST surface a distinct
+        // `ProjectNotInIndex` error so a multi-index caller can tell
+        // "not here, try elsewhere" apart from a transport failure or
+        // from the version-listed-but-missing case
+        // (`VersionNotInIndex`).
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -1024,16 +1028,13 @@ mod get_project {
 
         let err = env
             .get_project(purl("nope/nope"), "1.0.0")
-            .expect_err("versions.json 404 must be hard error inside get_project");
+            .expect_err("versions.json 404 must surface as ProjectNotInIndex");
         match err {
-            super::IndexEnvironmentError::Fetch(super::HttpFetchError::BadHttpStatus {
-                url,
-                status,
-            }) => {
-                assert_eq!(status, reqwest::StatusCode::NOT_FOUND);
+            super::IndexEnvironmentError::ProjectNotInIndex { url, iri } => {
+                assert_eq!(iri, purl("nope/nope"));
                 assert!(url.contains("/versions.json"), "url carried: {url}");
             }
-            other => panic!("expected Fetch(BadHttpStatus 404), got {other:?}"),
+            other => panic!("expected ProjectNotInIndex, got {other:?}"),
         }
 
         versions_mock.assert();
@@ -2105,11 +2106,12 @@ mod caching {
 
     #[test]
     fn test_versions_json_404_refetched_on_every_call() -> Result<(), Box<dyn std::error::Error>> {
-        // Errors aren't cached — the cache slot is only populated on a
-        // successful validate — so each retry re-fetches even though the
-        // resolver-boundary 404 surfaces as an empty stream. That keeps
-        // the diagnostic visible and avoids a stale "project has no
-        // versions" cache.
+        // The "not in this index" 404 outcome (§8) is intentionally
+        // not cached — the cache slot is only populated on a
+        // successful validate — so a later publish to the same index
+        // becomes visible without restart. Each retry re-issues the
+        // fetch even though the resolver boundary surfaces it as an
+        // empty stream.
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;

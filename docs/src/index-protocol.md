@@ -264,21 +264,21 @@ Duplicates:
 
 Absence:
 
-- A project that legitimately has no published versions is represented
-  by a 200 response with `{ "versions": [] }`. A 404 on `versions.json` is
-  a server-side protocol violation — symmetric with the `index.json`
-  rule in [§7] and the per-version file rule in
-  [§9].
-- Clients MUST surface the 404 to the user (e.g. as a warning) rather
-  than treating it silently as "project has no versions"; the
-  `(iri, 404)` case is a misconfigured mirror or a project that was
-  never present in this index, and a silent fallback would hide the
-  bug.
-- Clients MAY continue querying other index sources in a
-  resolver chain after a `versions.json` 404 from one source — the
-  404 applies to that source, not to the IRI globally. A specific
-  `get_project` call targeting a version whose `versions.json` 404s
-  MUST hard-fail (there is nothing to validate the selection against).
+- A `versions.json` 404 means the project is not in this index.
+  Clients query indexes by IRI without first consulting
+  `index.json`, and each index hosts only some IRIs, so a 404 here
+  is the ordinary "look elsewhere" signal — not a protocol
+  violation. A client MUST treat the 404 as "not in this index";
+  in a resolver chain it continues to the next source, and the
+  operation only fails when no source returns a 200. This applies
+  to `get_project` as well: a 404 on the version-pinned fetch
+  reports "not in this index" to the caller, who decides whether
+  that is fatal.
+- A project that the index lists in `index.json` but for which no
+  version has been published is represented by a 200 response with
+  `{ "versions": [] }`. Servers MUST serve a `versions.json` for
+  every project listed in `index.json` ([§11]); the 404 case
+  therefore corresponds to a project the index does not list.
 
 ## 9. Per-version files
 
@@ -354,6 +354,11 @@ A conforming sysand index server MUST uphold:
   served at that version's directory. The server is trusted as the source
   of truth for what a version contains; clients do not cross-check textual
   fields.
+- **`versions.json` presence.** Every project listed in
+  `index.json` has a `versions.json` retrievable at its project
+  directory ([§5]). A project not listed in `index.json` MAY
+  return 404 for `versions.json`; clients interpret that 404 as
+  "not in this index" ([§8]).
 - **File presence.** Every version listed in `versions.json` with
   `status` other than `removed` has all three per-version files
   available for retrieval.
