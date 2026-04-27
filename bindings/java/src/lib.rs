@@ -218,7 +218,10 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     };
 
     let runtime = {
-        let r = match tokio::runtime::Builder::new_current_thread().build() {
+        let r = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
             Ok(r) => r,
             Err(e) => {
                 env.throw_exception(
