@@ -8,7 +8,11 @@ use reqwest_middleware::ClientWithMiddleware;
 
 use crate::{
     auth::HTTPAuthentication,
-    env::{index::IndexEnvironmentAsync, local_directory::LocalDirectoryEnvironment},
+    env::{
+        discovery::{DiscoveryError, fetch_index_config},
+        index::IndexEnvironmentAsync,
+        local_directory::LocalDirectoryEnvironment,
+    },
     resolve::{
         AsSyncResolveTokio, ResolveRead, ResolveReadAsync,
         combined::CombinedResolver,
@@ -95,20 +99,20 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     urls: Vec<url::Url>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-) -> AsSyncResolveTokio<RemoteIndexResolver<Policy>> {
-    // Each user-configured URL is a **discovery root**: on first use the
-    // env fetches `sysand-index-config.json` to resolve the actual
-    // `index_root` and `api_root`.
-    SequentialResolver::new(urls.into_iter().map(|url| EnvResolver {
-        env: IndexEnvironmentAsync {
-            client: client.clone(),
-            discovery_root: url,
-            resolved: Default::default(),
-            auth_policy: auth_policy.clone(),
-            versions_cache: Default::default(),
-        },
-    }))
-    .to_tokio_sync(runtime)
+) -> Result<AsSyncResolveTokio<RemoteIndexResolver<Policy>>, DiscoveryError> {
+    // Each user-configured URL is a **discovery root**: fetch
+    // `sysand-index-config.json` once here to resolve `index_root` /
+    // `api_root` before any solver activity hits the index, then hand
+    // the resolved pair to the env constructor.
+    let envs: Vec<EnvResolver<IndexEnvironmentAsync<Policy>>> = urls
+        .into_iter()
+        .map(|url| {
+            let endpoints = runtime.block_on(fetch_index_config(&client, &*auth_policy, &url))?;
+            let env = IndexEnvironmentAsync::new(client.clone(), auth_policy.clone(), endpoints);
+            Ok(EnvResolver { env })
+        })
+        .collect::<Result<_, DiscoveryError>>()?;
+    Ok(SequentialResolver::new(envs).to_tokio_sync(runtime))
 }
 
 // TODO: Replace most of these arguments by some general CLIOptions object
@@ -119,7 +123,7 @@ pub fn standard_resolver<Policy: HTTPAuthentication>(
     index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
-) -> StandardResolver<Policy> {
+) -> Result<StandardResolver<Policy>, DiscoveryError> {
     let file_resolver = standard_file_resolver(cwd);
     let local_resolver = local_env_path.map(standard_local_resolver);
     let remote_resolver = client
@@ -127,12 +131,13 @@ pub fn standard_resolver<Policy: HTTPAuthentication>(
         .map(|x| standard_remote_resolver(x, runtime.clone(), auth_policy.clone()));
     let index_resolver = client
         .zip(index_urls)
-        .map(|(client, urls)| standard_index_resolver(client, urls, runtime, auth_policy));
+        .map(|(client, urls)| standard_index_resolver(client, urls, runtime, auth_policy))
+        .transpose()?;
 
-    StandardResolver(CombinedResolver {
+    Ok(StandardResolver(CombinedResolver {
         file_resolver: Some(file_resolver),
         local_resolver,
         remote_resolver,
         index_resolver,
-    })
+    }))
 }

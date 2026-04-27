@@ -49,7 +49,7 @@ use crate::{
     auth::{HTTPAuthentication, StandardHTTPAuthentication},
     env::{
         AsSyncEnvironmentTokio, ReadEnvironmentAsync,
-        discovery::{DiscoveryError, EndpointsCell, ResolvedEndpoints, fetch_index_config},
+        discovery::{DiscoveryError, ResolvedEndpoints},
         iri_normalize::normalize_iri_for_hash,
         segment_uri_generic,
     },
@@ -59,11 +59,6 @@ use crate::{
     resolve::net_utils::json_get_request,
 };
 
-const INDEX_PATH: &str = "index.json";
-const VERSIONS_PATH: &str = "versions.json";
-const KPAR_FILE: &str = "project.kpar";
-const PROJECT_JSON_FILE: &str = ".project.json";
-const META_JSON_FILE: &str = ".meta.json";
 const IRI_HASH_SEGMENT: &str = "_iri";
 
 /// Blocking wrapper around [`IndexEnvironmentAsync`] that drives the
@@ -111,18 +106,13 @@ pub type IndexEnvironment =
 /// single fetch.
 #[derive(Debug)]
 pub struct IndexEnvironmentAsync<Policy> {
-    pub(crate) client: reqwest_middleware::ClientWithMiddleware,
-    pub(crate) auth_policy: Arc<Policy>,
-    /// Discovery root — the URL the user configured. The client fetches
-    /// `<discovery_root>/sysand-index-config.json` on first use to
-    /// resolve the `index_root` and `api_root`.
-    pub(crate) discovery_root: reqwest::Url,
-    /// Lazily-resolved `(index_root, api_root)` pair. The first async
-    /// entry point that needs a URL triggers discovery; subsequent calls
-    /// share the cached result. Errors are NOT cached — a transient 5xx
-    /// on the discovery endpoint is retryable within the same env
-    /// lifetime.
-    pub(crate) resolved: EndpointsCell,
+    client: reqwest_middleware::ClientWithMiddleware,
+    auth_policy: Arc<Policy>,
+    /// Resolved `(index_root, api_root)` pair. Populated at construction
+    /// from `<discovery_root>/sysand-index-config.json`; the
+    /// `discovery_root` is not retained because no later code path needs
+    /// it — discovery happens once.
+    endpoints: ResolvedEndpoints,
     /// Intra-run cache of parsed `versions.json` documents, keyed by IRI.
     /// Avoids the duplicate fetches that otherwise occur because
     /// `versions_async` and `get_project_async` each independently hit the
@@ -135,7 +125,29 @@ pub struct IndexEnvironmentAsync<Policy> {
     /// validated (see [`validate_versions`]); the raw wire form is not
     /// retained. Transport and validation errors are not cached —
     /// retries re-fetch.
-    pub(crate) versions_cache: tokio::sync::Mutex<HashMap<String, VersionsCacheEntry>>,
+    versions_cache: tokio::sync::Mutex<HashMap<String, VersionsCacheEntry>>,
+}
+
+impl<Policy> IndexEnvironmentAsync<Policy> {
+    /// Build an env from already-resolved `endpoints`. Discovery (the
+    /// `<discovery_root>/sysand-index-config.json` fetch) is the
+    /// caller's job — see [`fetch_index_config`] — so this constructor
+    /// is sync and infallible. Production callers run discovery once
+    /// per index up front (e.g. via `runtime.block_on`) and pass the
+    /// result here; tests construct `ResolvedEndpoints` directly when
+    /// they don't need to exercise the discovery flow.
+    pub fn new(
+        client: reqwest_middleware::ClientWithMiddleware,
+        auth_policy: Arc<Policy>,
+        endpoints: ResolvedEndpoints,
+    ) -> Self {
+        Self {
+            client,
+            auth_policy,
+            endpoints,
+            versions_cache: Default::default(),
+        }
+    }
 }
 
 /// Per-IRI cache slot: validated `versions.json` entries, shared across
@@ -434,7 +446,7 @@ struct VersionEntry {
 ///   route never serves a `pkg:sysand` IRI: erroring loudly is
 ///   preferable to silently routing typos / non-canonical casing to a
 ///   hash bucket where they can never resolve.
-fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironmentError> {
+pub(crate) fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironmentError> {
     match parse_sysand_purl(iri) {
         Ok(Some((publisher, name))) => Ok(vec![publisher.to_string(), name.to_string()]),
         Ok(None) => {
@@ -457,92 +469,7 @@ fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironmentError> {
     }
 }
 
-/// URL-building helpers that operate on a resolved `(index_root, api_root)`
-/// pair. Kept sync + self-contained so per-IRI URL construction doesn't
-/// need to re-traverse discovery on every call — the async wrappers on
-/// [`IndexEnvironmentAsync`] resolve endpoints once and then delegate here.
-impl ResolvedEndpoints {
-    fn url_join(url: &url::Url, join: &str) -> Result<url::Url, IndexEnvironmentError> {
-        url.join(join)
-            .map_err(|e| IndexEnvironmentError::JoinURL(url.as_str().into(), join.into(), e))
-    }
-
-    pub(crate) fn index_url(&self) -> Result<url::Url, IndexEnvironmentError> {
-        Self::url_join(&self.index_root, INDEX_PATH)
-    }
-
-    pub(crate) fn project_url<S: AsRef<str>>(
-        &self,
-        iri: S,
-    ) -> Result<url::Url, IndexEnvironmentError> {
-        let mut result = self.index_root.clone();
-        for mut segment in iri_path_segments(iri.as_ref())? {
-            segment.push('/');
-            result = Self::url_join(&result, &segment)?;
-        }
-        Ok(result)
-    }
-
-    /// Per-version directory URL ending with a trailing slash, so that
-    /// `Url::join` treats it as a directory when composing leaf URLs
-    /// (`project.kpar`, `.project.json`, `.meta.json`).
-    pub(crate) fn version_dir_url<S: AsRef<str>, T: AsRef<str>>(
-        &self,
-        iri: S,
-        version: T,
-    ) -> Result<url::Url, IndexEnvironmentError> {
-        let base = self.project_url(iri)?;
-        Self::url_join(&base, &format!("{}/", version.as_ref()))
-    }
-
-    pub(crate) fn kpar_url<S: AsRef<str>, T: AsRef<str>>(
-        &self,
-        iri: S,
-        version: T,
-    ) -> Result<url::Url, IndexEnvironmentError> {
-        Self::url_join(&self.version_dir_url(iri, version)?, KPAR_FILE)
-    }
-
-    pub(crate) fn project_json_url<S: AsRef<str>, T: AsRef<str>>(
-        &self,
-        iri: S,
-        version: T,
-    ) -> Result<url::Url, IndexEnvironmentError> {
-        Self::url_join(&self.version_dir_url(iri, version)?, PROJECT_JSON_FILE)
-    }
-
-    pub(crate) fn meta_json_url<S: AsRef<str>, T: AsRef<str>>(
-        &self,
-        iri: S,
-        version: T,
-    ) -> Result<url::Url, IndexEnvironmentError> {
-        Self::url_join(&self.version_dir_url(iri, version)?, META_JSON_FILE)
-    }
-
-    pub(crate) fn versions_url<S: AsRef<str>>(
-        &self,
-        iri: S,
-    ) -> Result<url::Url, IndexEnvironmentError> {
-        let base = self.project_url(iri)?;
-        Self::url_join(&base, VERSIONS_PATH)
-    }
-}
-
 impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
-    /// Resolve (once per env lifetime) the `(index_root, api_root)` pair
-    /// from the discovery root. On first use the client fetches
-    /// `sysand-index-config.json` and extracts the two roots; absent
-    /// fields default to the discovery root. Transient failures are not
-    /// cached — retries can proceed within the same env.
-    pub(crate) async fn endpoints(&self) -> Result<&ResolvedEndpoints, IndexEnvironmentError> {
-        Ok(self
-            .resolved
-            .get_or_try_init(|| async {
-                fetch_index_config(&self.client, &*self.auth_policy, &self.discovery_root).await
-            })
-            .await?)
-    }
-
     async fn fetch_optional_json<T: DeserializeOwned>(
         &self,
         url: &url::Url,
@@ -562,7 +489,7 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
         // is not a sysand index". A misconfigured base URL must surface
         // as a hard error rather than be silently skipped by a resolver
         // chain.
-        let url = self.endpoints().await?.index_url()?;
+        let url = self.endpoints.index_url()?;
         self.fetch_optional_json::<IndexJson>(&url)
             .await?
             .ok_or_else(|| {
@@ -585,8 +512,7 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
             Entry::Occupied(occupied) => Rc::clone(occupied.get()),
             Entry::Vacant(vacant) => {
                 let value = {
-                    let endpoints = self.endpoints().await?;
-                    let url = endpoints.versions_url(iri_key)?;
+                    let url = self.endpoints.versions_url(iri_key)?;
                     let parsed: VersionsJson = fetch_json(
                         &self.client,
                         &*self.auth_policy,
@@ -774,8 +700,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         // be spliced into URL paths even though `Url::join` would
         // otherwise resolve such a segment relative to the project
         // base.
-        let endpoints = self.endpoints().await?;
-        let versions_url = endpoints.versions_url(uri.as_ref())?;
+        let versions_url = self.endpoints.versions_url(uri.as_ref())?;
         let versions = self.fetch_versions_json(uri.as_ref()).await?;
         // Compare parsed-to-parsed so semver-equivalent but
         // non-byte-identical caller inputs match. A parse failure
@@ -813,9 +738,9 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         // Build leaf URLs from the validated version (i.e. the `Display` of
         // the parsed `semver::Version`), not the caller-supplied string.
         let advertised_version = advertised.version.to_string();
-        let kpar_url = endpoints.kpar_url(&uri, &advertised_version)?;
-        let project_json_url = endpoints.project_json_url(&uri, &advertised_version)?;
-        let meta_json_url = endpoints.meta_json_url(&uri, &advertised_version)?;
+        let kpar_url = self.endpoints.kpar_url(&uri, &advertised_version)?;
+        let project_json_url = self.endpoints.project_json_url(&uri, &advertised_version)?;
+        let meta_json_url = self.endpoints.meta_json_url(&uri, &advertised_version)?;
 
         let project = IndexEntryProject::new(
             kpar_url,

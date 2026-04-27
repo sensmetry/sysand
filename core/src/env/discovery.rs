@@ -26,16 +26,21 @@
 //! (see the comment next to
 //! [`crate::resolve::net_utils::create_reqwest_client`]).
 
-use std::sync::Arc;
-
 use serde::Deserialize;
 use thiserror::Error;
-use tokio::sync::OnceCell;
 
 use crate::{
     auth::HTTPAuthentication,
-    env::index::{HttpFetchError, MissingPolicy, fetch_json},
+    env::index::{
+        HttpFetchError, IndexEnvironmentError, MissingPolicy, fetch_json, iri_path_segments,
+    },
 };
+
+const INDEX_PATH: &str = "index.json";
+const VERSIONS_PATH: &str = "versions.json";
+const KPAR_FILE: &str = "project.kpar";
+const PROJECT_JSON_FILE: &str = ".project.json";
+const META_JSON_FILE: &str = ".meta.json";
 
 /// Resolved view of a sysand index server's two roots, as produced by the
 /// discovery step.
@@ -56,6 +61,71 @@ impl ResolvedEndpoints {
             index_root: discovery_root.clone(),
             api_root: discovery_root,
         }
+    }
+
+    fn url_join(url: &url::Url, join: &str) -> Result<url::Url, IndexEnvironmentError> {
+        url.join(join)
+            .map_err(|e| IndexEnvironmentError::JoinURL(url.as_str().into(), join.into(), e))
+    }
+
+    pub(crate) fn index_url(&self) -> Result<url::Url, IndexEnvironmentError> {
+        Self::url_join(&self.index_root, INDEX_PATH)
+    }
+
+    pub(crate) fn project_url<S: AsRef<str>>(
+        &self,
+        iri: S,
+    ) -> Result<url::Url, IndexEnvironmentError> {
+        let mut result = self.index_root.clone();
+        for mut segment in iri_path_segments(iri.as_ref())? {
+            segment.push('/');
+            result = Self::url_join(&result, &segment)?;
+        }
+        Ok(result)
+    }
+
+    /// Per-version directory URL ending with a trailing slash, so that
+    /// `Url::join` treats it as a directory when composing leaf URLs
+    /// (`project.kpar`, `.project.json`, `.meta.json`).
+    pub(crate) fn version_dir_url<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        iri: S,
+        version: T,
+    ) -> Result<url::Url, IndexEnvironmentError> {
+        let base = self.project_url(iri)?;
+        Self::url_join(&base, &format!("{}/", version.as_ref()))
+    }
+
+    pub(crate) fn kpar_url<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        iri: S,
+        version: T,
+    ) -> Result<url::Url, IndexEnvironmentError> {
+        Self::url_join(&self.version_dir_url(iri, version)?, KPAR_FILE)
+    }
+
+    pub(crate) fn project_json_url<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        iri: S,
+        version: T,
+    ) -> Result<url::Url, IndexEnvironmentError> {
+        Self::url_join(&self.version_dir_url(iri, version)?, PROJECT_JSON_FILE)
+    }
+
+    pub(crate) fn meta_json_url<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        iri: S,
+        version: T,
+    ) -> Result<url::Url, IndexEnvironmentError> {
+        Self::url_join(&self.version_dir_url(iri, version)?, META_JSON_FILE)
+    }
+
+    pub(crate) fn versions_url<S: AsRef<str>>(
+        &self,
+        iri: S,
+    ) -> Result<url::Url, IndexEnvironmentError> {
+        let base = self.project_url(iri)?;
+        Self::url_join(&base, VERSIONS_PATH)
     }
 }
 
@@ -189,20 +259,6 @@ pub(crate) fn with_trailing_slash(mut url: url::Url) -> url::Url {
     }
     url
 }
-
-/// Shared handle to a lazily-resolved `ResolvedEndpoints`.
-///
-/// `IndexEnvironmentAsync` is constructed synchronously but the discovery
-/// fetch is async, so resolution is deferred to the first async entry
-/// point that needs a URL. Under parallel solving, many concurrent
-/// `versions_async` / `get_project_async` calls on the same env can
-/// race that first use — the `OnceCell` collapses them into a single
-/// discovery fetch whose result all callers then share.
-///
-/// Errors are not cached (`OnceCell::get_or_try_init` discards `Err`) —
-/// a transient 5xx on the discovery endpoint is retryable within the
-/// same env lifetime.
-pub(crate) type EndpointsCell = Arc<OnceCell<ResolvedEndpoints>>;
 
 #[cfg(test)]
 #[path = "./discovery_tests.rs"]

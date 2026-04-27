@@ -11,6 +11,7 @@ use sysand_core::{
     env::local_directory::{DEFAULT_ENV_NAME, ENTRIES_PATH},
     lock::{Lock, Source},
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
+    purl::PKG_SYSAND_PREFIX,
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -404,7 +405,9 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         .mock("GET", "/index.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"projects":[{"iri":"pkg:sysand/mock/dep"}]}"#)
+        .with_body(format!(
+            r#"{{"projects":[{{"iri":"{PKG_SYSAND_PREFIX}mock/dep"}}]}}"#
+        ))
         .create();
 
     // Discovery: no document present means `index_root` / `api_root`
@@ -463,7 +466,10 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
     )?;
     out.assert().success().stdout(predicate::str::is_empty());
 
-    inject_usages(cwd.join(".project.json"), ["pkg:sysand/mock/dep"])?;
+    inject_usages(
+        cwd.join(".project.json"),
+        [format!("{PKG_SYSAND_PREFIX}mock/dep")],
+    )?;
 
     let server_url = server.url();
     let out = run_sysand_in(&cwd, ["lock", "--default-index", &server_url], None)?;
@@ -504,7 +510,7 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
             .map(str::to_string)
             .collect();
     assert!(
-        entries.contains(&"pkg:sysand/mock/dep".to_string()),
+        entries.contains(&format!("{PKG_SYSAND_PREFIX}mock/dep")),
         "env entries should list the synced dep IRI; got {entries:?}"
     );
 
@@ -582,7 +588,10 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     )?;
     out.assert().success().stdout(predicate::str::is_empty());
 
-    inject_usages(cwd.join(".project.json"), ["pkg:sysand/mock/dep"])?;
+    inject_usages(
+        cwd.join(".project.json"),
+        [format!("{PKG_SYSAND_PREFIX}mock/dep")],
+    )?;
 
     let server_url = server.url();
     let out = run_sysand_in(&cwd, ["lock", "--default-index", &server_url], None)?;
@@ -666,14 +675,14 @@ fn lock_rejects_non_normalized_sysand_purl() -> Result<(), Box<dyn std::error::E
 
     inject_usages(
         cwd.join(".project.json"),
-        ["pkg:sysand/Acme Labs/My.Project"],
+        [format!("{PKG_SYSAND_PREFIX}Acme Labs/My.Project")],
     )?;
 
     let out = run_sysand_in(&cwd, ["lock"], None)?;
     out.assert()
         .failure()
-        .stderr(contains("pkg:sysand/Acme Labs/My.Project"))
-        .stderr(contains("pkg:sysand/acme-labs/my.project"));
+        .stderr(contains(format!("{PKG_SYSAND_PREFIX}Acme Labs/My.Project")))
+        .stderr(contains(format!("{PKG_SYSAND_PREFIX}acme-labs/my.project")));
 
     Ok(())
 }

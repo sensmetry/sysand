@@ -38,16 +38,14 @@ use std::sync::Arc;
 use crate::{
     auth::Unauthenticated,
     context::ProjectContext,
-    env::{
-        ReadEnvironment, ReadEnvironmentAsync,
-        discovery::{EndpointsCell, ResolvedEndpoints},
-    },
+    env::{ReadEnvironment, ReadEnvironmentAsync, discovery::ResolvedEndpoints},
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, project_hash_raw},
     project::{
         ProjectRead, canonical_project_digest_inline, index_entry::IndexEntryProjectError,
         reqwest_kpar_download::ReqwestKparDownloadedError,
     },
+    purl::PKG_SYSAND_PREFIX,
     resolve::net_utils::create_reqwest_client,
 };
 
@@ -60,6 +58,13 @@ use super::{HttpFetchError, IndexEnvironmentError};
 /// All-`a`s so it's visibly distinct from real-digest tests below.
 const FILLER_DIGEST: &str =
     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+/// Build a `pkg:sysand/<suffix>` IRI from the constant prefix. Tests rely on
+/// this so the literal scheme prefix lives in exactly one place
+/// (`PKG_SYSAND_PREFIX` in `purl.rs`).
+fn purl(suffix: &str) -> String {
+    format!("{PKG_SYSAND_PREFIX}{suffix}")
+}
 
 /// Render a minimal-but-valid `versions.json` body for the given (version,
 /// usage) pairs. The three required artifact fields are populated with
@@ -148,21 +153,16 @@ fn test_env_async(
     base_url: &str,
 ) -> Result<super::IndexEnvironmentAsync<Unauthenticated>, Box<dyn std::error::Error>> {
     let base = url::Url::parse(base_url)?;
-    // Seed the resolved endpoints with a flat topology (index_root =
-    // api_root = discovery root). Tests that specifically cover
-    // discovery construct their own env with an empty `resolved` cell.
-    let endpoints = ResolvedEndpoints::flat(with_trailing_slash(base.clone()));
-    let resolved = EndpointsCell::default();
-    resolved
-        .set(endpoints)
-        .expect("resolved cell must be empty at construction");
-    Ok(super::IndexEnvironmentAsync {
-        client: create_reqwest_client()?,
-        discovery_root: base,
-        resolved,
-        auth_policy: Arc::new(Unauthenticated {}),
-        versions_cache: Default::default(),
-    })
+    // Use a flat topology (index_root = api_root = discovery root).
+    // Tests that specifically cover discovery construct their own env
+    // via `test_env_sync_discovery`, which goes through the real
+    // `fetch_index_config` against a mock server.
+    let endpoints = ResolvedEndpoints::flat(with_trailing_slash(base));
+    Ok(super::IndexEnvironmentAsync::new(
+        create_reqwest_client()?,
+        Arc::new(Unauthenticated {}),
+        endpoints,
+    ))
 }
 
 /// Helper: return `url` with a guaranteed trailing slash on its path.
@@ -183,9 +183,7 @@ fn with_trailing_slash(mut url: url::Url) -> url::Url {
 /// cover discovery specifically use this rather than calling `endpoints`
 /// on the env repeatedly.
 fn test_endpoints(env: &super::IndexEnvironmentAsync<Unauthenticated>) -> &ResolvedEndpoints {
-    env.resolved
-        .get()
-        .expect("tests built with test_env_async pre-populate the resolved cell")
+    &env.endpoints
 }
 
 /// Build an env whose resolved cell is **empty**, so that the first
@@ -198,14 +196,14 @@ fn test_env_sync_discovery(
     Box<dyn std::error::Error>,
 > {
     let base = url::Url::parse(&server.url())?;
-    let env = super::IndexEnvironmentAsync {
-        client: create_reqwest_client()?,
-        discovery_root: base,
-        resolved: EndpointsCell::default(),
-        auth_policy: Arc::new(Unauthenticated {}),
-        versions_cache: Default::default(),
-    };
-    Ok(env.to_tokio_sync(make_runtime()?))
+    let runtime = make_runtime()?;
+    let client = create_reqwest_client()?;
+    let auth = Arc::new(Unauthenticated {});
+    let endpoints = runtime.block_on(crate::env::discovery::fetch_index_config(
+        &client, &*auth, &base,
+    ))?;
+    let env = super::IndexEnvironmentAsync::new(client, auth, endpoints);
+    Ok(env.to_tokio_sync(runtime))
 }
 
 /// Build a sync-facing unauthenticated index environment rooted at `server`,
@@ -293,7 +291,7 @@ mod uris {
         // pkg:sysand/<publisher>/<name> routes under publisher/name/
         assert_eq!(
             endpoints
-                .kpar_url("pkg:sysand/admin/proj0", "0.3.0")?
+                .kpar_url(purl("admin/proj0"), "0.3.0")?
                 .to_string(),
             "https://www.example.com/index/admin/proj0/0.3.0/project.kpar"
         );
@@ -308,7 +306,7 @@ mod uris {
         // also exercises the `version_dir_url` trailing-slash invariant.
         assert_eq!(
             endpoints
-                .project_json_url("pkg:sysand/admin/proj0", "0.3.0")?
+                .project_json_url(purl("admin/proj0"), "0.3.0")?
                 .to_string(),
             "https://www.example.com/index/admin/proj0/0.3.0/.project.json"
         );
@@ -328,27 +326,27 @@ mod uris {
 
         for iri in [
             // traversal / URL-syntax attacks
-            "pkg:sysand/../attacker",
-            "pkg:sysand/..%2Fattacker/proj",
-            "pkg:sysand/./proj",
-            "pkg:sysand/.hidden/proj",
-            "pkg:sysand/pub/.hidden",
+            &purl("../attacker"),
+            &purl("..%2Fattacker/proj"),
+            &purl("./proj"),
+            &purl(".hidden/proj"),
+            &purl("pub/.hidden"),
             // non-ASCII
-            "pkg:sysand/Åcme/proj",
+            &purl("Åcme/proj"),
             // valid but not normalized (uppercase, spaces)
-            "pkg:sysand/Admin/proj0",
-            "pkg:sysand/admin/My Project",
+            &purl("Admin/proj0"),
+            &purl("admin/My Project"),
             // too short (min 3 chars)
-            "pkg:sysand/ab/proj0",
+            &purl("ab/proj0"),
             // control characters
-            "pkg:sysand/pub\t/proj",
+            &purl("pub\t/proj"),
             // URL-syntax characters
-            "pkg:sysand/pub#frag/proj",
-            "pkg:sysand/pub?q/proj",
+            &purl("pub#frag/proj"),
+            &purl("pub?q/proj"),
             // wrong segment count
-            "pkg:sysand/a/b/c",
-            "pkg:sysand/a/",
-            "pkg:sysand/",
+            &purl("a/b/c"),
+            &purl("a/"),
+            &purl(""),
         ] {
             let err = test_endpoints(&env)
                 .kpar_url(iri, "1.0.0")
@@ -375,11 +373,11 @@ mod uris {
         // (otherwise the user just sees "rejected" with no path forward).
         let env = test_env_async("https://www.example.com/index/")?;
         let err = test_endpoints(&env)
-            .kpar_url("pkg:sysand/Acme Labs/My.Project", "1.0.0")
+            .kpar_url(purl("Acme Labs/My.Project"), "1.0.0")
             .expect_err("non-normalized pkg:sysand must be rejected");
         let msg = err.to_string();
         assert!(
-            msg.contains("pkg:sysand/acme-labs/my.project"),
+            msg.contains(&purl("acme-labs/my.project")),
             "error message `{msg}` must surface the suggested normalized IRI"
         );
         Ok(())
@@ -396,7 +394,7 @@ mod uris {
         );
         assert_eq!(
             endpoints
-                .kpar_url("pkg:sysand/admin/proj0", "0.3.0")?
+                .kpar_url(purl("admin/proj0"), "0.3.0")?
                 .to_string(),
             "https://www.example.com/index/admin/proj0/0.3.0/project.kpar"
         );
@@ -413,19 +411,21 @@ mod uris {
         let index_mock = mock_json_get(
             &mut server,
             "/index.json",
-            r#"{
+            format!(
+                r#"{{
                 "projects": [
-                    { "iri": "pkg:sysand/admin/proj0" },
-                    { "iri": "urn:kpar:b" }
+                    {{ "iri": "{PKG_SYSAND_PREFIX}admin/proj0" }},
+                    {{ "iri": "urn:kpar:b" }}
                 ]
-            }"#,
+            }}"#
+            ),
         );
 
         let uris: Result<Vec<_>, _> = env.uris()?.collect();
         let uris = uris?;
 
         assert_eq!(uris.len(), 2);
-        assert!(uris.contains(&"pkg:sysand/admin/proj0".to_string()));
+        assert!(uris.contains(&purl("admin/proj0")));
         assert!(uris.contains(&"urn:kpar:b".to_string()));
 
         index_mock.assert();
@@ -569,7 +569,7 @@ mod versions {
             versions_json_body([("1.0.0", "[]")]),
         );
 
-        let pkg_versions: Result<Vec<_>, _> = env.versions("pkg:sysand/admin/proj0")?.collect();
+        let pkg_versions: Result<Vec<_>, _> = env.versions(purl("admin/proj0"))?.collect();
         let pkg_versions = pkg_versions?;
 
         assert_eq!(pkg_versions.len(), 2);
@@ -612,7 +612,7 @@ mod versions {
         let versions_mock = mock_json_get(&mut server, "/admin/proj0/versions.json", body);
 
         let versions: Vec<_> = env
-            .versions("pkg:sysand/admin/proj0")?
+            .versions(purl("admin/proj0"))?
             .collect::<Result<_, _>>()?;
         // Explicit `"available"` and omitted `status` both survive the
         // filter; `yanked` and `removed` are dropped.
@@ -638,7 +638,7 @@ mod versions {
         );
 
         let versions: Vec<_> = env
-            .versions("pkg:sysand/admin/proj0")?
+            .versions(purl("admin/proj0"))?
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["10.0.0", "10.0.0-beta.1", "2.0.0"]);
 
@@ -661,7 +661,7 @@ mod versions {
         );
 
         let err = env
-            .versions("pkg:sysand/admin/proj0")
+            .versions(purl("admin/proj0"))
             .expect_err("ascending order must be rejected as a protocol violation");
         match err {
             super::IndexEnvironmentError::VersionsOutOfOrder { prev, curr, .. } => {
@@ -694,7 +694,7 @@ mod versions {
         );
 
         let err = env
-            .versions("pkg:sysand/admin/proj0")
+            .versions(purl("admin/proj0"))
             .expect_err("prerelease before release must be rejected");
         match err {
             super::IndexEnvironmentError::VersionsOutOfOrder { prev, curr, .. } => {
@@ -724,7 +724,7 @@ mod versions {
         );
 
         let err = env
-            .versions("pkg:sysand/admin/proj0")
+            .versions(purl("admin/proj0"))
             .expect_err("build metadata must be rejected as a protocol violation");
         match err {
             super::IndexEnvironmentError::VersionHasBuildMetadata { value, .. } => {
@@ -754,7 +754,7 @@ mod versions {
         );
 
         let versions: Vec<_> = env
-            .versions("pkg:sysand/admin/proj0")?
+            .versions(purl("admin/proj0"))?
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["1.2.3-rc.1"]);
 
@@ -778,7 +778,7 @@ mod versions {
         );
 
         let err = env
-            .versions("pkg:sysand/admin/proj0")
+            .versions(purl("admin/proj0"))
             .expect_err("non-semver version must surface as a protocol error");
         match err {
             super::IndexEnvironmentError::InvalidSemverVersion { value, .. } => {
@@ -811,9 +811,7 @@ mod versions {
             .with_body("not found")
             .create();
 
-        let versions: Vec<_> = env
-            .versions("pkg:sysand/nope/nope")?
-            .collect::<Result<_, _>>()?;
+        let versions: Vec<_> = env.versions(purl("nope/nope"))?.collect::<Result<_, _>>()?;
         assert!(
             versions.is_empty(),
             "versions.json 404 must yield an empty stream at the resolver boundary; \
@@ -844,7 +842,7 @@ mod versions {
         );
 
         let err = env
-            .versions("pkg:sysand/admin/proj0")
+            .versions(purl("admin/proj0"))
             .expect_err("missing required field must reject the document");
         assert!(
             matches!(
@@ -875,7 +873,7 @@ mod versions {
         );
 
         let err = env
-            .versions("pkg:sysand/admin/proj0")
+            .versions(purl("admin/proj0"))
             .expect_err("duplicate versions must reject the document");
         match err {
             super::IndexEnvironmentError::DuplicateVersion { version, .. } => {
@@ -917,7 +915,7 @@ mod versions {
         );
 
         let versions: Vec<_> = env
-            .versions("pkg:sysand/admin/proj0")?
+            .versions(purl("admin/proj0"))?
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["0.3.0"]);
         versions_mock.assert();
@@ -940,7 +938,7 @@ mod versions {
             .create();
 
         let err = env
-            .versions("pkg:sysand/admin/proj0")
+            .versions(purl("admin/proj0"))
             .expect_err("malformed JSON must error");
         match err {
             super::IndexEnvironmentError::Fetch(super::HttpFetchError::JsonParse {
@@ -980,7 +978,7 @@ mod versions {
         );
 
         let versions: Vec<_> = env
-            .versions("pkg:sysand/admin/proj0")?
+            .versions(purl("admin/proj0"))?
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["1.0.0"]);
 
@@ -1025,7 +1023,7 @@ mod get_project {
             .create();
 
         let err = env
-            .get_project("pkg:sysand/nope/nope", "1.0.0")
+            .get_project(purl("nope/nope"), "1.0.0")
             .expect_err("versions.json 404 must be hard error inside get_project");
         match err {
             super::IndexEnvironmentError::Fetch(super::HttpFetchError::BadHttpStatus {
@@ -1068,11 +1066,11 @@ mod get_project {
         let versions_mock = mock_json_get(&mut server, "/admin/proj0/versions.json", body);
 
         let err = env
-            .get_project("pkg:sysand/admin/proj0", "0.3.0")
+            .get_project(purl("admin/proj0"), "0.3.0")
             .expect_err("removed entries must hard-fail with VersionRemoved");
         match err {
             super::IndexEnvironmentError::VersionRemoved { iri, version, url } => {
-                assert_eq!(iri, "pkg:sysand/admin/proj0");
+                assert_eq!(iri, purl("admin/proj0"));
                 assert_eq!(version, "0.3.0");
                 assert!(url.contains("/versions.json"), "url carried: {url}");
             }
@@ -1112,7 +1110,7 @@ mod get_project {
             mock_json_get(&mut server, "/admin/proj0/0.3.0/.project.json", info_json);
         let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let (info, _meta) = project.get_project()?;
         let info = info.expect("info should be prefetched for yanked entries too");
         assert_eq!(info.name, "proj0");
@@ -1146,7 +1144,7 @@ mod get_project {
 
         let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
 
         let inner = &project.inner;
         assert_eq!(
@@ -1228,11 +1226,13 @@ mod get_project {
 
         let env = test_env_sync(&server)?;
 
-        let usage_json = r#"[
-            {"resource":"pkg:sysand/admin/dep","versionConstraint":"<2"},
-            {"resource":"pkg:sysand/admin/other"}
-        ]"#;
-        let info_json = project_json_body("proj0", Some("admin"), "0.3.0", usage_json);
+        let usage_json = format!(
+            r#"[
+            {{"resource":"{PKG_SYSAND_PREFIX}admin/dep","versionConstraint":"<2"}},
+            {{"resource":"{PKG_SYSAND_PREFIX}admin/other"}}
+        ]"#
+        );
+        let info_json = project_json_body("proj0", Some("admin"), "0.3.0", &usage_json);
         let meta_json = meta_json_body();
         let project_digest = project_digest(&info_json, meta_json)?;
 
@@ -1242,7 +1242,7 @@ mod get_project {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", usage_json, &project_digest)]),
+            versions_json_body_with_project_digest([("0.3.0", &usage_json, &project_digest)]),
         );
 
         let project_json_mock =
@@ -1250,14 +1250,14 @@ mod get_project {
 
         let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let (info, _) = project.get_project()?;
         let info = info.expect("info should be prefetched");
 
         assert_eq!(info.usage.len(), 2);
-        assert_eq!(info.usage[0].resource, "pkg:sysand/admin/dep");
+        assert_eq!(info.usage[0].resource, purl("admin/dep"));
         assert_eq!(info.usage[0].version_constraint.as_deref(), Some("<2"));
-        assert_eq!(info.usage[1].resource, "pkg:sysand/admin/other");
+        assert_eq!(info.usage[1].resource, purl("admin/other"));
         assert_eq!(info.usage[1].version_constraint, None);
 
         versions_mock.assert();
@@ -1279,15 +1279,19 @@ mod get_project {
 
         let env = test_env_sync(&server)?;
 
-        let advertised_usage = r#"[
-            {"resource":"pkg:sysand/admin/dep","versionConstraint":"<2"}
-        ]"#;
-        let fetched_usage = r#"[
-            {"resource":"pkg:sysand/admin/dep","versionConstraint":"<3"}
-        ]"#;
+        let advertised_usage = format!(
+            r#"[
+            {{"resource":"{PKG_SYSAND_PREFIX}admin/dep","versionConstraint":"<2"}}
+        ]"#
+        );
+        let fetched_usage = format!(
+            r#"[
+            {{"resource":"{PKG_SYSAND_PREFIX}admin/dep","versionConstraint":"<3"}}
+        ]"#
+        );
         // Compute the digest against the fetched (info, meta) so
         // verification passes; advertised and fetched `usage` differ.
-        let fetched_info_json = project_json_body("proj0", Some("admin"), "0.3.0", fetched_usage);
+        let fetched_info_json = project_json_body("proj0", Some("admin"), "0.3.0", &fetched_usage);
         let meta_json = meta_json_body();
         let advertised_digest = project_digest(&fetched_info_json, meta_json)?;
 
@@ -1296,7 +1300,7 @@ mod get_project {
             "/admin/proj0/versions.json",
             versions_json_body_with_project_digest([(
                 "0.3.0",
-                advertised_usage,
+                &advertised_usage,
                 &advertised_digest,
             )]),
         );
@@ -1309,7 +1313,7 @@ mod get_project {
 
         let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let info = project
             .get_info()
             .expect("textual usage drift must be ignored; server is authoritative")
@@ -1332,12 +1336,13 @@ mod get_project {
 
         let env = test_env_sync(&server)?;
 
-        let usage_json = r#"[{"resource":"pkg:sysand/x/y","versionConstraint":">=1"}]"#;
+        let usage_json =
+            format!(r#"[{{"resource":"{PKG_SYSAND_PREFIX}x/y","versionConstraint":">=1"}}]"#);
         let info_json = project_json_body(
             "real_name_from_server",
             Some("real_publisher"),
             "0.3.0",
-            usage_json,
+            &usage_json,
         );
         let meta_json = r#"{"index":{},"created":"2026-04-17T00:00:00.000000000Z","metamodel":"https://www.omg.org/spec/KerML/20250201"}"#;
         let project_digest = project_digest(&info_json, meta_json)?;
@@ -1345,7 +1350,7 @@ mod get_project {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", usage_json, &project_digest)]),
+            versions_json_body_with_project_digest([("0.3.0", &usage_json, &project_digest)]),
         );
 
         let project_json_mock =
@@ -1353,7 +1358,7 @@ mod get_project {
 
         let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let (info, meta) = project.get_project()?;
         let info = info.expect("info should be prefetched");
         let meta = meta.expect("meta should be prefetched");
@@ -1362,7 +1367,7 @@ mod get_project {
         assert_eq!(info.publisher.as_deref(), Some("real_publisher"));
         assert_eq!(info.version, "0.3.0");
         assert_eq!(info.usage.len(), 1);
-        assert_eq!(info.usage[0].resource, "pkg:sysand/x/y");
+        assert_eq!(info.usage[0].resource, purl("x/y"));
         assert_eq!(info.usage[0].version_constraint.as_deref(), Some(">=1"));
 
         assert_eq!(
@@ -1408,7 +1413,7 @@ mod get_project {
         // `env.get_project` returns a lazy wrapper; forcing `get_project()` on it
         // triggers the per-version `.project.json` fetch that must surface the
         // 404 as a hard error.
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let err = project
             .get_project()
             .expect_err("missing .project.json must surface as a hard error");
@@ -1453,7 +1458,7 @@ mod get_project {
             .expect_at_least(1)
             .create();
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let err = project
             .get_project()
             .expect_err("missing .meta.json must surface as a hard error");
@@ -1485,7 +1490,7 @@ mod get_project {
         );
 
         let err = env
-            .get_project("pkg:sysand/admin/proj0", "9.9.9")
+            .get_project(purl("admin/proj0"), "9.9.9")
             .expect_err("requesting an absent version must error");
         match err {
             super::IndexEnvironmentError::VersionNotInIndex { url, version } => {
@@ -1640,7 +1645,7 @@ mod digest {
         // Verification runs from JSON only.
         let kpar_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/project.kpar");
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let err = project
             .get_info()
             .expect_err("digest drift must reject before exposing info");
@@ -1700,7 +1705,7 @@ mod digest {
 
         let kpar_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/project.kpar");
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let digest = project
             .checksum_canonical_hex()?
             .expect("prefetched digest should propagate");
@@ -1734,7 +1739,7 @@ mod digest {
         let kpar_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/project.kpar");
 
         let err = env
-            .get_project("pkg:sysand/admin/proj0", "0.3.0")
+            .get_project(purl("admin/proj0"), "0.3.0")
             .expect_err("malformed project_digest must surface as a protocol error");
         match err {
             super::IndexEnvironmentError::InvalidVersionEntry {
@@ -1809,7 +1814,7 @@ mod digest {
             .expect_at_least(1)
             .create();
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
 
         // Force a download so `checksum_canonical_hex` reaches the
         // post-download (authoritative local) branch rather than the
@@ -1865,7 +1870,7 @@ mod digest {
         );
 
         let err = env
-            .versions("pkg:sysand/admin/proj0")
+            .versions(purl("admin/proj0"))
             .expect_err("malformed kpar_digest must reject the document at parse time");
         match err {
             super::IndexEnvironmentError::InvalidVersionEntry {
@@ -1925,7 +1930,7 @@ mod digest {
 
         let kpar_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/project.kpar");
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let (info, meta) = project
             .get_project()
             .expect("canonical digest reconciliation must succeed for mixed-case SHA256 meta");
@@ -1972,7 +1977,7 @@ mod digest {
         // Error is triggered purely on the JSON pair.
         let kpar_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/project.kpar");
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let err = project
             .get_info()
             .expect_err("non-SHA256 meta.checksum must refuse to expose info/meta");
@@ -2038,7 +2043,7 @@ mod caching {
             .expect(1)
             .create();
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         // Hit each accessor multiple times in mixed order; cache must hold.
         let _ = project.get_info()?;
         let _ = project.get_meta()?;
@@ -2089,9 +2094,9 @@ mod caching {
             .create();
 
         // Three independent calls into paths that consult versions.json.
-        let _ = env.versions("pkg:sysand/admin/proj0")?.collect::<Vec<_>>();
-        let _ = env.versions("pkg:sysand/admin/proj0")?.collect::<Vec<_>>();
-        let _ = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let _ = env.versions(purl("admin/proj0"))?.collect::<Vec<_>>();
+        let _ = env.versions(purl("admin/proj0"))?.collect::<Vec<_>>();
+        let _ = env.get_project(purl("admin/proj0"), "0.3.0")?;
 
         versions_mock.assert();
 
@@ -2115,8 +2120,8 @@ mod caching {
             .expect_at_least(2)
             .create();
 
-        let vs1: Vec<_> = env.versions("pkg:sysand/nope/nope")?.collect();
-        let vs2: Vec<_> = env.versions("pkg:sysand/nope/nope")?.collect();
+        let vs1: Vec<_> = env.versions(purl("nope/nope"))?.collect();
+        let vs2: Vec<_> = env.versions(purl("nope/nope"))?.collect();
         assert!(
             vs1.into_iter().filter_map(Result::ok).next().is_none(),
             "first call must yield empty stream"
@@ -2182,7 +2187,7 @@ mod sources {
             .expect_at_least(1)
             .create();
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let err = project
             .read_source("anything.sysml")
             .err()
@@ -2239,7 +2244,7 @@ mod sources {
             .expect_at_least(1)
             .create();
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let _ = project
             .read_source("anything.sysml")
             .err()
@@ -2296,7 +2301,7 @@ mod sources {
             .expect_at_least(1)
             .create();
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let err = project
             .read_source("anything.sysml")
             .err()
@@ -2340,7 +2345,7 @@ mod sources {
 
         let head_mock = expect_untouched(&mut server, "HEAD", "/admin/proj0/0.3.0/project.kpar");
 
-        let project = env.get_project("pkg:sysand/admin/proj0", "0.3.0")?;
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
         let sources = project.sources(&ProjectContext::default())?;
 
         assert_eq!(sources.len(), 1);
@@ -2380,7 +2385,6 @@ mod discovery {
         // Index reads proceed against the discovery root when the
         // discovery document is absent.
         let mut server = mockito::Server::new();
-        let env = test_env_sync_discovery(&server)?;
 
         let config_mock = server
             .mock("GET", "/sysand-index-config.json")
@@ -2394,8 +2398,10 @@ mod discovery {
             versions_json_body([("1.0.0", "[]")]),
         );
 
+        let env = test_env_sync_discovery(&server)?;
+
         let versions: Vec<_> = env
-            .versions("pkg:sysand/admin/proj0")?
+            .versions(purl("admin/proj0"))?
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["1.0.0"]);
 
@@ -2412,7 +2418,6 @@ mod discovery {
         // matching path, so a regression that ignored the remap would
         // 404 here.
         let mut server = mockito::Server::new();
-        let env = test_env_sync_discovery(&server)?;
 
         let config_body = format!(r#"{{"index_root":"{}/index/"}}"#, server.url());
         let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", config_body);
@@ -2423,8 +2428,10 @@ mod discovery {
             versions_json_body([("1.0.0", "[]")]),
         );
 
+        let env = test_env_sync_discovery(&server)?;
+
         let versions: Vec<_> = env
-            .versions("pkg:sysand/admin/proj0")?
+            .versions(purl("admin/proj0"))?
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["1.0.0"]);
 
@@ -2436,9 +2443,11 @@ mod discovery {
 
     #[test]
     fn test_discovery_rejects_relative_index_root() -> Result<(), Box<dyn std::error::Error>> {
-        // Relative `index_root` -> `RelativeUrl` error.
+        // Relative `index_root` -> `RelativeUrl` error. Discovery is
+        // resolved at env construction, so the rejection surfaces from
+        // `test_env_sync_discovery` rather than from a later
+        // `versions()` call.
         let mut server = mockito::Server::new();
-        let env = test_env_sync_discovery(&server)?;
 
         let config_mock = mock_json_get(
             &mut server,
@@ -2446,9 +2455,7 @@ mod discovery {
             r#"{"index_root":"/index/"}"#,
         );
 
-        let err = env
-            .versions("pkg:sysand/admin/proj0")
-            .expect_err("relative index_root must reject");
+        let err = test_env_sync_discovery(&server).expect_err("relative index_root must reject");
         let text = format!("{err:?}");
         assert!(
             text.contains("RelativeUrl") && text.contains("index_root"),
@@ -2464,9 +2471,9 @@ mod discovery {
     fn test_discovery_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
         // A broken server and a misconfigured base URL are
         // indistinguishable, so anything beyond 200/404 is a hard
-        // error.
+        // error. With eager discovery this surfaces from env
+        // construction.
         let mut server = mockito::Server::new();
-        let env = test_env_sync_discovery(&server)?;
 
         let config_mock = server
             .mock("GET", "/sysand-index-config.json")
@@ -2474,9 +2481,8 @@ mod discovery {
             .expect_at_least(1)
             .create();
 
-        let err = env
-            .versions("pkg:sysand/admin/proj0")
-            .expect_err("5xx on discovery must be a hard error");
+        let err =
+            test_env_sync_discovery(&server).expect_err("5xx on discovery must be a hard error");
         let text = format!("{err:?}");
         assert!(
             text.contains("BadHttpStatus") && text.contains("503"),
@@ -2501,7 +2507,6 @@ mod discovery {
         // the caller sees the failure rather than getting an empty
         // version list.
         let mut server = mockito::Server::new();
-        let env = test_env_sync_discovery(&server)?;
 
         let config_body = format!(r#"{{"index_root":"{}/index/"}}"#, server.url());
         let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", config_body);
@@ -2515,8 +2520,10 @@ mod discovery {
             .expect_at_least(1)
             .create();
 
+        let env = test_env_sync_discovery(&server)?;
+
         let err = env
-            .versions("pkg:sysand/admin/proj0")
+            .versions(purl("admin/proj0"))
             .expect_err("5xx on remapped versions.json must be a hard error");
         let text = format!("{err:?}");
         assert!(
@@ -2535,7 +2542,6 @@ mod discovery {
         // A successful discovery + subsequent versions read proves the
         // redirect was followed and the body was used.
         let mut server = mockito::Server::new();
-        let env = test_env_sync_discovery(&server)?;
 
         let redirect_mock = server
             .mock("GET", "/sysand-index-config.json")
@@ -2552,8 +2558,10 @@ mod discovery {
             versions_json_body([("1.0.0", "[]")]),
         );
 
+        let env = test_env_sync_discovery(&server)?;
+
         let versions: Vec<_> = env
-            .versions("pkg:sysand/admin/proj0")?
+            .versions(purl("admin/proj0"))?
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["1.0.0"]);
 
@@ -2568,7 +2576,6 @@ mod discovery {
     fn test_discovery_unknown_fields_silently_ignored() -> Result<(), Box<dyn std::error::Error>> {
         // Discovery-document forward-compat case.
         let mut server = mockito::Server::new();
-        let env = test_env_sync_discovery(&server)?;
 
         let config_mock = mock_json_get(
             &mut server,
@@ -2582,8 +2589,10 @@ mod discovery {
             versions_json_body([("1.0.0", "[]")]),
         );
 
+        let env = test_env_sync_discovery(&server)?;
+
         let versions: Vec<_> = env
-            .versions("pkg:sysand/admin/proj0")?
+            .versions(purl("admin/proj0"))?
             .collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["1.0.0"]);
 

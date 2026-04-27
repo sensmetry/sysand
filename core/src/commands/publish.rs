@@ -13,7 +13,7 @@ use url::Url;
 use crate::{
     auth::{ForceBearerAuth, HTTPAuthentication},
     project::{ProjectRead, local_kpar::LocalKParProject},
-    purl::{is_valid_name, is_valid_publisher, normalize_field},
+    purl::{PKG_SYSAND_PREFIX, is_valid_name, is_valid_publisher, normalize_field},
 };
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
@@ -292,7 +292,8 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     })?;
     let normalized_publisher = normalize_field(publisher);
     let normalized_name = normalize_field(name);
-    let purl_versioned = format!("pkg:sysand/{normalized_publisher}/{normalized_name}@{version}");
+    let purl_versioned =
+        format!("{PKG_SYSAND_PREFIX}{normalized_publisher}/{normalized_name}@{version}");
 
     let file_size = std::fs::metadata(path)
         .map_err(|e| PublishError::KparRead(path.as_str().into(), e))?

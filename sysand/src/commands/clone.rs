@@ -246,7 +246,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
         index_urls,
         runtime.clone(),
         auth_policy.clone(),
-    );
+    )?;
     match &locator {
         ProjectLocator::Iri(iri) => {
             log::info!(

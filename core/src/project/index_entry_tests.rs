@@ -21,6 +21,7 @@ use crate::{
     env::index::{AdvertisedVersion, Sha256HexDigest},
     model::InterchangeProjectUsageRaw,
     project::{ProjectReadAsync, index_entry::IndexEntryProject},
+    purl::PKG_SYSAND_PREFIX,
     resolve::net_utils::create_reqwest_client,
 };
 
@@ -45,7 +46,7 @@ fn make_fixture() -> IndexEntryProject<Unauthenticated> {
     let advertised = AdvertisedVersion {
         version: semver::Version::parse("1.2.3").unwrap(),
         usage: vec![InterchangeProjectUsageRaw {
-            resource: "pkg:sysand/acme/widget".to_string(),
+            resource: format!("{PKG_SYSAND_PREFIX}acme/widget"),
             version_constraint: Some("^1.0".to_string()),
         }],
         project_digest,
@@ -99,7 +100,7 @@ fn usage_async_returns_advertised_without_fetch() {
         .unwrap()
         .expect("advertised usage is Some");
     assert_eq!(usage.len(), 1);
-    assert_eq!(usage[0].resource, "pkg:sysand/acme/widget");
+    assert_eq!(usage[0].resource, format!("{PKG_SYSAND_PREFIX}acme/widget"));
     assert!(!project.archive.is_downloaded());
 }
 
