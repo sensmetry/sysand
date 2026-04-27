@@ -11,9 +11,9 @@
 //!   errors (empty-but-live collections are served as 200 with an
 //!   empty payload). `versions.json` 404 means "project not in this
 //!   index" (§8): `versions_async` yields an empty stream so a
-//!   resolver chain falls through cleanly, and `get_project_async`
-//!   surfaces a distinct `ProjectNotInIndex` error so multi-index
-//!   callers can tell "not here" apart from a transport failure.
+//!   resolver chain can try another source, and `get_project_async`
+//!   surfaces a distinct `ProjectNotInIndex` error so direct callers
+//!   can tell "not here" apart from a transport failure.
 //! - **`versions.json` entries MUST be in descending semver
 //!   precedence** and unique. The client validates ordering at
 //!   ingest (not lexically) and does not re-sort; downstream code
@@ -823,6 +823,39 @@ mod versions {
     }
 
     #[test]
+    fn test_versions_json_forbidden_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
+        // The §8 404 downgrade is deliberately narrow. A direct 403 on
+        // root `versions.json` is a hard transport/auth failure, not
+        // "project absent from this index".
+        let mut server = mockito::Server::new();
+
+        let env = test_env_sync(&server)?;
+
+        let versions_mock = server
+            .mock("GET", "/admin/proj0/versions.json")
+            .with_status(403)
+            .with_body("forbidden")
+            .create();
+
+        let err = env
+            .versions(purl("admin/proj0"))
+            .expect_err("403 on root versions.json must be a hard error");
+        match err {
+            super::IndexEnvironmentError::Fetch(super::HttpFetchError::BadHttpStatus {
+                status,
+                ..
+            }) => {
+                assert_eq!(status, reqwest::StatusCode::FORBIDDEN);
+            }
+            other => panic!("expected BadHttpStatus(403), got {other:?}"),
+        }
+
+        versions_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
     fn test_missing_required_field_errors() -> Result<(), Box<dyn std::error::Error>> {
         // An entry omitting any required field (here `kpar_digest`)
         // rejects the whole document at parse time rather than
@@ -993,9 +1026,8 @@ mod versions {
 ///
 /// Rules exercised here (see module-level doc for cross-cutting ones):
 /// - A `versions.json` 404 surfaces as `ProjectNotInIndex` (§8): the
-///   project is not in this index, so a multi-index caller can fall
-///   through to the next source rather than treating the 404 as a
-///   transport failure.
+///   project is not in this index, so a direct caller can tell "not
+///   here" apart from a transport failure.
 /// - A 404 on a per-version file (`.project.json`, `.meta.json`)
 ///   for an `available` / `yanked` entry remains a hard
 ///   `BadHttpStatus(404)`: §9 requires those files to exist whenever
@@ -1012,9 +1044,9 @@ mod get_project {
     -> Result<(), Box<dyn std::error::Error>> {
         // §8 — a `versions.json` 404 means the project is not in this
         // index. `get_project_async` MUST surface a distinct
-        // `ProjectNotInIndex` error so a multi-index caller can tell
-        // "not here, try elsewhere" apart from a transport failure or
-        // from the version-listed-but-missing case
+        // `ProjectNotInIndex` error so a direct caller can tell "not
+        // here" apart from a transport failure or from the
+        // version-listed-but-missing case
         // (`VersionNotInIndex`).
         let mut server = mockito::Server::new();
 
@@ -1035,6 +1067,40 @@ mod get_project {
                 assert!(url.contains("/versions.json"), "url carried: {url}");
             }
             other => panic!("expected ProjectNotInIndex, got {other:?}"),
+        }
+
+        versions_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_project_on_versions_json_5xx_is_hard_error()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Direct `get_project` has the same §8 boundary as
+        // `versions_async`: 404 is "not in this index", but 5xx is a
+        // hard server failure.
+        let mut server = mockito::Server::new();
+
+        let env = test_env_sync(&server)?;
+
+        let versions_mock = server
+            .mock("GET", "/admin/proj0/versions.json")
+            .with_status(503)
+            .with_body("service unavailable")
+            .create();
+
+        let err = env
+            .get_project(purl("admin/proj0"), "1.0.0")
+            .expect_err("5xx on root versions.json must be a hard error");
+        match err {
+            super::IndexEnvironmentError::Fetch(super::HttpFetchError::BadHttpStatus {
+                status,
+                ..
+            }) => {
+                assert_eq!(status, reqwest::StatusCode::SERVICE_UNAVAILABLE);
+            }
+            other => panic!("expected BadHttpStatus(503), got {other:?}"),
         }
 
         versions_mock.assert();

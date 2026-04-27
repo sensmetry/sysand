@@ -21,21 +21,24 @@
 //!   - `versions.json` 404 means the project is not in this index;
 //!     `versions_async` yields an empty stream and `get_project_async`
 //!     surfaces a distinct [`IndexEnvironmentError::ProjectNotInIndex`]
-//!     so multi-index callers can fall through cleanly.
+//!     so direct callers can distinguish "not here" from transport
+//!     failures.
 //!   - `index.json` 404 stays a hard error: an empty-but-live index
 //!     serves `{"projects": []}` with 200 OK, so 404 means "this URL
 //!     is not a sysand index".
 //!   - Per-version files (`.project.json`, `.meta.json`, `project.kpar`)
 //!     for an `available` or `yanked` entry are required to exist, so
 //!     a 404 there remains a hard error (§9). `removed` entries are
-//!     short-circuited up-front in `get_project_async`.
+//!     rejected before per-version files are fetched in
+//!     `get_project_async`.
 //! - Each entry carries an optional `status` field (§8) —
 //!   `available | yanked | removed`, omitted = available. §12
 //!   excludes `yanked` / `removed` from the `versions_async` stream
 //!   so solve/lock cannot select them; §9 makes `removed` entries'
 //!   per-version files 404, and `get_project_async` rejects them
-//!   up-front with a distinct `VersionRemoved` error so a replayed
-//!   lockfile reports the removal instead of a generic 404.
+//!   before per-version file fetches with a distinct `VersionRemoved`
+//!   error so a replayed lockfile reports the removal instead of a
+//!   generic 404.
 //! - Forward compatibility: no type here sets
 //!   `#[serde(deny_unknown_fields)]`; servers may add new optional
 //!   fields, and any future schema-version signal should be added in
@@ -738,10 +741,9 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         let versions_url = self.endpoints.versions_url(uri.as_ref())?;
         // §8 — a `versions.json` 404 means the project is not in this
         // index. Surface it as a distinct `ProjectNotInIndex` error so
-        // callers (e.g. lockfile replay across multiple indexes) can
-        // tell "not here, try elsewhere" apart from "the index spoke
-        // but doesn't list this version" (`VersionNotInIndex`) or any
-        // other transport failure.
+        // direct callers can tell "not here" apart from "the index
+        // spoke but doesn't list this version" (`VersionNotInIndex`)
+        // or any other transport failure.
         let versions = self
             .fetch_versions_json(uri.as_ref())
             .await?
