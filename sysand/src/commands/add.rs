@@ -190,13 +190,9 @@ pub fn command_add<Policy: HTTPAuthentication>(
     if !no_lock {
         let info_path = current_project.info_path();
         let info_backup = wrapfs::read_to_string(&info_path)?;
-        match do_add(&mut current_project, &usage_raw) {
-            Ok(added) => {
-                if !added {
-                    return Ok(());
-                }
-            }
-            Err(e) => return Err(e.into()),
+        let added = do_add(&mut current_project, &usage_raw)?;
+        if !added {
+            return Ok(());
         }
 
         let alias_iris = if let Some(w) = &ctx.current_workspace {

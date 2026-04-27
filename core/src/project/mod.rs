@@ -541,7 +541,7 @@ pub trait ProjectReadAsync {
                 });
 
                 let collected_checksums: Result<Vec<(String, InterchangeProjectChecksumRaw)>, _> =
-                    futures::future::join_all(future_checksums.into_iter())
+                    futures::future::join_all(future_checksums)
                         .await
                         .into_iter()
                         .collect();
