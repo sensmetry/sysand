@@ -173,6 +173,15 @@ pub enum DiscoveryError {
         field: &'static str,
         value: String,
     },
+    #[error(
+        "discovery document at `{url}` supplied URL userinfo in `{value}` for `{field}`; \
+         username and password are not allowed"
+    )]
+    Userinfo {
+        url: Box<str>,
+        field: &'static str,
+        value: String,
+    },
 }
 
 /// Fetch the discovery document from
@@ -225,6 +234,13 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
         // since the only schemes the index client speaks are HTTP(S).
         if !matches!(parsed.scheme(), "http" | "https") {
             return Err(DiscoveryError::UnsupportedScheme {
+                url: config_url.as_str().into(),
+                field,
+                value: s,
+            });
+        }
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return Err(DiscoveryError::Userinfo {
                 url: config_url.as_str().into(),
                 field,
                 value: s,

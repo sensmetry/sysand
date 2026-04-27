@@ -63,11 +63,14 @@ fields:
 
 `index_root` and `api_root`, when present, MUST be absolute `http` or
 `https` URLs ([RFC 3986 §4.3][rfc3986-43]: scheme + hier-part, no
-relative references). Clients MUST reject a discovery document that
-supplies a relative URL for either field rather than attempting to
+relative references) and MUST NOT contain URL userinfo (`username` or
+`password`). Clients MUST reject a discovery document that supplies a
+relative URL or userinfo for either field rather than attempting to
 resolve it against the discovery root or the final URL of the
-discovery-document fetch — relative URLs are excluded to avoid
-ambiguity around the resolution base after redirects.
+discovery-document fetch — relative URLs are excluded to avoid ambiguity
+around the resolution base after redirects, and userinfo is excluded so
+credentials are not logged, persisted, or propagated through generated
+source URLs.
 
 If the discovery document is absent (HTTP 404) the client proceeds as
 though it were present with no fields set: `index_root` and `api_root`

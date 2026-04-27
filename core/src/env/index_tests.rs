@@ -2535,6 +2535,28 @@ mod discovery {
     }
 
     #[test]
+    fn test_discovery_rejects_userinfo_index_root() -> Result<(), Box<dyn std::error::Error>> {
+        let mut server = mockito::Server::new();
+
+        let config_mock = mock_json_get(
+            &mut server,
+            "/sysand-index-config.json",
+            r#"{"index_root":"https://user:password@example.com/index/"}"#,
+        );
+
+        let err = test_env_sync_discovery(&server).expect_err("userinfo index_root must reject");
+        let text = format!("{err:?}");
+        assert!(
+            text.contains("Userinfo") && text.contains("index_root"),
+            "expected Userinfo on index_root, got: {text}"
+        );
+
+        config_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
     fn test_discovery_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
         // A broken server and a misconfigured base URL are
         // indistinguishable, so anything beyond 200/404 is a hard

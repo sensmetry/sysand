@@ -81,6 +81,17 @@ fn build_upload_url_rejects_non_hierarchical_url() {
 }
 
 #[test]
+fn build_upload_url_rejects_userinfo() {
+    for raw in [
+        "https://user@example.org/api/",
+        "https://user:password@example.org/api/",
+    ] {
+        let err = build_upload_url(&Url::parse(raw).unwrap()).unwrap_err();
+        assert!(matches!(err, PublishError::InvalidApiRoot { .. }));
+    }
+}
+
+#[test]
 fn error_body_to_string_trims_text_content() {
     assert_eq!(error_body_to_string(b"  unauthorized\n"), "unauthorized");
 }
