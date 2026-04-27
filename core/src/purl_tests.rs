@@ -123,6 +123,12 @@ fn parse_sysand_purl_rejects_non_normalized_with_suggestion() {
     };
     assert_eq!(suggested, "pkg:sysand/admin/proj0");
 
+    let err = parse_sysand_purl("PKG:SysAnd/admin/proj0").unwrap_err();
+    let SysandPurlError::NotNormalized { suggested } = err else {
+        panic!("expected NotNormalized, got {err:?}");
+    };
+    assert_eq!(suggested, "pkg:sysand/admin/proj0");
+
     let err = parse_sysand_purl("pkg:sysand/Acme Labs/My.Project").unwrap_err();
     let SysandPurlError::NotNormalized { suggested } = err else {
         panic!("expected NotNormalized, got {err:?}");

@@ -133,9 +133,11 @@ pub enum SysandPurlError {
 /// the prefix is a strong enough signal of intent that silently rerouting
 /// such an IRI would mask user errors.
 pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlError> {
-    let Some(rest) = iri.strip_prefix(PKG_SYSAND_PREFIX) else {
+    let lower = iri.to_ascii_lowercase();
+    let Some(_) = lower.strip_prefix(PKG_SYSAND_PREFIX) else {
         return Ok(None);
     };
+    let rest = &iri[PKG_SYSAND_PREFIX.len()..];
 
     let parts: Vec<&str> = rest.split('/').collect();
     let [publisher, name] = parts.as_slice() else {
@@ -155,7 +157,10 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
         });
     }
 
-    if normalize_field(publisher) != *publisher || normalize_field(name) != *name {
+    if !iri.starts_with(PKG_SYSAND_PREFIX)
+        || normalize_field(publisher) != *publisher
+        || normalize_field(name) != *name
+    {
         return Err(SysandPurlError::NotNormalized {
             suggested: format!(
                 "{PKG_SYSAND_PREFIX}{}/{}",
