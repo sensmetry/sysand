@@ -59,7 +59,7 @@ use crate::{
     auth::HTTPAuthentication,
     env::{
         ReadEnvironmentAsync,
-        discovery::{DiscoveryError, ResolvedEndpoints},
+        discovery::{DiscoveryError, ResolvedEndpoints, fetch_index_config},
         iri_normalize::normalize_iri_for_hash,
         segment_uri_generic,
     },
@@ -107,11 +107,14 @@ const IRI_HASH_SEGMENT: &str = "_iri";
 pub struct IndexEnvironmentAsync<Policy> {
     client: reqwest_middleware::ClientWithMiddleware,
     auth_policy: Arc<Policy>,
-    /// Resolved `(index_root, api_root)` pair. Populated at construction
-    /// from `<discovery_root>/sysand-index-config.json`; the
-    /// `discovery_root` is not retained because no later code path needs
-    /// it — discovery happens once.
-    endpoints: ResolvedEndpoints,
+    /// User-configured discovery root. When present, `endpoints` is
+    /// populated lazily from `<discovery_root>/sysand-index-config.json`
+    /// on first actual index access.
+    discovery_root: Option<url::Url>,
+    /// Resolved `(index_root, api_root)` pair. Test callers may seed this
+    /// at construction; production index resolvers leave it empty until
+    /// the index is actually queried.
+    endpoints: tokio::sync::OnceCell<ResolvedEndpoints>,
     /// Intra-run cache of parsed `versions.json` documents, keyed by IRI.
     /// Avoids the duplicate fetches that otherwise occur because
     /// `versions_async` and `get_project_async` each independently hit the
@@ -131,22 +134,42 @@ pub struct IndexEnvironmentAsync<Policy> {
 }
 
 impl<Policy> IndexEnvironmentAsync<Policy> {
-    /// Build an env from already-resolved `endpoints`. Discovery (the
-    /// `<discovery_root>/sysand-index-config.json` fetch) is the
-    /// caller's job — see [`fetch_index_config`] — so this constructor
-    /// is sync and infallible. Production callers run discovery once
-    /// per index up front (e.g. via `runtime.block_on`) and pass the
-    /// result here; tests construct `ResolvedEndpoints` directly when
-    /// they don't need to exercise the discovery flow.
+    /// Build an env from already-resolved `endpoints`. Tests construct
+    /// `ResolvedEndpoints` directly when they don't need to exercise the
+    /// discovery flow; production resolver construction should prefer
+    /// [`Self::from_discovery_root`] so network discovery stays lazy.
     pub fn new(
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
         endpoints: ResolvedEndpoints,
     ) -> Self {
+        let endpoints_cell = tokio::sync::OnceCell::new();
+        endpoints_cell
+            .set(endpoints)
+            .expect("newly-created OnceCell accepts initial endpoints");
         Self {
             client,
             auth_policy,
-            endpoints,
+            discovery_root: None,
+            endpoints: endpoints_cell,
+            versions_cache: Default::default(),
+        }
+    }
+
+    /// Build an env from a user-configured discovery root without
+    /// contacting the network. The discovery document is fetched once,
+    /// lazily, when a caller first enumerates or materializes projects
+    /// from this index.
+    pub fn from_discovery_root(
+        client: reqwest_middleware::ClientWithMiddleware,
+        auth_policy: Arc<Policy>,
+        discovery_root: url::Url,
+    ) -> Self {
+        Self {
+            client,
+            auth_policy,
+            discovery_root: Some(discovery_root),
+            endpoints: tokio::sync::OnceCell::new(),
             versions_cache: Default::default(),
         }
     }
@@ -477,13 +500,30 @@ pub(crate) fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironme
 }
 
 impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
+    async fn endpoints(&self) -> Result<&ResolvedEndpoints, IndexEnvironmentError> {
+        if let Some(discovery_root) = self.discovery_root.as_ref() {
+            return self
+                .endpoints
+                .get_or_try_init(|| async {
+                    fetch_index_config(&self.client, &*self.auth_policy, discovery_root).await
+                })
+                .await
+                .map_err(IndexEnvironmentError::Discovery);
+        }
+
+        Ok(self
+            .endpoints
+            .get()
+            .expect("resolved-endpoint constructor initializes endpoints"))
+    }
+
     async fn fetch_index(&self) -> Result<IndexJson, IndexEnvironmentError> {
         // Propagate a 404 as a hard error: empty-but-live indices serve
         // `{"projects": []}` with 200 OK, so 404 really means "this URL
         // is not a sysand index". A misconfigured base URL must surface
         // as a hard error rather than be silently skipped by a resolver
         // chain.
-        let url = self.endpoints.index_url()?;
+        let url = self.endpoints().await?.index_url()?;
 
         match fetch_json(
             &self.client,
@@ -510,28 +550,29 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
         iri: S,
     ) -> Result<Option<Rc<[AdvertisedVersion]>>, IndexEnvironmentError> {
         let iri_key = iri.as_ref();
+        if let Some(cached) = self.versions_cache.lock().await.get(iri_key).cloned() {
+            return Ok(Some(cached));
+        }
+
+        let url = self.endpoints().await?.versions_url(iri_key)?;
+        let fetched = fetch_json::<VersionsJson, _>(
+            &self.client,
+            &*self.auth_policy,
+            &url,
+            MissingPolicy::AllowNotFound,
+        )
+        .await?;
+        let Some(parsed) = fetched else {
+            return Ok(None);
+        };
+
+        let validated = validate_versions(&url, parsed)?;
         let mut cache = self.versions_cache.lock().await;
         let val = match cache.entry(iri_key.to_owned()) {
-            Entry::Occupied(occupied) => Some(Rc::clone(occupied.get())),
-            Entry::Vacant(vacant) => {
-                let url = self.endpoints.versions_url(iri_key)?;
-                match fetch_json::<VersionsJson, _>(
-                    &self.client,
-                    &*self.auth_policy,
-                    &url,
-                    MissingPolicy::AllowNotFound,
-                )
-                .await?
-                {
-                    Some(parsed) => {
-                        let validated = validate_versions(&url, parsed)?;
-                        Some(Rc::clone(vacant.insert_entry(validated).get()))
-                    }
-                    None => None,
-                }
-            }
+            Entry::Occupied(occupied) => Rc::clone(occupied.get()),
+            Entry::Vacant(vacant) => Rc::clone(vacant.insert_entry(validated).get()),
         };
-        Ok(val)
+        Ok(Some(val))
     }
 }
 
@@ -693,7 +734,8 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         // Validate the requested version against the advertised set
         // before constructing per-version leaf URLs. We only fetch
         // versions the index has explicitly listed in `versions.json`.
-        let versions_url = self.endpoints.versions_url(uri.as_ref())?;
+        let endpoints = self.endpoints().await?;
+        let versions_url = endpoints.versions_url(uri.as_ref())?;
         // §8 — a `versions.json` 404 means the project is not in this
         // index. Surface it as a distinct `ProjectNotInIndex` error so
         // direct callers can tell "not here" apart from "the index
@@ -742,9 +784,9 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         // Build leaf URLs from the validated version (i.e. the `Display` of
         // the parsed `semver::Version`), not the caller-supplied string.
         let advertised_version = advertised.version.to_string();
-        let kpar_url = self.endpoints.kpar_url(&uri, &advertised_version)?;
-        let project_json_url = self.endpoints.project_json_url(&uri, &advertised_version)?;
-        let meta_json_url = self.endpoints.meta_json_url(&uri, &advertised_version)?;
+        let kpar_url = endpoints.kpar_url(&uri, &advertised_version)?;
+        let project_json_url = endpoints.project_json_url(&uri, &advertised_version)?;
+        let meta_json_url = endpoints.meta_json_url(&uri, &advertised_version)?;
 
         let project = IndexEntryProject::new(
             kpar_url,

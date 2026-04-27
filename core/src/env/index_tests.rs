@@ -186,7 +186,9 @@ fn with_trailing_slash(mut url: url::Url) -> url::Url {
 /// cover discovery specifically use this rather than calling `endpoints`
 /// on the env repeatedly.
 fn test_endpoints(env: &super::IndexEnvironmentAsync<Unauthenticated>) -> &ResolvedEndpoints {
-    &env.endpoints
+    env.endpoints
+        .get()
+        .expect("test_env_async initializes resolved endpoints")
 }
 
 /// Build an env whose resolved cell is **empty**, so that the first

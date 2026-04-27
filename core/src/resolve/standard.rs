@@ -9,8 +9,7 @@ use reqwest_middleware::ClientWithMiddleware;
 use crate::{
     auth::HTTPAuthentication,
     env::{
-        discovery::{DiscoveryError, fetch_index_config},
-        index::IndexEnvironmentAsync,
+        discovery::DiscoveryError, index::IndexEnvironmentAsync,
         local_directory::LocalDirectoryEnvironment,
     },
     resolve::{
@@ -100,20 +99,18 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<AsSyncResolveTokio<RemoteIndexResolver<Policy>>, DiscoveryError> {
-    // Each user-configured URL is a **discovery root**: fetch
-    // `sysand-index-config.json` once here to resolve `index_root` /
-    // `api_root` before any solver activity hits the index, then hand
-    // the resolved pair to the env constructor. All discovery fetches
-    // run concurrently under a single `block_on` so total wall time is
-    // bounded by the slowest index rather than the sum.
-    let all_endpoints = runtime.block_on(futures::future::try_join_all(
-        urls.iter()
-            .map(|url| fetch_index_config(&client, &*auth_policy, url)),
-    ))?;
-    let envs: Vec<EnvResolver<IndexEnvironmentAsync<Policy>>> = all_endpoints
+    // Each user-configured URL is a discovery root. Do not fetch
+    // `sysand-index-config.json` here: resolver construction happens for
+    // commands and bindings before we know whether an index dependency is
+    // needed at all. The env resolves discovery lazily on first index use.
+    let envs: Vec<EnvResolver<IndexEnvironmentAsync<Policy>>> = urls
         .into_iter()
-        .map(|endpoints| {
-            let env = IndexEnvironmentAsync::new(client.clone(), auth_policy.clone(), endpoints);
+        .map(|discovery_root| {
+            let env = IndexEnvironmentAsync::from_discovery_root(
+                client.clone(),
+                auth_policy.clone(),
+                discovery_root,
+            );
             EnvResolver { env }
         })
         .collect();
