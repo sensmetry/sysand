@@ -298,7 +298,7 @@ Sysand-core specifics that aren't part of the protocol:
 - `IndexEnvironmentAsync` is the client implementation; its per-version
   leaf is `IndexEntryProject`. The three trust tiers from
   [index-protocol.md §10](docs/src/index-protocol.md) map onto code as:
-  advertised reads return `versions.json` fields with no I/O
+  advertised versions reads return `versions.json` fields with no I/O
   (`version_async`, `usage_async`, `checksum_canonical_hex_async`);
   per-version `.project.json` / `.meta.json` are fetched once behind an
   internal `OnceCell`; and `project.kpar` is verified against the
