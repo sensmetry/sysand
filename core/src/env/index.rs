@@ -71,14 +71,6 @@ use crate::{
 
 const IRI_HASH_SEGMENT: &str = "_iri";
 
-/// Blocking wrapper around [`IndexEnvironmentAsync`] that drives the
-/// async implementation on a Tokio runtime. Use this from synchronous call
-/// sites (e.g. the CLI) where an `Environment`/`ReadEnvironment` is required;
-/// all real HTTP work happens on the wrapped async implementation. The type
-/// parameter is fixed to [`StandardHTTPAuthentication`] — construct the
-/// async form directly if a custom auth policy is needed.
-pub type IndexEnvironment =
-    AsSyncEnvironmentTokio<IndexEnvironmentAsync<StandardHTTPAuthentication>>;
 
 /// Async HTTP client for the sysand index protocol. This is the
 /// authoritative implementation; [`IndexEnvironment`] is just a
