@@ -316,7 +316,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             .map_err(|e| FsIoError::WriteFile(staging_path.clone(), e))?;
         drop(file);
 
-        wrapfs::rename(&staging_path, final_path)?;
+        crate::env::local_directory::utils::move_fs_item(&staging_path, final_path)?;
 
         Ok(())
     }

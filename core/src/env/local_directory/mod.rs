@@ -19,7 +19,7 @@ use crate::{
 };
 
 pub mod metadata;
-mod utils;
+pub(crate) mod utils;
 
 use utils::{
     TryMoveError, add_line_temp, path_encode_uri, remove_dir_if_empty, remove_empty_dirs,
