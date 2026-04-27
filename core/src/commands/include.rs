@@ -51,29 +51,29 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
     log::info!("{header}{including:>12}{header:#} file `{}`", path.as_ref());
 
     if index_symbols {
-        match force_format.or_else(|| Language::guess_from_path(&path)) {
-            Some(Language::SysML) => {
-                let new_symbols = crate::symbols::top_level_sysml(
-                    project.read_source(&path).map_err(IncludeError::Project)?,
-                )
-                .map_err(|e| IncludeError::Extract(path.as_ref().as_str().into(), e))?;
-
-                project.merge_index(new_symbols.into_iter().map(|x| (x, path.as_ref())), true)?;
-            }
-            Some(Language::KerML) => {
-                let new_symbols = crate::symbols::top_level_kerml(
-                    project.read_source(&path).map_err(IncludeError::Project)?,
-                )
-                .map_err(|e| IncludeError::Extract(path.as_ref().as_str().into(), e))?;
-
-                project.merge_index(new_symbols.into_iter().map(|x| (x, path.as_ref())), true)?;
-            }
-            _ => {
-                return Err(IncludeError::UnknownFormat(path.as_ref().as_str().into()));
-            }
-        }
+        let new_symbols = extract_symbols(project, &path, force_format)?;
+        project.merge_index(new_symbols.into_iter().map(|x| (x, path.as_ref())), true)?;
     }
 
     project.include_source(&path, compute_checksum, true)?;
     Ok(())
+}
+
+/// Extract top level symbols from file at `path` belonging to `project`
+pub fn extract_symbols<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
+    project: &mut Pr,
+    path: &P,
+    force_format: Option<Language>,
+) -> Result<Vec<String>, IncludeError<Pr::Error>> {
+    match force_format.or_else(|| Language::guess_from_path(path)) {
+        Some(Language::SysML) => crate::symbols::top_level_sysml(
+            project.read_source(path).map_err(IncludeError::Project)?,
+        )
+        .map_err(|e| IncludeError::Extract(path.as_ref().as_str().into(), e)),
+        Some(Language::KerML) => crate::symbols::top_level_kerml(
+            project.read_source(path).map_err(IncludeError::Project)?,
+        )
+        .map_err(|e| IncludeError::Extract(path.as_ref().as_str().into(), e)),
+        _ => Err(IncludeError::UnknownFormat(path.as_ref().as_str().into())),
+    }
 }

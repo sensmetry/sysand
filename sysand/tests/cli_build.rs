@@ -2,12 +2,20 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use assert_cmd::prelude::*;
+use camino::Utf8PathBuf;
 use clap::ValueEnum;
 use predicates::prelude::*;
-use std::io::{Read, Write};
+use serde_json::json;
+use std::{
+    fs,
+    io::{Read, Write},
+};
 use sysand::cli::KparCompressionMethodCli;
 use sysand_core::{
-    model::{InterchangeProjectChecksumRaw, KerMlChecksumAlg},
+    model::{
+        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        KerMlChecksumAlg,
+    },
     project::{ProjectRead, local_kpar::LocalKParProject},
 };
 
@@ -27,6 +35,10 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
 
     out.assert().success();
+    let orig_info_path = cwd.join(".project.json");
+    let orig_meta_path = cwd.join(".meta.json");
+    let orig_info_contents = fs::read_to_string(&orig_info_path)?;
+    let orig_meta_contents = fs::read_to_string(&orig_meta_path)?;
 
     let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
 
@@ -45,12 +57,31 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
 
     let kpar_project = LocalKParProject::new_guess_root(cwd.join("test_build.kpar"))?;
 
-    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
+    let (Some(info), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
     };
 
-    // Ensure things get canonicalised during build
+    // Ensure the build artifact matches original project
+    let original_meta: InterchangeProjectMetadataRaw = serde_json::from_str(&orig_meta_contents)?;
+    let original_info: InterchangeProjectInfoRaw = serde_json::from_str(&orig_info_contents)?;
+    assert_eq!(original_info, info);
+    assert_eq!(original_meta, meta);
 
+    // Ensure no changes were made to the original project
+    let new_info_contents = fs::read_to_string(&orig_info_path)?;
+    let new_meta_contents = fs::read_to_string(&orig_meta_path)?;
+    assert_eq!(orig_info_contents, new_info_contents);
+    assert_eq!(orig_meta_contents, new_meta_contents);
+
+    // Now canonicalize meta during build
+    let out = run_sysand_in(&cwd, ["build", "--update-meta", "./test_build2.kpar"], None)?;
+    out.assert().success();
+    let kpar_project = LocalKParProject::new_guess_root(cwd.join("test_build2.kpar"))?;
+
+    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
+        panic!("failed to get built project info/meta");
+    };
+    // File hash should be updated
     assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
     assert_eq!(
         meta.checksum.as_ref().unwrap().get("test.sysml").unwrap(),
@@ -62,6 +93,12 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(meta.index.len(), 1);
     assert_eq!(meta.index.get("P").unwrap(), "test.sysml");
+
+    // Ensure no changes were made to the original project
+    let new_info_contents = fs::read_to_string(&orig_info_path)?;
+    let new_meta_contents = fs::read_to_string(&orig_meta_path)?;
+    assert_eq!(orig_info_contents, new_info_contents);
+    assert_eq!(orig_meta_contents, new_meta_contents);
 
     Ok(())
 }
@@ -123,11 +160,36 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+struct WProject {
+    name: String,
+    info_path: Utf8PathBuf,
+    meta_path: Utf8PathBuf,
+    orig_info_contents: String,
+    orig_meta_contents: String,
+}
+impl WProject {
+    fn new(cwd: Utf8PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+        let name = cwd.file_name().unwrap().to_owned();
+        let info_path = cwd.join(".project.json");
+        let meta_path = cwd.join(".meta.json");
+        let orig_info_contents = fs::read_to_string(&info_path)?;
+        let orig_meta_contents = fs::read_to_string(&meta_path)?;
+        Ok(Self {
+            name,
+            info_path,
+            meta_path,
+            orig_info_contents,
+            orig_meta_contents,
+        })
+    }
+}
+
 #[test]
 fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project_group_cwd = cwd.join("subgroup");
     std::fs::create_dir(&project_group_cwd)?;
+
     let project1_cwd = project_group_cwd.join("project1");
     let project2_cwd = project_group_cwd.join("project2");
     let project3_cwd = cwd.join("project3");
@@ -135,19 +197,25 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     // Create .workspace.json file
     std::fs::write(
         cwd.join(".workspace.json"),
-        br#"{"projects": [
-            {"path": "subgroup/project1", "iris": ["urn:kpar:project1"]},
-            {"path": "subgroup/project2", "iris": ["urn:kpar:project2"]},
-            {"path": "project3", "iris": ["urn:kpar:project3"]}
-            ]}"#,
+        json!({"projects": [
+        {"path": "subgroup/project1", "iris": ["urn:kpar:project1"]},
+        {"path": "subgroup/project2", "iris": ["urn:kpar:project2"]},
+        {"path": "project3", "iris": ["urn:kpar:project3"]}
+        ]})
+        .to_string(),
     )?;
 
     for project_cwd in [&project1_cwd, &project2_cwd, &project3_cwd] {
         std::fs::create_dir(project_cwd)?;
-        let project_name = project_cwd.file_name().unwrap();
         let out = run_sysand_in(
             project_cwd,
-            ["init", "--version", "1.2.3", "--name", project_name],
+            [
+                "init",
+                "--version",
+                "1.2.3",
+                "--name",
+                project_cwd.file_name().unwrap(),
+            ],
             None,
         )?;
         out.assert().success();
@@ -161,14 +229,20 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         out.assert().success();
     }
 
+    let projects = [
+        WProject::new(project1_cwd)?,
+        WProject::new(project2_cwd)?,
+        WProject::new(project3_cwd)?,
+    ];
+
     let out = run_sysand_in(&cwd, ["build"], None)?;
     out.assert().success();
 
-    for project_name in ["project1", "project2", "project3"] {
-        println!("W9: {}", project_name);
+    for project in &projects {
+        println!("W9: {}", project.name);
         let kpar_path = cwd
             .join("output")
-            .join(format!("{}-1.2.3.kpar", project_name));
+            .join(format!("{}-1.2.3.kpar", project.name));
         assert!(
             kpar_path.is_file(),
             "kpar file does not exist: {}",
@@ -179,7 +253,76 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
 
         out.assert()
             .success()
-            .stdout(predicate::str::contains(format!("Name: {}", project_name)))
+            .stdout(predicate::str::contains(format!("Name: {}", project.name)))
+            .stdout(predicate::str::contains("Version: 1.2.3"));
+
+        let kpar_project = LocalKParProject::new_guess_root(kpar_path)?;
+
+        let (Some(info), Some(meta)) = kpar_project.get_project()? else {
+            panic!("failed to get built project info/meta");
+        };
+
+        // Ensure the build artifact matches original project
+        let original_meta: InterchangeProjectMetadataRaw =
+            serde_json::from_str(&project.orig_meta_contents)?;
+        let original_info: InterchangeProjectInfoRaw =
+            serde_json::from_str(&project.orig_info_contents)?;
+        assert_eq!(original_info, info);
+        assert_eq!(original_meta, meta);
+
+        // Ensure no changes were made to the original project
+        let new_info_contents = fs::read_to_string(&project.info_path)?;
+        let new_meta_contents = fs::read_to_string(&project.meta_path)?;
+        assert_eq!(project.orig_info_contents, new_info_contents);
+        assert_eq!(project.orig_meta_contents, new_meta_contents);
+
+        // out.assert()
+        //     .success()
+        //     .stdout(predicate::str::contains(format!("Name: {}", project.name)))
+        //     .stdout(predicate::str::contains("Version: 1.2.3"));
+
+        // let kpar_project = LocalKParProject::new_guess_root(kpar_path)?;
+
+        // let (Some(_), Some(meta)) = kpar_project.get_project()? else {
+        //     panic!("failed to get built project info/meta");
+        // };
+
+        // // Ensure things get canonicalised during build
+
+        // assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
+        // assert_eq!(
+        //     meta.checksum.as_ref().unwrap().get("test.sysml").unwrap(),
+        //     &InterchangeProjectChecksumRaw {
+        //         value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
+        //             .to_string(),
+        //         algorithm: KerMlChecksumAlg::Sha256.into(),
+        //     }
+        // );
+
+        // assert_eq!(meta.index.len(), 1);
+        // assert_eq!(meta.index.get("P").unwrap(), "test.sysml");
+    }
+
+    // Now canonicalize meta during build. Previous artifacts should be overwritten
+    let out = run_sysand_in(&cwd, ["build", "--update-meta"], None)?;
+    out.assert().success();
+
+    for project in &projects {
+        println!("W9: {}", project.name);
+        let kpar_path = cwd
+            .join("output")
+            .join(format!("{}-1.2.3.kpar", project.name));
+        assert!(
+            kpar_path.is_file(),
+            "kpar file does not exist: {}",
+            kpar_path
+        );
+
+        let out = run_sysand_in(&cwd, ["info", "--path", kpar_path.as_str()], None)?;
+
+        out.assert()
+            .success()
+            .stdout(predicate::str::contains(format!("Name: {}", project.name)))
             .stdout(predicate::str::contains("Version: 1.2.3"));
 
         let kpar_project = LocalKParProject::new_guess_root(kpar_path)?;
@@ -188,20 +331,25 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
             panic!("failed to get built project info/meta");
         };
 
-        // Ensure things get canonicalised during build
-
+        // File hash should be updated
         assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
         assert_eq!(
             meta.checksum.as_ref().unwrap().get("test.sysml").unwrap(),
             &InterchangeProjectChecksumRaw {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
                     .to_string(),
-                algorithm: KerMlChecksumAlg::Sha256.into(),
+                algorithm: KerMlChecksumAlg::Sha256.into()
             }
         );
 
         assert_eq!(meta.index.len(), 1);
         assert_eq!(meta.index.get("P").unwrap(), "test.sysml");
+
+        // Ensure no changes were made to the original project
+        let new_info_contents = fs::read_to_string(&project.info_path)?;
+        let new_meta_contents = fs::read_to_string(&project.meta_path)?;
+        assert_eq!(project.orig_info_contents, new_info_contents);
+        assert_eq!(project.orig_meta_contents, new_meta_contents);
     }
 
     Ok(())
@@ -682,8 +830,7 @@ fn test_compression_method(compression: Option<&str>) -> Result<(), Box<dyn std:
     assert_eq!(info.version, "1.2.3");
 
     assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
-    assert_eq!(meta.index.len(), 1);
-    assert_eq!(meta.index.get("P").unwrap(), "test.sysml");
+    assert_eq!(meta.index.len(), 0);
     let mut src = String::new();
     kpar_project
         .read_source("test.sysml")?

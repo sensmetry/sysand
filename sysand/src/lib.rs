@@ -635,6 +635,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         Command::Build {
             path,
             compression,
+            update_meta,
             allow_path_usage,
         } => {
             if let Some(current_project) = ctx.current_project {
@@ -658,6 +659,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     path,
                     compression.into(),
                     current_project,
+                    update_meta,
                     allow_path_usage,
                 )
             } else {
@@ -676,6 +678,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     output_dir,
                     compression.into(),
                     current_workspace,
+                    update_meta,
                     allow_path_usage,
                 )
             }
