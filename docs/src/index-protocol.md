@@ -298,11 +298,13 @@ A version's file presence is governed by its [§8] `status`:
   a 404 on any of them is a hard error. Clients MUST NOT treat the
   404 as "version not available"; `status` is the only mechanism for
   signalling unavailability.
-- `removed` — the three files MUST 404. A conforming client MUST
-  treat the 404 as the retirement already advertised by
-  `status: "removed"`, and MUST surface it as a distinct error from
-  the `available`/`yanked` 404-is-a-protocol-violation case (typical
-  phrasing: "version X was removed upstream").
+- `removed` — the three files MUST 404. A client that has just read the
+  corresponding `versions.json` entry MUST reject the version before
+  fetching these files and surface it as a distinct removed-upstream
+  error (typical phrasing: "version X was removed upstream"). A lockfile
+  `sync` replay is different: it starts from the recorded archive URL and
+  digest and does not re-read `versions.json`, so a removed archive may
+  surface as an archive-fetch failure instead.
 
 The protocol is designed so that each client operation fetches only what
 it needs:
