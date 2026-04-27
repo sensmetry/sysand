@@ -123,9 +123,7 @@ pub fn validate_endpoint_url_shape(url: &Url, kind: EndpointKind) -> Result<(), 
         return Err(err("URL scheme must be http or https".to_string()));
     }
     if !url.username().is_empty() || url.password().is_some() {
-        return Err(err(
-            "URL must not include username or password".to_string(),
-        ));
+        return Err(err("URL must not include username or password".to_string()));
     }
     if url.query().is_some() {
         return Err(err("URL must not include a query component".to_string()));
@@ -201,6 +199,10 @@ pub enum PublishError {
         version: Box<str>,
         source: semver::Error,
     },
+    #[error(
+        "version field `{version}` is invalid for publishing: build metadata (`+...`) is forbidden by the index protocol"
+    )]
+    VersionBuildMetadata { version: Box<str> },
 
     #[error("missing license in project info (required for publishing)")]
     MissingLicense,
@@ -288,10 +290,16 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     if !is_valid_name(name) {
         return Err(PublishError::InvalidName(name.as_str().into()));
     }
-    semver::Version::parse(version).map_err(|source| PublishError::InvalidVersion {
-        version: version.as_str().into(),
-        source,
-    })?;
+    let parsed_version =
+        semver::Version::parse(version).map_err(|source| PublishError::InvalidVersion {
+            version: version.as_str().into(),
+            source,
+        })?;
+    if !parsed_version.build.is_empty() {
+        return Err(PublishError::VersionBuildMetadata {
+            version: version.as_str().into(),
+        });
+    }
     spdx::Expression::parse(license).map_err(|source| PublishError::InvalidLicense {
         license: license.into(),
         source,

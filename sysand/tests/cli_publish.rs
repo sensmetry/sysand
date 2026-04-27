@@ -383,6 +383,36 @@ fn publish_rejects_invalid_semver_version() -> TestResult {
 }
 
 #[test]
+fn publish_rejects_version_build_metadata() -> TestResult {
+    let (_temp_dir, cwd) = init_project("version-build-metadata")?;
+
+    let project_file = cwd.join(".project.json");
+    let project_json = std::fs::read_to_string(&project_file)?;
+    let project_json =
+        project_json.replace("\"version\": \"1.0.0\"", "\"version\": \"1.2.3+build\"");
+    std::fs::write(project_file, project_json)?;
+
+    include_basic_model(&cwd)?;
+    build_kpar_at(&cwd, "artifact.kpar")?;
+
+    let env = bearer_env_for_url("http://localhost:1");
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "artifact.kpar", "--index", "http://localhost:1"],
+        None,
+        &env,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("version field"))
+        .stderr(predicate::str::contains("build metadata"))
+        .stderr(predicate::str::contains("HTTP request failed").not());
+
+    Ok(())
+}
+
+#[test]
 fn publish_rejects_noncanonicalizable_publisher() -> TestResult {
     let (_temp_dir, cwd) = init_project("valid-publish-name")?;
     set_project_field(&cwd, "publisher", "bad__publisher")?;
