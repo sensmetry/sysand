@@ -681,12 +681,12 @@ fn validate_versions(
     }
     // Parsed-semver ordering check — catches `10.0.0-beta.1` before
     // `10.0.0`, which lexical order would miss.
-    for pair in validated.windows(2) {
-        if pair[0].version.cmp(&pair[1].version) != std::cmp::Ordering::Greater {
+    for [v1, v2] in validated.array_windows() {
+        if v1.version <= v2.version {
             return Err(IndexEnvironmentError::VersionsOutOfOrder {
                 url: url.as_str().into(),
-                prev: pair[0].version.to_string(),
-                curr: pair[1].version.to_string(),
+                prev: v1.version.to_string(),
+                curr: v2.version.to_string(),
             });
         }
     }
