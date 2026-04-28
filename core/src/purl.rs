@@ -15,8 +15,8 @@ use thiserror::Error;
 
 /// The `pkg:sysand/` URI scheme prefix. A `pkg:sysand` IRI is required to
 /// have exactly two slash-separated segments (`<publisher>/<name>`) after
-/// this prefix, both passing [`is_valid_field`] for their respective
-/// [`FieldKind`].
+/// this prefix, both satisfying the field rules enforced by
+/// [`is_valid_publisher`] and [`is_valid_name`].
 pub const PKG_SYSAND_PREFIX: &str = "pkg:sysand/";
 
 /// Which kind of `pkg:sysand` segment to validate. Publishers disallow dots
@@ -24,7 +24,7 @@ pub const PKG_SYSAND_PREFIX: &str = "pkg:sysand/";
 /// toolchain); names permit dots so that dotted product names (e.g.
 /// `foo.bar`) are expressible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FieldKind {
+enum FieldKind {
     Publisher,
     Name,
 }
@@ -38,9 +38,9 @@ impl FieldKind {
 /// Validates a publisher or name field for `pkg:sysand` project IDs.
 ///
 /// Rules: 3-50 ASCII alphanumeric characters, with single separators (space,
-/// hyphen, and — for `FieldKind::Name` — dot) allowed between words. Must
+/// hyphen, and — for names — dot) allowed between words. Must
 /// start and end with an alphanumeric character.
-pub fn is_valid_field(s: &str, kind: FieldKind) -> bool {
+fn is_valid_field(s: &str, kind: FieldKind) -> bool {
     if !s.is_ascii() {
         return false;
     }
@@ -88,7 +88,8 @@ pub fn is_valid_name(s: &str) -> bool {
 
 /// Canonicalizes a publisher or name by lowercasing ASCII and replacing spaces
 /// with hyphens. The result is what ends up embedded in a `pkg:sysand` IRI;
-/// callers should validate with [`is_valid_field`] before or after calling.
+/// callers should validate with [`is_valid_publisher`] or [`is_valid_name`]
+/// before or after calling.
 pub fn normalize_field(s: &str) -> String {
     s.to_ascii_lowercase().replace(' ', "-")
 }
@@ -103,14 +104,14 @@ pub enum SysandPurlError {
     /// error message can name it.
     #[error("expected exactly two `/`-separated segments after `pkg:sysand/`, found {segments}")]
     WrongShape { segments: usize },
-    /// The publisher segment did not satisfy [`is_valid_field`] (length,
-    /// allowed characters, separator placement).
+    /// The publisher segment did not satisfy the `pkg:sysand` field rules
+    /// (length, allowed characters, separator placement).
     #[error(
         "publisher segment `{publisher}` is not a valid `pkg:sysand` field \
          (3-50 ASCII alphanumeric chars, with single ` ` or `-` separators between words)"
     )]
     InvalidPublisher { publisher: String },
-    /// The name segment did not satisfy [`is_valid_field`].
+    /// The name segment did not satisfy the `pkg:sysand` field rules.
     #[error(
         "name segment `{name}` is not a valid `pkg:sysand` field \
          (3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` separators between words)"
@@ -151,7 +152,7 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
             publisher: (*publisher).to_owned(),
         });
     }
-    if !is_valid_field(name, FieldKind::Name) {
+    if !is_valid_name(name) {
         return Err(SysandPurlError::InvalidName {
             name: (*name).to_owned(),
         });
