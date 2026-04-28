@@ -31,8 +31,7 @@ clients MUST follow such redirects. The digest commitments in
 [§10] provide end-to-end integrity
 regardless of transport.
 
-The `sysand index` CLI command group (in development) produces and
-maintains index trees.
+The `sysand index` CLI command group produces and maintains index trees.
 
 ## 3. Discovery and configuration
 
@@ -453,8 +452,8 @@ Retirement ([§8] `status`) and the lockfile contract:
 
 ## 15. `sysand index` CLI (preview)
 
-The `sysand index` command group (in development) produces and maintains
-a sysand index tree: laying out files, generating digests, and keeping
+The `sysand index` command group produces and maintains a sysand index
+tree: laying out files, generating digests, and keeping
 `versions.json` consistent with the per-version artifacts. This is the
 only supported path for creating and mutating an index tree —
 third-party tooling may serve a tree that happens to conform, but the
