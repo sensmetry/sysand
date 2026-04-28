@@ -336,7 +336,7 @@ on the wire.
 
 `project_digest` is SHA-256 over the canonical form of the `(info, meta)`
 pair served at the same version directory. Because the `meta.checksum`
-rule above constrains `.meta.json` to carry SHA-256 per-file digests
+rule below constrains `.meta.json` to carry SHA-256 per-file digests
 directly, the canonical form of conforming index content can be
 computed from `.project.json` and `.meta.json` alone, without reading
 `project.kpar` sources.
@@ -371,8 +371,8 @@ A conforming sysand index server MUST uphold:
 - **Byte immutability.** Existing per-version files never have their
   bytes changed in place; a published `project.kpar` is either served
   with the same bytes forever or withdrawn (see retirement, below).
-- **Retirement via `status`.** `versions.json` entries are
-  append-only: once an entry exists it is never removed, and its
+- **Retirement via `status`.** `versions.json` entries are retained:
+  once an entry exists it is never removed, and its
   `version`, `usage`, `project_digest`, `kpar_size`, and `kpar_digest`
   fields never change. The only mutable field on an existing entry is
   `status` ([§8]). Permitted transitions are `available → yanked`,
@@ -410,18 +410,18 @@ A conforming sysand index client:
 
 ## 13. Immutability and lockfile reproducibility
 
-Byte immutability and append-only `versions.json` entries ([§11]) have
+Byte immutability and retained `versions.json` entries ([§11]) have
 direct consequences for sysand lockfiles:
 
 - The pair `(iri, version)` is a stable identifier for a specific set of
   bytes; a lockfile referencing it stays valid against a conforming
   index for as long as the entry's `status` is not `"removed"`
   ([§8]).
-- Digest fields recorded in a lockfile (`project_digest`, `kpar_digest`)
-  provide a tripwire: a later fetch whose advertised digest differs from
-  the lockfile's recorded digest indicates that either the server
-  violated byte immutability, or the lockfile and server refer to
-  different indices.
+- The `project_digest` and `kpar_digest` values advertised in
+  `versions.json` are captured in a lockfile as a tripwire: a later
+  fetch whose advertised digest differs from the lockfile's recorded
+  digest indicates that either the server violated byte immutability, or
+  the lockfile and server refer to different indices.
 
 Retirement ([§8] `status`) and the lockfile contract:
 

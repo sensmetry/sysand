@@ -6,27 +6,8 @@
 //! `docs/src/index-protocol.md`; this module implements the client-side fetch
 //! and URL-shape validation.
 //!
-//! The user configures a **discovery root** — the base URL from which
-//! the client resolves `index_root` and `api_root`. On first contact the
-//! client fetches the discovery document from that discovery root and
-//! extracts `index_root` / `api_root` URLs; either missing field defaults
-//! to the discovery root itself. Response-status semantics:
-//!
-//! - 200 → parse the document. Unknown fields are silently ignored.
-//! - 404 → the discovery document is absent. Both roots default to the
-//!   discovery root.
-//! - Other non-2xx → hard error. The client cannot differentiate a
-//!   misconfigured discovery root from a broken server.
-//!
-//! `index_root` and `api_root`, when present, MUST be absolute `http`
-//! or `https` URLs without userinfo. Relative URLs are rejected rather
-//! than resolved against the discovery root or the final URL of the
-//! discovery fetch — this deliberately avoids the ambiguity that comes
-//! with relative URLs after redirects.
-//!
-//! Clients MUST follow HTTP redirects on the discovery fetch; the
-//! underlying `reqwest` middleware applies its default redirect policy
-//! (see the comment next to
+//! The underlying `reqwest` middleware applies its default redirect policy
+//! to the discovery fetch (see the comment next to
 //! [`crate::resolve::net_utils::create_reqwest_client`]).
 
 use serde::Deserialize;

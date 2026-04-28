@@ -10,9 +10,10 @@
 //! implementation split:
 //!
 //! - Advertised-tier reads ([`ProjectReadAsync::version_async`],
-//!   [`ProjectReadAsync::usage_async`],
-//!   [`ProjectReadAsync::checksum_canonical_hex_async`]) returning fields
-//!   from [`crate::env::index::AdvertisedVersion`] without I/O.
+//!   [`ProjectReadAsync::usage_async`]) returning fields from
+//!   [`crate::env::index::AdvertisedVersion`] without I/O. Before the archive
+//!   is verified, [`ProjectReadAsync::checksum_canonical_hex_async`] also
+//!   returns the advertised digest directly.
 //! - Lazily-fetched reads
 //!   ([`ProjectReadAsync::get_project_async`]/`get_info_async`/`get_meta_async`)
 //!   guarded by `fetched_info_meta`'s `OnceCell`.
@@ -51,9 +52,10 @@ pub struct IndexEntryProject<Policy> {
     /// The kpar archive backend — field name tracks its role in this struct,
     /// type name tracks the transport.
     pub(crate) archive: ReqwestKparDownloadedProject<Policy>,
-    /// Single source of truth for the protocol-advertised per-version
-    /// metadata. All `version_async`/`usage_async`/`checksum_canonical_hex_async`
-    /// accesses return slices/clones of these fields without any I/O.
+    /// Single source of truth for protocol-advertised per-version metadata.
+    /// `version_async` and `usage_async` return these fields without I/O;
+    /// `checksum_canonical_hex_async` does the same until the archive has been
+    /// verified.
     pub(crate) advertised: AdvertisedVersion,
     pub(crate) project_json_url: reqwest::Url,
     pub(crate) meta_json_url: reqwest::Url,

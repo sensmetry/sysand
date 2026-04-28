@@ -187,17 +187,9 @@ pub(crate) struct AdvertisedVersion {
     pub(crate) status: Status,
 }
 
-/// Retirement state of a `versions.json` entry. See §8 of the index
-/// protocol for the wire contract and §11 for the transition rules
-/// (`Available → Yanked`, `Available → Removed`, `Yanked → Removed`;
-/// no other transitions). An omitted `status` in the JSON parses as
-/// [`Status::Available`] — the field is optional for forward
-/// compatibility with indexes predating the retirement model.
-///
-/// Serializers SHOULD pair the `Serialize` impl with
-/// `#[serde(skip_serializing_if = "Status::is_available")]` on any
-/// field carrying a `Status`, so unretired entries keep their on-wire
-/// shape unchanged (§8 SHOULD).
+/// Retirement state of a `versions.json` entry; see the index protocol for
+/// the wire contract and transition rules. An omitted `status` parses as
+/// [`Status::Available`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Status {

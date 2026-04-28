@@ -17,11 +17,10 @@ mod common;
 pub use common::*;
 
 /// Register a `sysand-index-config.json` 404 mock on `server`.
-/// Every `--default-index` invocation goes through the discovery step,
-/// which fetches this URL first and treats any non-2xx other than 404
-/// as a hard error. These tests don't exercise the discovery-document
-/// path; they just want the client to proceed with `api_root` /
-/// `index_root` defaulting to the discovery root.
+/// Configured index URLs go through the discovery step, which fetches this
+/// URL first. These tests don't exercise the discovery-document path; they
+/// just want the client to proceed with `api_root` / `index_root` defaulting
+/// to the discovery root.
 fn mock_index_config_absent(server: &mut mockito::Server) -> mockito::Mock {
     server
         .mock("GET", "/sysand-index-config.json")
