@@ -387,7 +387,7 @@ impl Lock {
     /// Makes lock canonical:
     ///
     /// - sorts all the collections
-    /// - canonicalizes project checksums
+    /// - canonicalizes recorded digest fields
     ///
     /// Does not change contents or semantics.
     pub fn canonicalize(mut self) -> Self {

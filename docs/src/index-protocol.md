@@ -46,6 +46,11 @@ On first contact, the client fetches:
 <discovery-root>/sysand-index-config.json
 ```
 
+Clients normalize a configured discovery root to a directory URL before
+joining that path: `https://example.org/index` is treated as
+`https://example.org/index/`, so discovery fetches
+`https://example.org/index/sysand-index-config.json`.
+
 If present (HTTP 200), the response is a JSON object with these optional
 fields:
 
@@ -454,15 +459,16 @@ third-party tooling may serve a tree that happens to conform, but the
 project does not support creation or maintenance by means other than
 `sysand index`.
 
-The `sysand index` CLI and sysand index clients enforce only the
-wire-level rules this document defines — tier consistency, digest
-agreement, `meta.checksum` format, `pkg:sysand` canonicalization,
-`versions.json` ordering and uniqueness. Semantic project-quality
-checks (is `.meta.json`'s `checksum` map complete, does the archive
-shape match the interchange spec, are referenced files reachable,
-etc.) are the publish pipeline's responsibility: tooling built on top
-of the protocol (e.g. `sysand publish` and a sysand index server's
-upload handler) SHOULD enforce those at the publish boundary.
+The `sysand index` CLI enforces the wire-level rules this document
+defines — tier consistency, digest agreement, `meta.checksum` format,
+`pkg:sysand` canonicalization, `versions.json` ordering and uniqueness.
+Sysand index clients enforce their client obligations ([§12]), including
+digest verification but not textual cross-checks between tiers. Semantic
+project-quality checks (is `.meta.json`'s `checksum` map complete, does
+the archive shape match the interchange spec, are referenced files
+reachable, etc.) are the publish pipeline's responsibility: tooling
+built on top of the protocol (e.g. `sysand publish` and a sysand index
+server's upload handler) SHOULD enforce those at the publish boundary.
 
 [§1]: #1-scope
 [§2]: #2-implementability

@@ -319,17 +319,14 @@ fn publish_invalid_index_url_errors_early() -> TestResult {
 #[test]
 fn publish_rejects_upload_endpoint_index_url() -> TestResult {
     // If the user pastes the full upload URL as the `--index` value, the
-    // discovery step defaults `api_root` to the discovery root (no
-    // discovery document here), and the subsequent `build_upload_url`
-    // catches the `v1/upload` suffix and refuses to compose
-    // `v1/upload/v1/upload`. The error message points the user back at
-    // the API root.
+    // pre-discovery shape check rejects it before discovery or upload.
+    // The error message points the user back at the API root.
     let (_temp_dir, cwd) = setup_built_project_at("upload-endpoint-index", "artifact.kpar")?;
     let mut server = Server::new();
-    // The discovery fetch is expected but absent — 404 is fine.
     let _config_mock = server
         .mock("GET", "/sysand-index-config.json")
         .with_status(404)
+        .expect(0)
         .create();
     let publish_mock = server.mock("POST", "/v1/upload").expect(0).create();
     let endpoint_url = format!("{}/v1/upload", server.url());

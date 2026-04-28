@@ -287,10 +287,10 @@ and server/client obligations — is specified in
 [`docs/src/index-protocol.md`](docs/src/index-protocol.md) and deliberately
 not duplicated here.
 
-How an index is _managed_ (who publishes, how the tree is hosted and
-updated) is not yet defined; tracked in
-[GitHub issue 279](https://github.com/sensmetry/sysand/issues/279).
-Refer to the [work in GitLab] for the latest in-flight design notes.
+Index tree creation and mutation are owned by the `sysand index` command
+group described in the protocol docs. Publishing uses the discovered
+`api_root` and leaves the server responsible for accepting uploads and
+updating the served index tree.
 
 #### Client implementation notes
 
@@ -298,11 +298,12 @@ Sysand-core specifics that aren't part of the protocol:
 
 - `IndexEnvironmentAsync` is the client implementation; its per-version
   leaf is `IndexEntryProject`. Advertised-version reads return
-  `versions.json` fields with no I/O (`version_async`, `usage_async`,
-  `checksum_canonical_hex_async`); per-version `.project.json` /
-  `.meta.json` are fetched once behind an internal `OnceCell`; and
-  `project.kpar` is verified against the advertised `kpar_digest` during
-  download.
+  `versions.json` fields with no I/O (`version_async`, `usage_async`);
+  `checksum_canonical_hex_async` returns the advertised digest until the
+  archive has been verified, after which it checks the archive-backed
+  digest. Per-version `.project.json` / `.meta.json` are fetched once
+  behind an internal `OnceCell`, and `project.kpar` is verified against
+  the advertised `kpar_digest` during download.
 - Because the kpar isn't on disk during resolution, `Source::IndexKpar`
   populates `index_kpar_size` and `index_kpar_digest` directly from
   `versions.json`, so lockfile writing records archive metadata without a

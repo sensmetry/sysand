@@ -253,8 +253,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
 
     // Exact counts pin the fetch fan-in so a regression that adds a
     // redundant fetch trips a test rather than passing silently. The
-    // test runs `sysand sync` twice (to exercise "already up to date"),
-    // which is why the 404 mocks see more than one hit.
+    // unauthenticated 404s come from the first sync's resolution/auth flow.
     let info_mock = server
         .mock("GET", "/.project.json")
         .match_header("authorization", Matcher::Missing)

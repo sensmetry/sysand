@@ -81,7 +81,7 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
     }
 
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
-        // Delegate to `local`: the cached archive is the authoritative
+        // Delegate to `local`: the cached project is the authoritative
         // content and any checksum it produces matches the remote's.
         // Delegating through the default would short-circuit back to
         // `self.get_project` (also local) but without picking up any
