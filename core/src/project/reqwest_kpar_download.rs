@@ -3,6 +3,7 @@
 
 use std::{
     io::{self, Write as _},
+    num::NonZeroU64,
     pin::Pin,
     sync::Arc,
 };
@@ -46,8 +47,7 @@ pub struct ReqwestKparDownloadedProject<Policy> {
     /// Optional expected archive byte length. Index-backed kpars carry this
     /// in the lockfile / versions index; enforce it while streaming so a
     /// malicious server cannot exhaust disk before the digest check fails.
-    // TODO: use NonZeroU64
-    expected_size: Option<u64>,
+    expected_size: Option<NonZeroU64>,
     /// Fans concurrent `ensure_downloaded*` calls on the same instance
     /// into a single download — without this, racing tasks would both
     /// truncate the destination archive and interleave writes, potentially
@@ -92,6 +92,8 @@ pub enum ReqwestKparDownloadedError {
         expected: u64,
         actual: u64,
     },
+    #[error("expected kpar size for `{url}` must be non-zero")]
+    ZeroExpectedSize { url: Box<str> },
 }
 
 impl From<FsIoError> for ReqwestKparDownloadedError {
@@ -108,6 +110,15 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         expected_sha256_hex: Option<String>,
         expected_size: Option<u64>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
+        let expected_size = match expected_size {
+            Some(size) => Some(NonZeroU64::new(size).ok_or_else(|| {
+                ReqwestKparDownloadedError::ZeroExpectedSize {
+                    url: url.as_str().into(),
+                }
+            })?),
+            None => None,
+        };
+
         Ok(Self {
             url,
             inner: LocalKParProject::new_temporary()?,
@@ -176,11 +187,11 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         }
 
         if let (Some(actual), Some(expected)) = (resp.content_length(), self.expected_size)
-            && actual != expected
+            && actual != expected.get()
         {
             return Err(ReqwestKparDownloadedError::SizeMismatch {
                 url: self.url.as_str().into(),
-                expected,
+                expected: expected.get(),
                 actual,
             });
         }
@@ -193,11 +204,11 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             let bytes = bytes.map_err(ReqwestKparDownloadedError::Reqwest)?;
             written += bytes.len() as u64;
             if let Some(expected) = self.expected_size
-                && written > expected
+                && written > expected.get()
             {
                 return Err(ReqwestKparDownloadedError::SizeMismatch {
                     url: self.url.as_str().into(),
-                    expected,
+                    expected: expected.get(),
                     actual: written,
                 });
             }
@@ -209,11 +220,11 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         }
 
         if let Some(expected) = self.expected_size
-            && written != expected
+            && written != expected.get()
         {
             return Err(ReqwestKparDownloadedError::SizeMismatch {
                 url: self.url.as_str().into(),
-                expected,
+                expected: expected.get(),
                 actual: written,
             });
         }
@@ -222,7 +233,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
 
         if let Some(expected) = self.expected_size {
-            debug_assert_eq!(expected, self.inner.file_size().unwrap());
+            debug_assert_eq!(expected.get(), self.inner.file_size().unwrap());
         }
 
         if let (Some(h), Some(expected)) = (hasher, self.expected_sha256_hex.as_deref()) {
@@ -341,7 +352,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         {
             return Ok(vec![Source::IndexKpar {
                 index_kpar: self.url.to_string(),
-                index_kpar_size,
+                index_kpar_size: index_kpar_size.get(),
                 index_kpar_digest: index_kpar_digest.clone(),
             }]);
         }
