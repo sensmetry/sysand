@@ -165,22 +165,12 @@ pub enum DiscoveryError {
         field: &'static str,
         value: String,
     },
-    #[error(
-        "discovery document at `{url}` supplied a non-base URL `{value}` for `{field}`; \
-         an HTTP(S) base URL is required"
-    )]
-    CannotBeBase {
-        url: Box<str>,
-        field: &'static str,
-        value: String,
-    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HttpBaseUrlShapeError {
     UnsupportedScheme,
     Userinfo,
-    CannotBeBase,
 }
 
 pub(crate) fn validate_http_base_url_shape(url: &url::Url) -> Result<(), HttpBaseUrlShapeError> {
@@ -189,9 +179,6 @@ pub(crate) fn validate_http_base_url_shape(url: &url::Url) -> Result<(), HttpBas
     }
     if !url.username().is_empty() || url.password().is_some() {
         return Err(HttpBaseUrlShapeError::Userinfo);
-    }
-    if url.cannot_be_a_base() {
-        return Err(HttpBaseUrlShapeError::CannotBeBase);
     }
     Ok(())
 }
@@ -209,11 +196,6 @@ fn discovery_shape_error(
             value: value.as_str().to_owned(),
         },
         HttpBaseUrlShapeError::Userinfo => DiscoveryError::Userinfo {
-            url: source_url.as_str().into(),
-            field,
-            value: value.as_str().to_owned(),
-        },
-        HttpBaseUrlShapeError::CannotBeBase => DiscoveryError::CannotBeBase {
             url: source_url.as_str().into(),
             field,
             value: value.as_str().to_owned(),
@@ -304,10 +286,9 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
 /// rather than touching the serialized path string, so percent-encoded
 /// segments survive the round-trip unchanged.
 ///
-/// Callers must pass a URL that can be a base (`http(s)://…` etc.). The
-/// `path_segments_mut` call returns `Err(())` only for cannot-be-a-base
-/// URLs, which the discovery pipeline rejects up front via
-/// [`url::Url::cannot_be_a_base`].
+/// Callers must pass an HTTP(S) URL. Such URLs can be a base, so the
+/// `path_segments_mut` call should not fail after endpoint-shape
+/// validation.
 pub(crate) fn with_trailing_slash(mut url: url::Url) -> url::Url {
     {
         let mut segments = url

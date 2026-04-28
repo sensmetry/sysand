@@ -121,7 +121,6 @@ pub fn validate_endpoint_url_shape(url: &Url, kind: EndpointKind) -> Result<(), 
         err(match e {
             HttpBaseUrlShapeError::UnsupportedScheme => "URL scheme must be http or https",
             HttpBaseUrlShapeError::Userinfo => "URL must not include username or password",
-            HttpBaseUrlShapeError::CannotBeBase => "URL must be an HTTP(S) base URL",
         }
         .to_string())
     })?;
