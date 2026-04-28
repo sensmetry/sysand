@@ -474,19 +474,6 @@ pub(crate) fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironme
 }
 
 impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
-    async fn fetch_optional_json<T: DeserializeOwned>(
-        &self,
-        url: &url::Url,
-    ) -> Result<Option<T>, IndexEnvironmentError> {
-        Ok(fetch_json(
-            &self.client,
-            &*self.auth_policy,
-            url,
-            MissingPolicy::AllowNotFound,
-        )
-        .await?)
-    }
-
     async fn fetch_index(&self) -> Result<IndexJson, IndexEnvironmentError> {
         // Propagate a 404 as a hard error: empty-but-live indices serve
         // `{"projects": []}` with 200 OK, so 404 really means "this URL
@@ -494,14 +481,18 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
         // as a hard error rather than be silently skipped by a resolver
         // chain.
         let url = self.endpoints.index_url()?;
-        self.fetch_optional_json::<IndexJson>(&url)
-            .await?
-            .ok_or_else(|| {
-                IndexEnvironmentError::Fetch(HttpFetchError::BadHttpStatus {
-                    url: url.as_str().into(),
-                    status: reqwest::StatusCode::NOT_FOUND,
-                })
-            })
+
+        match fetch_json(
+            &self.client,
+            &*self.auth_policy,
+            &url,
+            MissingPolicy::RequirePresent,
+        )
+        .await
+        {
+            Ok(json) => Ok(json.expect("RequirePresent must not return Ok(None)")),
+            Err(e) => Err(e.into()),
+        }
     }
 
     /// Fetch, validate, and cache `versions.json` for `iri`. See
