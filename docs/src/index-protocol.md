@@ -190,10 +190,14 @@ IRI the index knows about:
 }
 ```
 
-- A 404 on `index.json` is a hard error: `{ "projects": [] }` is the
-  empty-index signal, so a 404 means "this URL is not a sysand index".
-  Clients MUST fail the operation, and resolver chains MUST NOT skip
-  this source.
+Today, clients use `index.json` when enumerating every IRI an index
+advertises through `ReadEnvironment::uris` / `uris_async`. Resolving a
+specific IRI does not consult `index.json`; it fetches that project's
+`versions.json` directly ([§8]).
+
+A 404 on `index.json` is a hard error for operations that fetch it:
+`{ "projects": [] }` is the empty-index signal, so a 404 means "this URL
+is not a sysand index".
 
 ## 8. `versions.json`
 

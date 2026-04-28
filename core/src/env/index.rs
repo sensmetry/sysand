@@ -459,11 +459,9 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
     }
 
     async fn fetch_index(&self) -> Result<IndexJson, IndexEnvironmentError> {
-        // Propagate a 404 as a hard error: empty-but-live indices serve
-        // `{"projects": []}` with 200 OK, so 404 really means "this URL
-        // is not a sysand index". A misconfigured base URL must surface
-        // as a hard error rather than be silently skipped by a resolver
-        // chain.
+        // Propagate a 404 as a hard error for list-all operations:
+        // empty-but-live indices serve `{"projects": []}` with 200 OK, so
+        // 404 really means "this URL is not a sysand index".
         let url = self.endpoints().await?.index_url()?;
 
         match fetch_json(
