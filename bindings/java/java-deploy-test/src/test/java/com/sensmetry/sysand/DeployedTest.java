@@ -15,11 +15,8 @@ public class DeployedTest {
     public void testBasicInit() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init");
-            // The original Sysand.init call is moved here and modified to use the
-            // temporary directory.
             com.sensmetry.sysand.Sysand.init("test", "1.0.0", tempDir);
 
-            // Add basic assertions to verify project creation
             assertTrue(java.nio.file.Files.exists(tempDir.resolve(".project.json")), "Project file should exist");
             assertTrue(java.nio.file.Files.exists(tempDir.resolve(".meta.json")), "Metadata file should exist");
 

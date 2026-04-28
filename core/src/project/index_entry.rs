@@ -5,10 +5,9 @@
 //!
 //! `IndexEntryProject` is the `ProjectRead`/`ProjectReadAsync` leaf returned
 //! by [`crate::env::index::IndexEnvironmentAsync`] once a concrete version
-//! has been selected. The three-tier trust model (advertised /
-//! lazily-fetched / lazily-fetched-and-verified) and the digest reconciliation
-//! rules are documented in `docs/src/index-protocol.md`; this module is
-//! the client-side implementation of them, with:
+//! has been selected. The protocol rules are documented in
+//! `docs/src/index-protocol.md`; this module only calls out the
+//! implementation split:
 //!
 //! - Advertised-tier reads ([`ProjectReadAsync::version_async`],
 //!   [`ProjectReadAsync::usage_async`],
@@ -16,13 +15,7 @@
 //!   from [`crate::env::index::AdvertisedVersion`] without I/O.
 //! - Lazily-fetched reads
 //!   ([`ProjectReadAsync::get_project_async`]/`get_info_async`/`get_meta_async`)
-//!   guarded by `fetched_info_meta`'s `OnceCell` so concurrent callers fan
-//!   in to a single fetch + digest-verification pass. Digest
-//!   verification against the advertised `project_digest` is mandatory
-//!   before either document is exposed to callers, and the server is
-//!   authoritative for textual fields — the client does not
-//!   cross-check `version`/`usage` between `versions.json` and
-//!   `.project.json`.
+//!   guarded by `fetched_info_meta`'s `OnceCell`.
 //! - [`ProjectReadAsync::read_source_async`] delegating to
 //!   [`crate::project::reqwest_kpar_download::ReqwestKparDownloadedProject`],
 //!   which verifies the archive against the advertised `kpar_digest` before
@@ -234,17 +227,10 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
     async fn checksum_canonical_hex_async(
         &self,
     ) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
-        // Gate on "kpar_digest has been verified", not merely "bytes
-        // exist at the archive path". The post-download cross-check
-        // below hashes (info, meta) read out of the kpar and compares
-        // it against `advertised.project_digest`; running that over
-        // bytes that were renamed into place by an *unverified*
-        // `ensure_downloaded` path would mean the equality check only
-        // detects a hash collision, not tampering. Today no caller in
-        // this crate wires the archive through the unverified path,
-        // but `ReqwestKparDownloadedProject::ProjectReadAsync` still
-        // exposes one — gate here rather than rely on the invariant
-        // holding forever.
+        // Gate on verified archive bytes, not merely on the final path
+        // existing. The project digest check below validates info/meta
+        // consistency; archive-byte authenticity belongs to the kpar digest
+        // verification performed by `ensure_downloaded_verified`.
         if !self.archive.is_verified() {
             return Ok(Some(self.advertised.project_digest.as_hex().to_string()));
         }

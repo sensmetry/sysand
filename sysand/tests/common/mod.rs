@@ -53,9 +53,7 @@ pub fn fixture_path(name: &str) -> Utf8PathBuf {
     path
 }
 
-/// Build a single `versions.json` entry body. The wire format is a
-/// spec-level fact (see `docs/src/index-protocol.md` §8); centralizing
-/// it keeps CLI test fixtures in sync.
+/// Build a single `versions.json` entry fixture.
 pub fn versions_json_entry_body(
     version: &str,
     project_digest_hex: &str,

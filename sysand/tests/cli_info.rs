@@ -833,9 +833,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
         .expect_at_least(1)
         .create();
 
-    // `info` reads the per-version `.project.json` / `.meta.json` directly;
-    // the kpar endpoint must not be touched. expect(0) catches any regression
-    // that would re-introduce a kpar download during info.
+    // `info` reads per-version JSON directly; the kpar endpoint must not fire.
     let kpar_mock = server
         .mock("GET", format!("{iri_dir}/1.2.3/project.kpar").as_str())
         .expect(0)
@@ -931,10 +929,7 @@ fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
         .expect_at_least(1)
         .create();
 
-    // expect(0): `sysand info` resolves info from the per-version
-    // `.project.json` / `.meta.json` and never downloads the archive.
-    // A regression that re-enables a download during info would fire this
-    // mock and fail the assertion.
+    // `info` reads per-version JSON directly; the kpar endpoint must not fire.
     let kpar_mock = server
         .mock("GET", format!("{iri_dir}/1.2.3/project.kpar").as_str())
         .expect(0)

@@ -360,19 +360,8 @@ fn build_index_kpar_bytes(
 
 #[test]
 fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> {
-    // End-to-end coverage for the `versions.json`-backed index env:
-    //   `sysand init` → inject a `pkg:sysand/<pub>/<name>` usage →
-    //   `sysand lock` (reads versions.json, writes lockfile with advertised
-    //   project_digest) → `sysand sync` (downloads kpar, verifies kpar_digest,
-    //   recomputes the digest and reconciles with the lockfile).
-    //
-    // The mock advertises `project_hash_raw(info, meta)` as the per-version
-    // digest; this fixture has no `meta.checksum` entries, so raw ==
-    // canonical.
-    //
-    // A regression in which the advertised digest cannot actually round-trip
-    // through lock+sync (e.g. a non-deterministic fallback hash) would fail
-    // the `sync` step with BadChecksum or DigestDrift.
+    // End-to-end check that an index-advertised project digest round-trips
+    // through lockfile writing and sync-time archive verification.
     use sha2::{Digest as _, Sha256};
     use sysand_core::model::project_hash_raw;
 

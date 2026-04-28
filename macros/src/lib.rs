@@ -11,7 +11,8 @@ use syn::{Data, DataEnum, DeriveInput, parse_macro_input};
 ///
 /// This macro implements `ProjectRead` for an enum whose variants each
 /// contain a type that already implements `ProjectRead`. The derived
-/// implementation delegates all trait methods to the active variant.
+/// implementation delegates the methods listed below to the active
+/// variant; methods not listed keep their `ProjectRead` defaults.
 ///
 /// In addition, the macro generates two new enums to unify associated types
 /// across variants:

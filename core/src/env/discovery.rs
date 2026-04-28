@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! Discovery of `index_root` and `api_root` via
-//! `<discovery-root>/sysand-index-config.json`.
+//! `<discovery-root>/sysand-index-config.json`. The wire contract lives in
+//! `docs/src/index-protocol.md`; this module implements the client-side fetch
+//! and URL-shape validation.
 //!
 //! The user configures a **discovery root** — the base URL from which
 //! the client resolves `index_root` and `api_root`. On first contact the

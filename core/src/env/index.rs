@@ -6,43 +6,17 @@
 //! split between `versions.json`, per-version `.project.json`/`.meta.json`,
 //! and the kpar archive; this module is the client-side implementation.
 //!
-//! Protocol assumptions relied on throughout this module (stated once
-//! here so per-item docs can focus on specifics):
+//! Implementation notes:
 //!
-//! - `versions.json` is the per-IRI catalog; the five per-entry fields
-//!   (`version`, `usage`, `project_digest`, `kpar_size`, `kpar_digest`)
-//!   are all required, and entries MUST appear in **descending semver
-//!   precedence**. The client validates the ordering at ingest on the
-//!   parsed `semver::Version` (not lexically) and does not re-sort —
-//!   downstream code relies on newest-first.
-//! - Every digest is `sha256:<64 lowercase hex>`; any other shape is a
-//!   protocol violation and rejects the whole `versions.json`.
-//! - 404 handling splits by document (§8):
-//!   - `versions.json` 404 means the project is not in this index;
-//!     `versions_async` yields an empty stream and `get_project_async`
-//!     surfaces a distinct [`IndexEnvironmentError::ProjectNotInIndex`]
-//!     so direct callers can distinguish "not here" from transport
-//!     failures.
-//!   - `index.json` 404 stays a hard error: an empty-but-live index
-//!     serves `{"projects": []}` with 200 OK, so 404 means "this URL
-//!     is not a sysand index".
-//!   - Per-version files (`.project.json`, `.meta.json`, `project.kpar`)
-//!     for an `available` or `yanked` entry are required to exist, so
-//!     a 404 there remains a hard error (§9). `removed` entries are
-//!     rejected before per-version files are fetched in
-//!     `get_project_async`.
-//! - Each entry carries an optional `status` field (§8) —
-//!   `available | yanked | removed`, omitted = available. §12
-//!   excludes `yanked` / `removed` from the `versions_async` stream
-//!   so solve/lock cannot select them; §9 makes `removed` entries'
-//!   per-version files 404, and `get_project_async` rejects them
-//!   before per-version file fetches with a distinct `VersionRemoved`
-//!   error so a replayed lockfile reports the removal instead of a
-//!   generic 404.
-//! - Forward compatibility: no type here sets
-//!   `#[serde(deny_unknown_fields)]`; servers may add new optional
-//!   fields, and any future schema-version signal should be added in
-//!   one place rather than duplicated across documents.
+//! - `versions.json` entries are validated once at ingest and then cached
+//!   in newest-first order.
+//! - `versions.json` 404 is represented as absence from this index;
+//!   `index.json` and per-version 404s remain hard errors.
+//! - Retired versions are filtered at candidate enumeration, and `removed`
+//!   entries are rejected before per-version files are fetched.
+//! - The wire contract is kept in `docs/src/index-protocol.md`; the code
+//!   does not use `#[serde(deny_unknown_fields)]` so new optional fields are
+//!   ignored by default.
 
 use std::{
     collections::{HashMap, hash_map::Entry},
@@ -72,23 +46,6 @@ use crate::{
 const IRI_HASH_SEGMENT: &str = "_iri";
 
 /// Async HTTP client for the sysand index protocol.
-///
-/// Resolves IRIs as follows:
-///
-/// - `pkg:sysand/<publisher>/<name>` (two valid, normalized segments) ->
-///   `<publisher>/<name>/` under `index_root`.
-/// - Any IRI starting with `pkg:sysand/` that is *not* well-formed and
-///   normalized -> hard error
-///   ([`IndexEnvironmentError::MalformedSysandPurl`]). The prefix is
-///   strong enough intent that silently rerouting to `_iri/<sha256>/` would
-///   mask user errors (typo, unnormalized casing, wrong segment count) as
-///   "not found" — see `parse_sysand_purl` in `crate::purl`.
-/// - Any other IRI -> `_iri/<sha256_hex(normalized_iri)>/` under
-///   `index_root`. The IRI is first normalized — RFC 3986 §6.2.2
-///   syntax-based normalization plus IDN → Punycode and an HTTP(S)
-///   empty-path → `/` fixup; see [`crate::env::iri_normalize`]. The `_iri`
-///   route is reserved for non-`pkg:sysand` schemes; a `pkg:sysand` IRI
-///   never reaches it.
 ///
 /// `index_root` is resolved lazily via `sysand-index-config.json` on
 /// first use. The `discovery_root` the caller supplies is the URL the
@@ -464,18 +421,9 @@ struct VersionEntry {
 }
 
 /// Map an IRI to the index path segments that locate its project directory.
-///
-/// - `pkg:sysand/<publisher>/<name>` (well-formed and normalized) resolves
-///   under `<publisher>/<name>/`.
-/// - Any IRI starting with `pkg:sysand/` that fails parsing/normalization is
-///   rejected as [`IndexEnvironmentError::MalformedSysandPurl`].
-/// - Any other IRI resolves under `_iri/<sha256_hex(canonical_iri)>/`,
-///   where the IRI is first canonicalized — syntax-based normalization
-///   via [`fluent_uri::Iri::normalize`], IDN → Punycode on non-ASCII
-///   RegName hosts, and an HTTP(S) empty-path → `/` fixup. The `_iri`
-///   route never serves a `pkg:sysand` IRI: erroring loudly is
-///   preferable to silently routing typos / non-canonical casing to a
-///   hash bucket where they can never resolve.
+/// The detailed wire mapping is specified in `docs/src/index-protocol.md`;
+/// this function keeps malformed `pkg:sysand/...` IRIs out of the generic
+/// `_iri/<hash>/` bucket so user typos fail loudly.
 pub(crate) fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironmentError> {
     match parse_sysand_purl(iri) {
         Ok(Some((publisher, name))) => Ok(vec![publisher.to_string(), name.to_string()]),
@@ -767,12 +715,9 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
                 version: version.as_ref().to_string(),
             })?;
 
-        // §9 — a `removed` entry's per-version files MUST 404. Refuse
-        // before even issuing the fetch so `sync`'s replay of a pinned
-        // lockfile gets the distinct "removed upstream" diagnostic
-        // rather than a generic 404. `yanked` entries stay reachable
-        // here: files are still served, and §12 excludes them from
-        // new resolutions at the `versions_async` boundary instead.
+        // A `removed` entry's per-version files are intentionally absent.
+        // Refuse before issuing the fetch. `yanked` entries stay reachable
+        // here; they are excluded from new resolutions at `versions_async`.
         if advertised.status == Status::Removed {
             return Err(IndexEnvironmentError::VersionRemoved {
                 url: versions_url.as_str().into(),

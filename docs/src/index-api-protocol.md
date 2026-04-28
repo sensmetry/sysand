@@ -1,7 +1,7 @@
 # Sysand Index API Protocol
 
-> **Status: to be written.** This document is a placeholder; its contents
-> are not yet specified.
+> **Status: partial.** The upload endpoint is described at a high level;
+> the rest of the API surface is not yet specified.
 
 ## Scope
 
@@ -33,9 +33,8 @@ The sysand index API is complementary:
   in the index protocol). When `api_root` is absent, clients default it
   to the discovery root.
 
-The two protocols share terminology and configuration but are versioned
-independently; a server MAY conform to one without conforming to the
-other.
+The two protocols share terminology and configuration, but a server MAY
+conform to one without conforming to the other.
 
 ## Status
 
