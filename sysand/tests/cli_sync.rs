@@ -277,7 +277,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect(2)
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock_auth = server
@@ -289,7 +289,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(2)
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     std::fs::write(
