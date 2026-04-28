@@ -215,7 +215,7 @@ pub enum PublishError {
         source: spdx::error::ParseError,
     },
 
-    #[error("invalid discovery root URL `{url}` for publish: {reason}")]
+    #[error("invalid index URL `{url}` for publish: {reason}")]
     InvalidDiscoveryRoot { url: Box<str>, reason: String },
 
     #[error("invalid api_root URL `{url}` for publish: {reason}")]

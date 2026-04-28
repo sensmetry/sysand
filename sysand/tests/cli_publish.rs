@@ -310,7 +310,7 @@ fn publish_invalid_index_url_errors_early() -> TestResult {
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("invalid discovery root URL"))
+        .stderr(predicate::str::contains("invalid index URL"))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     Ok(())
@@ -341,7 +341,7 @@ fn publish_rejects_upload_endpoint_index_url() -> TestResult {
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("invalid discovery root URL"))
+        .stderr(predicate::str::contains("invalid index URL"))
         .stderr(predicate::str::contains("not the `v1/upload` endpoint"))
         .stderr(predicate::str::contains("HTTP request failed").not());
     publish_mock.assert();
