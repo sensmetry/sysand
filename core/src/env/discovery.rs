@@ -182,6 +182,60 @@ pub enum DiscoveryError {
         field: &'static str,
         value: String,
     },
+    #[error(
+        "discovery document at `{url}` supplied a non-base URL `{value}` for `{field}`; \
+         an HTTP(S) base URL is required"
+    )]
+    CannotBeBase {
+        url: Box<str>,
+        field: &'static str,
+        value: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HttpBaseUrlShapeError {
+    UnsupportedScheme,
+    Userinfo,
+    CannotBeBase,
+}
+
+pub(crate) fn validate_http_base_url_shape(url: &url::Url) -> Result<(), HttpBaseUrlShapeError> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(HttpBaseUrlShapeError::UnsupportedScheme);
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(HttpBaseUrlShapeError::Userinfo);
+    }
+    if url.cannot_be_a_base() {
+        return Err(HttpBaseUrlShapeError::CannotBeBase);
+    }
+    Ok(())
+}
+
+fn discovery_shape_error(
+    source_url: &url::Url,
+    field: &'static str,
+    value: &url::Url,
+    error: HttpBaseUrlShapeError,
+) -> DiscoveryError {
+    match error {
+        HttpBaseUrlShapeError::UnsupportedScheme => DiscoveryError::UnsupportedScheme {
+            url: source_url.as_str().into(),
+            field,
+            value: value.as_str().to_owned(),
+        },
+        HttpBaseUrlShapeError::Userinfo => DiscoveryError::Userinfo {
+            url: source_url.as_str().into(),
+            field,
+            value: value.as_str().to_owned(),
+        },
+        HttpBaseUrlShapeError::CannotBeBase => DiscoveryError::CannotBeBase {
+            url: source_url.as_str().into(),
+            field,
+            value: value.as_str().to_owned(),
+        },
+    }
 }
 
 /// Fetch the discovery document from
@@ -193,6 +247,10 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
     auth: &P,
     discovery_root: &url::Url,
 ) -> Result<ResolvedEndpoints, DiscoveryError> {
+    validate_http_base_url_shape(discovery_root).map_err(|error| {
+        discovery_shape_error(discovery_root, "<discovery_root>", discovery_root, error)
+    })?;
+
     // Normalize the discovery root so `join` treats it as a directory.
     let directory_root = with_trailing_slash(discovery_root.clone());
     // Build the URL through `join` so that trailing slashes on the
@@ -228,24 +286,8 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
                 });
             }
         };
-        // Requiring an `http`/`https` scheme covers both the relative-
-        // URL case (relative inputs fail to parse and never reach here)
-        // and the non-hierarchical-scheme case (`urn:…`, `data:…`),
-        // since the only schemes the index client speaks are HTTP(S).
-        if !matches!(parsed.scheme(), "http" | "https") {
-            return Err(DiscoveryError::UnsupportedScheme {
-                url: config_url.as_str().into(),
-                field,
-                value: s,
-            });
-        }
-        if !parsed.username().is_empty() || parsed.password().is_some() {
-            return Err(DiscoveryError::Userinfo {
-                url: config_url.as_str().into(),
-                field,
-                value: s,
-            });
-        }
+        validate_http_base_url_shape(&parsed)
+            .map_err(|error| discovery_shape_error(&config_url, field, &parsed, error))?;
         Ok(with_trailing_slash(parsed))
     };
 

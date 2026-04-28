@@ -12,6 +12,7 @@ use url::Url;
 
 use crate::{
     auth::{ForceBearerAuth, HTTPAuthentication},
+    env::discovery::{HttpBaseUrlShapeError, validate_http_base_url_shape},
     project::{ProjectRead, local_kpar::LocalKParProject},
     purl::{PKG_SYSAND_PREFIX, is_valid_name, is_valid_publisher, normalize_field},
 };
@@ -119,12 +120,14 @@ pub fn validate_endpoint_url_shape(url: &Url, kind: EndpointKind) -> Result<(), 
             },
         }
     };
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(err("URL scheme must be http or https".to_string()));
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(err("URL must not include username or password".to_string()));
-    }
+    validate_http_base_url_shape(url).map_err(|e| {
+        err(match e {
+            HttpBaseUrlShapeError::UnsupportedScheme => "URL scheme must be http or https",
+            HttpBaseUrlShapeError::Userinfo => "URL must not include username or password",
+            HttpBaseUrlShapeError::CannotBeBase => "URL must be an HTTP(S) base URL",
+        }
+        .to_string())
+    })?;
     if url.query().is_some() {
         return Err(err("URL must not include a query component".to_string()));
     }
