@@ -27,10 +27,10 @@ use crate::{
 
 /// Construct an `IndexEntryProject` whose advertised tier has known
 /// values and whose archive is never downloaded. The returned project
-/// exposes `archive.is_downloaded() == false`, so advertised-tier
-/// reads that honour the "no I/O before download" contract must
-/// succeed without touching the network (which the unreachable mock
-/// URL would otherwise error on).
+/// exposes `archive.is_downloaded_and_verified() == false`, so
+/// advertised-tier reads that honour the "no I/O before download"
+/// contract must succeed without touching the network (which the
+/// unreachable mock URL would otherwise error on).
 fn make_fixture() -> IndexEntryProject<Unauthenticated> {
     // Two distinct 64-hex digests so a test that confuses them fails
     // loudly rather than passing on equality.
@@ -85,8 +85,6 @@ fn version_async_returns_advertised_without_fetch() {
     let project = make_fixture();
     let version = block_on(project.version_async()).unwrap();
     assert_eq!(version.as_deref(), Some("1.2.3"));
-    // `is_downloaded` must still be false — if `version_async` ever
-    // accidentally triggers a download, this flips to true.
     assert!(
         !project.archive.is_downloaded_and_verified(),
         "version_async must not trigger a download"
