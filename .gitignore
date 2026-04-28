@@ -8,3 +8,6 @@ native-bindings
 version.txt
 .playwright-cli
 .claude
+AGENTS.md
+AGENTS.local.md
+CLAUDE.md
