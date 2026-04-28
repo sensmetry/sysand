@@ -84,9 +84,9 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     IncompleteProject {
         /// Human-readable label for the project (an IRI when the project
         /// was resolved for a usage, a name+version when available locally, or
-        /// `<unknown>` as a last resort). Deliberately avoids dumping the
-        /// whole `project` via `{:?}` — that output is large, full of impl
-        /// detail, and almost never actionable.
+        /// `<unknown input project>` as a last resort). Deliberately avoids
+        /// dumping the whole `project` via `{:?}` — that output is large,
+        /// full of impl detail, and almost never actionable.
         project_label: String,
         /// Which required piece was missing: `info`, `meta`, or
         /// `canonical digest`.

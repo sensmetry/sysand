@@ -280,8 +280,8 @@ Absence:
   in a resolver chain it continues to the next source, and the
   operation fails only when no source returns a usable `versions.json`
   and no source returns a hard error. Non-404 errors remain hard
-  errors. This applies to `get_project` as well: a 404 on the
-  version-pinned fetch reports "not in this index" to the direct
+  errors. This applies to `get_project` as well: a 404 on that
+  project's `versions.json` reports "not in this index" to the direct
   caller, who decides whether that is fatal.
 - A project that the index lists in `index.json` but for which no
   version has been published is represented by a 200 response with
@@ -402,8 +402,6 @@ A conforming sysand index client:
   and MUST verify that their canonical `(info, meta)` digest equals the
   advertised `project_digest` before using either. A mismatch is a hard
   error.
-- MUST reject any version whose advertised digest disagrees with computed
-  content.
 - MUST NOT select a version whose [§8] `status` is not `"available"`
   for a new resolution. This applies to operations that consult
   `versions.json` to pick a version (solve, lock); `sync` replays a

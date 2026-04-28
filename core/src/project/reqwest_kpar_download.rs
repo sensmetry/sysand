@@ -197,9 +197,9 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         Ok(())
     }
 
-    /// Ensure the archive is on disk *and* its sha256 matched
-    /// `expected_sha256_hex`. The hex is compared lowercase; callers
-    /// obtain it from the pre-validated `Sha256HexDigest` produced during
+    /// Ensure the archive is on disk *and* its sha256 exactly matches
+    /// `expected_sha256_hex`. Callers should pass lowercase hex, typically
+    /// from the pre-validated `Sha256HexDigest` produced during
     /// `versions.json` ingest.
     ///
     /// If a previous unverified `ensure_downloaded()` already populated

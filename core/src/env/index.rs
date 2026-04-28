@@ -57,9 +57,10 @@ const IRI_HASH_SEGMENT: &str = "_iri";
 /// the five per-entry fields (`version`, `usage`, `project_digest`,
 /// `kpar_size`, `kpar_digest`) needed to enumerate candidates and verify
 /// later-materialized archives without downloading anything heavier.
-/// Fetched documents are validated (semver + digest shape + ordering)
-/// and cached in `versions_cache` so later reads in the same run reuse
-/// the parsed result.
+/// The optional `status` field controls retirement filtering. Fetched
+/// documents are validated (semver + digest shape + ordering) and cached
+/// in `versions_cache` so later reads in the same run reuse the parsed
+/// result.
 #[derive(Debug)]
 pub struct IndexEnvironmentAsync<Policy> {
     client: reqwest_middleware::ClientWithMiddleware,
@@ -688,10 +689,10 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
                 url: versions_url.as_str().into(),
                 iri: uri.as_ref().to_string(),
             })?;
-        // Compare parsed-to-parsed so semver-equivalent but
-        // non-byte-identical caller inputs match. A parse failure
-        // surfaces as `VersionNotInIndex` — a non-semver string
-        // can't appear in a validated `versions.json` by construction.
+        // Compare parsed `semver::Version` values rather than raw strings.
+        // Invalid SemVer input surfaces as `VersionNotInIndex`; validated
+        // `versions.json` entries cannot contain non-SemVer versions by
+        // construction.
         let requested = Version::parse(version.as_ref()).map_err(|_| {
             IndexEnvironmentError::VersionNotInIndex {
                 url: versions_url.as_str().into(),
