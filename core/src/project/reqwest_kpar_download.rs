@@ -50,7 +50,7 @@ pub struct ReqwestKparDownloadedProject<Policy> {
     expected_size: Option<u64>,
     /// Fans concurrent `ensure_downloaded*` calls on the same instance
     /// into a single download — without this, racing tasks would both
-    /// truncate the staging file and interleave writes, potentially
+    /// truncate the destination archive and interleave writes, potentially
     /// renaming corrupt bytes into place. The kpar is downloaded
     /// directly to the destination path, so `is_downloaded_and_verified`
     /// must be checked before reading it.
@@ -155,8 +155,9 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
     /// share the single in-flight attempt and a returned `Err` leaves
     /// the cell uninitialized (retries succeed).
     ///
-    /// Downloads directly to the final path; `is_downloaded()` must be
-    /// checked before reading, as the file may be incomplete.
+    /// Downloads directly to the final path. Callers must go through
+    /// `ensure_downloaded_verified` before reading so the `OnceCell` has
+    /// observed a successful download and any configured verification.
     async fn perform_download(&self) -> Result<(), ReqwestKparDownloadedError> {
         use futures::StreamExt as _;
 

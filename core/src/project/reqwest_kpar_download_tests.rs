@@ -84,10 +84,10 @@ fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Two concurrent `ensure_downloaded_verified` calls on the same
 /// project must fan in to a single download. Without the per-project
-/// download lock, both tasks see `archive_path.is_file() == false`, both
-/// open the staging file (which `wrapfs::File::create` truncates), and
-/// interleave writes — each task's hasher passes against its own
-/// stream but the file on disk is corrupt.
+/// download lock, both tasks open the destination archive path (which
+/// `wrapfs::File::create` truncates), and interleave writes — each
+/// task's hasher passes against its own stream but the file on disk is
+/// corrupt.
 ///
 /// This test serializes through a real `reqwest`/`mockito` round-trip, so
 /// both futures race through the same code paths a real caller would hit.
@@ -141,14 +141,20 @@ fn test_concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std:
         .enable_all()
         .build()?;
 
-    // Two futures on the same runtime race through the pre-lock
-    // `is_file()` check together (both see `false`). Without the
-    // download lock, both would proceed into the write path; with it,
-    // only one performs the download and the other observes
-    // `is_file() == true` under the guard.
-    runtime
-        .block_on(project.ensure_downloaded_verified())
-        .unwrap();
+    // Two futures on the same runtime enter `ensure_downloaded_verified`
+    // together. `OnceCell` must fan them into one download; without that,
+    // both would proceed into the direct-to-destination write path.
+    let p1 = Arc::clone(&project);
+    let p2 = Arc::clone(&project);
+    let (r1, r2) = runtime.block_on(async move {
+        futures::future::join(
+            async move { p1.ensure_downloaded_verified().await },
+            async move { p2.ensure_downloaded_verified().await },
+        )
+        .await
+    });
+    r1?;
+    r2?;
 
     get_kpar.assert();
 
