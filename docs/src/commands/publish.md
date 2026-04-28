@@ -49,10 +49,9 @@ away).
 ## Options
 
 - `--index <URL>`: URL of the package index to publish to. Required.
-  Provide the configured index URL, which is the discovery root in the
-  index protocol (for example, `https://sysand.org` or
-  `https://my-index.example.com/index`), not the upload endpoint path
-  (`/api/v1/upload`).
+  This is either a directory that contains `sysand-index-config.json`, or the
+  index root that contains `index.json` (for example, `https://sysand.org` or
+  `https://my-index.example.com/index`).
 
 {{#include ./partials/global_opts.md}}
 
