@@ -124,6 +124,9 @@ pub struct IndexEnvironmentAsync<Policy> {
     /// validated (see [`validate_versions`]); the raw wire form is not
     /// retained. Transport and validation errors are not cached —
     /// retries re-fetch.
+    ///
+    // This is a Mutex to enable caching in &self methods of ReadEnvironment
+    // trait.
     versions_cache: tokio::sync::Mutex<HashMap<String, VersionsCacheEntry>>,
 }
 
