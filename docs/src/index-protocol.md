@@ -89,7 +89,7 @@ Anchored at `index_root`, a sysand index is a tree:
 <index_root>/
 ├── index.json
 ├── _iri/
-│   └── <sha256_hex(iri)>/
+│   └── <sha256_hex(normalized_iri)>/
 │       ├── versions.json
 │       └── <version>/
 │           ├── .project.json

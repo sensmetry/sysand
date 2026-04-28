@@ -17,10 +17,10 @@
 //!   misconfigured discovery root from a broken server.
 //!
 //! `index_root` and `api_root`, when present, MUST be absolute `http`
-//! or `https` URLs. Relative URLs are rejected rather than resolved
-//! against the discovery root or the final URL of the discovery fetch
-//! — this deliberately avoids the ambiguity that comes with relative
-//! URLs after redirects.
+//! or `https` URLs without userinfo. Relative URLs are rejected rather
+//! than resolved against the discovery root or the final URL of the
+//! discovery fetch — this deliberately avoids the ambiguity that comes
+//! with relative URLs after redirects.
 //!
 //! Clients MUST follow HTTP redirects on the discovery fetch; the
 //! underlying `reqwest` middleware applies its default redirect policy

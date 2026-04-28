@@ -12,7 +12,7 @@ server state. Expected subjects include:
 - Publishing a new project version (`POST v1/upload` and related).
 - Authentication and authorization (bearer tokens; see
   [Authentication](authentication.md)).
-- Any future management operations (yank, unlist, delete, etc.).
+- Any future management operations for `yanked` and `removed` versions.
 
 ### Relationship to the sysand index protocol
 

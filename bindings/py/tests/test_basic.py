@@ -132,19 +132,13 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     logging.basicConfig(level=level)
     caplog.set_level(level)
 
-    # `urn:kpar:test_index_info` does not match the `pkg:sysand/<pub>/<name>`
-    # layout, so the client looks it up under `_iri/<sha256(iri)>/…`.
-    # `project_digest` must match the canonical digest computed from the
-    # served `.project.json`/`.meta.json` pair; the client verifies it before
-    # surfacing results. `kpar_digest` is not verified here because
-    # `sysand.info` doesn't download the archive.
+    # Fixture for a non-`pkg:sysand` IRI resolved through the `_iri` index
+    # bucket. `sysand.info` reads per-version JSON without downloading kpar.
     project_digest = (
         "sha256:35ed1f7670d4c5b886f63ce9dd94e98dc9cd25c3466dba78c6d135db0092a055"
     )
     filler_digest = "sha256:" + ("a" * 64)
-    # On first contact, the client fetches the discovery document
-    # (`/sysand-index-config.json`). A 404 tells it to fall back to the
-    # discovery root as the index root.
+    # No discovery document: index_root defaults to the discovery root.
     httpserver.expect_request("/sysand-index-config.json").respond_with_data(
         "", status=404
     )

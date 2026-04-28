@@ -55,13 +55,12 @@ pub struct ReqwestKparDownloadedProject<Policy> {
     /// `archive_path`, regardless of whether the download was verified.
     /// Errors aren't cached, so a transient failure is retryable.
     downloaded: tokio::sync::OnceCell<()>,
-    /// The sha256 hex digest the on-disk archive has been verified
-    /// against. Populated by the first successful
-    /// `ensure_downloaded_verified` call. Any later
+    /// The sha256 hex digest of the on-disk archive after a verification
+    /// attempt has hashed it. Once populated, any later
     /// `ensure_downloaded_verified(d')` with `d' != d` hard-fails —
-    /// archive bytes are write-once per instance and the advertised
-    /// digest is a stable identifier, so divergent expected digests
-    /// cannot both be valid.
+    /// archive bytes are write-once per instance and the advertised digest
+    /// is a stable identifier, so divergent expected digests cannot both be
+    /// valid.
     verified: tokio::sync::OnceCell<String>,
 }
 
@@ -176,10 +175,9 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         }
     }
 
-    /// True iff the on-disk archive has been verified against an
-    /// advertised sha256 hex digest by a prior successful
-    /// [`Self::ensure_downloaded_verified`] call. Distinct from
-    /// [`Self::is_downloaded`]: an unverified
+    /// True iff a verification attempt has hashed the on-disk archive and
+    /// stored its sha256 hex digest. Distinct from [`Self::is_downloaded`]:
+    /// an unverified
     /// [`Self::ensure_downloaded`] renames bytes into place without
     /// ever consulting a digest, so a caller that needs to know the
     /// bytes are known-good (e.g. before comparing a locally-computed

@@ -114,7 +114,7 @@ environment can handle allocation and cleanup), `del_project_version`, and
 Notable implementations include `LocalDirectoryEnvironment` (filesystem),
 `MemoryStorageEnvironment<Project>` (in-memory), and
 `IndexEnvironmentAsync<Policy>` (remote sysand index; see
-"Index structure" below).
+"Index environment" below).
 
 ### Async variants
 
@@ -280,11 +280,12 @@ Refer to the [work in GitLab] for the latest details for now.
 
 ### Index environment
 
-An index environment backs sysand index servers. The **wire contract**
-— directory layout, `index.json`, `versions.json`, per-version files,
-IRI→path resolution, required digests, and server/client obligations —
-is specified in [`docs/src/index-protocol.md`](docs/src/index-protocol.md)
-and deliberately not duplicated here.
+An index environment is sysand's client-side reader for sysand index
+servers. The **wire contract** — directory layout, `index.json`,
+`versions.json`, per-version files, IRI→path resolution, required digests,
+and server/client obligations — is specified in
+[`docs/src/index-protocol.md`](docs/src/index-protocol.md) and deliberately
+not duplicated here.
 
 How an index is _managed_ (who publishes, how the tree is hosted and
 updated) is not yet defined; tracked in
@@ -296,14 +297,12 @@ Refer to the [work in GitLab] for the latest in-flight design notes.
 Sysand-core specifics that aren't part of the protocol:
 
 - `IndexEnvironmentAsync` is the client implementation; its per-version
-  leaf is `IndexEntryProject`. The three trust tiers from
-  [index-protocol.md §10](docs/src/index-protocol.md) map onto code as:
-  advertised versions reads return `versions.json` fields with no I/O
-  (`version_async`, `usage_async`, `checksum_canonical_hex_async`);
-  per-version `.project.json` / `.meta.json` are fetched once behind an
-  internal `OnceCell`; and `project.kpar` is verified against the
-  advertised `kpar_digest` during the streamed download (see
-  `core/src/project/reqwest_kpar_download.rs`).
+  leaf is `IndexEntryProject`. Advertised-version reads return
+  `versions.json` fields with no I/O (`version_async`, `usage_async`,
+  `checksum_canonical_hex_async`); per-version `.project.json` /
+  `.meta.json` are fetched once behind an internal `OnceCell`; and
+  `project.kpar` is verified against the advertised `kpar_digest` during
+  download.
 - Because the kpar isn't on disk during resolution, `Source::IndexKpar`
   populates `index_kpar_size` and `index_kpar_digest` directly from
   `versions.json`, so lockfile writing records archive metadata without a

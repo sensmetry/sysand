@@ -25,8 +25,8 @@
 //!   `.project.json`.
 //! - [`ProjectReadAsync::read_source_async`] delegating to
 //!   [`crate::project::reqwest_kpar_download::ReqwestKparDownloadedProject`],
-//!   which verifies the streamed kpar body against the advertised
-//!   `kpar_digest` before renaming into the verified path.
+//!   which verifies the archive against the advertised `kpar_digest` before
+//!   exposing source bytes.
 //! - [`IndexEntryProjectError::AdvertisedDigestDrift`] as the concrete
 //!   error surface for digest mismatches, raised both pre-download (from
 //!   the inline canonical digest — see
