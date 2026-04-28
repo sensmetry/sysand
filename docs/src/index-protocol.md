@@ -138,24 +138,10 @@ algorithms so that any two implementations produce byte-identical output:
 
 1. **Syntax-based normalization** — apply
    [`fluent_uri::Iri::normalize`][fluent-uri-normalize] semantics. This
-   is effectively equivalent to taking the following steps in order,
-   drawing on [RFC 3986 §6.2.2][rfc3986-622] syntax-based normalization,
-   [RFC 3987 §5.3.2][rfc3987-532] IRI additions, and commonly-used
-   scheme-based adjustments:
-   1. Decode percent-encoded octets that correspond to unreserved
-      characters ([RFC 3986 §2.3][rfc3986-23]).
-   2. Uppercase the hexadecimal digits in every remaining `%HH` triplet.
-   3. Lowercase ASCII characters in the scheme and host (outside of
-      percent-encoded octets).
-   4. Canonicalize IPv6 literal addresses per [RFC 5952][rfc5952].
-   5. Remove a port that is empty or equals the scheme's default (all
-      IANA-assigned defaults).
-   6. If the IRI has a scheme and an absolute path, apply
-      `remove_dot_segments` ([RFC 3986 §5.2.4][rfc3986-524]), including
-      percent-encoded dot segments (`%2E`, `%2E%2E`, etc).
-   7. If the IRI has no authority and its path would start with `//`,
-      prepend `/.` to the path.
-2. **Host → Punycode** — if the authority host is a RegName containing
+   delegates syntax-based IRI normalization, including percent-encoding,
+   case, port, dot-segment, and IPv6 literal handling, to `fluent-uri`.
+2. **Host → Punycode** — if the authority host is a
+   [registered name][rfc3986-reg-name] (a domain-name-like host) containing
    non-ASCII characters, replace it with the result of
    [`domainToASCII`][whatwg-url-domain-to-ascii] (as implemented by the
    [`idna`][idna-crate] crate). IPv4/IPv6 literals are not affected.
@@ -488,12 +474,8 @@ server's upload handler) SHOULD enforce those at the publish boundary.
 [§14]: #14-forward-compatibility
 [§15]: #15-sysand-index-cli-preview
 [rfc2119]: https://www.rfc-editor.org/rfc/rfc2119.html
-[rfc3986-23]: https://www.rfc-editor.org/rfc/rfc3986.html#section-2.3
 [rfc3986-43]: https://www.rfc-editor.org/rfc/rfc3986.html#section-4.3
-[rfc3986-524]: https://www.rfc-editor.org/rfc/rfc3986.html#section-5.2.4
-[rfc3986-622]: https://www.rfc-editor.org/rfc/rfc3986.html#section-6.2.2
-[rfc3987-532]: https://www.rfc-editor.org/rfc/rfc3987.html#section-5.3.2
-[rfc5952]: https://www.rfc-editor.org/rfc/rfc5952.html
+[rfc3986-reg-name]: https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2
 [semver]: https://semver.org/spec/v2.0.0.html
 [fluent-uri-normalize]: https://docs.rs/fluent-uri/0.4.1/fluent_uri/struct.Iri.html#method.normalize
 [whatwg-url-domain-to-ascii]: https://url.spec.whatwg.org/#concept-domain-to-ascii
