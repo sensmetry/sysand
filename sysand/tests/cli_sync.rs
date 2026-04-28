@@ -101,7 +101,7 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
 
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
-        r#"lock_version = "0.3"
+        r#"lock_version = "0.4"
 
 [[project]]
 name = "sync_to_local"
@@ -184,7 +184,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.3"
+            r#"lock_version = "0.4"
 
 [[project]]
 name = "sync_to_remote"
@@ -296,7 +296,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.3"
+            r#"lock_version = "0.4"
 
 [[project]]
 name = "sync_to_remote"
@@ -402,7 +402,7 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.3"
+            r#"lock_version = "0.4"
 
 [[project]]
 name = "sync_to_remote"

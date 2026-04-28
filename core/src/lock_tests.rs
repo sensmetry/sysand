@@ -29,10 +29,40 @@ fn check_unsupported_lock_version() {
     let Err(err) = check_lock_version(&document) else {
         panic!()
     };
-    let VersionError::Unsupported(s) = err else {
+    let VersionError::Unsupported(ref s) = err else {
         panic!()
     };
     assert_eq!(s, version);
+    assert_eq!(
+        err.to_string(),
+        "lockfile version `X` is not supported; regenerate it with a lock operation"
+    );
+}
+
+#[test]
+fn old_registry_lockfile_is_rejected_by_version_gate() {
+    let lockfile = format!(
+        r#"{LOCKFILE_PREFIX}lock_version = "0.3"
+
+[[project]]
+name = "Old registry source"
+version = "1.0.0"
+checksum = "{CHECKSUM}"
+sources = [{{ registry = "https://example.org" }}]
+"#
+    );
+
+    let Err(err) = Lock::from_str(&lockfile) else {
+        panic!()
+    };
+    let crate::lock::ParseError::Version(VersionError::Unsupported(ref s)) = err else {
+        panic!("expected unsupported version error, got {err:?}")
+    };
+    assert_eq!(s, "0.3");
+    assert_eq!(
+        err.to_string(),
+        "lockfile version `0.3` is not supported; regenerate it with a lock operation"
+    );
 }
 
 #[test]
@@ -620,10 +650,14 @@ fn validate_unsupported_lock_version() {
     .validate() else {
         panic!()
     };
-    let ValidationError::UnsupportedVersion(s) = err else {
+    let ValidationError::UnsupportedVersion(ref s) = err else {
         panic!()
     };
     assert_eq!(s, version);
+    assert_eq!(
+        err.to_string(),
+        "lockfile version `X` is not supported; regenerate it with a lock operation"
+    );
 }
 
 #[test]
