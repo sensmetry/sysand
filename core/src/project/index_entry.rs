@@ -98,8 +98,13 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         auth_policy: Arc<Policy>,
     ) -> Result<Self, IndexEntryProjectError> {
         Ok(Self {
-            archive: ReqwestKparDownloadedProject::new(kpar_url, client, auth_policy)?
-                .with_expected_size(advertised.kpar_size),
+            archive: ReqwestKparDownloadedProject::new(
+                kpar_url,
+                client,
+                auth_policy,
+                Some(advertised.kpar_digest.as_hex().to_owned()),
+                Some(advertised.kpar_size),
+            )?,
             advertised,
             project_json_url,
             meta_json_url,
@@ -192,9 +197,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        self.archive
-            .ensure_downloaded_verified(self.advertised.kpar_digest.as_hex())
-            .await?;
+        self.archive.ensure_downloaded_verified().await?;
 
         self.archive
             .read_source_async(path)
@@ -233,7 +236,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
         // existing. The project digest check below validates info/meta
         // consistency; archive-byte authenticity belongs to the kpar digest
         // verification performed by `ensure_downloaded_verified`.
-        if !self.archive.is_verified() {
+        if !self.archive.is_downloaded_and_verified() {
             return Ok(Some(self.advertised.project_digest.as_hex().to_string()));
         }
 

@@ -2,8 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
-    io::{self, Read as _, Write as _},
-    marker::Unpin,
+    io::{self, Write as _},
     pin::Pin,
     sync::Arc,
 };
@@ -38,7 +37,7 @@ use super::utils::{FsIoError, wrapfs};
 pub struct ReqwestKparDownloadedProject<Policy> {
     pub url: reqwest::Url,
     pub client: reqwest_middleware::ClientWithMiddleware,
-    pub inner: LocalKParProject,
+    inner: LocalKParProject,
     pub auth_policy: Arc<Policy>,
     /// Optional expected sha256 hex digest for callers that need this
     /// instance to enforce archive verification before exposing project
@@ -47,21 +46,18 @@ pub struct ReqwestKparDownloadedProject<Policy> {
     /// Optional expected archive byte length. Index-backed kpars carry this
     /// in the lockfile / versions index; enforce it while streaming so a
     /// malicious server cannot exhaust disk before the digest check fails.
+    // TODO: use NonZeroU64
     expected_size: Option<u64>,
     /// Fans concurrent `ensure_downloaded*` calls on the same instance
     /// into a single download — without this, racing tasks would both
     /// truncate the staging file and interleave writes, potentially
-    /// renaming corrupt bytes into place. Set once bytes are at
-    /// `archive_path`, regardless of whether the download was verified.
+    /// renaming corrupt bytes into place. The kpar is downloaded
+    /// directly to the destination path, so `is_downloaded_and_verified`
+    /// must be checked before reading it.
     /// Errors aren't cached, so a transient failure is retryable.
-    downloaded: tokio::sync::OnceCell<()>,
-    /// The sha256 hex digest of the on-disk archive after a verification
-    /// attempt has hashed it. Once populated, any later
-    /// `ensure_downloaded_verified(d')` with `d' != d` hard-fails —
-    /// archive bytes are write-once per instance and the advertised digest
-    /// is a stable identifier, so divergent expected digests cannot both be
-    /// valid.
-    verified: tokio::sync::OnceCell<String>,
+    /// If this is initialized, the archive is downloaded and verified
+    /// against `expected_sha256_hex`/`expected_size` if present.
+    downloaded_verified: tokio::sync::OnceCell<()>,
 }
 
 // TODO: reduce size of errors here and elsewhere
@@ -104,196 +100,67 @@ impl From<FsIoError> for ReqwestKparDownloadedError {
     }
 }
 
-/// Sibling staging path used for atomic-rename downloads. Sits next to the
-/// final path inside the same tempdir so `rename` is a cheap same-filesystem
-/// operation.
-fn staging_path_for(final_path: &camino::Utf8Path) -> camino::Utf8PathBuf {
-    let file_name = final_path.file_name().unwrap_or("project.kpar");
-    let staging_name = format!("{file_name}.download");
-    match final_path.parent() {
-        Some(parent) => parent.join(staging_name),
-        None => camino::Utf8PathBuf::from(staging_name),
-    }
-}
-
 impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
     pub fn new(
         url: reqwest::Url,
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
+        expected_sha256_hex: Option<String>,
+        expected_size: Option<u64>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
         Ok(Self {
             url,
             inner: LocalKParProject::new_temporary()?,
             client,
             auth_policy,
-            expected_sha256_hex: None,
-            expected_size: None,
-            downloaded: tokio::sync::OnceCell::new(),
-            verified: tokio::sync::OnceCell::new(),
+            expected_sha256_hex,
+            expected_size,
+            downloaded_verified: tokio::sync::OnceCell::new(),
         })
-    }
-
-    pub fn with_expected_sha256_hex<S: AsRef<str>>(mut self, expected_sha256_hex: S) -> Self {
-        self.expected_sha256_hex = Some(expected_sha256_hex.as_ref().to_owned());
-        self
-    }
-
-    pub fn with_expected_size(mut self, expected_size: u64) -> Self {
-        self.expected_size = Some(expected_size);
-        self
     }
 
     pub fn new_guess_root<S: AsRef<str>>(
         url: S,
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
+        expected_sha256_hex: Option<String>,
+        expected_size: Option<u64>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
         Self::new(
             reqwest::Url::parse(url.as_ref())
                 .map_err(|e| ReqwestKparDownloadedError::ParseUrl(url.as_ref().into(), e))?,
             client,
             auth_policy,
+            expected_sha256_hex,
+            expected_size,
         )
     }
 
-    /// True iff the archive is on disk at its final path. The archive
-    /// is only ever renamed into place after a successful staging
-    /// write, so `is_file` is sufficient. Note that this returns `true`
-    /// for bytes that have *not* been verified against a digest —
-    /// callers that need verification should rely on
-    /// [`Self::ensure_downloaded_verified`] instead.
-    pub fn is_downloaded(&self) -> bool {
-        self.inner.archive_path.is_file()
+    /// True iff the archive is on disk and has been successfully
+    /// verified against expected hex and length (if present)
+    pub fn is_downloaded_and_verified(&self) -> bool {
+        self.downloaded_verified.initialized()
     }
 
-    async fn ensure_ready(&self) -> Result<(), ReqwestKparDownloadedError> {
-        if let Some(expected_sha256_hex) = self.expected_sha256_hex.as_deref() {
-            self.ensure_downloaded_verified(expected_sha256_hex).await
-        } else {
-            self.ensure_downloaded().await
-        }
-    }
-
-    /// True iff a verification attempt has hashed the on-disk archive and
-    /// stored its sha256 hex digest. Distinct from [`Self::is_downloaded`]:
-    /// an unverified
-    /// [`Self::ensure_downloaded`] renames bytes into place without
-    /// ever consulting a digest, so a caller that needs to know the
-    /// bytes are known-good (e.g. before comparing a locally-computed
-    /// canonical digest against the advertised one) must gate on
-    /// `is_verified`, not `is_downloaded`.
-    pub fn is_verified(&self) -> bool {
-        self.verified.get().is_some()
-    }
-
-    /// Ensure the archive is on disk without verifying its digest. Use
-    /// [`Self::ensure_downloaded_verified`] when the caller has a sha256 hex
-    /// digest to check against.
-    pub async fn ensure_downloaded(&self) -> Result<(), ReqwestKparDownloadedError> {
-        self.downloaded
-            .get_or_try_init(|| self.perform_download(None, self.expected_size))
+    /// Ensure the archive is on disk and verify the digest if known
+    pub async fn ensure_downloaded_verified(&self) -> Result<(), ReqwestKparDownloadedError> {
+        self.downloaded_verified
+            .get_or_try_init(|| self.perform_download())
             .await?;
         Ok(())
     }
 
-    /// Ensure the archive is on disk *and* its sha256 exactly matches
-    /// `expected_sha256_hex`. Callers should pass lowercase hex, typically
-    /// from the pre-validated `Sha256HexDigest` produced during
-    /// `versions.json` ingest.
-    ///
-    /// If a previous unverified `ensure_downloaded()` already populated
-    /// `archive_path`, this method re-hashes the local file rather than
-    /// skipping verification — so an instance cannot silently serve
-    /// unverified bytes to a later caller that asked for verification.
-    /// On second and subsequent verified calls the stored digest is
-    /// compared directly, so the rehash happens at most once per
-    /// instance.
-    pub async fn ensure_downloaded_verified(
-        &self,
-        expected_sha256_hex: &str,
-    ) -> Result<(), ReqwestKparDownloadedError> {
-        // Fast-path: we've already verified against *some* digest. If
-        // it's the same one, return Ok. If it's different, hard-fail
-        // without touching the file — the first verified digest is the
-        // authoritative one.
-        if let Some(prev) = self.verified.get() {
-            return if prev == expected_sha256_hex {
-                Ok(())
-            } else {
-                Err(ReqwestKparDownloadedError::DigestMismatch {
-                    url: self.url.as_str().into(),
-                    expected: expected_sha256_hex.to_owned(),
-                    computed: prev.clone(),
-                })
-            };
-        }
-
-        // Populate `verified` with the digest of whatever ends up on
-        // disk. Racing verified callers fan in to a single pass here.
-        let stored = self
-            .verified
-            .get_or_try_init(|| async {
-                if self.downloaded.get().is_some() {
-                    // A prior *unverified* download already renamed
-                    // bytes into place. Re-hash the on-disk file to
-                    // publish the authoritative digest.
-                    self.verify_archive_size()?;
-                    return hash_archive_sha256_hex(&self.inner.archive_path);
-                }
-                // No prior download. Download with inline verification
-                // so that a mismatched body never gets renamed into
-                // `archive_path` — `perform_download(Some(expected))`
-                // aborts before the atomic rename on digest mismatch,
-                // leaving `downloaded` uninitialized (retry-safe).
-                self.downloaded
-                    .get_or_try_init(|| {
-                        self.perform_download(Some(expected_sha256_hex), self.expected_size)
-                    })
-                    .await?;
-                // Either our download succeeded (so `expected` matches
-                // the bytes on disk) or a concurrent caller raced past
-                // our `downloaded.get().is_some()` check and initialized
-                // the cell — in that case the bytes on disk may be
-                // whatever that caller downloaded. Hash the file to
-                // publish the authoritative digest either way.
-                hash_archive_sha256_hex(&self.inner.archive_path)
-            })
-            .await?;
-
-        if stored != expected_sha256_hex {
-            return Err(ReqwestKparDownloadedError::DigestMismatch {
-                url: self.url.as_str().into(),
-                expected: expected_sha256_hex.to_owned(),
-                computed: stored.clone(),
-            });
-        }
-        Ok(())
-    }
-
-    /// Perform the one-shot download. Invoked through
+    /// Download the archive. Invoked through
     /// [`tokio::sync::OnceCell::get_or_try_init`], so concurrent callers
     /// share the single in-flight attempt and a returned `Err` leaves
     /// the cell uninitialized (retries succeed).
     ///
-    /// Downloads to a sibling staging path and atomic-renames on success.
-    /// A failed size or digest check never promotes bytes to `final_path`,
-    /// so a verified download attempt cannot leave tampered bytes behind.
-    /// Successful unverified downloads still populate `archive_path`; callers
-    /// that require digest verification must use `ensure_downloaded_verified`
-    /// and `is_verified`. Partial staging files left behind by errors are
-    /// reclaimed when the owning tempdir drops; retries within the same
-    /// instance truncate via `File::create`.
-    async fn perform_download(
-        &self,
-        expected_digest: Option<&str>,
-        expected_size: Option<u64>,
-    ) -> Result<(), ReqwestKparDownloadedError> {
+    /// Downloads directly to the final path; `is_downloaded()` must be
+    /// checked before reading, as the file may be incomplete.
+    async fn perform_download(&self) -> Result<(), ReqwestKparDownloadedError> {
         use futures::StreamExt as _;
 
-        let final_path = &self.inner.archive_path;
-        let staging_path = staging_path_for(final_path);
-        let mut file = wrapfs::File::create(&staging_path)?;
+        let mut file = wrapfs::File::create(&self.inner.archive_path)?;
 
         let resp = self
             .auth_policy
@@ -307,7 +174,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             });
         }
 
-        if let (Some(actual), Some(expected)) = (resp.content_length(), expected_size)
+        if let (Some(actual), Some(expected)) = (resp.content_length(), self.expected_size)
             && actual != expected
         {
             return Err(ReqwestKparDownloadedError::SizeMismatch {
@@ -318,19 +185,13 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         }
 
         let mut bytes_stream = resp.bytes_stream();
-        let mut hasher = expected_digest.map(|_| Sha256::new());
+        let mut hasher = self.expected_sha256_hex.as_deref().map(|_| Sha256::new());
         let mut written = 0_u64;
 
         while let Some(bytes) = bytes_stream.next().await {
             let bytes = bytes.map_err(ReqwestKparDownloadedError::Reqwest)?;
-            written = written.checked_add(bytes.len() as u64).ok_or_else(|| {
-                ReqwestKparDownloadedError::SizeMismatch {
-                    url: self.url.as_str().into(),
-                    expected: expected_size.unwrap_or(u64::MAX),
-                    actual: u64::MAX,
-                }
-            })?;
-            if let Some(expected) = expected_size
+            written += bytes.len() as u64;
+            if let Some(expected) = self.expected_size
                 && written > expected
             {
                 return Err(ReqwestKparDownloadedError::SizeMismatch {
@@ -343,10 +204,10 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
                 h.update(&bytes);
             }
             file.write_all(&bytes)
-                .map_err(|e| FsIoError::WriteFile(staging_path.clone(), e))?;
+                .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
         }
 
-        if let Some(expected) = expected_size
+        if let Some(expected) = self.expected_size
             && written != expected
         {
             return Err(ReqwestKparDownloadedError::SizeMismatch {
@@ -356,11 +217,18 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             });
         }
 
-        // Verify before any sync_all/rename so a mismatched archive never
-        // gets durably installed at `final_path`.
-        if let (Some(h), Some(expected)) = (hasher, expected_digest) {
+        file.sync_all()
+            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
+
+        if let Some(expected) = self.expected_size {
+            debug_assert_eq!(expected, self.inner.file_size().unwrap());
+        }
+
+        if let (Some(h), Some(expected)) = (hasher, self.expected_sha256_hex.as_deref()) {
             let computed = format!("{:x}", h.finalize());
-            if computed != expected {
+            if computed == expected {
+                return Ok(());
+            } else {
                 return Err(ReqwestKparDownloadedError::DigestMismatch {
                     url: self.url.as_str().into(),
                     expected: expected.to_owned(),
@@ -369,51 +237,45 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             }
         }
 
-        file.sync_all()
-            .map_err(|e| FsIoError::WriteFile(staging_path.clone(), e))?;
-        drop(file);
-
-        crate::env::local_directory::utils::move_fs_item(&staging_path, final_path)?;
-
         Ok(())
     }
 
-    fn verify_archive_size(&self) -> Result<(), ReqwestKparDownloadedError> {
-        let Some(expected) = self.expected_size else {
-            return Ok(());
-        };
-        let actual = self.inner.file_size()?;
-        if actual != expected {
-            return Err(ReqwestKparDownloadedError::SizeMismatch {
-                url: self.url.as_str().into(),
-                expected,
-                actual,
-            });
-        }
-        Ok(())
-    }
+    // fn verify_archive_size(&self) -> Result<(), ReqwestKparDownloadedError> {
+    //     let Some(expected) = self.expected_size else {
+    //         return Ok(());
+    //     };
+    //     let actual = self.inner.file_size()?;
+    //     if actual != expected {
+    //         return Err(ReqwestKparDownloadedError::SizeMismatch {
+    //             url: self.url.as_str().into(),
+    //             expected,
+    //             actual,
+    //         });
+    //     }
+    //     Ok(())
+    // }
 }
 
-/// Hash a local archive file, returning the lowercase sha256 hex
-/// digest. Sync I/O, matching the rest of this module's file-access
-/// conventions.
-fn hash_archive_sha256_hex(
-    archive_path: &camino::Utf8Path,
-) -> Result<String, ReqwestKparDownloadedError> {
-    let mut file = wrapfs::File::open(archive_path)?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = file
-            .read(&mut buf)
-            .map_err(|e| FsIoError::ReadFile(archive_path.into(), e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
+// /// Hash a local archive file, returning the lowercase sha256 hex
+// /// digest. Sync I/O, matching the rest of this module's file-access
+// /// conventions.
+// fn hash_archive_sha256_hex(
+//     archive_path: &camino::Utf8Path,
+// ) -> Result<String, ReqwestKparDownloadedError> {
+//     let mut file = wrapfs::File::open(archive_path)?;
+//     let mut hasher = Sha256::new();
+//     let mut buf = [0u8; 64 * 1024];
+//     loop {
+//         let n = file
+//             .read(&mut buf)
+//             .map_err(|e| FsIoError::ReadFile(archive_path.into(), e))?;
+//         if n == 0 {
+//             break;
+//         }
+//         hasher.update(&buf[..n]);
+//     }
+//     Ok(format!("{:x}", hasher.finalize()))
+// }
 
 #[derive(Debug)]
 pub struct AsAsyncRead<T> {
@@ -442,8 +304,18 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         ),
         Self::Error,
     > {
-        self.ensure_ready().await?;
+        self.ensure_downloaded_verified().await?;
         Ok(self.inner.get_project()?)
+    }
+
+    async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        self.ensure_downloaded_verified().await?;
+        Ok(self.inner.get_info()?)
+    }
+
+    async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        self.ensure_downloaded_verified().await?;
+        Ok(self.inner.get_meta()?)
     }
 
     type SourceReader<'a>
@@ -455,7 +327,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        self.ensure_ready().await?;
+        self.ensure_downloaded_verified().await?;
 
         Ok(AsAsyncRead {
             inner: self.inner.read_source(path)?,
@@ -477,6 +349,10 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
             remote_kpar: self.url.to_string(),
             remote_kpar_size: self.inner.file_size().ok(),
         }])
+    }
+
+    async fn is_definitely_invalid_async(&self) -> bool {
+        self.inner.is_definitely_invalid()
     }
 }
 

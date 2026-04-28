@@ -91,6 +91,8 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     remote_kpar,
                     client,
                     auth_policy,
+                    None,
+                    None,
                 )
                 .map_err(TryFromSourceError::RemoteKpar)?
                 .to_tokio_sync(runtime),
@@ -104,12 +106,9 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     index_kpar,
                     client,
                     auth_policy,
+                    Some(index_kpar_digest),
+                    Some(index_kpar_size),
                 )
-                .map(|project| {
-                    project
-                        .with_expected_size(index_kpar_size)
-                        .with_expected_sha256_hex(index_kpar_digest)
-                })
                 .map_err(TryFromSourceError::RemoteKpar)?
                 .to_tokio_sync(runtime),
             )),

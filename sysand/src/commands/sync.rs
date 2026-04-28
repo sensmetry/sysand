@@ -61,6 +61,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     reqwest::Url::parse(&remote_kpar)?,
                     client.clone(),
                     auth_policy.clone(),
+                    None, None
                 )
                 .unwrap();
                 Ok(project.to_tokio_sync(runtime.clone()))
@@ -75,10 +76,9 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     reqwest::Url::parse(&index_kpar)?,
                     client.clone(),
                     auth_policy.clone(),
+                    Some(index_kpar_digest), Some(index_kpar_size)
                 )
-                .unwrap()
-                .with_expected_size(index_kpar_size)
-                .with_expected_sha256_hex(index_kpar_digest);
+                .unwrap();
                 Ok(project.to_tokio_sync(runtime.clone()))
             },
         ),

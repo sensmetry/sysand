@@ -88,7 +88,7 @@ fn version_async_returns_advertised_without_fetch() {
     // `is_downloaded` must still be false — if `version_async` ever
     // accidentally triggers a download, this flips to true.
     assert!(
-        !project.archive.is_downloaded(),
+        !project.archive.is_downloaded_and_verified(),
         "version_async must not trigger a download"
     );
 }
@@ -101,7 +101,7 @@ fn usage_async_returns_advertised_without_fetch() {
         .expect("advertised usage is Some");
     assert_eq!(usage.len(), 1);
     assert_eq!(usage[0].resource, format!("{PKG_SYSAND_PREFIX}acme/widget"));
-    assert!(!project.archive.is_downloaded());
+    assert!(!project.archive.is_downloaded_and_verified());
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn checksum_canonical_hex_async_returns_advertised_before_download() {
          (no archive download, no kpar-side computation)"
     );
     assert!(
-        !project.archive.is_downloaded(),
+        !project.archive.is_downloaded_and_verified(),
         "checksum_canonical_hex_async must not trigger a download before the archive is present"
     );
 }

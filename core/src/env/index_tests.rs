@@ -1890,7 +1890,7 @@ mod digest {
         // Force a download so `checksum_canonical_hex` reaches the
         // post-download (authoritative local) branch rather than the
         // pre-download shortcut.
-        let mut reader = project.read_source("foo.sysml")?;
+        let mut reader = project.read_source("foo.sysml").unwrap();
         let mut buf = String::new();
         std::io::Read::read_to_string(&mut reader, &mut buf)?;
         drop(reader);
@@ -2230,7 +2230,7 @@ mod sources {
         let env = test_env_sync(&server)?;
 
         // An advertised digest that doesn't match the body bytes below.
-        let advertised_digest_hex = "0".repeat(64);
+        let advertised_digest_hex = "a".repeat(64);
         let advertised = format!("sha256:{advertised_digest_hex}");
         let kpar_body: &[u8] = b"not really a kpar";
 
@@ -2239,7 +2239,7 @@ mod sources {
             "/admin/proj0/versions.json",
             format!(
                 r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":{},"kpar_digest":"{advertised}"}}]}}"#,
-                kpar_body.len(),
+                kpar_body.len()
             ),
         );
 
@@ -2322,9 +2322,8 @@ mod sources {
             .expect("mismatched kpar digest must error");
 
         assert!(
-            !project.inner.archive.is_downloaded(),
-            "tampered archive must not persist at `{}` after DigestMismatch",
-            project.inner.archive.inner.archive_path
+            !project.inner.archive.is_downloaded_and_verified(),
+            "tampered archive must not be reported as verified",
         );
 
         versions_mock.assert();

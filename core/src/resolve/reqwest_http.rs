@@ -13,7 +13,7 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        CanonicalizationError, ProjectRead, ProjectReadAsync,
+        CanonicalizationError, ProjectReadAsync,
         reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProjectAsync,
     },
     resolve::ResolveReadAsync,
@@ -130,7 +130,9 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         match self {
             HTTPProjectAsync::HTTPSrcProject(proj) => proj.is_definitely_invalid_async().await,
             //HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj.is_definitely_invalid(),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj.inner.is_definitely_invalid(),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => {
+                proj.is_definitely_invalid_async().await
+            }
         }
     }
 
@@ -260,6 +262,8 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
                 &url,
                 self.client.clone(),
                 self.auth_policy.clone(),
+                None,
+                None,
             )
             .expect("internal IO error"),
         )))
