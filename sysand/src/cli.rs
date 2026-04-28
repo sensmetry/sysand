@@ -191,7 +191,8 @@ pub enum Command {
         path: Option<Utf8PathBuf>,
 
         /// Configured index URL to publish to (e.g. https://sysand.org)
-        /// May point to a config directory or directly to the API root
+        /// May point to a path containing sysand-index-config.json, or directly
+        /// to the API root (e.g. https://sysand.org/api)
         #[arg(long, value_name = "URL", verbatim_doc_comment)]
         index: Url,
     },
