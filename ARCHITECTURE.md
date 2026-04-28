@@ -67,7 +67,7 @@ Workspace (.workspace.json)
 
 Environment (storage backend)
  └─ stores projects indexed by IRI and version
- └─ implementations: local directory, HTTP registry, git, in-memory
+ └─ implementations: local directory, remote index, git, in-memory
 
 Project (Interchange Project)
  └─ .project.json  — name, version, publisher, usages (dependencies), etc.
@@ -251,8 +251,8 @@ project-local and optionally user-level configuration.
 Captures a project's resolved usages and their dependencies.
 
 The `sysand lock` command regenerates this file, recording each project's name,
-version, exported symbols, dependency usages, sources (local paths, registry
-URLs, git repos, etc.), and a content checksum. The `sysand sync` command reads
+version, exported symbols, dependency usages, sources (local paths, index URLs,
+git repos, etc.), and a content checksum. The `sysand sync` command reads
 `sysand-lock.toml` to populate `sysand_env`, and will run `lock` first if the
 file does not yet exist.
 

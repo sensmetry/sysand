@@ -321,16 +321,8 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a minimal valid kpar (ZIP) archive carrying the required
 /// `root/.project.json` and `root/.meta.json` entries.
 ///
-/// The project digest written by the caller to `versions.json` must match
-/// the digest `sysand sync` recomputes from the downloaded archive, or the
-/// sync step will (correctly) reject the download. For a meta record with
-/// **no `meta.checksum` entries** (the case here), the canonical digest
-/// reduces to `project_hash_raw(info, meta)` — the canonicalization step
-/// that lowercases SHA256 hex values and rewrites non-SHA256 entries has
-/// nothing to do, so canonical == raw. Tests that need to exercise the
-/// canonicalization step proper should construct a meta with mixed-case
-/// SHA256 checksum entries (or non-SHA256 entries) and use
-/// `canonical_project_digest_inline` directly.
+/// The fixture has no `meta.checksum` entries, so its canonical project
+/// digest is `project_hash_raw(info, meta)`.
 fn build_index_kpar_bytes(
     name: &str,
     version: &str,
@@ -375,12 +367,8 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
     //   recomputes the digest and reconciles with the lockfile).
     //
     // The mock advertises `project_hash_raw(info, meta)` as the per-version
-    // digest. For this trivial fixture (no `meta.checksum` entries) the
-    // canonicalization step is a no-op, so canonical == raw and `sysand sync`
-    // accepts the download. Tests that need to exercise the canonicalization
-    // step proper (mixed-case SHA256 hex values, non-SHA256 entries that get
-    // rewritten on canonicalize) should compute the advertised digest with
-    // `canonical_project_digest_inline` instead.
+    // digest; this fixture has no `meta.checksum` entries, so raw ==
+    // canonical.
     //
     // A regression in which the advertised digest cannot actually round-trip
     // through lock+sync (e.g. a non-deterministic fallback hash) would fail

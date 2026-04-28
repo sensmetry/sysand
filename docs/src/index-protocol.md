@@ -429,9 +429,10 @@ Retirement ([§8] `status`) and the lockfile contract:
   files are still served, the digests still match. Only _new_
   resolutions are affected.
 - A `removed` entry breaks `sync` for any lockfile that pins it; the
-  lockfile's recorded digests still serve as a tripwire (the mismatch
-  is "bytes gone" rather than "bytes differ"), and the client reports
-  the removal rather than silently failing.
+  lockfile's recorded digests still serve as a tripwire, but `sync`
+  does not re-read `versions.json`. The failure therefore surfaces from
+  the archive fetch or digest verification path rather than from the
+  entry's `status`.
 
 ## 14. Forward compatibility
 

@@ -279,11 +279,13 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
     /// the cell uninitialized (retries succeed).
     ///
     /// Downloads to a sibling staging path and atomic-renames on success.
-    /// `archive_path.is_file()` is then the "verified" sentinel: a
-    /// failed verification never promotes bytes to `final_path`, so a
-    /// retry can never serve tampered bytes. Partial staging files left
-    /// behind by errors are reclaimed when the owning tempdir drops;
-    /// retries within the same instance truncate via `File::create`.
+    /// A failed size or digest check never promotes bytes to `final_path`,
+    /// so a verified download attempt cannot leave tampered bytes behind.
+    /// Successful unverified downloads still populate `archive_path`; callers
+    /// that require digest verification must use `ensure_downloaded_verified`
+    /// and `is_verified`. Partial staging files left behind by errors are
+    /// reclaimed when the owning tempdir drops; retries within the same
+    /// instance truncate via `File::create`.
     async fn perform_download(
         &self,
         expected_digest: Option<&str>,

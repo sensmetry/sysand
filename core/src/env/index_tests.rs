@@ -191,9 +191,9 @@ fn test_endpoints(env: &super::IndexEnvironmentAsync<Unauthenticated>) -> &Resol
         .expect("test_env_async initializes resolved endpoints")
 }
 
-/// Build an env whose resolved cell is **empty**, so that the first
-/// operation against it triggers the real `sysand-index-config.json`
-/// discovery fetch. Used by tests that exercise the discovery step.
+/// Build a sync-facing env after resolving discovery against the mock
+/// server. This exercises the real `sysand-index-config.json` fetch, but
+/// does it eagerly so discovery errors surface during test setup.
 fn test_env_sync_discovery(
     server: &mockito::Server,
 ) -> Result<

@@ -21,12 +21,13 @@ use crate::{
 /// 1. Do not resolve any further if file_resolver is successful, otherwise go to step 2.
 /// 2. If remote_resolver produces any results, discard any that do not point to a valid
 ///    project (i.e. do not produce both a info and meta). If at least one project is found
-///    proceed to 4. (skipping 3.)
-/// 3. Take whatever results are produced by remote_resolver and proceed to step 4.
-/// 4. If local_resolver resolves anything, collect all the results. Iterate over the results
+///    proceed to step 5. (skipping 3 and 4.)
+/// 3. If index_resolver produces any results, proceed to step 5.
+/// 4. Take whatever results are produced by remote_resolver and proceed to step 5.
+/// 5. If local_resolver resolves anything, collect all the results. Iterate over the results
 ///    from previous steps, but interleave results from local_resolver when they have
-///    identical hashes. Any results from local_resolver that were not interleaved are returned
-///    at the end.
+///    identical hashes. Any results from local_resolver that were not interleaved are
+///    returned at the end.
 ///
 ///    Cached values are returned exactly once (so if the underlying resolver gives duplicates
 ///    they will appear cached only one time).
@@ -194,11 +195,10 @@ impl<
                             // on fetched files, or an
                             // `AdvertisedDigestDrift` (computed digest
                             // disagrees with the index-advertised one).
-                            // The §12 client-obligation check re-verifies
-                            // `(info, meta)` against `project_digest` on
-                            // consumption, so skipping the cache match
-                            // here cannot mask tampering — the hard
-                            // failure lands downstream.
+                            // Index projects re-verify `(info, meta)` against
+                            // `project_digest` on consumption, so skipping
+                            // the cache match here cannot mask tampering —
+                            // the hard failure lands downstream.
                             log::warn!(
                                 "index-project checksum_canonical_hex failed; skipping local-cache match: {err}"
                             );

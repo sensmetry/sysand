@@ -101,8 +101,8 @@ const IRI_HASH_SEGMENT: &str = "_iri";
 /// `kpar_size`, `kpar_digest`) needed to enumerate candidates and verify
 /// later-materialized archives without downloading anything heavier.
 /// Fetched documents are validated (semver + digest shape + ordering)
-/// and cached in `versions_cache` so concurrent solver paths share a
-/// single fetch.
+/// and cached in `versions_cache` so later reads in the same run reuse
+/// the parsed result.
 #[derive(Debug)]
 pub struct IndexEnvironmentAsync<Policy> {
     client: reqwest_middleware::ClientWithMiddleware,

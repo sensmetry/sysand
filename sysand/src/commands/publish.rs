@@ -42,19 +42,9 @@ pub fn command_publish(
     // matching does.
     let prepared = prepare_publish_payload(&kpar_path)?;
 
-    // Discovery: the user-configured URL is the discovery root. Resolve
-    // `api_root` via `sysand-index-config.json` before composing the
-    // upload URL, so that credential matching (below) and the eventual
-    // POST in `do_publish` share the same API-side URL.
-    // `fetch_index_config` follows redirects, handles 404 (absent → both
-    // roots default to the discovery root) and any other non-2xx (hard
-    // error).
-    //
-    // Discovery runs against the *full* auth policy (basic, bearer, or
-    // any other scheme the user configured), not the publish-only
-    // bearer subset. The discovery document may itself be auth-gated,
-    // and any auth strategy that works for the rest of the index should
-    // work here too.
+    // Resolve `api_root` before credential matching so publish credentials
+    // are matched against the actual upload URL. Discovery uses the full auth
+    // policy because the discovery document may itself be auth-gated.
     let endpoints = runtime.block_on(fetch_index_config(&client, &*auth_policy, &index))?;
     // Only now — after discovery has had access to the full policy —
     // do we consume the Arc to extract the publish-specific

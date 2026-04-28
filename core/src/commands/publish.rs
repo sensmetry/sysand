@@ -103,10 +103,7 @@ pub enum EndpointKind {
 
 /// Validate the shape of an index-server endpoint URL before the network
 /// step. Applies to both the user-supplied discovery root (pre-discovery)
-/// and the resolved `api_root` that comes back from discovery — all four
-/// checks (scheme, no credentials, query, fragment, and "doesn't already
-/// name the upload endpoint") are protocol-level constraints that hold for
-/// either root.
+/// and the resolved `api_root` that comes back from discovery.
 pub fn validate_endpoint_url_shape(url: &Url, kind: EndpointKind) -> Result<(), PublishError> {
     let err = |reason: String| -> PublishError {
         match kind {
