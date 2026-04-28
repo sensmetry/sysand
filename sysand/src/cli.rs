@@ -190,8 +190,8 @@ pub enum Command {
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
 
-        /// Directory containing sysand-index-config.json, or index root
-        /// containing index.json (e.g. https://sysand.org)
+        /// Configured index URL to publish to (e.g. https://sysand.org)
+        /// May point to a config directory or directly to the API root
         #[arg(long, value_name = "URL", verbatim_doc_comment)]
         index: Url,
     },

@@ -50,8 +50,8 @@ away).
 
 - `--index <URL>`: URL of the package index to publish to. Required.
   This is either a directory that contains `sysand-index-config.json`, or the
-  index root that contains `index.json` (for example, `https://sysand.org` or
-  `https://my-index.example.com/index`).
+  API root that receives publish uploads (for example, `https://sysand.org` or
+  `https://my-index.example.com/api`).
 
 {{#include ./partials/global_opts.md}}
 
