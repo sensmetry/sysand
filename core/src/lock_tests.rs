@@ -747,6 +747,40 @@ fn validate_checksum() {
 }
 
 #[test]
+fn validate_index_kpar_digest_rejects_uppercase() {
+    let invalid_digest = "dA8747a6f27A32f10Ba393113bCe29f788181037a71f093f90e0ad5829d2b780";
+    let Err(err) = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_string(),
+        projects: vec![Project {
+            name: Some("Indexed".to_string()),
+            publisher: None,
+            version: "0.0.1".to_string(),
+            exports: vec![],
+            identifiers: vec!["urn:kpar:indexed".to_string()],
+            usages: vec![],
+            sources: vec![Source::IndexKpar {
+                index_kpar: "https://example.com/indexed.kpar".to_string(),
+                index_kpar_size: 123,
+                index_kpar_digest: invalid_digest.to_string(),
+            }],
+            checksum: CHECKSUM.to_string(),
+        }],
+    }
+    .validate() else {
+        panic!()
+    };
+    let ValidationError::InvalidIndexKparDigestFormat {
+        digest,
+        project_with_name,
+    } = err
+    else {
+        panic!()
+    };
+    assert_eq!(digest, invalid_digest);
+    assert_eq!(project_with_name, "urn:kpar:indexed");
+}
+
+#[test]
 fn sort_empty() {
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),

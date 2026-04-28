@@ -364,7 +364,9 @@ impl Lock {
                     continue;
                 };
                 if index_kpar_digest.len() == 64
-                    && index_kpar_digest.bytes().all(|c| c.is_ascii_hexdigit())
+                    && index_kpar_digest
+                        .bytes()
+                        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
                 {
                     continue;
                 }
