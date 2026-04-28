@@ -1160,12 +1160,12 @@ where
         self.inner.sources(ctx)
     }
 
-    // Forward the remaining `ProjectRead` methods explicitly so that any
-    // sync-side override on the wrapped `T` is honoured on the async
-    // side too. See `ProjectRead::checksum_canonical_hex`'s contract
-    // docstring — without these forwards, wrapping a `T` that exposes a
-    // prefetched digest (e.g. `CachedProject`) would silently fall back
-    // to a full download on the async side.
+    // Forward selected `ProjectRead` methods explicitly so that important
+    // sync-side overrides on the wrapped `T` are honoured on the async side
+    // too. See `ProjectRead::checksum_canonical_hex`'s contract docstring —
+    // without that forward, wrapping a `T` that exposes a prefetched digest
+    // (e.g. `CachedProject`) would silently fall back to a full download on
+    // the async side.
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         self.inner.get_info()
     }

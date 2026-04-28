@@ -170,22 +170,26 @@ them equivalent.
 
 ## 6. `pkg:sysand` canonicalization
 
-A `pkg:sysand/<publisher>/<name>` IRI has exactly two slash-separated
-segments after the `pkg:sysand/` prefix. Each segment MUST satisfy:
+A `pkg:sysand/<publisher>/<name>` value is both a PURL and an IRI. In the
+index protocol it MUST already be canonical and has exactly two
+slash-separated segments after the `pkg:sysand/` prefix. Each segment MUST
+satisfy:
 
 - Length: 3–50 ASCII characters.
-- Starts and ends with an ASCII alphanumeric character.
-- Between the first and last character: ASCII alphanumeric characters,
-  with isolated separators. No two separators may be adjacent.
+- Starts and ends with an ASCII lowercase letter or digit.
+- Between the first and last character: ASCII lowercase letters, digits,
+  and isolated separators. No two separators may be adjacent.
 - Allowed separators:
-  - Publisher: space (` `) or hyphen (`-`).
-  - Name: space, hyphen, or dot (`.`).
+  - Publisher: hyphen (`-`).
+  - Name: hyphen or dot (`.`).
 
-The **canonical form** of a segment is obtained by lowercasing ASCII
-letters and replacing space characters with hyphens. An IRI stored in an
-index or referenced by a client MUST already be in canonical form; a
-non-canonical IRI (e.g. containing uppercase or spaces) MUST be rejected
-rather than silently normalized.
+Project metadata is allowed to start from non-IRI `publisher` and `name`
+values when constructing a `pkg:sysand` PURL: lowercase ASCII letters and
+replace spaces with hyphens before forming the PURL. Once the PURL/IRI
+exists, no further normalization is permitted. An IRI stored in an index
+or referenced by a client MUST be canonical; a non-canonical IRI (e.g.
+containing uppercase or spaces) MUST be rejected rather than silently
+normalized.
 
 ## 7. `index.json`
 

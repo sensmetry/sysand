@@ -56,7 +56,7 @@ const IRI_HASH_SEGMENT: &str = "_iri";
 /// A per-IRI `versions.json` document holds the advertised versions plus
 /// the five per-entry fields (`version`, `usage`, `project_digest`,
 /// `kpar_size`, `kpar_digest`) needed to enumerate candidates and verify
-/// later-materialized archives without downloading anything heavier.
+/// later-fetched project metadata and archives.
 /// The optional `status` field controls retirement filtering. Fetched
 /// documents are validated (semver + digest shape + ordering) and cached
 /// in `versions_cache` so later reads in the same run reuse the parsed
@@ -80,11 +80,11 @@ pub struct IndexEnvironmentAsync<Policy> {
     /// during solving).
     ///
     /// Scoped to one env lifetime; never invalidates. There is no
-    /// freshness signal in the protocol, and a single `sysand lock` run
-    /// should see a stable view of the index. Cached values are already
-    /// validated (see [`validate_versions`]); the raw wire form is not
-    /// retained. Transport and validation errors are not cached —
-    /// retries re-fetch.
+    /// freshness signal in the protocol, so successful `versions.json`
+    /// fetches are reused for a stable view of each fetched project.
+    /// Cached values are already validated (see [`validate_versions`]);
+    /// the raw wire form is not retained. Transport, validation, and
+    /// not-found outcomes are not cached — retries re-fetch.
     ///
     // This is a Mutex to enable caching in &self methods of ReadEnvironment
     // trait.
