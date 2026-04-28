@@ -251,43 +251,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
 
         Ok(())
     }
-
-    // fn verify_archive_size(&self) -> Result<(), ReqwestKparDownloadedError> {
-    //     let Some(expected) = self.expected_size else {
-    //         return Ok(());
-    //     };
-    //     let actual = self.inner.file_size()?;
-    //     if actual != expected {
-    //         return Err(ReqwestKparDownloadedError::SizeMismatch {
-    //             url: self.url.as_str().into(),
-    //             expected,
-    //             actual,
-    //         });
-    //     }
-    //     Ok(())
-    // }
 }
-
-// /// Hash a local archive file, returning the lowercase sha256 hex
-// /// digest. Sync I/O, matching the rest of this module's file-access
-// /// conventions.
-// fn hash_archive_sha256_hex(
-//     archive_path: &camino::Utf8Path,
-// ) -> Result<String, ReqwestKparDownloadedError> {
-//     let mut file = wrapfs::File::open(archive_path)?;
-//     let mut hasher = Sha256::new();
-//     let mut buf = [0u8; 64 * 1024];
-//     loop {
-//         let n = file
-//             .read(&mut buf)
-//             .map_err(|e| FsIoError::ReadFile(archive_path.into(), e))?;
-//         if n == 0 {
-//             break;
-//         }
-//         hasher.update(&buf[..n]);
-//     }
-//     Ok(format!("{:x}", hasher.finalize()))
-// }
 
 #[derive(Debug)]
 pub struct AsAsyncRead<T> {
