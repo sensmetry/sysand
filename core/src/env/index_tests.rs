@@ -284,7 +284,7 @@ mod uris {
     use super::*;
 
     #[test]
-    fn test_uri_examples() -> Result<(), Box<dyn std::error::Error>> {
+    fn uri_examples() -> Result<(), Box<dyn std::error::Error>> {
         let env = test_env_async("https://www.example.com/index/")?;
         let endpoints = test_endpoints(&env);
 
@@ -320,7 +320,7 @@ mod uris {
     }
 
     #[test]
-    fn test_invalid_or_non_normalized_sysand_purl_rejected_loudly()
+    fn invalid_or_non_normalized_sysand_purl_rejected_loudly()
     -> Result<(), Box<dyn std::error::Error>> {
         // The `pkg:sysand/` prefix is strong intent; a malformed or
         // non-normalized variant must reject as `MalformedSysandPurl`
@@ -371,7 +371,7 @@ mod uris {
     }
 
     #[test]
-    fn test_non_normalized_sysand_purl_error_suggests_normalized_form()
+    fn non_normalized_sysand_purl_error_suggests_normalized_form()
     -> Result<(), Box<dyn std::error::Error>> {
         // The error message for the "valid but not normalized" case must include
         // the suggested normalized IRI — that's what makes the error actionable
@@ -389,7 +389,7 @@ mod uris {
     }
 
     #[test]
-    fn test_base_url_without_trailing_slash() -> Result<(), Box<dyn std::error::Error>> {
+    fn base_url_without_trailing_slash() -> Result<(), Box<dyn std::error::Error>> {
         let env = test_env_async("https://www.example.com/index")?;
         let endpoints = test_endpoints(&env);
 
@@ -408,7 +408,7 @@ mod uris {
     }
 
     #[test]
-    fn test_uris_from_index_json() -> Result<(), Box<dyn std::error::Error>> {
+    fn uris_from_index_json() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -439,7 +439,7 @@ mod uris {
     }
 
     #[test]
-    fn test_missing_index_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
+    fn missing_index_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
         // `index.json` is the document that identifies a URL as a sysand
         // index; a 404 means "this URL is not a sysand index", so a
         // misconfigured base URL surfaces clearly instead of masquerading
@@ -473,7 +473,7 @@ mod uris {
     }
 
     #[test]
-    fn test_empty_but_live_index_yields_no_uris() -> Result<(), Box<dyn std::error::Error>> {
+    fn empty_but_live_index_yields_no_uris() -> Result<(), Box<dyn std::error::Error>> {
         // The 200-with-empty-list path — distinct from the 404-is-hard-error
         // path above.
         let mut server = mockito::Server::new();
@@ -495,7 +495,7 @@ mod uris {
     }
 
     #[test]
-    fn test_server_error_surfaces() -> Result<(), Box<dyn std::error::Error>> {
+    fn server_error_surfaces() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -513,7 +513,7 @@ mod uris {
     }
 
     #[test]
-    fn test_malformed_index_json_surfaces_parse_error() -> Result<(), Box<dyn std::error::Error>> {
+    fn malformed_index_json_surfaces_parse_error() -> Result<(), Box<dyn std::error::Error>> {
         // Misconfigured reverse proxy serves an HTML error page with 200 OK:
         // must surface as `JsonParse` with the URL preserved, not silently
         // treat the index as empty.
@@ -557,7 +557,7 @@ mod versions {
     use super::*;
 
     #[test]
-    fn test_versions_from_versions_json() -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_from_versions_json() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -591,7 +591,7 @@ mod versions {
     }
 
     #[test]
-    fn test_versions_async_filters_retired_entries() -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_async_filters_retired_entries() -> Result<(), Box<dyn std::error::Error>> {
         // §8 `status` field + §12 "MUST NOT select non-available for a
         // new resolution". A mixed-status fixture verifies two things
         // in one document:
@@ -629,7 +629,7 @@ mod versions {
     }
 
     #[test]
-    fn test_versions_json_preserves_server_order() -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_json_preserves_server_order() -> Result<(), Box<dyn std::error::Error>> {
         // Semver-tricky fixture makes pass-through visible: a lexicographic-
         // sort regression would reorder `10.0.0` before `10.0.0-beta.1`.
         let mut server = mockito::Server::new();
@@ -653,7 +653,7 @@ mod versions {
     }
 
     #[test]
-    fn test_versions_json_rejects_ascending_order() -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_json_rejects_ascending_order() -> Result<(), Box<dyn std::error::Error>> {
         // Plain ascending wire order is rejected loudly.
         let mut server = mockito::Server::new();
 
@@ -682,8 +682,7 @@ mod versions {
     }
 
     #[test]
-    fn test_versions_json_rejects_prerelease_before_release()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_json_rejects_prerelease_before_release() -> Result<(), Box<dyn std::error::Error>> {
         // Guard against a lexical-vs-semver regression: `10.0.0-beta.1`
         // sorts before `10.0.0` by semver precedence, so emitting the
         // prerelease first must be rejected even though lexical order
@@ -715,7 +714,7 @@ mod versions {
     }
 
     #[test]
-    fn test_versions_json_rejects_build_metadata() -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_json_rejects_build_metadata() -> Result<(), Box<dyn std::error::Error>> {
         // `semver::Version` is lenient on `+build`, so the rejection must
         // be explicit.
         let mut server = mockito::Server::new();
@@ -744,8 +743,7 @@ mod versions {
     }
 
     #[test]
-    fn test_versions_json_accepts_prerelease_without_build()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_json_accepts_prerelease_without_build() -> Result<(), Box<dyn std::error::Error>> {
         // Prerelease identifiers (`-rc.1`) are permitted; the
         // build-metadata rejection must not catch them by mistake.
         let mut server = mockito::Server::new();
@@ -769,7 +767,7 @@ mod versions {
     }
 
     #[test]
-    fn test_versions_json_non_semver_version_errors() -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_json_non_semver_version_errors() -> Result<(), Box<dyn std::error::Error>> {
         // Without a parseable semver the client cannot order entries —
         // reject the whole document.
         let mut server = mockito::Server::new();
@@ -798,7 +796,7 @@ mod versions {
     }
 
     #[test]
-    fn test_missing_versions_json_surfaces_as_empty_at_resolver_boundary()
+    fn missing_versions_json_surfaces_as_empty_at_resolver_boundary()
     -> Result<(), Box<dyn std::error::Error>> {
         // §8 — a 404 on `versions.json` means the project is not in
         // this index. `versions_async` yields an empty stream so a
@@ -827,7 +825,7 @@ mod versions {
     }
 
     #[test]
-    fn test_versions_json_forbidden_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_json_forbidden_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
         // The §8 404 downgrade is deliberately narrow. A direct 403 on
         // root `versions.json` is a hard transport/auth failure, not
         // "project absent from this index".
@@ -860,7 +858,7 @@ mod versions {
     }
 
     #[test]
-    fn test_missing_required_field_errors() -> Result<(), Box<dyn std::error::Error>> {
+    fn missing_required_field_errors() -> Result<(), Box<dyn std::error::Error>> {
         // An entry omitting any required field (here `kpar_digest`)
         // rejects the whole document at parse time rather than
         // silently degrading.
@@ -894,7 +892,7 @@ mod versions {
     }
 
     #[test]
-    fn test_duplicate_versions_are_rejected() -> Result<(), Box<dyn std::error::Error>> {
+    fn duplicate_versions_are_rejected() -> Result<(), Box<dyn std::error::Error>> {
         // Rejected at ingest rather than silently preserved — "pick the
         // better duplicate" has no principled answer when the two
         // entries might carry different digests.
@@ -924,8 +922,7 @@ mod versions {
     }
 
     #[test]
-    fn test_versions_json_with_artifact_metadata_parses() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn versions_json_with_artifact_metadata_parses() -> Result<(), Box<dyn std::error::Error>> {
         // Unknown fields at both entry and document level must be
         // ignored — the forward-compat rule is load-bearing.
         let mut server = mockito::Server::new();
@@ -960,8 +957,7 @@ mod versions {
     }
 
     #[test]
-    fn test_malformed_versions_json_surfaces_parse_error() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn malformed_versions_json_surfaces_parse_error() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -993,7 +989,7 @@ mod versions {
     }
 
     #[test]
-    fn test_versions_json_follows_redirect() -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_json_follows_redirect() -> Result<(), Box<dyn std::error::Error>> {
         // Pin the redirect-following invariant so a future
         // client-construction refactor that disables redirects
         // (`Policy::none()`) fails loudly.
@@ -1044,7 +1040,7 @@ mod get_project {
     use super::*;
 
     #[test]
-    fn test_get_project_on_versions_json_404_surfaces_project_not_in_index()
+    fn get_project_on_versions_json_404_surfaces_project_not_in_index()
     -> Result<(), Box<dyn std::error::Error>> {
         // §8 — a `versions.json` 404 means the project is not in this
         // index. `get_project_async` MUST surface a distinct
@@ -1079,8 +1075,7 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_on_versions_json_5xx_is_hard_error()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn get_project_on_versions_json_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
         // Direct `get_project` has the same §8 boundary as
         // `versions_async`: 404 is "not in this index", but 5xx is a
         // hard server failure.
@@ -1113,7 +1108,7 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_on_removed_version_fails_with_version_removed()
+    fn get_project_on_removed_version_fails_with_version_removed()
     -> Result<(), Box<dyn std::error::Error>> {
         // §9 + §13 — when a lockfile replay (or any direct
         // `get_project`) hits a version whose `versions.json` entry
@@ -1154,8 +1149,8 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_on_yanked_version_still_serves_files()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn get_project_on_yanked_version_still_serves_files() -> Result<(), Box<dyn std::error::Error>>
+    {
         // §11 Retirement + §13 lockfile contract — a `yanked` entry's
         // per-version files remain served so existing lockfiles still
         // `sync` cleanly; only new resolutions are affected (and those
@@ -1195,7 +1190,7 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_sysand_purl_route() -> Result<(), Box<dyn std::error::Error>> {
+    fn get_project_sysand_purl_route() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -1241,7 +1236,7 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_iri_hash_route() -> Result<(), Box<dyn std::error::Error>> {
+    fn get_project_iri_hash_route() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -1292,7 +1287,7 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_carries_usage() -> Result<(), Box<dyn std::error::Error>> {
+    fn get_project_carries_usage() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -1339,7 +1334,7 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_ignores_textual_usage_drift() -> Result<(), Box<dyn std::error::Error>> {
+    fn get_project_ignores_textual_usage_drift() -> Result<(), Box<dyn std::error::Error>> {
         // Regression guard: textual drift between advertised and fetched
         // `usage` must be ignored — the server is authoritative, and a
         // drifted textual field would produce a different canonical
@@ -1399,7 +1394,7 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_returns_real_info_meta_from_per_version_files()
+    fn get_project_returns_real_info_meta_from_per_version_files()
     -> Result<(), Box<dyn std::error::Error>> {
         // Fixture uses values no IRI-derived heuristic could invent,
         // so a regression that re-introduces synthesis would fail.
@@ -1454,8 +1449,7 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_missing_per_version_info_errors() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn get_project_missing_per_version_info_errors() -> Result<(), Box<dyn std::error::Error>> {
         // `.project.json` missing while the version is listed: must
         // surface as a hard error, not silently proceed without info.
         let mut server = mockito::Server::new();
@@ -1501,8 +1495,7 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_missing_per_version_meta_errors() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn get_project_missing_per_version_meta_errors() -> Result<(), Box<dyn std::error::Error>> {
         // Parallel to the `.project.json`-missing case, on the other
         // leg: `.meta.json` 404 with `.project.json` serving cleanly
         // must not silently expose partial state.
@@ -1546,8 +1539,7 @@ mod get_project {
     }
 
     #[test]
-    fn test_get_project_version_not_in_versions_json_errors()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn get_project_version_not_in_versions_json_errors() -> Result<(), Box<dyn std::error::Error>> {
         // A version not in `versions.json` must surface as
         // `VersionNotInIndex` — no kpar-only fallback.
         let mut server = mockito::Server::new();
@@ -1590,8 +1582,7 @@ mod iri {
     use super::*;
 
     #[test]
-    fn test_iri_hash_bucket_applies_rfc3986_normalization() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn iri_hash_bucket_applies_rfc3986_normalization() -> Result<(), Box<dyn std::error::Error>> {
         // Scheme/host case and percent-encoding case: `HTTP://Example.COM`
         // and lowercase `%7e` must converge on the normalized form.
         // `%7E` decodes to `~` (unreserved per RFC 3986 §2.3), so the
@@ -1633,7 +1624,7 @@ mod iri {
     }
 
     #[test]
-    fn test_iri_hash_bucket_strips_default_port() -> Result<(), Box<dyn std::error::Error>> {
+    fn iri_hash_bucket_strips_default_port() -> Result<(), Box<dyn std::error::Error>> {
         // Scheme-default port stripping: `http://example.com:80/` and
         // `http://example.com/` must hash to the same bucket.
         let mut server = mockito::Server::new();
@@ -1689,7 +1680,7 @@ mod digest {
     use super::*;
 
     #[test]
-    fn test_advertised_project_digest_mismatch_rejected_before_expose()
+    fn advertised_project_digest_mismatch_rejected_before_expose()
     -> Result<(), Box<dyn std::error::Error>> {
         // Syntactically-valid-but-wrong advertised digest: must refuse
         // to expose info AND meta, even though the JSON pair itself
@@ -1748,7 +1739,7 @@ mod digest {
     }
 
     #[test]
-    fn test_checksum_uses_inline_project_digest_and_skips_kpar_download()
+    fn checksum_uses_inline_project_digest_and_skips_kpar_download()
     -> Result<(), Box<dyn std::error::Error>> {
         // The pre-download shortcut: `checksum_canonical_hex` returns
         // the advertised digest without touching any leaf endpoint.
@@ -1791,7 +1782,7 @@ mod digest {
     }
 
     #[test]
-    fn test_malformed_project_digest_errors() -> Result<(), Box<dyn std::error::Error>> {
+    fn malformed_project_digest_errors() -> Result<(), Box<dyn std::error::Error>> {
         // Non-`sha256:<hex>` advertised value: surface as a protocol
         // error rather than silently recomputing (which would break
         // lock/sync cross-checks downstream).
@@ -1833,7 +1824,7 @@ mod digest {
     }
 
     #[test]
-    fn test_project_digest_drift_after_download_errors() -> Result<(), Box<dyn std::error::Error>> {
+    fn project_digest_drift_after_download_errors() -> Result<(), Box<dyn std::error::Error>> {
         // Post-download authoritative check: correct `kpar_digest` but
         // deliberately-wrong `project_digest` lets the download succeed
         // and forces `checksum_canonical_hex` into the reconciliation
@@ -1921,7 +1912,7 @@ mod digest {
     }
 
     #[test]
-    fn test_versions_async_rejects_document_with_malformed_digest()
+    fn versions_async_rejects_document_with_malformed_digest()
     -> Result<(), Box<dyn std::error::Error>> {
         // Shape-check happens at `versions.json` parse time. Because
         // `versions_async` and `get_project_async` share the cache, a
@@ -1963,7 +1954,7 @@ mod digest {
     }
 
     #[test]
-    fn test_get_project_accepts_canonical_digest_with_mixed_case_sha256_meta()
+    fn get_project_accepts_canonical_digest_with_mixed_case_sha256_meta()
     -> Result<(), Box<dyn std::error::Error>> {
         // Regression guard: the old raw-hash reconciliation hashed
         // `.meta.json` as-written and produced a spurious
@@ -2017,8 +2008,7 @@ mod digest {
     }
 
     #[test]
-    fn test_get_project_rejects_non_sha256_meta_checksums() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn get_project_rejects_non_sha256_meta_checksums() -> Result<(), Box<dyn std::error::Error>> {
         // A non-SHA256 `meta.checksum` entry makes the canonical digest
         // require source reads. The index protocol requires verification
         // from (info, meta) alone, so the client refuses to expose either
@@ -2074,7 +2064,7 @@ mod caching {
     use super::*;
 
     #[test]
-    fn test_info_and_meta_each_fetched_at_most_once_across_accessors()
+    fn info_and_meta_each_fetched_at_most_once_across_accessors()
     -> Result<(), Box<dyn std::error::Error>> {
         // `expect(1)` pins the single-fetch-per-document fan-in: a
         // regression that dropped the cache (separate OnceCells per
@@ -2125,8 +2115,7 @@ mod caching {
     }
 
     #[test]
-    fn test_versions_json_fetched_once_per_env_lifetime() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn versions_json_fetched_once_per_env_lifetime() -> Result<(), Box<dyn std::error::Error>> {
         // Both `versions_async` and `get_project_async` read
         // `versions.json`; cached at the env level the document is
         // fetched once regardless of how many candidates the solver
@@ -2170,7 +2159,7 @@ mod caching {
     }
 
     #[test]
-    fn test_versions_json_404_refetched_on_every_call() -> Result<(), Box<dyn std::error::Error>> {
+    fn versions_json_404_refetched_on_every_call() -> Result<(), Box<dyn std::error::Error>> {
         // The "not in this index" 404 outcome (§8) is intentionally
         // not cached — the cache slot is only populated on a
         // successful validate — so a later publish to the same index
@@ -2221,7 +2210,7 @@ mod sources {
     use super::*;
 
     #[test]
-    fn test_kpar_digest_mismatch_surfaces_error() -> Result<(), Box<dyn std::error::Error>> {
+    fn kpar_digest_mismatch_surfaces_error() -> Result<(), Box<dyn std::error::Error>> {
         // First call that forces `ensure_downloaded` (here
         // `read_source`) must surface `DigestMismatch` rather than
         // silently accepting the archive.
@@ -2280,8 +2269,7 @@ mod sources {
     }
 
     #[test]
-    fn test_kpar_digest_mismatch_does_not_persist_archive() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn kpar_digest_mismatch_does_not_persist_archive() -> Result<(), Box<dyn std::error::Error>> {
         // Defense in depth: the atomic-rename path must never install
         // a mismatched body at `archive_path`, so a retry re-downloads
         // rather than short-circuiting on a stale tampered file.
@@ -2335,7 +2323,7 @@ mod sources {
     }
 
     #[test]
-    fn test_kpar_digest_match_allows_download() -> Result<(), Box<dyn std::error::Error>> {
+    fn kpar_digest_match_allows_download() -> Result<(), Box<dyn std::error::Error>> {
         // Matching `kpar_digest`: verification passes and the eventual
         // error is a downstream kpar-parser error on the intentionally
         // invalid zip body — the absence of `DigestMismatch` is what
@@ -2392,8 +2380,8 @@ mod sources {
     }
 
     #[test]
-    fn test_sources_async_uses_inline_kpar_size_and_skips_head()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn sources_async_uses_inline_kpar_size_and_skips_head() -> Result<(), Box<dyn std::error::Error>>
+    {
         // Pin the no-HEAD invariant: `sources_async` must read
         // `kpar_size` from `versions.json`, not probe the archive.
         let mut server = mockito::Server::new();
@@ -2450,8 +2438,8 @@ mod discovery {
     use super::*;
 
     #[test]
-    fn test_discovery_absent_config_defaults_to_discovery_root()
-    -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_absent_config_defaults_to_discovery_root() -> Result<(), Box<dyn std::error::Error>>
+    {
         // Index reads proceed against the discovery root when the
         // discovery document is absent.
         let mut server = mockito::Server::new();
@@ -2482,7 +2470,7 @@ mod discovery {
     }
 
     #[test]
-    fn test_discovery_config_remaps_index_root() -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_config_remaps_index_root() -> Result<(), Box<dyn std::error::Error>> {
         // An `index_root` in the discovery document redirects index
         // reads to the remapped base. The discovery root has no
         // matching path, so a regression that ignored the remap would
@@ -2512,7 +2500,7 @@ mod discovery {
     }
 
     #[test]
-    fn test_discovery_rejects_relative_index_root() -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_rejects_relative_index_root() -> Result<(), Box<dyn std::error::Error>> {
         // Relative `index_root` -> `RelativeUrl` error. Discovery is
         // resolved at env construction, so the rejection surfaces from
         // `test_env_sync_discovery` rather than from a later
@@ -2538,7 +2526,7 @@ mod discovery {
     }
 
     #[test]
-    fn test_discovery_rejects_userinfo_index_root() -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_rejects_userinfo_index_root() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
         let config_mock = mock_json_get(
@@ -2560,7 +2548,7 @@ mod discovery {
     }
 
     #[test]
-    fn test_discovery_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
         // A broken server and a misconfigured base URL are
         // indistinguishable, so anything beyond 200/404 is a hard
         // error. With eager discovery this surfaces from env
@@ -2587,8 +2575,7 @@ mod discovery {
     }
 
     #[test]
-    fn test_discovery_remapped_versions_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>>
-    {
+    fn discovery_remapped_versions_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
         // Companion to `test_discovery_5xx_is_hard_error` (which covers a
         // 5xx on the discovery endpoint itself). Here the discovery
         // document succeeds and remaps `index_root` to a separate path
@@ -2630,7 +2617,7 @@ mod discovery {
     }
 
     #[test]
-    fn test_discovery_follows_redirect() -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_follows_redirect() -> Result<(), Box<dyn std::error::Error>> {
         // A successful discovery + subsequent versions read proves the
         // redirect was followed and the body was used.
         let mut server = mockito::Server::new();
@@ -2665,7 +2652,7 @@ mod discovery {
     }
 
     #[test]
-    fn test_discovery_unknown_fields_silently_ignored() -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_unknown_fields_silently_ignored() -> Result<(), Box<dyn std::error::Error>> {
         // Discovery-document forward-compat case.
         let mut server = mockito::Server::new();
 
