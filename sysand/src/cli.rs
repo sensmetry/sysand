@@ -190,7 +190,7 @@ pub enum Command {
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
 
-        /// Root URL of the package index to publish to
+        /// Configured index URL to publish to
         /// (e.g. https://sysand.org), not the upload endpoint path
         #[arg(long, value_name = "URL", verbatim_doc_comment)]
         index: Url,

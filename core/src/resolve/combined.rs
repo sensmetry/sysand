@@ -154,15 +154,12 @@ impl<
                         Ok(opt) => opt
                             .and_then(|checksum| self.locals.shift_remove(&checksum)),
                         Err(err) => {
-                            // Failure here is an I/O or parse error on the
-                            // fetched project files: this arm carries the
-                            // non-index remote resolver, so no advertised
-                            // digest is attached to the project (those flow
-                            // through `ResolvedIndex` below). Cache-match
-                            // is opportunistic — skip on any error; if the
-                            // files are genuinely broken, the downstream
-                            // `get_project` reads the same bytes and
-                            // surfaces the same error as a hard failure.
+                            // Cache-match is opportunistic: checksum
+                            // canonicalization may need source reads beyond
+                            // the info/meta fetch, and this non-index remote
+                            // path has no advertised digest to fall back to.
+                            // Skip the cache match and let later project
+                            // operations surface any error they actually hit.
                             log::warn!(
                                 "remote-project checksum_canonical_hex failed; skipping local-cache match: {err}"
                             );
