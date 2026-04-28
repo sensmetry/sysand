@@ -222,12 +222,7 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
     // discovery root behave consistently (RFC 3986 §5.3 path resolution).
     let config_url = directory_root
         .join("sysand-index-config.json")
-        .map_err(|source| DiscoveryError::InvalidUrl {
-            url: discovery_root.as_str().into(),
-            field: "<discovery_root>",
-            value: discovery_root.as_str().to_owned(),
-            source,
-        })?;
+        .expect("joining a fixed relative path onto an HTTP(S) base URL succeeds");
 
     let parsed: Option<IndexConfigRaw> =
         fetch_json(client, auth, &config_url, MissingPolicy::AllowNotFound).await?;
