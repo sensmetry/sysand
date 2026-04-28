@@ -12,8 +12,8 @@ verification rules clients apply (§12).
 
 A _sysand index server_ is any service that hosts a sysand index. It MAY
 additionally expose a _sysand index API_ (publish, yank, and other
-management endpoints); that API is specified separately and is not covered
-here.
+management endpoints); that API is specified separately in the
+[sysand index API protocol](index-api-protocol.md) and is not covered here.
 
 The keywords MUST, MUST NOT, REQUIRED, SHALL, SHALL NOT, SHOULD, SHOULD
 NOT, RECOMMENDED, MAY, and OPTIONAL are to be interpreted as described in
