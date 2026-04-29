@@ -301,9 +301,7 @@ field (e.g. `0.3.0/`, `10.0.0-beta.1/`). That directory MUST contain:
 A version's file presence is governed by its [§8] `status`:
 
 - `available` and `yanked` — all three files MUST be retrievable;
-  a 404 on any of them is a hard error. Clients MUST NOT treat the
-  404 as "version not available"; `status` is the only mechanism for
-  signalling unavailability.
+  a 404 on any of them is a hard error.
 - `removed` — all three files MUST 404. A client that has just read the
   corresponding `versions.json` entry MUST reject the version before
   fetching these files and surface it as a distinct removed-upstream
