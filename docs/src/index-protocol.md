@@ -21,9 +21,9 @@ NOT, RECOMMENDED, MAY, and OPTIONAL are to be interpreted as described in
 
 ## 2. Implementability
 
-A sysand index MUST be serveable from an ordinary HTTP static-file server.
-There is no server-side computation requirement: every file listed below
-corresponds to literal bytes on disk.
+A sysand index MUST be serveable from an ordinary HTTP static-file server,
+i.e. there are no server-side computation requirements and files can be
+served as-is from disk.
 
 A smart server MAY respond to requests for `.project.json`, `.meta.json`,
 or `project.kpar` with HTTP redirects (e.g. to an object store or CDN);
@@ -79,8 +79,7 @@ source URLs.
 If the discovery document is absent (HTTP 404) the client proceeds as
 though it were present with no fields set: `index_root` and `api_root`
 both default to the discovery root. Any other non-success response (e.g.
-5xx) is a hard error — the discovery attempt cannot be differentiated
-from a broken server.
+5xx) is a hard error.
 
 Clients MUST follow HTTP redirects on the discovery fetch. Unknown fields
 in the document are silently ignored (see [§14]).
@@ -126,15 +125,14 @@ Given a project IRI, clients resolve the project directory as follows:
   after applying the normalization defined in
   [§5.1].
 
-A `pkg:sysand/` IRI that is not canonical
-([§6]) MUST NOT be transparently rerouted
-to the `_iri/...` path; clients MUST reject it.
+Clients MUST reject `pkg:sysand/` IRIs that are not canonical
+([§6]).
 
 ### 5.1. IRI canonicalization for the `_iri` hash bucket
 
 Before hashing, the IRI MUST be canonicalized by applying the following
-steps in order. The intent is to delegate to well-specified external
-algorithms so that any two implementations produce byte-identical output:
+steps in order. The intent is to produce identical hashes for all URLs that
+are canonically equivalent, i.e. refer to the same resource:
 
 1. **Syntax-based normalization** — apply
    [`fluent_uri::Iri::normalize`][fluent-uri-normalize] semantics. This
@@ -143,8 +141,7 @@ algorithms so that any two implementations produce byte-identical output:
 2. **Host → Punycode** — if the authority host is a
    [registered name][rfc3986-reg-name] (a domain-name-like host) containing
    non-ASCII characters, replace it with the result of
-   [`domainToASCII`][whatwg-url-domain-to-ascii] (as implemented by the
-   [`idna`][idna-crate] crate). IPv4/IPv6 literals are not affected.
+   [`domainToASCII`][whatwg-url-domain-to-ascii]. IPv4/IPv6 literals are not affected.
 3. **HTTP root path** — if the scheme is `http` or `https` and the path
    is empty, replace the empty path with `/`.
 
@@ -195,9 +192,10 @@ advertises through `ReadEnvironment::uris` / `uris_async`. Resolving a
 specific IRI does not consult `index.json`; it fetches that project's
 `versions.json` directly ([§8]).
 
-A 404 on `index.json` is a hard error for operations that fetch it:
-`{ "projects": [] }` is the empty-index signal, so a 404 means "this URL
-is not a sysand index".
+An empty index has `index.json` that contains `{ "projects": [] }`.
+
+A 404 on `index.json` is a hard error, i.e. the URL is assumed to not
+point to an index.
 
 ## 8. `versions.json`
 
@@ -227,7 +225,7 @@ Per-entry rules:
   `kpar_digest`) are REQUIRED. A client MUST reject a `versions.json`
   that omits any of them.
 - `version` MUST parse as a [semver 2.0.0][semver] version and MUST NOT
-  carry build metadata (the `+build…` suffix). Pre-release identifiers
+  carry build metadata (`+<something>`). Pre-release identifiers
   (`-beta.1` etc.) are permitted. Build metadata is excluded because
   semver specifies that two versions differing only in their build
   metadata have equal precedence (semver §10); permitting it in the
@@ -242,8 +240,7 @@ Per-entry rules:
 - `status` is OPTIONAL. When present, it MUST be one of `"available"`,
   `"yanked"`, or `"removed"`; an omitted `status` is equivalent to
   `"available"`. Servers SHOULD omit the field when its value would be
-  `"available"`, so unretired entries keep their on-wire shape
-  unchanged from indexes predating the retirement model; clients MUST
+  `"available"` to save space. Clients MUST
   accept both the omitted form and an explicit `"available"` as
   equivalent. `yanked` and `removed` entries are collectively
   "retired"; see [§11] for the server obligations they impose and
@@ -252,16 +249,11 @@ Per-entry rules:
 Ordering:
 
 - Entries MUST appear in descending order of parsed semver precedence
-  (newest-first). Clients MUST validate the ordering at ingest and MUST
-  reject a `versions.json` that violates it, for the same reason they
-  reject missing fields and duplicates — a document that contradicts the
-  protocol contract is malformed. Clients rely on this ordering directly
-  and do not re-sort.
+  (newest-first).
 
 Duplicates:
 
-- A `versions.json` that lists the same version twice is malformed. The
-  client MUST reject it.
+- `versions.json` MUST NOT list the same version twice.
 
 Absence:
 
@@ -316,11 +308,9 @@ it needs:
 | **lock**  | `versions.json` + `.project.json` + `.meta.json`    |
 | **sync**  | `project.kpar` (starting from an existing lockfile) |
 
-`sync` does not re-read `versions.json` or the per-version JSON files —
-the lockfile already records the artifact's source URL, digests, and
-everything else `sync` needs. Immutability ([§11]) is what makes this
-safe: the lockfile's recorded `kpar_digest` is still the correct digest
-to verify against when the `.kpar` is fetched.
+`sync` does not re-read `versions.json` or the per-version JSON files, as
+per-version files are immutable and the lockfile already records everything
+`sync` needs to download the archive and verify it.
 
 ## 10. Digests and canonicalization
 
@@ -389,8 +379,8 @@ A conforming sysand index client:
 
 - Follows HTTP redirects on every index resource.
 - MUST verify the streamed body of `project.kpar` against the advertised
-  `kpar_digest` during download. A mismatch is a hard error; the archive
-  MUST NOT be installed.
+  `kpar_digest` during download. In case of mismatch the archive MUST NOT
+  be used.
 - When it fetches either `.project.json` or `.meta.json`, MUST fetch both
   and MUST verify that their canonical `(info, meta)` digest equals the
   advertised `project_digest` before using either. A mismatch is a hard
@@ -401,8 +391,7 @@ A conforming sysand index client:
   lockfile's pinned `(iri, version)` without re-solving and is
   unaffected by `status`.
 - Beyond the above, does not cross-check textual fields between
-  `versions.json` and `.project.json` — the server is authoritative
-  ([§11]).
+  `versions.json` and `.project.json` ([§11]).
 
 ## 13. Immutability and lockfile reproducibility
 
@@ -414,30 +403,21 @@ direct consequences for sysand lockfiles:
   index for as long as the entry's `status` is not `"removed"`
   ([§8]).
 - The `project_digest` and `kpar_digest` values advertised in
-  `versions.json` are captured in a lockfile as a tripwire: a later
-  fetch whose advertised digest differs from the lockfile's recorded
-  digest indicates that either the server violated byte immutability, or
-  the lockfile and server refer to different indices.
+  `versions.json` are captured in a lockfile to detect any changes
+  when downloading it later.
 
 Retirement ([§8] `status`) and the lockfile contract:
 
-- A `yanked` entry is fully compatible with existing lockfiles — the
-  files are still served, the digests still match. Only _new_
-  resolutions are affected.
-- A `removed` entry breaks `sync` for any lockfile that pins it; the
-  lockfile's recorded digests still serve as a tripwire, but `sync`
-  does not re-read `versions.json`. The failure therefore surfaces from
-  the archive fetch or digest verification path rather than from the
-  entry's `status`.
+- A `yanked` entry is fully compatible with existing lockfiles, as the
+  original files are still served. Only new resolutions are affected.
+- A `removed` entry breaks `sync` for any lockfile that pins it, as the
+  project files for that version are no longer present in the server.
 
 ## 14. Forward compatibility
 
-- Unknown fields in any JSON document are silently ignored. Servers MAY
-  add fields without breaking existing clients; clients MUST NOT reject a
-  document solely because it contains an unfamiliar field.
-- There is no schema-version signal in v0. When one is introduced it
-  will live in a single designated place, not duplicated across
-  documents.
+- Unknown fields in any JSON document MUST be ignored by the clients. Clients
+  MAY still choose to inform the user of such changes.
+- Protocol version is not explicitly provided anywhere currently.
 - Breaking changes to this protocol are expected before v1.
 
 ## 15. `sysand index` CLI (preview)
@@ -445,14 +425,8 @@ Retirement ([§8] `status`) and the lockfile contract:
 The `sysand index` command group produces and maintains a sysand index
 tree: laying out files, generating digests, and keeping
 `versions.json` consistent with the per-version artifacts. This is the
-only supported path for creating and mutating an index tree —
-third-party tooling may serve a tree that happens to conform, but the
-project does not support creation or maintenance by means other than
-`sysand index`.
+only supported path for creating and mutating an index tree.
 
-The `sysand index` CLI enforces the wire-level rules this document
-defines — tier consistency, digest agreement, `meta.checksum` format,
-`pkg:sysand` canonicalization, `versions.json` ordering and uniqueness.
 Sysand index clients enforce their client obligations ([§12]), including
 digest verification but not textual cross-checks between tiers. Semantic
 project-quality checks (is `.meta.json`'s `checksum` map complete, does
