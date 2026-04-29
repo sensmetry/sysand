@@ -197,8 +197,6 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        self.archive.ensure_downloaded_verified().await?;
-
         self.archive
             .read_source_async(path)
             .await
