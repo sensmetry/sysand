@@ -289,8 +289,7 @@ not duplicated here.
 
 Index tree creation and mutation are owned by the `sysand index` command
 group described in the protocol docs. Publishing uses the discovered
-`api_root` and leaves the server responsible for accepting uploads and
-updating the served index tree.
+`api_root`.
 
 #### Client implementation notes
 
