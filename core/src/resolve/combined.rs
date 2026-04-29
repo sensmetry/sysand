@@ -52,8 +52,7 @@ pub struct CombinedResolver<FileResolver, LocalResolver, RemoteResolver, IndexRe
     /// http(s) and git-URLs, as well as, possibly, FTP, rsync, scp, ...
     pub remote_resolver: Option<RemoteResolver>,
     /// A resolver for a sysand index server. Resolves `pkg:sysand/…`
-    /// IRIs and, via the `_iri/<hash>/…` bucket, opaque IRIs such as
-    /// `urn:kpar:…`. See `docs/src/index-protocol.md`.
+    /// IRIs, and also opaque IRIs such as `urn:kpar:`.
     pub index_resolver: Option<IndexResolver>,
 }
 
