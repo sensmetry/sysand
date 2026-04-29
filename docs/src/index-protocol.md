@@ -357,22 +357,27 @@ A conforming sysand index server MUST uphold:
 
 - **`index.json` consistency.** Every project listed in `index.json` has a
   `versions.json` retrievable at its project directory ([§5]).
+- **Project persistence.** `index.json` entries are ratained: once an entry
+  exists it is never removed. The only mutable field on an existing entry is
+  `status` ([§8]). Permitted transitions are `available → removed`; `removed` is
+  terminal, and moving a project to `removed` requires marking all its versions
+  with `"status": "removed"` ([§9]). (TODO: REFINE LANGUAGE)
 - **`versions.json` consistency.** The fields advertised in a `versions.json`
   entry agree with actual `.project.json`, `.meta.json`, and `project.kpar`
   files served at that version's directory.
-- **File presence.** Every version listed in `versions.json` with
+- **Version file presence.** Every version listed in `versions.json` with
   `status` other than `removed` has all three per-version files
   available for retrieval.
-- **Byte immutability.** Existing per-version files never have their
+- **Version file immutability.** Existing per-version files never have their
   bytes changed in place; a published `project.kpar` is either served
   with the same bytes forever or withdrawn (see retirement, below).
-- **Retirement via `status`.** `versions.json` entries are retained:
+- **Version persistence.** `versions.json` entries are retained:
   once an entry exists it is never removed, and its
   `version`, `usage`, `project_digest`, `kpar_size`, and `kpar_digest`
   fields never change. The only mutable field on an existing entry is
   `status` ([§8]). Permitted transitions are `available → yanked`,
   `available → removed`, and `yanked → removed`; no other transitions
-  are permitted in v0 (in particular, no un-yank). `removed` is
+  are permitted (in particular, no un-yank). `removed` is
   terminal, and moving a version to `removed` requires withdrawing
   its per-version files ([§9]).
 - **Well-formed archives.** The full set of criteria for a well-formed
