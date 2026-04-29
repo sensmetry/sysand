@@ -278,8 +278,7 @@ Absence:
 
 Each version in `versions.json` has a subdirectory under the project
 directory ([§4]) whose name is byte-identical to the entry's `version`
-field (e.g. `0.3.0/`, `10.0.0-beta.1/`). That directory MUST contain
-all three files:
+field (e.g. `0.3.0/`, `10.0.0-beta.1/`). That directory MUST contain:
 
 - `.project.json` — interchange project info.
 - `.meta.json` — interchange project metadata.
@@ -291,13 +290,14 @@ A version's file presence is governed by its [§8] `status`:
   a 404 on any of them is a hard error. Clients MUST NOT treat the
   404 as "version not available"; `status` is the only mechanism for
   signalling unavailability.
-- `removed` — the three files MUST 404. A client that has just read the
+- `removed` — all three files MUST 404. A client that has just read the
   corresponding `versions.json` entry MUST reject the version before
   fetching these files and surface it as a distinct removed-upstream
-  error (typical phrasing: "version X was removed upstream"). A lockfile
-  `sync` replay is different: it starts from the recorded archive URL and
+  error. A lockfile `sync` starts from the recorded archive URL and
   digest and does not re-read `versions.json`, so a removed archive may
-  surface as an archive-fetch failure instead.
+  surface as an archive-fetch failure instead. In that case the client
+  SHOULD fetch `versions.json` to check the reason for removal and
+  present more actionable information to the user.
 
 The protocol is designed so that each client operation fetches only what
 it needs:
@@ -337,7 +337,7 @@ computed from `.project.json` and `.meta.json` alone, without reading
 
 Per-source-file checksums inside `.meta.json` (`meta.checksum`) are
 `{ "value", "algorithm" }` pairs. In v0, `algorithm` MUST be `SHA256`
-and `value` MUST be raw lowercase SHA-256 hex (no `sha256:` prefix).
+and `value` MUST consist of lowercase hex digits.
 
 ## 11. Server obligations
 
@@ -345,9 +345,7 @@ A conforming sysand index server MUST uphold:
 
 - **Tier consistency.** The fields advertised in a `versions.json` entry
   agree with the actual `.project.json`, `.meta.json`, and `project.kpar`
-  served at that version's directory. The server is trusted as the source
-  of truth for what a version contains; clients do not cross-check textual
-  fields.
+  served at that version's directory.
 - **`versions.json` presence.** Every project listed in
   `index.json` has a `versions.json` retrievable at its project
   directory ([§5]). A project not listed in `index.json` MAY
@@ -370,8 +368,7 @@ A conforming sysand index server MUST uphold:
   its per-version files ([§9]).
 - **Well-formed archives.** The full set of criteria for a well-formed
   archive is not frozen in v0 and is expected to evolve alongside the
-  `sysand index` CLI; see [§15] for the division between wire-level
-  enforcement and publish-time project-quality checks.
+  `sysand index` CLI (see [§15]).
 
 ## 12. Client obligations
 
