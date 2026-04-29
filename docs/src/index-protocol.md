@@ -357,14 +357,11 @@ and `value` MUST consist of lowercase hex digits.
 
 A conforming sysand index server MUST uphold:
 
-- **Data consistency.** The fields advertised in a `versions.json` entry
-  agree with the actual `.project.json`, `.meta.json`, and `project.kpar`
-  served at that version's directory.
-- **`versions.json` presence.** Every project listed in
-  `index.json` has a `versions.json` retrievable at its project
-  directory ([§5]). A project not listed in `index.json` MAY
-  return 404 for `versions.json`; clients interpret that 404 as
-  "not in this index" ([§8]).
+- **`index.json` consistency.** Every project listed in `index.json` has a
+  `versions.json` retrievable at its project directory ([§5]).
+- **`versions.json` consistency.** The fields advertised in a `versions.json`
+  entry agree with actual `.project.json`, `.meta.json`, and `project.kpar`
+  files served at that version's directory.
 - **File presence.** Every version listed in `versions.json` with
   `status` other than `removed` has all three per-version files
   available for retrieval.
