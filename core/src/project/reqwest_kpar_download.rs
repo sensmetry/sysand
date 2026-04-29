@@ -311,20 +311,21 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
     }
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        if let (Some(index_kpar_size), Some(index_kpar_digest)) =
+        let src = if let (Some(index_kpar_size), Some(index_kpar_digest)) =
             (self.expected_size, self.expected_sha256_hex.as_ref())
         {
-            return Ok(vec![Source::IndexKpar {
+            Source::IndexKpar {
                 index_kpar: self.url.to_string(),
                 index_kpar_size: index_kpar_size.get(),
                 index_kpar_digest: index_kpar_digest.clone(),
-            }]);
-        }
-
-        Ok(vec![Source::RemoteKpar {
-            remote_kpar: self.url.to_string(),
-            remote_kpar_size: self.inner.file_size().ok(),
-        }])
+            };
+        } else {
+             Source::RemoteKpar {
+                remote_kpar: self.url.to_string(),
+                remote_kpar_size: self.inner.file_size().ok(),
+             }
+        };
+        Ok(vec![src])
     }
 
     async fn is_definitely_invalid_async(&self) -> bool {
