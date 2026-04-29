@@ -66,6 +66,27 @@ sources = [{{ registry = "https://example.org" }}]
 }
 
 #[test]
+fn zero_index_kpar_size_is_rejected_by_lockfile_parse() {
+    let lockfile = format!(
+        r#"{LOCKFILE_PREFIX}lock_version = "{CURRENT_LOCK_VERSION}"
+
+[[project]]
+name = "Indexed"
+version = "1.0.0"
+checksum = "{CHECKSUM}"
+sources = [{{ index_kpar = "https://example.org/project.kpar", index_kpar_size = 0, index_kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}]
+"#
+    );
+
+    let Err(err) = Lock::from_str(&lockfile) else {
+        panic!()
+    };
+    let crate::lock::ParseError::Toml(_) = err else {
+        panic!("expected TOML parse error for zero index kpar size, got {err:?}")
+    };
+}
+
+#[test]
 fn check_missing_lock_version() {
     let document = DocumentMut::from_str("").unwrap();
     let Err(err) = check_lock_version(&document) else {
@@ -340,7 +361,7 @@ fn many_sources_to_toml() {
                 },
                 Source::IndexKpar {
                     index_kpar: "www.example.com/index.kpar".to_string(),
-                    index_kpar_size: 128,
+                    index_kpar_size: std::num::NonZeroU64::new(128).unwrap(),
                     index_kpar_digest:
                         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                             .to_string(),
@@ -794,7 +815,7 @@ fn validate_index_kpar_digest_rejects_uppercase() {
             usages: vec![],
             sources: vec![Source::IndexKpar {
                 index_kpar: "https://example.com/indexed.kpar".to_string(),
-                index_kpar_size: 123,
+                index_kpar_size: std::num::NonZeroU64::new(123).unwrap(),
                 index_kpar_digest: invalid_digest.to_string(),
             }],
             checksum: CHECKSUM.to_string(),

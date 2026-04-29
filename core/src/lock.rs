@@ -6,6 +6,7 @@ use std::{
     collections::HashSet,
     fmt::Display,
     hash::{DefaultHasher, Hash, Hasher},
+    num::NonZeroU64,
     str::FromStr,
 };
 
@@ -576,7 +577,7 @@ pub enum Source {
     },
     IndexKpar {
         index_kpar: String,
-        index_kpar_size: u64,
+        index_kpar_size: NonZeroU64,
         index_kpar_digest: String,
     },
     RemoteSrc {
@@ -632,7 +633,7 @@ impl Source {
                 index_kpar_digest,
             } => {
                 table.insert("index_kpar", Value::from(index_kpar));
-                let size = i64::try_from(*index_kpar_size).unwrap();
+                let size = i64::try_from(index_kpar_size.get()).unwrap();
                 table.insert("index_kpar_size", Value::Integer(Formatted::new(size)));
                 table.insert("index_kpar_digest", Value::from(index_kpar_digest));
             }

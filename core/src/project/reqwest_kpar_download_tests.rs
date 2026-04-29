@@ -205,7 +205,7 @@ fn test_expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::err
         create_reqwest_client()?,
         Arc::new(Unauthenticated {}),
         Some(expected_digest),
-        Some(wrong_size),
+        Some(std::num::NonZeroU64::new(wrong_size).unwrap()),
     )?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -236,7 +236,7 @@ fn test_expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::err
 #[test]
 fn test_index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::error::Error>> {
     let index_kpar = "https://example.com/project.kpar";
-    let index_kpar_size = 1234;
+    let index_kpar_size = std::num::NonZeroU64::new(1234).unwrap();
     let index_kpar_digest = "a".repeat(64);
 
     let project = super::ReqwestKparDownloadedProject::new_guess_root(

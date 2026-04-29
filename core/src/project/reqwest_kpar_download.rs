@@ -92,8 +92,6 @@ pub enum ReqwestKparDownloadedError {
         expected: u64,
         actual: u64,
     },
-    #[error("expected kpar size for `{url}` must be non-zero")]
-    ZeroExpectedSize { url: Box<str> },
 }
 
 impl From<FsIoError> for ReqwestKparDownloadedError {
@@ -108,17 +106,8 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
         expected_sha256_hex: Option<String>,
-        expected_size: Option<u64>,
+        expected_size: Option<NonZeroU64>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
-        let expected_size = match expected_size {
-            Some(size) => Some(NonZeroU64::new(size).ok_or_else(|| {
-                ReqwestKparDownloadedError::ZeroExpectedSize {
-                    url: url.as_str().into(),
-                }
-            })?),
-            None => None,
-        };
-
         Ok(Self {
             url,
             inner: LocalKParProject::new_temporary()?,
@@ -135,7 +124,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
         expected_sha256_hex: Option<String>,
-        expected_size: Option<u64>,
+        expected_size: Option<NonZeroU64>,
     ) -> Result<Self, ReqwestKparDownloadedError> {
         Self::new(
             reqwest::Url::parse(url.as_ref())
@@ -316,7 +305,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
         {
             Source::IndexKpar {
                 index_kpar: self.url.to_string(),
-                index_kpar_size: index_kpar_size.get(),
+                index_kpar_size,
                 index_kpar_digest: index_kpar_digest.clone(),
             }
         } else {

@@ -50,7 +50,7 @@ fn make_fixture() -> IndexEntryProject<Unauthenticated> {
             version_constraint: Some("^1.0".to_string()),
         }],
         project_digest,
-        kpar_size: 42,
+        kpar_size: std::num::NonZeroU64::new(42).unwrap(),
         kpar_digest,
         status: crate::env::index::Status::Available,
     };

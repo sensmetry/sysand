@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, num::NonZeroU64, sync::Arc};
 
 use anyhow::Result;
 use camino::Utf8Path;
@@ -69,7 +69,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         ),
         Some(
             |index_kpar: String,
-             index_kpar_size: u64,
+             index_kpar_size: NonZeroU64,
              index_kpar_digest: String|
              -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>, ParseError> {
                 let project = ReqwestKparDownloadedProject::new_guess_root(

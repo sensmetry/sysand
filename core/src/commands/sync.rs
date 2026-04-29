@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZeroU64};
 
 use camino::Utf8Path;
 use thiserror::Error;
@@ -114,7 +114,8 @@ where
     KParPathStorage: ProjectRead,
     CreateRemoteKParStorage: Fn(String) -> Result<RemoteKParStorage, UrlParseError>,
     RemoteKParStorage: ProjectRead,
-    CreateIndexKParStorage: Fn(String, u64, String) -> Result<IndexKParStorage, UrlParseError>,
+    CreateIndexKParStorage:
+        Fn(String, NonZeroU64, String) -> Result<IndexKParStorage, UrlParseError>,
     IndexKParStorage: ProjectRead,
     CreateRemoteGitStorage: Fn(String) -> Result<RemoteGitStorage, GitError>,
     RemoteGitStorage: ProjectRead,

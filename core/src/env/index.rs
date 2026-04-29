@@ -20,6 +20,7 @@
 
 use std::{
     collections::{HashMap, hash_map::Entry},
+    num::NonZeroU64,
     rc::Rc,
     sync::Arc,
 };
@@ -175,7 +176,7 @@ impl TryFrom<&str> for Sha256HexDigest {
 
 /// A `versions.json` entry after ingest-time validation: `version` is parsed
 /// into `semver::Version`, digests are validated lowercase hex without the
-/// wire prefix, and `usage`/`kpar_size` are carried through verbatim. This
+/// wire prefix, and `usage`/non-zero `kpar_size` are carried through. This
 /// is the representation the cache stores and the rest of the crate sees —
 /// the raw [`VersionEntry`] is only alive briefly during deserialization.
 #[derive(Debug, Clone)]
@@ -183,7 +184,7 @@ pub(crate) struct AdvertisedVersion {
     pub(crate) version: semver::Version,
     pub(crate) usage: Vec<InterchangeProjectUsageRaw>,
     pub(crate) project_digest: Sha256HexDigest,
-    pub(crate) kpar_size: u64,
+    pub(crate) kpar_size: NonZeroU64,
     pub(crate) kpar_digest: Sha256HexDigest,
     pub(crate) status: Status,
 }
@@ -403,7 +404,7 @@ struct VersionEntry {
     /// used to populate the lockfile checksum without downloading the kpar.
     project_digest: String,
     /// Byte length of the kpar archive; lets `sources_async` skip a HEAD.
-    kpar_size: u64,
+    kpar_size: NonZeroU64,
     /// Digest of the kpar archive bytes, verified against the streamed
     /// body when the archive is downloaded.
     kpar_digest: String,

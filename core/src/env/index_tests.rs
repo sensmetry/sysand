@@ -2410,7 +2410,7 @@ mod sources {
         match &sources[0] {
             Source::IndexKpar {
                 index_kpar_size, ..
-            } => assert_eq!(*index_kpar_size, 42),
+            } => assert_eq!(index_kpar_size.get(), 42),
             other => panic!("expected Source::IndexKpar, got {:?}", other),
         }
 
