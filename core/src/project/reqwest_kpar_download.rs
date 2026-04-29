@@ -50,12 +50,12 @@ pub struct ReqwestKparDownloadedProject<Policy> {
     expected_size: Option<NonZeroU64>,
     /// Fans concurrent `ensure_downloaded*` calls on the same instance
     /// into a single download — without this, racing tasks would both
-    /// truncate the destination archive and interleave writes, potentially
-    /// renaming corrupt bytes into place. The kpar is downloaded
-    /// directly to the destination path, so `is_downloaded_and_verified`
-    /// must be checked before reading it.
+    /// truncate the destination archive and interleave writes.
+    ///
+    /// The kpar is downloaded directly to the destination path, so
+    /// `is_downloaded_and_verified` must be checked before reading it.
     /// Errors aren't cached, so a transient failure is retryable.
-    /// If this is initialized, the archive is downloaded and verified
+    /// If this is initialized, the archive has been downloaded and verified
     /// against `expected_sha256_hex`/`expected_size` if present.
     downloaded_verified: tokio::sync::OnceCell<()>,
 }
