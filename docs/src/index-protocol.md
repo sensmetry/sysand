@@ -8,7 +8,8 @@
 This document specifies the **sysand index** — the tree of files a sysand
 index server exposes over HTTP. It covers file layout, JSON shapes,
 discovery, the obligations an index server must uphold (§11), and the
-verification rules clients apply (§12).
+verification rules clients apply (§12). It doesn't cover authentication or
+authorization.
 
 A _sysand index server_ is any service that hosts a sysand index. It MAY
 additionally expose a _sysand index API_ (publish, yank, and other
@@ -21,9 +22,9 @@ NOT, RECOMMENDED, MAY, and OPTIONAL are to be interpreted as described in
 
 ## 2. Implementability
 
-A sysand index MUST be serveable from an ordinary HTTP static-file server,
-i.e. there are no server-side computation requirements and files can be
-served as-is from disk.
+A sysand index MUST be serveable from an ordinary HTTP static-file server, i.e.
+files can be served as-is from disk without server-side computation
+requirements.
 
 A smart server MAY respond to requests for `.project.json`, `.meta.json`,
 or `project.kpar` with HTTP redirects (e.g. to an object store or CDN);
