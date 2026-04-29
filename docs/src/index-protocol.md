@@ -150,12 +150,12 @@ project for the purposes of this protocol; any other difference yields a
 different project even if a scheme-specific interpretation would consider
 them equivalent.
 
-## 6. `pkg:sysand` canonicalization
+## 6. Sysand PURL relation to canonicalization
 
-A `pkg:sysand/<publisher>/<name>` value is both a PURL and an IRI. In the
-index protocol it MUST already be canonical and has exactly two
-slash-separated segments after the `pkg:sysand/` prefix. Each segment MUST
-satisfy:
+Sysand PURL (TODO: link to https://packageurl.org/) is of the form `pkg:sysand/<publisher>/<name>`. It is intended
+to identify projects in a consistent way. In the index
+protocol, no other standard PURL components (version/build) are permitted.
+Publisher and name are of the form:
 
 - Length: 3–50 ASCII characters.
 - Starts and ends with an ASCII lowercase letter or digit.
@@ -165,13 +165,24 @@ satisfy:
   - Publisher: hyphen (`-`).
   - Name: hyphen or dot (`.`).
 
-Project metadata is allowed to start from non-IRI `publisher` and `name`
-values when constructing a `pkg:sysand` PURL: lowercase ASCII letters and
-replace spaces with hyphens before forming the PURL. Once the PURL/IRI
-exists, no further normalization is permitted. An IRI stored in an index
-or referenced by a client MUST be canonical; a non-canonical IRI (e.g.
-containing uppercase or spaces) MUST be rejected rather than silently
-normalized.
+PURL will be used to identify all projects whose `publisher`
+and `name` each satisfy:
+
+- Length: 3–50 ASCII characters.
+- Starts and ends with an ASCII letter or digit.
+- Between the first and last character: ASCII letters, digits,
+  and isolated separators. No two separators may be adjacent.
+- Allowed separators:
+  - Publisher: hyphen (`-`) or space.
+  - Name: hyphen, space or dot (`.`).
+
+To create the PURL, publisher and name are normalized by lowercasing
+and replacing spaces with hyphens.
+
+Once a PURL is created, it is considered canonical and no further
+normalization is done. Any Sysand PURL not satisfying the Sysand PURL rules
+above is considered invalid and must be rejected without any further
+processing.
 
 ## 7. `index.json`
 
