@@ -19,9 +19,8 @@ use thiserror::Error;
 /// [`is_valid_publisher`] and [`is_valid_name`].
 pub const PKG_SYSAND_PREFIX: &str = "pkg:sysand/";
 
-/// Which kind of `pkg:sysand` segment to validate. Publishers disallow dots
-/// (they would collide with reverse-DNS-shaped identifiers elsewhere in the
-/// toolchain); names permit dots so that dotted product names (e.g.
+/// Which kind of `pkg:sysand` segment to validate. Publishers disallow dots,
+/// but names permit them so that dotted product names (e.g.
 /// `foo.bar`) are expressible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FieldKind {
