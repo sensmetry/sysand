@@ -143,7 +143,8 @@ are canonically equivalent, i.e. refer to the same resource:
    non-ASCII characters, replace it with the result of
    [`domainToASCII`][whatwg-url-domain-to-ascii]. IPv4/IPv6 literals are not affected.
 3. **HTTP root path** — if the scheme is `http` or `https` and the path
-   is empty, replace the empty path with `/`.
+   is empty, replace the empty path with `/`
+   ([RFC 9110 §4.2.3][rfc9110-423]).
 
 Two IRIs that yield the same byte sequence after steps 1–3 are the same
 project for the purposes of this protocol; any other difference yields a
@@ -462,6 +463,7 @@ server's upload handler) SHOULD enforce those at the publish boundary.
 [rfc2119]: https://www.rfc-editor.org/rfc/rfc2119.html
 [rfc3986-43]: https://www.rfc-editor.org/rfc/rfc3986.html#section-4.3
 [rfc3986-reg-name]: https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2
+[rfc9110-423]: https://datatracker.ietf.org/doc/html/rfc9110#section-4.2.3
 [semver]: https://semver.org/spec/v2.0.0.html
 [fluent-uri-normalize]: https://docs.rs/fluent-uri/0.4.1/fluent_uri/struct.Iri.html#method.normalize
 [whatwg-url-domain-to-ascii]: https://url.spec.whatwg.org/#concept-domain-to-ascii
