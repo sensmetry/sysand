@@ -37,6 +37,7 @@ fn storage_example() -> InMemoryProject {
                 index: IndexMap::new(),
                 created: DateTime::from_timestamp(1, 2).unwrap(),
                 metamodel: None,
+                metamodel_kind: None,
                 includes_derived: None,
                 includes_implied: None,
                 checksum: None,

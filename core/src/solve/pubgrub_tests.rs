@@ -43,6 +43,7 @@ fn trivial_memory_project(
             index: IndexMap::default(),
             created: "123".to_string(),
             metamodel: None,
+            metamodel_kind: None,
             includes_derived: None,
             includes_implied: None,
             checksum: Some(IndexMap::default()),

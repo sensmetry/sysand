@@ -72,6 +72,7 @@ pub fn do_init_ext<P: ProjectMut>(
             index: indexmap::IndexMap::new(),
             created: chrono::Utc::now(),
             metamodel: None,
+            metamodel_kind: None,
             includes_derived: None,
             includes_implied: None,
             checksum: None,

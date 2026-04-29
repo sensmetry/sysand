@@ -154,15 +154,16 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     )]
     PathUsage(String),
     #[error(
-        "workspace sets metamodel `{workspace_metamodel}`, but project `{project_path}` \
-         sets a different metamodel `{project_metamodel}` in `.meta.json`;\n\
-         remove the metamodel from the project's `.meta.json` or from `.workspace.json`"
+        "project `{project_path}` has `metamodelKind` in `.meta.json`, \
+         but `.workspace.json` is missing `metamodelDate`"
     )]
-    WorkspaceMetamodelConflict {
-        workspace_metamodel: String,
-        project_metamodel: String,
-        project_path: String,
-    },
+    MetamodelKindWithoutWorkspaceDate { project_path: String },
+
+    #[error(
+        "project `{project_path}` has both `metamodelKind` and `metamodel` in `.meta.json`; \
+         remove one of them"
+    )]
+    MetamodelKindAndMetamodelConflict { project_path: String },
 }
 
 impl<ProjectReadError: ErrorBound> From<FsIoError> for KParBuildError<ProjectReadError> {
@@ -265,7 +266,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     compression: KparCompressionMethod,
     canonicalise: bool,
     allow_path_usage: bool,
-    workspace_metamodel: Option<&str>,
+    workspace_metamodel_date: Option<&str>,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
 
@@ -315,22 +316,23 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
-    if let Some(ws_metamodel) = workspace_metamodel {
-        if let Some(proj_metamodel) = &meta.metamodel {
-            if proj_metamodel != ws_metamodel {
-                return Err(KParBuildError::WorkspaceMetamodelConflict {
-                    workspace_metamodel: ws_metamodel.to_string(),
-                    project_metamodel: proj_metamodel.clone(),
-                    project_path: path.as_ref().to_string(),
-                });
-            }
-        } else {
-            meta.metamodel = Some(ws_metamodel.to_string());
-            use crate::project::ProjectMut;
-            local_project
-                .put_meta(&meta, true)
-                .map_err(KParBuildError::from)?;
+    if let Some(kind) = meta.metamodel_kind.clone() {
+        if meta.metamodel.is_some() {
+            return Err(KParBuildError::MetamodelKindAndMetamodelConflict {
+                project_path: path.as_ref().to_string(),
+            });
         }
+        let date = workspace_metamodel_date.ok_or_else(|| {
+            KParBuildError::MetamodelKindWithoutWorkspaceDate {
+                project_path: path.as_ref().to_string(),
+            }
+        })?;
+        meta.metamodel = Some(format!("{kind}/{date}"));
+        meta.metamodel_kind = None;
+        use crate::project::ProjectMut;
+        local_project
+            .put_meta(&meta, true)
+            .map_err(KParBuildError::from)?;
     }
 
     if canonicalise {
@@ -421,7 +423,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     canonicalise: bool,
     allow_path_usage: bool,
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
-    let ws_metamodel = workspace.metamodel().map(|iri| iri.as_str());
+    let ws_metamodel_date = workspace.metamodel_date();
 
     let mut result = Vec::new();
     for project_root in workspace.projects() {
@@ -438,7 +440,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             compression,
             canonicalise,
             allow_path_usage,
-            ws_metamodel,
+            ws_metamodel_date,
         )?;
         result.push(kpar_project);
     }

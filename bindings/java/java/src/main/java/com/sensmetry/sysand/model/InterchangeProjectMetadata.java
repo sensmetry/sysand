@@ -10,6 +10,7 @@ public class InterchangeProjectMetadata {
     private LinkedHashMap<String, String> index;
     private String created;
     private String metamodel;
+    private String metamodelKind;
     private Boolean includesDerived;
     private Boolean includesImplied;
     private LinkedHashMap<String, InterchangeProjectChecksum> checksum;
@@ -18,6 +19,7 @@ public class InterchangeProjectMetadata {
         LinkedHashMap<String, String> index,
         String created,
         String metamodel,
+        String metamodelKind,
         Boolean includesDerived,
         Boolean includesImplied,
         LinkedHashMap<String, InterchangeProjectChecksum> checksum
@@ -25,6 +27,7 @@ public class InterchangeProjectMetadata {
         this.index = index;
         this.created = created;
         this.metamodel = metamodel;
+        this.metamodelKind = metamodelKind;
         this.includesDerived = includesDerived;
         this.includesImplied = includesImplied;
         this.checksum = checksum;
@@ -41,6 +44,12 @@ public class InterchangeProjectMetadata {
     public String getMetamodel() {
         return metamodel;
     }
+
+    // Currently `metamodelKind` is internal and should not be exposed to users
+    // beyond stdlib.
+    // public String getMetamodelKind() {
+    //     return metamodelKind;
+    // }
 
     public Boolean getIncludesDerived() {
         return includesDerived;

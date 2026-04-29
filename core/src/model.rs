@@ -403,6 +403,10 @@ pub struct InterchangeProjectMetadataG<Iri, Path: Eq + Hash, DateTime, IPC> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metamodel: Option<Iri>,
 
+    /// Experimental field for stdlib. Should not be used by other clients.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metamodel_kind: Option<Iri>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub includes_derived: Option<bool>,
 
@@ -447,6 +451,7 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
                 .collect(),
             created: format_created(&value.created),
             metamodel: value.metamodel.map(|iri| iri.into_string()),
+            metamodel_kind: value.metamodel_kind.map(|iri| iri.into_string()),
             includes_derived: value.includes_derived,
             includes_implied: value.includes_implied,
             checksum: value.checksum.map(|m| {
@@ -509,6 +514,7 @@ impl Default for InterchangeProjectMetadataRaw {
             index: IndexMap::default(),
             created: format_created_now(),
             metamodel: None,
+            metamodel_kind: None,
             includes_derived: None,
             includes_implied: None,
             checksum: None,
@@ -587,6 +593,12 @@ impl InterchangeProjectMetadataRaw {
                     }
                     fluent_uri::Iri::parse(m)
                 })
+                .transpose()
+                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
+            metamodel_kind: self
+                .metamodel_kind
+                .clone()
+                .map(|m| fluent_uri::Iri::parse(m))
                 .transpose()
                 .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
             includes_derived: self.includes_derived,
@@ -673,6 +685,7 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
             index: IndexMap::default(),
             created,
             metamodel: None,
+            metamodel_kind: None,
             includes_derived: None,
             includes_implied: None,
             checksum: None,

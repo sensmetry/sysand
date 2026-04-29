@@ -9,7 +9,6 @@ use pyo3::{FromPyObject, IntoPyObject};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::model::KNOWN_METAMODELS;
 use crate::project::utils::{FsIoError, wrapfs};
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -23,13 +22,10 @@ pub struct WorkspaceProjectInfoG<Iri> {
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceMetaG<Iri> {
+pub struct WorkspaceMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metamodel: Option<Iri>,
+    pub metamodel_date: Option<String>,
 }
-
-pub type WorkspaceMetaRaw = WorkspaceMetaG<String>;
-pub type WorkspaceMeta = WorkspaceMetaG<Iri<String>>;
 
 #[derive(Error, Debug)]
 pub enum WorkspaceValidationError {
@@ -43,7 +39,7 @@ pub enum WorkspaceValidationError {
 pub struct WorkspaceInfoG<Iri> {
     pub projects: Vec<WorkspaceProjectInfoG<Iri>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub meta: Option<WorkspaceMetaG<Iri>>,
+    pub meta: Option<WorkspaceMeta>,
 }
 
 pub type WorkspaceInfoRaw = WorkspaceInfoG<String>;
@@ -69,24 +65,10 @@ impl TryFrom<WorkspaceInfoRaw> for WorkspaceInfo {
             });
         }
 
-        let meta = value
-            .meta
-            .map(|raw_meta| {
-                let metamodel = raw_meta
-                    .metamodel
-                    .map(|m| {
-                        if !KNOWN_METAMODELS.contains(&m.as_str()) {
-                            log::warn!("workspace uses an unknown metamodel `{m}`");
-                        }
-                        Iri::parse(m)
-                            .map_err(|(e, iri)| WorkspaceValidationError::InvalidIri(iri, e))
-                    })
-                    .transpose()?;
-                Ok(WorkspaceMeta { metamodel })
-            })
-            .transpose()?;
-
-        Ok(Self { projects, meta })
+        Ok(Self {
+            projects,
+            meta: value.meta,
+        })
     }
 }
 
@@ -153,8 +135,11 @@ impl Workspace {
         self.info.meta.as_ref()
     }
 
-    pub fn metamodel(&self) -> Option<&Iri<String>> {
-        self.info.meta.as_ref().and_then(|m| m.metamodel.as_ref())
+    pub fn metamodel_date(&self) -> Option<&str> {
+        self.info
+            .meta
+            .as_ref()
+            .and_then(|m| m.metamodel_date.as_deref())
     }
 
     pub fn absolute_project_paths(&self) -> Vec<Utf8PathBuf> {

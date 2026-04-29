@@ -34,6 +34,7 @@ fn minimal_project<S: AsRef<str>, T: AsRef<str>>(name: S, version: T) -> InMemor
             index: IndexMap::new(),
             created: "1970-01-01T00:00:00.000000000Z".to_string(),
             metamodel: None,
+            metamodel_kind: None,
             includes_derived: None,
             includes_implied: None,
             checksum: None,

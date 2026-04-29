@@ -236,7 +236,10 @@ fn do_build_py(
             KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
             KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
             KParBuildError::PathUsage(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::WorkspaceMetamodelConflict { .. } => {
+            KParBuildError::MetamodelKindWithoutWorkspaceDate { .. } => {
+                PyValueError::new_err(err.to_string())
+            }
+            KParBuildError::MetamodelKindAndMetamodelConflict { .. } => {
                 PyValueError::new_err(err.to_string())
             }
         })

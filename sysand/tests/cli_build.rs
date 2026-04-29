@@ -207,9 +207,9 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Workspace with `meta.metamodel` set — projects without metamodel get it injected
+/// Workspace with `metamodelDate` + project with `metamodelKind` — combined IRI injected into kpar
 #[test]
-fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+fn workspace_build_with_metamodel_kind() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
@@ -220,7 +220,7 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
                 {"path": "project1", "iris": ["urn:kpar:project1"]}
             ],
             "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
+                "metamodelDate": "20250201"
             }
         }"#,
     )?;
@@ -240,6 +240,13 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
     out.assert().success();
+
+    // Set metamodelKind in the project's .meta.json
+    let meta_path = project1_cwd.join(".meta.json");
+    let meta_content = std::fs::read_to_string(&meta_path)?;
+    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
+    meta["metamodelKind"] = serde_json::Value::String("https://www.omg.org/spec/SysML".to_string());
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
     out.assert().success();
@@ -259,13 +266,17 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
         meta.metamodel.as_deref(),
         Some("https://www.omg.org/spec/SysML/20250201")
     );
+    assert!(
+        meta.metamodel_kind.is_none(),
+        "metamodelKind should be cleared in the kpar"
+    );
 
     Ok(())
 }
 
-/// Workspace with unknown `meta.metamodel` — build succeeds with a warning
+/// Project with unknown `metamodelKind` — build succeeds with a warning
 #[test]
-fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+fn workspace_build_with_unknown_metamodel_kind() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
@@ -276,7 +287,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
                 {"path": "project1", "iris": ["urn:kpar:project1"]}
             ],
             "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20251201"
+                "metamodelDate": "20250201"
             }
         }"#,
     )?;
@@ -296,6 +307,14 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
         None,
     )?;
     out.assert().success();
+
+    // Set an unknown metamodelKind
+    let meta_path = project1_cwd.join(".meta.json");
+    let meta_content = std::fs::read_to_string(&meta_path)?;
+    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
+    meta["metamodelKind"] =
+        serde_json::Value::String("https://example.com/unknown-metamodel".to_string());
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
     out.assert()
@@ -315,15 +334,16 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     };
     assert_eq!(
         meta.metamodel.as_deref(),
-        Some("https://www.omg.org/spec/SysML/20251201")
+        Some("https://example.com/unknown-metamodel/20250201")
     );
 
     Ok(())
 }
 
-/// Workspace with `meta.metamodel` + project that also has metamodel — build fails
+/// Project with both `metamodelKind` and `metamodel` set — build fails
 #[test]
-fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>> {
+fn workspace_build_metamodel_kind_and_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>>
+{
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
@@ -334,7 +354,7 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
                 {"path": "project1", "iris": ["urn:kpar:project1"]}
             ],
             "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
+                "metamodelDate": "20250201"
             }
         }"#,
     )?;
@@ -355,76 +375,75 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
     )?;
     out.assert().success();
 
-    // Set metamodel in the project's .meta.json to create a conflict
+    // Set both metamodelKind and metamodel in the project's .meta.json
     let meta_path = project1_cwd.join(".meta.json");
     let meta_content = std::fs::read_to_string(&meta_path)?;
     let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
-    meta["metamodel"] =
-        serde_json::Value::String("https://www.omg.org/spec/KerML/20250201".to_string());
-    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
-
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert()
-        .failure()
-        .stderr(predicate::str::contains("sets a different metamodel"));
-
-    Ok(())
-}
-
-/// Workspace and project set the **same** metamodel — no conflict, build succeeds
-#[test]
-fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project1_cwd = cwd.join("project1");
-
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{
-            "projects": [
-                {"path": "project1", "iris": ["urn:kpar:project1"]}
-            ],
-            "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
-            }
-        }"#,
-    )?;
-
-    std::fs::create_dir(&project1_cwd)?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["init", "--version", "1.0.0", "--name", "project1"],
-        None,
-    )?;
-    out.assert().success();
-
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["include", "--no-index-symbols", "test.sysml"],
-        None,
-    )?;
-    out.assert().success();
-
-    // Set the same metamodel in the project's .meta.json — should NOT conflict
-    let meta_path = project1_cwd.join(".meta.json");
-    let meta_content = std::fs::read_to_string(&meta_path)?;
-    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
+    meta["metamodelKind"] = serde_json::Value::String("https://www.omg.org/spec/SysML".to_string());
     meta["metamodel"] =
         serde_json::Value::String("https://www.omg.org/spec/SysML/20250201".to_string());
     std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert().success();
+    out.assert().failure().stderr(predicate::str::contains(
+        "has both `metamodelKind` and `metamodel`",
+    ));
 
     Ok(())
 }
 
-/// Building a workspace with `meta.metamodel` twice must succeed both times.
-/// This verifies that `put_meta` only writes to the temp directory, not the
-/// original project directory, so the conflict check sees the same unmodified
-/// `.meta.json` on both runs.
+/// Project with `metamodelKind` but workspace missing `metamodelDate` — build fails
 #[test]
-fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Error>> {
+fn workspace_build_metamodel_kind_without_workspace_date() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project1_cwd = cwd.join("project1");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project1", "iris": ["urn:kpar:project1"]}
+            ]
+        }"#,
+    )?;
+
+    std::fs::create_dir(&project1_cwd)?;
+    let out = run_sysand_in(
+        &project1_cwd,
+        ["init", "--version", "1.0.0", "--name", "project1"],
+        None,
+    )?;
+    out.assert().success();
+
+    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
+    let out = run_sysand_in(
+        &project1_cwd,
+        ["include", "--no-index-symbols", "test.sysml"],
+        None,
+    )?;
+    out.assert().success();
+
+    // Set metamodelKind but no metamodelDate in workspace
+    let meta_path = project1_cwd.join(".meta.json");
+    let meta_content = std::fs::read_to_string(&meta_path)?;
+    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
+    meta["metamodelKind"] = serde_json::Value::String("https://www.omg.org/spec/SysML".to_string());
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
+
+    let out = run_sysand_in(&cwd, ["build"], None)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("missing `metamodelDate`"));
+
+    Ok(())
+}
+
+/// Building a workspace with `metamodelDate` + `metamodelKind` twice must succeed both times.
+/// This verifies that `put_meta` only writes to the temp directory, not the
+/// original project directory, so `metamodelKind` is still present on both runs.
+#[test]
+fn workspace_build_metamodel_kind_idempotent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
@@ -435,7 +454,7 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
                 {"path": "project1", "iris": ["urn:kpar:project1"]}
             ],
             "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
+                "metamodelDate": "20250201"
             }
         }"#,
     )?;
@@ -455,6 +474,13 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
         None,
     )?;
     out.assert().success();
+
+    // Set metamodelKind in the project's .meta.json
+    let meta_path = project1_cwd.join(".meta.json");
+    let meta_content = std::fs::read_to_string(&meta_path)?;
+    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
+    meta["metamodelKind"] = serde_json::Value::String("https://www.omg.org/spec/SysML".to_string());
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
 
     // First build
     let out = run_sysand_in(&cwd, ["build"], None)?;
@@ -472,7 +498,7 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
         Some("https://www.omg.org/spec/SysML/20250201")
     );
 
-    // Second build — must also succeed (no conflict from first build's injection)
+    // Second build — must also succeed (metamodelKind still present in original .meta.json)
     let out = run_sysand_in(&cwd, ["build"], None)?;
     out.assert().success();
 
@@ -485,9 +511,13 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
         Some("https://www.omg.org/spec/SysML/20250201")
     );
 
-    // Verify original project .meta.json was NOT modified
+    // Verify original project .meta.json still has metamodelKind (not cleared)
     let original_meta_content = std::fs::read_to_string(project1_cwd.join(".meta.json"))?;
     let original_meta: serde_json::Value = serde_json::from_str(&original_meta_content)?;
+    assert!(
+        original_meta.get("metamodelKind").is_some(),
+        "original project .meta.json should still have metamodelKind set"
+    );
     assert!(
         original_meta.get("metamodel").is_none(),
         "original project .meta.json should not have metamodel set"

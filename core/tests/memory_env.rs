@@ -61,6 +61,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
         index,
         created: DateTime::from_timestamp(1, 2).unwrap(),
         metamodel: None,
+        metamodel_kind: None,
         includes_derived: None,
         includes_implied: None,
         checksum: None,

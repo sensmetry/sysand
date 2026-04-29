@@ -431,7 +431,10 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
                 ),
             );
         }
-        KParBuildError::WorkspaceMetamodelConflict { .. } => {
+        KParBuildError::MetamodelKindWithoutWorkspaceDate { .. } => {
+            env.throw_exception(ExceptionKind::SysandException, error.to_string());
+        }
+        KParBuildError::MetamodelKindAndMetamodelConflict { .. } => {
             env.throw_exception(ExceptionKind::SysandException, error.to_string());
         }
     }

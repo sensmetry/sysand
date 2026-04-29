@@ -37,6 +37,7 @@ fn json_hash_agrees_with_shell() {
         index: IndexMap::new(),
         created: "0000-00-00T00:00:00.123456789Z".to_string(),
         metamodel: None,
+        metamodel_kind: None,
         includes_derived: None,
         includes_implied: None,
         checksum: None,

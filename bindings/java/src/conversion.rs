@@ -19,7 +19,7 @@ pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS: &str =
 pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS_CONSTRUCTOR: &str = "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Lcom/sensmetry/sysand/model/InterchangeProjectUsage;)V";
 pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS: &str =
     "com/sensmetry/sysand/model/InterchangeProjectMetadata";
-pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS_CONSTRUCTOR: &str = "(Ljava/util/LinkedHashMap;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/util/LinkedHashMap;)V";
+pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS_CONSTRUCTOR: &str = "(Ljava/util/LinkedHashMap;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/Boolean;Ljava/lang/Boolean;Ljava/util/LinkedHashMap;)V";
 pub(crate) const INTERCHANGE_PROJECT_CLASS: &str = "com/sensmetry/sysand/model/InterchangeProject";
 pub(crate) const INTERCHANGE_PROJECT_CLASS_CONSTRUCTOR: &str = "(Lcom/sensmetry/sysand/model/InterchangeProjectInfo;Lcom/sensmetry/sysand/model/InterchangeProjectMetadata;)V";
 pub(crate) const INTERCHANGE_PROJECT_CHECKSUM_CLASS: &str =
@@ -298,6 +298,7 @@ impl ToJObject for InterchangeProjectMetadataRaw {
         let index = self.index.to_jobject(env)?;
         let created = self.created.to_jobject(env)?;
         let metamodel = self.metamodel.to_jobject(env)?;
+        let metamodel_kind = self.metamodel_kind.to_jobject(env)?;
         let includes_derived = self.includes_derived.to_jobject(env)?;
         let includes_implied = self.includes_implied.to_jobject(env)?;
         let checksum = self.checksum.to_jobject(env)?;
@@ -308,6 +309,7 @@ impl ToJObject for InterchangeProjectMetadataRaw {
                 JValue::from(&index),
                 JValue::from(&created),
                 JValue::from(&metamodel),
+                JValue::from(&metamodel_kind),
                 JValue::from(&includes_derived),
                 JValue::from(&includes_implied),
                 JValue::from(&checksum),

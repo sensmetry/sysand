@@ -39,6 +39,7 @@ fn mock_project<S: AsRef<str>, T: AsRef<str>, V: AsRef<str>>(
                 index: IndexMap::default(),
                 created: crate::model::format_created_now(),
                 metamodel: None,
+                metamodel_kind: None,
                 includes_derived: None,
                 includes_implied: None,
                 checksum: Some(IndexMap::default()),
