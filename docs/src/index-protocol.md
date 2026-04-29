@@ -42,7 +42,7 @@ index files are served.
 
 On first contact, the client fetches:
 
-```
+```text
 <discovery-root>/sysand-index-config.json
 ```
 
@@ -89,7 +89,7 @@ in the document are silently ignored (see [§14]).
 
 Anchored at `index_root`, a sysand index is a tree:
 
-```
+```text
 <index_root>/
 ├── index.json
 ├── _iri/
@@ -246,7 +246,8 @@ Per-entry rules:
   different artifacts, breaking the `(iri, version)` identity contract
   (see [§13]).
 - `usage` is an array of dependency declarations in the same shape as in
-  `.project.json`. It is the solver's authoritative input.
+  `.project.json`. It duplicates the version's project manifest so the
+  solver can run from `versions.json` alone.
 - `project_digest` and `kpar_digest` are lowercase SHA-256 in
   `sha256:<64-hex>` form ([§10]).
 - `kpar_size` is the byte length of the archive.
@@ -356,7 +357,7 @@ and `value` MUST consist of lowercase hex digits.
 
 A conforming sysand index server MUST uphold:
 
-- **Tier consistency.** The fields advertised in a `versions.json` entry
+- **Data consistency.** The fields advertised in a `versions.json` entry
   agree with the actual `.project.json`, `.meta.json`, and `project.kpar`
   served at that version's directory.
 - **`versions.json` presence.** Every project listed in
@@ -400,8 +401,6 @@ A conforming sysand index client:
   `versions.json` to pick a version (solve, lock); `sync` replays a
   lockfile's pinned `(iri, version)` without re-solving and is
   unaffected by `status`.
-- Beyond the above, does not cross-check textual fields between
-  `versions.json` and `.project.json` ([§11]).
 
 ## 13. Immutability and lockfile reproducibility
 
@@ -436,14 +435,6 @@ The `sysand index` command group produces and maintains a sysand index
 tree: laying out files, generating digests, and keeping
 `versions.json` consistent with the per-version artifacts. This is the
 only supported path for creating and mutating an index tree.
-
-Sysand index clients enforce their client obligations ([§12]), including
-digest verification but not textual cross-checks between tiers. Semantic
-project-quality checks (is `.meta.json`'s `checksum` map complete, does
-the archive shape match the interchange spec, are referenced files
-reachable, etc.) are the publish pipeline's responsibility: tooling
-built on top of the protocol (e.g. `sysand publish` and a sysand index
-server's upload handler) SHOULD enforce those at the publish boundary.
 
 [§1]: #1-scope
 [§2]: #2-implementability
