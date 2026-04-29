@@ -154,13 +154,7 @@ impl<
                         Ok(opt) => opt
                             .and_then(|checksum| self.locals.shift_remove(&checksum)),
                         Err(err) => {
-                            // Cache-match is opportunistic: checksum
-                            // canonicalization may need source reads beyond
-                            // the info/meta fetch, and this non-index remote
-                            // path has no advertised digest to fall back to.
-                            // Skip the cache match and let later project
-                            // operations surface any error they actually hit.
-                            log::warn!(
+                            log::debug!(
                                 "remote-project checksum_canonical_hex failed; skipping local-cache match: {err}"
                             );
                             None
@@ -187,15 +181,7 @@ impl<
                         Ok(opt) => opt
                             .and_then(|checksum| self.locals.shift_remove(&checksum)),
                         Err(err) => {
-                            // Failure here may be an I/O or parse error
-                            // on fetched files, or an
-                            // `AdvertisedDigestDrift` (computed digest
-                            // disagrees with the index-advertised one).
-                            // Index projects re-verify `(info, meta)` against
-                            // `project_digest` on consumption, so skipping
-                            // the cache match here cannot mask tampering —
-                            // the hard failure lands downstream.
-                            log::warn!(
+                            log::debug!(
                                 "index-project checksum_canonical_hex failed; skipping local-cache match: {err}"
                             );
                             None
