@@ -318,12 +318,12 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestKparDownloadedProje
                 index_kpar: self.url.to_string(),
                 index_kpar_size: index_kpar_size.get(),
                 index_kpar_digest: index_kpar_digest.clone(),
-            };
+            }
         } else {
-             Source::RemoteKpar {
+            Source::RemoteKpar {
                 remote_kpar: self.url.to_string(),
                 remote_kpar_size: self.inner.file_size().ok(),
-             }
+            }
         };
         Ok(vec![src])
     }
