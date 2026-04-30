@@ -50,24 +50,20 @@ fn is_valid_unnormalized_field(s: &str, kind: FieldKind) -> bool {
         return false;
     }
 
-    for i in 1..(bytes.len() - 1) {
-        let b = bytes[i];
-        if !b.is_ascii() {
-            return false;
-        }
-
+    for &[b_previous, b] in bytes[..bytes.len() - 1].array_windows() {
         if b.is_ascii_alphanumeric() {
             continue;
         }
 
         let is_separator = b == b'-' || b == b' ' || (kind.allows_dot_separator() && b == b'.');
+        // This will also catch all non-ASCII
         if !is_separator {
             return false;
         }
 
         // only isolated separators — knowing first/last is alphanumeric,
         // this is sufficient
-        if !bytes[i - 1].is_ascii_alphanumeric() {
+        if !b_previous.is_ascii_alphanumeric() {
             return false;
         }
     }
@@ -102,24 +98,20 @@ fn is_valid_sysand_purl_part(s: &str, kind: FieldKind) -> bool {
         return false;
     }
 
-    for i in 1..(bytes.len() - 1) {
-        let b = bytes[i];
-        if !b.is_ascii() {
-            return false;
-        }
-
+    for &[b_previous, b] in bytes[..bytes.len() - 1].array_windows() {
         if is_lower_or_digit(b) {
             continue;
         }
 
         let is_separator = b == b'-' || (kind.allows_dot_separator() && b == b'.');
+        // This will also catch all non-ASCII
         if !is_separator {
             return false;
         }
 
         // only isolated separators — knowing first/last is alphanumeric,
         // this is sufficient
-        if !is_lower_or_digit(bytes[i - 1]) {
+        if !is_lower_or_digit(b_previous) {
             return false;
         }
     }
