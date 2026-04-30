@@ -14,7 +14,10 @@ use crate::{
     auth::{ForceBearerAuth, HTTPAuthentication},
     env::discovery::{HttpBaseUrlShapeError, validate_http_base_url_shape},
     project::{ProjectRead, local_kpar::LocalKParProject},
-    purl::{PKG_SYSAND_PREFIX, is_valid_name, is_valid_publisher, normalize_field},
+    purl::{
+        PKG_SYSAND_PREFIX, is_valid_unnormalized_name, is_valid_unnormalized_publisher,
+        normalize_field,
+    },
 };
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
@@ -283,10 +286,10 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
         .license
         .as_deref()
         .ok_or(PublishError::MissingLicense)?;
-    if !is_valid_publisher(publisher) {
+    if !is_valid_unnormalized_publisher(publisher) {
         return Err(PublishError::InvalidPublisher(publisher.into()));
     }
-    if !is_valid_name(name) {
+    if !is_valid_unnormalized_name(name) {
         return Err(PublishError::InvalidName(name.as_str().into()));
     }
     let parsed_version =

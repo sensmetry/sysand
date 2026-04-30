@@ -39,7 +39,7 @@ impl FieldKind {
 /// Rules: 3-50 ASCII alphanumeric characters, with single separators (space,
 /// hyphen, and — for names — dot) allowed between words. Must
 /// start and end with an alphanumeric character.
-fn is_valid_field(s: &str, kind: FieldKind) -> bool {
+fn is_valid_unnormalized_field(s: &str, kind: FieldKind) -> bool {
     if !s.is_ascii() {
         return false;
     }
@@ -75,14 +75,67 @@ fn is_valid_field(s: &str, kind: FieldKind) -> bool {
     true
 }
 
-/// Whether `s` is a valid publisher segment.
-pub fn is_valid_publisher(s: &str) -> bool {
-    is_valid_field(s, FieldKind::Publisher)
+/// Whether `s` can, after normalization, be used as Sysand PURL publisher.
+pub fn is_valid_unnormalized_publisher(s: &str) -> bool {
+    is_valid_unnormalized_field(s, FieldKind::Publisher)
 }
 
-/// Whether `s` is a valid project name segment.
-pub fn is_valid_name(s: &str) -> bool {
-    is_valid_field(s, FieldKind::Name)
+/// Whether `s` can, after normalization, be used as Sysand PURL name.
+pub fn is_valid_unnormalized_name(s: &str) -> bool {
+    is_valid_unnormalized_field(s, FieldKind::Name)
+}
+
+/// Validates a publisher or name field for `pkg:sysand` project IDs.
+///
+/// Rules: 3-50 ASCII alphanumeric characters, with single separators (space,
+/// hyphen, and — for names — dot) allowed between words. Must
+/// start and end with an alphanumeric character.
+fn is_valid_sysand_purl_part(s: &str, kind: FieldKind) -> bool {
+    if !s.is_ascii() {
+        return false;
+    }
+
+    let is_lower_or_digit = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit();
+    let bytes = s.as_bytes();
+
+    if !(3..=50).contains(&bytes.len()) {
+        return false;
+    }
+
+    if !is_lower_or_digit(bytes[0]) || !is_lower_or_digit(bytes[bytes.len() - 1]) {
+        return false;
+    }
+
+    for i in 1..(bytes.len() - 1) {
+        let b = bytes[i];
+
+        if is_lower_or_digit(b) {
+            continue;
+        }
+
+        let is_separator = b == b'-' || (kind.allows_dot_separator() && b == b'.');
+        if !is_separator {
+            return false;
+        }
+
+        // only isolated separators — knowing first/last is alphanumeric,
+        // this is sufficient
+        if !is_lower_or_digit(bytes[i - 1]) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Whether `s` is a valid Sysand PURL publisher segment.
+pub fn is_valid_purl_publisher(s: &str) -> bool {
+    is_valid_sysand_purl_part(s, FieldKind::Publisher)
+}
+
+/// Whether `s` is a valid Sysand PURL project name segment.
+pub fn is_valid_purl_name(s: &str) -> bool {
+    is_valid_sysand_purl_part(s, FieldKind::Name)
 }
 
 /// Canonicalizes a publisher or name by lowercasing ASCII and replacing spaces
@@ -127,17 +180,12 @@ pub enum SysandPurlError {
 
 /// Parse a `pkg:sysand/<publisher>/<name>` IRI into its `(publisher, name)`
 /// segments. Returns `Ok(None)` for IRIs that do not start with the
-/// `pkg:sysand/` prefix at all (so callers can route those through a
-/// different code path), `Ok(Some(..))` for well-formed and normalized IRIs,
-/// and `Err(_)` for IRIs that start with the prefix but fail validation —
-/// the prefix is a strong enough signal of intent that silently rerouting
-/// such an IRI would mask user errors.
+/// `pkg:sysand/` prefix at all, `Ok(Some(..))` for conforming Sysand PURLs,
+/// and `Err(_)` for IRIs that start with the prefix but fail validation.
 pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlError> {
-    let lower = iri.to_ascii_lowercase();
-    let Some(_) = lower.strip_prefix(PKG_SYSAND_PREFIX) else {
+    let Some(rest) = iri.strip_prefix(PKG_SYSAND_PREFIX) else {
         return Ok(None);
     };
-    let rest = &iri[PKG_SYSAND_PREFIX.len()..];
 
     let parts: Vec<&str> = rest.split('/').collect();
     let [publisher, name] = parts.as_slice() else {
@@ -146,27 +194,14 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
         });
     };
 
-    if !is_valid_publisher(publisher) {
+    if !is_valid_purl_publisher(publisher) {
         return Err(SysandPurlError::InvalidPublisher {
             publisher: (*publisher).to_owned(),
         });
     }
-    if !is_valid_name(name) {
+    if !is_valid_purl_name(name) {
         return Err(SysandPurlError::InvalidName {
             name: (*name).to_owned(),
-        });
-    }
-
-    if !iri.starts_with(PKG_SYSAND_PREFIX)
-        || normalize_field(publisher) != *publisher
-        || normalize_field(name) != *name
-    {
-        return Err(SysandPurlError::NotNormalized {
-            suggested: format!(
-                "{PKG_SYSAND_PREFIX}{}/{}",
-                normalize_field(publisher),
-                normalize_field(name)
-            ),
         });
     }
 

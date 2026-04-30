@@ -5,51 +5,51 @@ use super::*;
 
 #[test]
 fn publisher_field_validation() {
-    assert!(is_valid_publisher("Acme Labs"));
-    assert!(is_valid_publisher("ACME-LABS-42"));
-    assert!(is_valid_publisher("abc"));
-    assert!(is_valid_publisher(
+    assert!(is_valid_unnormalized_publisher("Acme Labs"));
+    assert!(is_valid_unnormalized_publisher("ACME-LABS-42"));
+    assert!(is_valid_unnormalized_publisher("abc"));
+    assert!(is_valid_unnormalized_publisher(
         "abcdefghijklmnopqrstuvxyzabcdefghijklmnopqrstuvxyz"
     ));
     // Digits are alphanumeric: leading, trailing, and all-digit segments
     // are valid (only `.` and the separator-position rules constrain
     // characters; `is_ascii_alphanumeric` covers `0-9`).
-    assert!(is_valid_publisher("42-acme"));
-    assert!(is_valid_publisher("acme-42"));
-    assert!(is_valid_publisher("4cme"));
-    assert!(is_valid_publisher("acm3"));
-    assert!(is_valid_publisher("123"));
-    assert!(is_valid_publisher("1a2"));
-    assert!(!is_valid_publisher("ab"));
-    assert!(!is_valid_publisher(
+    assert!(is_valid_unnormalized_publisher("42-acme"));
+    assert!(is_valid_unnormalized_publisher("acme-42"));
+    assert!(is_valid_unnormalized_publisher("4cme"));
+    assert!(is_valid_unnormalized_publisher("acm3"));
+    assert!(is_valid_unnormalized_publisher("123"));
+    assert!(is_valid_unnormalized_publisher("1a2"));
+    assert!(!is_valid_unnormalized_publisher("ab"));
+    assert!(!is_valid_unnormalized_publisher(
         "abcdefghijklmnopqrstuvxyzabcdefghijklmnopqrstuvxyza"
     ));
-    assert!(!is_valid_publisher("Acme.Labs"));
-    assert!(!is_valid_publisher("Åcme Labs"));
-    assert!(!is_valid_publisher("Acme  Labs"));
-    assert!(!is_valid_publisher("Acme. Labs"));
-    assert!(!is_valid_publisher("Acme- Labs"));
-    assert!(!is_valid_publisher("Acme__Labs"));
-    assert!(!is_valid_publisher("Acme."));
+    assert!(!is_valid_unnormalized_publisher("Acme.Labs"));
+    assert!(!is_valid_unnormalized_publisher("Åcme Labs"));
+    assert!(!is_valid_unnormalized_publisher("Acme  Labs"));
+    assert!(!is_valid_unnormalized_publisher("Acme. Labs"));
+    assert!(!is_valid_unnormalized_publisher("Acme- Labs"));
+    assert!(!is_valid_unnormalized_publisher("Acme__Labs"));
+    assert!(!is_valid_unnormalized_publisher("Acme."));
 }
 
 #[test]
 fn name_field_validation() {
-    assert!(is_valid_name("My.Project Alpha"));
-    assert!(is_valid_name("Alpha-2"));
+    assert!(is_valid_unnormalized_name("My.Project Alpha"));
+    assert!(is_valid_unnormalized_name("Alpha-2"));
     // Digits are alphanumeric: leading, trailing, and all-digit names are
     // accepted, including digits adjacent to the dot separator that names
     // additionally allow.
-    assert!(is_valid_name("3d-printer"));
-    assert!(is_valid_name("v1.0"));
-    assert!(is_valid_name("2project"));
-    assert!(is_valid_name("project2"));
-    assert!(is_valid_name("123"));
-    assert!(is_valid_name("1.2"));
-    assert!(!is_valid_name("ab"));
-    assert!(!is_valid_name("My..Project"));
-    assert!(!is_valid_name("My__Project"));
-    assert!(!is_valid_name(".Project"));
+    assert!(is_valid_unnormalized_name("3d-printer"));
+    assert!(is_valid_unnormalized_name("v1.0"));
+    assert!(is_valid_unnormalized_name("2project"));
+    assert!(is_valid_unnormalized_name("project2"));
+    assert!(is_valid_unnormalized_name("123"));
+    assert!(is_valid_unnormalized_name("1.2"));
+    assert!(!is_valid_unnormalized_name("ab"));
+    assert!(!is_valid_unnormalized_name("My..Project"));
+    assert!(!is_valid_unnormalized_name("My__Project"));
+    assert!(!is_valid_unnormalized_name(".Project"));
 }
 
 #[test]
