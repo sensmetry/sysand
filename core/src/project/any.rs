@@ -86,6 +86,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     project_path,
                 }))
             }
+            // TODO: use expected size
             Source::RemoteKpar { remote_kpar, .. } => Ok(AnyProject::RemoteKpar(
                 ReqwestKparDownloadedProject::<Policy>::new_guess_root(
                     remote_kpar,
