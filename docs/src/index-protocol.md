@@ -154,7 +154,7 @@ them equivalent.
 
 ## 6. Sysand PURL relation to canonicalization
 
-Sysand PURL (TODO: link to https://packageurl.org/) is of the form `pkg:sysand/<publisher>/<name>`. It is intended
+A Sysand [PURL] is of the form `pkg:sysand/<publisher>/<name>`. It is intended
 to identify projects in a consistent way. In the index
 protocol, no other standard PURL components (version/build) are permitted.
 Publisher and name are of the form:
@@ -199,6 +199,15 @@ IRI the index knows about:
   ]
 }
 ```
+
+Per-entry rules:
+
+- `iri` is REQUIRED.
+- `status` is OPTIONAL. When present, it MUST be one of `"available"` or
+  `"removed"`; an omitted `status` is equivalent to `"available"`. Servers
+  SHOULD omit the field when its value would be `"available"` to save space.
+  Clients MUST accept both the omitted form and an explicit `"available"` as
+  equivalent.
 
 Today, clients use `index.json` when enumerating every IRI an index
 advertises through `ReadEnvironment::uris` / `uris_async`. Resolving a
@@ -355,31 +364,35 @@ and `value` MUST consist of lowercase hex digits.
 
 A conforming sysand index server MUST uphold:
 
-- **`index.json` consistency.** Every project listed in `index.json` has a
-  `versions.json` retrievable at its project directory ([§5]).
-- **Project persistence.** `index.json` entries are ratained: once an entry
-  exists it is never removed. The only mutable field on an existing entry is
-  `status` ([§8]). Permitted transitions are `available → removed`; `removed` is
-  terminal, and moving a project to `removed` requires marking all its versions
-  with `"status": "removed"` ([§9]). (TODO: REFINE LANGUAGE)
+- **`index.json` consistency.** The fields advertised in an `index.json`
+  `projects` entry agree with an actual `versions.json` file served at that
+  project's directory.
+- **Project persistence.** `index.json`'s `projects` entries are retained: once
+  an entry exists it is never removed, and its `iri` field never changes.
+- **Project retirement.** The only mutable field on an existing `index.json`
+  `projects` entry is `status` ([§7]). The only permitted transition is
+  `available → removed`; `removed` is terminal, and moving a project to
+  `removed` requires marking all its version entries in `versions.json` with
+  `"status": "removed"`.
 - **`versions.json` consistency.** The fields advertised in a `versions.json`
-  entry agree with actual `.project.json`, `.meta.json`, and `project.kpar`
-  files served at that version's directory.
+  `versions` entry, agree with actual `.project.json`, `.meta.json`, and
+  `project.kpar` files served at that version's directory.
 - **Version file presence.** Every version listed in `versions.json` with
   `status` other than `removed` has all three per-version files
   available for retrieval.
 - **Version file immutability.** Existing per-version files never have their
   bytes changed in place; a published `project.kpar` is either served
   with the same bytes forever or withdrawn (see retirement, below).
-- **Version persistence.** `versions.json` entries are retained:
+- **Version persistence.** `versions.json`'s `versions` entries are retained:
   once an entry exists it is never removed, and its
   `version`, `usage`, `project_digest`, `kpar_size`, and `kpar_digest`
-  fields never change. The only mutable field on an existing entry is
-  `status` ([§8]). Permitted transitions are `available → yanked`,
-  `available → removed`, and `yanked → removed`; no other transitions
-  are permitted (in particular, no un-yank). `removed` is
-  terminal, and moving a version to `removed` requires withdrawing
-  its per-version files ([§9]).
+  fields never change.
+- **Version retirement.** The only mutable field on an existing
+  `versions.json` `versions` entry is `status` ([§8]). Permitted transitions
+  are `available → yanked`, `available → removed`, and `yanked → removed`; no
+  other transitions are permitted (in particular, no un-yank). `removed` is
+  terminal, and moving a version to `removed` requires withdrawing its
+  per-version files ([§9]).
 - **Well-formed archives.** The full set of criteria for a well-formed
   archive is not frozen in v0 and is expected to evolve alongside the
   `sysand index` CLI (see [§15]).
@@ -442,7 +455,7 @@ only supported path for creating and mutating an index tree.
 [§4]: #4-layout
 [§5]: #5-iri--path-resolution
 [§5.1]: #51-iri-canonicalization-for-the-_iri-hash-bucket
-[§6]: #6-pkgsysand-canonicalization
+[§6]: #6-sysand-purl-relation-to-canonicalization
 [§7]: #7-indexjson
 [§8]: #8-versionsjson
 [§9]: #9-per-version-files
@@ -456,7 +469,7 @@ only supported path for creating and mutating an index tree.
 [rfc3986-43]: https://www.rfc-editor.org/rfc/rfc3986.html#section-4.3
 [rfc3986-reg-name]: https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2
 [rfc9110-423]: https://datatracker.ietf.org/doc/html/rfc9110#section-4.2.3
+[purl]: https://packageurl.org/
 [semver]: https://semver.org/spec/v2.0.0.html
 [fluent-uri-normalize]: https://docs.rs/fluent-uri/0.4.1/fluent_uri/struct.Iri.html#method.normalize
 [whatwg-url-domain-to-ascii]: https://url.spec.whatwg.org/#concept-domain-to-ascii
-[idna-crate]: https://docs.rs/idna/
