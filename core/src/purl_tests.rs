@@ -158,4 +158,8 @@ fn parse_sysand_purl_rejects_non_ascii_and_invalid_chars() {
         parse_sysand_purl("pkg:sysand/ab/proj0"),
         Err(SysandPurlError::InvalidPublisher { .. })
     ));
+    assert!(matches!(
+        parse_sysand_purl("pkg:sysand/aąčb/oroūj0"),
+        Err(SysandPurlError::InvalidPublisher { .. })
+    ));
 }
