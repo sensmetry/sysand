@@ -408,7 +408,8 @@ mod uris {
     }
 
     #[test]
-    fn uris_from_index_json() -> Result<(), Box<dyn std::error::Error>> {
+    fn uris_from_index_json_accepts_omitted_and_explicit_available_status()
+    -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
         let env = test_env_sync(&server)?;
@@ -420,7 +421,7 @@ mod uris {
                 r#"{{
                 "projects": [
                     {{ "iri": "{PKG_SYSAND_PREFIX}admin/proj0" }},
-                    {{ "iri": "urn:kpar:b" }}
+                    {{ "iri": "urn:kpar:b", "status": "available" }}
                 ]
             }}"#
             ),
@@ -433,6 +434,66 @@ mod uris {
         assert!(uris.contains(&purl("admin/proj0")));
         assert!(uris.contains(&"urn:kpar:b".to_string()));
 
+        index_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn uris_from_index_json_filters_removed_projects() -> Result<(), Box<dyn std::error::Error>> {
+        let mut server = mockito::Server::new();
+
+        let env = test_env_sync(&server)?;
+
+        let index_mock = mock_json_get(
+            &mut server,
+            "/index.json",
+            format!(
+                r#"{{
+                "projects": [
+                    {{ "iri": "{PKG_SYSAND_PREFIX}admin/proj0", "status": "removed" }},
+                    {{ "iri": "urn:kpar:b" }}
+                ]
+            }}"#
+            ),
+        );
+
+        let uris: Vec<_> = env.uris()?.collect::<Result<_, _>>()?;
+
+        assert_eq!(uris, vec!["urn:kpar:b"]);
+
+        index_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn index_json_rejects_yanked_project_status() -> Result<(), Box<dyn std::error::Error>> {
+        let mut server = mockito::Server::new();
+
+        let env = test_env_sync(&server)?;
+
+        let index_mock = mock_json_get(
+            &mut server,
+            "/index.json",
+            format!(
+                r#"{{
+                "projects": [
+                    {{ "iri": "{PKG_SYSAND_PREFIX}admin/proj0", "status": "yanked" }}
+                ]
+            }}"#
+            ),
+        );
+
+        let err = env
+            .uris()
+            .expect_err("`yanked` is not valid for index.json project status");
+        match err {
+            super::IndexEnvironmentError::Fetch(super::HttpFetchError::JsonParse {
+                url, ..
+            }) => assert!(url.contains("/index.json"), "url carried: {url}"),
+            other => panic!("expected Fetch(JsonParse), got {other:?}"),
+        }
         index_mock.assert();
 
         Ok(())

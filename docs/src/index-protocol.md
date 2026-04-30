@@ -409,6 +409,9 @@ A conforming sysand index client:
   and MUST verify that their canonical `(info, meta)` digest equals the
   advertised `project_digest` before using either. A mismatch is a hard
   error.
+- List-all operations MUST ignore `index.json` `projects` entries whose
+  `status` is `"removed"`. Direct resolution of a specific IRI does not
+  consult `index.json`; it follows the `versions.json` rules in [§8].
 - MUST NOT select a version whose [§8] `status` is not `"available"`
   for a new resolution. This applies to operations that consult
   `versions.json` to pick a version (solve, lock); `sync` replays a

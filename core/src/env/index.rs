@@ -381,6 +381,16 @@ struct IndexJson {
 #[derive(Debug, Deserialize)]
 struct IndexProject {
     iri: String,
+    #[serde(default)]
+    status: ProjectStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ProjectStatus {
+    #[default]
+    Available,
+    Removed,
 }
 
 /// Per-project `versions.json`: enough to enumerate candidates and
@@ -614,8 +624,12 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
 
     async fn uris_async(&self) -> Result<Self::UriStream, Self::ReadError> {
         let index = self.fetch_index().await?;
-        let items: Vec<Result<String, IndexEnvironmentError>> =
-            index.projects.into_iter().map(|p| Ok(p.iri)).collect();
+        let items: Vec<Result<String, IndexEnvironmentError>> = index
+            .projects
+            .into_iter()
+            .filter(|p| p.status == ProjectStatus::Available)
+            .map(|p| Ok(p.iri))
+            .collect();
         Ok(futures::stream::iter(items))
     }
 
