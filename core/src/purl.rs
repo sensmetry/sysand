@@ -40,9 +40,6 @@ impl FieldKind {
 /// hyphen, and — for names — dot) allowed between words. Must
 /// start and end with an alphanumeric character.
 fn is_valid_unnormalized_field(s: &str, kind: FieldKind) -> bool {
-    if !s.is_ascii() {
-        return false;
-    }
     let bytes = s.as_bytes();
 
     if !(3..=50).contains(&bytes.len()) {
@@ -55,6 +52,9 @@ fn is_valid_unnormalized_field(s: &str, kind: FieldKind) -> bool {
 
     for i in 1..(bytes.len() - 1) {
         let b = bytes[i];
+        if !b.is_ascii() {
+            return false;
+        }
 
         if b.is_ascii_alphanumeric() {
             continue;
@@ -91,10 +91,6 @@ pub fn is_valid_unnormalized_name(s: &str) -> bool {
 /// hyphen, and — for names — dot) allowed between words. Must
 /// start and end with an alphanumeric character.
 fn is_valid_sysand_purl_part(s: &str, kind: FieldKind) -> bool {
-    if !s.is_ascii() {
-        return false;
-    }
-
     let is_lower_or_digit = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit();
     let bytes = s.as_bytes();
 
@@ -108,6 +104,9 @@ fn is_valid_sysand_purl_part(s: &str, kind: FieldKind) -> bool {
 
     for i in 1..(bytes.len() - 1) {
         let b = bytes[i];
+        if !b.is_ascii() {
+            return false;
+        }
 
         if is_lower_or_digit(b) {
             continue;
@@ -173,17 +172,23 @@ pub enum SysandPurlError {
     /// (i.e. [`normalize_field`] would change it). `suggested` carries the
     /// normalized IRI so callers can show "did you mean `<x>`?".
     #[error(
-        "IRI is valid but not normalized; did you mean `{suggested}` (lowercase ASCII, spaces replaced with hyphens)?"
+        "IRI is a valid Sysand PURL, but is not normalized; normalized form is `pkg:sysand/{publisher}/{name}`"
     )]
-    NotNormalized { suggested: String },
+    NotNormalized { publisher: String, name: String },
 }
 
 /// Parse a `pkg:sysand/<publisher>/<name>` IRI into its `(publisher, name)`
 /// segments. Returns `Ok(None)` for IRIs that do not start with the
-/// `pkg:sysand/` prefix at all, `Ok(Some(..))` for conforming Sysand PURLs,
+/// `pkg:sysand/` prefix, `Ok(Some(..))` for conforming Sysand PURLs,
 /// and `Err(_)` for IRIs that start with the prefix but fail validation.
 pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlError> {
-    let Some(rest) = iri.strip_prefix(PKG_SYSAND_PREFIX) else {
+    // scheme is case-insensitive
+    let rest = if iri.len() >= PKG_SYSAND_PREFIX.len()
+        && iri.as_bytes()[0..3].eq_ignore_ascii_case(b"pkg")
+        && iri.as_bytes()[3..].starts_with(b":sysand/")
+    {
+        iri.split_at(PKG_SYSAND_PREFIX.len()).1
+    } else {
         return Ok(None);
     };
 
@@ -194,12 +199,20 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
         });
     };
 
-    if !is_valid_purl_publisher(publisher) {
-        return Err(SysandPurlError::InvalidPublisher {
-            publisher: (*publisher).to_owned(),
-        });
-    }
-    if !is_valid_purl_name(name) {
+    if !is_valid_purl_name(name) || !is_valid_purl_publisher(publisher) {
+        if is_valid_unnormalized_name(name) && is_valid_unnormalized_publisher(publisher) {
+            return Err(SysandPurlError::NotNormalized {
+                publisher: normalize_field(publisher),
+                name: normalize_field(name),
+            });
+        }
+
+        if !is_valid_purl_publisher(publisher) {
+            return Err(SysandPurlError::InvalidPublisher {
+                publisher: (*publisher).to_owned(),
+            });
+        }
+
         return Err(SysandPurlError::InvalidName {
             name: (*name).to_owned(),
         });

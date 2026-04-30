@@ -117,23 +117,23 @@ fn parse_sysand_purl_rejects_traversal_and_dot_publishers() {
 
 #[test]
 fn parse_sysand_purl_rejects_non_normalized_with_suggestion() {
-    let err = parse_sysand_purl("pkg:sysand/Admin/Proj0").unwrap_err();
-    let SysandPurlError::NotNormalized { suggested } = err else {
+    let err = parse_sysand_purl("PKG:sysand/Admin/Proj0").unwrap_err();
+    let SysandPurlError::NotNormalized { publisher, name } = err else {
         panic!("expected NotNormalized, got {err:?}");
     };
-    assert_eq!(suggested, "pkg:sysand/admin/proj0");
+    assert_eq!(publisher, "admin");
+    assert_eq!(name, "proj0");
 
-    let err = parse_sysand_purl("PKG:SysAnd/admin/proj0").unwrap_err();
-    let SysandPurlError::NotNormalized { suggested } = err else {
-        panic!("expected NotNormalized, got {err:?}");
-    };
-    assert_eq!(suggested, "pkg:sysand/admin/proj0");
+    // `sysand` segment is case-sensitive
+    let res = parse_sysand_purl("PKG:SysAnd/admin/proj0").unwrap();
+    assert_eq!(res, None);
 
     let err = parse_sysand_purl("pkg:sysand/Acme Labs/My.Project").unwrap_err();
-    let SysandPurlError::NotNormalized { suggested } = err else {
+    let SysandPurlError::NotNormalized { publisher, name } = err else {
         panic!("expected NotNormalized, got {err:?}");
     };
-    assert_eq!(suggested, "pkg:sysand/acme-labs/my.project");
+    assert_eq!(publisher, "acme-labs");
+    assert_eq!(name, "my.project");
 }
 
 #[test]
