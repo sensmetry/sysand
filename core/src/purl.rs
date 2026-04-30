@@ -160,13 +160,12 @@ pub enum SysandPurlError {
          (3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` separators between words)"
     )]
     InvalidName { name: String },
-    /// Both segments validate, but at least one is not in normalized form
-    /// (i.e. [`normalize_field`] would change it). `suggested` carries the
-    /// normalized IRI so callers can show "did you mean `<x>`?".
-    #[error(
-        "IRI is a valid Sysand PURL, but is not normalized; normalized form is `pkg:sysand/{publisher}/{name}`"
-    )]
-    NotNormalized { publisher: String, name: String },
+    /// Both segments are valid as unnormalized, but at least one is not in normalized form
+    #[error("PURL is invalid, but can be normalized to `pkg:sysand/{norm_publisher}/{norm_name}`")]
+    NotNormalized {
+        norm_publisher: String,
+        norm_name: String,
+    },
 }
 
 /// Parse a `pkg:sysand/<publisher>/<name>` IRI into its `(publisher, name)`
@@ -194,8 +193,8 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
     if !is_valid_purl_name(name) || !is_valid_purl_publisher(publisher) {
         if is_valid_unnormalized_name(name) && is_valid_unnormalized_publisher(publisher) {
             return Err(SysandPurlError::NotNormalized {
-                publisher: normalize_field(publisher),
-                name: normalize_field(name),
+                norm_publisher: normalize_field(publisher),
+                norm_name: normalize_field(name),
             });
         }
 
