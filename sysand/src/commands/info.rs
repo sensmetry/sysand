@@ -141,7 +141,7 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
             index_urls,
             runtime,
             auth_policy,
-        ),
+        )?,
     );
 
     for (info, _) in do_info(&uri, &combined_resolver)? {
@@ -222,7 +222,7 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
                     index_urls,
                     runtime,
                     auth_policy,
-                ),
+                )?,
             );
 
             let mut found = false;

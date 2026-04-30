@@ -218,7 +218,10 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     };
 
     let runtime = {
-        let r = match tokio::runtime::Builder::new_current_thread().build() {
+        let r = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
             Ok(r) => r,
             Err(e) => {
                 env.throw_exception(
@@ -253,7 +256,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
         }
     };
 
-    let combined_resolver = standard_resolver(
+    let combined_resolver = match standard_resolver(
         Some(Utf8PathBuf::from(relative_file_root)),
         None,
         Some(client),
@@ -261,7 +264,16 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
         runtime,
         // FIXME: Add Java support for authentication
         Arc::new(Unauthenticated {}),
-    );
+    ) {
+        Ok(resolver) => resolver,
+        Err(error) => {
+            env.throw_exception(
+                ExceptionKind::ResolutionError,
+                format!("Failed to discover index endpoints: {error}"),
+            );
+            return JObjectArray::default();
+        }
+    };
 
     let results = match commands::info::do_info(&uri, &combined_resolver) {
         Ok(matches) => matches,

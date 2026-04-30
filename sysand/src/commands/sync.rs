@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, num::NonZeroU64, sync::Arc};
 
 use anyhow::Result;
 use camino::Utf8Path;
@@ -55,13 +55,31 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         // TODO: Fix error handling here
         Some(|kpar_path: &Utf8Path| LocalKParProject::new_guess_root_nominal(project_root.as_ref().join(kpar_path), kpar_path).unwrap()),
         Some(
-            |remote_kpar: String| -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>, ParseError> {
-                Ok(
-                    ReqwestKparDownloadedProject::new_guess_root(reqwest::Url::parse(
-                        &remote_kpar,
-                    )?, client.clone(), auth_policy.clone())
-                    .unwrap().to_tokio_sync(runtime.clone()),
+            |remote_kpar: String|
+             -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>, ParseError> {
+                let project = ReqwestKparDownloadedProject::new_guess_root(
+                    reqwest::Url::parse(&remote_kpar)?,
+                    client.clone(),
+                    auth_policy.clone(),
+                    None, None
                 )
+                .unwrap();
+                Ok(project.to_tokio_sync(runtime.clone()))
+            },
+        ),
+        Some(
+            |index_kpar: String,
+             index_kpar_size: NonZeroU64,
+             index_kpar_digest: String|
+             -> Result<AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>, ParseError> {
+                let project = ReqwestKparDownloadedProject::new_guess_root(
+                    reqwest::Url::parse(&index_kpar)?,
+                    client.clone(),
+                    auth_policy.clone(),
+                    Some(index_kpar_digest), Some(index_kpar_size)
+                )
+                .unwrap();
+                Ok(project.to_tokio_sync(runtime.clone()))
             },
         ),
         Some(|remote_git: String| -> Result<GixDownloadedProject, GixDownloadedError> {

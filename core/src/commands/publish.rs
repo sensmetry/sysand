@@ -12,31 +12,43 @@ use url::Url;
 
 use crate::{
     auth::{ForceBearerAuth, HTTPAuthentication},
+    env::discovery::{HttpBaseUrlShapeError, validate_http_base_url_shape},
     project::{ProjectRead, local_kpar::LocalKParProject},
+    purl::{
+        PKG_SYSAND_PREFIX, is_valid_unnormalized_name, is_valid_unnormalized_publisher,
+        normalize_field,
+    },
 };
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
 const MAX_KPAR_PUBLISH_SIZE: u64 = 100 * 1024 * 1024;
-/// Path appended to the index URL to form the upload endpoint.
-const UPLOAD_ENDPOINT_PATH: &str = "/api/v1/upload";
+/// Path appended to the API root to form the upload endpoint. The
+/// trailing/leading slashes are omitted here so the value composes
+/// cleanly with `Url::join`, which treats a base ending in `/` as a
+/// directory.
+const UPLOAD_ENDPOINT_PATH: &str = "v1/upload";
 
-pub fn do_publish<P: AsRef<Utf8Path>>(
-    path: P,
-    index: Url,
+pub fn do_publish(
+    prepared: PublishPreparation,
+    discovery_root: Url,
+    api_root: Url,
     auth: ForceBearerAuth,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<PublishResponse, PublishError> {
-    let path = path.as_ref();
     let header = crate::style::get_style_config().header;
-    let upload_url = build_upload_url(&index)?;
+    // Caller is expected to have run discovery and passed the resolved
+    // `api_root`. `discovery_root` is the user-facing URL (what was
+    // passed as `--index`) and is kept only so log messages match what
+    // the user configured — the actual upload targets `api_root`.
+    let upload_url = build_upload_url(&api_root)?;
     let PublishPreparation {
         purl_versioned,
         metadata,
         kpar_bytes,
-    } = prepare_publish_payload(path)?;
+    } = prepared;
     log::info!(
-        "{header}{:>12}{header:#} `{purl_versioned}` to {index}",
+        "{header}{:>12}{header:#} `{purl_versioned}` to {discovery_root}",
         "Publishing",
     );
 
@@ -82,52 +94,70 @@ pub fn do_publish<P: AsRef<Utf8Path>>(
     map_publish_response(status, &body_bytes, &upload_url_for_log, &response_url)
 }
 
-pub fn build_upload_url(index: &Url) -> Result<Url, PublishError> {
-    if !matches!(index.scheme(), "http" | "https") {
-        return Err(PublishError::InvalidIndexUrl {
-            url: index.as_str().into(),
-            reason: "URL scheme must be http or https".to_string(),
-        });
-    }
+/// Which root is being validated — selects the error variant so the
+/// message names the spec concept the URL came from.
+#[derive(Debug, Clone, Copy)]
+pub enum EndpointKind {
+    /// User-supplied URL (pre-discovery) — `--index`.
+    DiscoveryRoot,
+    /// Resolved URL coming back from the discovery document.
+    ApiRoot,
+}
 
-    if index.query().is_some() {
-        return Err(PublishError::InvalidIndexUrl {
-            url: index.as_str().into(),
-            reason: "URL must not include a query component".to_string(),
-        });
-    }
-
-    if index.fragment().is_some() {
-        return Err(PublishError::InvalidIndexUrl {
-            url: index.as_str().into(),
-            reason: "URL must not include a fragment component".to_string(),
-        });
-    }
-
-    let mut upload_url = index.to_owned();
-    {
-        // Guaranteed for validated http(s) URLs.
-        let mut segments = upload_url.path_segments_mut().unwrap();
-        // Normalize both `https://host` and `https://host/`.
-        segments.pop_if_empty();
-    }
-
-    // After normalization, reject URLs that already end with the upload path.
-    if upload_url.path().ends_with(UPLOAD_ENDPOINT_PATH) {
-        return Err(PublishError::InvalidIndexUrl {
-            url: index.as_str().into(),
-            reason: "URL must point to the index root; do not include `/api/v1/upload`".to_string(),
-        });
-    }
-
-    {
-        let mut segments = upload_url.path_segments_mut().unwrap();
-        for segment in UPLOAD_ENDPOINT_PATH.trim_start_matches('/').split('/') {
-            segments.push(segment);
+/// Validate the shape of an index-server endpoint URL before the network
+/// step. Applies to both the user-supplied discovery root (pre-discovery)
+/// and the resolved `api_root` that comes back from discovery.
+pub fn validate_endpoint_url_shape(url: &Url, kind: EndpointKind) -> Result<(), PublishError> {
+    let err = |reason: String| -> PublishError {
+        match kind {
+            EndpointKind::DiscoveryRoot => PublishError::InvalidDiscoveryRoot {
+                url: url.as_str().into(),
+                reason,
+            },
+            EndpointKind::ApiRoot => PublishError::InvalidApiRoot {
+                url: url.as_str().into(),
+                reason,
+            },
         }
+    };
+    validate_http_base_url_shape(url).map_err(|e| {
+        err(match e {
+            HttpBaseUrlShapeError::UnsupportedScheme => "URL scheme must be http or https",
+            HttpBaseUrlShapeError::Userinfo => "URL must not include username or password",
+        }
+        .to_string())
+    })?;
+    if url.query().is_some() {
+        return Err(err("URL must not include a query component".to_string()));
     }
+    if url.fragment().is_some() {
+        return Err(err("URL must not include a fragment component".to_string()));
+    }
+    // Reject a URL that already names the upload endpoint. Catches the
+    // common mistake of pasting the full upload URL into `--index`,
+    // which would otherwise either compose to `v1/upload/v1/upload`
+    // (after discovery defaulted `api_root` to the discovery root) or
+    // send a discovery request to a path that can never serve one.
+    if url.path().trim_end_matches('/').ends_with("v1/upload") {
+        return Err(err(
+            "URL must be a discovery root or `api_root`, not the `v1/upload` endpoint".to_string(),
+        ));
+    }
+    Ok(())
+}
 
-    Ok(upload_url)
+/// Build the `POST` URL for the publish endpoint from a resolved
+/// `api_root`. The caller is responsible for having resolved the API
+/// root via `sysand-index-config.json`; this function appends the
+/// publish endpoint path to `api_root` as given and does not prepend
+/// any `/api/` segment — that belongs to the API root itself.
+pub fn build_upload_url(api_root: &Url) -> Result<Url, PublishError> {
+    // The `v1/upload` suffix rejection is part of shape validation.
+    validate_endpoint_url_shape(api_root, EndpointKind::ApiRoot)?;
+
+    Ok(crate::env::discovery::with_trailing_slash(api_root.clone())
+        .join(UPLOAD_ENDPOINT_PATH)
+        .unwrap())
 }
 
 #[derive(Debug)]
@@ -171,6 +201,10 @@ pub enum PublishError {
         version: Box<str>,
         source: semver::Error,
     },
+    #[error(
+        "version field `{version}` is invalid for publishing: build metadata (`+...`) is forbidden by the index protocol"
+    )]
+    VersionBuildMetadata { version: Box<str> },
 
     #[error("missing license in project info (required for publishing)")]
     MissingLicense,
@@ -183,8 +217,11 @@ pub enum PublishError {
         source: spdx::error::ParseError,
     },
 
-    #[error("invalid index URL `{url}` for publish endpoint: {reason}")]
-    InvalidIndexUrl { url: Box<str>, reason: String },
+    #[error("invalid index URL `{url}` for publish: {reason}")]
+    InvalidDiscoveryRoot { url: Box<str>, reason: String },
+
+    #[error("invalid api_root URL `{url}` for publish: {reason}")]
+    InvalidApiRoot { url: Box<str>, reason: String },
 
     #[error("HTTP request failed: {0:#?}")]
     Http(#[from] reqwest_middleware::Error),
@@ -213,17 +250,20 @@ pub enum PublishError {
     KparTooLarge { size: u64, limit: u64 },
 }
 
-// --- Private helpers ---
+// --- Preparation helpers ---
 
-struct PublishPreparation {
+/// Payload ready to POST to the upload endpoint.
+pub struct PublishPreparation {
     purl_versioned: String,
     // Keep upload payload in `Bytes` so request retries clone cheaply.
     kpar_bytes: Bytes,
     metadata: String,
 }
 
-/// Reads and validates a `.kpar` file, returning the upload payload and metadata.
-fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, PublishError> {
+/// Reads and validates a `.kpar` file, returning the upload payload and
+/// metadata. Does not touch network. Should be called before any network
+/// activity.
+pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, PublishError> {
     // Open and validate kpar.
     let kpar_project = LocalKParProject::new_guess_root(path)
         .map_err(|e| PublishError::KparOpen(path.as_str().into(), e.to_string()))?;
@@ -246,23 +286,30 @@ fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Publis
         .license
         .as_deref()
         .ok_or(PublishError::MissingLicense)?;
-    if !is_valid_publisher(publisher) {
+    if !is_valid_unnormalized_publisher(publisher) {
         return Err(PublishError::InvalidPublisher(publisher.into()));
     }
-    if !is_valid_name(name) {
+    if !is_valid_unnormalized_name(name) {
         return Err(PublishError::InvalidName(name.as_str().into()));
     }
-    semver::Version::parse(version).map_err(|source| PublishError::InvalidVersion {
-        version: version.as_str().into(),
-        source,
-    })?;
+    let parsed_version =
+        semver::Version::parse(version).map_err(|source| PublishError::InvalidVersion {
+            version: version.as_str().into(),
+            source,
+        })?;
+    if !parsed_version.build.is_empty() {
+        return Err(PublishError::VersionBuildMetadata {
+            version: version.as_str().into(),
+        });
+    }
     spdx::Expression::parse(license).map_err(|source| PublishError::InvalidLicense {
         license: license.into(),
         source,
     })?;
     let normalized_publisher = normalize_field(publisher);
     let normalized_name = normalize_field(name);
-    let purl_versioned = format!("pkg:sysand/{normalized_publisher}/{normalized_name}@{version}");
+    let purl_versioned =
+        format!("{PKG_SYSAND_PREFIX}{normalized_publisher}/{normalized_name}@{version}");
 
     let file_size = std::fs::metadata(path)
         .map_err(|e| PublishError::KparRead(path.as_str().into(), e))?
@@ -328,66 +375,6 @@ fn map_publish_response(
             })
         }
     }
-}
-
-/// Validates a publisher or name field for modern project IDs.
-///
-/// Rules: 3-50 ASCII alphanumeric characters, with single separators (space,
-/// hyphen, and optionally dot when `allow_dot` is true) allowed between words.
-/// Must start and end with an alphanumeric character.
-///
-/// Publish-only; if additional surfaces need this, extract to a shared module.
-fn is_valid_field(s: &str, allow_dot: bool) -> bool {
-    if !s.is_ascii() {
-        return false;
-    }
-    let bytes = s.as_bytes();
-
-    // check length between 3-50
-    if !(3..=50).contains(&bytes.len()) {
-        return false;
-    }
-
-    // check first and last characters are alphanum
-    if !bytes[0].is_ascii_alphanumeric() || !bytes[bytes.len() - 1].is_ascii_alphanumeric() {
-        return false;
-    }
-
-    // check all characters, except first and last
-    for i in 1..(bytes.len() - 1) {
-        let b = bytes[i];
-
-        // alphanums are ok
-        if b.is_ascii_alphanumeric() {
-            continue;
-        }
-
-        // and separators are ok
-        let is_separator = b == b'-' || b == b' ' || (allow_dot && b == b'.');
-        if !is_separator {
-            return false;
-        }
-
-        // but only isolated separators characters are ok
-        // knowing first/last is an alphanum, this is sufficient
-        if !bytes[i - 1].is_ascii_alphanumeric() {
-            return false;
-        }
-    }
-
-    true
-}
-
-fn is_valid_publisher(s: &str) -> bool {
-    is_valid_field(s, false)
-}
-
-fn is_valid_name(s: &str) -> bool {
-    is_valid_field(s, true)
-}
-
-fn normalize_field(s: &str) -> String {
-    s.to_ascii_lowercase().replace(' ', "-")
 }
 
 #[derive(Deserialize)]

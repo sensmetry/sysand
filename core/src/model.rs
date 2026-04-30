@@ -35,6 +35,19 @@ pub type InterchangeProjectUsage =
 
 impl InterchangeProjectUsageRaw {
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
+        // `pkg:sysand/<publisher>/<name>` is the canonical sysand project
+        // identifier; the index protocol routes it directly under
+        // `<publisher>/<name>/`. Reject malformed or non-normalized
+        // `pkg:sysand` IRIs at validation time so users get an actionable
+        // error (with a suggested normalized form) instead of a downstream
+        // "not found" — see `crate::purl::parse_sysand_purl`.
+        if let Err(source) = crate::purl::parse_sysand_purl(&self.resource) {
+            return Err(InterchangeProjectValidationError::MalformedSysandPurl {
+                iri: self.resource.clone(),
+                source,
+            });
+        }
+
         Ok(InterchangeProjectUsage {
             resource: fluent_uri::Iri::parse(self.resource.clone())
                 .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
@@ -408,6 +421,21 @@ pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
     InterchangeProjectChecksum,
 >;
 
+/// Canonical RFC 3339 serialization of the `created` timestamp. All code
+/// that writes `InterchangeProjectMetadataRaw::created` goes through this
+/// helper so the format stays consistent across producers (default
+/// constructors, conversions, test fixtures) — two documents with the
+/// same instant serialize byte-for-byte the same.
+pub fn format_created(value: &chrono::DateTime<chrono::Utc>) -> String {
+    value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+/// Shorthand for `format_created(&chrono::Utc::now())`, the most common
+/// call site (default constructors and test fixtures all want "now").
+pub fn format_created_now() -> String {
+    format_created(&chrono::Utc::now())
+}
+
 impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
     fn from(value: InterchangeProjectMetadata) -> InterchangeProjectMetadataRaw {
         InterchangeProjectMetadataRaw {
@@ -416,9 +444,7 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
                 .into_iter()
                 .map(|(k, v)| (k, v.into_string()))
                 .collect(),
-            created: value
-                .created
-                .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true),
+            created: format_created(&value.created),
             metamodel: value.metamodel.map(|iri| iri.into_string()),
             includes_derived: value.includes_derived,
             includes_implied: value.includes_implied,
@@ -468,13 +494,19 @@ pub enum InterchangeProjectValidationError {
     },
     #[error("checksum `{cksum}`\ncontains invalid symbols (only `A-Fa-f0-9` are allowed)")]
     NonHexChecksumChars { cksum: Box<str> },
+    #[error("malformed `pkg:sysand` IRI `{iri}`: {source}")]
+    MalformedSysandPurl {
+        iri: String,
+        #[source]
+        source: crate::purl::SysandPurlError,
+    },
 }
 
 impl Default for InterchangeProjectMetadataRaw {
     fn default() -> Self {
         InterchangeProjectMetadataRaw {
             index: IndexMap::default(),
-            created: chrono::Utc::now().to_rfc3339(),
+            created: format_created_now(),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,

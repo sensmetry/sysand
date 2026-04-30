@@ -37,7 +37,7 @@ it("can initialise a project in browser local storage", async function () {
     '{"name":"basic_init","publisher":"a","version":"1.2.3","usage":[]}',
   );
   expect(window.localStorage.getItem("sysand_storage/.meta.json")).toMatch(
-    /\{"index":\{\},"created":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{3}|\d{6}|\d{9})Z"}/,
+    /\{"index":\{\},"created":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"}/,
   );
 });
 

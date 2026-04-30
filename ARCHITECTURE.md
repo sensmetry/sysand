@@ -67,7 +67,7 @@ Workspace (.workspace.json)
 
 Environment (storage backend)
  └─ stores projects indexed by IRI and version
- └─ implementations: local directory, HTTP registry, git, in-memory
+ └─ implementations: local directory, remote index, git, in-memory
 
 Project (Interchange Project)
  └─ .project.json  — name, version, publisher, usages (dependencies), etc.
@@ -113,7 +113,8 @@ environment can handle allocation and cleanup), `del_project_version`, and
 
 Notable implementations include `LocalDirectoryEnvironment` (filesystem),
 `MemoryStorageEnvironment<Project>` (in-memory), and
-`HTTPEnvironmentAsync<Policy>` (HTTP registry).
+`IndexEnvironmentAsync<Policy>` (remote sysand index; see
+"Index environment" below).
 
 ### Async variants
 
@@ -250,8 +251,8 @@ project-local and optionally user-level configuration.
 Captures a project's resolved usages and their dependencies.
 
 The `sysand lock` command regenerates this file, recording each project's name,
-version, exported symbols, dependency usages, sources (local paths, registry
-URLs, git repos, etc.), and a content checksum. The `sysand sync` command reads
+version, exported symbols, dependency usages, sources (local paths, index URLs,
+git repos, etc.), and a content checksum. The `sysand sync` command reads
 `sysand-lock.toml` to populate `sysand_env`, and will run `lock` first if the
 file does not yet exist.
 
@@ -279,40 +280,30 @@ Refer to the [work in GitLab] for the latest details for now.
 
 ### Index environment
 
-An index environment for use by index webservers. Exactly how its managed isn't
-yet defined, but tracked in [GitHub issue
-279](https://github.com/sensmetry/sysand/issues/279).
+An index environment is sysand's client-side reader for sysand index
+servers. The **wire contract** — directory layout, `index.json`,
+`versions.json`, per-version files, IRI→path resolution, required digests,
+and server/client obligations — is specified in
+[`docs/src/index-protocol.md`](docs/src/index-protocol.md) and deliberately
+not duplicated here.
 
-As of 2026-04 and not concluded [work in GitLab], the index environment will
-looks something like below.
+Index tree creation and mutation are owned by the `sysand index` command
+group described in the protocol docs. Publishing uses the discovered
+`api_root`.
 
-```text
-index_root
- ├──index.json
- ├──_iri
- │  ├──package_ID1
- │  │  ├──0.0.1
- │  │  └──meta.json
- │  ├──package_ID2
- │  └──package_ID3
- ├──publisher1
- │  ├──name1
- │  │  ├──0.0.1
- │  │  └──meta.json
- │  └──name2
- └──publisher2
-    └──name1
-```
+#### Client implementation notes
 
-where `index.json` should have a structure like below.
+Sysand-core specifics that aren't part of the protocol:
 
-```json
-{
-  "projects": [
-    { i = "pkg:sysand/abc/def", v = ["0.0.1", "2.3.4"] },
-    { i = "https://example.org/project.kpar", v = ["0.0.1"] }
-  ]
-}
-```
-
-Refer to the [work in GitLab] for the latest details for now.
+- `IndexEnvironmentAsync` is the client implementation; its per-version
+  leaf is `IndexEntryProject`. Advertised-version reads return
+  `versions.json` fields with no I/O (`version_async`, `usage_async`);
+  `checksum_canonical_hex_async` returns the advertised digest until the
+  archive has been verified, after which it checks the archive-backed
+  digest. Per-version `.project.json` / `.meta.json` are fetched once
+  behind an internal `OnceCell`, and `project.kpar` is verified against
+  the advertised `kpar_digest` during download.
+- Because the kpar isn't on disk during resolution, `Source::IndexKpar`
+  populates `index_kpar_size` and `index_kpar_digest` directly from
+  `versions.json`, so lockfile writing records archive metadata without a
+  HEAD round-trip.

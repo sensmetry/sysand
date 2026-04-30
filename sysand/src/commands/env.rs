@@ -119,7 +119,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             index_urls,
             runtime.clone(),
             auth_policy.clone(),
-        ),
+        )?,
     );
 
     // TODO: don't use different root project resolution
@@ -288,7 +288,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
                 index_urls,
                 runtime.clone(),
                 auth_policy.clone(),
-            ),
+            )?,
         );
         let LockOutcome {
             lock,

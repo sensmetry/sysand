@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZeroU64};
 
 use camino::Utf8Path;
 use thiserror::Error;
@@ -29,6 +29,8 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
     MissingIriLocalKparPath(Box<str>),
     #[error("no IRI given for project with remote_kpar = `{0}` in lockfile")]
     MissingIriRemoteKparPath(Box<str>),
+    #[error("no IRI given for project with index_kpar = `{0}` in lockfile")]
+    MissingIriIndexKparUrl(Box<str>),
     #[error("no IRI given for project with remote_git = `{0}` in lockfile")]
     MissingIriRemoteGitPath(Box<str>),
     #[error(
@@ -45,6 +47,10 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
         "cannot handle project with IRI `{0}` residing in remote kpar (type `remote_kpar`) storage"
     )]
     MissingRemoteKparStorage(Box<str>),
+    #[error(
+        "cannot handle project with IRI `{0}` residing in index kpar (type `index_kpar`) storage"
+    )]
+    MissingIndexKparStorage(Box<str>),
     #[error(
         "cannot handle project with IRI `{0}` residing in remote git repo (type `remote_git`) storage"
     )]
@@ -81,6 +87,8 @@ pub fn do_sync<
     KParPathStorage,
     CreateRemoteKParStorage,
     RemoteKParStorage,
+    CreateIndexKParStorage,
+    IndexKParStorage,
     UrlParseError: ErrorBound,
     CreateRemoteGitStorage,
     RemoteGitStorage,
@@ -92,6 +100,7 @@ pub fn do_sync<
     remote_src_storage: Option<CreateRemoteSrcStorage>,
     kpar_path_storage: Option<CreateKParPathStorage>,
     remote_kpar_storage: Option<CreateRemoteKParStorage>,
+    index_kpar_storage: Option<CreateIndexKParStorage>,
     remote_git_storage: Option<CreateRemoteGitStorage>,
     provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<(), SyncError<UrlParseError, GitError>>
@@ -105,6 +114,9 @@ where
     KParPathStorage: ProjectRead,
     CreateRemoteKParStorage: Fn(String) -> Result<RemoteKParStorage, UrlParseError>,
     RemoteKParStorage: ProjectRead,
+    CreateIndexKParStorage:
+        Fn(String, NonZeroU64, String) -> Result<IndexKParStorage, UrlParseError>,
+    IndexKParStorage: ProjectRead,
     CreateRemoteGitStorage: Fn(String) -> Result<RemoteGitStorage, GitError>,
     RemoteGitStorage: ProjectRead,
 {
@@ -222,6 +234,26 @@ where
                         SyncError::InvalidRemoteSource(remote_kpar.as_str().into(), e)
                     })?;
                     log::debug!("trying to install `{uri}` from remote_kpar: {remote_kpar}");
+                    try_install(uri, &project.checksum, storage, env)?;
+                }
+                Source::IndexKpar {
+                    index_kpar,
+                    index_kpar_size,
+                    index_kpar_digest,
+                } => {
+                    let uri = main_uri.as_ref().ok_or_else(|| {
+                        SyncError::MissingIriIndexKparUrl(index_kpar.as_str().into())
+                    })?;
+                    let index_kpar_storage = index_kpar_storage
+                        .as_ref()
+                        .ok_or_else(|| SyncError::MissingIndexKparStorage(uri.as_str().into()))?;
+                    let storage = index_kpar_storage(
+                        index_kpar.clone(),
+                        *index_kpar_size,
+                        index_kpar_digest.clone(),
+                    )
+                    .map_err(|e| SyncError::InvalidRemoteSource(index_kpar.as_str().into(), e))?;
+                    log::debug!("trying to install `{uri}` from index_kpar: {index_kpar}");
                     try_install(uri, &project.checksum, storage, env)?;
                 }
                 Source::RemoteGit { remote_git } => {

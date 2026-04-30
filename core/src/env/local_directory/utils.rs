@@ -128,7 +128,7 @@ fn copy_dir_recursive<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
 }
 
 // Rename/move a file or directory from `src` to `dst`.
-fn move_fs_item<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+pub(crate) fn move_fs_item<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     src: P,
     dst: Q,
 ) -> Result<(), Box<FsIoError>> {

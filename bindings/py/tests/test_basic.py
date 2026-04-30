@@ -36,7 +36,7 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
             )
         with open(Path(tmpdirname) / ".meta.json", "r") as f:
             assert re.match(
-                r'\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.(\d{6}|\d{9})Z"\n}\n',
+                r'\{\n  "index": \{\},\n  "created": "\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"\n}\n',
                 f.read(),
             )
 
@@ -76,12 +76,8 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
         }
 
         assert meta["index"] == {}
-        # Python's datetime.fromisoformat() does not support nanoseconds yet, so
-        # we check the validity of the string using a regex.
         assert isinstance(meta["created"], str)
-        assert re.match(
-            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(\d{6}|\d{9})Z$", meta["created"]
-        )
+        assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"])
         assert meta["metamodel"] is None
         assert meta["includes_derived"] is None
         assert meta["includes_implied"] is None
@@ -136,17 +132,36 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     logging.basicConfig(level=level)
     caplog.set_level(level)
 
-    httpserver.expect_request(
-        "/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536/versions.txt"
-    ).respond_with_data("1.2.3\n")
-    httpserver.expect_request(
-        "/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536/1.2.3.kpar/.project.json"
-    ).respond_with_json(
-        {"name": "test_index_info", "publisher": "a", "version": "1.2.3", "usage": []}
+    # Fixture for a non-`pkg:sysand` IRI resolved through the `_iri` index
+    # bucket. `sysand.info` reads per-version JSON without downloading kpar.
+    project_digest = (
+        "sha256:35ed1f7670d4c5b886f63ce9dd94e98dc9cd25c3466dba78c6d135db0092a055"
     )
-    httpserver.expect_request(
-        "/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536/1.2.3.kpar/.meta.json"
-    ).respond_with_json({"index": {}, "created": "0000-00-00T00:00:00.123456789Z"})
+    filler_digest = "sha256:" + ("a" * 64)
+    # No discovery document: index_root defaults to the discovery root.
+    httpserver.expect_request("/sysand-index-config.json").respond_with_data(
+        "", status=404
+    )
+    iri_dir = "/_iri/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536"
+    httpserver.expect_request(f"{iri_dir}/versions.json").respond_with_json(
+        {
+            "versions": [
+                {
+                    "version": "1.2.3",
+                    "usage": [],
+                    "project_digest": project_digest,
+                    "kpar_size": 42,
+                    "kpar_digest": filler_digest,
+                }
+            ]
+        }
+    )
+    httpserver.expect_request(f"{iri_dir}/1.2.3/.project.json").respond_with_json(
+        {"name": "test_index_info", "version": "1.2.3", "usage": []}
+    )
+    httpserver.expect_request(f"{iri_dir}/1.2.3/.meta.json").respond_with_json(
+        {"index": {}, "created": "2026-01-01T00:00:00Z"}
+    )
 
     info_metas = sysand.info(
         "urn:kpar:test_index_info", index_urls=httpserver.url_for("")
@@ -155,23 +170,14 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     assert len(info_metas) == 1
     info, meta = info_metas[0]
 
-    assert info == {
-        "name": "test_index_info",
-        "publisher": "a",
-        "description": None,
-        "version": "1.2.3",
-        "license": None,
-        "maintainer": [],
-        "website": None,
-        "topic": [],
-        "usage": [],
-    }
+    assert info["name"] == "test_index_info"
+    assert info["version"] == "1.2.3"
+    assert info["usage"] == []
+    assert info["publisher"] is None
 
     assert meta["index"] == {}
     assert isinstance(meta["created"], str)
-    assert re.match(
-        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.(\d{6}|\d{9})Z$", meta["created"]
-    )
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", meta["created"])
     assert meta["metamodel"] is None
     assert meta["includes_derived"] is None
     assert meta["includes_implied"] is None

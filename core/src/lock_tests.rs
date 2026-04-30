@@ -29,10 +29,61 @@ fn check_unsupported_lock_version() {
     let Err(err) = check_lock_version(&document) else {
         panic!()
     };
-    let VersionError::Unsupported(s) = err else {
+    let VersionError::Unsupported(ref s) = err else {
         panic!()
     };
     assert_eq!(s, version);
+    assert_eq!(
+        err.to_string(),
+        "lockfile version `X` is not supported; regenerate it with a lock operation"
+    );
+}
+
+#[test]
+fn old_registry_lockfile_is_rejected_by_version_gate() {
+    let lockfile = format!(
+        r#"{LOCKFILE_PREFIX}lock_version = "0.3"
+
+[[project]]
+name = "Old registry source"
+version = "1.0.0"
+checksum = "{CHECKSUM}"
+sources = [{{ registry = "https://example.org" }}]
+"#
+    );
+
+    let Err(err) = Lock::from_str(&lockfile) else {
+        panic!()
+    };
+    let crate::lock::ParseError::Version(VersionError::Unsupported(ref s)) = err else {
+        panic!("expected unsupported version error, got {err:?}")
+    };
+    assert_eq!(s, "0.3");
+    assert_eq!(
+        err.to_string(),
+        "lockfile version `0.3` is not supported; regenerate it with a lock operation"
+    );
+}
+
+#[test]
+fn zero_index_kpar_size_is_rejected_by_lockfile_parse() {
+    let lockfile = format!(
+        r#"{LOCKFILE_PREFIX}lock_version = "{CURRENT_LOCK_VERSION}"
+
+[[project]]
+name = "Indexed"
+version = "1.0.0"
+checksum = "{CHECKSUM}"
+sources = [{{ index_kpar = "https://example.org/project.kpar", index_kpar_size = 0, index_kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}]
+"#
+    );
+
+    let Err(err) = Lock::from_str(&lockfile) else {
+        panic!()
+    };
+    let crate::lock::ParseError::Toml(_) = err else {
+        panic!("expected TOML parse error for zero index kpar size, got {err:?}")
+    };
 }
 
 #[test]
@@ -288,7 +339,7 @@ checksum = "{CHECKSUM}"
 fn many_sources_to_toml() {
     test_to_toml(
         vec![Project {
-            name: Some("Seven sources".to_string()),
+            name: Some("Eight sources".to_string()),
             publisher: None,
             version: "0.4.7".to_string(),
             exports: vec![],
@@ -301,12 +352,19 @@ fn many_sources_to_toml() {
                 Source::LocalSrc {
                     src_path: Utf8UnixPathBuf::from("example/path"),
                 },
-                Source::Registry {
-                    registry: "www.example.com".to_string(),
+                Source::Index {
+                    index: "www.example.com".to_string(),
                 },
                 Source::RemoteKpar {
                     remote_kpar: "www.example.com/remote.kpar".to_string(),
                     remote_kpar_size: Some(64),
+                },
+                Source::IndexKpar {
+                    index_kpar: "www.example.com/index.kpar".to_string(),
+                    index_kpar_size: std::num::NonZeroU64::new(128).unwrap(),
+                    index_kpar_digest:
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                            .to_string(),
                 },
                 Source::RemoteSrc {
                     remote_src: "www.example.com/remote".to_string(),
@@ -323,13 +381,14 @@ fn many_sources_to_toml() {
         format!(
             r#"
 [[project]]
-name = "Seven sources"
+name = "Eight sources"
 version = "0.4.7"
 sources = [
     {{ kpar_path = "example.kpar" }},
     {{ src_path = "example/path" }},
-    {{ registry = "www.example.com" }},
+    {{ index = "www.example.com" }},
     {{ remote_kpar = "www.example.com/remote.kpar", remote_kpar_size = 64 }},
+    {{ index_kpar = "www.example.com/index.kpar", index_kpar_size = 128, index_kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }},
     {{ remote_src = "www.example.com/remote" }},
     {{ remote_git = "github.com/example/remote.git" }},
     {{ remote_api = "www.example.com/api" }},
@@ -612,10 +671,14 @@ fn validate_unsupported_lock_version() {
     .validate() else {
         panic!()
     };
-    let ValidationError::UnsupportedVersion(s) = err else {
+    let ValidationError::UnsupportedVersion(ref s) = err else {
         panic!()
     };
     assert_eq!(s, version);
+    assert_eq!(
+        err.to_string(),
+        "lockfile version `X` is not supported; regenerate it with a lock operation"
+    );
 }
 
 #[test]
@@ -727,15 +790,49 @@ fn validate_checksum() {
     .validate() else {
         panic!()
     };
-    let ValidationError::InvalidChecksumFormat {
-        checksum,
+    let ValidationError::InvalidProjectDigestFormat {
+        digest,
         project_with_name,
     } = err
     else {
         panic!()
     };
-    assert_eq!(checksum, invalid_checksum);
+    assert_eq!(digest, invalid_checksum);
     assert_eq!(project_with_name, project_with::<Infallible>(None));
+}
+
+#[test]
+fn validate_index_kpar_digest_rejects_uppercase() {
+    let invalid_digest = "dA8747a6f27A32f10Ba393113bCe29f788181037a71f093f90e0ad5829d2b780";
+    let Err(err) = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_string(),
+        projects: vec![Project {
+            name: Some("Indexed".to_string()),
+            publisher: None,
+            version: "0.0.1".to_string(),
+            exports: vec![],
+            identifiers: vec!["urn:kpar:indexed".to_string()],
+            usages: vec![],
+            sources: vec![Source::IndexKpar {
+                index_kpar: "https://example.com/indexed.kpar".to_string(),
+                index_kpar_size: std::num::NonZeroU64::new(123).unwrap(),
+                index_kpar_digest: invalid_digest.to_string(),
+            }],
+            checksum: CHECKSUM.to_string(),
+        }],
+    }
+    .validate() else {
+        panic!()
+    };
+    let ValidationError::InvalidIndexKparDigestFormat {
+        digest,
+        project_with_name,
+    } = err
+    else {
+        panic!()
+    };
+    assert_eq!(digest, invalid_digest);
+    assert_eq!(project_with_name, "urn:kpar:indexed");
 }
 
 #[test]

@@ -13,7 +13,7 @@ use crate::{
     env::utils::ErrorBound,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::ProjectRead,
+    project::{CanonicalizationError, ProjectRead},
     resolve::ResolveRead,
 };
 
@@ -159,10 +159,63 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         }
     }
 
+    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        match self {
+            PriorityProject::HigherProject(project) => {
+                project.get_info().map_err(PriorityError::Higher)
+            }
+            PriorityProject::LowerProject(project) => {
+                project.get_info().map_err(PriorityError::Lower)
+            }
+        }
+    }
+
+    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        match self {
+            PriorityProject::HigherProject(project) => {
+                project.get_meta().map_err(PriorityError::Higher)
+            }
+            PriorityProject::LowerProject(project) => {
+                project.get_meta().map_err(PriorityError::Lower)
+            }
+        }
+    }
+
+    fn version(&self) -> Result<Option<String>, Self::Error> {
+        match self {
+            PriorityProject::HigherProject(project) => {
+                project.version().map_err(PriorityError::Higher)
+            }
+            PriorityProject::LowerProject(project) => {
+                project.version().map_err(PriorityError::Lower)
+            }
+        }
+    }
+
+    fn usage(&self) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
+        match self {
+            PriorityProject::HigherProject(project) => {
+                project.usage().map_err(PriorityError::Higher)
+            }
+            PriorityProject::LowerProject(project) => project.usage().map_err(PriorityError::Lower),
+        }
+    }
+
     fn is_definitely_invalid(&self) -> bool {
         match self {
             PriorityProject::HigherProject(project) => project.is_definitely_invalid(),
             PriorityProject::LowerProject(project) => project.is_definitely_invalid(),
+        }
+    }
+
+    fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
+        match self {
+            PriorityProject::HigherProject(project) => project
+                .checksum_canonical_hex()
+                .map_err(|e| e.map_project_read(PriorityError::Higher)),
+            PriorityProject::LowerProject(project) => project
+                .checksum_canonical_hex()
+                .map_err(|e| e.map_project_read(PriorityError::Lower)),
         }
     }
 }

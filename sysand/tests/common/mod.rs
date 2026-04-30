@@ -53,6 +53,24 @@ pub fn fixture_path(name: &str) -> Utf8PathBuf {
     path
 }
 
+/// Build a single `versions.json` entry fixture.
+pub fn versions_json_entry_body(
+    version: &str,
+    project_digest_hex: &str,
+    kpar_size: usize,
+    kpar_digest_hex: &str,
+) -> String {
+    format!(
+        r#"{{"version":"{version}","usage":[],"project_digest":"sha256:{project_digest_hex}","kpar_size":{kpar_size},"kpar_digest":"sha256:{kpar_digest_hex}"}}"#
+    )
+}
+
+/// Wrap one or more entry bodies (as produced by [`versions_json_entry_body`])
+/// into a full `versions.json` document.
+pub fn versions_json_body(entries: &[String]) -> String {
+    format!(r#"{{"versions":[{}]}}"#, entries.join(","))
+}
+
 pub fn sysand_cmd_in_with<'a, I: IntoIterator<Item = &'a str>>(
     cwd: &Utf8Path,
     args: I,

@@ -101,7 +101,7 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
 
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
-        r#"lock_version = "0.3"
+        r#"lock_version = "0.4"
 
 [[project]]
 name = "sync_to_local"
@@ -184,7 +184,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.3"
+            r#"lock_version = "0.4"
 
 [[project]]
 name = "sync_to_remote"
@@ -251,13 +251,14 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut server = mockito::Server::new();
 
+    // Exact counts pin the fetch fan-in so a regression that adds a
+    // redundant fetch trips a test rather than passing silently. The
+    // unauthenticated 404s come from the first sync's resolution/auth flow.
     let info_mock = server
         .mock("GET", "/.project.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
-        .expect(4) // TODO: Reduce this to 1
+        .expect(3) // TODO: Reduce this to 1
         .create();
 
     let info_mock_auth = server
@@ -269,16 +270,14 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
-        .expect(4) // TODO: Reduce this to 1
+        .expect(3) // TODO: Reduce this to 1
         .create();
 
     let meta_mock = server
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(4) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock_auth = server
@@ -290,13 +289,13 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(4) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.3"
+            r#"lock_version = "0.4"
 
 [[project]]
 name = "sync_to_remote"
@@ -358,13 +357,14 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut server = mockito::Server::new();
 
+    // expect(1) for the paths that should fire; expect(0) for the
+    // auth paths that must not (credentials don't match this server, so the
+    // authenticated retry should never reach the correctly-matched mock).
     let info_mock = server
         .mock("GET", "/.project.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
-        .expect(2) // TODO: Reduce this to 1
+        .expect(1)
         .create();
 
     let info_mock_auth = server
@@ -376,16 +376,14 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
-        .expect(0) // TODO: Reduce this to 1
+        .expect(0)
         .create();
 
     let meta_mock = server
         .mock("GET", "/.meta.json")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .with_header("content-type", "application/json")
-        .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(2) // TODO: Reduce this to 1
+        .expect(1)
         .create();
 
     let meta_mock_auth = server
@@ -397,13 +395,13 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(0) // TODO: Reduce this to 1
+        .expect(0)
         .create();
 
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.3"
+            r#"lock_version = "0.4"
 
 [[project]]
 name = "sync_to_remote"
