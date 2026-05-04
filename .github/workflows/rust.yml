@@ -196,17 +196,18 @@ jobs:
       - name: Update the nightly release
         run: |
           NIGHTLY_TAG=nightly
-          shopt -s nullglob
-          assets=(artifacts/sysand-linux-* artifacts/sysand-macos-* artifacts/sysand-windows-*)
 
-          gh release view "$NIGHTLY_TAG" >/dev/null
+          if ! gh release view "$NIGHTLY_TAG" >/dev/null 2>&1; then
+            echo "GitHub release '$NIGHTLY_TAG' does not exist or cannot be accessed."
+            echo "Create it first, then rerun this workflow."
+            exit 1
+          fi
 
-          # Remove stale assets so the floating nightly release mirrors this run.
-          while read -r asset; do
-              gh release delete-asset "$NIGHTLY_TAG" "$asset" --yes
-          done < <(gh release view "$NIGHTLY_TAG" --json assets --jq '.assets[].name')
+          for asset in $(gh release view "$NIGHTLY_TAG" --json assets --jq '.assets[].name'); do
+            gh release delete-asset "$NIGHTLY_TAG" "$asset" --yes
+          done
 
-          gh release upload "$NIGHTLY_TAG" "${assets[@]}"
+          gh release upload "$NIGHTLY_TAG" artifacts/sysand-*
 
           git tag --force "$NIGHTLY_TAG" "$GITHUB_SHA"
           git push --force origin "refs/tags/$NIGHTLY_TAG"
