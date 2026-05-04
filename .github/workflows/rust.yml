@@ -197,25 +197,19 @@ jobs:
         run: |
           NIGHTLY_TAG=nightly
 
-          if ! gh release view "$NIGHTLY_TAG" >/dev/null 2>&1; then
-            echo "GitHub release '$NIGHTLY_TAG' does not exist or cannot be accessed."
-            echo "Create it first, then rerun this workflow."
-            exit 1
+          if gh release view "$NIGHTLY_TAG" >/dev/null 2>&1; then
+            gh release delete "$NIGHTLY_TAG" --yes
           fi
-
-          for asset in $(gh release view "$NIGHTLY_TAG" --json assets --jq '.assets[].name'); do
-            gh release delete-asset "$NIGHTLY_TAG" "$asset" --yes
-          done
-
-          gh release upload "$NIGHTLY_TAG" artifacts/sysand-*
 
           git tag --force "$NIGHTLY_TAG" "$GITHUB_SHA"
           git push --force origin "refs/tags/$NIGHTLY_TAG"
 
-          gh release edit "$NIGHTLY_TAG" \
+          gh release create "$NIGHTLY_TAG" artifacts/sysand-* \
               --title "Nightly Release" \
               --prerelease \
-              --latest=false
+              --latest=false \
+              --verify-tag
+
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
