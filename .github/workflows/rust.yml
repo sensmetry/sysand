@@ -3,7 +3,7 @@ name: Rust (Library & CLI)
 on:
   push:
     branches: [main]
-    tags: ["*"]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -172,7 +172,7 @@ jobs:
   nightly-release:
     name: Nightly Release
     needs: [test, build]
-    if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       id-token: write # for actions/attest
