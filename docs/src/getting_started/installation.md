@@ -224,8 +224,8 @@ Latest development version of Sysand can be downloaded from the
 [`nightly` GitHub release][gh_rel_nightly].
 
 > [!warning]
-> Nightly assets are raw signing inputs for release automation. They are not
-> packaged like the official release downloads above.
+> Nightly assets are not signed and so may be prevented from running by
+> antivirus software.
 
 ## Compiling from source code
 
