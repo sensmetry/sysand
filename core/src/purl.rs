@@ -40,35 +40,7 @@ impl FieldKind {
 /// hyphen, and — for names — dot) allowed between words. Must
 /// start and end with an alphanumeric character.
 fn is_valid_unnormalized_field(s: &str, kind: FieldKind) -> bool {
-    let bytes = s.as_bytes();
-
-    if !(3..=50).contains(&bytes.len()) {
-        return false;
-    }
-
-    if !bytes[0].is_ascii_alphanumeric() || !bytes[bytes.len() - 1].is_ascii_alphanumeric() {
-        return false;
-    }
-
-    for &[b_previous, b] in bytes[..bytes.len() - 1].array_windows() {
-        if b.is_ascii_alphanumeric() {
-            continue;
-        }
-
-        let is_separator = b == b'-' || b == b' ' || (kind.allows_dot_separator() && b == b'.');
-        // This will also catch all non-ASCII
-        if !is_separator {
-            return false;
-        }
-
-        // only isolated separators — knowing first/last is alphanumeric,
-        // this is sufficient
-        if !b_previous.is_ascii_alphanumeric() {
-            return false;
-        }
-    }
-
-    true
+    is_valid_sysand_purl_part(&normalize_field(s), kind)
 }
 
 /// Whether `s` can, after normalization, be used as Sysand PURL publisher.
@@ -145,24 +117,33 @@ pub enum SysandPurlError {
     /// Wrong number of slash-separated segments — expected exactly
     /// `<publisher>/<name>`. `segments` is the count actually seen so the
     /// error message can name it.
-    #[error("expected exactly two `/`-separated segments after `pkg:sysand/`, found {segments}")]
-    WrongShape { segments: usize },
+    #[error(
+        "`{purl}` is not a valid `pkg:sysand` PURL: expected exactly two \
+         `/`-separated segments after `pkg:sysand/`, found {segments}"
+    )]
+    WrongShape { purl: String, segments: usize },
     /// The publisher segment did not satisfy the `pkg:sysand` field rules
     /// (length, allowed characters, separator placement).
     #[error(
-        "publisher segment `{publisher}` is not a valid `pkg:sysand` field \
+        "`{purl}` is not a valid `pkg:sysand` PURL: publisher segment `{publisher}` \
+         is not a valid `pkg:sysand` field \
          (3-50 ASCII alphanumeric chars, with single ` ` or `-` separators between words)"
     )]
-    InvalidPublisher { publisher: String },
+    InvalidPublisher { purl: String, publisher: String },
     /// The name segment did not satisfy the `pkg:sysand` field rules.
     #[error(
-        "name segment `{name}` is not a valid `pkg:sysand` field \
+        "`{purl}` is not a valid `pkg:sysand` PURL: name segment `{name}` \
+         is not a valid `pkg:sysand` field \
          (3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` separators between words)"
     )]
-    InvalidName { name: String },
+    InvalidName { purl: String, name: String },
     /// Both segments are valid as unnormalized, but at least one is not in normalized form
-    #[error("PURL is invalid, but can be normalized to `pkg:sysand/{norm_publisher}/{norm_name}`")]
+    #[error(
+        "`{purl}` is not a valid `pkg:sysand` PURL, but can be normalized to \
+         `pkg:sysand/{norm_publisher}/{norm_name}`"
+    )]
     NotNormalized {
+        purl: String,
         norm_publisher: String,
         norm_name: String,
     },
@@ -186,6 +167,7 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
     let parts: Vec<&str> = rest.split('/').collect();
     let [publisher, name] = parts.as_slice() else {
         return Err(SysandPurlError::WrongShape {
+            purl: iri.to_owned(),
             segments: parts.len(),
         });
     };
@@ -193,6 +175,7 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
     if !is_valid_purl_name(name) || !is_valid_purl_publisher(publisher) {
         if is_valid_unnormalized_name(name) && is_valid_unnormalized_publisher(publisher) {
             return Err(SysandPurlError::NotNormalized {
+                purl: iri.to_owned(),
                 norm_publisher: normalize_field(publisher),
                 norm_name: normalize_field(name),
             });
@@ -200,11 +183,13 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
 
         if !is_valid_purl_publisher(publisher) {
             return Err(SysandPurlError::InvalidPublisher {
+                purl: iri.to_owned(),
                 publisher: (*publisher).to_owned(),
             });
         }
 
         return Err(SysandPurlError::InvalidName {
+            purl: iri.to_owned(),
             name: (*name).to_owned(),
         });
     }

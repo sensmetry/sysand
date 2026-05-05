@@ -81,15 +81,24 @@ fn parse_sysand_purl_accepts_normalized_two_segment() {
 fn parse_sysand_purl_rejects_wrong_segment_count() {
     assert_eq!(
         parse_sysand_purl("pkg:sysand/"),
-        Err(SysandPurlError::WrongShape { segments: 1 })
+        Err(SysandPurlError::WrongShape {
+            purl: "pkg:sysand/".to_owned(),
+            segments: 1
+        })
     );
     assert_eq!(
         parse_sysand_purl("pkg:sysand/a"),
-        Err(SysandPurlError::WrongShape { segments: 1 })
+        Err(SysandPurlError::WrongShape {
+            purl: "pkg:sysand/a".to_owned(),
+            segments: 1
+        })
     );
     assert_eq!(
         parse_sysand_purl("pkg:sysand/a/b/c"),
-        Err(SysandPurlError::WrongShape { segments: 3 })
+        Err(SysandPurlError::WrongShape {
+            purl: "pkg:sysand/a/b/c".to_owned(),
+            segments: 3
+        })
     );
     // Trailing-slash form parses to two segments (`["a", ""]`); the publisher
     // is too short, so we reject on InvalidPublisher rather than WrongShape.
@@ -119,12 +128,14 @@ fn parse_sysand_purl_rejects_traversal_and_dot_publishers() {
 fn parse_sysand_purl_rejects_non_normalized_with_suggestion() {
     let err = parse_sysand_purl("PKG:sysand/Admin/Proj0").unwrap_err();
     let SysandPurlError::NotNormalized {
+        purl,
         norm_publisher: publisher,
         norm_name: name,
     } = err
     else {
         panic!("expected NotNormalized, got {err:?}");
     };
+    assert_eq!(purl, "PKG:sysand/Admin/Proj0");
     assert_eq!(publisher, "admin");
     assert_eq!(name, "proj0");
 
@@ -134,14 +145,29 @@ fn parse_sysand_purl_rejects_non_normalized_with_suggestion() {
 
     let err = parse_sysand_purl("pkg:sysand/Acme Labs/My.Project").unwrap_err();
     let SysandPurlError::NotNormalized {
+        purl,
         norm_publisher: publisher,
         norm_name: name,
     } = err
     else {
         panic!("expected NotNormalized, got {err:?}");
     };
+    assert_eq!(purl, "pkg:sysand/Acme Labs/My.Project");
     assert_eq!(publisher, "acme-labs");
     assert_eq!(name, "my.project");
+}
+
+#[test]
+fn parse_sysand_purl_error_messages_include_input_purl() {
+    let err = parse_sysand_purl("pkg:sysand/ab/proj0").unwrap_err();
+    assert!(err.to_string().contains("`pkg:sysand/ab/proj0`"), "{err}");
+
+    let err = parse_sysand_purl("pkg:sysand/Acme Labs/My.Project").unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("`pkg:sysand/Acme Labs/My.Project`"),
+        "{err}"
+    );
 }
 
 #[test]
