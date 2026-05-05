@@ -155,6 +155,7 @@ fn mock_project<
 >(
     server: &mut ServerGuard,
     mocks: &mut Vec<Mock>,
+    expected_counts: [usize; 4],
     path: P,
     name: N,
     version: V,
@@ -169,6 +170,7 @@ fn mock_project<
     let project_body =
         json!({"name": name.as_ref(), "version": version.as_ref(), "usage": usage}).to_string();
     let meta_body = json!({"index":{}, "created": "0000-00-00T00:00:00.123456789Z"}).to_string();
+    let [project_head, project_get, meta_head, meta_get] = expected_counts;
 
     mocks.push(
         server
@@ -176,7 +178,7 @@ fn mock_project<
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(project_body.clone())
-            .expect_at_least(1)
+            .expect(project_head)
             .create(),
     );
 
@@ -186,7 +188,7 @@ fn mock_project<
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(project_body)
-            .expect_at_least(1)
+            .expect(project_get)
             .create(),
     );
 
@@ -196,7 +198,7 @@ fn mock_project<
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(meta_body.clone())
-            .expect_at_least(1)
+            .expect(meta_head)
             .create(),
     );
 
@@ -206,7 +208,7 @@ fn mock_project<
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(meta_body)
-            .expect_at_least(1)
+            .expect(meta_get)
             .create(),
     );
 
@@ -258,6 +260,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let c_url = mock_project(
         &mut server,
         &mut project_mocks,
+        [1, 9, 1, 6],
         "c",
         "lock_basic_http_deps_c",
         "1.0.0",
@@ -267,6 +270,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let a_url = mock_project(
         &mut server,
         &mut project_mocks,
+        [1, 9, 1, 6],
         "a",
         "lock_basic_http_deps_a",
         "1.0.0",
@@ -275,6 +279,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let b_url = mock_project(
         &mut server,
         &mut project_mocks,
+        [1, 9, 1, 6],
         "b",
         "lock_basic_http_deps_b",
         "1.0.0",
@@ -707,6 +712,7 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
     let a_url = mock_project(
         &mut server,
         &mut project_mocks,
+        [1, 4, 1, 2],
         "a",
         "lock_basic_http_deps_a",
         "1.0.0",
