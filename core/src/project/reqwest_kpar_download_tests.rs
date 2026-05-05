@@ -106,9 +106,9 @@ fn test_concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std:
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored)
             .unix_permissions(0o755);
-        zip.start_file("root/.project.json", options)?;
+        zip.start_file(".project.json", options)?;
         zip.write_all(br#"{"name":"concurrent","version":"1.0.0","usage":[]}"#)?;
-        zip.start_file("root/.meta.json", options)?;
+        zip.start_file(".meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"x"}"#)?;
         zip.finish().unwrap();
         cursor.flush()?;
@@ -178,9 +178,9 @@ fn test_expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::err
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored)
             .unix_permissions(0o755);
-        zip.start_file("root/.project.json", options)?;
+        zip.start_file(".project.json", options)?;
         zip.write_all(br#"{"name":"size-mismatch","version":"1.0.0","usage":[]}"#)?;
-        zip.start_file("root/.meta.json", options)?;
+        zip.start_file(".meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"x"}"#)?;
         zip.finish().unwrap();
         cursor.flush()?;

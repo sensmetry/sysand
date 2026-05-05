@@ -342,9 +342,9 @@ fn build_index_kpar_bytes(
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored)
             .unix_permissions(0o755);
-        zip.start_file("root/.project.json", options).unwrap();
+        zip.start_file(".project.json", options).unwrap();
         zip.write_all(info_json.as_bytes()).unwrap();
-        zip.start_file("root/.meta.json", options).unwrap();
+        zip.start_file(".meta.json", options).unwrap();
         zip.write_all(meta_json.as_bytes()).unwrap();
         zip.finish().unwrap();
     }

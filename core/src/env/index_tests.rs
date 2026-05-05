@@ -257,12 +257,13 @@ fn mock_json_get_count(
         .create()
 }
 
-/// Build a minimal kpar (ZIP) archive carrying `root/.project.json`,
-/// `root/.meta.json`, and a single source file, returning the archive bytes
-/// alongside the exact info/meta JSON strings written into it. Tests that
-/// also mock the per-version `.project.json` / `.meta.json` endpoints reuse
-/// those strings so the index-served content matches the in-archive content
-/// — the only deliberate drift remains in the advertised `project_digest`.
+/// Build a minimal kpar (ZIP) archive carrying `.project.json`,
+/// `.meta.json`, and a single source file at the archive root, returning
+/// the archive bytes alongside the exact info/meta JSON strings written
+/// into it. Tests that also mock the per-version `.project.json` /
+/// `.meta.json` endpoints reuse those strings so the index-served content
+/// matches the in-archive content — the only deliberate drift remains in
+/// the advertised `project_digest`.
 fn build_minimal_kpar(
     name: &str,
     version: &str,
@@ -278,11 +279,11 @@ fn build_minimal_kpar(
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored)
             .unix_permissions(0o755);
-        zip.start_file("root/.project.json", options).unwrap();
+        zip.start_file(".project.json", options).unwrap();
         zip.write_all(info_json.as_bytes()).unwrap();
-        zip.start_file("root/.meta.json", options).unwrap();
+        zip.start_file(".meta.json", options).unwrap();
         zip.write_all(meta_json.as_bytes()).unwrap();
-        zip.start_file(format!("root/{src_path}"), options).unwrap();
+        zip.start_file(src_path, options).unwrap();
         zip.write_all(src_body.as_bytes()).unwrap();
         zip.finish().unwrap();
     }
