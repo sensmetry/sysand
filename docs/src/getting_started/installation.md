@@ -59,19 +59,23 @@ or from [latest GitHub release][gh_rel].
   </tr>
   <tr>
     <td><strong>x86_x64</strong></td>
-    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-windows-x86_64.exe"><button><i class="fas fa-download"></i> Download</button></a></td>
-    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-macos-x86_64"><button><i class="fas fa-download"></i> Download</button></a></td>
-    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-x86_64"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-windows-x86_64.zip"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-macos-x86_64.tar.xz"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-x86_64.tar.xz"><button><i class="fas fa-download"></i> Download</button></a></td>
   </tr>
   <tr>
     <td><strong>ARM64</strong></td>
-    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-windows-arm64.exe"><button><i class="fas fa-download"></i> Download</button></a></td>
-    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-macos-arm64"><button><i class="fas fa-download"></i> Download</button></a></td>
-    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-arm64"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-windows-arm64.zip"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-macos-arm64.tar.xz"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-arm64.tar.xz"><button><i class="fas fa-download"></i> Download</button></a></td>
   </tr>
 </table>
 <!-- markdownlint-enable MD033 MD013 -->
-After downloading the appropriate file, installation depends on your platform:
+
+The download is an archive (`.zip` on Windows, `.tar.xz` on macOS and
+Linux) containing a single `sysand` executable (`sysand.exe` on
+Windows). After downloading, extract the archive and follow the steps
+for your platform:
 
 - [Windows (both x86_64 and ARM64)](#windows)
 - [macOS (both Intel and ARM64 (a.k.a. Apple Silicon))](#macos)
@@ -81,13 +85,14 @@ It is recommended to then [verify the installation](#verify-the-installation).
 
 ### Windows
 
-The downloaded binary can either be installed manually or by running
-a few PowerShell commands.
+The downloaded `.zip` archive contains `sysand.exe`. It can either be
+installed manually or by running a few PowerShell commands.
 
 #### Manual installation
 
-1. Move the downloaded `.exe` file to `%LOCALAPPDATA%\Programs\Sysand\sysand.exe`
-2. Add to `PATH` via Environment Variables:
+1. Right-click the downloaded `.zip` file and choose "Extract All..."
+2. Move the extracted `sysand.exe` to `%LOCALAPPDATA%\Programs\Sysand\sysand.exe`
+3. Add to `PATH` via Environment Variables:
    1. Open "Environment Variables" (search in Start menu)
    2. Under "User variables", select "Path" and click "Edit"
    3. Click "New" and add `%LOCALAPPDATA%\Programs\Sysand`
@@ -101,15 +106,17 @@ a few PowerShell commands.
 ```powershell
 # For x86_64 systems
 
-# Create directory and move to it
+# Create directory and extract the archive into it
 mkdir "$env:LOCALAPPDATA\Programs\Sysand" -Force
-mv sysand-windows-x86_64.exe "$env:LOCALAPPDATA\Programs\Sysand\sysand.exe"
+Expand-Archive -Path sysand-windows-x86_64.zip `
+  -DestinationPath "$env:LOCALAPPDATA\Programs\Sysand" -Force
 
 # For ARM64 systems
 
-# Create directory and move to it
+# Create directory and extract the archive into it
 mkdir "$env:LOCALAPPDATA\Programs\Sysand" -Force
-mv sysand-windows-arm64.exe "$env:LOCALAPPDATA\Programs\Sysand\sysand.exe"
+Expand-Archive -Path sysand-windows-arm64.zip `
+  -DestinationPath "$env:LOCALAPPDATA\Programs\Sysand" -Force
 ```
 
 3. Add folder to `PATH`:
@@ -131,17 +138,17 @@ if ($currentPath -notlike "*$newPath*") {
 #### System installation (requires `sudo`)
 
 1. Open Terminal
-2. Make the binary executable and move to a folder in `PATH` by running the
-   following commands:
+2. Extract the archive and move the `sysand` binary to a folder in
+   `PATH` by running the following commands:
 
 ```sh
 # For Intel Macs
-chmod +x ~/Downloads/sysand-macos-x86_64
-sudo mv ~/Downloads/sysand-macos-x86_64 /usr/local/bin/sysand
+tar -xJf ~/Downloads/sysand-macos-x86_64.tar.xz -C ~/Downloads
+sudo mv ~/Downloads/sysand /usr/local/bin/sysand
 
 # For Apple Silicon Macs
-chmod +x ~/Downloads/sysand-macos-arm64
-sudo mv ~/Downloads/sysand-macos-arm64 /usr/local/bin/sysand
+tar -xJf ~/Downloads/sysand-macos-arm64.tar.xz -C ~/Downloads
+sudo mv ~/Downloads/sysand /usr/local/bin/sysand
 ```
 
 #### Alternative: user installation (no `sudo` required)
@@ -169,17 +176,17 @@ source ~/.zshrc
 #### System installation (requires `sudo`)
 
 1. Open a terminal
-2. Make the binary executable and move to a folder in `PATH` by running the
-   following commands:
+2. Extract the archive and move the `sysand` binary to a folder in
+   `PATH` by running the following commands:
 
 ```sh
 # For x86_64 systems
-chmod +x sysand-linux-x86_64
-sudo mv sysand-linux-x86_64 /usr/local/bin/sysand
+tar -xJf sysand-linux-x86_64.tar.xz
+sudo mv sysand /usr/local/bin/sysand
 
 # For ARM64 systems
-chmod +x sysand-linux-arm64
-sudo mv sysand-linux-arm64 /usr/local/bin/sysand
+tar -xJf sysand-linux-arm64.tar.xz
+sudo mv sysand /usr/local/bin/sysand
 ```
 
 #### Alternative: user installation (no `sudo` required)
@@ -213,9 +220,12 @@ You should see an output similar to: `sysand X.Y.Z`
 
 ## Download development version
 
-Latest development version of Sysand can be downloaded from
-[GitHub releases][gh_rel_all] by choosing the latest release by date
-(which is usually labelled starting with "Nightly Release").
+Latest development version of Sysand can be downloaded from the
+[`nightly` GitHub release][gh_rel_nightly].
+
+> [!warning]
+> Nightly assets are not signed and so may be prevented from running by
+> antivirus software.
 
 ## Compiling from source code
 
@@ -229,4 +239,4 @@ cargo install sysand --git=https://github.com/sensmetry/sysand.git
 ```
 
 [gh_rel]: https://github.com/sensmetry/sysand/releases/latest
-[gh_rel_all]: https://github.com/sensmetry/sysand/releases/
+[gh_rel_nightly]: https://github.com/sensmetry/sysand/releases/tag/nightly

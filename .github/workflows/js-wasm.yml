@@ -3,7 +3,7 @@ name: JS/WASM (Bindings)
 on:
   push:
     branches: [main]
-    tags: ["*"]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
