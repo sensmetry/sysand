@@ -318,8 +318,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Build a minimal valid kpar (ZIP) archive carrying the required
-/// `root/.project.json` and `root/.meta.json` entries.
+/// Build a minimal valid kpar with `.project.json` and `.meta.json`.
 ///
 /// The fixture has no `meta.checksum` entries, so its canonical project
 /// digest is `project_hash_raw(info, meta)`.

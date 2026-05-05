@@ -323,7 +323,7 @@ fn publish_rejects_upload_endpoint_index_url() -> TestResult {
     // The error message points the user back at the API root.
     let (_temp_dir, cwd) = setup_built_project_at("upload-endpoint-index", "artifact.kpar")?;
     let mut server = Server::new();
-    let _config_mock = server
+    let config_mock = server
         .mock("GET", "/sysand-index-config.json")
         .with_status(404)
         .expect(0)
@@ -345,6 +345,7 @@ fn publish_rejects_upload_endpoint_index_url() -> TestResult {
         .stderr(predicate::str::contains("not the `v1/upload` endpoint"))
         .stderr(predicate::str::contains("HTTP request failed").not());
     publish_mock.assert();
+    config_mock.assert();
 
     Ok(())
 }
