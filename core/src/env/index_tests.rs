@@ -1553,7 +1553,10 @@ mod get_project {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(meta_json_body())
-            .expect(1)
+            // `IndexEntryProject` fetches `.project.json` and `.meta.json`
+            // through `try_join!`. Once the `.project.json` leg returns 404,
+            // the sibling `.meta.json` future may be dropped before dispatch.
+            .expect_at_most(1)
             .create();
 
         // `env.get_project` returns a lazy wrapper; forcing `get_project()` on it
@@ -1596,7 +1599,10 @@ mod get_project {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(project_json_body("proj0", Some("admin"), "0.3.0", "[]"))
-            .expect(1)
+            // `IndexEntryProject` fetches `.project.json` and `.meta.json`
+            // through `try_join!`. Once the `.meta.json` leg returns 404, the
+            // sibling `.project.json` future may be dropped before dispatch.
+            .expect_at_most(1)
             .create();
 
         let meta_json_mock = server
