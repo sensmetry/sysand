@@ -161,6 +161,19 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
     async fn perform_download(&self) -> Result<(), ReqwestKparDownloadedError> {
         use futures::StreamExt as _;
 
+        struct RemoveOnDrop<'a> {
+            path: &'a camino::Utf8Path,
+            armed: bool,
+        }
+
+        impl Drop for RemoveOnDrop<'_> {
+            fn drop(&mut self) {
+                if self.armed {
+                    let _ = std::fs::remove_file(self.path);
+                }
+            }
+        }
+
         let resp = self
             .auth_policy
             .with_authentication(&self.client, &kpar_get_request(self.url.clone()))
@@ -183,7 +196,12 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             });
         }
 
-        let mut file = wrapfs::File::create(&self.inner.archive_path)?;
+        let download_path = self.inner.archive_path.with_extension("download");
+        let mut cleanup = RemoveOnDrop {
+            path: &download_path,
+            armed: true,
+        };
+        let mut file = wrapfs::File::create(&download_path)?;
         let mut bytes_stream = resp.bytes_stream();
         let mut hasher = self.expected_sha256_hex.as_deref().map(|_| Sha256::new());
         let mut written = 0_u64;
@@ -204,7 +222,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
                 h.update(&bytes);
             }
             file.write_all(&bytes)
-                .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
+                .map_err(|e| FsIoError::WriteFile(download_path.clone(), e))?;
         }
 
         if let Some(expected) = self.expected_size
@@ -218,17 +236,11 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         }
 
         file.sync_all()
-            .map_err(|e| FsIoError::WriteFile(self.inner.archive_path.clone(), e))?;
-
-        if let Some(expected) = self.expected_size {
-            debug_assert_eq!(expected.get(), self.inner.file_size().unwrap());
-        }
+            .map_err(|e| FsIoError::WriteFile(download_path.clone(), e))?;
 
         if let (Some(h), Some(expected)) = (hasher, self.expected_sha256_hex.as_deref()) {
             let computed = format!("{:x}", h.finalize());
-            if computed == expected {
-                return Ok(());
-            } else {
+            if computed != expected {
                 return Err(ReqwestKparDownloadedError::DigestMismatch {
                     url: self.url.as_str().into(),
                     expected: expected.to_owned(),
@@ -236,6 +248,19 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
                 });
             }
         }
+
+        if let Some(expected) = self.expected_size {
+            debug_assert_eq!(
+                expected.get(),
+                file.metadata().map_err(FsIoError::MetadataHandle)?.len()
+            );
+        }
+
+        drop(file);
+        std::fs::rename(&download_path, &self.inner.archive_path).map_err(|e| {
+            FsIoError::Move(download_path.clone(), self.inner.archive_path.clone(), e)
+        })?;
+        cleanup.armed = false;
 
         Ok(())
     }

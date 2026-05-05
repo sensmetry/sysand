@@ -238,6 +238,59 @@ fn test_expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::err
 }
 
 #[test]
+fn test_digest_mismatch_removes_temporary_download() -> Result<(), Box<dyn std::error::Error>> {
+    let kpar_bytes = b"not really a kpar";
+
+    let mut server = mockito::Server::new();
+    let url = reqwest::Url::parse(&server.url())?;
+
+    let get_kpar = server
+        .mock("GET", "/digest-mismatch.kpar")
+        .with_status(200)
+        .with_header("content-type", "application/zip")
+        .with_body(kpar_bytes.as_slice())
+        .expect(1)
+        .create();
+
+    let project = super::ReqwestKparDownloadedProject::new_guess_root(
+        format!("{url}digest-mismatch.kpar"),
+        create_reqwest_client()?,
+        Arc::new(Unauthenticated {}),
+        Some("0".repeat(64)),
+        Some(std::num::NonZeroU64::new(kpar_bytes.len() as u64).unwrap()),
+    )?;
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(async {
+        match project.ensure_downloaded_verified().await {
+            Err(ReqwestKparDownloadedError::DigestMismatch { expected, .. }) => {
+                assert_eq!(expected, "0".repeat(64));
+            }
+            other => panic!("expected DigestMismatch, got {other:?}"),
+        }
+    });
+
+    assert!(
+        !project.inner.archive_path.exists(),
+        "digest mismatch must not install an archive file"
+    );
+    assert!(
+        !project
+            .inner
+            .archive_path
+            .with_extension("download")
+            .exists(),
+        "digest mismatch must remove the temporary download"
+    );
+    get_kpar.assert();
+
+    Ok(())
+}
+
+#[test]
 fn test_index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::error::Error>> {
     let index_kpar = "https://example.com/project.kpar";
     let index_kpar_size = std::num::NonZeroU64::new(1234).unwrap();
