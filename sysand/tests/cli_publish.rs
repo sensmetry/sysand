@@ -226,7 +226,7 @@ fn publish_requires_index_even_with_config_default() -> TestResult {
 fn publish_with_explicit_index_succeeds() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;
     let mut server = Server::new();
-    let _config_mock = mock_index_config_api_at_api(&mut server);
+    let config_mock = mock_index_config_api_at_api(&mut server);
     let publish_mock = server
         .mock("POST", "/api/v1/upload")
         .match_header("authorization", "Bearer test-token")
@@ -263,6 +263,7 @@ fn publish_with_explicit_index_succeeds() -> TestResult {
     )?;
     out.assert().success();
     publish_mock.assert();
+    config_mock.assert();
 
     Ok(())
 }
@@ -467,7 +468,7 @@ fn publish_sends_kpar_with_integrity_metadata() -> TestResult {
     build_kpar_at(&cwd, "artifact.kpar")?;
 
     let mut server = Server::new();
-    let _config_mock = mock_index_config_api_at_api(&mut server);
+    let config_mock = mock_index_config_api_at_api(&mut server);
     let publish_mock = server
         .mock("POST", "/api/v1/upload")
         .match_header("authorization", "Bearer test-token")
@@ -505,6 +506,7 @@ fn publish_sends_kpar_with_integrity_metadata() -> TestResult {
 
     out.assert().success();
     publish_mock.assert();
+    config_mock.assert();
 
     Ok(())
 }
@@ -514,7 +516,7 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("publish-basic-auth-ignored")?;
 
     let mut server = Server::new();
-    let _config_mock = mock_index_config_api_at_api(&mut server);
+    let config_mock = mock_index_config_api_at_api(&mut server);
     let publish_mock = server.mock("POST", "/api/v1/upload").expect(0).create();
 
     let pattern = format!("{}/**", server.url());
@@ -543,6 +545,7 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     publish_mock.assert();
+    config_mock.assert();
 
     Ok(())
 }
@@ -552,7 +555,7 @@ fn publish_rejects_ambiguous_bearer_credentials() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("publish-ambiguous-bearer")?;
 
     let mut server = Server::new();
-    let _config_mock = mock_index_config_api_at_api(&mut server);
+    let config_mock = mock_index_config_api_at_api(&mut server);
     let publish_mock = server.mock("POST", "/api/v1/upload").expect(0).create();
 
     let base = server.url();
@@ -577,6 +580,7 @@ fn publish_rejects_ambiguous_bearer_credentials() -> TestResult {
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     publish_mock.assert();
+    config_mock.assert();
 
     Ok(())
 }
@@ -593,7 +597,7 @@ fn assert_publish_error_status(
     let (_temp_dir, cwd) = setup_built_project(project_name)?;
 
     let mut server = Server::new();
-    let _config_mock = mock_index_config_api_at_api(&mut server);
+    let config_mock = mock_index_config_api_at_api(&mut server);
     let mut mock = server
         .mock("POST", "/api/v1/upload")
         .with_status(status)
@@ -616,6 +620,7 @@ fn assert_publish_error_status(
         assertion = assertion.stderr(predicate::str::contains(*pattern));
     }
     publish_mock.assert();
+    config_mock.assert();
 
     Ok(())
 }
