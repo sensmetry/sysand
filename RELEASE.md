@@ -20,6 +20,7 @@ At a high level, a Sysand version release starts in this repository:
 7. Approve the release to Maven by pressing "Go live" in
    [Maven Central](https://central.sonatype.com/publishing), where you need
    access to the Sensmetry organization.
+8. Write the release notes, both in the GitHub release and in the [forum](https://forum.sensmetry.com/c/sysand/24)
 
 The final version release has several publication paths:
 
