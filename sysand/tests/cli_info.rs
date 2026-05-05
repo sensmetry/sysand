@@ -163,10 +163,8 @@ fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
 
     // Two calls expected: the resolver tries the URL as a kpar via two
     // candidate paths (chained through any-resolver). Each path re-issues
-    // the GET on 404 because the failed-download cleanup removes the
-    // empty file at `archive_path`, so the second attempt cannot
-    // short-circuit on its presence. Pin the count; further reductions
-    // would be a resolver-level change.
+    // the GET on 404 because the failed-download attempt is not recorded.
+    // Pin the count; further reductions would be a resolver-level change.
     let kpar_download_try = server.mock("GET", "/").with_status(404).expect(2).create();
 
     let info_mock_head = server
