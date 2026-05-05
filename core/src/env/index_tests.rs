@@ -152,13 +152,13 @@ fn make_runtime() -> Result<Arc<tokio::runtime::Runtime>, Box<dyn std::error::Er
 /// index/api root for tests that don't cover the discovery flow — those
 /// tests seed the `resolved` cell directly so no discovery fetch is
 /// issued against the mock server.
-fn test_env_async(
+fn index_env_async(
     base_url: &str,
 ) -> Result<super::IndexEnvironmentAsync<Unauthenticated>, Box<dyn std::error::Error>> {
     let base = url::Url::parse(base_url)?;
     // Use a flat topology (index_root = api_root = discovery root).
     // Tests that specifically cover discovery construct their own env
-    // via `test_env_sync_discovery`, which goes through the real
+    // via `index_env_sync_discovery`, which goes through the real
     // `fetch_index_config` against a mock server.
     let endpoints = ResolvedEndpoints::flat(with_trailing_slash(base));
     Ok(super::IndexEnvironmentAsync::new(
@@ -185,16 +185,16 @@ fn with_trailing_slash(mut url: url::Url) -> url::Url {
 /// Shorthand: resolve the endpoints on a test env. Tests that don't
 /// cover discovery specifically use this rather than calling `endpoints`
 /// on the env repeatedly.
-fn test_endpoints(env: &super::IndexEnvironmentAsync<Unauthenticated>) -> &ResolvedEndpoints {
+fn resolved_endpoints(env: &super::IndexEnvironmentAsync<Unauthenticated>) -> &ResolvedEndpoints {
     env.endpoints
         .get()
-        .expect("test_env_async initializes resolved endpoints")
+        .expect("index_env_async initializes resolved endpoints")
 }
 
 /// Build a sync-facing env after resolving discovery against the mock
 /// server. This exercises the real `sysand-index-config.json` fetch, but
 /// does it eagerly so discovery errors surface during test setup.
-fn test_env_sync_discovery(
+fn index_env_sync_discovery(
     server: &mockito::Server,
 ) -> Result<
     crate::env::AsSyncEnvironmentTokio<super::IndexEnvironmentAsync<Unauthenticated>>,
@@ -215,13 +215,13 @@ fn test_env_sync_discovery(
 /// with a runtime owned by the test. This is the shape most tests want — a
 /// mock `server` plus a single blocking handle to call `.get_project(...)` /
 /// `.uris()` / `.versions(...)` against it.
-fn test_env_sync(
+fn index_env_sync(
     server: &mockito::Server,
 ) -> Result<
     crate::env::AsSyncEnvironmentTokio<super::IndexEnvironmentAsync<Unauthenticated>>,
     Box<dyn std::error::Error>,
 > {
-    Ok(test_env_async(&server.url())?.to_tokio_sync(make_runtime()?))
+    Ok(index_env_async(&server.url())?.to_tokio_sync(make_runtime()?))
 }
 
 /// Register a mock for `{method} {path}` asserting it must never be called.
@@ -295,8 +295,8 @@ mod uris {
 
     #[test]
     fn uri_examples() -> Result<(), Box<dyn std::error::Error>> {
-        let env = test_env_async("https://www.example.com/index/")?;
-        let endpoints = test_endpoints(&env);
+        let env = index_env_async("https://www.example.com/index/")?;
+        let endpoints = resolved_endpoints(&env);
 
         assert_eq!(
             endpoints.index_url()?.to_string(),
@@ -337,7 +337,7 @@ mod uris {
         // rather than silently reroute to `_iri/<sha256>/` (which
         // would mask typos, casing, traversal attempts, and wrong
         // segment counts as opaque "not found"s).
-        let env = test_env_async("https://www.example.com/index/")?;
+        let env = index_env_async("https://www.example.com/index/")?;
 
         for iri in [
             // traversal / URL-syntax attacks
@@ -363,7 +363,7 @@ mod uris {
             &purl("a/"),
             &purl(""),
         ] {
-            let err = test_endpoints(&env)
+            let err = resolved_endpoints(&env)
                 .kpar_url(iri, "1.0.0")
                 .expect_err(&format!(
                     "expected `{iri}` to be rejected as malformed pkg:sysand"
@@ -386,8 +386,8 @@ mod uris {
         // The error message for the "valid but not normalized" case must include
         // the suggested normalized IRI — that's what makes the error actionable
         // (otherwise the user just sees "rejected" with no path forward).
-        let env = test_env_async("https://www.example.com/index/")?;
-        let err = test_endpoints(&env)
+        let env = index_env_async("https://www.example.com/index/")?;
+        let err = resolved_endpoints(&env)
             .kpar_url(purl("Acme Labs/My.Project"), "1.0.0")
             .expect_err("non-normalized pkg:sysand must be rejected");
         let msg = err.to_string();
@@ -400,8 +400,8 @@ mod uris {
 
     #[test]
     fn base_url_without_trailing_slash() -> Result<(), Box<dyn std::error::Error>> {
-        let env = test_env_async("https://www.example.com/index")?;
-        let endpoints = test_endpoints(&env);
+        let env = index_env_async("https://www.example.com/index")?;
+        let endpoints = resolved_endpoints(&env);
 
         assert_eq!(
             endpoints.index_url()?.to_string(),
@@ -422,7 +422,7 @@ mod uris {
     -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let index_mock = mock_json_get(
             &mut server,
@@ -453,7 +453,7 @@ mod uris {
     fn uris_from_index_json_filters_removed_projects() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let index_mock = mock_json_get(
             &mut server,
@@ -481,7 +481,7 @@ mod uris {
     fn index_json_rejects_yanked_project_status() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let index_mock = mock_json_get(
             &mut server,
@@ -517,7 +517,7 @@ mod uris {
         // as an empty index.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let index_mock = server
             .mock("GET", "/index.json")
@@ -550,7 +550,7 @@ mod uris {
         // path above.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let index_mock = server
             .mock("GET", "/index.json")
@@ -571,7 +571,7 @@ mod uris {
     fn server_error_surfaces() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let index_mock = server
             .mock("GET", "/index.json")
@@ -593,7 +593,7 @@ mod uris {
         // treat the index as empty.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let index_mock = server
             .mock("GET", "/index.json")
@@ -635,7 +635,7 @@ mod versions {
     fn versions_from_versions_json() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let pkg_versions_mock = mock_json_get(
             &mut server,
@@ -678,7 +678,7 @@ mod versions {
         //      so solve/lock can't pick them.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let body = format!(
             r#"{{"versions":[
@@ -709,7 +709,7 @@ mod versions {
         // sort regression would reorder `10.0.0` before `10.0.0-beta.1`.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -732,7 +732,7 @@ mod versions {
         // Plain ascending wire order is rejected loudly.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -764,7 +764,7 @@ mod versions {
         // would accept it.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -794,7 +794,7 @@ mod versions {
         // be explicit.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -823,7 +823,7 @@ mod versions {
         // build-metadata rejection must not catch them by mistake.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -847,7 +847,7 @@ mod versions {
         // reject the whole document.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -879,7 +879,7 @@ mod versions {
         // errors still propagate as hard errors.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = server
             .mock("GET", "/nope/nope/versions.json")
@@ -907,7 +907,7 @@ mod versions {
         // "project absent from this index".
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = server
             .mock("GET", "/admin/proj0/versions.json")
@@ -941,7 +941,7 @@ mod versions {
         // silently degrading.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         // No `kpar_digest`.
         let versions_mock = mock_json_get(
@@ -975,7 +975,7 @@ mod versions {
         // entries might carry different digests.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -1004,7 +1004,7 @@ mod versions {
         // ignored — the forward-compat rule is load-bearing.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -1037,7 +1037,7 @@ mod versions {
     fn malformed_versions_json_surfaces_parse_error() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = server
             .mock("GET", "/admin/proj0/versions.json")
@@ -1072,7 +1072,7 @@ mod versions {
         // client-construction refactor that disables redirects
         // (`Policy::none()`) fails loudly.
         let mut server = mockito::Server::new();
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let redirect_mock = server
             .mock("GET", "/admin/proj0/versions.json")
@@ -1128,7 +1128,7 @@ mod get_project {
         // (`VersionNotInIndex`).
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = server
             .mock("GET", "/nope/nope/versions.json")
@@ -1160,7 +1160,7 @@ mod get_project {
         // hard server failure.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = server
             .mock("GET", "/admin/proj0/versions.json")
@@ -1201,7 +1201,7 @@ mod get_project {
         // mockito miss.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let body = format!(
             r#"{{"versions":[
@@ -1239,7 +1239,7 @@ mod get_project {
         // `available`.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
         let meta_json = meta_json_body();
@@ -1273,7 +1273,7 @@ mod get_project {
     fn get_project_sysand_purl_route() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
         let meta_json = meta_json_body();
@@ -1319,7 +1319,7 @@ mod get_project {
     fn get_project_iri_hash_route() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let info_json = project_json_body("b", None, "1.0.0", "[]");
         let meta_json = meta_json_body();
@@ -1370,7 +1370,7 @@ mod get_project {
     fn get_project_carries_usage() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let usage_json = format!(
             r#"[
@@ -1423,7 +1423,7 @@ mod get_project {
         // hard-failing on textual drift.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let advertised_usage = format!(
             r#"[
@@ -1480,7 +1480,7 @@ mod get_project {
         // so a regression that re-introduces synthesis would fail.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let usage_json =
             format!(r#"[{{"resource":"{PKG_SYSAND_PREFIX}x/y","versionConstraint":">=1"}}]"#);
@@ -1534,7 +1534,7 @@ mod get_project {
         // surface as a hard error, not silently proceed without info.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -1586,7 +1586,7 @@ mod get_project {
         // must not silently expose partial state.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -1634,7 +1634,7 @@ mod get_project {
         // `VersionNotInIndex` — no kpar-only fallback.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -1680,7 +1680,7 @@ mod iri {
         // preserving the percent-escape.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         // Compute the expected bucket hash rather than hard-coding it,
         // so the test documents its own derivation.
@@ -1719,7 +1719,7 @@ mod iri {
         // `http://example.com/` must hash to the same bucket.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         use sha2::{Digest, Sha256};
         let canonical = "http://example.com/";
@@ -1777,7 +1777,7 @@ mod digest {
         // parses cleanly.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
         let meta_json = meta_json_body();
@@ -1842,7 +1842,7 @@ mod digest {
         // would silently start downloading archives during resolution.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let expected_hex = "b".repeat(64);
         let advertised_digest = format!("sha256:{expected_hex}");
@@ -1883,7 +1883,7 @@ mod digest {
         // lock/sync cross-checks downstream).
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -1930,7 +1930,7 @@ mod digest {
 
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         // `.project.json` / `.meta.json` are only consumed from inside the
         // kpar for this test; the destructured JSON strings are unused.
@@ -2016,7 +2016,7 @@ mod digest {
         // would reject — a surprise much later.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -2059,7 +2059,7 @@ mod digest {
         // downloading the kpar.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
         // 64-char hex with uppercase digits — a legal SHA256 value that
@@ -2110,7 +2110,7 @@ mod digest {
         // document rather than silently skipping verification.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
         // SHA1 — canonicalizing this entry would force reading source
@@ -2166,7 +2166,7 @@ mod caching {
         // accessor, or fetch-on-use) would trip it.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
         let meta_json = meta_json_body();
@@ -2217,7 +2217,7 @@ mod caching {
         // touches.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = server
             .mock("GET", "/admin/proj0/versions.json")
@@ -2255,7 +2255,7 @@ mod caching {
         // empty stream.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = server
             .mock("GET", "/nope/nope/versions.json")
@@ -2303,7 +2303,7 @@ mod sources {
         // silently accepting the archive.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         // An advertised digest that doesn't match the body bytes below.
         let advertised_digest_hex = "a".repeat(64);
@@ -2362,7 +2362,7 @@ mod sources {
         // rather than short-circuiting on a stale tampered file.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let advertised_digest_hex = "0".repeat(64);
         let advertised = format!("sha256:{advertised_digest_hex}");
@@ -2419,7 +2419,7 @@ mod sources {
 
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let body: &[u8] = b"not really a kpar either";
         let actual_hex = format!("{:x}", Sha256::digest(body));
@@ -2473,7 +2473,7 @@ mod sources {
         // `kpar_size` from `versions.json`, not probe the archive.
         let mut server = mockito::Server::new();
 
-        let env = test_env_sync(&server)?;
+        let env = index_env_sync(&server)?;
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -2543,7 +2543,7 @@ mod discovery {
             versions_json_body([("1.0.0", "[]")]),
         );
 
-        let env = test_env_sync_discovery(&server)?;
+        let env = index_env_sync_discovery(&server)?;
 
         let versions: Vec<_> = env
             .versions(purl("admin/proj0"))?
@@ -2573,7 +2573,7 @@ mod discovery {
             versions_json_body([("1.0.0", "[]")]),
         );
 
-        let env = test_env_sync_discovery(&server)?;
+        let env = index_env_sync_discovery(&server)?;
 
         let versions: Vec<_> = env
             .versions(purl("admin/proj0"))?
@@ -2590,7 +2590,7 @@ mod discovery {
     fn discovery_rejects_relative_index_root() -> Result<(), Box<dyn std::error::Error>> {
         // Relative `index_root` -> `RelativeUrl` error. Discovery is
         // resolved at env construction, so the rejection surfaces from
-        // `test_env_sync_discovery` rather than from a later
+        // `index_env_sync_discovery` rather than from a later
         // `versions()` call.
         let mut server = mockito::Server::new();
 
@@ -2600,7 +2600,7 @@ mod discovery {
             r#"{"index_root":"/index/"}"#,
         );
 
-        let err = test_env_sync_discovery(&server).expect_err("relative index_root must reject");
+        let err = index_env_sync_discovery(&server).expect_err("relative index_root must reject");
         let text = format!("{err:?}");
         assert!(
             text.contains("RelativeUrl") && text.contains("index_root"),
@@ -2622,7 +2622,7 @@ mod discovery {
             r#"{"index_root":"https://user:password@example.com/index/"}"#,
         );
 
-        let err = test_env_sync_discovery(&server).expect_err("userinfo index_root must reject");
+        let err = index_env_sync_discovery(&server).expect_err("userinfo index_root must reject");
         let text = format!("{err:?}");
         assert!(
             text.contains("Userinfo") && text.contains("index_root"),
@@ -2649,7 +2649,7 @@ mod discovery {
             .create();
 
         let err =
-            test_env_sync_discovery(&server).expect_err("5xx on discovery must be a hard error");
+            index_env_sync_discovery(&server).expect_err("5xx on discovery must be a hard error");
         let text = format!("{err:?}");
         assert!(
             text.contains("BadHttpStatus") && text.contains("503"),
@@ -2686,7 +2686,7 @@ mod discovery {
             .expect(1)
             .create();
 
-        let env = test_env_sync_discovery(&server)?;
+        let env = index_env_sync_discovery(&server)?;
 
         let err = env
             .versions(purl("admin/proj0"))
@@ -2724,7 +2724,7 @@ mod discovery {
             versions_json_body([("1.0.0", "[]")]),
         );
 
-        let env = test_env_sync_discovery(&server)?;
+        let env = index_env_sync_discovery(&server)?;
 
         let versions: Vec<_> = env
             .versions(purl("admin/proj0"))?
@@ -2755,7 +2755,7 @@ mod discovery {
             versions_json_body([("1.0.0", "[]")]),
         );
 
-        let env = test_env_sync_discovery(&server)?;
+        let env = index_env_sync_discovery(&server)?;
 
         let versions: Vec<_> = env
             .versions(purl("admin/proj0"))?

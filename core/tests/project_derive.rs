@@ -246,7 +246,7 @@ enum WrappingEnum<Inner: ProjectRead> {
 }
 
 #[test]
-fn test_derive_forwards_checksum_canonical_hex() {
+fn derive_forwards_checksum_canonical_hex() {
     // A derived enum must delegate `checksum_canonical_hex` to the active
     // variant. Without this, a leaf type that supplies a prefetched digest
     // (like the remote-index project after versions.json lands) would be

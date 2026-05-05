@@ -98,7 +98,7 @@ fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
 ///   - the archive on disk parses and exposes the expected project —
 ///     i.e. the bytes weren't interleaved.
 #[test]
-fn test_concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::error::Error>> {
+fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::error::Error>> {
     use sha2::{Digest as _, Sha256};
 
     let kpar_bytes = {
@@ -170,7 +170,7 @@ fn test_concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std:
 }
 
 #[test]
-fn test_expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::Error>> {
+fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::Error>> {
     use sha2::{Digest as _, Sha256};
 
     let kpar_bytes = {
@@ -239,7 +239,7 @@ fn test_expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::err
 }
 
 #[test]
-fn test_index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::error::Error>> {
+fn index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::error::Error>> {
     let index_kpar = "https://example.com/project.kpar";
     let index_kpar_size = std::num::NonZeroU64::new(1234).unwrap();
     let index_kpar_digest = "a".repeat(64);
