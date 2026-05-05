@@ -137,9 +137,8 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
 /// Per-IRI cache slot: validated `versions.json` entries, shared across
 /// callers by `Rc`. The slot is only populated on a successful fetch
 /// (see `fetch_versions_json`); validation errors propagate, and the
-/// "project not in this index" 404 outcome (§8) is intentionally not
-/// cached so a project that was previously absent can become visible
-/// without restart.
+/// "project not in this index" 404 outcome (§8) is not currently
+/// cached.
 pub(crate) type VersionsCacheEntry = Rc<[AdvertisedVersion]>;
 
 /// A validated sha256 hex digest — 64 lowercase hex characters, with the
