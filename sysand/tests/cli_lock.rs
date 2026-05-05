@@ -403,7 +403,7 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
             kpar_size,
             &kpar_sha256_hex,
         )]))
-        .expect_at_least(1)
+        .expect(1)
         .create();
 
     let project_json_mock = server
@@ -411,7 +411,7 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(serde_json::to_string(&info)?)
-        .expect_at_least(1)
+        .expect(1)
         .create();
 
     let meta_json_mock = server
@@ -419,7 +419,7 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(serde_json::to_string(&meta)?)
-        .expect_at_least(1)
+        .expect(1)
         .create();
 
     let kpar_mock = server
@@ -427,7 +427,7 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         .with_status(200)
         .with_header("content-type", "application/zip")
         .with_body(&kpar_bytes)
-        .expect_at_least(1)
+        .expect(1)
         .create();
 
     let (_temp_dir, cwd, out) = run_sysand(
@@ -531,7 +531,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
             kpar_size,
             &kpar_digest_hex,
         )]))
-        .expect_at_least(1)
+        .expect(1)
         .create();
 
     let project_json_mock = server
@@ -539,7 +539,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(serde_json::to_string(&info)?)
-        .expect_at_least(1)
+        .expect(1)
         .create();
 
     let meta_json_mock = server
@@ -547,7 +547,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(serde_json::to_string(&meta)?)
-        .expect_at_least(1)
+        .expect(1)
         .create();
 
     let kpar_mock = server
@@ -555,7 +555,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .with_status(200)
         .with_header("content-type", "application/zip")
         .with_body(&kpar_bytes)
-        .expect_at_least(1)
+        .expect(1)
         .create();
 
     let (_temp_dir, cwd, out) = run_sysand(

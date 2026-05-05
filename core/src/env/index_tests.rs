@@ -231,7 +231,7 @@ fn expect_untouched(server: &mut mockito::Server, method: &str, path: &str) -> m
 }
 
 /// Register a `GET {path}` mock returning `200 application/json` with `body`,
-/// requiring at least one hit. Covers the dominant mock shape in this file;
+/// requiring exactly one hit. Covers the dominant mock shape in this file;
 /// bespoke shapes (non-200, non-JSON, exact `expect(n)`, or permissive mocks
 /// with no call-count expectation) use `server.mock(...)` directly.
 fn mock_json_get(
@@ -239,12 +239,21 @@ fn mock_json_get(
     path: &str,
     body: impl Into<String>,
 ) -> mockito::Mock {
+    mock_json_get_count(server, path, body, 1)
+}
+
+fn mock_json_get_count(
+    server: &mut mockito::Server,
+    path: &str,
+    body: impl Into<String>,
+    expected_count: usize,
+) -> mockito::Mock {
     server
         .mock("GET", path)
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(body.into())
-        .expect_at_least(1)
+        .expect(expected_count)
         .create()
 }
 
@@ -1061,7 +1070,7 @@ mod versions {
             .mock("GET", "/admin/proj0/versions.json")
             .with_status(301)
             .with_header("location", "/redirected/versions.json")
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let target_mock = mock_json_get(
@@ -1526,7 +1535,7 @@ mod get_project {
         let project_json_mock = server
             .mock("GET", "/admin/proj0/0.3.0/.project.json")
             .with_status(404)
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let _meta_json_mock = server
@@ -1580,7 +1589,7 @@ mod get_project {
         let meta_json_mock = server
             .mock("GET", "/admin/proj0/0.3.0/.meta.json")
             .with_status(404)
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
@@ -1638,7 +1647,7 @@ mod get_project {
 /// but semantically equivalent IRIs land in the same bucket. Each
 /// test seeds the mock for the normalized form and issues a
 /// non-normalized request; a missing normalization step would miss
-/// the mock and fail `expect_at_least(1)`.
+/// the mock and fail `expect(1)`.
 mod iri {
     use super::*;
 
@@ -1760,10 +1769,15 @@ mod digest {
             versions_json_body_with_project_digest([("0.3.0", "[]", &bogus_advertised_digest)]),
         );
 
-        let project_json_mock =
-            mock_json_get(&mut server, "/admin/proj0/0.3.0/.project.json", info_json);
+        let project_json_mock = mock_json_get_count(
+            &mut server,
+            "/admin/proj0/0.3.0/.project.json",
+            info_json,
+            2,
+        );
 
-        let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
+        let meta_json_mock =
+            mock_json_get_count(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json, 2);
 
         // Verification runs from JSON only.
         let kpar_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/project.kpar");
@@ -1934,7 +1948,7 @@ mod digest {
             .with_status(200)
             .with_header("content-type", "application/zip")
             .with_body(&kpar_bytes)
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
@@ -2234,7 +2248,7 @@ mod caching {
         let versions_mock = server
             .mock("GET", "/nope/nope/versions.json")
             .with_status(404)
-            .expect_at_least(2)
+            .expect(2)
             .create();
 
         let vs1: Vec<_> = env.versions(purl("nope/nope"))?.collect();
@@ -2303,7 +2317,7 @@ mod sources {
             .with_status(200)
             .with_header("content-type", "application/zip")
             .with_body(kpar_body)
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
@@ -2361,7 +2375,7 @@ mod sources {
             .with_status(200)
             .with_header("content-type", "application/zip")
             .with_body(kpar_body)
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
@@ -2417,7 +2431,7 @@ mod sources {
             .with_status(200)
             .with_header("content-type", "application/zip")
             .with_body(body)
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
@@ -2508,7 +2522,7 @@ mod discovery {
         let config_mock = server
             .mock("GET", "/sysand-index-config.json")
             .with_status(404)
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let versions_mock = mock_json_get(
@@ -2619,7 +2633,7 @@ mod discovery {
         let config_mock = server
             .mock("GET", "/sysand-index-config.json")
             .with_status(503)
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let err =
@@ -2657,7 +2671,7 @@ mod discovery {
         let remap_mock = server
             .mock("GET", "/index/admin/proj0/versions.json")
             .with_status(503)
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let env = test_env_sync_discovery(&server)?;
@@ -2687,7 +2701,7 @@ mod discovery {
             .mock("GET", "/sysand-index-config.json")
             .with_status(302)
             .with_header("location", "/actual-index-config.json")
-            .expect_at_least(1)
+            .expect(1)
             .create();
 
         let target_mock = mock_json_get(&mut server, "/actual-index-config.json", r#"{}"#);

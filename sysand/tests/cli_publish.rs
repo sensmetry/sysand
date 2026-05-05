@@ -97,7 +97,7 @@ fn mock_index_config_api_at_api(server: &mut Server) -> mockito::Mock {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(body)
-        .expect_at_least(1)
+        .expect(1)
         .create()
 }
 
