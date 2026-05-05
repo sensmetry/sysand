@@ -157,22 +157,22 @@ fn env_install_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
 
     let test_body = std::fs::read(test_path)?;
 
-    let _git_mock = server
+    let git_mock = server
         .mock("GET", "/test_lib.kpar/info/refs?service=git-upload-pack")
         .with_status(404)
-        .expect(0)
+        .expect(2) // TODO: Reduce this to 1 after caching
         .create();
 
-    let _project_mock = server
+    let project_mock = server
         .mock("HEAD", "/test_lib.kpar/.project.json")
         .with_status(404)
-        .expect(0)
+        .expect(1)
         .create();
 
-    let _meta_mock = server
+    let meta_mock = server
         .mock("HEAD", "/test_lib.kpar/.meta.json")
         .with_status(404)
-        .expect(0)
+        .expect(1)
         .create();
 
     let head_mock = server
@@ -197,6 +197,9 @@ fn env_install_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
 
     head_mock.assert();
     get_mock.assert();
+    git_mock.assert();
+    project_mock.assert();
+    meta_mock.assert();
 
     out.assert().success();
 

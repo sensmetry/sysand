@@ -523,6 +523,7 @@ mod uris {
             .mock("GET", "/index.json")
             .with_status(404)
             .with_body("not found")
+            .expect(1)
             .create();
 
         let err = env
@@ -556,6 +557,7 @@ mod uris {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"projects": []}"#)
+            .expect(1)
             .create();
 
         let uris: Result<Vec<_>, _> = env.uris()?.collect();
@@ -575,6 +577,7 @@ mod uris {
             .mock("GET", "/index.json")
             .with_status(500)
             .with_body("server error")
+            .expect(1)
             .create();
 
         assert!(env.uris().is_err());
@@ -597,6 +600,7 @@ mod uris {
             .with_status(200)
             .with_header("content-type", "text/html")
             .with_body("<html><body>not json</body></html>")
+            .expect(1)
             .create();
 
         let err = env.uris().expect_err("malformed JSON must error");
@@ -881,6 +885,7 @@ mod versions {
             .mock("GET", "/nope/nope/versions.json")
             .with_status(404)
             .with_body("not found")
+            .expect(1)
             .create();
 
         let versions: Vec<_> = env.versions(purl("nope/nope"))?.collect::<Result<_, _>>()?;
@@ -908,6 +913,7 @@ mod versions {
             .mock("GET", "/admin/proj0/versions.json")
             .with_status(403)
             .with_body("forbidden")
+            .expect(1)
             .create();
 
         let err = env
@@ -1038,6 +1044,7 @@ mod versions {
             .with_status(200)
             .with_header("content-type", "text/html")
             .with_body("<html><body>not json</body></html>")
+            .expect(1)
             .create();
 
         let err = env
@@ -1127,6 +1134,7 @@ mod get_project {
             .mock("GET", "/nope/nope/versions.json")
             .with_status(404)
             .with_body("not found")
+            .expect(1)
             .create();
 
         let err = env
@@ -1158,6 +1166,7 @@ mod get_project {
             .mock("GET", "/admin/proj0/versions.json")
             .with_status(503)
             .with_body("service unavailable")
+            .expect(1)
             .create();
 
         let err = env
@@ -1539,11 +1548,12 @@ mod get_project {
             .expect(1)
             .create();
 
-        let _meta_json_mock = server
+        let meta_json_mock = server
             .mock("GET", "/admin/proj0/0.3.0/.meta.json")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(meta_json_body())
+            .expect(1)
             .create();
 
         // `env.get_project` returns a lazy wrapper; forcing `get_project()` on it
@@ -1561,6 +1571,7 @@ mod get_project {
 
         versions_mock.assert();
         project_json_mock.assert();
+        meta_json_mock.assert();
 
         Ok(())
     }
@@ -1580,11 +1591,12 @@ mod get_project {
             versions_json_body([("0.3.0", "[]")]),
         );
 
-        let _project_json_mock = server
+        let project_json_mock = server
             .mock("GET", "/admin/proj0/0.3.0/.project.json")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(project_json_body("proj0", Some("admin"), "0.3.0", "[]"))
+            .expect(1)
             .create();
 
         let meta_json_mock = server
@@ -1604,6 +1616,7 @@ mod get_project {
         );
 
         versions_mock.assert();
+        project_json_mock.assert();
         meta_json_mock.assert();
 
         Ok(())
@@ -2208,28 +2221,20 @@ mod caching {
             .expect(1)
             .create();
 
-        // get_project also reaches `.project.json` / `.meta.json`; mock them
-        // so the call succeeds, but they're orthogonal to the versions.json
-        // cache assertion (no expectation on count).
-        let _project_json_mock = server
-            .mock("GET", "/admin/proj0/0.3.0/.project.json")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(project_json_body("proj0", Some("admin"), "0.3.0", "[]"))
-            .create();
-        let _meta_json_mock = server
-            .mock("GET", "/admin/proj0/0.3.0/.meta.json")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(meta_json_body())
-            .create();
+        let project_json_mock =
+            expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/.project.json");
+        let meta_json_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/.meta.json");
 
         // Three independent calls into paths that consult versions.json.
+        // `get_project` returns a lazy wrapper, so it must not fetch the
+        // per-version documents until the wrapper is forced.
         let _ = env.versions(purl("admin/proj0"))?.collect::<Vec<_>>();
         let _ = env.versions(purl("admin/proj0"))?.collect::<Vec<_>>();
         let _ = env.get_project(purl("admin/proj0"), "0.3.0")?;
 
         versions_mock.assert();
+        project_json_mock.assert();
+        meta_json_mock.assert();
 
         Ok(())
     }

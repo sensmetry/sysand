@@ -47,6 +47,7 @@ fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/zip")
         .with_body(&buf)
+        .expect(1)
         .create();
 
     let project = super::ReqwestKparDownloadedProject::new_guess_root(

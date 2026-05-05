@@ -1057,6 +1057,7 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", format!("{iri_dir}/versions.json").as_str())
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
+        .expect(1)
         .create();
 
     let versions_mock_auth = server
@@ -1070,10 +1071,11 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
 
     // Unauthenticated 404 lets the auth policy retry with credentials —
     // matches the same retry-on-404 pattern as the versions.json pair above.
-    let _project_json_mock_404 = server
+    let project_json_mock_404 = server
         .mock("GET", format!("{iri_dir}/1.2.3/.project.json").as_str())
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
+        .expect(1)
         .create();
 
     let project_json_mock_auth = server
@@ -1085,10 +1087,11 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
         .expect(1)
         .create();
 
-    let _meta_json_mock_404 = server
+    let meta_json_mock_404 = server
         .mock("GET", format!("{iri_dir}/1.2.3/.meta.json").as_str())
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
+        .expect(1)
         .create();
 
     let meta_json_mock_auth = server
@@ -1180,7 +1183,9 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
 
     versions_mock.assert();
     versions_mock_auth.assert();
+    project_json_mock_404.assert();
     project_json_mock_auth.assert();
+    meta_json_mock_404.assert();
     meta_json_mock_auth.assert();
     kpar_mock.assert();
 

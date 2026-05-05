@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use assert_cmd::prelude::*;
-use mockito::{Server, ServerGuard};
+use mockito::{Mock, Server, ServerGuard};
 use predicates::{prelude::*, str::contains};
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
@@ -154,6 +154,7 @@ fn mock_project<
     I: IntoIterator<Item = U>,
 >(
     server: &mut ServerGuard,
+    mocks: &mut Vec<Mock>,
     path: P,
     name: N,
     version: V,
@@ -164,39 +165,52 @@ fn mock_project<
         .map(|dep| json!({"resource": dep.as_ref()}))
         .collect();
 
-    server
-        .mock("HEAD", format!("/{}/.project.json", path.as_ref()).as_str())
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(
-            json!({"name": name.as_ref(), "version": version.as_ref(), "usage": usage}).to_string(),
-        )
-        .create();
+    let path = path.as_ref();
+    let project_body =
+        json!({"name": name.as_ref(), "version": version.as_ref(), "usage": usage}).to_string();
+    let meta_body = json!({"index":{}, "created": "0000-00-00T00:00:00.123456789Z"}).to_string();
 
-    server
-        .mock("GET", format!("/{}/.project.json", path.as_ref()).as_str())
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(
-            json!({"name": name.as_ref(), "version": version.as_ref(), "usage": usage}).to_string(),
-        )
-        .create();
+    mocks.push(
+        server
+            .mock("HEAD", format!("/{path}/.project.json").as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(project_body.clone())
+            .expect_at_least(1)
+            .create(),
+    );
 
-    server
-        .mock("HEAD", format!("/{}/.meta.json", path.as_ref()).as_str())
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(json!({"index":{}, "created": "0000-00-00T00:00:00.123456789Z"}).to_string())
-        .create();
+    mocks.push(
+        server
+            .mock("GET", format!("/{path}/.project.json").as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(project_body)
+            .expect_at_least(1)
+            .create(),
+    );
 
-    server
-        .mock("GET", format!("/{}/.meta.json", path.as_ref()).as_str())
-        .with_status(200)
-        .with_header("content-type", "application/json")
-        .with_body(json!({"index":{}, "created": "0000-00-00T00:00:00.123456789Z"}).to_string())
-        .create();
+    mocks.push(
+        server
+            .mock("HEAD", format!("/{path}/.meta.json").as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(meta_body.clone())
+            .expect_at_least(1)
+            .create(),
+    );
 
-    format!("{}/{}", server.url(), path.as_ref())
+    mocks.push(
+        server
+            .mock("GET", format!("/{path}/.meta.json").as_str())
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(meta_body)
+            .expect_at_least(1)
+            .create(),
+    );
+
+    format!("{}/{}", server.url(), path)
 }
 
 const NO_DEP: [&str; 0] = [""; 0];
@@ -239,11 +253,20 @@ fn inject_usages_versions<
 #[test]
 fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
+    let mut project_mocks = Vec::new();
 
-    let c_url = mock_project(&mut server, "c", "lock_basic_http_deps_c", "1.0.0", NO_DEP);
+    let c_url = mock_project(
+        &mut server,
+        &mut project_mocks,
+        "c",
+        "lock_basic_http_deps_c",
+        "1.0.0",
+        NO_DEP,
+    );
 
     let a_url = mock_project(
         &mut server,
+        &mut project_mocks,
         "a",
         "lock_basic_http_deps_a",
         "1.0.0",
@@ -251,6 +274,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     );
     let b_url = mock_project(
         &mut server,
+        &mut project_mocks,
         "b",
         "lock_basic_http_deps_b",
         "1.0.0",
@@ -314,6 +338,10 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     assert!(entries.contains(&a_url));
     assert!(entries.contains(&b_url));
     assert!(entries.contains(&c_url));
+
+    for mock in project_mocks {
+        mock.assert();
+    }
 
     Ok(())
 }
@@ -674,8 +702,16 @@ fn lock_rejects_non_normalized_sysand_purl() -> Result<(), Box<dyn std::error::E
 #[test]
 fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
+    let mut project_mocks = Vec::new();
 
-    let a_url = mock_project(&mut server, "a", "lock_basic_http_deps_a", "1.0.0", NO_DEP);
+    let a_url = mock_project(
+        &mut server,
+        &mut project_mocks,
+        "a",
+        "lock_basic_http_deps_a",
+        "1.0.0",
+        NO_DEP,
+    );
 
     let (_temp_dir, cwd, out) = run_sysand(
         [
@@ -697,6 +733,10 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .failure()
         .stderr(contains("requested version unavailable"));
+
+    for mock in project_mocks {
+        mock.assert();
+    }
 
     Ok(())
 }
