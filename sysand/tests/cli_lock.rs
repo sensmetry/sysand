@@ -373,23 +373,24 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
     let project_digest_hex = format!("{:x}", project_hash_raw(&info, &meta));
     let kpar_size = kpar_bytes.len();
 
-    // `sysand lock` targets a specific IRI via `versions_async`, so
-    // `index.json` isn't required on this path. Mock it anyway so an
-    // accidental enumeration during refactors doesn't surface as a 501.
-    let _index_mock = server
+    // `sysand lock` targets a specific IRI via `versions_async`; it must not
+    // enumerate `index.json`, which is a comparatively expensive operation.
+    let index_mock = server
         .mock("GET", "/index.json")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(format!(
             r#"{{"projects":[{{"iri":"{PKG_SYSAND_PREFIX}mock/dep"}}]}}"#
         ))
+        .expect(0)
         .create();
 
     // Discovery: no document present means `index_root` / `api_root`
     // both default to the discovery root.
-    let _config_mock = server
+    let config_mock = server
         .mock("GET", "/sysand-index-config.json")
         .with_status(404)
+        .expect(1)
         .create();
 
     let versions_mock = server
@@ -493,6 +494,8 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
     project_json_mock.assert();
     meta_json_mock.assert();
     kpar_mock.assert();
+    config_mock.assert();
+    index_mock.assert();
 
     Ok(())
 }
@@ -515,9 +518,10 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     let locked_project_digest = format!("{:x}", project_hash_raw(&info, &meta));
     let kpar_size = kpar_bytes.len();
 
-    let _config_mock = server
+    let config_mock = server
         .mock("GET", "/sysand-index-config.json")
         .with_status(404)
+        .expect(1)
         .create();
 
     let versions_mock = server
@@ -554,7 +558,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .with_status(200)
         .with_header("content-type", "application/zip")
         .with_body(&kpar_bytes)
-        .expect(1)
+        .expect(0)
         .create();
 
     let (_temp_dir, cwd, out) = run_sysand(
@@ -597,6 +601,12 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         "lockfile must retain the advertised kpar_digest for sync-time verification"
     );
 
+    versions_mock.assert();
+    project_json_mock.assert();
+    meta_json_mock.assert();
+    kpar_mock.assert();
+    config_mock.assert();
+
     // Drift the server: keep the URL stable but swap the archive bytes. `sync`
     // should now fail on the recorded archive digest before installation.
     server.reset();
@@ -606,11 +616,12 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .first_mut()
         .expect("test kpar builder should produce non-empty archive bytes");
     *first_byte ^= 0xff;
-    let _drifted_kpar_mock = server
+    let drifted_kpar_mock = server
         .mock("GET", "/mock/dep/0.1.0/project.kpar")
         .with_status(200)
         .with_header("content-type", "application/zip")
         .with_body(&drifted_kpar_bytes)
+        .expect(1)
         .create();
 
     // Now sync. The stored `index_kpar_digest` should reject the drifted bytes
@@ -621,12 +632,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .stderr(predicate::str::contains("sha256"))
         .stderr(predicate::str::contains("expected digest"));
 
-    // Suppress unused-variable warnings for the lock-time mocks; the
-    // lock-time mocks are the ones that must have been reached.
-    let _ = versions_mock;
-    let _ = project_json_mock;
-    let _ = meta_json_mock;
-    let _ = kpar_mock;
+    drifted_kpar_mock.assert();
 
     Ok(())
 }
