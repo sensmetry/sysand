@@ -228,6 +228,10 @@ fn test_expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::err
         !project.is_downloaded_and_verified(),
         "size mismatch must not be reported as success"
     );
+    assert!(
+        !project.inner.archive_path.exists(),
+        "content-length mismatch must not create an archive file"
+    );
     get_kpar.assert();
 
     Ok(())

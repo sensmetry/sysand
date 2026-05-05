@@ -161,8 +161,6 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
     async fn perform_download(&self) -> Result<(), ReqwestKparDownloadedError> {
         use futures::StreamExt as _;
 
-        let mut file = wrapfs::File::create(&self.inner.archive_path)?;
-
         let resp = self
             .auth_policy
             .with_authentication(&self.client, &kpar_get_request(self.url.clone()))
@@ -185,6 +183,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
             });
         }
 
+        let mut file = wrapfs::File::create(&self.inner.archive_path)?;
         let mut bytes_stream = resp.bytes_stream();
         let mut hasher = self.expected_sha256_hex.as_deref().map(|_| Sha256::new());
         let mut written = 0_u64;
