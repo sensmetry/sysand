@@ -492,8 +492,7 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
     /// when the server returns 404 — per §8 that means the project is
     /// not in this index, which the callers (`versions_async`,
     /// `get_project_async`) translate into their respective absence
-    /// signals. The absence outcome is intentionally not cached so a
-    /// later publish to the same index is observable without restart.
+    /// signals. The absence outcome is currently not cached.
     async fn fetch_versions_json<S: AsRef<str>>(
         &self,
         iri: S,
