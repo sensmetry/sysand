@@ -281,16 +281,6 @@ Duplicates:
 Absence:
 
 - A `versions.json` 404 means the project is not in this index.
-  Clients query indexes by IRI without first consulting
-  `index.json`, and each index hosts only some IRIs, so a 404 here
-  is the ordinary "look elsewhere" signal — not a protocol
-  violation. A client MUST treat the 404 as "not in this index";
-  in a resolver chain it continues to the next source, and the
-  operation fails only when no source returns a usable `versions.json`
-  and no source returns a hard error. Non-404 errors remain hard
-  errors. This applies to `get_project` as well: a 404 on that
-  project's `versions.json` reports "not in this index" to the direct
-  caller, who decides whether that is fatal.
 - A project that the index lists in `index.json` but for which no
   version has been published is represented by a 200 response with
   `{ "versions": [] }`. Servers MUST serve a `versions.json` for
