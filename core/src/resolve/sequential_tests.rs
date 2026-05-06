@@ -37,7 +37,7 @@ fn mock_project<S: AsRef<str>, T: AsRef<str>, V: AsRef<str>>(
             }),
             meta: Some(InterchangeProjectMetadataRaw {
                 index: IndexMap::default(),
-                created: chrono::Utc::now().to_rfc3339(),
+                created: crate::model::format_created_now(),
                 metamodel: None,
                 includes_derived: None,
                 includes_implied: None,

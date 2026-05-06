@@ -91,7 +91,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             index_urls,
             runtime.clone(),
             auth_policy.clone(),
-        );
+        )?;
         let outcome = std_resolver.resolve_read_raw(&url)?;
         let mut source = None;
         match outcome {

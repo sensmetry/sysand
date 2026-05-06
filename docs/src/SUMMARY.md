@@ -44,3 +44,8 @@
 - [Configuration](config.md)
   - [Indexes](config/indexes.md)
   - [Dependencies](config/dependencies.md)
+
+# For developers
+
+- [Sysand index protocol](index-protocol.md)
+- [Sysand index API protocol](index-api-protocol.md)

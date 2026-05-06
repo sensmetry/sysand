@@ -16,12 +16,16 @@ use crate::{
 // pub mod utils;
 
 // Implementations
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod discovery;
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod index;
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub(crate) mod iri_normalize;
 #[cfg(feature = "filesystem")]
 pub mod local_directory;
 pub mod memory;
 pub mod null;
-#[cfg(all(feature = "filesystem", feature = "networking"))]
-pub mod reqwest_http;
 
 pub mod utils;
 

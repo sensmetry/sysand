@@ -162,7 +162,7 @@ pub fn create_resolver<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>, Policy: HTTPAuthe
             index_urls,
             runtime,
             auth_policy,
-        ),
+        )?,
     );
 
     Ok(wrapped_resolver)

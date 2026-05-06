@@ -49,9 +49,9 @@ away).
 ## Options
 
 - `--index <URL>`: URL of the package index to publish to. Required.
-  Provide the index root URL (for example, `https://sysand.org` or
-  `https://my-index.example.com/index`), not the upload endpoint path
-  (`/api/v1/upload`).
+  This may point to a path containing `sysand-index-config.json` (for example,
+  `https://sysand.org`), or directly to the API root that receives publish
+  uploads (for example, `https://my-index.example.com/api`).
 
 {{#include ./partials/global_opts.md}}
 

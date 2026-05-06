@@ -120,7 +120,7 @@ pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
 
     Ok(wrapped_result
         .drain()
-        .filter_map(|(_, (_, _, project))| match project {
+        .filter_map(|(_, project)| match project {
             PriorityProject::HigherProject(_) => None,
             PriorityProject::LowerProject(project) => Some(project),
         })

@@ -3,8 +3,8 @@
 
 use fluent_uri::Iri;
 use std::{
-    collections::{HashMap, HashSet},
-    fmt::Debug,
+    collections::{HashMap, HashSet, hash_map::Entry},
+    fmt::{self, Debug},
 };
 
 #[cfg(feature = "filesystem")]
@@ -23,6 +23,23 @@ use crate::{
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncompleteField {
+    Info,
+    Meta,
+    CanonicalDigest,
+}
+
+impl fmt::Display for IncompleteField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IncompleteField::Info => f.write_str("info"),
+            IncompleteField::Meta => f.write_str("meta"),
+            IncompleteField::CanonicalDigest => f.write_str("canonical digest"),
+        }
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum LockProjectError<PI: ProjectRead, PD: ProjectRead, R: ResolveRead + Debug + 'static> {
@@ -45,6 +62,17 @@ pub struct NameCollisionError {
 }
 
 #[derive(Error, Debug)]
+#[error(
+    "symbol name `{}` is exported more than once by the same project:\n{:#}",
+    .symbol,
+    .project.to_toml(),
+)]
+pub struct SelfNameCollisionError {
+    pub symbol: String,
+    pub project: Project,
+}
+
+#[derive(Error, Debug)]
 pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     #[error(transparent)]
     DependencyProject(PD::Error),
@@ -52,14 +80,26 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     DependencyProjectCanonicalization(CanonicalizationError<PD::Error>),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error("incomplete project{0}")]
-    IncompleteInputProject(String),
+    #[error("incomplete project {project_label}: missing {field}")]
+    IncompleteProject {
+        /// Human-readable label for the project (an IRI when the project
+        /// was resolved for a usage, a name+version when available locally, or
+        /// `<unknown input project>` as a last resort). Deliberately avoids
+        /// dumping the whole `project` via `{:?}` — that output is large,
+        /// full of impl detail, and almost never actionable.
+        project_label: String,
+        /// Which required piece was missing: `info`, `meta`, or
+        /// `canonical digest`.
+        field: IncompleteField,
+    },
     #[error(transparent)]
     Validation(InterchangeProjectValidationError),
     #[error(transparent)]
     Solver(SolverError<R>),
     #[error(transparent)]
     NameCollision(Box<NameCollisionError>),
+    #[error(transparent)]
+    SelfNameCollision(Box<SelfNameCollisionError>),
 }
 
 pub struct LockOutcome<PD> {
@@ -94,19 +134,42 @@ pub fn do_lock_projects<
     let mut all_deps = vec![];
 
     for (identifiers, project) in projects {
+        // Before `info` is known: prefer a caller-supplied IRI, else a
+        // placeholder. After `info` is available (meta/canonical paths),
+        // the name+version is a strictly better label.
+        let input_project_label = || match identifiers.as_ref().and_then(|ids| ids.first()) {
+            Some(iri) => format!("`{iri}`"),
+            None => "<unknown input project>".to_string(),
+        };
+
         let info = project
             .get_info()
             .map_err(LockProjectError::InputProjectError)?
-            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
+            .ok_or_else(|| {
+                LockProjectError::LockError(LockError::IncompleteProject {
+                    project_label: input_project_label(),
+                    field: IncompleteField::Info,
+                })
+            })?;
+        let named_project_label = format!("`{}` {}", info.name, info.version);
         let meta = project
             .get_meta()
             .map_err(LockProjectError::InputProjectError)?
-            .ok_or_else(|| LockError::IncompleteInputProject(format!("{:?}", project)))?;
-
-        let canonical_hash = project
+            .ok_or_else(|| {
+                LockProjectError::LockError(LockError::IncompleteProject {
+                    project_label: named_project_label.clone(),
+                    field: IncompleteField::Meta,
+                })
+            })?;
+        let canonical_digest = project
             .checksum_canonical_hex()
             .map_err(LockProjectError::InputProjectCanonicalizationError)?
-            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
+            .ok_or_else(|| {
+                LockProjectError::LockError(LockError::IncompleteProject {
+                    project_label: named_project_label,
+                    field: IncompleteField::CanonicalDigest,
+                })
+            })?;
 
         let sources = project
             .sources(ctx)
@@ -121,7 +184,7 @@ pub fn do_lock_projects<
             identifiers: identifiers
                 .map(|ids| ids.into_iter().map(|id| id.into_string()).collect())
                 .unwrap_or_default(),
-            checksum: canonical_hash,
+            checksum: canonical_digest,
             sources,
             usages: info
                 .usage
@@ -184,11 +247,29 @@ pub fn do_lock_extend<
         }
     }
 
-    for (iri, (info, meta, project)) in solution {
-        let canonical_hash = project
+    for (iri, project) in solution {
+        let iri_str = iri.as_str().to_owned();
+        let info = project
+            .get_info()
+            .map_err(LockError::DependencyProject)?
+            .ok_or_else(|| LockError::IncompleteProject {
+                project_label: iri_str.clone(),
+                field: IncompleteField::Info,
+            })?;
+        let meta = project
+            .get_meta()
+            .map_err(LockError::DependencyProject)?
+            .ok_or_else(|| LockError::IncompleteProject {
+                project_label: iri_str.clone(),
+                field: IncompleteField::Meta,
+            })?;
+        let canonical_digest = project
             .checksum_canonical_hex()
             .map_err(LockError::DependencyProjectCanonicalization)?
-            .ok_or_else(|| LockError::IncompleteInputProject(format!("\n{:?}", project)))?;
+            .ok_or_else(|| LockError::IncompleteProject {
+                project_label: iri_str.clone(),
+                field: IncompleteField::CanonicalDigest,
+            })?;
 
         let sources = if !provided_iris.contains_key(iri.as_str()) {
             let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;
@@ -204,7 +285,7 @@ pub fn do_lock_extend<
             version: info.version.to_string(),
             exports: meta.index.into_keys().collect(),
             identifiers: vec![iri.to_string()],
-            checksum: canonical_hash,
+            checksum: canonical_digest,
             sources,
             usages: info
                 .usage
@@ -219,21 +300,33 @@ pub fn do_lock_extend<
                 lock_project.version
             );
         } else {
+            let new_idx = lock.projects.len();
             for s in &lock_project.exports {
-                if let Some(conflict_idx) = lock_symbols.insert(hash_str(s), lock.projects.len()) {
-                    return Err(LockError::NameCollision(
-                        NameCollisionError {
-                            symbol: s.to_owned(),
-                            pr1: if conflict_idx == lock.projects.len() {
-                                // Will happen if `lock_project` exports duplicate symbols
-                                lock_project.clone()
-                            } else {
-                                lock.projects[conflict_idx].clone()
-                            },
-                            pr2: lock_project,
+                let h = hash_str(s);
+                match lock_symbols.entry(h) {
+                    Entry::Occupied(occupied) => {
+                        let conflict_idx = *occupied.get();
+                        if conflict_idx == new_idx {
+                            return Err(LockError::SelfNameCollision(
+                                SelfNameCollisionError {
+                                    symbol: s.to_owned(),
+                                    project: lock_project,
+                                }
+                                .into(),
+                            ));
                         }
-                        .into(),
-                    ));
+                        return Err(LockError::NameCollision(
+                            NameCollisionError {
+                                symbol: s.to_owned(),
+                                pr1: lock.projects[conflict_idx].clone(),
+                                pr2: lock_project,
+                            }
+                            .into(),
+                        ));
+                    }
+                    Entry::Vacant(vacant) => {
+                        vacant.insert(new_idx);
+                    }
                 }
             }
             lock.projects.push(lock_project);

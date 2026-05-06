@@ -10,9 +10,7 @@ use typed_path::Utf8UnixPath;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{
-        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, ProjectHash, project_hash_raw,
-    },
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectRead, cached::CachedProject},
     resolve::{ResolutionOutcome, ResolveRead, null::NullResolver},
 };
@@ -23,12 +21,12 @@ use crate::{
 /// 1. Do not resolve any further if file_resolver is successful, otherwise go to step 2.
 /// 2. If remote_resolver produces any results, discard any that do not point to a valid
 ///    project (i.e. do not produce both a info and meta). If at least one project is found
-///    proceed to 4. (skipping 3.)
-/// 3. Take whatever results are produced by remote_resolver and proceed to step 4.
+///    proceed to step 4. (skipping 3.)
+/// 3. If index_resolver produces any results, proceed to step 4.
 /// 4. If local_resolver resolves anything, collect all the results. Iterate over the results
 ///    from previous steps, but interleave results from local_resolver when they have
-///    identical hashes. Any results from local_resolver that were not interleaved are returned
-///    at the end.
+///    identical hashes. Any results from local_resolver that were not interleaved are
+///    returned at the end.
 ///
 ///    Cached values are returned exactly once (so if the underlying resolver gives duplicates
 ///    they will appear cached only one time).
@@ -37,13 +35,14 @@ use crate::{
 /// - file_resolver represents private projects
 /// - remote_resolver is prioritised, but may be ignored if it does not resolve valid projects
 ///   (typically due to using non-resolving URLs to reference a resource)
-/// - registry_resolver is what will typically be hit when using non-resolvable IRIs
+/// - index_resolver wraps a sysand index server and is what will typically be
+///   hit when using non-resolvable IRIs (see `docs/src/index-protocol.md`)
 /// - local_resolver serves to provide a cache, but may contain "dangling" cached projects
 ///
 /// Each resolver is optional, and can be skipped by passing `None`. `NO_RESOLVER` is a typed `None`
 /// value that can be used to avoid ambiguous typing.
 #[derive(Debug)]
-pub struct CombinedResolver<FileResolver, LocalResolver, RemoteResolver, RegistryResolver> {
+pub struct CombinedResolver<FileResolver, LocalResolver, RemoteResolver, IndexResolver> {
     /// A resolver for whatever is considered a local file in the environment,
     /// would *typically* accept only file:// URLs
     pub file_resolver: Option<FileResolver>,
@@ -52,16 +51,16 @@ pub struct CombinedResolver<FileResolver, LocalResolver, RemoteResolver, Registr
     /// A resolver for whatever is considered remote URLs, would typically resolves
     /// http(s) and git-URLs, as well as, possibly, FTP, rsync, scp, ...
     pub remote_resolver: Option<RemoteResolver>,
-    /// A resolver for whatever is considered a central project registry, typically
-    /// resolves only urn:kpar:... names and, possibly, unresolvable http(s) URLs.
-    pub index_resolver: Option<RegistryResolver>,
+    /// A resolver for a sysand index server. Resolves `pkg:sysand/…`
+    /// IRIs, and also opaque IRIs such as `urn:kpar:`.
+    pub index_resolver: Option<IndexResolver>,
 }
 
 /// Utility resolver
 pub const NO_RESOLVER: Option<NullResolver> = None;
 
 #[derive(Error, Debug)]
-pub enum CombinedResolverError<FileError, LocalError, RemoteError, RegistryError> {
+pub enum CombinedResolverError<FileError, LocalError, RemoteError, IndexError> {
     #[error(transparent)]
     File(FileError),
     #[error(transparent)]
@@ -69,7 +68,7 @@ pub enum CombinedResolverError<FileError, LocalError, RemoteError, RegistryError
     #[error(transparent)]
     Remote(RemoteError),
     #[error(transparent)]
-    Registry(RegistryError),
+    Index(IndexError),
 }
 
 /// Outcome of a standard resolution remembers the (resolver) source of the project.
@@ -79,20 +78,20 @@ pub enum CombinedProjectStorage<
     FileProjectStorage: ProjectRead,
     LocalProjectStorage: ProjectRead,
     RemoteProjectStorage: ProjectRead,
-    RegistryProjectStorage: ProjectRead,
+    IndexProjectStorage: ProjectRead,
 > {
     FileProject(FileProjectStorage),
     RemoteProject(RemoteProjectStorage),
-    RegistryProject(RegistryProjectStorage),
+    IndexProject(IndexProjectStorage),
     CachedRemoteProject(CachedProject<LocalProjectStorage, RemoteProjectStorage>),
-    CachedRegistryProject(CachedProject<LocalProjectStorage, RegistryProjectStorage>),
+    CachedIndexProject(CachedProject<LocalProjectStorage, IndexProjectStorage>),
     DanglingLocalProject(LocalProjectStorage),
 }
 
 pub enum CombinedIteratorState<
     FileResolver: ResolveRead,
     RemoteResolver: ResolveRead,
-    RegistryResolver: ResolveRead,
+    IndexResolver: ResolveRead,
 > {
     /// The IRI was resolved as a local path
     ResolvedFile(<<FileResolver as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter),
@@ -100,10 +99,8 @@ pub enum CombinedIteratorState<
     ResolvedRemote(
         Peekable<<<RemoteResolver as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter>,
     ),
-    /// We rely on the remote registry
-    ResolvedRegistry(
-        <<RegistryResolver as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter,
-    ),
+    /// We rely on the sysand index
+    ResolvedIndex(<<IndexResolver as ResolveRead>::ResolvedStorages as IntoIterator>::IntoIter),
     /// At most some local hits (not resolved otherwise) remain
     Done,
 }
@@ -112,31 +109,31 @@ pub struct CombinedIterator<
     FileResolver: ResolveRead,
     LocalResolver: ResolveRead,
     RemoteResolver: ResolveRead,
-    RegistryResolver: ResolveRead,
+    IndexResolver: ResolveRead,
 > {
-    pub state: CombinedIteratorState<FileResolver, RemoteResolver, RegistryResolver>,
-    pub locals: IndexMap<ProjectHash, LocalResolver::ProjectStorage>,
+    pub state: CombinedIteratorState<FileResolver, RemoteResolver, IndexResolver>,
+    pub locals: IndexMap<String, LocalResolver::ProjectStorage>,
 }
 
 impl<
     FileResolver: ResolveRead,
     LocalResolver: ResolveRead,
     RemoteResolver: ResolveRead,
-    RegistryResolver: ResolveRead,
-> Iterator for CombinedIterator<FileResolver, LocalResolver, RemoteResolver, RegistryResolver>
+    IndexResolver: ResolveRead,
+> Iterator for CombinedIterator<FileResolver, LocalResolver, RemoteResolver, IndexResolver>
 {
     type Item = Result<
         CombinedProjectStorage<
             FileResolver::ProjectStorage,
             LocalResolver::ProjectStorage,
             RemoteResolver::ProjectStorage,
-            RegistryResolver::ProjectStorage,
+            IndexResolver::ProjectStorage,
         >,
         CombinedResolverError<
             FileResolver::Error,
             LocalResolver::Error,
             RemoteResolver::Error,
-            RegistryResolver::Error,
+            IndexResolver::Error,
         >,
     >;
 
@@ -152,13 +149,16 @@ impl<
                 .map(|v| Ok(CombinedProjectStorage::DanglingLocalProject(v.1))),
             CombinedIteratorState::ResolvedRemote(iter) => match iter.next() {
                 Some(r) => Some(r.map_err(CombinedResolverError::Remote).map(|project| {
-                    let cached = project
-                        .get_project()
-                        .ok()
-                        .and_then(|(spec, meta)| spec.zip(meta))
-                        .and_then(|(spec, meta)| {
-                            self.locals.shift_remove(&project_hash_raw(&spec, &meta))
-                        });
+                    let cached = match project.checksum_canonical_hex() {
+                        Ok(opt) => opt
+                            .and_then(|checksum| self.locals.shift_remove(&checksum)),
+                        Err(err) => {
+                            log::debug!(
+                                "remote-project checksum_canonical_hex failed; skipping local-cache match: {err}"
+                            );
+                            None
+                        }
+                    };
 
                     if let Some(local_project) = cached {
                         CombinedProjectStorage::CachedRemoteProject(CachedProject::new(
@@ -174,23 +174,26 @@ impl<
                     self.next()
                 }
             },
-            CombinedIteratorState::ResolvedRegistry(iter) => match iter.next() {
-                Some(r) => Some(r.map_err(CombinedResolverError::Registry).map(|project| {
-                    let cached = project
-                        .get_project()
-                        .ok()
-                        .and_then(|(spec, meta)| spec.zip(meta))
-                        .and_then(|(spec, meta)| {
-                            self.locals.shift_remove(&project_hash_raw(&spec, &meta))
-                        });
+            CombinedIteratorState::ResolvedIndex(iter) => match iter.next() {
+                Some(r) => Some(r.map_err(CombinedResolverError::Index).map(|project| {
+                    let cached = match project.checksum_canonical_hex() {
+                        Ok(opt) => opt
+                            .and_then(|checksum| self.locals.shift_remove(&checksum)),
+                        Err(err) => {
+                            log::debug!(
+                                "index-project checksum_canonical_hex failed; skipping local-cache match: {err}"
+                            );
+                            None
+                        }
+                    };
 
                     if let Some(local_project) = cached {
-                        CombinedProjectStorage::CachedRegistryProject(CachedProject::new(
+                        CombinedProjectStorage::CachedIndexProject(CachedProject::new(
                             local_project,
                             project,
                         ))
                     } else {
-                        CombinedProjectStorage::RegistryProject(project)
+                        CombinedProjectStorage::IndexProject(project)
                     }
                 })),
                 None => {
@@ -206,26 +209,26 @@ impl<
     FileResolver: ResolveRead,
     LocalResolver: ResolveRead,
     RemoteResolver: ResolveRead,
-    RegistryResolver: ResolveRead,
-> ResolveRead for CombinedResolver<FileResolver, LocalResolver, RemoteResolver, RegistryResolver>
+    IndexResolver: ResolveRead,
+> ResolveRead for CombinedResolver<FileResolver, LocalResolver, RemoteResolver, IndexResolver>
 {
     type Error = CombinedResolverError<
         FileResolver::Error,
         LocalResolver::Error,
         RemoteResolver::Error,
-        RegistryResolver::Error,
+        IndexResolver::Error,
     >;
 
     type ProjectStorage = CombinedProjectStorage<
         FileResolver::ProjectStorage,
         LocalResolver::ProjectStorage,
         RemoteResolver::ProjectStorage,
-        RegistryResolver::ProjectStorage,
+        IndexResolver::ProjectStorage,
     >;
 
     // TODO: Replace this with something more efficient
     type ResolvedStorages =
-        CombinedIterator<FileResolver, LocalResolver, RemoteResolver, RegistryResolver>;
+        CombinedIterator<FileResolver, LocalResolver, RemoteResolver, IndexResolver>;
 
     fn resolve_read(
         &self,
@@ -260,7 +263,7 @@ impl<
         }
 
         // Collect local cached projects
-        let mut locals: IndexMap<ProjectHash, LocalResolver::ProjectStorage> = IndexMap::new();
+        let mut locals: IndexMap<String, LocalResolver::ProjectStorage> = IndexMap::new();
 
         if let Some(local_resolver) = &self.local_resolver {
             match local_resolver
@@ -276,13 +279,13 @@ impl<
                                     "local resolver rejected project with IRI `{uri}`: {err}",
                                 );
                             }
-                            Ok(project) => match project.get_project() {
-                                Ok((Some(info), Some(meta))) => {
-                                    locals.insert(project_hash_raw(&info, &meta), project);
+                            Ok(project) => match project.checksum_canonical_hex() {
+                                Ok(Some(checksum)) => {
+                                    locals.insert(checksum, project);
                                 }
-                                Ok(_) => {
+                                Ok(None) => {
                                     log::debug!(
-                                        "local resolver rejected project with IRI `{uri}` due to missing project info/meta",
+                                        "local resolver rejected project with IRI `{uri}`: no `.project.json` or `.meta.json`",
                                     );
                                 }
                                 Err(err) => {
@@ -375,24 +378,24 @@ impl<
             }
         }
 
-        // Finally try the centralised registry if neither file/remote gave anything useful
+        // Finally try the sysand index if neither file/remote gave anything useful
         if let Some(index_resolver) = &self.index_resolver {
             match index_resolver
                 .resolve_read(uri)
-                .map_err(CombinedResolverError::Registry)?
+                .map_err(CombinedResolverError::Index)?
             {
                 ResolutionOutcome::Resolved(x) => {
                     return Ok(ResolutionOutcome::Resolved(CombinedIterator {
-                        state: CombinedIteratorState::ResolvedRegistry(x.into_iter()),
+                        state: CombinedIteratorState::ResolvedIndex(x.into_iter()),
                         locals,
                     }));
                 }
                 ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("registry resolver rejected IRI `{uri}` due to: {msg}");
+                    log::debug!("index resolver rejected IRI `{uri}` due to: {msg}");
                 }
                 ResolutionOutcome::Unresolvable(msg) => {
                     at_least_one_supports = true;
-                    log::debug!("registry resolver unable to resolve IRI `{uri}`: {msg}");
+                    log::debug!("index resolver unable to resolve IRI `{uri}`: {msg}");
                 }
             };
         }

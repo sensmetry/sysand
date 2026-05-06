@@ -22,6 +22,7 @@ fn test_basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"test_basic_http_src_url","version":"1.2.3","usage":[]}"#)
+        .expect(1)
         .create();
 
     let meta_mock = server
@@ -29,6 +30,7 @@ fn test_basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
+        .expect(1)
         .create();
 
     let client = create_reqwest_client()?;

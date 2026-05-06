@@ -8,8 +8,12 @@ use camino::Utf8PathBuf;
 use sysand_core::{
     auth::{GlobMapResult, StandardHTTPAuthentication},
     build::default_kpar_path,
-    commands::publish::{build_upload_url, do_publish},
+    commands::publish::{
+        EndpointKind, build_upload_url, do_publish, prepare_publish_payload,
+        validate_endpoint_url_shape,
+    },
     context::ProjectContext,
+    env::discovery::{ResolvedEndpoints, fetch_index_config},
     project::utils::wrapfs,
 };
 use url::Url;
@@ -28,12 +32,27 @@ pub fn command_publish(
     if !wrapfs::is_file(&kpar_path)? {
         bail!("KPAR file not found at `{kpar_path}`, run `sysand build` first");
     }
-    // Consume the Arc (or clone if shared) to extract owned credentials.
-    let bearer_map = Arc::unwrap_or_clone(auth_policy).try_into_publish_bearer_auth_map()?;
+    // Reject obviously-malformed discovery-root URLs (bad scheme,
+    // query/fragment components) before issuing any network request —
+    // a config typo should not cost a DNS lookup + connect attempt.
+    validate_endpoint_url_shape(&index, EndpointKind::DiscoveryRoot)?;
+    // Validate and prepare the kpar payload before any network work,
+    // so that kpar-content errors (bad semver, invalid publisher/name,
+    // oversized archive) surface before discovery or credential
+    // matching does.
+    let prepared = prepare_publish_payload(&kpar_path)?;
 
-    // Match credentials against the concrete upload endpoint, not the index root,
-    // so users can scope patterns to `/api/v1/upload` when needed.
-    let upload_url = build_upload_url(&index)?;
+    // Resolve `api_root` before credential matching so publish credentials
+    // are matched against the actual upload URL. Discovery uses the full auth
+    // policy because the discovery document may itself be auth-gated.
+    let endpoints = runtime.block_on(fetch_index_config(&client, &*auth_policy, &index))?;
+    // Only now — after discovery has had access to the full policy —
+    // do we consume the Arc to extract the publish-specific
+    // bearer-credential map. Upload is bearer-only; basic-auth entries
+    // are intentionally dropped at this step.
+    let bearer_map = Arc::unwrap_or_clone(auth_policy).try_into_publish_bearer_auth_map()?;
+    let ResolvedEndpoints { api_root, .. } = endpoints;
+    let upload_url = build_upload_url(&api_root)?;
     let bearer = match bearer_map.lookup(upload_url.as_str()) {
         GlobMapResult::Found(_, token) => token.clone(),
         GlobMapResult::Ambiguous(candidates) => {
@@ -57,7 +76,7 @@ pub fn command_publish(
         }
     };
 
-    let response = do_publish(kpar_path, index, bearer, client, runtime)?;
+    let response = do_publish(prepared, index, api_root, bearer, client, runtime)?;
 
     let header = sysand_core::style::get_style_config().header;
     if response.is_new_project {

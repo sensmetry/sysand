@@ -170,7 +170,8 @@ fn do_info_py(
             runtime,
             // FIXME: Add Python support for authentication
             Arc::new(Unauthenticated {}),
-        );
+        )
+        .map_err(|err| PyValueError::new_err(err.to_string()))?;
 
         match do_info(&uri, &combined_resolver) {
             Ok(matches) => results.extend(matches),

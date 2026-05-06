@@ -86,14 +86,29 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     project_path,
                 }))
             }
-            Source::RemoteKpar {
-                remote_kpar,
-                remote_kpar_size: _,
-            } => Ok(AnyProject::RemoteKpar(
+            // TODO: use expected size
+            Source::RemoteKpar { remote_kpar, .. } => Ok(AnyProject::RemoteKpar(
                 ReqwestKparDownloadedProject::<Policy>::new_guess_root(
                     remote_kpar,
                     client,
                     auth_policy,
+                    None,
+                    None,
+                )
+                .map_err(TryFromSourceError::RemoteKpar)?
+                .to_tokio_sync(runtime),
+            )),
+            Source::IndexKpar {
+                index_kpar,
+                index_kpar_size,
+                index_kpar_digest,
+            } => Ok(AnyProject::RemoteKpar(
+                ReqwestKparDownloadedProject::<Policy>::new_guess_root(
+                    index_kpar,
+                    client,
+                    auth_policy,
+                    Some(index_kpar_digest),
+                    Some(index_kpar_size),
                 )
                 .map_err(TryFromSourceError::RemoteKpar)?
                 .to_tokio_sync(runtime),
