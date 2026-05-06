@@ -1,6 +1,6 @@
 {
   "name": "sysand",
-  "version": "0.1.0",
+  "version": "0.0.12-dev.1",
   "type": "module",
   "description": "Sysand for JavaScript",
   "scripts": {
