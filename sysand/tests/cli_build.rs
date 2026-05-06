@@ -497,11 +497,11 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
 }
 
 #[test]
-fn test_compression_methods() -> Result<(), Box<dyn std::error::Error>> {
+fn compression_methods() -> Result<(), Box<dyn std::error::Error>> {
     let compressions = KparCompressionMethodCli::value_variants();
-    test_compression_method(None)?;
+    compression_method(None)?;
     for compression in compressions {
-        test_compression_method(Some(compression.to_possible_value().unwrap().get_name()))?;
+        compression_method(Some(compression.to_possible_value().unwrap().get_name()))?;
     }
     Ok(())
 }
@@ -635,7 +635,7 @@ fn assert_kpar_no_readme(kpar_path: &camino::Utf8Path) {
     );
 }
 
-fn test_compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
         run_sysand(["init", "--version", "1.2.3", "--name", "test_build"], None)?;
 

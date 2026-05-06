@@ -15,7 +15,7 @@ use crate::{
 };
 
 #[test]
-fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
+fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
     let buf = {
         let mut cursor = std::io::Cursor::new(vec![]);
         let mut zip = zip::ZipWriter::new(&mut cursor);
@@ -25,7 +25,7 @@ fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
             .unix_permissions(0o755);
 
         zip.start_file("some_root_dir/.project.json", options)?;
-        zip.write_all(br#"{"name":"test_basic_download_request","version":"1.2.3","usage":[]}"#)?;
+        zip.write_all(br#"{"name":"basic_download_request","version":"1.2.3","usage":[]}"#)?;
         zip.start_file("some_root_dir/.meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
         zip.start_file("some_root_dir/test.sysml", options)?;
@@ -43,7 +43,7 @@ fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
     let url = reqwest::Url::parse(&server.url()).unwrap();
 
     let get_kpar = server
-        .mock("GET", "/test_basic_download_request.kpar")
+        .mock("GET", "/basic_download_request.kpar")
         .with_status(200)
         .with_header("content-type", "application/zip")
         .with_body(&buf)
@@ -51,7 +51,7 @@ fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         .create();
 
     let project = super::ReqwestKparDownloadedProject::new_guess_root(
-        format!("{}test_basic_download_request.kpar", url,),
+        format!("{}basic_download_request.kpar", url,),
         create_reqwest_client()?,
         Arc::new(Unauthenticated {}),
         None,
@@ -68,7 +68,7 @@ fn test_basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         panic!()
     };
 
-    assert_eq!(info.name, "test_basic_download_request");
+    assert_eq!(info.name, "basic_download_request");
     assert_eq!(meta.created, "123");
 
     let mut src = String::new();

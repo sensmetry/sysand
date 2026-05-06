@@ -74,7 +74,7 @@ fn simple_resolver_environment(
 }
 
 #[test]
-fn test_trivial_resolution() -> Result<(), Box<dyn std::error::Error>> {
+fn trivial_resolution() -> Result<(), Box<dyn std::error::Error>> {
     let resolver = simple_resolver_environment(&[]);
 
     let solution = super::solve(vec![], resolver)?;
@@ -85,18 +85,16 @@ fn test_trivial_resolution() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn test_version_selection() -> Result<(), Box<dyn std::error::Error>> {
-    let project_v1 = trivial_memory_project("test_version_selection", "1.0.1", vec![]);
-    let project_v2 = trivial_memory_project("test_version_selection", "2.0.1", vec![]);
+fn version_selection() -> Result<(), Box<dyn std::error::Error>> {
+    let project_v1 = trivial_memory_project("version_selection", "1.0.1", vec![]);
+    let project_v2 = trivial_memory_project("version_selection", "2.0.1", vec![]);
 
-    let resolver = simple_resolver_environment(&[(
-        "urn:kpar:test_version_selection",
-        &[project_v1, project_v2],
-    )]);
+    let resolver =
+        simple_resolver_environment(&[("urn:kpar:version_selection", &[project_v1, project_v2])]);
 
     let solution = super::solve(
         vec![InterchangeProjectUsage {
-            resource: fluent_uri::Iri::parse("urn:kpar:test_version_selection")?.into(),
+            resource: fluent_uri::Iri::parse("urn:kpar:version_selection")?.into(),
             version_constraint: Some(semver::VersionReq::parse(">=2.0.0")?),
         }],
         resolver,
@@ -105,7 +103,7 @@ fn test_version_selection() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(solution.len(), 1);
 
     let install = solution
-        .get(Iri::parse("urn:kpar:test_version_selection")?.into())
+        .get(Iri::parse("urn:kpar:version_selection")?.into())
         .unwrap();
 
     assert_eq!(install.version()?.unwrap(), "2.0.1");
@@ -114,7 +112,7 @@ fn test_version_selection() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn test_version_constraint_default() -> Result<(), Box<dyn std::error::Error>> {
+fn version_constraint_default() -> Result<(), Box<dyn std::error::Error>> {
     // `semver` by default prepends `^` if a version requirement does not
     // have a comparator. This is not documented, but is also extremely
     // unlikely to change, as it's the behavior relied on by cargo
@@ -126,27 +124,27 @@ fn test_version_constraint_default() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn test_diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
+fn diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
     let project_a_v1 = trivial_memory_project(
-        "test_diamond_selection_a",
+        "diamond_selection_a",
         "1.0.1",
-        vec![("urn:kpar:test_diamond_selection_c", Some(">=2.0.0"))],
+        vec![("urn:kpar:diamond_selection_c", Some(">=2.0.0"))],
     );
     let project_b_v1 = trivial_memory_project(
-        "test_diamond_selection_b",
+        "diamond_selection_b",
         "1.0.2",
-        vec![("urn:kpar:test_diamond_selection_c", Some("<3.0.0"))],
+        vec![("urn:kpar:diamond_selection_c", Some("<3.0.0"))],
     );
 
-    let project_c_v1 = trivial_memory_project("test_diamond_selection_c", "1.0.3", vec![]);
-    let project_c_v2 = trivial_memory_project("test_diamond_selection_c", "2.0.3", vec![]);
-    let project_c_v3 = trivial_memory_project("test_diamond_selection_c", "3.0.3", vec![]);
+    let project_c_v1 = trivial_memory_project("diamond_selection_c", "1.0.3", vec![]);
+    let project_c_v2 = trivial_memory_project("diamond_selection_c", "2.0.3", vec![]);
+    let project_c_v3 = trivial_memory_project("diamond_selection_c", "3.0.3", vec![]);
 
     let resolver = simple_resolver_environment(&[
-        ("urn:kpar:test_diamond_selection_a", &[project_a_v1]),
-        ("urn:kpar:test_diamond_selection_b", &[project_b_v1]),
+        ("urn:kpar:diamond_selection_a", &[project_a_v1]),
+        ("urn:kpar:diamond_selection_b", &[project_b_v1]),
         (
-            "urn:kpar:test_diamond_selection_c",
+            "urn:kpar:diamond_selection_c",
             &[project_c_v1, project_c_v2, project_c_v3],
         ),
     ]);
@@ -154,11 +152,11 @@ fn test_diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
     let solution = super::solve(
         vec![
             InterchangeProjectUsage {
-                resource: fluent_uri::Iri::parse("urn:kpar:test_diamond_selection_a")?.into(),
+                resource: fluent_uri::Iri::parse("urn:kpar:diamond_selection_a")?.into(),
                 version_constraint: Some(semver::VersionReq::parse(">=0.1.0")?),
             },
             InterchangeProjectUsage {
-                resource: fluent_uri::Iri::parse("urn:kpar:test_diamond_selection_b")?.into(),
+                resource: fluent_uri::Iri::parse("urn:kpar:diamond_selection_b")?.into(),
                 version_constraint: None,
             },
         ],
@@ -168,17 +166,17 @@ fn test_diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(solution.len(), 3);
 
     let install_a = solution
-        .get(Iri::parse("urn:kpar:test_diamond_selection_a")?.into())
+        .get(Iri::parse("urn:kpar:diamond_selection_a")?.into())
         .unwrap();
     assert_eq!(install_a.version()?.unwrap(), "1.0.1");
 
     let install_b = solution
-        .get(Iri::parse("urn:kpar:test_diamond_selection_b")?.into())
+        .get(Iri::parse("urn:kpar:diamond_selection_b")?.into())
         .unwrap();
     assert_eq!(install_b.version()?.unwrap(), "1.0.2");
 
     let install_c = solution
-        .get(Iri::parse("urn:kpar:test_diamond_selection_c")?.into())
+        .get(Iri::parse("urn:kpar:diamond_selection_c")?.into())
         .unwrap();
     assert_eq!(install_c.version()?.unwrap(), "2.0.3");
 

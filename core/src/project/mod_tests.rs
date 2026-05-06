@@ -15,7 +15,7 @@ use crate::{
 };
 
 #[test]
-fn test_sanity_check_hasher() -> Result<(), Box<dyn std::error::Error>> {
+fn sanity_check_hasher() -> Result<(), Box<dyn std::error::Error>> {
     let input = "FooBarBaz";
 
     // echo -n "FooBarBaz" | sha256sum
@@ -28,10 +28,10 @@ fn test_sanity_check_hasher() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn test_canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
+fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
     let project = InMemoryProject {
         info: Some(InterchangeProjectInfoRaw {
-            name: "test_canonicalization".to_string(),
+            name: "canonicalization".to_string(),
             publisher: None,
             description: None,
             version: "1.2.3".to_string(),

@@ -37,7 +37,7 @@ fn empty_remote_definitely_invalid_http_src() -> Result<(), Box<dyn std::error::
 }
 
 #[test]
-fn test_basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
+fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
 
     //let host = server.host_with_port();
@@ -47,7 +47,7 @@ fn test_basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> 
         .mock("GET", "/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"test_basic_project_urls","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"basic_project_urls","version":"1.2.3","usage":[]}"#)
         .match_request(|r| r.has_header(header::USER_AGENT))
         .expect(1)
         .create();
@@ -89,7 +89,7 @@ fn test_basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> 
         panic!()
     };
 
-    assert_eq!(info.name, "test_basic_project_urls");
+    assert_eq!(info.name, "basic_project_urls");
     assert_eq!(meta.created, "0000-00-00T00:00:00.123456789Z");
 
     let mut src_buf = String::new();

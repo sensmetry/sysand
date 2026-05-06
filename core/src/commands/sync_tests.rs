@@ -50,7 +50,7 @@ fn storage_example() -> InMemoryProject {
 }
 
 #[test]
-fn test_is_not_installed() {
+fn not_installed_project_not_found() {
     let uri = "urn:kpar:install_test";
     let checksum = "00";
     let env = MemoryStorageEnvironment::new();
@@ -64,7 +64,7 @@ fn test_is_not_installed() {
 }
 
 #[test]
-fn test_is_installed() {
+fn installed_projects_are_found() {
     let storage = storage_example();
 
     let uri = "urn:kpar:install_test";
@@ -98,7 +98,7 @@ fn test_is_installed() {
 }
 
 #[test]
-fn test_try_install() {
+fn try_install_installs_project() {
     let storage = storage_example();
 
     let uri = "urn:kpar:install_test";
@@ -127,7 +127,7 @@ fn test_try_install() {
 }
 
 #[test]
-fn test_try_install_bad_checksum() {
+fn try_install_fails_to_install_wrong_checksum() {
     let storage = storage_example();
 
     let uri = "urn:kpar:install_test";
