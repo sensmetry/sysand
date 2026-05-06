@@ -1415,12 +1415,10 @@ mod get_project {
 
     #[test]
     fn get_project_ignores_textual_usage_drift() -> Result<(), Box<dyn std::error::Error>> {
-        // Regression guard: textual drift between advertised and fetched
+        // Textual drift between advertised and fetched
         // `usage` must be ignored — the server is authoritative, and a
         // drifted textual field would produce a different canonical
         // digest anyway, which is what verification actually compares.
-        // This test pins that behavior against a regression toward
-        // hard-failing on textual drift.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
