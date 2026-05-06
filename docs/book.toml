@@ -9,3 +9,7 @@ create-missing = false
 
 [output.html]
 git-repository-url = "https://github.com/sensmetry/sysand"
+
+[output.html.fold]
+enable = true
+level = 0
