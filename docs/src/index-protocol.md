@@ -328,8 +328,7 @@ per-version files are immutable and the lockfile already records everything
 ### Wire format
 
 Advertised digests (`project_digest`, `kpar_digest` in `versions.json`)
-MUST use the form `sha256:<64 lowercase hex>`. Uppercase hex is invalid
-on the wire.
+MUST use the form `sha256:<64 lowercase hex>`.
 
 ### `project_digest`
 
