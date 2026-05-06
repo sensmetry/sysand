@@ -75,7 +75,7 @@ fn expect_to_resolve<R: ResolveRead, S: AsRef<str>>(
 }
 
 #[test]
-fn test_resolution_preference() -> Result<(), Box<dyn std::error::Error>> {
+fn resolution_preference() -> Result<(), Box<dyn std::error::Error>> {
     let resolver_1 = mock_resolver([
         mock_project("urn:kpar:foo", "foo", "1.2.3"),
         mock_project("urn:kpar:bar", "bar", "1.2.3"),

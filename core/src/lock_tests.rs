@@ -95,7 +95,7 @@ fn check_missing_lock_version() {
     let VersionError::Missing = err else { panic!() };
 }
 
-fn test_to_toml<D: Display>(projects: Vec<Project>, toml: D) {
+fn to_toml_matches_expected<D: Display>(projects: Vec<Project>, toml: D) {
     let lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects,
@@ -109,7 +109,7 @@ fn test_to_toml<D: Display>(projects: Vec<Project>, toml: D) {
 
 #[test]
 fn minimal_to_toml() {
-    test_to_toml(
+    to_toml_matches_expected(
         vec![Project {
             name: None,
             publisher: None,
@@ -132,7 +132,7 @@ checksum = "{CHECKSUM}"
 
 #[test]
 fn many_projects_to_toml() {
-    test_to_toml(
+    to_toml_matches_expected(
         vec![
             Project {
                 name: Some("One".to_string()),
@@ -188,7 +188,7 @@ checksum = "{CHECKSUM}"
 
 #[test]
 fn one_export_to_toml() {
-    test_to_toml(
+    to_toml_matches_expected(
         vec![Project {
             name: Some("One Package".to_string()),
             publisher: None,
@@ -215,7 +215,7 @@ checksum = "{CHECKSUM}"
 
 #[test]
 fn many_exports_to_toml() {
-    test_to_toml(
+    to_toml_matches_expected(
         vec![Project {
             name: Some("Three Packages".to_string()),
             publisher: None,
@@ -248,7 +248,7 @@ checksum = "{CHECKSUM}"
 
 #[test]
 fn one_iri_to_toml() {
-    test_to_toml(
+    to_toml_matches_expected(
         vec![Project {
             name: Some("One IRI".to_string()),
             publisher: None,
@@ -275,7 +275,7 @@ checksum = "{CHECKSUM}"
 
 #[test]
 fn many_identifiers_to_toml() {
-    test_to_toml(
+    to_toml_matches_expected(
         vec![Project {
             name: Some("Three IRI:s".to_string()),
             publisher: None,
@@ -308,7 +308,7 @@ checksum = "{CHECKSUM}"
 
 #[test]
 fn one_source_to_toml() {
-    test_to_toml(
+    to_toml_matches_expected(
         vec![Project {
             name: Some("One source".to_string()),
             publisher: None,
@@ -337,7 +337,7 @@ checksum = "{CHECKSUM}"
 
 #[test]
 fn many_sources_to_toml() {
-    test_to_toml(
+    to_toml_matches_expected(
         vec![Project {
             name: Some("Eight sources".to_string()),
             publisher: None,
@@ -401,7 +401,7 @@ checksum = "{CHECKSUM}"
 
 #[test]
 fn one_usage_to_toml() {
-    test_to_toml(
+    to_toml_matches_expected(
         vec![Project {
             name: Some("One usage".to_string()),
             publisher: None,
@@ -430,7 +430,7 @@ checksum = "{CHECKSUM}"
 
 #[test]
 fn many_usage_to_toml() {
-    test_to_toml(
+    to_toml_matches_expected(
         vec![Project {
             name: Some("Three usages".to_string()),
             publisher: None,
@@ -467,7 +467,7 @@ checksum = "{CHECKSUM}"
     );
 }
 
-fn test_roundtrip<D: Display>(toml: D) {
+fn roundtrip_makes_no_changes<D: Display>(toml: D) {
     let expected = format!(
         "{}lock_version = \"{}\"\n{}",
         LOCKFILE_PREFIX, CURRENT_LOCK_VERSION, toml
@@ -478,7 +478,7 @@ fn test_roundtrip<D: Display>(toml: D) {
 
 #[test]
 fn simple_roundtrip() {
-    test_roundtrip(format!(
+    roundtrip_makes_no_changes(format!(
         r#"
 [[project]]
 name = "Simple"
@@ -490,7 +490,7 @@ checksum = "{CHECKSUM}"
 
 #[test]
 fn complex_roundtrip() {
-    test_roundtrip(format!(
+    roundtrip_makes_no_changes(format!(
         r#"
 [[project]]
 name = "One"

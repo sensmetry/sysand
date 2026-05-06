@@ -9,7 +9,7 @@ use zip::write::SimpleFileOptions;
 use super::ProjectRead;
 
 #[test]
-fn test_basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
+fn basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
     let cwd = tempdir()?;
     let zip_path = cwd.path().join("test.kpar");
 
@@ -22,7 +22,7 @@ fn test_basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
             .unix_permissions(0o755);
 
         zip.start_file(".project.json", options)?;
-        zip.write_all(br#"{"name":"test_basic_kpar_archive","version":"1.2.3","usage":[]}"#)?;
+        zip.write_all(br#"{"name":"basic_kpar_archive","version":"1.2.3","usage":[]}"#)?;
         zip.start_file(".meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
         zip.start_file("test.sysml", options)?;
@@ -37,7 +37,7 @@ fn test_basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
         panic!();
     };
 
-    assert_eq!(info.name, "test_basic_kpar_archive");
+    assert_eq!(info.name, "basic_kpar_archive");
     assert_eq!(info.version, "1.2.3");
     assert_eq!(meta.created, "123");
 
@@ -52,7 +52,7 @@ fn test_basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn test_nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
+fn nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
     let cwd = tempdir()?;
     let zip_path = cwd.path().join("test.kpar");
 
@@ -65,7 +65,7 @@ fn test_nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
             .unix_permissions(0o755);
 
         zip.start_file("some_root_dir/.project.json", options)?;
-        zip.write_all(br#"{"name":"test_nested_kpar_archive","version":"1.2.3","usage":[]}"#)?;
+        zip.write_all(br#"{"name":"nested_kpar_archive","version":"1.2.3","usage":[]}"#)?;
         zip.start_file("some_root_dir/.meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
         zip.start_file("some_root_dir/test.sysml", options)?;
@@ -80,7 +80,7 @@ fn test_nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
         panic!();
     };
 
-    assert_eq!(info.name, "test_nested_kpar_archive");
+    assert_eq!(info.name, "nested_kpar_archive");
     assert_eq!(info.version, "1.2.3");
     assert_eq!(meta.created, "123");
 

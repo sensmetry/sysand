@@ -12,7 +12,7 @@ use crate::{
 };
 
 #[test]
-fn test_basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
+fn basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = mockito::Server::new();
 
     let host = server.host_with_port();
@@ -21,7 +21,7 @@ fn test_basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/foo/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"test_basic_http_src_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"basic_http_src_url","version":"1.2.3","usage":[]}"#)
         .expect(1)
         .create();
 
@@ -60,7 +60,7 @@ fn test_basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
             panic!()
         };
 
-        assert_eq!(info.name, "test_basic_http_src_url");
+        assert_eq!(info.name, "basic_http_src_url");
         assert_eq!(meta.created, "0000-00-00T00:00:00.123456789Z");
     }
 
@@ -126,26 +126,24 @@ fn template_basic_http_url_lax(
 }
 
 // #[test]
-// fn test_basic_http_url_lax_with_slash_prefer_ranged() -> Result<(), Box<dyn std::error::Error>>
+// fn basic_http_url_lax_with_slash_prefer_ranged() -> Result<(), Box<dyn std::error::Error>>
 // {
 //     template_basic_http_url_lax(true, true)
 // }
 
 #[test]
-fn test_basic_http_url_lax_with_slash_not_prefer_ranged() -> Result<(), Box<dyn std::error::Error>>
-{
+fn basic_http_url_lax_with_slash_not_prefer_ranged() -> Result<(), Box<dyn std::error::Error>> {
     template_basic_http_url_lax(true /* false */)
 }
 
 // #[test]
-// fn test_basic_http_url_lax_without_slash_prefer_ranged()
+// fn basic_http_url_lax_without_slash_prefer_ranged()
 // -> Result<(), Box<dyn std::error::Error>> {
 //     template_basic_http_url_lax(false, true)
 // }
 
 #[test]
-fn test_basic_http_url_lax_without_slash_not_prefer_ranged()
--> Result<(), Box<dyn std::error::Error>> {
+fn basic_http_url_lax_without_slash_not_prefer_ranged() -> Result<(), Box<dyn std::error::Error>> {
     template_basic_http_url_lax(false /* false */)
 }
 
@@ -153,7 +151,7 @@ fn test_basic_http_url_lax_without_slash_not_prefer_ranged()
 //       easy-to-integrate-in-tests HTTP servers.
 // #[cfg(feature = "alltests")]
 // #[test]
-// fn test_resolves_ranged_if_successful() -> Result<(), Box<dyn std::error::Error>> {
+// fn resolves_ranged_if_successful() -> Result<(), Box<dyn std::error::Error>> {
 //     let cwd = tempfile::tempdir()?;
 
 //     let _buf = {
@@ -170,7 +168,7 @@ fn test_basic_http_url_lax_without_slash_not_prefer_ranged()
 
 //         zip.start_file("some_root_dir/.project.json", options)?;
 //         zip.write_all(
-//             br#"{"name":"test_resolves_ranged_if_successful","version":"1.2.3","usage":[]}"#,
+//             br#"{"name":"resolves_ranged_if_successful","version":"1.2.3","usage":[]}"#,
 //         )?;
 //         zip.start_file("some_root_dir/.meta.json", options)?;
 //         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
@@ -224,7 +222,7 @@ fn test_basic_http_url_lax_without_slash_not_prefer_ranged()
 // }
 
 // #[test]
-// fn test_resolves_non_ranged_if_unsupported() -> Result<(), Box<dyn std::error::Error>> {
+// fn resolves_non_ranged_if_unsupported() -> Result<(), Box<dyn std::error::Error>> {
 //     let buf = {
 //         let mut cursor = std::io::Cursor::new(vec![]);
 //         let mut zip = zip::ZipWriter::new(&mut cursor);
@@ -235,7 +233,7 @@ fn test_basic_http_url_lax_without_slash_not_prefer_ranged()
 
 //         zip.start_file("some_root_dir/.project.json", options)?;
 //         zip.write_all(
-//             br#"{"name":"test_resolves_non_ranged_if_unsupported","version":"1.2.3","usage":[]}"#,
+//             br#"{"name":"resolves_non_ranged_if_unsupported","version":"1.2.3","usage":[]}"#,
 //         )?;
 //         zip.start_file("some_root_dir/.meta.json", options)?;
 //         zip.write_all(br#"{"index":{},"created":"123"}"#)?;

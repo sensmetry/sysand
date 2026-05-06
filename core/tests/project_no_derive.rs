@@ -189,7 +189,7 @@ where
 }
 
 #[test]
-fn test_basic() {
+fn generic_project_create() {
     let _project1 =
         GenericProject::<InMemoryProject, InMemoryProject>::Variant1(InMemoryProject::new());
     let _project2 =

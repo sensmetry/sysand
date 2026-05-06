@@ -33,18 +33,18 @@ enum OneVariantProjectMut {
 }
 
 #[test]
-fn test_macro_one_variant() {
+fn macro_one_variant() {
     let _project = OneVariantProjectRead::Variant(InMemoryProject::new());
 }
 
 #[test]
-fn test_macro_two_variants() {
+fn macro_two_variants() {
     let _project_first = TwoVariantProjectRead::First(InMemoryProject::new());
     let _project_second = TwoVariantProjectRead::Second(InMemoryProject::new());
 }
 
 #[test]
-fn test_error_to_string() {
+fn error_to_string() {
     let error = <OneVariantProjectRead as ProjectRead>::Error::Variant(
         <InMemoryProject as ProjectRead>::Error::AlreadyExists("project".to_string()),
     );
@@ -52,7 +52,7 @@ fn test_error_to_string() {
 }
 
 #[test]
-fn test_macro_get_project() {
+fn macro_get_project() {
     let info = InterchangeProjectInfoRaw {
         name: "get_project".to_string(),
         publisher: None,
@@ -83,7 +83,7 @@ fn test_macro_get_project() {
 }
 
 #[test]
-fn test_macro_read_source() {
+fn macro_read_source() {
     let mut files = HashMap::new();
     let path = "path";
     let file_content = "file content".to_string();
@@ -108,14 +108,14 @@ fn test_macro_read_source() {
 
 #[test]
 #[should_panic]
-fn test_macro_sources() {
+fn macro_sources() {
     let project = OneVariantProjectRead::Variant(InMemoryProject::new());
 
     project.sources(&Default::default()).unwrap();
 }
 
 #[test]
-fn test_macro_put_info() {
+fn macro_put_info() {
     let info = InterchangeProjectInfoRaw {
         name: "single_get_info".to_string(),
         publisher: None,
@@ -137,7 +137,7 @@ fn test_macro_put_info() {
 }
 
 #[test]
-fn test_macro_put_meta() {
+fn macro_put_meta() {
     let meta = InterchangeProjectMetadataRaw {
         index: indexmap::IndexMap::new(),
         created: "0000-00-00T00:00:00.123456789Z".to_string(),
@@ -156,7 +156,7 @@ fn test_macro_put_meta() {
 }
 
 #[test]
-fn test_macro_write_source() {
+fn macro_write_source() {
     let path = "path";
     let file_content = "file content".to_string();
     let mut project = OneVariantProjectMut::Variant(InMemoryProject {
@@ -187,7 +187,7 @@ enum GenericProjectRead<SomeProject: ProjectRead> {
 }
 
 #[test]
-fn test_macro_generic_read() {
+fn macro_generic_read() {
     let _project = GenericProjectRead::<InMemoryProject>::Variant(InMemoryProject::new());
 }
 
@@ -268,6 +268,6 @@ enum GenericProjectMut<SomeProject: ProjectRead + ProjectMut> {
 }
 
 #[test]
-fn test_macro_generic_mut() {
+fn macro_generic_mut() {
     let _project = GenericProjectMut::<InMemoryProject>::Variant(InMemoryProject::new());
 }

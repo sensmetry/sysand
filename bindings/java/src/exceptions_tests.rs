@@ -44,7 +44,7 @@ impl TryFrom<u8> for ExceptionKind {
 // Check that all `ExceptionKind` files exist
 // Assumes that current dir is `bindings/java/`
 #[test]
-fn test_exceptions_all_exist() {
+fn exceptions_all_exist() {
     for kind_id in 0.. {
         match ExceptionKind::try_from(kind_id) {
             Ok(kind) => {
@@ -61,7 +61,7 @@ fn test_exceptions_all_exist() {
 
 // Check that all exception kinds are listed in `ExceptionKind`
 #[test]
-fn test_exceptions_all_listed() {
+fn exceptions_all_listed() {
     let known_exceptions: Vec<String> = (0..)
         .map_while(|x| match ExceptionKind::try_from(x) {
             Ok(exc) => Some(exc.to_string()),
