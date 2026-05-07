@@ -125,9 +125,9 @@ Committing your changes:
 git commit -sm "fix(resolver): avoid erroring when ..."
 ```
 
-The `-s` flag signs the commit, see [CONTRIBUTING.md](CONTRIBUTING.md).
+The `-s` flag signs the commit, see [CONTRIBUTING.md].
 
-Commit messages should try to follow the [Conventional Commit] specification,
+Commit messages should try to follow the [Conventional Commit specification],
 and while PRs can contain multiple commits, we typically squash them and aim to
 follow the same format.
 
@@ -136,6 +136,9 @@ merged. The project uses GitHub Actions CI, its configuration is in
 [`.github/workflows` directory](.github/workflows). The CI runs the same tests
 as [`./scripts/run_tests.sh`](scripts/run_tests.sh). Therefore it is recommended
 to make sure that all tests pass locally before submitting a pull request.
+
+[contributing.md]: CONTRIBUTING.md
+[conventional commit specification]: https://www.conventionalcommits.org/en/v1.0.0/#specification
 
 ## Documentation
 
