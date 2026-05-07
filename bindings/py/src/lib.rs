@@ -26,7 +26,7 @@ use sysand_core::{
     },
     exclude::do_exclude,
     include::do_include,
-    info::{InfoError, do_info, do_info_project},
+    info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw},
     project::{
@@ -119,7 +119,7 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
 )]
 fn do_info_py_path(
     path: String,
-) -> PyResult<Option<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>> {
+) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     let _ = pyo3_log::try_init();
 
     let project = LocalSrcProject {
@@ -127,7 +127,15 @@ fn do_info_py_path(
         project_path: path.into(),
     };
 
-    Ok(do_info_project(&project))
+    match do_info_project(&project) {
+        Ok(info_meta) => Ok(info_meta),
+        Err(
+            e @ (InfoProjectError::MissingProject
+            | InfoProjectError::MissingInfo
+            | InfoProjectError::MissingMeta
+            | InfoProjectError::InvalidProject(..)),
+        ) => Err(PyRuntimeError::new_err(e.to_string())),
+    }
 }
 
 #[pyfunction(name = "do_info_py")]
@@ -139,11 +147,10 @@ fn do_info_py(
     uri: String,
     relative_file_root: String,
     index_urls: Option<Vec<String>>,
-) -> PyResult<Vec<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>> {
+) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     let _ = pyo3_log::try_init();
 
     py.detach(|| {
-        let mut results = vec![];
         let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
         let runtime = Arc::new(
@@ -174,14 +181,14 @@ fn do_info_py(
         .map_err(|err| PyValueError::new_err(err.to_string()))?;
 
         match do_info(&uri, &combined_resolver) {
-            Ok(matches) => results.extend(matches),
-            Err(InfoError::NoResolve(..)) => {}
-            Err(e @ (InfoError::UnsupportedIri(..) | InfoError::Resolution(_))) => {
-                return Err(PyRuntimeError::new_err(e.to_string()));
-            }
-        };
-
-        Ok(results)
+            Ok(info_meta) => Ok(info_meta),
+            Err(
+                e @ (InfoError::NoSemanticVersionsFound(_)
+                | InfoError::NoResolve(..)
+                | InfoError::UnsupportedIri(..)
+                | InfoError::Resolution(_)),
+            ) => Err(PyRuntimeError::new_err(e.to_string())),
+        }
     })
 }
 

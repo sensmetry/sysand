@@ -14,7 +14,7 @@ from os import getcwd
 
 def info_path(
     path: str | Path = ".",
-) -> typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata] | None:
+) -> typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata]:
     return sysand_rs.do_info_py_path(str(path))  # type: ignore
 
 
@@ -23,7 +23,7 @@ def info(
     *,
     relative_file_root: str | Path | None = None,
     index_urls: str | typing.List[str] | None = None,
-) -> typing.List[typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata]]:
+) -> typing.Tuple[InterchangeProjectInfo, InterchangeProjectMetadata]:
     if relative_file_root is None:
         relative_file_root = getcwd()
 

@@ -20,6 +20,7 @@ use sysand_core::{
         file::FileResolverProject, memory::MemoryResolver, priority::PriorityResolver,
         standard::standard_resolver,
     },
+    style,
 };
 
 use anstream::{print, println};
@@ -34,43 +35,60 @@ use sysand_core::{
 use url::Url;
 
 pub fn pprint_interchange_project(
-    info: InterchangeProjectInfoRaw,
+    info: &InterchangeProjectInfoRaw,
     excluded_iris: &HashSet<String>,
 ) {
-    println!("Name: {}", info.name);
-    if let Some(publisher) = info.publisher {
-        println!("Publisher: {}", publisher);
+    let header = style::get_style_config().header;
+    println!("{header}Name:{header:#} {}", info.name);
+    if let Some(ref publisher) = info.publisher {
+        println!("{header}Publisher:{header:#} {}", publisher);
     }
-    if let Some(description) = info.description {
-        println!("Description: {}", description);
+    if let Some(ref description) = info.description {
+        println!("{header}Description:{header:#} {}", description);
     }
-    println!("Version: {}", info.version);
-    if let Some(license) = info.license {
-        println!("License: {}", license);
+    println!("{header}Version:{header:#} {}", info.version);
+    if let Some(ref license) = info.license {
+        println!("{header}License:{header:#} {}", license);
     }
-    if let Some(website) = info.website {
-        println!("Website: {}", website);
+    if let Some(ref website) = info.website {
+        println!("{header}Website:{header:#} {}", website);
     }
     if !info.maintainer.is_empty() {
-        println!("Maintainer(s): {}", info.maintainer.join(", "));
+        println!(
+            "{header}Maintainer(s):{header:#} {}",
+            info.maintainer.join(", ")
+        );
     }
     if !info.topic.is_empty() {
-        println!("Topics: {}", info.topic.join(", "));
+        println!("{header}Topics:{header:#} {}", info.topic.join(", "));
     }
 
     if info.usage.is_empty() {
         println!("No usages.");
     } else {
-        println!("Usages:");
-        for usage in info.usage {
-            if excluded_iris.contains(&usage.resource) {
-                continue;
+        let has_ignored_usages = info
+            .usage
+            .iter()
+            .any(|u| excluded_iris.contains(&u.resource));
+        let usages_to_print: Vec<_> = info
+            .usage
+            .iter()
+            .filter(|u| !excluded_iris.contains(&u.resource))
+            .collect();
+        if has_ignored_usages && usages_to_print.is_empty() {
+            println!("All usages are ignored");
+        } else {
+            println!("{header}Usages:{header:#}");
+            for usage in usages_to_print.iter() {
+                print!("    {}", usage.resource);
+                if let Some(ref v) = usage.version_constraint {
+                    println!(" ({})", v);
+                } else {
+                    println!();
+                }
             }
-            print!("    {}", usage.resource);
-            if let Some(v) = usage.version_constraint {
-                println!(" ({})", v);
-            } else {
-                println!();
+            if has_ignored_usages {
+                println!("Some usages are ignored");
             }
         }
     }
@@ -96,14 +114,16 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
     excluded_iris: &HashSet<String>,
 ) -> Result<()> {
     let project = interpret_project_path(&path)?;
-
     match do_info_project(&project) {
-        Some((info, _)) => {
-            pprint_interchange_project(info, excluded_iris);
+        Ok((info, _)) => {
+            pprint_interchange_project(&info, excluded_iris);
 
             Ok(())
         }
-        None => bail!(CliError::NoResolve(path.as_ref().to_string())),
+        Err(err) => bail!(CliError::InvalidProject {
+            iri: path.as_ref().to_string(),
+            source: err
+        }),
     }
 }
 
@@ -144,10 +164,8 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
         )?,
     );
 
-    for (info, _) in do_info(&uri, &combined_resolver)? {
-        pprint_interchange_project(info, excluded_iris);
-    }
-
+    let (info, _) = do_info(&uri, &combined_resolver)?;
+    pprint_interchange_project(&info, excluded_iris);
     Ok(())
 }
 
@@ -225,28 +243,16 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
                 )?,
             );
 
-            let mut found = false;
-
             match get_verb {
                 crate::cli::GetVerb::GetInfoVerb(get_info_verb) => {
-                    for (info, _meta) in do_info(&uri, &combined_resolver)? {
-                        found = true;
-
-                        apply_get_info(&get_info_verb, info, numbered)?;
-                    }
+                    let (info, _meta) = do_info(&uri, &combined_resolver)?;
+                    apply_get_info(&get_info_verb, info, numbered)?;
                 }
                 crate::cli::GetVerb::GetMetaVerb(get_meta_verb) => {
-                    for (_info, meta) in do_info(&uri, &combined_resolver)? {
-                        found = true;
-
-                        apply_get_meta(&get_meta_verb, meta, numbered)?;
-                    }
+                    let (_info, meta) = do_info(&uri, &combined_resolver)?;
+                    apply_get_meta(&get_meta_verb, meta, numbered)?;
                 }
             }
-
-            if !found {
-                bail!("unable to find a valid project at `{}`", uri.as_str());
-            };
         }
         InfoCommandVerb::Set(_) => bail!("`set` cannot be used with remote projects"),
         InfoCommandVerb::Clear(_) => bail!("`clear` cannot be used with remote projects"),
