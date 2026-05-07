@@ -44,6 +44,7 @@
 - [Configuration](config.md)
   - [Indexes](config/indexes.md)
   - [Dependencies](config/dependencies.md)
+- [Changelog](changelog.md)
 
 # For developers
 
