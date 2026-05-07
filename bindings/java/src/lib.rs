@@ -274,7 +274,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
                 ExceptionKind::ResolutionError,
                 format!("Failed to discover index endpoints: {error}"),
             );
-            return JObjectArray::default();
+            return JObject::default();
         }
     };
 
