@@ -56,14 +56,14 @@ We generate changelogs from merged PRs using their titles and labels with the
 
 1. Install [`github-activity`].
 
-   ```shell
+   ```sh
    # example using pip
    pip install github-activity
    ```
 
 2. Update your local git repository.
 
-   ```shell
+   ```sh
    # verify "origin" references sensmetry/sysand and not a fork
    git remote -v
 
@@ -79,7 +79,7 @@ We generate changelogs from merged PRs using their titles and labels with the
 3. Iteratively generate a changelog entry.
    1. Generate an initial changelog entry.
 
-      ```shell
+      ```sh
       github-activity --heading-level=3
       ```
 
@@ -100,17 +100,12 @@ We generate changelogs from merged PRs using their titles and labels with the
 
    3. Revise PR titles.
 
-      PR titles should describe the change made for readers of a changelog.
-      Check whether any PR title is worth updating.
-
-      As an example, in the jupyterhub/oauthenticator project there is a
-      practice of clarifying whether a change impacts a specific authenticator
-      class or all authenticator classes, so titles are prefixed like
-      `[GitHub] ...` or `[Google] ...`.
+      If you find PR titles that breaks our convention in [DEVELOPMENT.md], you
+      could re-title them at this point.
 
    4. Generate a final changelog.
 
-      ```shell
+      ```sh
       github-activity --heading-level=3
       ```
 
@@ -121,6 +116,7 @@ We generate changelogs from merged PRs using their titles and labels with the
    - Write a leading paragraph summarizing the release
 
 [`github-activity`]: https://pypi.org/project/github-activity/
+[development.md]: DEVELOPMENT.md
 
 ### Determine the next version
 

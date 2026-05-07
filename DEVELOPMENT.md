@@ -122,10 +122,14 @@ prek install
 Committing your changes:
 
 ```sh
-git commit -sm "your commit message"
+git commit -sm "fix(resolver): avoid erroring when ..."
 ```
 
 The `-s` flag signs the commit, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Commit messages should try to follow the [Conventional Commit] specification,
+and while PRs can contain multiple commits, we typically squash them and aim to
+follow the same format.
 
 Pull requests must pass CI and be reviewed by a maintainer to be
 merged. The project uses GitHub Actions CI, its configuration is in
