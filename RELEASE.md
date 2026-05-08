@@ -61,22 +61,7 @@ We generate changelogs from merged PRs using their titles and labels with the
    pip install github-activity
    ```
 
-2. Update your local git repository.
-
-   ```sh
-   # verify "origin" references sensmetry/sysand and not a fork
-   git remote -v
-
-   # update your local main from origin's main
-   git checkout main
-   git pull origin main
-   git log
-
-   # update local tags to match origin's tags
-   git fetch origin --tags --prune --prune-tags --force
-   ```
-
-3. Iteratively generate a changelog entry.
+2. Iteratively generate a changelog entry.
    1. Generate an initial changelog entry.
 
       ```sh
@@ -109,7 +94,7 @@ We generate changelogs from merged PRs using their titles and labels with the
       github-activity --heading-level=3
       ```
 
-4. Add it to `docs/src/changelog.md` and make final manual edits.
+3. Add it to `docs/src/changelog.md` and make final manual edits.
    - Add it under a section like `## vX.Y`
    - Update title to `### vX.Y.Z - YYYY-MM-DD`
    - Remove the "(full changelog)" link
