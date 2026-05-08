@@ -6,7 +6,7 @@ use std::error::Error;
 pub fn format_sources(mut error: &dyn Error) -> String {
     let mut message = error.to_string();
     while let Some(source) = error.source() {
-        message += &format!("  caused by: {source}\n");
+        writeln!(&mut message, "  caused by: {source}").unwrap();
         error = source;
     }
     message

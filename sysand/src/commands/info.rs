@@ -40,7 +40,7 @@ pub fn pprint_interchange_project(
 ) {
     let header = style::get_style_config().header;
     println!("{header}Name:{header:#} {}", info.name);
-    if let Some(ref publisher) = info.publisher {
+    if let Some(publisher) = &info.publisher {
         println!("{header}Publisher:{header:#} {}", publisher);
     }
     if let Some(ref description) = info.description {

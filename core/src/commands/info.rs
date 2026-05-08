@@ -93,7 +93,7 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
                             }
                     }
                     Err(err) => {
-                        log::warn!("Ignoring a project because: {err}");
+                        log::warn!("ignoring a project because: {err}");
                         log::info!("{}", format_sources(&err));
                     }
                 };
@@ -102,7 +102,7 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
                 Some((_, info, meta)) => {
                     if !non_semantic_versions.is_empty() {
                         log::warn!(
-                            "The following versions were skipped as they are not semantic versions {}",
+                            "the following versions were skipped as they are not semantic versions {}",
                             non_semantic_versions.join(", ")
                         );
                     }
