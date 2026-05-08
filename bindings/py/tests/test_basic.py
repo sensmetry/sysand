@@ -85,9 +85,8 @@ def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
 
         file_uri = Path(tmpdirname).resolve().as_uri()
 
-        info_metas = sysand.info(file_uri)
-        assert len(info_metas) == 1, f"file_uri: {file_uri}"
-        assert info_metas[0] == info_meta
+        info_meta2 = sysand.info(file_uri)
+        assert info_meta2 == info_meta
 
 
 def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> None:
@@ -102,10 +101,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
         {"index": {}, "created": "0000-00-00T00:00:00.123456789Z"}
     )
 
-    info_metas = sysand.info(httpserver.url_for(""))
-
-    assert len(info_metas) == 1
-    info, meta = info_metas[0]
+    info, meta = sysand.info(httpserver.url_for(""))
 
     assert info == {
         "name": "test_http_info",
@@ -163,12 +159,9 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
         {"index": {}, "created": "2026-01-01T00:00:00Z"}
     )
 
-    info_metas = sysand.info(
+    info, meta = sysand.info(
         "urn:kpar:test_index_info", index_urls=httpserver.url_for("")
     )
-
-    assert len(info_metas) == 1
-    info, meta = info_metas[0]
 
     assert info["name"] == "test_index_info"
     assert info["version"] == "1.2.3"

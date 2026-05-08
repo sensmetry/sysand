@@ -90,7 +90,7 @@ public class Sysand {
      *                         relative file URIs.
      * @return The project information and metadata.
      */
-    public static native com.sensmetry.sysand.model.InterchangeProject[] info(
+    public static native com.sensmetry.sysand.model.InterchangeProject info(
             String uri,
             String relativeFileRoot,
             String indexUrl)
@@ -104,7 +104,7 @@ public class Sysand {
      *                         relative file URIs.
      * @return The project information and metadata.
      */
-    public static com.sensmetry.sysand.model.InterchangeProject[] info(
+    public static com.sensmetry.sysand.model.InterchangeProject info(
             java.net.URI uri,
             java.nio.file.Path relativeFileRoot,
             java.net.URL indexUrl)
@@ -126,7 +126,7 @@ public class Sysand {
      *                         relative file URIs.
      * @return The project information and metadata.
      */
-    public static com.sensmetry.sysand.model.InterchangeProject[] info(
+    public static com.sensmetry.sysand.model.InterchangeProject info(
             java.net.URI uri,
             java.nio.file.Path relativeFileRoot)
             throws com.sensmetry.sysand.exceptions.SysandException {
@@ -140,7 +140,7 @@ public class Sysand {
      * @param uri The URI of the project.
      * @return The project information and metadata.
      */
-    public static com.sensmetry.sysand.model.InterchangeProject[] info(java.net.URI uri)
+    public static com.sensmetry.sysand.model.InterchangeProject info(java.net.URI uri)
             throws com.sensmetry.sysand.exceptions.SysandException {
         java.nio.file.Path relativeFileRoot = java.nio.file.Paths.get(".");
         return info(uri, relativeFileRoot, null);

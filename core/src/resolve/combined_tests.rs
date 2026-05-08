@@ -7,7 +7,7 @@ use fluent_uri::Iri;
 use indexmap::IndexMap;
 
 use crate::{
-    info::do_info,
+    info::{InfoError, do_info},
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::memory::InMemoryProject,
     resolve::{
@@ -68,6 +68,19 @@ fn single_project_any_resolver<S: AsRef<str>>(
     })
 }
 
+fn multiple_projects_any_resolver<S: AsRef<str>>(
+    uri: S,
+    projects: Vec<InMemoryProject>,
+) -> Option<MemoryResolver<AcceptAll, InMemoryProject>> {
+    let uri = Iri::parse(uri.as_ref().to_string()).unwrap();
+    let mut projects_map = HashMap::new();
+    projects_map.insert(uri, projects);
+    Some(MemoryResolver {
+        iri_predicate: AcceptAll {},
+        projects: projects_map,
+    })
+}
+
 // fn single_project_file_resolver<S: AsRef<str>>(
 //     uri: S,
 //     project: ProjectMemoryStorage,
@@ -104,10 +117,9 @@ fn prefer_file_resolver_when_successful() {
         index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
     };
 
-    let xs = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(example_uri, &resolver).unwrap();
 
-    assert_eq!(xs.len(), 1);
-    assert_eq!(xs[0].0.name, "a");
+    assert_eq!(info.name, "a");
 }
 
 #[test]
@@ -142,10 +154,9 @@ fn skip_file_resolver_if_unsupported_iri() {
         index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
     };
 
-    let xs = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(example_uri, &resolver).unwrap();
 
-    assert_eq!(xs.len(), 1);
-    assert_eq!(xs[0].0.name, "b");
+    assert_eq!(info.name, "b");
 }
 
 #[test]
@@ -162,10 +173,9 @@ fn prefer_remote_over_index_if_valid_cached() {
         index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
     };
 
-    let xs = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(example_uri, &resolver).unwrap();
 
-    assert_eq!(xs.len(), 1);
-    assert_eq!(xs[0].0.name, "a");
+    assert_eq!(info.name, "a");
 }
 
 #[test]
@@ -183,11 +193,9 @@ fn prefer_remote_over_index_if_valid_uncached() {
         index_resolver: single_project_any_resolver(example_uri, project_c.clone()),
     };
 
-    let xs = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(example_uri, &resolver).unwrap();
 
-    assert_eq!(xs.len(), 2);
-    assert_eq!(xs[0].0.name, "a");
-    assert_eq!(xs[1].0.name, "b");
+    assert_eq!(info.name, "b");
 }
 
 #[test]
@@ -204,11 +212,9 @@ fn skip_remote_if_unsupported_uncached() {
         index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
     };
 
-    let xs = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(example_uri, &resolver).unwrap();
 
-    assert_eq!(xs.len(), 2);
-    assert_eq!(xs[0].0.name, "a");
-    assert_eq!(xs[1].0.name, "b");
+    assert_eq!(info.name, "b");
 }
 
 #[test]
@@ -224,10 +230,9 @@ fn skip_remote_if_unsupported_cached() {
         index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
     };
 
-    let xs = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(example_uri, &resolver).unwrap();
 
-    assert_eq!(xs.len(), 1);
-    assert_eq!(xs[0].0.name, "a");
+    assert_eq!(info.name, "a");
 }
 
 #[test]
@@ -243,10 +248,9 @@ fn skip_remote_if_unresolved_cached() {
         index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
     };
 
-    let xs = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(example_uri, &resolver).unwrap();
 
-    assert_eq!(xs.len(), 1);
-    assert_eq!(xs[0].0.name, "a");
+    assert_eq!(info.name, "a");
 }
 
 #[test]
@@ -283,4 +287,53 @@ fn unresolved_iri_test() {
     else {
         panic!()
     };
+}
+
+#[test]
+fn skip_non_semantic_versions_test() {
+    let example_uri = "http://example.com";
+
+    let project_a = minimal_project("a", "1.2.3");
+    let project_b = minimal_project("b", "3.2.1.H");
+
+    let resolver = CombinedResolver {
+        file_resolver: multiple_projects_any_resolver(
+            example_uri,
+            vec![project_a.clone(), project_b.clone()],
+        ),
+        remote_resolver: empty_any_resolver(),
+        local_resolver: empty_any_resolver(),
+        index_resolver: empty_any_resolver(),
+    };
+
+    let (info, _) = do_info(example_uri, &resolver).unwrap();
+
+    assert_eq!(info.name, "a");
+}
+
+#[test]
+fn no_semantic_versions_error_test() {
+    let example_uri = "http://example.com";
+
+    let project_a = minimal_project("a", "1.23");
+    let project_b = minimal_project("b", "3.2.1.H");
+
+    let resolver = CombinedResolver {
+        file_resolver: multiple_projects_any_resolver(
+            example_uri,
+            vec![project_a.clone(), project_b.clone()],
+        ),
+        remote_resolver: empty_any_resolver(),
+        local_resolver: empty_any_resolver(),
+        index_resolver: empty_any_resolver(),
+    };
+
+    let info_meta = do_info(example_uri, &resolver);
+
+    // Would like to use assert_matches, but that's not yet stable, see
+    // https://github.com/rust-lang/rust/issues/82775
+    assert!(matches!(
+        info_meta,
+        Err(InfoError::NoSemanticVersionsFound(_))
+    ));
 }

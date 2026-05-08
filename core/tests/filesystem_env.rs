@@ -190,10 +190,9 @@ mod filesystem_tests {
             env: directory_environment,
         };
 
-        let resolved_projects = do_info("urn::sysand_test::1", &resolver)?;
+        let resolved_project = do_info("urn::sysand_test::1", &resolver)?;
 
-        assert_eq!(resolved_projects.len(), 1);
-        assert_eq!(resolved_projects[0], (info, meta));
+        assert_eq!(resolved_project, (info, meta));
 
         Ok(())
     }

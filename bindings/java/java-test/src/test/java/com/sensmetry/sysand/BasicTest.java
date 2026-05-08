@@ -92,14 +92,12 @@ public class BasicTest {
             assertExpectedProject(project);
 
             java.net.URI fileUri = tempDir.toUri();
-            com.sensmetry.sysand.model.InterchangeProject[] projects = com.sensmetry.sysand.Sysand.info(fileUri,
+            com.sensmetry.sysand.model.InterchangeProject project2 = com.sensmetry.sysand.Sysand.info(fileUri,
                     tempDir);
-            assertEquals(projects.length, 1);
-            assertExpectedProject(projects[0]);
+            assertExpectedProject(project2);
 
-            com.sensmetry.sysand.model.InterchangeProject[] projects2 = com.sensmetry.sysand.Sysand.info(fileUri);
-            assertEquals(projects2.length, 1);
-            assertExpectedProject(projects2[0]);
+            com.sensmetry.sysand.model.InterchangeProject project3 = com.sensmetry.sysand.Sysand.info(fileUri);
+            assertExpectedProject(project3);
         } catch (java.io.IOException e) {
             fail("Failed during temporary directory operations or Sysand.info: " + e.getMessage());
         } catch (com.sensmetry.sysand.exceptions.SysandException e) {
@@ -117,10 +115,9 @@ public class BasicTest {
             assertExpectedProject(project);
 
             java.net.URI fileUri = tempDir.toUri();
-            com.sensmetry.sysand.model.InterchangeProject[] projects = com.sensmetry.sysand.Sysand.info(fileUri,
+            com.sensmetry.sysand.model.InterchangeProject project2 = com.sensmetry.sysand.Sysand.info(fileUri,
                     tempDir);
-            assertEquals(projects.length, 1);
-            assertExpectedProject(projects[0]);
+            assertExpectedProject(project2);
 
             com.sensmetry.sysand.Sysand.buildProject(tempDir.resolve("sysand-test-build.kpar"), tempDir, CompressionMethod.DEFLATED);
         } catch (java.io.IOException e) {

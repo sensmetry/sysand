@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use sysand_core::{info::InfoProjectError, resolve::file::FileResolverProjectError};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -9,6 +10,12 @@ pub enum CliError {
     InvalidDirectory(String),
     #[error("unable to find project with IRI `{0}`")]
     NoResolve(String),
+    #[error("invalid project with IRI `{iri}`")]
+    InvalidProject {
+        iri: String,
+        #[source]
+        source: InfoProjectError<FileResolverProjectError>,
+    },
     #[error("invalid IRI `{0}`: {1}")]
     InvalidIri(String, fluent_uri::ParseError),
     #[error("unable to find interchange project `{0}`")]

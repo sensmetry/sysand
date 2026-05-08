@@ -193,8 +193,11 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_infoPath<'local>(
 
     let command_result = commands::info::do_info_project(&project);
     match command_result {
-        Some(info_metadata) => info_metadata.to_jobject(&mut env).unwrap_or_default(),
-        None => JObject::default(),
+        Ok(info_metadata) => info_metadata.to_jobject(&mut env).unwrap_or_default(),
+        Err(e) => {
+            env.throw_exception(ExceptionKind::SysandException, e.to_string());
+            JObject::default()
+        }
     }
 }
 
@@ -205,15 +208,15 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     uri: JString<'local>,
     relative_file_root: JString<'local>,
     index_url: JString<'local>,
-) -> JObjectArray<'local> {
+) -> JObject<'local> {
     let Some(uri) = env.get_str(&uri, "uri") else {
-        return JObjectArray::default();
+        return JObject::default();
     };
     let client = match create_reqwest_client() {
         Ok(c) => c,
         Err(e) => {
             env.throw_exception(ExceptionKind::SysandException, e.to_string());
-            return JObjectArray::default();
+            return JObject::default();
         }
     };
 
@@ -228,21 +231,21 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
                     ExceptionKind::IOError,
                     format!("Failed to build tokio runtime: {e}"),
                 );
-                return JObjectArray::default();
+                return JObject::default();
             }
         };
         Arc::new(r)
     };
 
     let Some(relative_file_root) = env.get_str(&relative_file_root, "relativeFileRoot") else {
-        return JObjectArray::default();
+        return JObject::default();
     };
 
     let index_base_url = if index_url.is_null() {
         None
     } else {
         let Some(index_url) = env.get_str(&index_url, "indexUrl") else {
-            return JObjectArray::default();
+            return JObject::default();
         };
         match url::Url::parse(&index_url) {
             Ok(url) => Some(url),
@@ -251,7 +254,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
                     StdlibExceptionKind::UnsupportedOperationException,
                     format!("Failed to parse index URL `{}`: {}", index_url, error),
                 );
-                return JObjectArray::default();
+                return JObject::default();
             }
         }
     };
@@ -271,20 +274,24 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
                 ExceptionKind::ResolutionError,
                 format!("Failed to discover index endpoints: {error}"),
             );
-            return JObjectArray::default();
+            return JObject::default();
         }
     };
 
-    let results = match commands::info::do_info(&uri, &combined_resolver) {
-        Ok(matches) => matches,
-        Err(InfoError::NoResolve(..)) => Vec::new(),
-        Err(e @ (InfoError::UnsupportedIri(..) | InfoError::Resolution(_))) => {
+    let info_meta = match commands::info::do_info(&uri, &combined_resolver) {
+        Ok(info_meta) => info_meta,
+        Err(
+            e @ (InfoError::NoSemanticVersionsFound(_)
+            | InfoError::NoResolve(..)
+            | InfoError::UnsupportedIri(..)
+            | InfoError::Resolution(_)),
+        ) => {
             env.throw_exception(ExceptionKind::ResolutionError, e.to_string());
-            return JObjectArray::default();
+            return JObject::default();
         }
     };
 
-    results.to_jobject_array(&mut env).unwrap_or_default()
+    info_meta.to_jobject(&mut env).unwrap_or_default()
 }
 
 #[unsafe(no_mangle)]

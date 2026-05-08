@@ -361,35 +361,3 @@ impl ToJObject for (InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw) {
         }
     }
 }
-
-impl ToJObjectArray for Vec<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
-    fn to_jobject_array<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObjectArray<'local>> {
-        let mut array = match env.new_object_array(
-            self.len()
-                .try_into()
-                .expect("Failed to convert length to i32"),
-            INTERCHANGE_PROJECT_CLASS,
-            JObject::null(),
-        ) {
-            Ok(o) => o,
-            Err(e) => {
-                env.throw_runtime_exception(format!("Failed to create InterchangeProject[]: {e}"));
-                return None;
-            }
-        };
-        for (i, value) in self.iter().enumerate() {
-            let index: i32 = i.try_into().expect("Failed to convert index to i32");
-            let value_object = value.to_jobject(env)?;
-            match env.set_object_array_element(&mut array, index, value_object) {
-                Ok(o) => o,
-                Err(e) => {
-                    env.throw_runtime_exception(format!(
-                        "Failed to set InterchangeProject[] element: {e}"
-                    ));
-                    return None;
-                }
-            }
-        }
-        Some(array)
-    }
-}

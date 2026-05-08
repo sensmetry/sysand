@@ -15,7 +15,7 @@ use std::{
     sync::Arc,
 };
 
-use anstream::{eprint, eprintln};
+use anstream::eprintln;
 use anyhow::{Result, anyhow, bail};
 use fluent_uri::Iri;
 
@@ -87,9 +87,12 @@ where
         Ok(args) => {
             if let Err(err) = run_cli(args) {
                 let style = style::ERROR;
-                eprint!("{style}error{style:#}: ");
-                for cause in err.chain() {
-                    eprintln!("{}", cause);
+                eprintln!("{style}error{style:#}: {err}");
+                let mut causes = err.chain();
+                // The first cause is the error itself which is printed already
+                _ = causes.next();
+                for cause in causes {
+                    eprintln!("{style}  caused by:{style:#} {cause}");
                 }
                 let note_style = style::GOOD;
                 if log::max_level() < log::Level::Debug {
