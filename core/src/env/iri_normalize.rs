@@ -203,7 +203,6 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
 
     result = result
         .trim_matches(|c: char| {
-            // !c.is_alphanumeric()
             (c.is_ascii() && !c.is_ascii_alphanumeric())
                 || c.is_control()
                 || c.is_whitespace()
@@ -289,7 +288,6 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
     // non-ASCII characters.
     truncated
         .trim_end_matches(|c: char| {
-            // !c.is_alphanumeric()
             (c.is_ascii() && !c.is_ascii_alphanumeric())
                 || c.is_control()
                 || c.is_whitespace()
@@ -402,7 +400,6 @@ pub fn normalize_version<V: AsRef<str>>(version: V) -> String {
     // non-ASCII characters.
     truncated
         .trim_end_matches(|c: char| {
-            // !c.is_alphanumeric()
             (c.is_ascii() && !c.is_ascii_alphanumeric())
                 || c.is_control()
                 || c.is_whitespace()
