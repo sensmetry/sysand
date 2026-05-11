@@ -162,10 +162,6 @@ impl LocalDirectoryEnvironment {
                     self.root_dir.join(p.path.as_str())
                 }
             })
-
-        // let mut p = self.uri_path(uri);
-        // p.push(format!("{}.kpar", version.as_ref()));
-        // p
     }
 
     /// Project path relative to the env directory
@@ -184,10 +180,6 @@ impl LocalDirectoryEnvironment {
                     p.path.as_str().into()
                 }
             })
-
-        // let mut p = self.uri_path(uri);
-        // p.push(format!("{}.kpar", version.as_ref()));
-        // p
     }
 
     fn ensure_lib_dir_exists(&self) -> Result<(), Box<FsIoError>> {
