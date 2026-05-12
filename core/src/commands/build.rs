@@ -282,14 +282,18 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             info.version
         ),
     }
-    if let Some(l) = info.license {
-        match spdx::Expression::parse(&l) {
-            Ok(_) => (),
-            Err(e) => {
-                log::warn!("project's license `{l}` is not a valid SPDX license expression:\n{e}")
-            }
-        }
-    }
+    let license_info: Option<(&str, spdx::Expression)> =
+        info.license
+            .as_deref()
+            .and_then(|l| match spdx::Expression::parse(l) {
+                Ok(expr) => Some((l, expr)),
+                Err(e) => {
+                    log::warn!(
+                        "project's license `{l}` is not a valid SPDX license expression:\n{e}"
+                    );
+                    None
+                }
+            });
 
     if let Some(u) = info.usage.iter().find(|x| {
         // Case-insensitively match `file:` scheme
@@ -338,15 +342,31 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     }
 
     let project_root = project.project_root();
-    let readme_content = read_optional_project_file(project_root, "README.md", "readme")?;
-    let changelog_content = read_optional_project_file(project_root, "CHANGELOG.md", "changelog")?;
+    let mut extra_files: Vec<(String, String)> = Vec::new();
+
+    if let Some(content) = read_optional_project_file(project_root, "README.md", "readme")? {
+        extra_files.push(("README.md".to_string(), content));
+    }
+    if let Some(content) = read_optional_project_file(project_root, "CHANGELOG.md", "changelog")? {
+        extra_files.push(("CHANGELOG.md".to_string(), content));
+    }
+    if let Some((license_str, expression)) = license_info.as_ref() {
+        for stem in license_file_stems(expression) {
+            let relative = format!("LICENSES/{stem}.txt");
+            match read_optional_project_file(project_root, &relative, "license")? {
+                Some(content) => extra_files.push((relative, content)),
+                None => log::warn!(
+                    "license file `{relative}` referenced by project license `{license_str}` was not found"
+                ),
+            }
+        }
+    }
 
     Ok(LocalKParProject::from_project(
         &local_project,
         path,
         compression.into(),
-        readme_content.as_deref(),
-        changelog_content.as_deref(),
+        &extra_files,
     )?)
 }
 
@@ -368,6 +388,30 @@ fn read_optional_project_file(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(FsIoError::ReadFile(file_path, e)),
     }
+}
+
+/// Return the deduplicated, in-order list of SPDX identifiers (licenses plus
+/// any `WITH` exceptions) named in `expression`. Each identifier maps to a
+/// `LICENSES/<id>.txt` file under REUSE conventions; the `+` "or later"
+/// modifier does not affect the filename.
+pub(crate) fn license_file_stems(expression: &spdx::Expression) -> Vec<String> {
+    let mut stems: indexmap::IndexSet<String> = indexmap::IndexSet::new();
+    for req in expression.requirements() {
+        let license_name = match &req.req.license {
+            spdx::LicenseItem::Spdx { id, .. } => id.name.to_string(),
+            spdx::LicenseItem::Other(license_ref) => license_ref.to_string(),
+        };
+        stems.insert(license_name);
+
+        if let Some(addition) = &req.req.addition {
+            let addition_name = match addition {
+                spdx::AdditionItem::Spdx(id) => id.name.to_string(),
+                spdx::AdditionItem::Other(add_ref) => add_ref.to_string(),
+            };
+            stems.insert(addition_name);
+        }
+    }
+    stems.into_iter().collect()
 }
 
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(

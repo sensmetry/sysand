@@ -206,12 +206,16 @@ impl LocalKParProject {
         })
     }
 
+    /// Build a KPAR archive from `from`.
+    ///
+    /// `extra_files` are added to the archive alongside the project's source
+    /// files. Each entry is `(archive_path, content)`; `archive_path` uses `/`
+    /// as the separator and is interpreted relative to the archive root.
     pub fn from_project<Pr: ProjectRead, P: AsRef<Utf8Path>>(
         from: &Pr,
         path: P,
         compression: zip::CompressionMethod,
-        readme: Option<&str>,
-        changelog: Option<&str>,
+        extra_files: &[(String, String)],
     ) -> Result<Self, IntoKparError<Pr::Error>> {
         let file = wrapfs::File::create(&path)?;
         let mut zip = zip::ZipWriter::new(file);
@@ -250,18 +254,12 @@ impl LocalKParProject {
                 .map_err(|e| FsIoError::CopyFile(source_path.into(), path.to_path_buf(), e))?;
         }
 
-        let mut write_optional =
-            |name: &str, content: Option<&str>| -> Result<(), IntoKparError<Pr::Error>> {
-                if let Some(content) = content {
-                    zip.start_file(name, options)
-                        .map_err(|e| ZipArchiveError::Write(Utf8Path::new(name).into(), e))?;
-                    zip.write_all(content.as_bytes())
-                        .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
-                }
-                Ok(())
-            };
-        write_optional("README.md", readme)?;
-        write_optional("CHANGELOG.md", changelog)?;
+        for (archive_path, content) in extra_files {
+            zip.start_file(archive_path, options)
+                .map_err(|e| ZipArchiveError::Write(Utf8Path::new(archive_path).into(), e))?;
+            zip.write_all(content.as_bytes())
+                .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+        }
 
         zip.finish()
             .map_err(|e| ZipArchiveError::Finish(path.as_ref().into(), e))?;
