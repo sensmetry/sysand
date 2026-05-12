@@ -211,6 +211,7 @@ impl LocalKParProject {
         path: P,
         compression: zip::CompressionMethod,
         readme: Option<&str>,
+        changelog: Option<&str>,
     ) -> Result<Self, IntoKparError<Pr::Error>> {
         let file = wrapfs::File::create(&path)?;
         let mut zip = zip::ZipWriter::new(file);
@@ -249,12 +250,18 @@ impl LocalKParProject {
                 .map_err(|e| FsIoError::CopyFile(source_path.into(), path.to_path_buf(), e))?;
         }
 
-        if let Some(readme_content) = readme {
-            zip.start_file("README.md", options)
-                .map_err(|e| ZipArchiveError::Write(Utf8Path::new("README.md").into(), e))?;
-            zip.write_all(readme_content.as_bytes())
-                .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
-        }
+        let mut write_optional =
+            |name: &str, content: Option<&str>| -> Result<(), IntoKparError<Pr::Error>> {
+                if let Some(content) = content {
+                    zip.start_file(name, options)
+                        .map_err(|e| ZipArchiveError::Write(Utf8Path::new(name).into(), e))?;
+                    zip.write_all(content.as_bytes())
+                        .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+                }
+                Ok(())
+            };
+        write_optional("README.md", readme)?;
+        write_optional("CHANGELOG.md", changelog)?;
 
         zip.finish()
             .map_err(|e| ZipArchiveError::Finish(path.as_ref().into(), e))?;
