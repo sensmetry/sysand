@@ -4,6 +4,7 @@
 #[cfg(feature = "filesystem")]
 mod filesystem_tests {
     use std::{
+        error::Error,
         io::{Cursor, Read},
         path::Path,
     };
@@ -15,7 +16,10 @@ mod filesystem_tests {
     use semver::Version;
     use sysand_core::{
         commands::env::do_env_local_dir,
-        env::{DEFAULT_ENV_NAME, ReadEnvironment, WriteEnvironment, utils::clone_project},
+        env::{
+            DEFAULT_ENV_NAME, ReadEnvironment, WriteEnvironment,
+            local_directory::LocalDirectoryEnvironment, utils::clone_project,
+        },
         info::do_info,
         model::{InterchangeProjectInfo, InterchangeProjectMetadata},
         project::{ProjectMut, ProjectRead, memory::InMemoryProject},
@@ -54,7 +58,7 @@ version = \"0.1\"
     }
 
     #[test]
-    fn env_basic() -> Result<(), Box<dyn std::error::Error>> {
+    fn env_basic() -> Result<(), Box<dyn Error>> {
         let cwd = tempdir()?;
         let env_path = Utf8Path::new(DEFAULT_ENV_NAME);
         let directory_environment = do_env_local_dir(cwd.path().join(env_path))?;
@@ -87,8 +91,175 @@ version = \"0.1\"
         Ok(())
     }
 
+    fn make_two_version_env(
+        cwd: &camino_tempfile::Utf8TempDir,
+        uri: &str,
+    ) -> Result<LocalDirectoryEnvironment, Box<dyn Error>> {
+        let mut env = do_env_local_dir(cwd.path().join(DEFAULT_ENV_NAME))?;
+
+        for (major, version_str) in [(1u64, "1.0.0"), (2u64, "2.0.0")] {
+            let info = InterchangeProjectInfo {
+                name: "multi_version_project".to_string(),
+                publisher: None,
+                description: None,
+                version: Version::new(major, 0, 0),
+                license: None,
+                maintainer: vec![],
+                website: None,
+                topic: vec![],
+                usage: vec![],
+            }
+            .into();
+
+            let mut index = IndexMap::new();
+            index.insert(
+                "Pkg".to_string(),
+                Utf8UnixPath::new("Pkg.sysml").to_path_buf(),
+            );
+
+            let meta = InterchangeProjectMetadata {
+                index,
+                created: DateTime::from_timestamp(1, 0).unwrap(),
+                metamodel: None,
+                includes_derived: None,
+                includes_implied: None,
+                checksum: None,
+            }
+            .into();
+
+            let mut source_project = InMemoryProject::default();
+            source_project.put_project(&info, &meta, true)?;
+            source_project.write_source(
+                Utf8UnixPath::new("Pkg.sysml"),
+                &mut Cursor::new("package Pkg;"),
+                true,
+            )?;
+
+            env.put_project(uri, version_str, |p| {
+                clone_project(&source_project, p, true).map(|_| ())
+            })?;
+        }
+
+        Ok(env)
+    }
+
     #[test]
-    fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
+    fn del_project_with_multiple_versions() -> Result<(), Box<dyn Error>> {
+        let cwd = tempdir()?;
+        let uri = "urn:sysand_test:multi";
+        let mut env = make_two_version_env(&cwd, uri)?;
+
+        // Both versions are present
+        let mut versions: Vec<String> = env.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
+        versions.sort();
+        assert_eq!(versions, vec!["1.0.0", "2.0.0"]);
+
+        env.del_project_version(uri, "1.0.0")?;
+
+        // Only 2.0.0 remains in metadata
+        let versions: Vec<String> = env.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
+        assert_eq!(versions, vec!["2.0.0"]);
+
+        assert!(env.get_project(uri, "1.0.0").is_err());
+        assert!(env.get_project(uri, "2.0.0").is_ok());
+
+        // URI still listed
+        let uris: Vec<String> = env.uris()?.into_iter().collect::<Result<_, _>>()?;
+        assert!(uris.contains(&uri.to_string()));
+
+        // v1 project dir is fully removed
+        let v1_dir = cwd.path().join("sysand_env/lib/sysand_test.multi_1.0.0");
+        assert!(!v1_dir.exists());
+
+        // v2 project dir still has its files
+        let v2_dir = cwd.path().join("sysand_env/lib/sysand_test.multi_2.0.0");
+        assert!(!ls_dir(&v2_dir).is_empty());
+
+        // Persisted to disk: re-reading gives same result
+        let env2 = LocalDirectoryEnvironment::read(cwd.path().join("sysand_env"))?;
+        let versions: Vec<String> = env2.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
+        assert_eq!(versions, vec!["2.0.0"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn del_uri_removes_all_versions() -> Result<(), Box<dyn Error>> {
+        let cwd = tempdir()?;
+        let uri = "urn:sysand_test:multi";
+        let other_uri = "urn:sysand_test:other";
+        let mut env = make_two_version_env(&cwd, uri)?;
+
+        // Add an unrelated project to verify it is unaffected
+        {
+            let info = InterchangeProjectInfo {
+                name: "other_project".to_string(),
+                publisher: None,
+                description: None,
+                version: Version::new(1, 0, 0),
+                license: None,
+                maintainer: vec![],
+                website: None,
+                topic: vec![],
+                usage: vec![],
+            }
+            .into();
+            let mut index = IndexMap::new();
+            index.insert(
+                "Other".to_string(),
+                Utf8UnixPath::new("Other.sysml").to_path_buf(),
+            );
+            let meta = InterchangeProjectMetadata {
+                index,
+                created: DateTime::from_timestamp(1, 0).unwrap(),
+                metamodel: None,
+                includes_derived: None,
+                includes_implied: None,
+                checksum: None,
+            }
+            .into();
+            let mut other_project = InMemoryProject::default();
+            other_project.put_project(&info, &meta, true)?;
+            other_project.write_source(
+                Utf8UnixPath::new("Other.sysml"),
+                &mut Cursor::new("package Other;"),
+                true,
+            )?;
+            env.put_project(other_uri, "1.0.0", |p| {
+                clone_project(&other_project, p, true).map(|_| ())
+            })?;
+        }
+
+        env.del_uri(uri)?;
+
+        // No versions for the deleted URI
+        let versions: Vec<String> = env.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
+        assert!(versions.is_empty());
+
+        // URI is gone from the listing
+        let uris: Vec<String> = env.uris()?.into_iter().collect::<Result<_, _>>()?;
+        assert!(!uris.contains(&uri.to_string()));
+
+        // The other URI is unaffected
+        assert!(uris.contains(&other_uri.to_string()));
+        assert!(env.get_project(other_uri, "1.0.0").is_ok());
+
+        // Both project dirs are fully removed
+        let v1_dir = cwd.path().join("sysand_env/lib/sysand_test.multi_1.0.0");
+        let v2_dir = cwd.path().join("sysand_env/lib/sysand_test.multi_2.0.0");
+        assert!(!v1_dir.exists());
+        assert!(!v2_dir.exists());
+
+        // Persisted to disk: re-reading gives same result
+        let env2 = LocalDirectoryEnvironment::read(cwd.path().join("sysand_env"))?;
+        let versions: Vec<String> = env2.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
+        assert!(versions.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn env_manual_install() -> Result<(), Box<dyn Error>> {
         let cwd = tempdir()?;
         let mut directory_environment = do_env_local_dir(cwd.path().join(DEFAULT_ENV_NAME))?;
 

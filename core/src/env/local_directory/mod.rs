@@ -489,7 +489,10 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             // Editable projects are not owned by the env
             if !project.editable {
                 // TODO: maybe surface IO errors?
-                clean_dir(self.root_dir.join(project.path.as_str()));
+                let project_dir = self.root_dir.join(project.path.as_str());
+                clean_dir(&project_dir);
+                let _ = fs::remove_dir(&project_dir)
+                    .map_err(|e| log::warn!("failed to remove empty dir `{project_dir}`: {e}"));
             }
             self.metadata.projects.swap_remove(idx);
             self.write()?;
@@ -506,7 +509,10 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             assert!(!p.workspace);
             if !p.editable {
                 // TODO: maybe surface IO errors?
-                clean_dir(self.root_dir.join(p.path.as_str()));
+                let project_dir = self.root_dir.join(p.path.as_str());
+                clean_dir(&project_dir);
+                let _ = fs::remove_dir(&project_dir)
+                    .map_err(|e| log::warn!("failed to remove empty dir `{project_dir}`: {e}"));
             }
             indices_to_remove.push(idx);
         }
