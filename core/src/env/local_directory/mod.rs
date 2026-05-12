@@ -510,7 +510,10 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             }
             indices_to_remove.push(idx);
         }
-        for idx in indices_to_remove {
+        // `swap_remove()` does not affect elements before the one being removed,
+        // so indices have to be removed from largest to smallest
+        indices_to_remove.sort_unstable();
+        for idx in indices_to_remove.iter().copied().rev() {
             self.metadata.projects.swap_remove(idx);
         }
         self.write()?;
