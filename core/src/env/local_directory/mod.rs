@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{fs, io::ErrorKind, slice, vec};
+use std::{
+    fs,
+    io::{ErrorKind, Write},
+    vec,
+};
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use thiserror::Error;
 
@@ -11,9 +15,12 @@ use crate::{
     env::{
         PutProjectError, ReadEnvironment, WriteEnvironment,
         iri_normalize::IriVersionFilename,
-        local_directory::metadata::{
-            AddProjectError, EnvMetadata, EnvMetadataError, EnvProject, load_env_metadata,
-            parse_env_metadata,
+        local_directory::{
+            metadata::{
+                AddProjectError, EnvMetadata, EnvMetadataError, EnvProject, load_env_metadata,
+                parse_env_metadata,
+            },
+            utils::clean_dir,
         },
     },
     lock::{Lock, Source},
@@ -28,9 +35,9 @@ use crate::{
 };
 
 pub mod metadata;
-pub(crate) mod utils;
+pub mod utils;
 
-use utils::{TryMoveError, remove_empty_dirs, try_move_files, try_remove_files};
+use utils::{TryMoveError, try_move_files};
 
 // TODO: avoid cloning, maybe use `Arc`?
 /// `sysand_env` metadata. Metadata changes have to be written to `env.toml` explicitly
@@ -47,17 +54,20 @@ pub const PROJECT_PATH_PREFIX: &str = "lib/";
 impl LocalDirectoryEnvironment {
     /// `root_dir` can be any cwd-relative/absolute path
     pub fn read<P: AsRef<Utf8Path>>(root_dir: P) -> Result<Self, EnvMetadataError> {
-        let root_dir = wrapfs::canonicalize(root_dir).unwrap();
+        let root_dir = wrapfs::canonicalize(root_dir)?;
         let metadata = load_env_metadata(root_dir.join(METADATA_PATH))?;
         Ok(Self { root_dir, metadata })
     }
 
-    /// `root_dir` can be any cwd-relative/absolute path
+    /// `root_dir` can be any cwd-relative/absolute path. `env.toml` must not exist
     pub fn create<P: AsRef<Utf8Path>>(root_dir: P) -> Result<Self, Box<FsIoError>> {
-        let root_dir = wrapfs::canonicalize(root_dir).unwrap();
+        let root_dir = wrapfs::canonicalize(root_dir)?;
 
         let metadata = EnvMetadata::default();
-        wrapfs::write(root_dir.join(METADATA_PATH), metadata.to_string())?;
+        let path = root_dir.join(METADATA_PATH);
+        let mut file = wrapfs::File::create_new(&path)?;
+        file.write_all(metadata.to_string().as_bytes())
+            .map_err(|e| FsIoError::WriteFile(path, e))?;
 
         Ok(Self { root_dir, metadata })
     }
@@ -72,7 +82,7 @@ impl LocalDirectoryEnvironment {
             Ok(s) => {
                 let metadata = parse_env_metadata(meta_path, s)?;
 
-                let root_dir = wrapfs::canonicalize(root_dir).unwrap();
+                let root_dir = wrapfs::canonicalize(root_dir)?;
                 Ok(Some(Self { root_dir, metadata }))
             }
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
@@ -82,15 +92,13 @@ impl LocalDirectoryEnvironment {
         }
     }
 
-    // TODO:
-    // - if there is identifier overlap and name/version match between projects in lock and env,
-    //   merge identifiers
     // TODO: Integrate the updating of editable metadata into `WriteEnvironment` trait.
     //       This will likely require updating it to support
     //       multiple identifiers per project.
-    /// Precondition: sync has completed, i.e. projects from `lock` are installed by `put_project`
-    /// in `self`.
-    /// Call is not idempotent.
+    /// Precondition: sync has completed, i.e. projects from `lock` are installed
+    /// by `self.put_project()`.
+    /// Call is idempotent.
+    /// Does not update metadata file.
     pub fn merge_lock(&mut self, lock: &Lock, ws: Option<&Workspace>) {
         for project in &lock.projects {
             // Projects that are installed in the environment are ignored, so only
@@ -105,16 +113,33 @@ impl LocalDirectoryEnvironment {
                 let workspace_member = ws
                     .map(|w| w.projects().iter().any(|p| p.path.as_str() == editable))
                     .unwrap_or_default();
-                self.metadata.projects.push(EnvProject {
-                    publisher: project.publisher.to_owned(),
-                    name: project.name.to_owned(),
-                    version: project.version.to_owned(),
-                    path: editable.as_str().into(),
-                    identifiers: project.identifiers.to_owned(),
-                    usages,
-                    editable: true,
-                    workspace: workspace_member,
-                });
+                // This is called once per `sync`, so has to be idempotent
+                if let Some(existing) = self
+                    .metadata
+                    .find_project_version_any_mut(&project.identifiers, &project.version)
+                {
+                    assert_eq!(existing.workspace, workspace_member);
+                    assert!(existing.editable);
+
+                    for iri in &project.identifiers {
+                        if !existing.identifiers.contains(iri) {
+                            existing.identifiers.push(iri.to_owned());
+                        }
+                    }
+                    existing.path = editable.as_str().into();
+                    existing.usages = usages;
+                } else {
+                    self.metadata.projects.push(EnvProject {
+                        publisher: project.publisher.to_owned(),
+                        name: project.name.to_owned(),
+                        version: project.version.to_owned(),
+                        path: editable.as_str().into(),
+                        identifiers: project.identifiers.to_owned(),
+                        usages,
+                        editable: true,
+                        workspace: workspace_member,
+                    });
+                }
             }
         }
     }
@@ -131,56 +156,62 @@ impl LocalDirectoryEnvironment {
         wrapfs::write(self.metadata_path(), self.metadata.to_string())
     }
 
+    pub fn projects(&self) -> &[EnvProject] {
+        &self.metadata.projects
+    }
+
     /// Determine absolute path of `project`
-    pub fn absolute_project_path(&self, project: &EnvProject) -> Utf8PathBuf {
+    fn absolute_project_path(&self, project: &EnvProject) -> Utf8PathBuf {
         if project.editable {
-            // Will assume that workspace root is the parent of `sysand_env`
-            // FIXME: be more robust
-            self.root_dir.parent().unwrap().join(project.path.as_str())
+            self.parent_dir().join(project.path.as_str())
         } else {
             self.root_dir.join(project.path.as_str())
         }
     }
 
-    pub fn projects(&self) -> &[EnvProject] {
-        &self.metadata.projects
+    // /// Find a project `uri` version `version` and determine its absolute path
+    // pub fn absolute_project_path_find<S: AsRef<str>, T: AsRef<str>>(
+    //     &self,
+    //     uri: S,
+    //     version: T,
+    // ) -> Option<Utf8PathBuf> {
+    //     self.metadata
+    //         .find_project_version(uri, version)
+    //         .map(|p| self.project_to_absolute_path(p))
+    // }
+
+    // /// Project path relative to the env directory
+    // pub fn relative_project_path_find<S: AsRef<str>, T: AsRef<str>>(
+    //     &self,
+    //     uri: S,
+    //     version: T,
+    // ) -> Option<Utf8PathBuf> {
+    //     self.metadata.find_project_version(uri, version).map(|p| {
+    //         if p.editable {
+    //             // TODO: this assumes that parent is workspace root
+    //             Utf8Path::new("../").join(p.path.as_str())
+    //         } else {
+    //             p.path.as_str().into()
+    //         }
+    //     })
+    // }
+
+    /// Parent directory of the env, i.e. the directory in which `sysand_env` resides.
+    /// It is assumed to be the workspace (if present) or project root, which in turn is
+    /// the root of relative paths of `editable`/`workspace` projects
+    // TODO: is it correct to assume that `sysand_env` is always at workspace/project root?
+    fn parent_dir(&self) -> &Utf8Path {
+        // Will fail only if env is at root, i.e. `self.root_dir == /`
+        self.root_dir.parent().unwrap()
     }
 
-    /// Find a project `uri` version `version` and determine its absolute path
-    pub fn absolute_project_path_find<S: AsRef<str>, T: AsRef<str>>(
-        &self,
-        uri: S,
-        version: T,
-    ) -> Option<Utf8PathBuf> {
-        self.metadata
-            .find_project_version(slice::from_ref(&uri), version)
-            .map(|p| {
-                if p.editable {
-                    // TODO: this assumes that parent is workspace root
-                    self.root_dir.parent().unwrap().join(p.path.as_str())
-                } else {
-                    self.root_dir.join(p.path.as_str())
-                }
-            })
-    }
-
-    /// Project path relative to the env directory
-    pub fn relative_project_path<S: AsRef<str>, T: AsRef<str>>(
-        &self,
-        uri: S,
-        version: T,
-    ) -> Option<Utf8PathBuf> {
-        self.metadata
-            .find_project_version(slice::from_ref(&uri), version)
-            .map(|p| {
-                if p.editable {
-                    // TODO: this assumes that parent is workspace root
-                    Utf8Path::new("../").join(p.path.as_str())
-                } else {
-                    p.path.as_str().into()
-                }
-            })
-    }
+    // fn project_to_absolute_path(&self, project: &EnvProject) -> Utf8PathBuf {
+    //     if project.editable {
+    //         self.parent_dir().join(project.path.as_str())
+    //     } else {
+    //         self.root_dir.join(project.path.as_str())
+    //     }
+    // }
 
     fn ensure_lib_dir_exists(&self) -> Result<(), Box<FsIoError>> {
         let lib_dir = self.root_dir.join(PROJECT_PATH_PREFIX);
@@ -196,9 +227,45 @@ impl LocalDirectoryEnvironment {
         }
     }
 
+    fn get_project_storage(&self, project: &EnvProject) -> LocalSrcProject {
+        let relative = project.path.as_str();
+        if project.editable {
+            // let absolute = self.parent_dir().join(relative);
+            // We will assume that the relative path was constructed by us
+            // by diffing canonical paths of the project and env parent (i.e. workspace root)
+            // Otherwise canonicalization would be needed here to remove possible
+            // (internal) `../` of editable projects, which can reside anywhere.
+            // In principle thus it should be enough to strip however many `../` are
+            // at the start of `relative` from `parent`, and then join (stripped) relative
+            // to (stripped) parent.
+            let mut absolute = self.parent_dir().to_path_buf();
+            for c in Utf8Path::new(relative).components() {
+                match c {
+                    Utf8Component::ParentDir => {
+                        absolute.pop();
+                    }
+                    Utf8Component::Normal(c) => absolute.push(c),
+                    Utf8Component::CurDir | Utf8Component::Prefix(_) | Utf8Component::RootDir => {
+                        unreachable!()
+                    }
+                }
+            }
+            LocalSrcProject {
+                nominal_path: Some(relative.into()),
+                project_path: absolute,
+            }
+        } else {
+            let absolute = self.root_dir.join(relative);
+            let relative = format!("{}/{relative}", self.root_dir.file_name().unwrap());
+            LocalSrcProject {
+                nominal_path: Some(relative.into()),
+                project_path: absolute,
+            }
+        }
+    }
+
     /// Determine a path for a new project/version. Path will be relative to `self.root_path()`
-    fn compute_project_path(&self, iri: impl AsRef<str>, version: impl AsRef<str>) -> Utf8PathBuf {
-        let iri = Iri::parse(iri.as_ref()).unwrap();
+    fn compute_project_path(&self, iri: Iri<&str>, version: impl AsRef<str>) -> Utf8PathBuf {
         let mut path_iter = IriVersionFilename::new(iri, version);
         let mut candidate = path_iter.next_candidate();
         while self.metadata.project_dir_exists(candidate) {
@@ -248,7 +315,7 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
         let identifier = uri.as_ref();
         Ok(self
             .metadata
-            .find_project(slice::from_ref(&identifier))
+            .find_project(identifier)
             .map(|p| Ok(p.version.to_owned()))
             .collect())
     }
@@ -260,29 +327,11 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
         uri: S,
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
-        let Some(absolute_path) = self.absolute_project_path_find(&uri, version) else {
-            return Err(LocalReadError::ProjectNotFound(uri.as_ref().into()));
-        };
-        // Canonicalization is needed here to remove possible `../` of
-        // editable projects, which can reside anywhere. Their path is relative
-        // to workspace or project root, which is the parent of `sysand_env`
-        let absolute_path = wrapfs::canonicalize(absolute_path)?;
-        let env_parent = self
-            .root_path()
-            // Will fail only if env is at root
-            .parent()
-            .unwrap();
-        // TODO: deal with windows different drive paths (in lockfile,env,new dep types) like
-        // Cargo does: relative paths where possible, absolute paths for different drives and such
-        let nominal_path = absolute_path
-            .strip_prefix(env_parent)
-            .unwrap()
-            .to_path_buf();
-
-        Ok(LocalSrcProject {
-            nominal_path: Some(nominal_path),
-            project_path: absolute_path,
-        })
+        if let Some(project) = self.metadata.find_project_version(&uri, &version) {
+            Ok(self.get_project_storage(project))
+        } else {
+            Err(LocalReadError::ProjectNotFound(uri.as_ref().into()))
+        }
     }
 }
 
@@ -368,10 +417,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             project_path: project_temp.path().to_path_buf(),
         };
 
-        if let Some(existing) = self
-            .metadata
-            .find_project_version(slice::from_ref(&identifier), version)
-        {
+        if let Some(existing) = self.metadata.find_project_version(identifier, version) {
             // Create a temp clone and change it to avoid modifying env in case of errors
             // TODO: check that publisher/name match?
             // Will assume that usages/publisher/name/etc remain unchanged
@@ -397,7 +443,10 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
 
             // Project write was successful
 
-            let path = self.compute_project_path(identifier, version);
+            // TODO: take iri as arg
+            let iri = Iri::parse(identifier)
+                .map_err(|e| PutProjectError::IriParse(identifier.to_owned(), e))?;
+            let path = self.compute_project_path(iri, version);
             let absolute_project_path = self.root_path().join(&path);
 
             // Tolerate missing `lib/`
@@ -434,55 +483,37 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
     ) -> Result<(), Self::WriteError> {
         let identifier = uri.as_ref();
         let version = version.as_ref();
-        let existing = self
-            .metadata
-            .find_project_version_idx(slice::from_ref(&identifier), version);
-
-        if let Some(idx) = existing {
-            // TODO: return Option<something> from get_project()
-            let project: LocalSrcProject = self
-                .get_project(identifier, version)
-                .map_err(LocalWriteError::from)?;
-
-            // TODO: Add better error messages for catastrophic errors
-            if let Err(err) = try_remove_files(
-                project
-                    .get_source_paths()?
-                    .into_iter()
-                    .chain(vec![project.info_path(), project.meta_path()]),
-            ) {
-                match err {
-                    TryMoveError::CatastrophicIO { .. } => {
-                        // Still remove version from metadata if a partial delete happened,
-                        // better pretend like it does not exist than to pretend like a broken
-                        // package is properly installed
-                        self.metadata.projects.remove(idx);
-                        self.write().map_err(LocalWriteError::from)?;
-                        return Err(err.into());
-                    }
-                    // Failed to remove project
-                    TryMoveError::RecoveredIO(_) => return Err(LocalWriteError::from(err)),
-                }
+        if let Some((idx, project)) = self.metadata.find_project_version_idx(identifier, version) {
+            // Doesn't make sense to remove workspace projects
+            assert!(!project.workspace);
+            // Editable projects are not owned by the env
+            if !project.editable {
+                // TODO: maybe surface IO errors?
+                clean_dir(self.root_dir.join(project.path.as_str()));
             }
-
-            self.metadata.projects.remove(idx);
-            self.write().map_err(LocalWriteError::from)?;
-
-            remove_empty_dirs(project.project_path)?;
+            self.metadata.projects.swap_remove(idx);
+            self.write()?;
         }
+
         Ok(())
     }
 
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
-        let current_uris_: Result<Vec<String>, LocalReadError> = self.uris()?.into_iter().collect();
-        let current_uris: Vec<String> = current_uris_?;
-
-        if current_uris.contains(&uri.as_ref().to_string()) {
-            for version_ in self.versions(&uri)? {
-                let version: String = version_?;
-                self.del_project_version(&uri, &version)?;
+        let project_versions = self.metadata.find_project_idx(uri.as_ref());
+        let mut indices_to_remove = Vec::new();
+        for (idx, p) in project_versions {
+            // Doesn't make sense to remove workspace projects
+            assert!(!p.workspace);
+            if !p.editable {
+                // TODO: maybe surface IO errors?
+                clean_dir(self.root_dir.join(p.path.as_str()));
             }
+            indices_to_remove.push(idx);
         }
+        for idx in indices_to_remove {
+            self.metadata.projects.swap_remove(idx);
+        }
+        self.write()?;
 
         Ok(())
     }

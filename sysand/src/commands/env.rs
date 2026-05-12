@@ -13,7 +13,7 @@ use sysand_core::{
     commands::{env::do_env_local_dir, lock::LockOutcome},
     config::Config,
     context::ProjectContext,
-    env::local_directory::{LocalDirectoryEnvironment, metadata::load_env_metadata},
+    env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
@@ -133,6 +133,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             &iri,
             &version.to_string(),
             &storage,
+            // Initialized above
             &mut ctx.env.unwrap(),
             allow_overwrite,
             allow_multiple,
@@ -332,15 +333,10 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
 pub fn command_env_uninstall<S: AsRef<str>, V: AsRef<str>>(
     iri: S,
     version: Option<V>,
-    env: LocalDirectoryEnvironment,
+    mut env: LocalDirectoryEnvironment,
 ) -> Result<()> {
-    let metadata_path = env.metadata_path();
-
-    sysand_core::commands::env::do_env_uninstall(&iri, version.as_ref(), env)?;
-
-    let mut env_metadata = load_env_metadata(&metadata_path)?;
-    env_metadata.remove_project(iri, version);
-    wrapfs::write(metadata_path, env_metadata.to_string())?;
+    sysand_core::commands::env::do_env_uninstall(&iri, version.as_ref(), &mut env)?;
+    env.write()?;
 
     Ok(())
 }

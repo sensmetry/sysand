@@ -13,8 +13,6 @@ use crate::{
     project::{AsAsyncProject, AsSyncProjectTokio, ProjectMut, ProjectRead, ProjectReadAsync},
 };
 
-// pub mod utils;
-
 // Implementations
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod discovery;
@@ -307,6 +305,8 @@ pub enum PutProjectError<WE, CE> {
     Write(#[from] WE),
     #[error(transparent)]
     Callback(CE),
+    #[error("failed to parse `{0}` as IRI: {1}")]
+    IriParse(String, fluent_uri::ParseError),
     // #[error(transparent)]
     // AddProject(AE),
 }
