@@ -337,30 +337,37 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
-    let readme_source_path = project.project_root().map(|p| p.join("README.md"));
-    let readme_content = if let Some(readme_path) = &readme_source_path {
-        match std::fs::read_to_string(readme_path) {
-            Ok(content) => {
-                let header = crate::style::get_style_config().header;
-                let including = "Including";
-                log::info!("{header}{including:>12}{header:#} readme from `{readme_path}`");
-                Some(content)
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-            Err(e) => {
-                return Err(FsIoError::ReadFile(readme_path.clone(), e).into());
-            }
-        }
-    } else {
-        None
-    };
+    let project_root = project.project_root();
+    let readme_content = read_optional_project_file(project_root, "README.md", "readme")?;
+    let changelog_content = read_optional_project_file(project_root, "CHANGELOG.md", "changelog")?;
 
     Ok(LocalKParProject::from_project(
         &local_project,
         path,
         compression.into(),
         readme_content.as_deref(),
+        changelog_content.as_deref(),
     )?)
+}
+
+fn read_optional_project_file(
+    project_root: Option<&Utf8Path>,
+    file_name: &str,
+    log_label: &str,
+) -> Result<Option<String>, FsIoError> {
+    let Some(file_path) = project_root.map(|p| p.join(file_name)) else {
+        return Ok(None);
+    };
+    match std::fs::read_to_string(&file_path) {
+        Ok(content) => {
+            let header = crate::style::get_style_config().header;
+            let including = "Including";
+            log::info!("{header}{including:>12}{header:#} {log_label} from `{file_path}`");
+            Ok(Some(content))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(FsIoError::ReadFile(file_path, e)),
+    }
 }
 
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
@@ -393,3 +400,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     }
     Ok(result)
 }
+
+#[cfg(test)]
+#[path = "./build_tests.rs"]
+mod tests;
