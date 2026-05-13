@@ -261,21 +261,41 @@ file does not yet exist.
 A local environment for use by tools like `syside`. It can be initialized by
 `sysand env`, and populated with `sysand sync`.
 
-As of 2026-04 and not concluded [work in GitLab], the local environment will
-looks something like below.
+The local environment looks like this:
 
 ```text
 sysand_env
  ├──env.toml
  └──lib
-    ├──package_ID1_0.0.1
-    ├──package_ID2_1.2.3
-    └──package_ID3_0.5.4
+    ├──package_ID1_version
+    ├──package_ID2_version
+    └──package_ID3_version
 ```
 
-Refer to the [work in GitLab] for the latest details for now.
+`env.toml` contains an array of projects. Each project contains these fields:
 
-[work in gitlab]: https://gitlab.com/sensmetry/internal2/tech/syside/sysand/home/-/merge_requests/1
+- `publisher`. Taken from `.project.json`
+- `name`. Taken from `.project.json`
+- `version`. Taken from `.project.json`
+- `path`. Relative path of the project's directory. For non-`workspace` and
+  non-`editable` projects, this is currently `lib/package_ID_version`, and is
+  relative to `sysand_env`. For `editable`/`workspace` projects, path is
+  relative to the workspace/project root; these projects are only listed in
+  `env.toml`, but are not otherwise managed by it.
+- `identifiers`. Identifiers of the project, the first one being considered
+  "canonical".
+- `usages`. Taken from `.project.json`
+- `editable`. Whether the project is considered to be "editable". If so,
+  the project entry is only a reference to that project, and the project
+  itself is not managed by the environment.
+- `workspace`. Whether the project belongs to the current workspace.
+  `workspace` projects are always `editable`.
+
+Each `package_ID` is derived from the project's canonical identifier, and
+`version` is derived from project's version. For exact details on how each
+`package_ID` and `version` is constructed from their corresponding values, see
+`sysand_core::env::iri_normalize::iri_to_filename_part()` and
+`sysand_core::env::iri_normalize::normalize_version()`, respectively.
 
 ### Index environment
 

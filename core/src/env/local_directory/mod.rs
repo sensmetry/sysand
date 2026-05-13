@@ -398,6 +398,9 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
     type InterchangeProjectMut = LocalSrcProject;
 
     /// Will overwrite the specified project version if it exists
+    // TODO: support multiple identifiers. This will allow aliases and identifying
+    // projects by their publisher/name, even if they were retrieved under a
+    // different identifier.
     fn put_project<S: AsRef<str>, T: AsRef<str>, F, CE>(
         &mut self,
         uri: S,
