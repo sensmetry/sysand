@@ -11,9 +11,7 @@ mod filesystem_tests {
 
     use camino::Utf8Path;
     use camino_tempfile::tempdir;
-    use chrono::DateTime;
     use indexmap::IndexMap;
-    use semver::Version;
     use sysand_core::{
         commands::env::do_env_local_dir,
         env::{
@@ -21,7 +19,7 @@ mod filesystem_tests {
             local_directory::LocalDirectoryEnvironment, utils::clone_project,
         },
         info::do_info,
-        model::{InterchangeProjectInfo, InterchangeProjectMetadata},
+        model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, format_created_now},
         project::{ProjectMut, ProjectRead, memory::InMemoryProject},
         resolve::env::EnvResolver,
     };
@@ -97,35 +95,30 @@ version = \"0.1\"
     ) -> Result<LocalDirectoryEnvironment, Box<dyn Error>> {
         let mut env = do_env_local_dir(cwd.path().join(DEFAULT_ENV_NAME))?;
 
-        for (major, version_str) in [(1u64, "1.0.0"), (2u64, "2.0.0")] {
-            let info = InterchangeProjectInfo {
+        for version_str in ["1.0.0", "2.0.0"] {
+            let info = InterchangeProjectInfoRaw {
                 name: "multi_version_project".to_string(),
                 publisher: None,
                 description: None,
-                version: Version::new(major, 0, 0),
+                version: version_str.to_owned(),
                 license: None,
                 maintainer: vec![],
                 website: None,
                 topic: vec![],
                 usage: vec![],
-            }
-            .into();
+            };
 
             let mut index = IndexMap::new();
-            index.insert(
-                "Pkg".to_string(),
-                Utf8UnixPath::new("Pkg.sysml").to_path_buf(),
-            );
+            index.insert("Pkg".to_string(), String::from("Pkg.sysml"));
 
-            let meta = InterchangeProjectMetadata {
+            let meta = InterchangeProjectMetadataRaw {
                 index,
-                created: DateTime::from_timestamp(1, 0).unwrap(),
+                created: format_created_now(),
                 metamodel: None,
                 includes_derived: None,
                 includes_implied: None,
                 checksum: None,
-            }
-            .into();
+            };
 
             let mut source_project = InMemoryProject::default();
             source_project.put_project(&info, &meta, true)?;
@@ -192,32 +185,27 @@ version = \"0.1\"
 
         // Add an unrelated project to verify it is unaffected
         {
-            let info = InterchangeProjectInfo {
+            let info = InterchangeProjectInfoRaw {
                 name: "other_project".to_string(),
                 publisher: None,
                 description: None,
-                version: Version::new(1, 0, 0),
+                version: "1.0.0".to_owned(),
                 license: None,
                 maintainer: vec![],
                 website: None,
                 topic: vec![],
                 usage: vec![],
-            }
-            .into();
+            };
             let mut index = IndexMap::new();
-            index.insert(
-                "Other".to_string(),
-                Utf8UnixPath::new("Other.sysml").to_path_buf(),
-            );
-            let meta = InterchangeProjectMetadata {
+            index.insert("Other".to_string(), String::from("Other.sysml"));
+            let meta = InterchangeProjectMetadataRaw {
                 index,
-                created: DateTime::from_timestamp(1, 0).unwrap(),
+                created: format_created_now(),
                 metamodel: None,
                 includes_derived: None,
                 includes_implied: None,
                 checksum: None,
-            }
-            .into();
+            };
             let mut other_project = InMemoryProject::default();
             other_project.put_project(&info, &meta, true)?;
             other_project.write_source(
@@ -263,34 +251,29 @@ version = \"0.1\"
         let cwd = tempdir()?;
         let mut directory_environment = do_env_local_dir(cwd.path().join(DEFAULT_ENV_NAME))?;
 
-        let info = InterchangeProjectInfo {
+        let info = InterchangeProjectInfoRaw {
             name: "env_manual_install".to_string(),
             publisher: None,
             description: None,
-            version: Version::new(1, 2, 3),
+            version: "1.2.3".to_owned(),
             license: None,
             maintainer: vec![],
             website: None,
             topic: vec![],
             usage: vec![],
-        }
-        .into();
+        };
 
         let mut index = IndexMap::new();
-        index.insert(
-            "SomePackage".to_string(),
-            Utf8UnixPath::new("SomePackage.sysml").to_path_buf(),
-        );
+        index.insert("SomePackage".to_string(), String::from("SomePackage.sysml"));
 
-        let meta = InterchangeProjectMetadata {
+        let meta = InterchangeProjectMetadataRaw {
             index,
-            created: DateTime::from_timestamp(1, 2).unwrap(),
+            created: format_created_now(),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,
             checksum: None,
-        }
-        .into();
+        };
 
         let mut source_project = InMemoryProject::default();
 
