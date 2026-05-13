@@ -527,8 +527,11 @@ fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
         .success()
         .stderr(predicate::str::contains("Including readme from"));
 
-    // Verify the KPAR contains README.md with correct content
-    assert_kpar_readme(&cwd.join("test_build.kpar"), "# My Project\nHello world\n");
+    assert_kpar_file(
+        &cwd.join("test_build.kpar"),
+        "README.md",
+        "# My Project\nHello world\n",
+    );
 
     Ok(())
 }
@@ -551,8 +554,7 @@ fn project_build_without_readme() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
     out.assert().success();
 
-    // Verify the KPAR does NOT contain README.md
-    assert_kpar_no_readme(&cwd.join("test_build.kpar"));
+    assert_kpar_missing(&cwd.join("test_build.kpar"), "README.md");
 
     Ok(())
 }
@@ -611,28 +613,10 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
             kpar_path
         );
 
-        assert_kpar_readme(&kpar_path, expected_readme);
+        assert_kpar_file(&kpar_path, "README.md", expected_readme);
     }
 
     Ok(())
-}
-
-fn assert_kpar_readme(kpar_path: &camino::Utf8Path, expected: &str) {
-    let file = std::fs::File::open(kpar_path).unwrap();
-    let mut archive = zip::ZipArchive::new(file).unwrap();
-    let mut readme = archive.by_name("README.md").unwrap();
-    let mut content = String::new();
-    readme.read_to_string(&mut content).unwrap();
-    assert_eq!(content, expected, "README mismatch in {kpar_path}");
-}
-
-fn assert_kpar_no_readme(kpar_path: &camino::Utf8Path) {
-    let file = std::fs::File::open(kpar_path).unwrap();
-    let mut archive = zip::ZipArchive::new(file).unwrap();
-    assert!(
-        archive.by_name("README.md").is_err(),
-        "KPAR should not contain README.md: {kpar_path}"
-    );
 }
 
 /// Build a project with a CHANGELOG.md at the project root
@@ -659,9 +643,9 @@ fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
         .success()
         .stderr(predicate::str::contains("Including changelog from"));
 
-    // Verify the KPAR contains CHANGELOG.md with correct content
-    assert_kpar_changelog(
+    assert_kpar_file(
         &cwd.join("test_build.kpar"),
+        "CHANGELOG.md",
         "# Changelog\n\n## 1.2.3\n- Initial release\n",
     );
 
@@ -686,8 +670,7 @@ fn project_build_without_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
     out.assert().success();
 
-    // Verify the KPAR does NOT contain CHANGELOG.md
-    assert_kpar_no_changelog(&cwd.join("test_build.kpar"));
+    assert_kpar_missing(&cwd.join("test_build.kpar"), "CHANGELOG.md");
 
     Ok(())
 }
@@ -750,28 +733,273 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
             kpar_path
         );
 
-        assert_kpar_changelog(&kpar_path, expected_changelog);
+        assert_kpar_file(&kpar_path, "CHANGELOG.md", expected_changelog);
     }
 
     Ok(())
 }
 
-fn assert_kpar_changelog(kpar_path: &camino::Utf8Path, expected: &str) {
-    let file = std::fs::File::open(kpar_path).unwrap();
-    let mut archive = zip::ZipArchive::new(file).unwrap();
-    let mut changelog = archive.by_name("CHANGELOG.md").unwrap();
-    let mut content = String::new();
-    changelog.read_to_string(&mut content).unwrap();
-    assert_eq!(content, expected, "CHANGELOG mismatch in {kpar_path}");
+/// Build a project with a single SPDX license — the matching
+/// `LICENSES/<id>.txt` is included in the KPAR.
+#[test]
+fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "test_license",
+            "--license",
+            "MIT",
+        ],
+        None,
+    )?;
+
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    std::fs::create_dir(cwd.join("LICENSES"))?;
+    std::fs::write(cwd.join("LICENSES").join("MIT.txt"), b"MIT license text\n")?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("Including license from"));
+
+    assert_kpar_file(
+        &cwd.join("test_build.kpar"),
+        "LICENSES/MIT.txt",
+        "MIT license text\n",
+    );
+
+    Ok(())
 }
 
-fn assert_kpar_no_changelog(kpar_path: &camino::Utf8Path) {
+/// Build a project with a compound SPDX expression — both license files
+/// are included.
+#[test]
+fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "test_compound_license",
+            "--license",
+            "MIT OR Apache-2.0",
+        ],
+        None,
+    )?;
+
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    std::fs::create_dir(cwd.join("LICENSES"))?;
+    std::fs::write(cwd.join("LICENSES").join("MIT.txt"), b"MIT body\n")?;
+    std::fs::write(
+        cwd.join("LICENSES").join("Apache-2.0.txt"),
+        b"Apache body\n",
+    )?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert().success();
+
+    assert_kpar_file(
+        &cwd.join("test_build.kpar"),
+        "LICENSES/MIT.txt",
+        "MIT body\n",
+    );
+    assert_kpar_file(
+        &cwd.join("test_build.kpar"),
+        "LICENSES/Apache-2.0.txt",
+        "Apache body\n",
+    );
+
+    Ok(())
+}
+
+/// Build a project with a `WITH` exception — both the license and the
+/// exception file are included.
+#[test]
+fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "test_license_with",
+            "--license",
+            "GPL-2.0-only WITH Classpath-exception-2.0",
+        ],
+        None,
+    )?;
+
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    std::fs::create_dir(cwd.join("LICENSES"))?;
+    std::fs::write(cwd.join("LICENSES").join("GPL-2.0-only.txt"), b"GPL body\n")?;
+    std::fs::write(
+        cwd.join("LICENSES").join("Classpath-exception-2.0.txt"),
+        b"Classpath exception body\n",
+    )?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert().success();
+
+    assert_kpar_file(
+        &cwd.join("test_build.kpar"),
+        "LICENSES/GPL-2.0-only.txt",
+        "GPL body\n",
+    );
+    assert_kpar_file(
+        &cwd.join("test_build.kpar"),
+        "LICENSES/Classpath-exception-2.0.txt",
+        "Classpath exception body\n",
+    );
+
+    Ok(())
+}
+
+/// Build a project with a custom `LicenseRef-` identifier — the matching
+/// file is bundled verbatim.
+#[test]
+fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "test_license_ref",
+            "--license",
+            "LicenseRef-MyCustom",
+        ],
+        None,
+    )?;
+
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    std::fs::create_dir(cwd.join("LICENSES"))?;
+    std::fs::write(
+        cwd.join("LICENSES").join("LicenseRef-MyCustom.txt"),
+        b"Custom license body\n",
+    )?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert().success();
+
+    assert_kpar_file(
+        &cwd.join("test_build.kpar"),
+        "LICENSES/LicenseRef-MyCustom.txt",
+        "Custom license body\n",
+    );
+
+    Ok(())
+}
+
+/// Build a project that declares a license but ships no matching file —
+/// the build succeeds and warns about the missing license file.
+#[test]
+fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "test_missing_license",
+            "--license",
+            "MIT",
+        ],
+        None,
+    )?;
+
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("LICENSES/MIT.txt"));
+
+    assert_kpar_missing(&cwd.join("test_build.kpar"), "LICENSES/MIT.txt");
+
+    Ok(())
+}
+
+/// Build a project without any license — no LICENSES/* entries are added.
+#[test]
+fn project_build_without_license() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "test_no_license"],
+        None,
+    )?;
+
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert().success();
+
+    assert_kpar_no_licenses_dir(&cwd.join("test_build.kpar"));
+
+    Ok(())
+}
+
+fn assert_kpar_file(kpar_path: &camino::Utf8Path, archive_path: &str, expected: &str) {
+    let file = std::fs::File::open(kpar_path).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    let mut entry = archive
+        .by_name(archive_path)
+        .unwrap_or_else(|_| panic!("expected {archive_path} in {kpar_path}"));
+    let mut content = String::new();
+    entry.read_to_string(&mut content).unwrap();
+    assert_eq!(content, expected, "{archive_path} mismatch in {kpar_path}");
+}
+
+fn assert_kpar_missing(kpar_path: &camino::Utf8Path, archive_path: &str) {
     let file = std::fs::File::open(kpar_path).unwrap();
     let mut archive = zip::ZipArchive::new(file).unwrap();
     assert!(
-        archive.by_name("CHANGELOG.md").is_err(),
-        "KPAR should not contain CHANGELOG.md: {kpar_path}"
+        archive.by_name(archive_path).is_err(),
+        "KPAR should not contain {archive_path}: {kpar_path}"
     );
+}
+
+fn assert_kpar_no_licenses_dir(kpar_path: &camino::Utf8Path) {
+    let file = std::fs::File::open(kpar_path).unwrap();
+    let archive = zip::ZipArchive::new(file).unwrap();
+    for name in archive.file_names() {
+        assert!(
+            !name.starts_with("LICENSES/"),
+            "KPAR should not contain any LICENSES/ entries but found {name}: {kpar_path}"
+        );
+    }
 }
 
 fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {

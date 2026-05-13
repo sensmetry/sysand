@@ -22,6 +22,17 @@ If a `README.md` file exist at the project root, it is included in the
 If a `CHANGELOG.md` file exist at the project root, it is included in the
 `.kpar` archive.
 
+If the project's `license` field in `.project.json` is a valid SPDX License
+Expression, Sysand will look for matching files under the `LICENSES/`
+directory at the project root and include them in the `.kpar` archive.
+Filenames follow REUSE conventions: a license file is expected at
+`LICENSES/<id>.txt` for each license identifier in the expression, including
+each `WITH` exception identifier (e.g. `LicenseRef-MyCustom` →
+`LICENSES/LicenseRef-MyCustom.txt`; `GPL-2.0-only WITH Classpath-exception-2.0`
+expects both `LICENSES/GPL-2.0-only.txt` and
+`LICENSES/Classpath-exception-2.0.txt`). Missing files are reported as a
+warning; the build still succeeds.
+
 ## Arguments
 
 - `[PATH]`: Path for the finished KPAR or KPARs. When building a

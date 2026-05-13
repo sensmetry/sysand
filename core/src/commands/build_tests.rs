@@ -3,7 +3,7 @@
 
 use camino_tempfile::tempdir;
 
-use super::read_optional_project_file;
+use super::{license_file_stems, read_optional_project_file};
 use crate::project::utils::FsIoError;
 
 #[test]
@@ -40,4 +40,60 @@ fn surfaces_non_not_found_io_errors() {
         FsIoError::ReadFile(path, _) => assert_eq!(path, tmp.path().join("README.md")),
         other => panic!("expected FsIoError::ReadFile, got {other:?}"),
     }
+}
+
+fn stems(expr: &str) -> Vec<String> {
+    license_file_stems(&spdx::Expression::parse(expr).unwrap())
+}
+
+#[test]
+fn license_stems_single() {
+    assert_eq!(stems("MIT"), vec!["MIT".to_string()]);
+}
+
+#[test]
+fn license_stems_compound_or() {
+    assert_eq!(
+        stems("MIT OR Apache-2.0"),
+        vec!["MIT".to_string(), "Apache-2.0".to_string()]
+    );
+}
+
+#[test]
+fn license_stems_compound_and() {
+    assert_eq!(
+        stems("MIT AND BSD-2-Clause"),
+        vec!["MIT".to_string(), "BSD-2-Clause".to_string()]
+    );
+}
+
+#[test]
+fn license_stems_with_exception() {
+    assert_eq!(
+        stems("GPL-2.0-only WITH Classpath-exception-2.0"),
+        vec![
+            "GPL-2.0-only".to_string(),
+            "Classpath-exception-2.0".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn license_stems_license_ref() {
+    assert_eq!(
+        stems("LicenseRef-MyCustom"),
+        vec!["LicenseRef-MyCustom".to_string()]
+    );
+}
+
+#[test]
+fn license_stems_or_later_strips_plus() {
+    // `MIT+` shares its license file with `MIT` per REUSE conventions —
+    // the `+` does not appear in the bundled filename.
+    assert_eq!(stems("MIT+"), vec!["MIT".to_string()]);
+}
+
+#[test]
+fn license_stems_deduplicates() {
+    assert_eq!(stems("MIT AND MIT"), vec!["MIT".to_string()]);
 }
