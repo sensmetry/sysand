@@ -7,7 +7,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value, value};
-use typed_path::Utf8UnixPathBuf;
+use typed_path::{Utf8UnixComponent, Utf8UnixPathBuf};
 
 use crate::{
     project::{
@@ -38,15 +38,17 @@ impl Default for EnvMetadata {
 }
 
 #[derive(Debug, Error)]
-#[error("env metadata version `{0}` is not supported")]
-pub struct UnsupportedVersionError(String);
-
-#[derive(Debug, Error)]
 pub enum ParseError {
-    #[error("failed to parse env metadata file: {0}")]
+    #[error("failed to parse env metadata file")]
     Toml(#[from] toml::de::Error),
-    #[error(transparent)]
-    Unsupported(#[from] UnsupportedVersionError),
+    #[error("env metadata version `{0}` is not supported")]
+    UnsupportedVersion(String),
+    #[error(
+        "non-editable project has path `{0}` that contains references to parent or current directory"
+    )]
+    NonNormalizedProjectPath(Utf8UnixPathBuf),
+    #[error("non-editable project has path `{0}` that is absolute")]
+    AbsoluteProjectPath(Utf8UnixPathBuf),
 }
 
 impl Display for EnvMetadata {
@@ -58,13 +60,31 @@ impl Display for EnvMetadata {
 impl FromStr for EnvMetadata {
     type Err = ParseError;
 
+    /// Only use this for deserializing the metadata
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let metadata: EnvMetadata = toml::from_str(s)?;
 
         if !SUPPORTED_METADATA_VERSIONS.contains(&metadata.version.as_str()) {
-            return Err(ParseError::Unsupported(UnsupportedVersionError(
-                metadata.version.clone(),
-            )));
+            return Err(ParseError::UnsupportedVersion(metadata.version.clone()));
+        }
+
+        for project in &metadata.projects {
+            // Non-editable projects must not leave env directory
+            if !project.editable {
+                for c in project.path.components() {
+                    match c {
+                        Utf8UnixComponent::Normal(_) => (),
+                        Utf8UnixComponent::RootDir => {
+                            return Err(ParseError::AbsoluteProjectPath(project.path.to_owned()));
+                        }
+                        Utf8UnixComponent::CurDir | Utf8UnixComponent::ParentDir => {
+                            return Err(ParseError::NonNormalizedProjectPath(
+                                project.path.to_owned(),
+                            ));
+                        }
+                    }
+                }
+            }
         }
 
         Ok(metadata)
@@ -287,18 +307,16 @@ impl EnvProject {
 
 #[derive(Error, Debug)]
 pub enum EnvMetadataError {
-    #[error("failed to deserialize TOML file `{0}`: {1}")]
-    Toml(Box<Utf8Path>, toml::de::Error),
-    #[error(transparent)]
+    #[error("failed to read environment metadata")]
     Io(#[from] Box<FsIoError>),
-    #[error(transparent)]
-    Unsupported(UnsupportedVersionError),
+    #[error("failed to parse environment metadata loaded from `{0}`")]
+    Parse(Utf8PathBuf, #[source] ParseError),
 }
 
 pub(super) fn load_env_metadata<P: AsRef<Utf8Path>>(
     path: P,
 ) -> Result<EnvMetadata, EnvMetadataError> {
-    let metadata = wrapfs::read_to_string(path.as_ref())?;
+    let metadata = wrapfs::read_to_string(&path)?;
     parse_env_metadata(path, metadata)
 }
 
@@ -306,10 +324,12 @@ pub(super) fn parse_env_metadata<P: AsRef<Utf8Path>>(
     path: P,
     metadata: String,
 ) -> Result<EnvMetadata, EnvMetadataError> {
-    let result = EnvMetadata::from_str(metadata.as_str());
-
-    result.map_err(|parse_err| match parse_err {
-        ParseError::Toml(err) => EnvMetadataError::Toml(path.as_ref().to_owned().into(), err),
-        ParseError::Unsupported(err) => EnvMetadataError::Unsupported(err),
-    })
+    match EnvMetadata::from_str(metadata.as_str()) {
+        Ok(m) => Ok(m),
+        Err(e) => Err(EnvMetadataError::Parse(path.as_ref().to_owned(), e)),
+    }
 }
+
+#[cfg(test)]
+#[path = "./metadata_tests.rs"]
+mod tests;

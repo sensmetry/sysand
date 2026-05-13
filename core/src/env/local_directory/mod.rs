@@ -169,33 +169,6 @@ impl LocalDirectoryEnvironment {
         }
     }
 
-    // /// Find a project `uri` version `version` and determine its absolute path
-    // pub fn absolute_project_path_find<S: AsRef<str>, T: AsRef<str>>(
-    //     &self,
-    //     uri: S,
-    //     version: T,
-    // ) -> Option<Utf8PathBuf> {
-    //     self.metadata
-    //         .find_project_version(uri, version)
-    //         .map(|p| self.project_to_absolute_path(p))
-    // }
-
-    // /// Project path relative to the env directory
-    // pub fn relative_project_path_find<S: AsRef<str>, T: AsRef<str>>(
-    //     &self,
-    //     uri: S,
-    //     version: T,
-    // ) -> Option<Utf8PathBuf> {
-    //     self.metadata.find_project_version(uri, version).map(|p| {
-    //         if p.editable {
-    //             // TODO: this assumes that parent is workspace root
-    //             Utf8Path::new("../").join(p.path.as_str())
-    //         } else {
-    //             p.path.as_str().into()
-    //         }
-    //     })
-    // }
-
     /// Parent directory of the env, i.e. the directory in which `sysand_env` resides.
     /// It is assumed to be the workspace (if present) or project root, which in turn is
     /// the root of relative paths of `editable`/`workspace` projects
@@ -204,14 +177,6 @@ impl LocalDirectoryEnvironment {
         // Will fail only if env is at root, i.e. `self.root_dir == /`
         self.root_dir.parent().unwrap()
     }
-
-    // fn project_to_absolute_path(&self, project: &EnvProject) -> Utf8PathBuf {
-    //     if project.editable {
-    //         self.parent_dir().join(project.path.as_str())
-    //     } else {
-    //         self.root_dir.join(project.path.as_str())
-    //     }
-    // }
 
     fn ensure_lib_dir_exists(&self) -> Result<(), Box<FsIoError>> {
         let lib_dir = self.root_dir.join(PROJECT_PATH_PREFIX);
@@ -275,6 +240,41 @@ impl LocalDirectoryEnvironment {
         path.insert_str(0, PROJECT_PATH_PREFIX);
         path.into()
     }
+
+    // /// Find a project `uri` version `version` and determine its absolute path
+    // pub fn absolute_project_path_find<S: AsRef<str>, T: AsRef<str>>(
+    //     &self,
+    //     uri: S,
+    //     version: T,
+    // ) -> Option<Utf8PathBuf> {
+    //     self.metadata
+    //         .find_project_version(uri, version)
+    //         .map(|p| self.project_to_absolute_path(p))
+    // }
+
+    // /// Project path relative to the env directory
+    // pub fn relative_project_path_find<S: AsRef<str>, T: AsRef<str>>(
+    //     &self,
+    //     uri: S,
+    //     version: T,
+    // ) -> Option<Utf8PathBuf> {
+    //     self.metadata.find_project_version(uri, version).map(|p| {
+    //         if p.editable {
+    //             // TODO: this assumes that parent is workspace root
+    //             Utf8Path::new("../").join(p.path.as_str())
+    //         } else {
+    //             p.path.as_str().into()
+    //         }
+    //     })
+    // }
+
+    // fn project_to_absolute_path(&self, project: &EnvProject) -> Utf8PathBuf {
+    //     if project.editable {
+    //         self.parent_dir().join(project.path.as_str())
+    //     } else {
+    //         self.root_dir.join(project.path.as_str())
+    //     }
+    // }
 }
 
 #[derive(Error, Debug)]
