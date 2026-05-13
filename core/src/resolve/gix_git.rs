@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use fluent_uri::component::Scheme;
 use thiserror::Error;
 
 use crate::{
     project::gix_git_download::{GixDownloadedError, GixDownloadedProject},
-    resolve::{
-        ResolutionOutcome, ResolveRead,
-        file::SCHEME_FILE,
-        reqwest_http::{SCHEME_HTTP, SCHEME_HTTPS},
+    resolve::{ResolutionOutcome, ResolveRead},
+    utils::scheme::{
+        SCHEME_FILE, SCHEME_GIT_FILE, SCHEME_GIT_HTTP, SCHEME_GIT_HTTPS, SCHEME_GIT_SSH,
+        SCHEME_HTTP, SCHEME_HTTPS, SCHEME_SSH,
     },
 };
 
@@ -21,12 +20,6 @@ pub enum GitResolverError {
     #[error(transparent)]
     GitProject(#[from] GixDownloadedError),
 }
-
-pub const SCHEME_SSH: &Scheme = Scheme::new_or_panic("ssh");
-pub const SCHEME_GIT_SSH: &Scheme = Scheme::new_or_panic("git+ssh");
-pub const SCHEME_GIT_FILE: &Scheme = Scheme::new_or_panic("git+file");
-pub const SCHEME_GIT_HTTP: &Scheme = Scheme::new_or_panic("git+http");
-pub const SCHEME_GIT_HTTPS: &Scheme = Scheme::new_or_panic("git+https");
 
 impl ResolveRead for GitResolver {
     type Error = GitResolverError;

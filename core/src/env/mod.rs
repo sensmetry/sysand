@@ -13,14 +13,12 @@ use crate::{
     project::{AsAsyncProject, AsSyncProjectTokio, ProjectMut, ProjectRead, ProjectReadAsync},
 };
 
-// pub mod utils;
-
 // Implementations
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod discovery;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod index;
-#[cfg(all(feature = "filesystem", feature = "networking"))]
+#[cfg(feature = "filesystem")]
 pub(crate) mod iri_normalize;
 #[cfg(feature = "filesystem")]
 pub mod local_directory;
@@ -28,6 +26,8 @@ pub mod memory;
 pub mod null;
 
 pub mod utils;
+
+pub const DEFAULT_ENV_NAME: &str = "sysand_env";
 
 /// Get path segment(s) corresponding to the given `uri`
 pub fn segment_uri_generic<S: AsRef<str>, D: Digest>(uri: S) -> std::vec::IntoIter<String>
@@ -305,6 +305,10 @@ pub enum PutProjectError<WE, CE> {
     Write(#[from] WE),
     #[error(transparent)]
     Callback(CE),
+    #[error("failed to parse `{0}` as IRI: {1}")]
+    IriParse(String, fluent_uri::ParseError),
+    // #[error(transparent)]
+    // AddProject(AE),
 }
 
 pub trait WriteEnvironment {
@@ -313,16 +317,16 @@ pub trait WriteEnvironment {
     type InterchangeProjectMut: ProjectMut;
 
     // TODO: Should this be replaced by a transactional interface?
-    fn put_project<S: AsRef<str>, T: AsRef<str>, F, E>(
+    fn put_project<S: AsRef<str>, T: AsRef<str>, F, CE>(
         &mut self,
         uri: S,
         version: T,
         // Callback allows the implementation to gracefully recover
         // in case of an error, to just "allocate"
         write_project: F,
-    ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, E>>
+    ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, CE>>
     where
-        F: FnOnce(&mut Self::InterchangeProjectMut) -> Result<(), E>;
+        F: FnOnce(&mut Self::InterchangeProjectMut) -> Result<(), CE>;
 
     fn del_project_version<S: AsRef<str>, T: AsRef<str>>(
         &mut self,

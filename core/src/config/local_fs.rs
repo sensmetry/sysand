@@ -9,8 +9,9 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
 use super::Config;
 use crate::{
-    lock::{Source, multiline_array},
+    lock::Source,
     project::utils::{FsIoError, wrapfs},
+    utils::multiline_array,
 };
 
 pub const CONFIG_DIR: &str = "sysand";

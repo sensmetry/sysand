@@ -112,7 +112,7 @@ fn try_install_installs_project() {
         Infallible,
         _,
         _,
-    >(uri, &checksum, storage, &mut env)
+    >(uri, "1.2.3", &checksum, storage, &mut env)
     .unwrap();
 
     let uris = env.uris().unwrap();
@@ -141,7 +141,7 @@ fn try_install_fails_to_install_wrong_checksum() {
         Infallible,
         _,
         _,
-    >(&uri, &checksum, storage, &mut env)
+    >(&uri, "1.2.3", &checksum, storage, &mut env)
     .unwrap_err() else {
         panic!()
     };

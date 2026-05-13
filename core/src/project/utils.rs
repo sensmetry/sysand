@@ -156,6 +156,11 @@ pub mod wrapfs {
             fs::File::create(path.as_ref())
                 .map_err(|e| Box::new(FsIoError::CreateFile(path.as_ref().into(), e)))
         }
+
+        pub fn create_new<P: AsRef<Utf8Path>>(path: P) -> Result<fs::File, Box<FsIoError>> {
+            fs::File::create_new(path.as_ref())
+                .map_err(|e| Box::new(FsIoError::CreateFile(path.as_ref().into(), e)))
+        }
     }
 
     pub fn create_dir<P: AsRef<Utf8Path>>(path: P) -> Result<(), Box<FsIoError>> {

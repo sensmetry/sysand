@@ -352,9 +352,6 @@ fn many_sources_to_toml() {
                 Source::LocalSrc {
                     src_path: Utf8UnixPathBuf::from("example/path"),
                 },
-                Source::Index {
-                    index: "www.example.com".to_string(),
-                },
                 Source::RemoteKpar {
                     remote_kpar: "www.example.com/remote.kpar".to_string(),
                     remote_kpar_size: Some(64),
@@ -386,7 +383,6 @@ version = "0.4.7"
 sources = [
     {{ kpar_path = "example.kpar" }},
     {{ src_path = "example/path" }},
-    {{ index = "www.example.com" }},
     {{ remote_kpar = "www.example.com/remote.kpar", remote_kpar_size = 64 }},
     {{ index_kpar = "www.example.com/index.kpar", index_kpar_size = 128, index_kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }},
     {{ remote_src = "www.example.com/remote" }},

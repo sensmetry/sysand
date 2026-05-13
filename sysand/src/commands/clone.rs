@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use anyhow::{Result, anyhow, bail};
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use fluent_uri::Iri;
 use semver::Version;
 
@@ -13,7 +13,7 @@ use sysand_core::{
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome},
     config::Config,
     context::ProjectContext,
-    env::utils::clone_project,
+    env::{local_directory::utils::clean_dir, utils::clone_project},
     project::{ProjectRead, editable::EditableProject, local_src::LocalSrcProject, utils::wrapfs},
     resolve::{
         ResolutionOutcome, ResolveRead,
@@ -88,7 +88,8 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         Ok(ret) => ret,
         Err(e) => {
             // Clean up the target dir. This is safe, since we ensured
-            // that the dir is empty before touching it
+            // that the dir was initially empty, so no unrelated files
+            // will be affected
             clean_dir(&target);
             return Err(e);
         }
@@ -101,6 +102,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         current_workspace: None,
         current_project: Some(local_project.clone()),
         current_directory: ctx.current_directory,
+        env: None,
     };
 
     if !no_deps {
@@ -150,7 +152,12 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             lock.to_string(),
         )?;
 
-        let mut env = get_or_create_env(&project.inner().project_path)?;
+        let mut env = get_or_create_env(
+            ctx.env,
+            ctx.current_workspace.as_ref(),
+            ctx.current_project.as_ref(),
+            ctx.current_directory,
+        )?;
         command_sync(
             &lock,
             &project.inner().project_path,
@@ -159,7 +166,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             &provided_iris,
             runtime,
             auth_policy,
-            &ctx,
+            ctx.current_workspace.as_ref(),
         )?;
     }
 
@@ -390,28 +397,6 @@ pub fn get_project_version<R: ResolveRead>(
         ),
         ResolutionOutcome::Unresolvable(e) => {
             bail!("failed to resolve project `{iri}`: {e}")
-        }
-    }
-}
-
-/// Removes all files in the directory.
-/// All errors are ignored.
-fn clean_dir<P: AsRef<Utf8Path>>(path: P) {
-    let Ok(entries) = fs::read_dir(path.as_ref()) else {
-        return;
-    };
-    log::debug!("clearing contents of dir `{}`", path.as_ref());
-
-    for entry in entries {
-        let Ok(entry) = entry else { continue };
-        let path = entry.path();
-        let Ok(entry_type) = entry.file_type() else {
-            continue;
-        };
-        if entry_type.is_dir() {
-            let _ = fs::remove_dir_all(&path);
-        } else {
-            let _ = fs::remove_file(&path);
         }
     }
 }

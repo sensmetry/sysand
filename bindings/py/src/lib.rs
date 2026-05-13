@@ -18,9 +18,9 @@ use sysand_core::{
         init::do_init_local_file,
     },
     env::{
-        ReadEnvironment as _, WriteEnvironment,
+        DEFAULT_ENV_NAME, ReadEnvironment as _, WriteEnvironment,
         local_directory::{
-            DEFAULT_ENV_NAME, LocalDirectoryEnvironment, LocalReadError, LocalWriteError,
+            LocalDirectoryEnvironment, LocalReadError, LocalWriteError, metadata::EnvMetadataError,
         },
         utils::clone_project,
     },
@@ -107,6 +107,7 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
                 PyValueError::new_err(error.to_string())
             }
             LocalWriteError::MissingMeta => PyFileNotFoundError::new_err(werr.to_string()),
+            LocalWriteError::AddProject(error) => PyIOError::new_err(error.to_string()),
         },
     })?;
 
@@ -269,15 +270,12 @@ pub fn do_sources_env_py(
 
     let mut result = vec![];
 
-    let env = LocalDirectoryEnvironment {
-        environment_path: env_path.into(),
-    };
+    let env = LocalDirectoryEnvironment::read(env_path).map_err(env_read_to_pyerr)?;
 
     fn local_read_to_pyerr(e: LocalReadError) -> PyErr {
         match e {
             LocalReadError::Io(error) => PyIOError::new_err(error.to_string()),
-            LocalReadError::ProjectListFileRead(_) => PyIOError::new_err(e.to_string()),
-            LocalReadError::ProjectVersionsFileRead(_) => PyIOError::new_err(e.to_string()),
+            LocalReadError::ProjectNotFound(_) => PyValueError::new_err(e.to_string()),
         }
     }
 
@@ -403,9 +401,7 @@ pub fn do_sources_project_py(
             HashMap::default()
         };
 
-        let env = LocalDirectoryEnvironment {
-            environment_path: env_path.into(),
-        };
+        let env = LocalDirectoryEnvironment::read(env_path).map_err(env_read_to_pyerr)?;
 
         for dep in find_project_dependencies(
             info.validate()
@@ -536,9 +532,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
 
     let location: Utf8PathBuf = location.into();
 
-    let mut env = LocalDirectoryEnvironment {
-        environment_path: env_path.into(),
-    };
+    let mut env = LocalDirectoryEnvironment::read(env_path).map_err(env_read_to_pyerr)?;
 
     let metadata =
         wrapfs::metadata(&location).map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))?;
@@ -610,4 +604,8 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add("DEFAULT_ENV_NAME", DEFAULT_ENV_NAME)?;
     Ok(())
+}
+
+fn env_read_to_pyerr(err: EnvMetadataError) -> PyErr {
+    PyIOError::new_err(format!("failed to read environment metadata: {err}"))
 }

@@ -5,7 +5,10 @@
 use camino::Utf8PathBuf;
 
 #[cfg(feature = "filesystem")]
-use crate::{project::local_src::LocalSrcProject, workspace::Workspace};
+use crate::{
+    env::local_directory::LocalDirectoryEnvironment, project::local_src::LocalSrcProject,
+    workspace::Workspace,
+};
 
 #[derive(Debug, Default)]
 pub struct ProjectContext {
@@ -18,4 +21,9 @@ pub struct ProjectContext {
     /// Path to current directory
     #[cfg(feature = "filesystem")]
     pub current_directory: Utf8PathBuf,
+    /// Metadata of the current workspace/project `sysand_env`. `Some` if
+    /// either `current_workspace` or `current_project` is `Some` and
+    /// the environment metadata file exists.
+    #[cfg(feature = "filesystem")]
+    pub env: Option<LocalDirectoryEnvironment>,
 }

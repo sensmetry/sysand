@@ -6,7 +6,7 @@ use crate::env::WriteEnvironment;
 pub fn do_env_uninstall<S: AsRef<str>, Q: AsRef<str>, E: WriteEnvironment>(
     uri: S,
     version: Option<Q>,
-    mut env: E,
+    env: &mut E,
 ) -> Result<(), E::WriteError> {
     let uninstalling = "Uninstalling";
     let header = crate::style::get_style_config().header;

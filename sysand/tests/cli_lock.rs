@@ -8,7 +8,7 @@ use mockito::{Mock, Server, ServerGuard};
 use predicates::{prelude::*, str::contains};
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
-    env::local_directory::{DEFAULT_ENV_NAME, ENTRIES_PATH},
+    env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
     lock::{Lock, Source},
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     purl::PKG_SYSAND_PREFIX,
@@ -177,7 +177,7 @@ fn mock_project<
             .mock("HEAD", format!("/{path}/.project.json").as_str())
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(project_body.clone())
+            .with_body(&project_body)
             .expect(project_head)
             .create(),
     );
@@ -197,7 +197,7 @@ fn mock_project<
             .mock("HEAD", format!("/{path}/.meta.json").as_str())
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(meta_body.clone())
+            .with_body(&meta_body)
             .expect(meta_head)
             .create(),
     );
@@ -260,7 +260,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let c_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 9, 1, 6],
+        [1, 8, 1, 6],
         "c",
         "lock_basic_http_deps_c",
         "1.0.0",
@@ -270,7 +270,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let a_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 9, 1, 6],
+        [1, 8, 1, 6],
         "a",
         "lock_basic_http_deps_a",
         "1.0.0",
@@ -279,7 +279,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let b_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 9, 1, 6],
+        [1, 8, 1, 6],
         "b",
         "lock_basic_http_deps_b",
         "1.0.0",
@@ -302,7 +302,6 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     inject_usages(cwd.join(".project.json"), [a_url.clone(), b_url.clone()])?;
 
     let out = run_sysand_in(&cwd, ["lock"], None)?;
-
     out.assert().success().stdout(predicate::str::is_empty());
 
     let lock_file: Lock =
@@ -327,16 +326,14 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
         .success()
         .stdout(predicate::str::is_empty());
 
-    run_sysand_in(&cwd, ["sync"], None)?
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
+    let out = run_sysand_in(&cwd, ["sync"], None)?;
+    out.assert().success().stdout(predicate::str::is_empty());
 
-    let entries: Vec<String> =
-        std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(ENTRIES_PATH))?
-            .lines()
-            .map(|x| x.to_string())
-            .collect();
+    let entries: Vec<String> = LocalDirectoryEnvironment::read(cwd.join(DEFAULT_ENV_NAME))?
+        .projects()
+        .iter()
+        .flat_map(|p| p.identifiers.iter().cloned())
+        .collect();
 
     assert_eq!(entries.len(), 3);
 
@@ -513,11 +510,11 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
     let out = run_sysand_in(&cwd, ["sync", "--default-index", &server_url], None)?;
     out.assert().success();
 
-    let entries: Vec<String> =
-        std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(ENTRIES_PATH))?
-            .lines()
-            .map(str::to_string)
-            .collect();
+    let entries: Vec<String> = LocalDirectoryEnvironment::read(cwd.join(DEFAULT_ENV_NAME))?
+        .projects()
+        .iter()
+        .flat_map(|p| p.identifiers.iter().cloned())
+        .collect();
     assert!(
         entries.contains(&format!("{PKG_SYSAND_PREFIX}mock/dep")),
         "env entries should list the synced dep IRI; got {entries:?}"

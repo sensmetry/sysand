@@ -40,8 +40,8 @@ Would tell Sysand that it _may_ use the credentials `foo:bar` with URLs such as
 
 ```text
 https://www.example.com/projects/project.kpar
-https://projects.example.com/entries.txt
-https://projects.example.com/projects/myproject/versions.txt
+https://projects.example.com/index.json
+https://projects.example.com/projects/myproject/versions.json
 ```
 
 In the wildcard pattern, `?` matches any single letter, `*` matches any sequence of characters

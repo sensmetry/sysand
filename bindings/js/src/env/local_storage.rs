@@ -49,8 +49,6 @@ pub fn open_environment_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
     Ok(result)
 }
 
-pub const DEFAULT_ENV_NAME: &str = "sysand_env";
-
 const ENTRIES_PATH: &str = "entries.txt";
 const VERSIONS_PATH: &str = "versions.txt";
 

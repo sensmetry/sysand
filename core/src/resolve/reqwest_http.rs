@@ -3,7 +3,6 @@
 
 use std::{convert::Infallible, io, pin::Pin, sync::Arc};
 
-use fluent_uri::component::Scheme;
 use futures::AsyncRead;
 use thiserror::Error;
 
@@ -17,6 +16,7 @@ use crate::{
         reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProjectAsync,
     },
     resolve::ResolveReadAsync,
+    utils::scheme::{SCHEME_HTTP, SCHEME_HTTPS},
 };
 
 use super::ResolutionOutcome;
@@ -29,9 +29,6 @@ pub struct HTTPResolverAsync<Policy> {
     pub auth_policy: Arc<Policy>,
     //pub prefer_ranged: bool,
 }
-
-pub const SCHEME_HTTP: &Scheme = Scheme::new_or_panic("http");
-pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 
 #[derive(Debug)]
 pub enum HTTPProjectAsync<Policy> {

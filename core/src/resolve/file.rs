@@ -9,7 +9,6 @@ use std::{
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
-use fluent_uri::component::Scheme;
 use thiserror::Error;
 
 use crate::{
@@ -23,6 +22,7 @@ use crate::{
         utils::{FsIoError, ProjectDeserializationError, RelativizePathError, wrapfs},
     },
     resolve::{ResolutionOutcome, ResolveRead},
+    utils::scheme::SCHEME_FILE,
 };
 
 /// Resolver for resolving `file://` URIs.
@@ -52,8 +52,6 @@ impl From<FsIoError> for FileResolverError {
         Self::Io(Box::new(v))
     }
 }
-
-pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
 
 /// Try to obtain a file path from `uri` with `file` scheme. If path
 /// is present, it is always absolute according to URI spec
