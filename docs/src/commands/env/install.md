@@ -1,6 +1,6 @@
 # `sysand env install`
 
-Install project in `sysand_env`
+Install project in `.sysand`
 
 ## Usage
 
@@ -10,12 +10,12 @@ sysand env install [OPTIONS] <IRI> [VERSION]
 
 ## Description
 
-Installs a given project and all it's dependencies in `sysand_env` for current project.
+Installs a given project and all it's dependencies in `.sysand` for current project.
 
 Current project is determined as in [sysand print-root](../root.md) and
 if none is found uses the current directory instead.
 
-If no existing `sysand_env` is found, a new one will be created in the same way
+If no existing `.sysand` is found, a new one will be created in the same way
 as [sysand env](../env.md).
 
 ## Arguments

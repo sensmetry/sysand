@@ -46,14 +46,14 @@ public class Sysand {
     public static native String defaultEnvName();
 
     /**
-     * Create a local sysand_env environment for installing dependencies.
+     * Create a local .sysand environment for installing dependencies.
      *
      * @param path
      */
     public static native void env(String path) throws com.sensmetry.sysand.exceptions.SysandException;
 
     /**
-     * Create a local sysand_env environment for installing dependencies.
+     * Create a local .sysand environment for installing dependencies.
      *
      * @param path
      */

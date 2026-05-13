@@ -90,7 +90,7 @@ sysand add urn:kpar:sysmod
 
 This may take a few seconds to run, as Sysand needs to download the project
 (and its usages as well) into a new local environment. Once finished, a file
-`sysand-lock.toml` and a directory `sysand_env` will be created. The former
+`sysand-lock.toml` and a directory `.sysand` will be created. The former
 records the precise versions of the external projects installed, so that the
 same installation can be reproduced later. The latter directory stores the added
 project and its usages.
@@ -112,7 +112,7 @@ $ sysand sources
 warning: SysML v2/KerML standard library packages are omitted by default.
          If you want to include them, pass `--include-std` flag
 /path/to/my_project/MyProject.sysml
-/path/to/my_project/sysand_env/lib/kpar.sysmod_5.0.0-alpha.2/SYSMOD.sysml
+/path/to/my_project/.sysand/lib/kpar.sysmod_5.0.0-alpha.2/SYSMOD.sysml
 ```
 
 > [!note]
@@ -122,9 +122,9 @@ warning: SysML v2/KerML standard library packages are omitted by default.
 > requested with `--include-std` for a given command
 
 > [!tip]
-> `sysand-lock.toml` is sufficient to reproduce `sysand_env` on any computer;
+> `sysand-lock.toml` is sufficient to reproduce `.sysand` on any computer;
 > therefore, we recommend checking in `sysand-lock.toml` into your version
-> control system and adding `sysand_env` to `.gitignore` (or equivalent).
+> control system and adding `.sysand` to `.gitignore` (or equivalent).
 
 ## List installed dependencies
 

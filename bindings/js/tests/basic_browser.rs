@@ -92,13 +92,13 @@ mod browser_tests {
 
         assert_eq!(
             local_storage.key(0),
-            Ok(Some("sysand_storage/sysand_env/entries.txt".to_string()))
+            Ok(Some("sysand_storage/.sysand/entries.txt".to_string()))
         );
         assert_eq!(local_storage.key(1), Ok(None));
 
         assert_eq!(
             local_storage
-                .get_item("sysand_storage/sysand_env/entries.txt")
+                .get_item("sysand_storage/.sysand/entries.txt")
                 .unwrap(),
             Some("".to_string())
         );

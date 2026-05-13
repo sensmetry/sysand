@@ -1,10 +1,10 @@
 # `sysand env uninstall`
 
-Uninstall project in `sysand_env`
+Uninstall project in `.sysand`
 
 ## Description
 
-Uninstalls a given project in `sysand_env`.
+Uninstalls a given project in `.sysand`.
 
 ## Usage
 

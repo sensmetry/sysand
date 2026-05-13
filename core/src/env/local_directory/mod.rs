@@ -40,10 +40,10 @@ pub mod utils;
 use utils::{TryMoveError, try_move_files};
 
 // TODO: avoid cloning, maybe use `Arc`?
-/// `sysand_env` metadata. Metadata changes have to be written to `env.toml` explicitly
+/// `.sysand` metadata. Metadata changes have to be written to `env.toml` explicitly
 #[derive(Debug, Clone)]
 pub struct LocalDirectoryEnvironment {
-    /// Path of the env, including `sysand_env` part. Must be canonical
+    /// Path of the env, including `.sysand` part. Must be canonical
     root_dir: Utf8PathBuf,
     metadata: EnvMetadata,
 }
@@ -55,6 +55,9 @@ impl LocalDirectoryEnvironment {
     /// `root_dir` can be any cwd-relative/absolute path
     pub fn read<P: AsRef<Utf8Path>>(root_dir: P) -> Result<Self, EnvMetadataError> {
         let root_dir = wrapfs::canonicalize(root_dir)?;
+
+        Self::warn_if_old_sysand_env_present(&root_dir);
+
         let metadata = load_env_metadata(root_dir.join(METADATA_PATH))?;
         Ok(Self { root_dir, metadata })
     }
@@ -62,6 +65,8 @@ impl LocalDirectoryEnvironment {
     /// `root_dir` can be any cwd-relative/absolute path. `env.toml` must not exist
     pub fn create<P: AsRef<Utf8Path>>(root_dir: P) -> Result<Self, Box<FsIoError>> {
         let root_dir = wrapfs::canonicalize(root_dir)?;
+
+        Self::warn_if_old_sysand_env_present(&root_dir);
 
         let metadata = EnvMetadata::default();
         let path = root_dir.join(METADATA_PATH);
@@ -77,6 +82,9 @@ impl LocalDirectoryEnvironment {
     /// `root_dir` can be any cwd-relative/absolute path
     pub fn try_read<P: AsRef<Utf8Path>>(root_dir: P) -> Result<Option<Self>, EnvMetadataError> {
         let root_dir = root_dir.as_ref();
+
+        Self::warn_if_old_sysand_env_present(root_dir);
+
         let meta_path = root_dir.join(METADATA_PATH);
         match fs::read_to_string(&meta_path) {
             Ok(s) => {
@@ -169,10 +177,10 @@ impl LocalDirectoryEnvironment {
         }
     }
 
-    /// Parent directory of the env, i.e. the directory in which `sysand_env` resides.
+    /// Parent directory of the env, i.e. the directory in which `.sysand` resides.
     /// It is assumed to be the workspace (if present) or project root, which in turn is
     /// the root of relative paths of `editable`/`workspace` projects
-    // TODO: is it correct to assume that `sysand_env` is always at workspace/project root?
+    // TODO: is it correct to assume that `.sysand` is always at workspace/project root?
     fn parent_dir(&self) -> &Utf8Path {
         // Will fail only if env is at root, i.e. `self.root_dir == /`
         self.root_dir.parent().unwrap()
@@ -239,6 +247,21 @@ impl LocalDirectoryEnvironment {
         let mut path = String::from(path_iter);
         path.insert_str(0, PROJECT_PATH_PREFIX);
         path.into()
+    }
+
+    fn warn_if_old_sysand_env_present(root_dir: &Utf8Path) {
+        let parent = root_dir.parent().unwrap();
+        let path = parent.join("sysand_env");
+        match fs::metadata(&path) {
+            Ok(m) => {
+                if m.is_dir() {
+                    log::warn!(
+                        "`sysand_env` directory was found; it is no longer used by sysand and should be removed"
+                    );
+                }
+            }
+            Err(e) => log::debug!("failed to get metadata of old env at `{path}`: {e}"),
+        }
     }
 
     // /// Find a project `uri` version `version` and determine its absolute path

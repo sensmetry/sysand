@@ -1,6 +1,6 @@
 # `sysand env list`
 
-List projects installed in `sysand_env`
+List projects installed in `.sysand`
 
 ## Usage
 
@@ -10,6 +10,6 @@ sysand env list [OPTIONS]
 
 ## Description
 
-List projects installed in `sysand_env` by IRI and version.
+List projects installed in `.sysand` by IRI and version.
 
 {{#include ../partials/global_opts.md}}

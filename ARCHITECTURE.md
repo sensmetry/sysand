@@ -253,10 +253,10 @@ Captures a project's resolved usages and their dependencies.
 The `sysand lock` command regenerates this file, recording each project's name,
 version, exported symbols, dependency usages, sources (local paths, index URLs,
 git repos, etc.), and a content checksum. The `sysand sync` command reads
-`sysand-lock.toml` to populate `sysand_env`, and will run `lock` first if the
+`sysand-lock.toml` to populate `.sysand`, and will run `lock` first if the
 file does not yet exist.
 
-### Local environment (`sysand_env`)
+### Local environment (`.sysand`)
 
 A local environment for use by tools like `syside`. It can be initialized by
 `sysand env`, and populated with `sysand sync`.
@@ -264,7 +264,7 @@ A local environment for use by tools like `syside`. It can be initialized by
 The local environment looks like this:
 
 ```text
-sysand_env
+.sysand
  ├──env.toml
  └──lib
     ├──package_ID1_version
@@ -279,7 +279,7 @@ sysand_env
 - `version`. Taken from `.project.json`
 - `path`. Relative path of the project's directory. For non-`editable`
   projects, this is currently `lib/package_ID_version`, and is relative to
-  `sysand_env`. For `editable` projects, path is relative to the
+  `.sysand`. For `editable` projects, path is relative to the
   workspace/project root; these projects are only listed in `env.toml`, but
   are not otherwise managed by it.
 - `identifiers`. Identifiers of the project, the first one being considered
