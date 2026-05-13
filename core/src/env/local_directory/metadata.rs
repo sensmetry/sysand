@@ -10,9 +10,10 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value, value};
 use typed_path::{Utf8UnixComponent, Utf8UnixPathBuf};
 
 use crate::{
+    env::ProjectChecksum,
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
-        utils::{FsIoError, ToUnixPathBuf, deserialize_unix_path, wrapfs},
+        utils::{FsIoError, deserialize_unix_path, wrapfs},
     },
     utils::multiline_array,
 };
@@ -141,6 +142,18 @@ impl EnvMetadata {
             .find(|p| p.version == version && p.identifiers.iter().any(|iri| iri == identifier))
     }
 
+    pub(super) fn find_project_version_mut<S: AsRef<str>, V: AsRef<str>>(
+        &mut self,
+        identifier: S,
+        version: V,
+    ) -> Option<&mut EnvProject> {
+        let identifier = identifier.as_ref();
+        let version = version.as_ref();
+        self.projects
+            .iter_mut()
+            .find(|p| p.version == version && p.identifiers.iter().any(|iri| iri == identifier))
+    }
+
     pub(super) fn find_project_version_any_mut<S: AsRef<str>, V: AsRef<str>>(
         &mut self,
         identifiers: &[S],
@@ -166,6 +179,9 @@ impl EnvMetadata {
             .filter(move |p| p.identifiers.iter().any(|iri| iri == identifier))
     }
 
+    /// Find all projects that have `identifier`, and return
+    /// `(project_index, project)` pairs, sorted smallest to largest according
+    /// to `project_index`
     pub(super) fn find_project_versions_idxs(
         &self,
         identifier: &str,
@@ -193,33 +209,29 @@ impl EnvMetadata {
         project: &LocalSrcProject,
         editable: bool,
         workspace: bool,
+        checksum: Option<ProjectChecksum>,
     ) -> Result<(), AddProjectError> {
         let info = project
             .get_info()?
             .ok_or(AddProjectError::MissingInfo(project.project_path.clone()))?;
         let project = EnvProject {
             publisher: info.publisher,
-            name: Some(info.name),
+            name: info.name,
             version: info.version,
             path: project
                 .nominal_path
                 .as_ref()
                 .expect("BUG: no nominal path for project")
-                .to_unix_path_buf(),
+                .to_owned(),
             identifiers,
             usages: info.usage.into_iter().map(|u| u.resource).collect(),
             editable,
             workspace,
+            checksum: checksum.map(Into::into),
         };
         self.add_project(project);
 
         Ok(())
-    }
-
-    pub(super) fn project_dir_exists(&self, dir_name: &str) -> bool {
-        self.projects
-            .iter()
-            .any(|p| p.path.file_name().unwrap() == dir_name)
     }
 }
 
@@ -229,7 +241,7 @@ pub struct EnvProject {
     /// Publisher of the project. Intended for display purposes.
     pub publisher: Option<String>,
     /// Name of the project. Intended for display purposes.
-    pub name: Option<String>,
+    pub name: String,
     /// Version of the project.
     pub version: String,
     /// Path to the root directory of the project.
@@ -249,13 +261,36 @@ pub struct EnvProject {
     /// track the interdependence of project in the environment.
     #[serde(default)]
     pub usages: Vec<String>,
-    /// Indicator of wether the project is fully installed in
+    /// Indicator of whether the project is fully installed in
     /// the environment or located elsewhere.
     #[serde(default)]
     pub editable: bool,
-    /// Indicator of wether the project is part of a workspace.
+    /// Indicator of whether the project is part of a workspace.
     #[serde(default)]
     pub workspace: bool,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<EnvProjectChecksum>,
+}
+
+/// Checksum of the source this project was installed from:
+/// - kpar_cksum for local/remote/index KPAR
+/// - src_cksum for local/remote src
+// Serde by default will allow both variants to coexist in the file, this
+// is desirable to have forward compat.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+pub enum EnvProjectChecksum {
+    Kpar { kpar_cksum: String },
+    Project { src_cksum: String },
+}
+
+impl From<ProjectChecksum> for EnvProjectChecksum {
+    fn from(value: ProjectChecksum) -> Self {
+        match value {
+            ProjectChecksum::Project(c) => Self::Project { src_cksum: c },
+            ProjectChecksum::Kpar(c) => Self::Kpar { kpar_cksum: c },
+        }
+    }
 }
 
 impl EnvProject {
@@ -264,9 +299,7 @@ impl EnvProject {
         if let Some(publisher) = &self.publisher {
             table.insert("publisher", value(publisher));
         }
-        if let Some(name) = &self.name {
-            table.insert("name", value(name));
-        }
+        table.insert("name", value(&self.name));
         table.insert("version", value(&self.version));
         table.insert("path", value(self.path.as_str()));
         if !self.identifiers.is_empty() {
@@ -283,6 +316,16 @@ impl EnvProject {
         }
         if self.workspace {
             table.insert("workspace", value(true));
+        }
+        if let Some(cksum) = &self.checksum {
+            match cksum {
+                EnvProjectChecksum::Kpar { kpar_cksum } => {
+                    table.insert("kpar_cksum", value(kpar_cksum));
+                }
+                EnvProjectChecksum::Project { src_cksum } => {
+                    table.insert("src_cksum", value(src_cksum));
+                }
+            }
         }
 
         table

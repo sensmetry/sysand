@@ -101,15 +101,14 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
 
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
-        r#"lock_version = "0.4"
+        r#"lock_version = "0.5"
 
 [[project]]
 name = "sync_to_local"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_local"]
-checksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c"
 sources = [
-    { src_path = "lib/sync_to_local" },
+    { src_path = "lib/sync_to_local", checksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c" },
 ]
 "#,
     )?;
@@ -138,6 +137,7 @@ path = "lib/kpar.sync_to_local_1.2.3"
 identifiers = [
     "urn:kpar:sync_to_local",
 ]
+src_cksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c"
 "#
         )
     );
@@ -184,15 +184,14 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.4"
+            r#"lock_version = "0.5"
 
 [[project]]
 name = "sync_to_remote"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_remote"]
-checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
 sources = [
-    {{ remote_src = "{}" }},
+    {{ remote_src = "{}", checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895" }},
 ]
 "#,
             &server.url()
@@ -226,6 +225,7 @@ path = "lib/kpar.sync_to_remote_1.2.3"
 identifiers = [
     "urn:kpar:sync_to_remote",
 ]
+src_cksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
 "#
         )
     );
@@ -299,15 +299,14 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.4"
+            r#"lock_version = "0.5"
 
 [[project]]
 name = "sync_to_remote"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_remote"]
-checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
 sources = [
-    {{ remote_src = "{}" }},
+    {{ remote_src = "{}", checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895" }},
 ]
 "#,
             &server.url()
@@ -405,15 +404,14 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.4"
+            r#"lock_version = "0.5"
 
 [[project]]
 name = "sync_to_remote"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_remote"]
-checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
 sources = [
-    {{ remote_src = "{}" }},
+    {{ remote_src = "{}", checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895" }},
 ]
 "#,
             &server.url()

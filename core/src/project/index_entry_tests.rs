@@ -3,7 +3,7 @@
 
 //! Sibling unit tests for `index_entry.rs`.
 //!
-//! Network-dependent paths (pre-expose `project_digest` check,
+//! Network-dependent paths (pre-expose `kpar_digest` check,
 //! post-download digest drift, `.project.json`/`.meta.json` fetch error
 //! mapping) live in `core/src/env/index_tests.rs` because they need
 //! mockito to drive the HTTP side. These tests pin the network-free
@@ -21,7 +21,7 @@ use crate::{
     env::index::{AdvertisedVersion, Sha256HexDigest},
     index::model::VersionStatus,
     model::InterchangeProjectUsageRaw,
-    project::{ProjectReadAsync, index_entry::IndexEntryProject},
+    project::{ProjectChecksum, ProjectReadAsync, index_entry::IndexEntryProject},
     purl::PKG_SYSAND_PREFIX,
     resolve::net_utils::create_reqwest_client,
 };
@@ -35,10 +35,6 @@ use crate::{
 fn make_fixture() -> IndexEntryProject<Unauthenticated> {
     // Two distinct 64-hex digests so a test that confuses them fails
     // loudly rather than passing on equality.
-    let project_digest = Sha256HexDigest::try_from(
-        "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-    )
-    .expect("fixture project_digest must be valid sha256 hex");
     let kpar_digest = Sha256HexDigest::try_from(
         "sha256:2222222222222222222222222222222222222222222222222222222222222222",
     )
@@ -50,7 +46,6 @@ fn make_fixture() -> IndexEntryProject<Unauthenticated> {
             resource: format!("{PKG_SYSAND_PREFIX}acme/widget"),
             version_constraint: Some("^1.0".to_string()),
         }],
-        project_digest,
         kpar_size: std::num::NonZeroU64::new(42).unwrap(),
         kpar_digest,
         status: VersionStatus::Available,
@@ -104,17 +99,19 @@ fn usage_async_returns_advertised_without_fetch() {
 }
 
 #[test]
-fn checksum_canonical_hex_async_returns_advertised_before_download() {
+fn checksum_canonical_variant_async_returns_advertised_before_download() {
     let project = make_fixture();
-    let digest = block_on(project.checksum_canonical_hex_async()).unwrap();
+    let digest = block_on(project.checksum_canonical_variant_async()).unwrap();
     assert_eq!(
-        digest.as_deref(),
-        Some("1111111111111111111111111111111111111111111111111111111111111111"),
-        "pre-download, checksum_canonical_hex_async must return the advertised digest verbatim \
+        digest,
+        ProjectChecksum::Kpar(
+            "2222222222222222222222222222222222222222222222222222222222222222".to_owned()
+        ),
+        "pre-download, checksum_canonical_variant_async must return the advertised kpar digest verbatim \
          (no archive download, no kpar-side computation)"
     );
     assert!(
         !project.archive.is_downloaded_and_verified(),
-        "checksum_canonical_hex_async must not trigger a download before the archive is present"
+        "checksum_canonical_variant_async must not trigger a download before the archive is present"
     );
 }

@@ -123,6 +123,7 @@ pub fn do_init_local_file(
     let mut storage = LocalSrcProject {
         nominal_path: None,
         project_path: path,
+        expected_checksum: None,
     };
 
     do_init(name, publisher, version, license, &mut storage)?;

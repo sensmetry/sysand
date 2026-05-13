@@ -6,6 +6,8 @@ use std::io::{Read as _, Write};
 use camino_tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
+use crate::project::local_kpar::KparInnerPath;
+
 use super::ProjectRead;
 
 #[test]
@@ -31,7 +33,7 @@ fn basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
         zip.finish().unwrap();
     }
 
-    let project = super::LocalKParProject::new_guess_root(zip_path)?;
+    let project = super::LocalKParProject::new(zip_path, KparInnerPath::Guess, None, None);
 
     let (Some(info), Some(meta)) = project.get_project()? else {
         panic!();
@@ -74,7 +76,7 @@ fn nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
         zip.finish().unwrap();
     }
 
-    let project = super::LocalKParProject::new_guess_root(zip_path)?;
+    let project = super::LocalKParProject::new(zip_path, KparInnerPath::Guess, None, None);
 
     let (Some(info), Some(meta)) = project.get_project()? else {
         panic!();

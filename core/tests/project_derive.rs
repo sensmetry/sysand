@@ -8,7 +8,9 @@ use std::{
 
 use sysand_core::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{CanonicalizationError, ProjectMut, ProjectRead, memory::InMemoryProject},
+    project::{
+        CanonicalizationError, ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject,
+    },
 };
 
 // Have to have these in scope for ProjectRead
@@ -237,6 +239,10 @@ impl ProjectRead for FixedDigestProject {
 
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         Ok(Some(self.digest.clone()))
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        Ok(ProjectChecksum::Project(self.digest.clone()))
     }
 }
 

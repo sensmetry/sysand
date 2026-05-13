@@ -42,14 +42,13 @@ use crate::{
     context::ProjectContext,
     env::{ReadEnvironment, ReadEnvironmentAsync, discovery::ResolvedEndpoints},
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, project_hash_hex},
     project::{
-        InlineProjectDigest, ProjectRead, canonical_project_digest_inline,
-        index_entry::IndexEntryProjectError, reqwest_kpar_download::ReqwestKparDownloadedError,
+        ProjectRead, index_entry::IndexEntryProjectError,
+        reqwest_kpar_download::ReqwestKparDownloadedError,
     },
     purl::PKG_SYSAND_PREFIX,
     resolve::net_utils::create_reqwest_client,
-    utils::{lowercase_hex, sha256_lowercase_hex},
+    utils::sha256_lowercase_hex,
 };
 
 // Re-exports so that `super::X` paths inside sub-modules (which refer to this
@@ -78,21 +77,19 @@ fn versions_json_body<const N: usize>(entries: [(&str, &str); N]) -> String {
         .iter()
         .map(|(version, usage)| {
             format!(
-                r#"{{"version":"{version}","usage":{usage},"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}"#
+                r#"{{"version":"{version}","usage":{usage},"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}"#
             )
         })
         .collect();
     format!(r#"{{"versions":[{}]}}"#, parts.join(","))
 }
 
-fn versions_json_body_with_project_digest<const N: usize>(
-    entries: [(&str, &str, &str); N],
-) -> String {
+fn versions_json_body_with_project_digest<const N: usize>(entries: [(&str, &str); N]) -> String {
     let parts: Vec<String> = entries
         .iter()
-        .map(|(version, usage, project_digest)| {
+        .map(|(version, usage )| {
             format!(
-                r#"{{"version":"{version}","usage":{usage},"project_digest":"{project_digest}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}"#
+                r#"{{"version":"{version}","usage":{usage},"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}"#
             )
         })
         .collect();
@@ -115,33 +112,6 @@ fn project_json_body(name: &str, publisher: Option<&str>, version: &str, usage: 
 /// any test that hashes the body reproducible.
 fn meta_json_body() -> &'static str {
     r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#
-}
-
-fn project_digest(info_json: &str, meta_json: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let info: InterchangeProjectInfoRaw = serde_json::from_str(info_json)?;
-    let meta: InterchangeProjectMetadataRaw = serde_json::from_str(meta_json)?;
-    let mut hash = project_hash_hex(&info, &meta);
-    hash.insert_str(0, "sha256:");
-    Ok(hash)
-}
-
-/// Compute the canonical project digest — matches what the server would
-/// advertise in `versions.json`'s `project_digest`. Equivalent to
-/// `project_digest` when `meta` has no checksum entries or only lowercase
-/// SHA256 entries, but differs when entries require canonicalization
-/// (mixed-case SHA256 hex values).
-fn canonical_project_digest(
-    info_json: &str,
-    meta_json: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let info: InterchangeProjectInfoRaw = serde_json::from_str(info_json)?;
-    let meta: InterchangeProjectMetadataRaw = serde_json::from_str(meta_json)?;
-    let InlineProjectDigest::Computed(hash) = canonical_project_digest_inline(&info, &meta) else {
-        panic!("canonical digest should be computable inline for this fixture");
-    };
-    let mut hash = lowercase_hex(hash);
-    hash.insert_str(0, "sha256:");
-    Ok(hash)
 }
 
 fn make_runtime() -> Result<Arc<tokio::runtime::Runtime>, Box<dyn std::error::Error>> {
@@ -262,38 +232,38 @@ fn mock_json_get_count(
         .create()
 }
 
-/// Build a minimal kpar (ZIP) archive carrying `.project.json`,
-/// `.meta.json`, and a single source file at the archive root, returning
-/// the archive bytes alongside the exact info/meta JSON strings written
-/// into it. Tests that also mock the per-version `.project.json` /
-/// `.meta.json` endpoints reuse those strings so the index-served content
-/// matches the in-archive content — the only deliberate drift remains in
-/// the advertised `project_digest`.
-fn build_minimal_kpar(
-    name: &str,
-    version: &str,
-    src_path: &str,
-    src_body: &str,
-) -> (Vec<u8>, String, &'static str) {
-    use std::io::Write as _;
-    let info_json = format!(r#"{{"name":"{name}","version":"{version}","usage":[]}}"#);
-    let meta_json: &'static str = r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#;
-    let mut buf: Vec<u8> = Vec::new();
-    {
-        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .unix_permissions(0o755);
-        zip.start_file(".project.json", options).unwrap();
-        zip.write_all(info_json.as_bytes()).unwrap();
-        zip.start_file(".meta.json", options).unwrap();
-        zip.write_all(meta_json.as_bytes()).unwrap();
-        zip.start_file(src_path, options).unwrap();
-        zip.write_all(src_body.as_bytes()).unwrap();
-        zip.finish().unwrap();
-    }
-    (buf, info_json, meta_json)
-}
+// /// Build a minimal kpar (ZIP) archive carrying `.project.json`,
+// /// `.meta.json`, and a single source file at the archive root, returning
+// /// the archive bytes alongside the exact info/meta JSON strings written
+// /// into it. Tests that also mock the per-version `.project.json` /
+// /// `.meta.json` endpoints reuse those strings so the index-served content
+// /// matches the in-archive content — the only deliberate drift remains in
+// /// the advertised `project_digest`.
+// fn build_minimal_kpar(
+//     name: &str,
+//     version: &str,
+//     src_path: &str,
+//     src_body: &str,
+// ) -> (Vec<u8>, String, &'static str) {
+//     use std::io::Write as _;
+//     let info_json = format!(r#"{{"name":"{name}","version":"{version}","usage":[]}}"#);
+//     let meta_json: &'static str = r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#;
+//     let mut buf: Vec<u8> = Vec::new();
+//     {
+//         let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
+//         let options = zip::write::SimpleFileOptions::default()
+//             .compression_method(zip::CompressionMethod::Stored)
+//             .unix_permissions(0o755);
+//         zip.start_file(".project.json", options).unwrap();
+//         zip.write_all(info_json.as_bytes()).unwrap();
+//         zip.start_file(".meta.json", options).unwrap();
+//         zip.write_all(meta_json.as_bytes()).unwrap();
+//         zip.start_file(src_path, options).unwrap();
+//         zip.write_all(src_body.as_bytes()).unwrap();
+//         zip.finish().unwrap();
+//     }
+//     (buf, info_json, meta_json)
+// }
 
 mod uris {
     use crate::{index::iri::ParseIriError, utils::format_sources};
@@ -1254,11 +1224,10 @@ mod get_project {
 
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
         let meta_json = meta_json_body();
-        let project_digest = project_digest(&info_json, meta_json)?;
 
         let body = format!(
             r#"{{"versions":[
-                {{"version":"0.3.0","usage":[],"project_digest":"{project_digest}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"yanked"}}
+                {{"version":"0.3.0","usage":[],"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"yanked"}}
             ]}}"#
         );
 
@@ -1288,12 +1257,11 @@ mod get_project {
 
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
         let meta_json = meta_json_body();
-        let project_digest = project_digest(&info_json, meta_json)?;
 
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", "[]", &project_digest)]),
+            versions_json_body_with_project_digest([("0.3.0", "[]")]),
         );
 
         let project_json_mock =
@@ -1305,7 +1273,7 @@ mod get_project {
 
         let inner = &project.inner;
         assert_eq!(
-            inner.archive.url.as_str(),
+            inner.archive.url().as_str(),
             format!("{}/admin/proj0/0.3.0/project.kpar", server.url())
         );
 
@@ -1334,12 +1302,11 @@ mod get_project {
 
         let info_json = project_json_body("b", None, "1.0.0", "[]");
         let meta_json = meta_json_body();
-        let project_digest = project_digest(&info_json, meta_json)?;
 
         let versions_mock = mock_json_get(
             &mut server,
             "/_iri/621a5fdf587a3ecc878a98c8be2240dd5bbe561860d11f4da1ece4a4fe2fb8b5/versions.json",
-            versions_json_body_with_project_digest([("1.0.0", "[]", &project_digest)]),
+            versions_json_body_with_project_digest([("1.0.0", "[]")]),
         );
 
         let project_json_mock = mock_json_get(
@@ -1358,7 +1325,7 @@ mod get_project {
 
         let inner = &project.inner;
         assert_eq!(
-            inner.archive.url.as_str(),
+            inner.archive.url().as_str(),
             format!(
                 "{}/_iri/621a5fdf587a3ecc878a98c8be2240dd5bbe561860d11f4da1ece4a4fe2fb8b5/1.0.0/project.kpar",
                 server.url()
@@ -1391,7 +1358,6 @@ mod get_project {
         );
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", &usage_json);
         let meta_json = meta_json_body();
-        let project_digest = project_digest(&info_json, meta_json)?;
 
         // `usage` shown to the caller comes from `.project.json`; carry
         // the same payload in `versions.json` to check there's no
@@ -1399,7 +1365,7 @@ mod get_project {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", &usage_json, &project_digest)]),
+            versions_json_body_with_project_digest([("0.3.0", &usage_json)]),
         );
 
         let project_json_mock =
@@ -1448,16 +1414,11 @@ mod get_project {
         // verification passes; advertised and fetched `usage` differ.
         let fetched_info_json = project_json_body("proj0", Some("admin"), "0.3.0", &fetched_usage);
         let meta_json = meta_json_body();
-        let advertised_digest = project_digest(&fetched_info_json, meta_json)?;
 
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([(
-                "0.3.0",
-                &advertised_usage,
-                &advertised_digest,
-            )]),
+            versions_json_body_with_project_digest([("0.3.0", &advertised_usage)]),
         );
 
         let project_json_mock = mock_json_get(
@@ -1500,12 +1461,11 @@ mod get_project {
             &usage_json,
         );
         let meta_json = r#"{"index":{},"created":"2026-04-17T00:00:00.000000000Z","metamodel":"https://www.omg.org/spec/KerML/20250201"}"#;
-        let project_digest = project_digest(&info_json, meta_json)?;
 
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", &usage_json, &project_digest)]),
+            versions_json_body_with_project_digest([("0.3.0", &usage_json)]),
         );
 
         let project_json_mock =
@@ -1772,79 +1732,13 @@ mod iri {
 ///   that `get_project_async` will later reject.
 mod digest {
 
+    use crate::project::ProjectChecksum;
+
     use super::*;
 
     #[test]
-    fn advertised_project_digest_mismatch_rejected_before_expose()
+    fn checksum_variant_uses_advertised_kpar_digest_and_skips_kpar_download()
     -> Result<(), Box<dyn std::error::Error>> {
-        // Syntactically-valid-but-wrong advertised digest: must refuse
-        // to expose info AND meta, even though the JSON pair itself
-        // parses cleanly.
-        let mut server = mockito::Server::new();
-
-        let env = index_env_sync(&server)?;
-
-        let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
-        let meta_json = meta_json_body();
-        let bogus_advertised_digest = format!("sha256:{}", "c".repeat(64));
-
-        let versions_mock = mock_json_get(
-            &mut server,
-            "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", "[]", &bogus_advertised_digest)]),
-        );
-
-        let project_json_mock = mock_json_get_count(
-            &mut server,
-            "/admin/proj0/0.3.0/.project.json",
-            info_json,
-            2,
-        );
-
-        let meta_json_mock =
-            mock_json_get_count(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json, 2);
-
-        // Verification runs from JSON only.
-        let kpar_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/project.kpar");
-
-        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
-        let err = project
-            .get_info()
-            .expect_err("digest drift must reject before exposing info");
-        match err {
-            IndexEntryProjectError::AdvertisedDigestDrift { expected, .. } => {
-                assert_eq!(expected, "c".repeat(64));
-            }
-            other => panic!("expected AdvertisedDigestDrift, got {other:?}"),
-        }
-
-        // get_meta() must also refuse — both documents must be unavailable.
-        let err_meta = project
-            .get_meta()
-            .expect_err("digest drift must reject before exposing meta too");
-        assert!(
-            matches!(
-                err_meta,
-                IndexEntryProjectError::AdvertisedDigestDrift { .. }
-            ),
-            "get_meta must also surface drift"
-        );
-
-        versions_mock.assert();
-        project_json_mock.assert();
-        meta_json_mock.assert();
-        kpar_mock.assert();
-
-        Ok(())
-    }
-
-    #[test]
-    fn checksum_uses_inline_project_digest_and_skips_kpar_download()
-    -> Result<(), Box<dyn std::error::Error>> {
-        // The pre-download shortcut: `checksum_canonical_hex` returns
-        // the advertised digest without touching any leaf endpoint.
-        // A regression that re-introduced a materialization step here
-        // would silently start downloading archives during resolution.
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1856,7 +1750,7 @@ mod digest {
             &mut server,
             "/admin/proj0/versions.json",
             format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{advertised_digest}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}]}}"#,
+                r#"{{"versions":[{{"version":"0.3.0","usage":[],"kpar_size":42,"kpar_digest":"{advertised_digest}"}}]}}"#,
             ),
         );
 
@@ -1868,10 +1762,8 @@ mod digest {
         let kpar_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/project.kpar");
 
         let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
-        let digest = project
-            .checksum_canonical_hex()?
-            .expect("prefetched digest should propagate");
-        assert_eq!(digest, expected_hex);
+        let digest = project.checksum_canonical_variant()?;
+        assert_eq!(digest, ProjectChecksum::Kpar(expected_hex));
 
         versions_mock.assert();
         project_json_mock.assert();
@@ -1882,7 +1774,7 @@ mod digest {
     }
 
     #[test]
-    fn malformed_project_digest_errors() -> Result<(), Box<dyn std::error::Error>> {
+    fn malformed_kpar_digest_errors() -> Result<(), Box<dyn std::error::Error>> {
         // Non-`sha256:<hex>` advertised value: surface as a protocol
         // error rather than silently recomputing (which would break
         // lock/sync cross-checks downstream).
@@ -1893,9 +1785,7 @@ mod digest {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"md5:abc","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}]}}"#,
-            ),
+            r#"{"versions":[{"version":"0.3.0","usage":[],"kpar_digest":"md5:abc","kpar_size":42}]}"#,
         );
 
         let kpar_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/project.kpar");
@@ -1911,100 +1801,13 @@ mod digest {
                 ..
             } => {
                 assert_eq!(version, "0.3.0");
-                assert_eq!(field, "project_digest");
+                assert_eq!(field, "kpar_digest");
                 assert_eq!(value, "md5:abc");
             }
             other => panic!("expected InvalidVersionEntry, got {other:?}"),
         }
 
         versions_mock.assert();
-        kpar_mock.assert();
-
-        Ok(())
-    }
-
-    #[test]
-    fn project_digest_drift_after_download_errors() -> Result<(), Box<dyn std::error::Error>> {
-        // Post-download authoritative check: correct `kpar_digest` but
-        // deliberately-wrong `project_digest` lets the download succeed
-        // and forces `checksum_canonical_hex` into the reconciliation
-        // branch, where the mismatch must surface as
-        // `AdvertisedDigestDrift` rather than silently corrupt the
-        // lockfile.
-
-        let mut server = mockito::Server::new();
-
-        let env = index_env_sync(&server)?;
-
-        // `.project.json` / `.meta.json` are only consumed from inside the
-        // kpar for this test; the destructured JSON strings are unused.
-        let (kpar_bytes, _info_json, _meta_json) =
-            build_minimal_kpar("proj0", "0.3.0", "foo.sysml", "// hi");
-        let kpar_digest_hex = sha256_lowercase_hex(&kpar_bytes);
-        let advertised_kpar = format!("sha256:{kpar_digest_hex}");
-
-        // `bbb…b` is not the canonical project digest of the archive above,
-        // which is what forces the drift branch post-download.
-        let wrong_project_digest_hex = "b".repeat(64);
-        let advertised_project = format!("sha256:{wrong_project_digest_hex}");
-
-        let versions_mock = mock_json_get(
-            &mut server,
-            "/admin/proj0/versions.json",
-            format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{advertised_project}","kpar_size":{kpar_size},"kpar_digest":"{advertised_kpar}"}}]}}"#,
-                kpar_size = kpar_bytes.len(),
-            ),
-        );
-
-        // Reconciliation runs against the in-archive copies; neither
-        // `read_source` nor the post-download branch of
-        // `checksum_canonical_hex` touches the per-version JSON
-        // endpoints. `expect(0)` catches a regression that would fall
-        // back to those during drift checks.
-        let project_json_mock =
-            expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/.project.json");
-
-        let meta_json_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/.meta.json");
-
-        let kpar_mock = server
-            .mock("GET", "/admin/proj0/0.3.0/project.kpar")
-            .with_status(200)
-            .with_header("content-type", "application/zip")
-            .with_body(&kpar_bytes)
-            .expect(1)
-            .create();
-
-        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
-
-        // Force a download so `checksum_canonical_hex` reaches the
-        // post-download (authoritative local) branch rather than the
-        // pre-download shortcut.
-        let mut reader = project.read_source("foo.sysml").unwrap();
-        let mut buf = String::new();
-        std::io::Read::read_to_string(&mut reader, &mut buf)?;
-        drop(reader);
-
-        let err = project
-            .checksum_canonical_hex()
-            .expect_err("drift between advertised and locally-computed digest must error");
-
-        // Surface path: CanonicalizationError::ProjectRead ->
-        // IndexEntryProjectError::AdvertisedDigestDrift. Traverse whatever
-        // wrappers the display-side adds by matching on the debug text.
-        let text = format!("{err:?}");
-        assert!(
-            text.contains("AdvertisedDigestDrift"),
-            "expected AdvertisedDigestDrift, got: {text}"
-        );
-        assert!(
-            text.contains(&wrong_project_digest_hex),
-            "advertised digest should appear in error: {text}"
-        );
-
-        versions_mock.assert();
-        project_json_mock.assert();
-        meta_json_mock.assert();
         kpar_mock.assert();
 
         Ok(())
@@ -2069,19 +1872,11 @@ mod digest {
         // 64-char hex with uppercase digits — a legal SHA256 value that
         // canonicalization lowercases before hashing.
         let meta_json = r#"{"index":{"Sym":"foo.sysml"},"created":"2026-01-01T00:00:00.000000000Z","checksum":{"foo.sysml":{"value":"ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789","algorithm":"SHA256"}}}"#;
-        let advertised_digest = canonical_project_digest(&info_json, meta_json)?;
-        // Sanity: canonical and raw-hash digests must differ, else the
-        // test would pass even with the old buggy code.
-        assert_ne!(
-            advertised_digest,
-            project_digest(&info_json, meta_json)?,
-            "fixture must exercise canonicalization — raw and canonical digests should differ"
-        );
 
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", "[]", &advertised_digest)]),
+            versions_json_body_with_project_digest([("0.3.0", "[]")]),
         );
 
         let project_json_mock =
@@ -2097,54 +1892,6 @@ mod digest {
             .expect("canonical digest reconciliation must succeed for mixed-case SHA256 meta");
         assert_eq!(info.as_ref().map(|i| i.name.as_str()), Some("proj0"));
         assert!(meta.is_some());
-
-        versions_mock.assert();
-        project_json_mock.assert();
-        meta_json_mock.assert();
-        kpar_mock.assert();
-
-        Ok(())
-    }
-
-    #[test]
-    fn get_project_rejects_non_sha256_meta_checksums() -> Result<(), Box<dyn std::error::Error>> {
-        // A non-SHA256 `meta.checksum` entry makes the canonical digest
-        // require source reads. The index protocol requires verification
-        // from (info, meta) alone, so the client refuses to expose either
-        // document rather than silently skipping verification.
-        let mut server = mockito::Server::new();
-
-        let env = index_env_sync(&server)?;
-
-        let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
-        // SHA1 — canonicalizing this entry would force reading source
-        // bytes from the kpar, which the protocol forbids.
-        let meta_json = r#"{"index":{"Sym":"foo.sysml"},"created":"2026-01-01T00:00:00.000000000Z","checksum":{"foo.sysml":{"value":"dabe95d26be5d1c68a80fae65d12ae056e8fc8ab","algorithm":"SHA1"}}}"#;
-
-        let advertised_digest = format!("sha256:{}", "a".repeat(64));
-
-        let versions_mock = mock_json_get(
-            &mut server,
-            "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", "[]", &advertised_digest)]),
-        );
-
-        let project_json_mock =
-            mock_json_get(&mut server, "/admin/proj0/0.3.0/.project.json", info_json);
-
-        let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
-
-        // Error is triggered purely on the JSON pair.
-        let kpar_mock = expect_untouched(&mut server, "GET", "/admin/proj0/0.3.0/project.kpar");
-
-        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
-        let err = project
-            .get_info()
-            .expect_err("non-SHA256 meta.checksum must refuse to expose info/meta");
-        match err {
-            IndexEntryProjectError::ProjectDigestRequiresSourceReads { .. } => {}
-            other => panic!("expected ProjectDigestRequiresSourceReads, got {other:?}"),
-        }
 
         versions_mock.assert();
         project_json_mock.assert();
@@ -2174,12 +1921,11 @@ mod caching {
 
         let info_json = project_json_body("proj0", Some("admin"), "0.3.0", "[]");
         let meta_json = meta_json_body();
-        let advertised_digest = project_digest(&info_json, meta_json)?;
 
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", "[]", &advertised_digest)]),
+            versions_json_body_with_project_digest([("0.3.0", "[]")]),
         );
 
         let project_json_mock = server
@@ -2433,7 +2179,7 @@ mod sources {
             &mut server,
             "/admin/proj0/versions.json",
             format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{advertised}"}}]}}"#,
+                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":24,"kpar_digest":"{advertised}"}}]}}"#,
             ),
         );
 
@@ -2500,7 +2246,8 @@ mod sources {
         assert_eq!(sources.len(), 1);
         match &sources[0] {
             Source::IndexKpar {
-                index_kpar_size, ..
+                kpar_size: index_kpar_size,
+                ..
             } => assert_eq!(index_kpar_size.get(), 42),
             other => panic!("expected Source::IndexKpar, got {:?}", other),
         }

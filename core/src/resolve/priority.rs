@@ -218,6 +218,17 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
                 .map_err(|e| e.map_project_read(PriorityError::Lower)),
         }
     }
+
+    fn checksum_canonical_variant(&self) -> Result<crate::project::ProjectChecksum, Self::Error> {
+        match self {
+            PriorityProject::HigherProject(project) => project
+                .checksum_canonical_variant()
+                .map_err(PriorityError::Higher),
+            PriorityProject::LowerProject(project) => project
+                .checksum_canonical_variant()
+                .map_err(PriorityError::Lower),
+        }
+    }
 }
 
 impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<Higher, Lower> {

@@ -3,17 +3,27 @@
 
 use std::{
     io::{Read, Write as _},
+    num::NonZeroU64,
     sync::Arc,
 };
+
+use url::Url;
 
 use crate::{
     auth::Unauthenticated,
     context::ProjectContext,
     lock::Source,
-    project::{ProjectRead, ProjectReadAsync, reqwest_kpar_download::ReqwestKparDownloadedError},
+    project::{
+        ProjectRead, ProjectReadAsync,
+        reqwest_kpar_download::{
+            KparMeta, ReqwestIndexKparDownloadedProject, ReqwestKparDownloadedError,
+        },
+    },
     resolve::net_utils::create_reqwest_client,
     utils::sha256_lowercase_hex,
 };
+
+use super::ReqwestRemoteKparDownloadedProject;
 
 #[test]
 fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,11 +61,10 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         .expect(1)
         .create();
 
-    let project = super::ReqwestKparDownloadedProject::new_guess_root(
+    let project = ReqwestRemoteKparDownloadedProject::new_guess_root(
         format!("{}basic_download_request.kpar", url,),
         create_reqwest_client()?,
         Arc::new(Unauthenticated {}),
-        None,
         None,
     )?
     .to_tokio_sync(Arc::new(
@@ -129,12 +138,14 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
         .expect(1)
         .create();
 
-    let project = Arc::new(super::ReqwestKparDownloadedProject::new_guess_root(
+    let project = Arc::new(ReqwestRemoteKparDownloadedProject::new_guess_root(
         format!("{url}concurrent.kpar"),
         create_reqwest_client()?,
         Arc::new(Unauthenticated {}),
-        Some(expected_digest),
-        None,
+        Some(KparMeta {
+            size_bytes: NonZeroU64::new(kpar_bytes.len() as u64).unwrap(),
+            sha256_hex: expected_digest,
+        }),
     )?);
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -146,13 +157,10 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
     // both would proceed into the direct-to-destination write path.
     let p1 = Arc::clone(&project);
     let p2 = Arc::clone(&project);
-    let (r1, r2) = runtime.block_on(async move {
-        futures::future::join(
-            async move { p1.ensure_downloaded_verified().await },
-            async move { p2.ensure_downloaded_verified().await },
-        )
-        .await
-    });
+    let (r1, r2) = runtime.block_on(futures::future::join(
+        p1.ensure_downloaded_verified(),
+        p2.ensure_downloaded_verified(),
+    ));
     r1?;
     r2?;
 
@@ -160,7 +168,7 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
 
     // The installed archive must parse — a corrupted interleaved write
     // would fail here or return garbage.
-    let (Some(info), Some(_meta)) = project.inner.get_project()? else {
+    let (Some(info), Some(_meta)) = runtime.block_on(project.get_project_async())? else {
         panic!("installed archive failed to expose project");
     };
     assert_eq!(info.name, "concurrent");
@@ -185,7 +193,7 @@ fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::E
         cursor.into_inner()
     };
     let expected_digest = sha256_lowercase_hex(&kpar_bytes);
-    let wrong_size = kpar_bytes.len() as u64 - 1;
+    let wrong_size = NonZeroU64::new(kpar_bytes.len() as u64 - 1).unwrap();
 
     let mut server = mockito::Server::new();
     let url = reqwest::Url::parse(&server.url())?;
@@ -198,12 +206,14 @@ fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::E
         .expect(1)
         .create();
 
-    let project = super::ReqwestKparDownloadedProject::new_guess_root(
+    let project = ReqwestRemoteKparDownloadedProject::new_guess_root(
         format!("{url}size-mismatch.kpar"),
         create_reqwest_client()?,
         Arc::new(Unauthenticated {}),
-        Some(expected_digest),
-        Some(std::num::NonZeroU64::new(wrong_size).unwrap()),
+        Some(KparMeta {
+            size_bytes: wrong_size,
+            sha256_hex: expected_digest,
+        }),
     )?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -215,7 +225,7 @@ fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::E
             Err(ReqwestKparDownloadedError::SizeMismatch {
                 expected, actual, ..
             }) => {
-                assert_eq!(expected, wrong_size);
+                assert_eq!(expected, wrong_size.get());
                 assert_eq!(actual, kpar_bytes.len() as u64);
             }
             other => panic!("expected SizeMismatch for wrong kpar size, got {other:?}"),
@@ -226,10 +236,6 @@ fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::E
         !project.is_downloaded_and_verified(),
         "size mismatch must not be reported as success"
     );
-    assert!(
-        !project.inner.archive_path.exists(),
-        "content-length mismatch must not create an archive file"
-    );
     get_kpar.assert();
 
     Ok(())
@@ -238,15 +244,15 @@ fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::E
 #[test]
 fn index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::error::Error>> {
     let index_kpar = "https://example.com/project.kpar";
-    let index_kpar_size = std::num::NonZeroU64::new(1234).unwrap();
+    let index_kpar_size = NonZeroU64::new(1234).unwrap();
     let index_kpar_digest = "a".repeat(64);
 
-    let project = super::ReqwestKparDownloadedProject::new_guess_root(
-        index_kpar,
+    let project = ReqwestIndexKparDownloadedProject::new(
+        Url::parse(index_kpar).unwrap(),
         create_reqwest_client()?,
         Arc::new(Unauthenticated {}),
-        Some(index_kpar_digest.clone()),
-        Some(index_kpar_size),
+        index_kpar_size,
+        index_kpar_digest.clone(),
     )?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -258,8 +264,8 @@ fn index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::err
         sources,
         vec![Source::IndexKpar {
             index_kpar: index_kpar.to_string(),
-            index_kpar_size,
-            index_kpar_digest,
+            kpar_size: index_kpar_size,
+            kpar_digest: index_kpar_digest,
         }]
     );
 

@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use sysand_core::{
-    env::{PutProjectError, ReadEnvironment, WriteEnvironment},
+    env::{ProjectChecksumResult, PutProjectError, ReadEnvironment, WriteEnvironment},
+    project::ProjectChecksum,
     utils::sha256_lowercase_hex,
 };
 use thiserror::Error;
@@ -117,7 +118,18 @@ impl ReadEnvironment for LocalBrowserStorageEnvironment {
         Ok(ProjectLocalBrowserStorage {
             vfs: self.vfs.clone(),
             root_path: self.project_path(&uri, &version),
+            expected_checksum: None,
         })
+    }
+
+    // TODO: fix this when this env contains sufficient info
+    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        _uri: S,
+        _version: V,
+        _checksum: &sysand_core::project::ProjectChecksum,
+    ) -> Result<ProjectChecksumResult, Self::ReadError> {
+        Ok(ProjectChecksumResult::ChecksumNotPresent)
     }
 }
 
@@ -130,6 +142,7 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
         &mut self,
         uri: S,
         version: T,
+        _checksum: Option<ProjectChecksum>,
         write_project: F,
     ) -> Result<Self::InterchangeProjectMut, sysand_core::env::PutProjectError<Self::WriteError, E>>
     where
@@ -138,6 +151,7 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
         let mut project = ProjectLocalBrowserStorage {
             vfs: self.vfs.clone(),
             root_path: self.project_path(&uri, &version),
+            expected_checksum: None,
         };
 
         // TODO: For production JS-version this should be made more robust

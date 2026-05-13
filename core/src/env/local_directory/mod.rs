@@ -10,14 +10,15 @@ use std::{
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use thiserror::Error;
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     env::{
-        PutProjectError, ReadEnvironment, WriteEnvironment,
+        ProjectChecksum, ProjectChecksumResult, PutProjectError, ReadEnvironment, WriteEnvironment,
         local_directory::{
             metadata::{
-                AddProjectError, EnvMetadata, EnvMetadataError, EnvProject, load_env_metadata,
-                parse_env_metadata,
+                AddProjectError, EnvMetadata, EnvMetadataError, EnvProject, EnvProjectChecksum,
+                load_env_metadata, parse_env_metadata,
             },
             utils::clean_dir,
         },
@@ -107,6 +108,10 @@ impl LocalDirectoryEnvironment {
     /// by `self.put_project()`.
     /// Call is idempotent.
     /// Does not update metadata file.
+    // TODO: what to do if lock does not contain projects that are present in env:
+    // - workspace: env also has to remove it, the project was deleted/renamed
+    // - editable: unclear; it could be (re)moved/renamed, but also it could be that
+    //   workspace just no longer depends on it, so it's absent from lock.
     pub fn merge_lock(&mut self, lock: &Lock, ws: Option<&Workspace>) {
         for project in &lock.projects {
             // Projects that are installed in the environment are ignored, so only
@@ -146,6 +151,7 @@ impl LocalDirectoryEnvironment {
                         usages,
                         editable: true,
                         workspace: workspace_member,
+                        checksum: None,
                     });
                 }
             }
@@ -166,15 +172,6 @@ impl LocalDirectoryEnvironment {
 
     pub fn projects(&self) -> &[EnvProject] {
         &self.metadata.projects
-    }
-
-    /// Determine absolute path of `project`
-    fn absolute_project_path(&self, project: &EnvProject) -> Utf8PathBuf {
-        if project.editable {
-            self.parent_dir().join(project.path.as_str())
-        } else {
-            self.root_dir.join(project.path.as_str())
-        }
     }
 
     /// Parent directory of the env, i.e. the directory in which `.sysand` resides.
@@ -226,6 +223,7 @@ impl LocalDirectoryEnvironment {
             LocalSrcProject {
                 nominal_path: Some(relative.into()),
                 project_path: absolute,
+                expected_checksum: None,
             }
         } else {
             let absolute = self.root_dir.join(relative);
@@ -233,15 +231,27 @@ impl LocalDirectoryEnvironment {
             LocalSrcProject {
                 nominal_path: Some(relative.into()),
                 project_path: absolute,
+                expected_checksum: None,
             }
         }
     }
 
+    /// Determine whether `p` is installed in the environment. This is currently false
+    /// only for editable projects.
+    fn is_installed(p: &EnvProject) -> bool {
+        p.path.starts_with(PROJECT_PATH_PREFIX)
+    }
+
     /// Determine a path for a new project/version. Path will be relative to `self.root_path()`
-    fn compute_project_path(&self, iri: Iri<&str>, version: impl AsRef<str>) -> Utf8PathBuf {
+    fn compute_project_path(&self, iri: Iri<&str>, version: impl AsRef<str>) -> Utf8UnixPathBuf {
         let mut path_iter = IriVersionFilename::new(iri, version);
         let mut candidate = path_iter.next_candidate();
-        while self.metadata.project_dir_exists(candidate) {
+        while self
+            .metadata
+            .projects
+            .iter()
+            .any(|p| Self::is_installed(p) && p.path.file_name().unwrap() == candidate)
+        {
             candidate = path_iter.next_candidate();
         }
         let mut path = String::from(path_iter);
@@ -263,6 +273,15 @@ impl LocalDirectoryEnvironment {
             Err(e) => log::debug!("failed to get metadata of old env at `{path}`: {e}"),
         }
     }
+
+    // /// Determine absolute path of `project`
+    // fn absolute_project_path(&self, project: &EnvProject) -> Utf8PathBuf {
+    //     if project.editable {
+    //         self.parent_dir().join(project.path.as_str())
+    //     } else {
+    //         self.root_dir.join(project.path.as_str())
+    //     }
+    // }
 
     // /// Find a project `uri` version `version` and determine its absolute path
     // pub fn absolute_project_path_find<S: AsRef<str>, T: AsRef<str>>(
@@ -356,6 +375,33 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
             Err(LocalReadError::ProjectNotFound(uri.as_ref().into()))
         }
     }
+
+    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+        checksum: &ProjectChecksum,
+    ) -> Result<ProjectChecksumResult, Self::ReadError> {
+        if let Some(p) = self.metadata.find_project_version(uri, version) {
+            let (expected, actual) = match (checksum, &p.checksum) {
+                (_, None) => return Ok(ProjectChecksumResult::ChecksumNotPresent),
+                (ProjectChecksum::Project(c), Some(EnvProjectChecksum::Project { src_cksum })) => {
+                    (c, src_cksum)
+                }
+                (ProjectChecksum::Kpar(c), Some(EnvProjectChecksum::Kpar { kpar_cksum })) => {
+                    (c, kpar_cksum)
+                }
+                _ => return Ok(ProjectChecksumResult::DifferentChecksumKinds),
+            };
+            if expected == actual {
+                Ok(ProjectChecksumResult::Match)
+            } else {
+                Ok(ProjectChecksumResult::Mismatch)
+            }
+        } else {
+            Ok(ProjectChecksumResult::VersionNotFound)
+        }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -384,6 +430,8 @@ pub enum LocalWriteError {
     ImpossibleRelativePath(#[from] RelativizePathError),
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
+    #[error("project is missing `.project.json` and/or `.meta.json` files")]
+    MissingInfoMeta,
 }
 
 impl From<FsIoError> for LocalWriteError {
@@ -411,6 +459,7 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => LocalWriteError::MissingMeta,
+            LocalSrcError::MissingInfoMeta => LocalWriteError::MissingInfoMeta,
         }
     }
 }
@@ -428,6 +477,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         &mut self,
         uri: S,
         version: T,
+        checksum: Option<ProjectChecksum>,
         write_project: F,
     ) -> Result<Self::InterchangeProjectMut, PutProjectError<Self::WriteError, CE>>
     where
@@ -441,30 +491,39 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         let mut tentative_project = LocalSrcProject {
             nominal_path: None,
             project_path: project_temp.path().to_path_buf(),
+            expected_checksum: None,
         };
 
-        if let Some(existing) = self.metadata.find_project_version(identifier, version) {
+        if let Some(existing) = self.metadata.find_project_version_mut(identifier, version) {
             // Create a temp clone and change it to avoid modifying env in case of errors
-            // TODO: check that publisher/name match?
-            // Will assume that usages/publisher/name/etc remain unchanged
             // TODO: how to handle editable projects here?
             assert!(!existing.editable);
             assert!(!existing.workspace);
 
             write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
+            // Project is not editable, so this is always correct
+            let absolute_path = self.root_dir.join(existing.path.as_str());
+            try_move_files(&[(project_temp.path(), &absolute_path)])
+                .map_err(LocalWriteError::from)?;
+            tentative_project.project_path = absolute_path;
 
-            let path = self.absolute_project_path(existing);
-            try_move_files(&[(project_temp.path(), &path)]).map_err(LocalWriteError::from)?;
+            let info = match tentative_project.get_info() {
+                Ok(Some(info)) => info,
+                Ok(None) => return Err(PutProjectError::Write(LocalWriteError::MissingInfoMeta)),
+                Err(e) => return Err(PutProjectError::Write(LocalWriteError::from(e))),
+            };
 
-            // Metadata didn't change, nothing to write
+            existing.publisher = info.publisher;
+            existing.name = info.name;
+            existing.version = info.version;
+            existing.usages = info.usage.into_iter().map(|u| u.resource).collect();
+            existing.checksum = checksum.map(Into::into);
 
-            tentative_project.project_path = self.root_path().join(&path);
-            tentative_project.nominal_path = Some(path);
+            self.write().map_err(LocalWriteError::from)?;
 
             Ok(tentative_project)
         } else {
-            // TODO: be optimistic: move existing target out of the way, try writing to
-            // the target directly and on failure revert.
+            // TODO: try writing to the target directly (we manage it exclusively) and on failure revert.
             write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
 
             // Project write was successful
@@ -473,7 +532,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             let iri = Iri::parse(identifier)
                 .map_err(|e| PutProjectError::IriParse(identifier.to_owned(), e))?;
             let path = self.compute_project_path(iri, version);
-            let absolute_project_path = self.root_path().join(&path);
+            let absolute_project_path = self.root_path().join(path.as_str());
 
             // Tolerate missing `lib/`
             self.ensure_lib_dir_exists()
@@ -493,6 +552,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                     &tentative_project,
                     false,
                     false,
+                    checksum,
                 )
                 .map_err(LocalWriteError::from)?;
 
@@ -544,7 +604,6 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
         }
         // `swap_remove()` does not affect elements before the one being removed,
         // so indices have to be removed from largest to smallest
-        indices_to_remove.sort_unstable();
         for idx in indices_to_remove.iter().copied().rev() {
             self.metadata.projects.swap_remove(idx);
         }

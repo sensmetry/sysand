@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use crate::{
-    env::{PutProjectError, ReadEnvironment, WriteEnvironment},
-    project::{ProjectMut, ProjectRead},
+    env::{PutProjectError, ReadEnvironment, WriteEnvironment, utils::ErrorBound},
+    project::{ProjectChecksum, ProjectMut, ProjectRead},
 };
 use std::{
     collections::{HashMap, hash_map::Entry},
@@ -11,6 +11,8 @@ use std::{
 };
 
 use thiserror::Error;
+
+use super::ProjectChecksumResult;
 
 #[derive(Debug)]
 pub struct MemoryStorageEnvironment<Project: Clone> {
@@ -256,6 +258,7 @@ impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEn
         &mut self,
         uri: S,
         version: T,
+        _checksum: Option<ProjectChecksum>,
         write_project: F,
     ) -> Result<Self::InterchangeProjectMut, super::PutProjectError<Self::WriteError, E>>
     where
@@ -298,29 +301,31 @@ impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEn
 }
 
 #[derive(Error, Debug)]
-pub enum MemoryReadError {
+pub enum MemoryReadError<PRE: ErrorBound> {
     #[error("missing project with IRI `{0}`")]
     MissingProject(String),
     #[error("missing project with IRI `{0}` version `{1}`")]
     MissingVersion(String, String),
+    #[error("failed to get checksum for project `{0}`")]
+    Checksum(String, #[source] PRE),
 }
 
 impl<Project: ProjectRead + Clone + Debug> ReadEnvironment for MemoryStorageEnvironment<Project> {
-    type ReadError = MemoryReadError;
+    type ReadError = MemoryReadError<Project::Error>;
 
-    type UriIter = Vec<Result<String, MemoryReadError>>;
+    type UriIter = Vec<Result<String, Self::ReadError>>;
 
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
-        let uri_vec: Vec<Result<String, MemoryReadError>> =
+        let uri_vec: Vec<Result<String, Self::ReadError>> =
             self.projects.keys().map(|x| Ok(x.to_owned())).collect();
 
         Ok(uri_vec)
     }
 
-    type VersionIter = Vec<Result<String, MemoryReadError>>;
+    type VersionIter = Vec<Result<String, Self::ReadError>>;
 
     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
-        let version_vec: Vec<Result<String, MemoryReadError>> = self
+        let version_vec: Vec<Result<String, Self::ReadError>> = self
             .projects
             .get(uri.as_ref())
             .ok_or_else(|| MemoryReadError::MissingProject(uri.as_ref().to_string()))?
@@ -350,6 +355,44 @@ impl<Project: ProjectRead + Clone + Debug> ReadEnvironment for MemoryStorageEnvi
                 )
             })?
             .clone())
+    }
+
+    /// Will never return `Ok(ProjectChecksumResult::ChecksumNotPresent)`
+    /// because the hashing is cheap (at least for `InMemoryProject`)
+    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+        checksum: &ProjectChecksum,
+    ) -> Result<ProjectChecksumResult, Self::ReadError> {
+        let version = version.as_ref();
+        let versions = match self.projects.get(uri.as_ref()) {
+            Some(v) => v,
+            None => return Ok(ProjectChecksumResult::VersionNotFound),
+        };
+
+        match versions.iter().find(|p| p.0 == version) {
+            Some((_, p)) => {
+                let pc = p
+                    .checksum_canonical_variant()
+                    .map_err(|e| MemoryReadError::Checksum(uri.as_ref().to_owned(), e))?;
+                match (checksum, &pc) {
+                    (ProjectChecksum::Project(c1), ProjectChecksum::Project(c2))
+                    | (ProjectChecksum::Kpar(c1), ProjectChecksum::Kpar(c2)) => {
+                        if c1 == c2 {
+                            Ok(ProjectChecksumResult::Match)
+                        } else {
+                            Ok(ProjectChecksumResult::Mismatch)
+                        }
+                    }
+                    (ProjectChecksum::Project(_), ProjectChecksum::Kpar(_))
+                    | (ProjectChecksum::Kpar(_), ProjectChecksum::Project(_)) => {
+                        Ok(ProjectChecksumResult::DifferentChecksumKinds)
+                    }
+                }
+            }
+            None => Ok(ProjectChecksumResult::VersionNotFound),
+        }
     }
 }
 

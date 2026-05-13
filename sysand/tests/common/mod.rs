@@ -60,14 +60,9 @@ pub fn fixture_path(name: &str) -> Utf8PathBuf {
 }
 
 /// Build a single `versions.json` entry fixture.
-pub fn versions_json_entry_body(
-    version: &str,
-    project_digest_hex: &str,
-    kpar_size: usize,
-    kpar_digest_hex: &str,
-) -> String {
+pub fn versions_json_entry_body(version: &str, kpar_size: usize, kpar_digest_hex: &str) -> String {
     format!(
-        r#"{{"version":"{version}","usage":[],"project_digest":"sha256:{project_digest_hex}","kpar_size":{kpar_size},"kpar_digest":"sha256:{kpar_digest_hex}"}}"#
+        r#"{{"version":"{version}","usage":[],"kpar_size":{kpar_size},"kpar_digest":"sha256:{kpar_digest_hex}"}}"#
     )
 }
 

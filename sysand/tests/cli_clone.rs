@@ -77,7 +77,7 @@ fn clone_project_default_target() -> Result<(), Box<dyn std::error::Error>> {
 
     let file_url = file_url_from_path(&test_path);
     // auto path from `file` iri
-    let (_temp_dir, cwd, out) = run_sysand(["clone", &file_url, "-v"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(["clone", &file_url], None)?;
 
     out.assert()
         .success()

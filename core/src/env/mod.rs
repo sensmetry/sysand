@@ -8,7 +8,10 @@ use thiserror::Error;
 
 use crate::{
     env::utils::ErrorBound,
-    project::{AsAsyncProject, AsSyncProjectTokio, ProjectMut, ProjectRead, ProjectReadAsync},
+    project::{
+        AsAsyncProject, AsSyncProjectTokio, ProjectChecksum, ProjectMut, ProjectRead,
+        ProjectReadAsync,
+    },
 };
 
 // Implementations
@@ -24,6 +27,21 @@ pub mod null;
 pub mod utils;
 
 pub const DEFAULT_ENV_NAME: &str = ".sysand";
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProjectChecksumResult {
+    /// Version is not present. This can also mean no versions
+    /// of the project are present, i.e. project itself was not
+    /// found
+    VersionNotFound,
+    /// Checksum is not present for the version
+    ChecksumNotPresent,
+    /// Checksum kinds differ between requested and actual
+    DifferentChecksumKinds,
+    /// Checksum values do not match
+    Mismatch,
+    Match,
+}
 
 pub trait ReadEnvironment {
     type ReadError: ErrorBound;
@@ -62,6 +80,20 @@ pub trait ReadEnvironment {
             .filter_map(Result::ok)
             .any(|v: String| v == version.as_ref()))
     }
+
+    // TODO: decide on whtat should be returned here in these cases:
+    // - project not present: Ok(VersionNotFound)
+    // - project version not present: Ok(VersionNotFound) - both cases return VersionNotFound
+    //   to give freedom to implementers; also to callers it makes no difference whether
+    //   project or specific version was not found
+    // - checksum does not match: Ok(Mismatch)
+    // - checksum matches: Ok(Match)
+    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+        checksum: &ProjectChecksum,
+    ) -> Result<ProjectChecksumResult, Self::ReadError>;
 
     fn candidate_projects<S: AsRef<str>>(
         &self,
@@ -140,6 +172,13 @@ pub trait ReadEnvironmentAsync {
         }
     }
 
+    fn has_version_verified_async<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+        checksum: &ProjectChecksum,
+    ) -> impl Future<Output = Result<ProjectChecksumResult, Self::ReadError>>;
+
     fn candidate_projects_async<S: AsRef<str>>(
         &self,
         uri: S,
@@ -214,6 +253,15 @@ where
             inner: self.inner.get_project(uri, version)?,
         })
     }
+
+    async fn has_version_verified_async<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+        checksum: &ProjectChecksum,
+    ) -> Result<ProjectChecksumResult, Self::ReadError> {
+        self.inner.has_version_verified(uri, version, checksum)
+    }
 }
 
 /// Wrapper intended to wrap an `ReadEnvironmentAsync` as a `ReadEnvironment`
@@ -282,6 +330,18 @@ where
                 .block_on(self.inner.get_project_async(uri, version))?,
         })
     }
+
+    fn has_version_verified<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        uri: S,
+        version: V,
+        checksum: &ProjectChecksum,
+    ) -> Result<ProjectChecksumResult, Self::ReadError> {
+        self.runtime.block_on(
+            self.inner
+                .has_version_verified_async(uri, version, checksum),
+        )
+    }
 }
 
 #[derive(Error, Debug)]
@@ -302,10 +362,13 @@ pub trait WriteEnvironment {
     type InterchangeProjectMut: ProjectMut;
 
     // TODO: Should this be replaced by a transactional interface?
+    /// Install a project in the environment. The project files will be copied into
+    /// the environment, so this is not suitable for editable projects
     fn put_project<S: AsRef<str>, T: AsRef<str>, F, CE>(
         &mut self,
         uri: S,
         version: T,
+        checksum: Option<ProjectChecksum>,
         // Callback allows the implementation to gracefully recover
         // in case of an error, to just "allocate"
         write_project: F,

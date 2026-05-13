@@ -63,6 +63,10 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         self.project.sources(ctx)
     }
+
+    fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
+        self.project.checksum_canonical_variant()
+    }
 }
 
 #[cfg(feature = "filesystem")]

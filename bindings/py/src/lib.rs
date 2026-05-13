@@ -31,7 +31,7 @@ use sysand_core::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw},
     project::{
         ProjectRead as _,
-        local_kpar::LocalKParProject,
+        local_kpar::{KparInnerPath, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,
     },
@@ -79,6 +79,7 @@ fn do_init_py_local_file(
                     PyValueError::new_err(error.to_string())
                 }
                 LocalSrcError::MissingMeta => PyFileNotFoundError::new_err(err.to_string()),
+                LocalSrcError::MissingInfoMeta => PyFileNotFoundError::new_err(err.to_string()),
             },
         },
     )?;
@@ -106,8 +107,10 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
             LocalWriteError::ImpossibleRelativePath(error) => {
                 PyValueError::new_err(error.to_string())
             }
-            LocalWriteError::MissingMeta => PyFileNotFoundError::new_err(werr.to_string()),
             LocalWriteError::AddProject(error) => PyIOError::new_err(error.to_string()),
+            LocalWriteError::MissingMeta | LocalWriteError::MissingInfoMeta => {
+                PyFileNotFoundError::new_err(werr.to_string())
+            }
         },
     })?;
 
@@ -126,6 +129,7 @@ fn do_info_py_path(
     let project = LocalSrcProject {
         nominal_path: None,
         project_path: path.into(),
+        expected_checksum: None,
     };
 
     match do_info_project(&project) {
@@ -210,6 +214,7 @@ fn do_build_py(
     let project = LocalSrcProject {
         nominal_path: None,
         project_path: current_project_path.into(),
+        expected_checksum: None,
     };
 
     let compression = match compression {
@@ -370,6 +375,7 @@ pub fn do_sources_project_py(
     let current_project = LocalSrcProject {
         nominal_path: None,
         project_path: path.into(),
+        expected_checksum: None,
     };
 
     for src_path in do_sources_local_src_project_no_deps(&current_project, true)
@@ -433,6 +439,7 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
     let mut project = LocalSrcProject {
         nominal_path: None,
         project_path: path.into(),
+        expected_checksum: None,
     };
 
     // TODO: do dependency resolution and locking?
@@ -458,6 +465,7 @@ fn do_remove_py(path: String, iri: String) -> PyResult<()> {
     let mut project = LocalSrcProject {
         nominal_path: None,
         project_path: path.into(),
+        expected_checksum: None,
     };
 
     do_remove(&mut project, iri).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -481,6 +489,7 @@ fn do_include_py(
     let mut project = LocalSrcProject {
         nominal_path: None,
         project_path: path.into(),
+        expected_checksum: None,
     };
 
     let force_format = match force_format {
@@ -516,6 +525,7 @@ fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
     let mut project = LocalSrcProject {
         nominal_path: None,
         project_path: path.into(),
+        expected_checksum: None,
     };
 
     do_exclude(&mut project, src_path).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -537,8 +547,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
     let metadata =
         wrapfs::metadata(&location).map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))?;
     if metadata.is_file() {
-        let project = LocalKParProject::new_guess_root(&location)
-            .map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))?;
+        let project = LocalKParProject::new(&location, KparInnerPath::Guess, None, None);
 
         let Some(version) = project
             .version()
@@ -550,7 +559,10 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             )));
         };
 
-        env.put_project(iri, version, |to| {
+        let checksum = project
+            .checksum_canonical_variant()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        env.put_project(iri, version, Some(checksum), |to| {
             clone_project(&project, to, true).map(|_| ())
         })
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -558,6 +570,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
         let project = LocalSrcProject {
             nominal_path: None,
             project_path: location,
+            expected_checksum: None,
         };
 
         let Some(version) = project
@@ -569,8 +582,11 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
                 project.project_path
             )));
         };
+        let checksum = project
+            .checksum_canonical_variant()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-        env.put_project(iri, version, |to| {
+        env.put_project(iri, version, Some(checksum), |to| {
             clone_project(&project, to, true).map(|_| ())
         })
         .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;

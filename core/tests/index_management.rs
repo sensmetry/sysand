@@ -149,14 +149,12 @@ fn file_state_test() {
             {
               "version": "0.2.0",
               "usage": [],
-              "project_digest": "sha256:6420d5d3170a11b6f6a811dfa71940317e69cef249ce664c1e4499124676fdd6",
               "kpar_size": 348,
               "kpar_digest": "sha256:873476ac47fe239c60d7ed6a51d752ae716d782872292ee7c7820cc3ee7fc021"
             },
             {
               "version": "0.1.0",
               "usage": [],
-              "project_digest": "sha256:de024b833722716ad706981bdcb809f9af28e609ccee7c6522567218ca7fe2a6",
               "kpar_size": 348,
               "kpar_digest": "sha256:b67db84b3a2168e012262bd3dd7a202b284deb4f515a1418409d9b10d0effc8f"
             }
@@ -219,7 +217,6 @@ fn file_state_test() {
                   "versionConstraint": "^0.1.0"
                 }
               ],
-              "project_digest": "sha256:6606158ab6f322fe25b9c2f8d963fa30ececf5156c5e5570185f6896aa4ea452",
               "kpar_size": 397,
               "kpar_digest": "sha256:3acdae9db465a4edcf3d99c4a57bf476c9acf3045636c6b8bb091db8cf61bdbe"
             }

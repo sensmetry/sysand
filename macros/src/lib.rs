@@ -193,6 +193,12 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                         .checksum_canonical_hex()
                         .map_err(|e| e.map_project_read(#error_ident::#variant_ident))
                 },
+                // checksum_canonical_variant match
+                quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .checksum_canonical_variant()
+                        .map_err(#error_ident::#variant_ident)
+                },
             ))
         })
         .collect();
@@ -220,6 +226,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
     let mut version_match = vec![];
     let mut usage_match = vec![];
     let mut checksum_canonical_hex_match = vec![];
+    let mut checksum_canonical_variant_match = vec![];
 
     for (
         variant_list_part,
@@ -237,6 +244,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         version_match_part,
         usage_match_part,
         checksum_canonical_hex_match_part,
+        checksum_canonical_variant_match_part,
     ) in variant_parts.iter().cloned()
     {
         variant_list.push(variant_list_part);
@@ -254,6 +262,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         version_match.push(version_match_part);
         usage_match.push(usage_match_part);
         checksum_canonical_hex_match.push(checksum_canonical_hex_match_part);
+        checksum_canonical_variant_match.push(checksum_canonical_variant_match_part);
     }
 
     let expanded = quote! {
@@ -369,6 +378,17 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             > {
                 match self {
                     #( #checksum_canonical_hex_match ),*
+                }
+            }
+
+            fn checksum_canonical_variant(
+                &self,
+            ) -> ::std::result::Result<
+                ::sysand_core::project::ProjectChecksum,
+                Self::Error,
+            > {
+                match self {
+                    #( #checksum_canonical_variant_match ),*
                 }
             }
         }

@@ -6,8 +6,7 @@ use std::{error::Error, io::Write};
 use camino_tempfile::tempdir;
 
 use crate::{
-    config::{Config, ConfigProject, Index, local_fs},
-    lock::Source,
+    config::{Config, ConfigProject, Index, OverrideSource, local_fs},
     project::utils::wrapfs,
 };
 
@@ -38,7 +37,7 @@ fn add_project_source_to_config() -> Result<(), Box<dyn Error>> {
     let dir = tempdir()?;
     let config_path = dir.path().join(local_fs::CONFIG_FILE);
     let iri = "urn:kpar:test";
-    let source = Source::LocalSrc {
+    let source = OverrideSource::LocalSrc {
         src_path: "local/test".into(),
     };
 
@@ -66,7 +65,7 @@ fn remove_project_source_from_config() -> Result<(), Box<dyn Error>> {
     let config_path = dir.path().join(local_fs::CONFIG_FILE);
     let mut config_file = wrapfs::File::create(&config_path)?;
     let iri = "urn:kpar:test";
-    let source = Source::LocalSrc {
+    let source = OverrideSource::LocalSrc {
         src_path: "local/test".into(),
     };
     let config = Config {

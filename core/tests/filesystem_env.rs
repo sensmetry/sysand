@@ -127,8 +127,9 @@ version = \"0.1\"
                 &mut Cursor::new("package Pkg;"),
                 true,
             )?;
+            let checksum = source_project.checksum_canonical_variant()?;
 
-            env.put_project(uri, version_str, |p| {
+            env.put_project(uri, version_str, Some(checksum), |p| {
                 clone_project(&source_project, p, true).map(|_| ())
             })?;
         }
@@ -213,7 +214,8 @@ version = \"0.1\"
                 &mut Cursor::new("package Other;"),
                 true,
             )?;
-            env.put_project(other_uri, "1.0.0", |p| {
+            let checksum = other_project.checksum_canonical_variant()?;
+            env.put_project(other_uri, "1.0.0", Some(checksum), |p| {
                 clone_project(&other_project, p, true).map(|_| ())
             })?;
         }
@@ -283,8 +285,9 @@ version = \"0.1\"
         let source_code = "package SomePackage;";
 
         source_project.write_source(source_path, &mut Cursor::new(source_code), true)?;
+        let checksum = source_project.checksum_canonical_variant()?;
 
-        directory_environment.put_project("urn:sysand_test:1", "1.2.3", |p| {
+        directory_environment.put_project("urn:sysand_test:1", "1.2.3", Some(checksum), |p| {
             clone_project(&source_project, p, true).map(|_| ())
         })?;
 

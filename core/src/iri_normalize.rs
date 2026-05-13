@@ -41,7 +41,10 @@ use idna::punycode;
 ///    serialization.
 ///
 /// Returns the canonicalized serialization as
-/// a `String`, or an error if the host fails IDN conversion.
+/// a `String`, or an error if the host fails IDN conversion; IDN conversion
+/// fails are likely, but not necessarily user error (they are not allowed
+/// by IDNA).
+#[cfg(feature = "filesystem")]
 pub(crate) fn canonicalize_iri(iri: Iri<&str>) -> Result<String, IriNormalizeError> {
     let normalized = iri.normalize();
     let with_idn = punycode_host(&normalized)?;
@@ -68,6 +71,43 @@ pub(crate) fn canonicalize_iri(iri: Iri<&str>) -> Result<String, IriNormalizeErr
         "canonical IRI must remain valid"
     );
     Ok(final_string)
+}
+
+/// A variant of `canonicalize_iri()` that tolerates IDN conversion failures
+/// and in that case leaves the domain as-is.
+/// All other normalization is the same.
+pub(crate) fn canonicalize_iri_tolerant(iri: Iri<&str>) -> String {
+    let normalized = iri.normalize();
+    let with_idn = match punycode_host(&normalized) {
+        Ok(iri) => iri,
+        Err(e) => {
+            log::debug!("IRI `{iri}` failed punycode host conversion: {e}");
+            normalized.to_string()
+        }
+    };
+
+    // For `http`/`https` with an empty path, WHATWG URL serialization
+    // produces a `/` before any query/fragment; `fluent_uri::normalize`
+    // deliberately leaves the path untouched, so apply the fixup here.
+    // Scheme and path are read from `normalized` because `punycode_host`
+    // only edits the host.
+    let scheme = normalized.scheme();
+    let needs_root_slash =
+        (scheme == SCHEME_HTTP || scheme == SCHEME_HTTPS) && normalized.path().as_str().is_empty();
+    let final_string = if needs_root_slash {
+        match with_idn.find(['?', '#']) {
+            Some(i) => format!("{}/{}", &with_idn[..i], &with_idn[i..]),
+            None => format!("{with_idn}/"),
+        }
+    } else {
+        with_idn
+    };
+
+    debug_assert!(
+        Iri::parse(final_string.as_str()).is_ok(),
+        "canonical IRI must remain valid"
+    );
+    final_string
 }
 
 /// Replace a non-ASCII RegName host with its `domainToASCII` (Punycode) form.
@@ -101,6 +141,7 @@ fn punycode_host(iri: &Iri<String>) -> Result<String, IriNormalizeError> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum IriNormalizeError {
+    #[cfg(feature = "filesystem")]
     #[error("IRI is not a well-formed RFC 3987 IRI: {0}")]
     Parse(fluent_uri::ParseError),
     #[error("host `{host}` is not a valid IDN and cannot be converted to Punycode")]
@@ -121,7 +162,7 @@ const MAX_IRI_LEN_BYTES: u8 = 120;
 /// to case- or normalization-insensitivity.
 ///
 /// A precondition for `iri` is that it must not have a fragment. Fragment presence
-/// would not affect output, but would be ggod to enforce, as we currently don't
+/// would not affect output, but would be good to enforce, as we currently don't
 /// do anything with fragments.
 /// The final form will be of the shape `host-path-query`.
 fn iri_to_filename_part(iri: Iri<&str>) -> String {
@@ -452,6 +493,6 @@ impl From<IriVersionFilename> for String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "filesystem"))]
 #[path = "./iri_normalize_tests.rs"]
 mod tests;

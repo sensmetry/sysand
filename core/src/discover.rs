@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use camino::{Utf8Path, Utf8PathBuf};
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     project::{
@@ -23,8 +24,9 @@ pub fn discover_project<P: AsRef<Utf8Path>>(
         working_directory.as_ref()
     );
     let project = discover(working_directory, is_project_file)?.map(|path| LocalSrcProject {
-        nominal_path: Some(Utf8PathBuf::from(".")),
+        nominal_path: Some(Utf8UnixPathBuf::from(".")),
         project_path: path,
+        expected_checksum: None,
     });
     Ok(project)
 }

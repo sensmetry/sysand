@@ -15,7 +15,6 @@ use predicates::prelude::*;
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
-use sysand_core::model::project_hash_hex;
 
 /// Register a `sysand-index-config.json` 404 mock on `server`.
 /// Configured index URLs go through the discovery step, which fetches this
@@ -766,18 +765,12 @@ fn project_json_for(name: &str, version: &str) -> String {
 /// that hashes the body reproducible.
 const TEST_META_JSON_BODY: &str = r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#;
 
-/// Build a `versions.json` body advertising a single entry with the correct
-/// canonical `project_digest` for the supplied `.project.json` / `.meta.json`
-/// bodies. The kpar digest is a placeholder because `sysand info` reads the
+/// Build a `versions.json` body advertising a single entry. The kpar digest is a
+/// placeholder because `sysand info` reads the
 /// per-version JSON directly and never downloads the archive.
-fn versions_json_for(version: &str, project_body: &str, meta_body: &str) -> String {
-    use sysand_core::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
-    let info: InterchangeProjectInfoRaw = serde_json::from_str(project_body).unwrap();
-    let meta: InterchangeProjectMetadataRaw = serde_json::from_str(meta_body).unwrap();
-    let digest_hex = project_hash_hex(&info, &meta);
+fn versions_json_for(version: &str) -> String {
     versions_json_body(&[versions_json_entry_body(
         version,
-        &digest_hex,
         42,
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     )])
@@ -791,7 +784,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     let iri_dir = "/_iri/e837859ce90bb1917c2698a6d62caa5786f67662fd1e35eb320f6e9da96939fe";
 
     let project_body = project_json_for("info_basic_index_url", "1.2.3");
-    let versions_body = versions_json_for("1.2.3", &project_body, TEST_META_JSON_BODY);
+    let versions_body = versions_json_for("1.2.3");
 
     let versions_mock = server
         .mock("GET", format!("{iri_dir}/versions.json").as_str())
@@ -887,8 +880,8 @@ fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
 
     let project_body = project_json_for("info_multi_index_url", "1.2.3");
     let project_alt_body = project_json_for("info_multi_index_url_alt", "1.2.3");
-    let versions_body = versions_json_for("1.2.3", &project_body, TEST_META_JSON_BODY);
-    let versions_alt_body = versions_json_for("1.2.3", &project_alt_body, TEST_META_JSON_BODY);
+    let versions_body = versions_json_for("1.2.3");
+    let versions_alt_body = versions_json_for("1.2.3");
 
     let versions_mock = server
         .mock("GET", format!("{iri_dir}/versions.json").as_str())
@@ -1049,8 +1042,8 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
 
     let project_body = project_json_for("info_multi_index_url", "1.2.3");
     let project_alt_body = project_json_for("info_multi_index_url_alt", "1.2.3");
-    let versions_body = versions_json_for("1.2.3", &project_body, TEST_META_JSON_BODY);
-    let versions_alt_body = versions_json_for("1.2.3", &project_alt_body, TEST_META_JSON_BODY);
+    let versions_body = versions_json_for("1.2.3");
+    let versions_alt_body = versions_json_for("1.2.3");
 
     let versions_mock = server
         .mock("GET", format!("{iri_dir}/versions.json").as_str())
@@ -1252,8 +1245,8 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
 
     let project_body = project_json_for("info_multi_index_url_config", "1.2.3");
     let project_alt_body = project_json_for("info_multi_index_url_config_alt", "1.2.3");
-    let versions_body = versions_json_for("1.2.3", &project_body, TEST_META_JSON_BODY);
-    let versions_alt_body = versions_json_for("1.2.3", &project_alt_body, TEST_META_JSON_BODY);
+    let versions_body = versions_json_for("1.2.3");
+    let versions_alt_body = versions_json_for("1.2.3");
 
     let versions_mock = server
         .mock("GET", format!("{iri_dir}/versions.json").as_str())

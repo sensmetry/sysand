@@ -10,8 +10,15 @@ use crate::{
         utils::{CloneError, clone_project},
     },
     init::do_init_memory,
-    project::memory::{InMemoryError, InMemoryProject},
+    project::{
+        ProjectRead,
+        memory::{InMemoryError, InMemoryProject},
+    },
 };
+
+fn new_env() -> MemoryStorageEnvironment<InMemoryProject> {
+    MemoryStorageEnvironment::<InMemoryProject>::new()
+}
 
 #[test]
 fn write_environment() {
@@ -19,10 +26,12 @@ fn write_environment() {
     let uri2 = "urn:kpar:second".to_string();
     let version = "0.0.1".to_string();
     let project1 = do_init_memory("First", Some("a"), &version, None).unwrap();
+    let c1 = project1.checksum_canonical_variant().unwrap();
     let project2 = do_init_memory("Second", None::<&str>, &version, None).unwrap();
-    let mut env = MemoryStorageEnvironment::<InMemoryProject>::new();
+    let c2 = project2.checksum_canonical_variant().unwrap();
+    let mut env = new_env();
 
-    env.put_project(&uri1, &version, |p| {
+    env.put_project(&uri1, &version, Some(c1), |p| {
         clone_project(&project1, p, true)?;
 
         Ok::<(), CloneError<InMemoryError, InMemoryError>>(())
@@ -35,7 +44,7 @@ fn write_environment() {
         env.projects.get(&uri1).unwrap().get(&version).unwrap()
     );
 
-    env.put_project(&uri2, &version, |p| {
+    env.put_project(&uri2, &version, Some(c2), |p| {
         clone_project(&project2, p, true)?;
 
         Ok::<(), CloneError<InMemoryError, InMemoryError>>(())

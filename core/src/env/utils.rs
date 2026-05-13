@@ -4,9 +4,11 @@
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectMut, ProjectRead, utils::FsIoError},
+    utils::license_file_stems,
 };
 
 use thiserror::Error;
+use typed_path::Utf8UnixPath;
 
 /// Trait to use as a bound for all errors exposed through public
 /// crate interfaces. This makes it convenient to use anyhow::Error.
@@ -59,7 +61,48 @@ pub fn clone_project<P: ProjectRead, Q: ProjectMut>(
                 to.write_source(source_path, &mut source, overwrite)
                     .map_err(CloneError::EnvWrite)?;
             }
+            copy_optional_file(from, to, overwrite, "README.md")?;
+
+            if let Some(l) = info.license.as_deref() {
+                match spdx::Expression::parse(l) {
+                    Ok(expr) => {
+                        for stem in license_file_stems(&expr) {
+                            let relative = format!("LICENSES/{stem}.txt");
+                            copy_optional_file(from, to, overwrite, relative)?;
+                        }
+                    }
+                    Err(e) => {
+                        log::debug!(
+                            "project's license `{l}` is not a valid SPDX license expression:\n{e}"
+                        );
+                    }
+                }
+            }
+
             Ok((info, meta))
         }
     }
+}
+
+fn copy_optional_file<P: ProjectRead, Q: ProjectMut, S: AsRef<Utf8UnixPath>>(
+    from: &P,
+    to: &mut Q,
+    overwrite: bool,
+    path: S,
+) -> Result<(), CloneError<P::Error, Q::Error>> {
+    match from.read_source(&path) {
+        Ok(mut f) => {
+            to.write_source(path, &mut f, overwrite)
+                .map_err(CloneError::EnvWrite)?;
+        }
+        Err(e) => {
+            log::debug!("failed to read `{}` from a project: {e}", path.as_ref());
+            let mut error: &dyn std::error::Error = &e;
+            while let Some(source) = error.source() {
+                log::debug!("  caused by: {source}");
+                error = source;
+            }
+        }
+    }
+    Ok(())
 }

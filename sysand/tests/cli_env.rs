@@ -80,6 +80,7 @@ path = "lib/kpar.test_0.0.1"
 identifiers = [
     "urn:kpar:test",
 ]
+src_cksum = "69311f2c1fcc3cc8649461ff1961e17df46237399bad1596e099e8483865e3f4"
 "#
     );
 
@@ -208,6 +209,7 @@ path = "lib/127.0.0.1-test_lib_0.0.1"
 identifiers = [
     "{}/test_lib.kpar",
 ]
+kpar_cksum = "1838ad10a9c1fa46c74a92c68212e6fdcf6f6011a94ca5f16e343ea18a8e203b"
 "#,
             server.url()
         )

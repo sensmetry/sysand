@@ -10,6 +10,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::{
     auth::HTTPAuthentication,
+    config::OverrideSource,
     context::ProjectContext,
     env::memory::MemoryStorageEnvironment,
     lock::Source,
@@ -21,12 +22,17 @@ use crate::{
         local_kpar::LocalKParProject,
         local_src::LocalSrcProject,
         reference::ProjectReference,
-        reqwest_kpar_download::{ReqwestKparDownloadedError, ReqwestKparDownloadedProject},
+        reqwest_kpar_download::{
+            ReqwestIndexKparDownloadedProject, ReqwestKparDownloadedError,
+            ReqwestRemoteKparDownloadedProject,
+        },
         reqwest_src::ReqwestSrcProjectAsync,
         utils::FsIoError,
     },
     resolve::memory::{AcceptAll, MemoryResolver},
 };
+
+use super::local_kpar::KparInnerPath;
 
 #[derive(Debug, ProjectRead)]
 pub enum AnyProject<Policy: HTTPAuthentication> {
@@ -34,7 +40,8 @@ pub enum AnyProject<Policy: HTTPAuthentication> {
     LocalSrc(LocalSrcProject),
     LocalKpar(LocalKParProject),
     RemoteSrc(AsSyncProjectTokio<ReqwestSrcProjectAsync<Policy>>),
-    RemoteKpar(AsSyncProjectTokio<ReqwestKparDownloadedProject<Policy>>),
+    RemoteKpar(AsSyncProjectTokio<ReqwestRemoteKparDownloadedProject<Policy>>),
+    IndexKpar(AsSyncProjectTokio<ReqwestIndexKparDownloadedProject<Policy>>),
     RemoteGit(GixDownloadedProject),
 }
 
@@ -47,84 +54,73 @@ pub enum TryFromSourceError {
     #[error(transparent)]
     RemoteKpar(ReqwestKparDownloadedError),
     #[error(transparent)]
-    RemoteSrc(url::ParseError),
+    IndexKpar(ReqwestKparDownloadedError),
+    #[error("failed to parse project url `{0}`")]
+    UrlParse(String, #[source] url::ParseError),
     #[error(transparent)]
     RemoteGit(GixDownloadedError),
 }
 
 // TODO: Find a better solution going from source to project.
 impl<Policy: HTTPAuthentication> AnyProject<Policy> {
-    pub fn try_from_source<P: AsRef<Utf8Path>>(
-        source: Source,
+    pub fn try_from_override_source<P: AsRef<Utf8Path>>(
+        source: OverrideSource,
         project_root: P,
         auth_policy: Arc<Policy>,
         client: ClientWithMiddleware,
         runtime: Arc<tokio::runtime::Runtime>,
     ) -> Result<Self, TryFromSourceError> {
         match source {
-            Source::Editable { editable } => {
+            OverrideSource::Editable { editable } => {
                 let project = LocalSrcProject {
                     nominal_path: Some(editable.to_string().into()),
                     project_path: project_root.as_ref().join(editable.as_str()),
+                    expected_checksum: None,
                 };
                 Ok(AnyProject::Editable(
                     EditableProject::<LocalSrcProject>::new(editable.as_str().into(), project),
                 ))
             }
-            Source::LocalKpar { kpar_path } => Ok(AnyProject::LocalKpar(
-                LocalKParProject::new_guess_root_nominal(
+            OverrideSource::LocalKpar { kpar_path } => {
+                Ok(AnyProject::LocalKpar(LocalKParProject::new(
                     project_root.as_ref().join(kpar_path.as_str()),
-                    kpar_path.as_str(),
-                )
-                .map_err(TryFromSourceError::LocalKpar)?,
-            )),
-            Source::LocalSrc { src_path } => {
-                let nominal_path = src_path.into_string().into();
-                let project_path = project_root.as_ref().join(&nominal_path);
+                    KparInnerPath::Guess,
+                    Some(kpar_path),
+                    None,
+                )))
+            }
+            OverrideSource::LocalSrc { src_path } => {
+                let project_path = project_root.as_ref().join(src_path.as_str());
                 Ok(AnyProject::LocalSrc(LocalSrcProject {
-                    nominal_path: Some(nominal_path),
+                    nominal_path: Some(src_path),
                     project_path,
+                    expected_checksum: None,
                 }))
             }
             // TODO: use expected size
-            Source::RemoteKpar { remote_kpar, .. } => Ok(AnyProject::RemoteKpar(
-                ReqwestKparDownloadedProject::<Policy>::new_guess_root(
+            OverrideSource::RemoteKpar { remote_kpar } => Ok(AnyProject::RemoteKpar(
+                ReqwestRemoteKparDownloadedProject::<Policy>::new_guess_root(
                     remote_kpar,
                     client,
                     auth_policy,
                     None,
-                    None,
                 )
                 .map_err(TryFromSourceError::RemoteKpar)?
                 .to_tokio_sync(runtime),
             )),
-            Source::IndexKpar {
-                index_kpar,
-                index_kpar_size,
-                index_kpar_digest,
-            } => Ok(AnyProject::RemoteKpar(
-                ReqwestKparDownloadedProject::<Policy>::new_guess_root(
-                    index_kpar,
-                    client,
-                    auth_policy,
-                    Some(index_kpar_digest),
-                    Some(index_kpar_size),
-                )
-                .map_err(TryFromSourceError::RemoteKpar)?
-                .to_tokio_sync(runtime),
-            )),
-            Source::RemoteSrc { remote_src } => Ok(AnyProject::RemoteSrc(
+            OverrideSource::RemoteSrc { remote_src } => Ok(AnyProject::RemoteSrc(
                 ReqwestSrcProjectAsync::<Policy> {
                     client,
-                    url: reqwest::Url::parse(&remote_src).map_err(TryFromSourceError::RemoteSrc)?,
+                    url: reqwest::Url::parse(&remote_src)
+                        .map_err(|e| TryFromSourceError::UrlParse(remote_src, e))?,
                     auth_policy,
+                    expected_checksum: None,
                 }
                 .to_tokio_sync(runtime),
             )),
-            Source::RemoteGit { remote_git } => Ok(AnyProject::RemoteGit(
+            OverrideSource::RemoteGit { remote_git } => Ok(AnyProject::RemoteGit(
                 GixDownloadedProject::new(remote_git).map_err(TryFromSourceError::RemoteGit)?,
             )),
-            _ => Err(TryFromSourceError::UnsupportedSource(format!("{source:?}"))),
         }
     }
 }

@@ -14,8 +14,10 @@ use crate::{
     env::utils::{CloneError, clone_project},
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectMut, ProjectRead},
+    project::{CanonicalizationError, ProjectMut, ProjectRead},
 };
+
+use super::ProjectChecksum;
 
 /// Project stored in a local directory
 #[derive(Clone, Eq, Default, Debug, PartialEq)]
@@ -123,6 +125,8 @@ pub enum InMemoryError {
     FileNotFound(Utf8UnixPathBuf),
     #[error("failed to read from reader: {0}")]
     IoRead(#[from] std::io::Error),
+    #[error("project is missing `.project.json` and/or `.meta.json` files")]
+    MissingInfoMeta,
 }
 
 impl ProjectRead for InMemoryProject {
@@ -158,5 +162,16 @@ impl ProjectRead for InMemoryProject {
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         debug_assert!(!self.nominal_sources.is_empty());
         Ok(self.nominal_sources.clone())
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        let checksum = self
+            .checksum_canonical_hex()
+            .map_err(|e| match e {
+                CanonicalizationError::ProjectRead(e) => e,
+                CanonicalizationError::FileRead(_, _) => unreachable!(),
+            })?
+            .ok_or(InMemoryError::MissingInfoMeta)?;
+        Ok(ProjectChecksum::Project(checksum))
     }
 }

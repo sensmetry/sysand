@@ -5,6 +5,7 @@ use std::io::{Cursor, Read};
 use sysand_core::context::ProjectContext;
 
 use sysand_core::lock::Source;
+use sysand_core::project::{CanonicalizationError, ProjectChecksum};
 use sysand_core::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectMut, ProjectRead, utils::FsIoError},
@@ -19,6 +20,9 @@ use crate::local_storage_utils::{LocalStorageError, LocalStorageVFS, get_local_b
 pub struct ProjectLocalBrowserStorage {
     pub root_path: Utf8UnixPathBuf,
     pub vfs: LocalStorageVFS,
+    // TODO: enforce that the project matches the checksum if provided
+    // before reading; see LocalKparProject for example
+    pub expected_checksum: Option<String>,
 }
 
 pub fn open_project_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
@@ -28,6 +32,7 @@ pub fn open_project_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
     Ok(ProjectLocalBrowserStorage {
         root_path: root_path.as_ref().to_path_buf(),
         vfs: get_local_browser_storage(prefix)?,
+        expected_checksum: None,
     })
 }
 
@@ -50,6 +55,8 @@ pub enum Error {
     SerializeHandle(#[from] serde_json::Error),
     #[error("key `{0}` not found in local storage")]
     KeyNotFound(String),
+    #[error("project is missing `.project.json` and/or `.meta.json` files")]
+    MissingInfoMeta,
 }
 
 impl From<wasm_bindgen::JsValue> for Error {
@@ -128,9 +135,37 @@ impl ProjectRead for ProjectLocalBrowserStorage {
     }
 
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        let checksum = match &self.expected_checksum {
+            Some(c) => c.clone(),
+            None => self
+                .checksum_canonical_hex()
+                .map_err(|e| match e {
+                    CanonicalizationError::ProjectRead(e) => e,
+                    CanonicalizationError::FileRead(path, error) => {
+                        Error::Io(FsIoError::ReadFile(String::from(path).into(), error).into())
+                    }
+                })?
+                .ok_or(Error::MissingInfoMeta)?,
+        };
         Ok(vec![sysand_core::lock::Source::LocalSrc {
             src_path: self.root_path.as_str().into(),
+            checksum,
         }])
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        match self.checksum_canonical_hex() {
+            Ok(c) => match c {
+                Some(c) => Ok(ProjectChecksum::Project(c)),
+                None => Err(Error::MissingInfoMeta),
+            },
+            Err(e) => match e {
+                CanonicalizationError::ProjectRead(e) => Err(e),
+                CanonicalizationError::FileRead(path, error) => Err(Error::Io(
+                    FsIoError::ReadFile(String::from(path).into(), error).into(),
+                )),
+            },
+        }
     }
 }
 

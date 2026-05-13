@@ -6,6 +6,8 @@ use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
     fmt::{self, Debug},
 };
+#[cfg(feature = "filesystem")]
+use typed_path::Utf8UnixPath;
 
 #[cfg(feature = "filesystem")]
 use camino::Utf8Path;
@@ -14,7 +16,7 @@ use thiserror::Error;
 pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
 
 #[cfg(feature = "filesystem")]
-use crate::project::{editable::EditableProject, local_src::LocalSrcProject, utils::ToPathBuf};
+use crate::project::{editable::EditableProject, local_src::LocalSrcProject};
 use crate::{
     context::ProjectContext,
     lock::{Lock, Project, Usage, hash_str},
@@ -161,15 +163,15 @@ pub fn do_lock_projects<
                     field: IncompleteField::Meta,
                 })
             })?;
-        let canonical_digest = project
-            .checksum_canonical_hex()
-            .map_err(LockProjectError::InputProjectCanonicalizationError)?
-            .ok_or_else(|| {
-                LockProjectError::LockError(LockError::IncompleteProject {
-                    project_label: named_project_label,
-                    field: IncompleteField::CanonicalDigest,
-                })
-            })?;
+        // let canonical_digest = project
+        //     .checksum_canonical_hex()
+        //     .map_err(LockProjectError::InputProjectCanonicalizationError)?
+        //     .ok_or_else(|| {
+        //         LockProjectError::LockError(LockError::IncompleteProject {
+        //             project_label: named_project_label,
+        //             field: IncompleteField::CanonicalDigest,
+        //         })
+        //     })?;
 
         let sources = project
             .sources(ctx)
@@ -177,14 +179,14 @@ pub fn do_lock_projects<
         debug_assert!(!sources.is_empty());
 
         lock.projects.push(Project {
-            name: Some(info.name),
+            name: info.name,
             publisher: info.publisher,
             version: info.version,
             exports: meta.index.into_keys().collect(),
             identifiers: identifiers
                 .map(|ids| ids.into_iter().map(|id| id.into_string()).collect())
                 .unwrap_or_default(),
-            checksum: canonical_digest,
+            // checksum: canonical_digest,
             sources,
             usages: info
                 .usage
@@ -249,6 +251,7 @@ pub fn do_lock_extend<
 
     for (iri, project) in solution {
         let iri_str = iri.as_str().to_owned();
+        // TODO: use get_info, that can be more efficient
         let info = project
             .get_info()
             .map_err(LockError::DependencyProject)?
@@ -263,13 +266,6 @@ pub fn do_lock_extend<
                 project_label: iri_str.clone(),
                 field: IncompleteField::Meta,
             })?;
-        let canonical_digest = project
-            .checksum_canonical_hex()
-            .map_err(LockError::DependencyProjectCanonicalization)?
-            .ok_or_else(|| LockError::IncompleteProject {
-                project_label: iri_str.clone(),
-                field: IncompleteField::CanonicalDigest,
-            })?;
 
         let sources = if !provided_iris.contains_key(iri.as_str()) {
             let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;
@@ -280,12 +276,11 @@ pub fn do_lock_extend<
         };
 
         let lock_project = Project {
-            name: Some(info.name),
+            name: info.name,
             publisher: info.publisher,
             version: info.version.to_string(),
             exports: meta.index.into_keys().collect(),
             identifiers: vec![iri.to_string()],
-            checksum: canonical_digest,
             sources,
             usages: info
                 .usage
@@ -344,7 +339,7 @@ pub type EditableLocalSrcProject = EditableProject<LocalSrcProject>;
 /// Treats a project at `path` as an editable project and solves for its dependencies.
 #[cfg(feature = "filesystem")]
 pub fn do_lock_local_editable<
-    P: AsRef<Utf8Path>,
+    P: AsRef<Utf8UnixPath>,
     PR: AsRef<Utf8Path>,
     PD: ProjectRead + Debug,
     R: ResolveRead<ProjectStorage = PD> + Debug,
@@ -356,13 +351,17 @@ pub fn do_lock_local_editable<
     resolver: R,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
+    let path = path.as_ref();
     let project = EditableProject::new(
-        path.to_path_buf(),
+        path.to_owned(),
         LocalSrcProject {
-            nominal_path: Some(path.to_path_buf()),
+            nominal_path: None,
             project_path: project_root.as_ref().canonicalize_utf8().map_err(|e| {
-                LockError::Io(FsIoError::Canonicalize(project_root.as_ref().join(path), e).into())
+                LockError::Io(
+                    FsIoError::Canonicalize(project_root.as_ref().join(path.as_str()), e).into(),
+                )
             })?,
+            expected_checksum: None,
         },
     );
 

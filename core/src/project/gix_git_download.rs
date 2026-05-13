@@ -51,6 +51,10 @@ pub enum GixDownloadedError {
         {0}"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
+    #[error("project is missing metadata file `.meta.json`")]
+    MissingMeta,
+    #[error("project is missing `.project.json` and/or `.meta.json` files")]
+    MissingInfoMeta,
     #[error("{0}")]
     Other(String),
 }
@@ -67,14 +71,13 @@ impl From<LocalSrcError> for GixDownloadedError {
             LocalSrcError::Deserialize(error) => Self::Deserialize(error),
             LocalSrcError::Path(error) => Self::Path(error),
             LocalSrcError::AlreadyExists(msg) => {
-                GixDownloadedError::Other(format!("unexpected internal error: {}", msg))
+                Self::Other(format!("unexpected internal error: {}", msg))
             }
             LocalSrcError::Io(e) => Self::Io(e),
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
-            LocalSrcError::MissingMeta => GixDownloadedError::Other(
-                "project is missing metadata file `.meta.json`".to_string(),
-            ),
+            LocalSrcError::MissingMeta => Self::MissingMeta,
+            LocalSrcError::MissingInfoMeta => Self::MissingInfoMeta,
         }
     }
 }
@@ -89,6 +92,7 @@ impl GixDownloadedProject {
             inner: LocalSrcProject {
                 nominal_path: None,
                 project_path: wrapfs::canonicalize(tmp_dir.path())?,
+                expected_checksum: None,
             },
             tmp_dir,
         })
@@ -149,6 +153,12 @@ impl ProjectRead for GixDownloadedProject {
         Ok(vec![Source::RemoteGit {
             remote_git: self.url.to_string(),
         }])
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
+        self.ensure_downloaded()?;
+
+        Ok(self.inner.checksum_canonical_variant()?)
     }
 }
 

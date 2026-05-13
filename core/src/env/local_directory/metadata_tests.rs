@@ -8,6 +8,7 @@ fn minimal_toml(path: &str, editable: bool) -> String {
         r#"version = "0.1"
 
 [[project]]
+name = "Example"
 version = "1.0.0"
 path = "{path}"
 editable = {editable}
@@ -48,13 +49,13 @@ fn non_editable_absolute_path_is_rejected() {
 #[test]
 fn non_editable_normal_relative_path_is_accepted() {
     let toml = minimal_toml("subdir/project", false);
-    assert!(EnvMetadata::from_str(&toml).is_ok());
+    EnvMetadata::from_str(&toml).unwrap();
 }
 
 #[test]
 fn editable_project_with_parent_dir_is_accepted() {
     let toml = minimal_toml("../workspace-project", true);
-    assert!(EnvMetadata::from_str(&toml).is_ok());
+    EnvMetadata::from_str(&toml).unwrap();
 }
 
 #[test]

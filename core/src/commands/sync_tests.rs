@@ -9,12 +9,17 @@ use semver::Version;
 
 use crate::{
     env::{
-        ReadEnvironment, WriteEnvironment, memory::MemoryStorageEnvironment, utils::clone_project,
+        ProjectChecksumResult, ReadEnvironment, WriteEnvironment, memory::MemoryStorageEnvironment,
+        utils::clone_project,
     },
     model::{InterchangeProjectInfo, InterchangeProjectMetadata},
     project::{ProjectMut, ProjectRead, memory::InMemoryProject},
-    sync::{SyncError, is_installed, try_install},
+    sync::{SyncError, try_install},
 };
+
+fn new_env() -> MemoryStorageEnvironment<InMemoryProject> {
+    MemoryStorageEnvironment::<InMemoryProject>::new()
+}
 
 fn storage_example() -> InMemoryProject {
     let mut storage = InMemoryProject::new();
@@ -52,15 +57,9 @@ fn storage_example() -> InMemoryProject {
 #[test]
 fn not_installed_project_not_found() {
     let uri = "urn:kpar:install_test";
-    let checksum = "00";
-    let env = MemoryStorageEnvironment::new();
+    let env = new_env();
 
-    assert!(
-        !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, Infallible, _, _>(
-            uri, checksum, &env
-        )
-        .unwrap()
-    );
+    assert!(!env.has(uri).unwrap());
 }
 
 #[test]
@@ -68,32 +67,33 @@ fn installed_projects_are_found() {
     let storage = storage_example();
 
     let uri = "urn:kpar:install_test";
-    let checksum = storage.checksum_non_canonical_hex().unwrap().unwrap();
-    let mut env = MemoryStorageEnvironment::new();
-    env.put_project(uri, "1,2,3", |p| {
+    let version = "1.2.3";
+    let checksum = storage.checksum_canonical_variant().unwrap();
+    let mut env = new_env();
+    env.put_project(uri, version, Some(checksum.clone()), |p| {
         clone_project(&storage, p, true).map(|_| ())
     })
     .unwrap();
 
-    assert!(
-        is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, Infallible, _, _>(
-            uri, &checksum, &env
-        )
-        .unwrap()
+    assert_eq!(
+        env.has_version_verified(uri, version, &checksum).unwrap(),
+        ProjectChecksumResult::Match
     );
 
-    assert!(
-        !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, Infallible, _, _>(
-            uri, "00", &env
+    assert_eq!(
+        env.has_version_verified(
+            uri,
+            version,
+            &crate::project::ProjectChecksum::Project(String::from("00"))
         )
-        .unwrap()
+        .unwrap(),
+        ProjectChecksumResult::Mismatch
     );
 
-    assert!(
-        !is_installed::<MemoryStorageEnvironment<InMemoryProject>, Infallible, Infallible, _, _>(
-            "not_uri", &checksum, &env
-        )
-        .unwrap()
+    assert_eq!(
+        env.has_version_verified("not_uri", version, &checksum)
+            .unwrap(),
+        ProjectChecksumResult::VersionNotFound
     );
 }
 
@@ -102,17 +102,12 @@ fn try_install_installs_project() {
     let storage = storage_example();
 
     let uri = "urn:kpar:install_test";
-    let checksum = storage.checksum_non_canonical_hex().unwrap().unwrap();
-    let mut env = MemoryStorageEnvironment::new();
+    let checksum = storage.checksum_canonical_variant().unwrap();
+    let mut env = new_env();
 
-    try_install::<
-        MemoryStorageEnvironment<InMemoryProject>,
-        InMemoryProject,
-        Infallible,
-        Infallible,
-        _,
-        _,
-    >(uri, "1.2.3", &checksum, storage, &mut env)
+    try_install::<_, InMemoryProject, Infallible, Infallible, _>(
+        uri, "1.2.3", &checksum, storage, &mut env,
+    )
     .unwrap();
 
     let uris = env.uris().unwrap();
@@ -131,17 +126,12 @@ fn try_install_fails_to_install_wrong_checksum() {
     let storage = storage_example();
 
     let uri = "urn:kpar:install_test";
-    let checksum = "00";
-    let mut env = MemoryStorageEnvironment::new();
+    let checksum = crate::project::ProjectChecksum::Project("00".to_owned());
+    let mut env = new_env();
 
-    let SyncError::BadChecksum(msg) = try_install::<
-        MemoryStorageEnvironment<InMemoryProject>,
-        InMemoryProject,
-        Infallible,
-        Infallible,
-        _,
-        _,
-    >(&uri, "1.2.3", &checksum, storage, &mut env)
+    let SyncError::BadChecksum(msg) = try_install::<_, InMemoryProject, Infallible, Infallible, _>(
+        &uri, "1.2.3", &checksum, storage, &mut env,
+    )
     .unwrap_err() else {
         panic!()
     };
