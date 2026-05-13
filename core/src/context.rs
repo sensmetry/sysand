@@ -21,7 +21,9 @@ pub struct ProjectContext {
     /// Path to current directory
     #[cfg(feature = "filesystem")]
     pub current_directory: Utf8PathBuf,
-    /// `sysand_env`
+    /// Metadata of the current workspace/project `sysand_env`. `Some` if
+    /// either `current_workspace` or `current_project` is `Some` and
+    /// the environment metadata file exists.
     #[cfg(feature = "filesystem")]
     pub env: Option<LocalDirectoryEnvironment>,
 }
