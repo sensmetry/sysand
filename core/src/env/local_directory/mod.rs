@@ -315,7 +315,7 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
         let identifier = uri.as_ref();
         Ok(self
             .metadata
-            .find_project(identifier)
+            .find_project_versions(identifier)
             .map(|p| Ok(p.version.to_owned()))
             .collect())
     }
@@ -505,7 +505,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
     }
 
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
-        let project_versions = self.metadata.find_project_idx(uri.as_ref());
+        let project_versions = self.metadata.find_project_versions_idxs(uri.as_ref());
         let mut indices_to_remove = Vec::new();
         for (idx, p) in project_versions {
             // Doesn't make sense to remove workspace projects

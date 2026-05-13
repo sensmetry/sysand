@@ -150,13 +150,18 @@ impl EnvMetadata {
         })
     }
 
-    pub(super) fn find_project(&self, identifier: &str) -> impl Iterator<Item = &EnvProject> {
+    /// Find all versions of all the projects that have `identifier` as one of their
+    /// identifiers.
+    pub(super) fn find_project_versions(
+        &self,
+        identifier: &str,
+    ) -> impl Iterator<Item = &EnvProject> {
         self.projects
             .iter()
             .filter(move |p| p.identifiers.iter().any(|iri| iri == identifier))
     }
 
-    pub(super) fn find_project_idx(
+    pub(super) fn find_project_versions_idxs(
         &self,
         identifier: &str,
     ) -> impl Iterator<Item = (usize, &EnvProject)> {
