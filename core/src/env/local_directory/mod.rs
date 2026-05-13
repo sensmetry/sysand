@@ -271,7 +271,7 @@ impl LocalDirectoryEnvironment {
         while self.metadata.project_dir_exists(candidate) {
             candidate = path_iter.next_candidate();
         }
-        let mut path = String::from(candidate);
+        let mut path = String::from(path_iter);
         path.insert_str(0, PROJECT_PATH_PREFIX);
         path.into()
     }
