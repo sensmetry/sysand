@@ -422,17 +422,14 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
                 format!("Workspace read error: {}", error),
             );
         }
-        KParBuildError::PathUsage(usage) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!(
-                    "project includes a path usage `{usage}`,\n\
-        which is unlikely to be available on other computers at the same path"
-                ),
-            );
+        KParBuildError::PathUsage(_) => {
+            env.throw_exception(ExceptionKind::SysandException, error.to_string());
         }
         KParBuildError::WorkspaceMetamodelConflict { .. } => {
             env.throw_exception(ExceptionKind::SysandException, error.to_string());
+        }
+        KParBuildError::MissingIndexSymbol(_, _) => {
+            env.throw_exception(ExceptionKind::InvalidValue, error.to_string())
         }
     }
 }
@@ -478,7 +475,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
         &project,
         &output_path,
         compression,
-        true,
+        false,
         false,
     );
     match command_result {

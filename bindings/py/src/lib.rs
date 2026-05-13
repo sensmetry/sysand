@@ -220,7 +220,7 @@ fn do_build_py(
         None => KparCompressionMethod::default(),
     };
 
-    do_build_kpar(&project, &output_path, compression, true, false)
+    do_build_kpar(&project, &output_path, compression, false, false)
         .map(|_| ())
         .map_err(|err| match err {
             KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
@@ -239,6 +239,7 @@ fn do_build_py(
             KParBuildError::WorkspaceMetamodelConflict { .. } => {
                 PyValueError::new_err(err.to_string())
             }
+            KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(err.to_string()),
         })
 }
 
