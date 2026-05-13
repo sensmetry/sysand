@@ -736,12 +736,13 @@ fn iri_or_path_to_iri(
     })
 }
 
-/// Create `sysand_env` at `root`
+/// Read `root/sysand_env/` metadata
 pub fn get_env(root: impl AsRef<Utf8Path>) -> Result<Option<LocalDirectoryEnvironment>> {
     let environment_path = root.as_ref().join(DEFAULT_ENV_NAME);
     LocalDirectoryEnvironment::try_read(environment_path).map_err(anyhow::Error::from)
 }
 
+/// Unpack `env`, or create an empty environment otherwise
 pub fn get_or_create_env(
     env: Option<LocalDirectoryEnvironment>,
     workspace: Option<&Workspace>,
