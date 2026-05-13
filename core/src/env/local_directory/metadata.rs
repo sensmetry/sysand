@@ -121,21 +121,6 @@ impl EnvMetadata {
             .find(|p| p.version == version && p.identifiers.iter().any(|iri| iri == identifier))
     }
 
-    // /// Find first project that has at least one of the given identifiers and the given version
-    // pub(super) fn find_project_version_any<S: AsRef<str>, V: AsRef<str>>(
-    //     &self,
-    //     identifiers: &[S],
-    //     version: V,
-    // ) -> Option<&EnvProject> {
-    //     let version = version.as_ref();
-    //     self.projects.iter().find(|p| {
-    //         p.version == version
-    //             && p.identifiers
-    //                 .iter()
-    //                 .any(|iri| identifiers.iter().any(|i| i.as_ref() == iri))
-    //     })
-    // }
-
     pub(super) fn find_project_version_any_mut<S: AsRef<str>, V: AsRef<str>>(
         &mut self,
         identifiers: &[S],
@@ -170,18 +155,6 @@ impl EnvMetadata {
             .enumerate()
             .filter(move |(_idx, p)| p.identifiers.iter().any(|iri| iri == identifier))
     }
-
-    // /// Find all versions of all projects that have at least one of the given identifiers
-    // pub(super) fn find_project_any(
-    //     &self,
-    //     identifiers: &[&str],
-    // ) -> impl Iterator<Item = &EnvProject> {
-    //     self.projects.iter().filter(|p| {
-    //         p.identifiers
-    //             .iter()
-    //             .any(|iri| identifiers.contains(&iri.as_str()))
-    //     })
-    // }
 
     pub(super) fn add_project(&mut self, project: EnvProject) {
         if let Some(found) =

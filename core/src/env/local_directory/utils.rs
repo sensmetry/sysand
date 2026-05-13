@@ -51,34 +51,6 @@ pub fn clean_dir<P: AsRef<Utf8Path>>(path: P) {
     }
 }
 
-// pub fn remove_dir_if_empty<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
-//     match fs::remove_dir(path.as_ref()) {
-//         Err(err) if err.kind() == io::ErrorKind::DirectoryNotEmpty => Ok(()),
-//         r => r.map_err(|e| FsIoError::RmDir(path.to_path_buf(), e)),
-//     }
-// }
-
-// pub fn remove_empty_dirs<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
-//     let mut dirs: Vec<_> = walkdir::WalkDir::new(path.as_ref())
-//         .into_iter()
-//         .filter_map(|e| e.ok())
-//         .filter_map(|e| {
-//             e.file_type()
-//                 .is_dir()
-//                 .then(|| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-//                 .flatten()
-//         })
-//         .collect();
-
-//     dirs.sort_by(|a, b| b.cmp(a));
-
-//     for dir in dirs {
-//         remove_dir_if_empty(&dir)?;
-//     }
-
-//     Ok(())
-// }
-
 #[derive(Error, Debug)]
 pub enum TryMoveError {
     #[error("recovered from failure: {0}")]
@@ -91,40 +63,6 @@ pub enum TryMoveError {
         cause: Box<FsIoError>,
     },
 }
-
-// pub fn try_remove_files<P: AsRef<Utf8Path>, I: Iterator<Item = P>>(
-//     paths: I,
-// ) -> Result<(), TryMoveError> {
-//     let tempdir = camino_tempfile::tempdir()
-//         .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
-//     let mut moved: Vec<Utf8PathBuf> = vec![];
-
-//     for (i, path) in paths.enumerate() {
-//         match move_fs_item(&path, tempdir.path().join(i.to_string())) {
-//             Ok(_) => {
-//                 moved.push(path.to_path_buf());
-//             }
-//             Err(cause) => {
-//                 // NOTE: This dance is to bypass the fact that std::io::error is not cloneable...
-//                 let mut catastrophic_error = None;
-//                 for (j, recover) in moved.iter().enumerate() {
-//                     if let Err(err) = move_fs_item(tempdir.path().join(j.to_string()), recover) {
-//                         catastrophic_error = Some(err);
-//                         break;
-//                     }
-//                 }
-
-//                 if let Some(err) = catastrophic_error {
-//                     return Err(TryMoveError::CatastrophicIO { err, cause });
-//                 } else {
-//                     return Err(TryMoveError::RecoveredIO(cause));
-//                 }
-//             }
-//         }
-//     }
-
-//     Ok(())
-// }
 
 // Recursively copy a directory from `src` to `dst`.
 // Assumes that all parents of `dst` exist.
@@ -292,3 +230,65 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
 
     Ok(())
 }
+
+// pub fn remove_dir_if_empty<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
+//     match fs::remove_dir(path.as_ref()) {
+//         Err(err) if err.kind() == io::ErrorKind::DirectoryNotEmpty => Ok(()),
+//         r => r.map_err(|e| FsIoError::RmDir(path.to_path_buf(), e)),
+//     }
+// }
+
+// pub fn remove_empty_dirs<P: AsRef<Utf8Path>>(path: P) -> Result<(), FsIoError> {
+//     let mut dirs: Vec<_> = walkdir::WalkDir::new(path.as_ref())
+//         .into_iter()
+//         .filter_map(|e| e.ok())
+//         .filter_map(|e| {
+//             e.file_type()
+//                 .is_dir()
+//                 .then(|| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+//                 .flatten()
+//         })
+//         .collect();
+
+//     dirs.sort_by(|a, b| b.cmp(a));
+
+//     for dir in dirs {
+//         remove_dir_if_empty(&dir)?;
+//     }
+
+//     Ok(())
+// }
+
+// pub fn try_remove_files<P: AsRef<Utf8Path>, I: Iterator<Item = P>>(
+//     paths: I,
+// ) -> Result<(), TryMoveError> {
+//     let tempdir = camino_tempfile::tempdir()
+//         .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
+//     let mut moved: Vec<Utf8PathBuf> = vec![];
+
+//     for (i, path) in paths.enumerate() {
+//         match move_fs_item(&path, tempdir.path().join(i.to_string())) {
+//             Ok(_) => {
+//                 moved.push(path.to_path_buf());
+//             }
+//             Err(cause) => {
+//                 // NOTE: This dance is to bypass the fact that std::io::error is not cloneable...
+//                 let mut catastrophic_error = None;
+//                 for (j, recover) in moved.iter().enumerate() {
+//                     if let Err(err) = move_fs_item(tempdir.path().join(j.to_string()), recover) {
+//                         catastrophic_error = Some(err);
+//                         break;
+//                     }
+//                 }
+
+//                 if let Some(err) = catastrophic_error {
+//                     return Err(TryMoveError::CatastrophicIO { err, cause });
+//                 } else {
+//                     return Err(TryMoveError::RecoveredIO(cause));
+//                 }
+//             }
+//         }
+//     }
+
+//     Ok(())
+// }
