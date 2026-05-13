@@ -112,14 +112,21 @@ pub(crate) fn move_fs_item<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     }
 }
 
+/// Try moving paths from sources (`paths[].0`) to destinations (`paths[].1`). Sources can
+/// overlap with destinations and it won't cause loss of any source contents, as all sources
+/// are moved to a separate location before attempting any moves to destinations.
+/// Contents initially present at the destinations will first be moved out of the way,
+/// and if all moves to the destinations succeed, will be deleted.
+/// On any failures an attempt is made to restore all source and destination paths to
+/// their original contents.
 pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveError> {
     let tempdir = camino_tempfile::tempdir()
         .map_err(|e| TryMoveError::RecoveredIO(FsIoError::CreateTempFile(e).into()))?;
 
     let mut last_err = None;
 
-    // move source files out of the way
-    // TODO: why is this needed?
+    // move source files out of the way to not overwrite them in case some dest overlaps
+    // with any source file
     for (i, (path, _)) in paths.iter().enumerate() {
         let src_path = tempdir.path().join(format!("src_{}", i));
         if let Err(e) = move_fs_item(path, src_path) {
