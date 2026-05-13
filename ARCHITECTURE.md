@@ -267,7 +267,6 @@ looks something like below.
 ```text
 sysand_env
  ├──env.toml
- ├──(optional) current.toml
  └──lib
     ├──package_ID1_0.0.1
     ├──package_ID2_1.2.3
