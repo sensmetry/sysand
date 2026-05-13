@@ -43,11 +43,9 @@ it("can initialise a project in browser local storage", async function () {
 
 it("can initialise an empty environment in browser local storage", async function () {
   sysand.do_env_js_local_storage("sysand_storage", "/");
-  expect(window.localStorage.key(0)).toBe(
-    "sysand_storage/sysand_env/entries.txt",
-  );
+  expect(window.localStorage.key(0)).toBe("sysand_storage/.sysand/entries.txt");
   expect(window.localStorage.key(1)).toBe(null);
   expect(
-    window.localStorage.getItem("sysand_storage/sysand_env/entries.txt"),
+    window.localStorage.getItem("sysand_storage/.sysand/entries.txt"),
   ).toBe("");
 });

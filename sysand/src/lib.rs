@@ -736,7 +736,7 @@ fn iri_or_path_to_iri(
     })
 }
 
-/// Read `root/sysand_env/` metadata
+/// Read `root/.sysand/` metadata
 pub fn get_env(root: impl AsRef<Utf8Path>) -> Result<Option<LocalDirectoryEnvironment>> {
     let environment_path = root.as_ref().join(DEFAULT_ENV_NAME);
     LocalDirectoryEnvironment::try_read(environment_path).map_err(anyhow::Error::from)

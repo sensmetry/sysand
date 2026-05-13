@@ -27,7 +27,7 @@ pub mod null;
 
 pub mod utils;
 
-pub const DEFAULT_ENV_NAME: &str = "sysand_env";
+pub const DEFAULT_ENV_NAME: &str = ".sysand";
 
 /// Get path segment(s) corresponding to the given `uri`
 pub fn segment_uri_generic<S: AsRef<str>, D: Digest>(uri: S) -> std::vec::IntoIter<String>

@@ -14,7 +14,7 @@ mod common;
 pub use common::*;
 
 /// sysand env should create an empty local environment in
-/// ./sysand_env, containing only `env.toml` file without any projects
+/// ./.sysand, containing only `env.toml` file without any projects
 #[test]
 fn env_init_empty_env() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(["env"], None)?;

@@ -16,7 +16,7 @@ Sysand project index. The guide describes three ways to run the index:
 
 > [!warning]
 > Sysand is in active development. The structure of indexes and
-> `sysand_env` folders **can and will change** with future updates of Sysand. As
+> `.sysand` folders **can and will change** with future updates of Sysand. As
 > long as Sysand is on version 0.x.y, we cannot guarantee backwards
 > compatibility between different Sysand versions and indexes created using
 > different Sysand versions.
@@ -29,10 +29,10 @@ production hosting as well. Get in touch with your IT administrator to get this
 running on your company's infrastructure.
 
 The easiest way to host a project index from which to install packages is to
-expose a `sysand_env` over HTTP, since indexes and `sysand_env` share the same
+expose a `.sysand` over HTTP, since indexes and `.sysand` share the same
 structure that is understood by Sysand.
 
-### Create `sysand_env`
+### Create `.sysand`
 
 First, use the Sysand CLI to create a Sysand environment:
 
@@ -40,7 +40,7 @@ First, use the Sysand CLI to create a Sysand environment:
 sysand env
 ```
 
-This will create a `sysand_env/` folder in your current directory.
+This will create a `.sysand/` folder in your current directory.
 
 ### Add Packages to the Environment
 
@@ -81,11 +81,11 @@ to quickly start a simple HTTP server that will make the package index accessibl
 over the network. To do this, run:
 
 ```sh
-python3 -m http.server -d sysand_env 8080
+python3 -m http.server -d .sysand 8080
 ```
 
 This command executes the `http.server` module on port `8080`, and tells the
-module to expose the contents of the `sysand_env` folder to the network.
+module to expose the contents of the `.sysand` folder to the network.
 
 > [!important]
 > Python's built-in `http.server` module is **not** intended for production use.

@@ -60,7 +60,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 
     let expected_path = path.join("src.sysml");
     let dep_expected_path = path
-        .join("sysand_env/lib")
+        .join(".sysand/lib")
         .join("kpar.list_sources_dep_1.2.3")
         .join("dep_src.sysml");
     let combined_path = [&expected_path, &dep_expected_path];

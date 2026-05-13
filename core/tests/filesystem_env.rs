@@ -74,7 +74,7 @@ version = \"0.1\"
         }
 
         assert_eq!(
-            std::fs::File::open(cwd.path().join("sysand_env/env.toml"))?
+            std::fs::File::open(cwd.path().join(".sysand/env.toml"))?
                 .metadata()?
                 .len(),
             DEFAULT_ENV_FILE_CONTENTS.len() as u64
@@ -161,15 +161,15 @@ version = \"0.1\"
         assert!(uris.contains(&uri.to_string()));
 
         // v1 project dir is fully removed
-        let v1_dir = cwd.path().join("sysand_env/lib/sysand_test.multi_1.0.0");
+        let v1_dir = cwd.path().join(".sysand/lib/sysand_test.multi_1.0.0");
         assert!(!v1_dir.exists());
 
         // v2 project dir still has its files
-        let v2_dir = cwd.path().join("sysand_env/lib/sysand_test.multi_2.0.0");
+        let v2_dir = cwd.path().join(".sysand/lib/sysand_test.multi_2.0.0");
         assert!(!ls_dir(&v2_dir).is_empty());
 
         // Persisted to disk: re-reading gives same result
-        let env2 = LocalDirectoryEnvironment::read(cwd.path().join("sysand_env"))?;
+        let env2 = LocalDirectoryEnvironment::read(cwd.path().join(".sysand"))?;
         let versions: Vec<String> = env2.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["2.0.0"]);
 
@@ -233,13 +233,13 @@ version = \"0.1\"
         assert!(env.get_project(other_uri, "1.0.0").is_ok());
 
         // Both project dirs are fully removed
-        let v1_dir = cwd.path().join("sysand_env/lib/sysand_test.multi_1.0.0");
-        let v2_dir = cwd.path().join("sysand_env/lib/sysand_test.multi_2.0.0");
+        let v1_dir = cwd.path().join(".sysand/lib/sysand_test.multi_1.0.0");
+        let v2_dir = cwd.path().join(".sysand/lib/sysand_test.multi_2.0.0");
         assert!(!v1_dir.exists());
         assert!(!v2_dir.exists());
 
         // Persisted to disk: re-reading gives same result
-        let env2 = LocalDirectoryEnvironment::read(cwd.path().join("sysand_env"))?;
+        let env2 = LocalDirectoryEnvironment::read(cwd.path().join(".sysand"))?;
         let versions: Vec<String> = env2.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
         assert!(versions.is_empty());
 
@@ -317,17 +317,10 @@ version = \"0.1\"
             vec!["urn:sysand_test:1"]
         );
 
-        assert_eq!(ls_dir(cwd.path()), vec!["sysand_env"]);
+        assert_eq!(ls_dir(cwd.path()), vec![".sysand"]);
+        assert_eq!(ls_dir(cwd.path().join(".sysand")), vec!["env.toml", "lib"]);
         assert_eq!(
-            ls_dir(cwd.path().join("sysand_env")),
-            vec!["env.toml", "lib"]
-        );
-        assert_eq!(
-            ls_dir(
-                cwd.path()
-                    .join("sysand_env/lib")
-                    .join("sysand_test.1_1.2.3")
-            ),
+            ls_dir(cwd.path().join(".sysand/lib").join("sysand_test.1_1.2.3")),
             vec![".meta.json", ".project.json", "SomePackage.sysml"]
         );
 

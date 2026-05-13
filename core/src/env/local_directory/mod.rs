@@ -40,10 +40,10 @@ pub mod utils;
 use utils::{TryMoveError, try_move_files};
 
 // TODO: avoid cloning, maybe use `Arc`?
-/// `sysand_env` metadata. Metadata changes have to be written to `env.toml` explicitly
+/// `.sysand` metadata. Metadata changes have to be written to `env.toml` explicitly
 #[derive(Debug, Clone)]
 pub struct LocalDirectoryEnvironment {
-    /// Path of the env, including `sysand_env` part. Must be canonical
+    /// Path of the env, including `.sysand` part. Must be canonical
     root_dir: Utf8PathBuf,
     metadata: EnvMetadata,
 }
@@ -169,10 +169,10 @@ impl LocalDirectoryEnvironment {
         }
     }
 
-    /// Parent directory of the env, i.e. the directory in which `sysand_env` resides.
+    /// Parent directory of the env, i.e. the directory in which `.sysand` resides.
     /// It is assumed to be the workspace (if present) or project root, which in turn is
     /// the root of relative paths of `editable`/`workspace` projects
-    // TODO: is it correct to assume that `sysand_env` is always at workspace/project root?
+    // TODO: is it correct to assume that `.sysand` is always at workspace/project root?
     fn parent_dir(&self) -> &Utf8Path {
         // Will fail only if env is at root, i.e. `self.root_dir == /`
         self.root_dir.parent().unwrap()

@@ -201,12 +201,12 @@ pub enum Command {
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
     },
-    /// Create a local `sysand_env` directory for installing dependencies
+    /// Create a local `.sysand` directory for installing dependencies
     Env {
         #[command(subcommand)]
         command: Option<EnvCommand>,
     },
-    /// Sync `sysand_env` to lockfile, creating a lockfile and `sysand_env` if needed
+    /// Sync `.sysand` to lockfile, creating a lockfile and `.sysand` if needed
     Sync {
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
@@ -249,8 +249,8 @@ pub enum Command {
         subcommand: Option<InfoCommand>,
     },
     /// List source files for the current project and (optionally)
-    /// its dependencies available in `sysand_env`. Requires that
-    /// `sysand_env` is up to date, so it's recommended to run
+    /// its dependencies available in `.sysand`. Requires that
+    /// `.sysand` is up to date, so it's recommended to run
     /// `sysand sync` prior to this
     #[clap(verbatim_doc_comment)]
     Sources {
@@ -1334,7 +1334,7 @@ impl InfoCommand {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum EnvCommand {
-    /// Install project in `sysand_env`
+    /// Install project in `.sysand`
     Install {
         /// IRI identifying the project to be installed
         iri: fluent_uri::Iri<String>,
@@ -1351,14 +1351,14 @@ pub enum EnvCommand {
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
     },
-    /// Uninstall project in `sysand_env`
+    /// Uninstall project in `.sysand`
     Uninstall {
         /// IRI identifying the project to be uninstalled
         iri: fluent_uri::Iri<String>,
         /// Version to be uninstalled
         version: Option<String>,
     },
-    /// List projects installed in `sysand_env`
+    /// List projects installed in `.sysand`
     List,
     /// List source files for an installed project and
     /// (optionally) its dependencies
