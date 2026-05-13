@@ -32,3 +32,18 @@ pub(crate) fn format_sources(mut error: &dyn Error) -> String {
     }
     message
 }
+
+pub fn multiline_array(
+    elements: impl Iterator<Item = impl Into<toml_edit::Value>>,
+) -> toml_edit::Array {
+    let mut array: toml_edit::Array = elements
+        .map(|item| {
+            let mut value = item.into();
+            value.decor_mut().set_prefix("\n    ");
+            value
+        })
+        .collect();
+    array.set_trailing_comma(true);
+    array.set_trailing("\n");
+    array
+}
