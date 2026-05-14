@@ -12,7 +12,8 @@ use crate::{
         overwrite_file, to_json_string,
     },
     index_utils::{
-        IndexJson, ParseIriError, ProjectStatus, Status, VersionEntry, VersionsJson, parse_iri,
+        IndexJson, ParseIriError, ProjectStatus, VersionEntry, VersionStatus, VersionsJson,
+        parse_iri,
     },
     project::utils::{FsIoError, wrapfs},
 };
@@ -84,7 +85,7 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
                 |v| {
                     if v.version == version {
                         removed += 1;
-                        if matches!(v.status, Status::Removed) {
+                        if matches!(v.status, VersionStatus::Removed) {
                             log::warn!("{iri} version {version} is already removed");
                             false
                         } else {
@@ -117,7 +118,7 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
                 &versions_file,
                 &versions_path,
                 &mut versions_value,
-                |v| !matches!(v.status, Status::Removed),
+                |v| !matches!(v.status, VersionStatus::Removed),
             )?;
             // TODO(JP) report a warning if no such project was removed or if more than one was removed
             for project in index_value.projects.iter_mut() {
@@ -144,7 +145,7 @@ fn remove_versions<F: FnMut(&VersionEntry) -> bool>(
         if if_remove_version(version_entry) {
             // TODO(JP) should if the version is absent from versions.json but the files do exist, should probably remove them anyway
             let version_path = project_path.join(&version_entry.version);
-            version_entry.status = Status::Removed;
+            version_entry.status = VersionStatus::Removed;
 
             let versions_str = to_json_string(&versions_value);
             // TODO(JP): ask about this. It's not ideal to re-serialize versions and write the whole

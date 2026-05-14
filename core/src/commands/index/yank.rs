@@ -9,7 +9,7 @@ use crate::{
         INDEX_FILE_NAME, JsonFileError, NOT_AN_INDEX_MESSAGE, VERSIONS_FILE_NAME, open_json_file,
         overwrite_file, to_json_string,
     },
-    index_utils::{IndexJson, ParseIriError, Status, VersionsJson, parse_iri},
+    index_utils::{IndexJson, ParseIriError, VersionStatus, VersionsJson, parse_iri},
     project::utils::FsIoError,
 };
 
@@ -79,18 +79,18 @@ pub fn do_index_yank<I: AsRef<str>, V: AsRef<str>>(
         if version_entry.version == version {
             yanked += 1;
             match version_entry.status {
-                Status::Available => {
-                    version_entry.status = Status::Yanked;
+                VersionStatus::Available => {
+                    version_entry.status = VersionStatus::Yanked;
                     let versions_str = to_json_string(&versions_value);
                     // TODO(JP): ask about this. It's not ideal to re-serialize versions and write the whole
                     // thing to file every time, but I would like to actually remove the files only when
                     // the version is specified as removed
                     overwrite_file(&versions_file, &versions_path, &versions_str)?;
                 }
-                Status::Yanked => {
+                VersionStatus::Yanked => {
                     log::warn!("{iri} version {version} is already yanked")
                 }
-                Status::Removed => {
+                VersionStatus::Removed => {
                     return Err(IndexYankError::VersionRemoved {
                         iri: iri.into(),
                         version: version.to_string(),

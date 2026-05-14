@@ -13,8 +13,8 @@ use crate::{
         open_json_file, overwrite_file, to_json_string,
     },
     index_utils::{
-        IndexJson, IndexProject, ParseIriError, ParsedIri, ProjectStatus, Status, VersionEntry,
-        VersionsJson, parse_iri,
+        IndexJson, IndexProject, ParseIriError, ParsedIri, ProjectStatus, VersionEntry,
+        VersionStatus, VersionsJson, parse_iri,
     },
     project::{
         CanonicalizationError, ProjectRead as _,
@@ -236,7 +236,7 @@ pub fn do_index_add<P: AsRef<Utf8Path>, I: AsRef<str>>(
             // so it cannot be empty
             kpar_size: NonZero::new(local_project.file_size()?).unwrap(),
             kpar_digest: to_explicit_digest(local_project.digest_sha256()?),
-            status: Status::Available,
+            status: VersionStatus::Available,
         },
     );
 

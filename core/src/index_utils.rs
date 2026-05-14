@@ -41,7 +41,7 @@ pub(crate) enum ProjectStatus {
 /// [`Status::Available`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum Status {
+pub(crate) enum VersionStatus {
     #[default]
     Available,
     Yanked,
@@ -76,15 +76,15 @@ pub(crate) struct VersionEntry {
     /// Retirement state (§8). Optional on the wire; an omitted field
     /// deserializes as [`Status::Available`].
     #[serde(default)]
-    pub(crate) status: Status,
+    pub(crate) status: VersionStatus,
 }
 
-impl Status {
+impl VersionStatus {
     /// Predicate for `#[serde(skip_serializing_if = "...")]` so emitters
     /// drop `status` when it would round-trip as the default.
     #[allow(dead_code)]
     pub(crate) fn is_available(&self) -> bool {
-        matches!(self, Status::Available)
+        matches!(self, VersionStatus::Available)
     }
 }
 

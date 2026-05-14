@@ -35,7 +35,7 @@ use crate::{
         ReadEnvironmentAsync,
         discovery::{DiscoveryError, ResolvedEndpoints, fetch_index_config},
     },
-    index_utils::{IndexJson, ParseIriError, ProjectStatus, Status, VersionsJson},
+    index_utils::{IndexJson, ParseIriError, ProjectStatus, VersionStatus, VersionsJson},
     model::InterchangeProjectUsageRaw,
     project::index_entry::{IndexEntryProject, IndexEntryProjectError},
     resolve::net_utils::json_get_request,
@@ -180,7 +180,7 @@ pub(crate) struct AdvertisedVersion {
     pub(crate) project_digest: Sha256HexDigest,
     pub(crate) kpar_size: NonZeroU64,
     pub(crate) kpar_digest: Sha256HexDigest,
-    pub(crate) status: Status,
+    pub(crate) status: VersionStatus,
 }
 
 #[derive(Error, Debug)]
@@ -541,7 +541,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         let versions: Vec<Result<String, IndexEnvironmentError>> = vs
             .iter()
             .filter(|e| {
-                if e.status == Status::Available {
+                if e.status == VersionStatus::Available {
                     true
                 } else {
                     log::debug!(
@@ -605,7 +605,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         // A `removed` entry's per-version files are intentionally absent.
         // Refuse before issuing the fetch. `yanked` entries stay reachable
         // here; they are excluded from new resolutions at `versions_async`.
-        if advertised.status == Status::Removed {
+        if advertised.status == VersionStatus::Removed {
             return Err(IndexEnvironmentError::VersionRemoved {
                 url: versions_url.as_str().into(),
                 iri: uri.as_ref().to_string(),
