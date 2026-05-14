@@ -14,7 +14,6 @@ use thiserror::Error;
 use crate::{
     env::{
         PutProjectError, ReadEnvironment, WriteEnvironment,
-        iri_normalize::IriVersionFilename,
         local_directory::{
             metadata::{
                 AddProjectError, EnvMetadata, EnvMetadataError, EnvProject, load_env_metadata,
@@ -23,6 +22,7 @@ use crate::{
             utils::clean_dir,
         },
     },
+    iri_normalize::IriVersionFilename,
     lock::{Lock, Source},
     project::{
         local_src::{LocalSrcError, LocalSrcProject, PathError},

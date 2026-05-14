@@ -42,12 +42,12 @@ impl InterchangeProjectUsageRaw {
         // `pkg:sysand` IRIs at validation time so users get an actionable
         // error (with a suggested normalized form) instead of a downstream
         // "not found" — see `crate::purl::parse_sysand_purl`.
-        if let Err(source) = crate::purl::parse_sysand_purl(&self.resource) {
-            return Err(InterchangeProjectValidationError::MalformedSysandPurl {
+        crate::purl::parse_sysand_purl(&self.resource).map_err(|e| {
+            InterchangeProjectValidationError::MalformedSysandPurl {
                 iri: self.resource.clone(),
-                source,
-            });
-        }
+                source: e,
+            }
+        })?;
 
         Ok(InterchangeProjectUsage {
             resource: fluent_uri::Iri::parse(self.resource.clone())

@@ -4,7 +4,6 @@
 use std::{fmt::Debug, marker::Unpin, sync::Arc};
 
 use futures::{Stream, StreamExt};
-
 use thiserror::Error;
 
 use crate::{
@@ -17,8 +16,6 @@ use crate::{
 pub mod discovery;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod index;
-#[cfg(feature = "filesystem")]
-pub(crate) mod iri_normalize;
 #[cfg(feature = "filesystem")]
 pub mod local_directory;
 pub mod memory;

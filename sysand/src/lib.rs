@@ -56,6 +56,7 @@ use crate::{
         },
         exclude::command_exclude,
         include::command_include,
+        index::{command_index_add, command_index_init, command_index_remove, command_index_yank},
         info::{command_info_current_project, command_info_path, command_info_verb_path},
         init::command_init,
         lock::command_lock,
@@ -363,6 +364,28 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 command_sources_env(iri, version, !no_deps, ctx.env, &provided_iris, include_std)
             }
         },
+        Command::Index { command } => {
+            let root =
+                |index_root: Option<Utf8PathBuf>| index_root.unwrap_or(ctx.current_directory);
+            match command {
+                cli::IndexCommand::Init { index_root } => command_index_init(root(index_root)),
+                cli::IndexCommand::Add {
+                    kpar_path,
+                    iri,
+                    index_root,
+                } => command_index_add(root(index_root), kpar_path, iri),
+                cli::IndexCommand::Yank {
+                    iri,
+                    version,
+                    index_root,
+                } => command_index_yank(root(index_root), iri, version),
+                cli::IndexCommand::Remove {
+                    iri,
+                    version,
+                    index_root,
+                } => command_index_remove(root(index_root), iri, version),
+            }
+        }
         Command::Lock { resolution_opts } => {
             if let Some(project_root) = project_root {
                 crate::commands::lock::command_lock(

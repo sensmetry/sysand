@@ -29,46 +29,43 @@ production hosting as well. Get in touch with your IT administrator to get this
 running on your company's infrastructure.
 
 The easiest way to host a project index from which to install packages is to
-expose a `.sysand` over HTTP, since indexes and `.sysand` share the same
-structure that is understood by Sysand.
+create a local sysand index and expose it over HTTP.
 
-### Create `.sysand`
+### Create Local Index
 
 First, use the Sysand CLI to create a Sysand environment:
 
 ```sh
-sysand env
+sysand index init
 ```
 
-This will create a `.sysand/` folder in your current directory.
+This will initialize a sysand index in your current directory.
 
-### Add Packages to the Environment
+### Add Packages to the Index
 
-You can now install the packages you want to share into the Sysand environment.
+You can now add the packages you want to share into the Sysand index.
 For example, if you have a `MyProject.kpar` file in your current directory,
 you can add it to the package index by:
 
 ```sh
-sysand env install urn:kpar:my_project --path MyProject.kpar
+sysand index add MyProject.kpar --iri pkg:sysand/my-publisher/my-project
 ```
 
 This command will create an entry in the package index with the IRI of
-`urn:kpar:my_project` that other people can then use to install your package.
-With the `--path` argument, you point
-to the `.kpar` file that you want to host on the package index.
+`pkg:sysand/my-publisher/my-project` that other people can then use to install
+your package.
 
 > [!tip]
-> Any IRI can be freely chosen here, just don't choose an IRI that could
-> point to another resource, like the ones starting with `http(s)`, `file` or
-> `ssh`.
+> It is recommended that you specify `publisher` field in `.project.json`. In that
+> case you can skip the `--iri` argument, in which case it is constructed from
+> `publisher` and `name` fields in `.project.json`. `publisher` is person or
+> organization that publishes the project. This is currently not in the KerML
+> specification, we will propose adding it as a mandatory field.
 
-By default, this command also installs all usages (dependencies) of
-`my_project`. You can use the `--no-deps` CLI flag to only install the package
-without dependencies.
-
-If you want to host multiple versions of the same package in your repository,
-you also need to use the `--allow-multiple` CLI flag in the `sysand env install`
-command.
+> [!tip]
+> Any IRI can be freely chosen for the `--iri` argument, just don't choose an IRI
+> that could point to another resource, like the ones starting with `http(s)`,
+> `file` or `ssh`.
 
 Repeat this step for as many times as you have packages (and their versions),
 giving a unique IRI for each different package.
@@ -81,11 +78,11 @@ to quickly start a simple HTTP server that will make the package index accessibl
 over the network. To do this, run:
 
 ```sh
-python3 -m http.server -d .sysand 8080
+python3 -m http.server 8080
 ```
 
 This command executes the `http.server` module on port `8080`, and tells the
-module to expose the contents of the `.sysand` folder to the network.
+module to expose the contents of the current folder to the network.
 
 > [!important]
 > Python's built-in `http.server` module is **not** intended for production use.
@@ -105,7 +102,7 @@ to point to your private package index instead of the public
 [beta.sysand.org][sysand_index], for example:
 
 ```sh
-sysand add urn:kpar:my_project --index http://localhost:8080
+sysand add pkg:sysand/my-publisher/my-project --index http://localhost:8080
 ```
 
 > [!important]

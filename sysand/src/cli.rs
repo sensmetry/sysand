@@ -206,6 +206,11 @@ pub enum Command {
         #[command(subcommand)]
         command: Option<EnvCommand>,
     },
+    /// Manage a local sysand index
+    Index {
+        #[command(subcommand)]
+        command: IndexCommand,
+    },
     /// Sync `.sysand` to lockfile, creating a lockfile and `.sysand` if needed
     Sync {
         #[command(flatten)]
@@ -1373,6 +1378,53 @@ pub enum EnvCommand {
 
         #[command(flatten)]
         sources_opts: SourcesOptions,
+    },
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum IndexCommand {
+    /// Create a local sysand index
+    #[clap(verbatim_doc_comment)]
+    Init {
+        /// Path to the index directory. If not provided, current working directory is used.
+        /// If the directory does not exist, it is created
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
+    },
+    /// Add a KPAR to a local sysand index
+    #[clap(verbatim_doc_comment)]
+    Add {
+        // The type is str, not Iri so that a better error can be reported in some cases
+        // for example when the publisher contains a space
+        kpar_path: Utf8PathBuf,
+        #[arg(long)]
+        iri: Option<String>,
+        /// Path to the index directory. If not provided, current working directory is used
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
+    },
+    /// Yank a project version from a local index
+    #[clap(verbatim_doc_comment)]
+    Yank {
+        iri: String,
+        #[arg(long)]
+        version: String,
+        /// Path to the index directory. If not provided, current working directory is used
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
+    },
+    /// Remove a project or a specific version of a project from
+    /// a local sysand index
+    #[clap(verbatim_doc_comment)]
+    Remove {
+        iri: String,
+        /// If specified, remove the specified version, otherwise
+        /// remove the whole project
+        #[arg(long)]
+        version: Option<String>,
+        /// Path to the index directory. If not provided, current working directory is used
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
     },
 }
 
