@@ -3,7 +3,7 @@
 
 use std::{
     fs::File,
-    io::{ErrorKind, Read, Write as _},
+    io::{ErrorKind, Read, Seek, Write as _},
 };
 
 use camino::Utf8Path;
@@ -109,7 +109,9 @@ pub(crate) fn overwrite_file(
     contents: &str,
 ) -> Result<(), Box<FsIoError>> {
     let map_err = |e| Box::new(FsIoError::WriteFile(path.into(), e));
+    // TODO(JP): ask if all these are necessary to override the current file contents
     file.set_len(0).map_err(map_err)?;
+    file.rewind().map_err(map_err)?;
     file.write_all(contents.as_bytes()).map_err(map_err)
 }
 
