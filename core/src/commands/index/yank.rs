@@ -62,7 +62,8 @@ pub fn do_index_yank<I: AsRef<str>, V: AsRef<str>>(
     let project_path: Utf8PathBuf = parsed_iri.to_path_segments().iter().collect();
 
     let versions_path = project_path.join(VERSIONS_FILE_NAME);
-    let (versions_file, mut versions_value) = open_json_file::<VersionsJson>(&versions_path, true)?;
+    let (mut versions_file, mut versions_value) =
+        open_json_file::<VersionsJson>(&versions_path, true)?;
 
     let yanking = "Yanking";
     let header = crate::style::get_style_config().header;
@@ -85,7 +86,7 @@ pub fn do_index_yank<I: AsRef<str>, V: AsRef<str>>(
                     // TODO(JP): ask about this. It's not ideal to re-serialize versions and write the whole
                     // thing to file every time, but I would like to actually remove the files only when
                     // the version is specified as removed
-                    overwrite_file(&versions_file, &versions_path, &versions_str)?;
+                    overwrite_file(&mut versions_file, &versions_path, &versions_str)?;
                 }
                 VersionStatus::Yanked => {
                     log::warn!("{iri} version {version} is already yanked")

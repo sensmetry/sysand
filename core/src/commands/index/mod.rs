@@ -3,8 +3,7 @@
 
 use std::{
     fs::File,
-    io::{ErrorKind, Read},
-    os::unix::fs::FileExt,
+    io::{ErrorKind, Read, Write as _},
 };
 
 use camino::Utf8Path;
@@ -105,13 +104,13 @@ pub(crate) fn to_json_string<T: Serialize>(value: &T) -> String {
 }
 
 pub(crate) fn overwrite_file(
-    file: &File,
+    file: &mut File,
     path: &Utf8Path,
     contents: &str,
 ) -> Result<(), Box<FsIoError>> {
     let map_err = |e| Box::new(FsIoError::WriteFile(path.into(), e));
     file.set_len(0).map_err(map_err)?;
-    file.write_all_at(contents.as_bytes(), 0).map_err(map_err)
+    file.write_all(contents.as_bytes()).map_err(map_err)
 }
 
 // #[derive(Error, Debug)]

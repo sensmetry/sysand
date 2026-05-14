@@ -106,8 +106,8 @@ pub fn do_index_add<P: AsRef<Utf8Path>, I: AsRef<str>>(
     iri: Option<I>,
 ) -> Result<(), IndexAddError> {
     let index_path = Utf8PathBuf::from(INDEX_FILE_NAME);
-    let (index_file, mut index_value) =
-        open_json_file::<IndexJson>(&index_path, false).map_err(|e| match e {
+    let (mut index_file, mut index_value) = open_json_file::<IndexJson>(&index_path, false)
+        .map_err(|e| match e {
             JsonFileError::FileDoesNotExist(e) => IndexAddError::NotAnIndex(e),
             _ => IndexAddError::from(e),
         })?;
@@ -194,7 +194,8 @@ pub fn do_index_add<P: AsRef<Utf8Path>, I: AsRef<str>>(
     wrapfs::create_dir_all(&project_path)?;
 
     let versions_path = project_path.join(VERSIONS_FILE_NAME);
-    let (versions_file, mut versions_value) = open_json_file::<VersionsJson>(&versions_path, true)?;
+    let (mut versions_file, mut versions_value) =
+        open_json_file::<VersionsJson>(&versions_path, true)?;
 
     let mut sem_vers: Vec<Version> = versions_value
         .versions
@@ -255,9 +256,9 @@ pub fn do_index_add<P: AsRef<Utf8Path>, I: AsRef<str>>(
     wrapfs::write(version_path.join(INDEX_FILE_NAME), info_str)?;
     wrapfs::write(version_path.join(META_FILE_NAME), meta_str)?;
 
-    overwrite_file(&versions_file, &versions_path, &versions_str)?;
+    overwrite_file(&mut versions_file, &versions_path, &versions_str)?;
     if is_project_new {
-        overwrite_file(&index_file, &index_path, &index_str)?;
+        overwrite_file(&mut index_file, &index_path, &index_str)?;
     }
 
     Ok(())

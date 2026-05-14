@@ -54,8 +54,8 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
     version: Option<V>,
 ) -> Result<(), IndexRemoveError> {
     let index_path = Utf8PathBuf::from(INDEX_FILE_NAME);
-    let (index_file, mut index_value) =
-        open_json_file::<IndexJson>(&index_path, false).map_err(|e| match e {
+    let (mut index_file, mut index_value) = open_json_file::<IndexJson>(&index_path, false)
+        .map_err(|e| match e {
             JsonFileError::FileDoesNotExist(e) => IndexRemoveError::NotAnIndex(e),
             _ => IndexRemoveError::from(e),
         })?;
@@ -65,7 +65,8 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
     let project_path: Utf8PathBuf = parsed_iri.to_path_segments().iter().collect();
 
     let versions_path = project_path.join(VERSIONS_FILE_NAME);
-    let (versions_file, mut versions_value) = open_json_file::<VersionsJson>(&versions_path, true)?;
+    let (mut versions_file, mut versions_value) =
+        open_json_file::<VersionsJson>(&versions_path, true)?;
 
     let removing = "Removing";
     let header = crate::style::get_style_config().header;
@@ -79,8 +80,8 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
             let mut removed: usize = 0;
             remove_versions(
                 &project_path,
-                &versions_file,
                 &versions_path,
+                &mut versions_file,
                 &mut versions_value,
                 |v| {
                     if v.version == version {
@@ -115,8 +116,8 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
             log::info!("{header}{removing:>12}{header:#} {iri}");
             remove_versions(
                 &project_path,
-                &versions_file,
                 &versions_path,
+                &mut versions_file,
                 &mut versions_value,
                 |v| !matches!(v.status, VersionStatus::Removed),
             )?;
@@ -127,7 +128,7 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
                 }
             }
             let index_str = to_json_string(&index_value);
-            overwrite_file(&index_file, &index_path, &index_str)?;
+            overwrite_file(&mut index_file, &index_path, &index_str)?;
             Ok(())
         }
     }
@@ -135,8 +136,8 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
 
 fn remove_versions<F: FnMut(&VersionEntry) -> bool>(
     project_path: &Utf8Path,
-    versions_file: &File,
     versions_path: &Utf8Path,
+    versions_file: &mut File,
     versions_value: &mut VersionsJson,
     mut if_remove_version: F,
 ) -> Result<(), IndexRemoveError> {
