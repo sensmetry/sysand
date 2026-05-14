@@ -7,6 +7,7 @@ pub mod clone;
 pub mod env;
 pub mod exclude;
 pub mod include;
+pub mod index;
 pub mod info;
 pub mod init;
 pub mod lock;

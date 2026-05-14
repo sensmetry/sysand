@@ -206,6 +206,11 @@ pub enum Command {
         #[command(subcommand)]
         command: Option<EnvCommand>,
     },
+    /// Create a local sysand index in the current directory
+    Index {
+        #[command(subcommand)]
+        command: IndexCommand,
+    },
     /// Sync `.sysand` to lockfile, creating a lockfile and `.sysand` if needed
     Sync {
         #[command(flatten)]
@@ -1373,6 +1378,30 @@ pub enum EnvCommand {
 
         #[command(flatten)]
         sources_opts: SourcesOptions,
+    },
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum IndexCommand {
+    /// Initialize sysand index in the current directory
+    #[clap(verbatim_doc_comment)]
+    Init,
+    /// Add a KPAR to the sysand index rooted in the current directory
+    #[clap(verbatim_doc_comment)]
+    Add {
+        kpar_path: Utf8PathBuf,
+        #[arg(long)]
+        iri: Option<String>,
+    },
+    /// Remove a project or a specific version of a project from
+    /// the index rooted in the current directory
+    #[clap(verbatim_doc_comment)]
+    Remove {
+        iri: String,
+        /// If specified, remove the specified version, otherwise
+        /// remove the whole project
+        #[arg(long)]
+        version: Option<String>,
     },
 }
 

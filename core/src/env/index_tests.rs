@@ -291,6 +291,8 @@ fn build_minimal_kpar(
 }
 
 mod uris {
+    use crate::{index_utils::ParseIriError, utils::format_sources};
+
     use super::*;
 
     #[test]
@@ -371,7 +373,9 @@ mod uris {
             assert!(
                 matches!(
                     err,
-                    super::IndexEnvironmentError::MalformedSysandPurl { .. }
+                    super::IndexEnvironmentError::MalformedIri(
+                        ParseIriError::MalformedSysandPurl { .. }
+                    )
                 ),
                 "expected MalformedSysandPurl for `{iri}`, got {err:?}"
             );
@@ -390,10 +394,12 @@ mod uris {
         let err = resolved_endpoints(&env)
             .kpar_url(purl("Acme Labs/My.Project"), "1.0.0")
             .expect_err("non-normalized pkg:sysand must be rejected");
-        let msg = err.to_string();
+        let err_msg = err.to_string();
+        let sources_msg = format_sources(&err);
+        let proper_purl = &purl("acme-labs/my.project");
         assert!(
-            msg.contains(&purl("acme-labs/my.project")),
-            "error message `{msg}` must surface the suggested normalized IRI"
+            err_msg.contains(proper_purl) || sources_msg.contains(proper_purl),
+            "error message `{sources_msg}` or sources message `{sources_msg}` must surface the suggested normalized IRI"
         );
         Ok(())
     }

@@ -16,6 +16,7 @@ pub mod auth;
 pub mod config;
 pub mod context;
 pub mod env;
+pub mod index_utils;
 pub mod lock;
 pub mod project;
 pub mod purl;

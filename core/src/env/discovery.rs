@@ -15,9 +15,8 @@ use thiserror::Error;
 
 use crate::{
     auth::HTTPAuthentication,
-    env::index::{
-        HttpFetchError, IndexEnvironmentError, MissingPolicy, fetch_json, iri_path_segments,
-    },
+    env::index::{HttpFetchError, IndexEnvironmentError, MissingPolicy, fetch_json},
+    index_utils::parse_iri,
 };
 
 const INDEX_PATH: &str = "index.json";
@@ -60,8 +59,13 @@ impl ResolvedEndpoints {
         &self,
         iri: S,
     ) -> Result<url::Url, IndexEnvironmentError> {
+        let parsed_iri = parse_iri(iri.as_ref())?;
         let mut result = self.index_root.clone();
-        for mut segment in iri_path_segments(iri.as_ref())? {
+        // Could also do something like this
+        // result
+        //     .path_segments_mut()?
+        //     .extend(parsed_iri.to_path_segments());
+        for mut segment in parsed_iri.to_path_segments() {
             segment.push('/');
             result = Self::url_join(&result, &segment)?;
         }
