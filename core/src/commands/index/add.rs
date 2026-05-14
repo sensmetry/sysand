@@ -8,12 +8,14 @@ use semver::Version;
 use thiserror::Error;
 
 use crate::{
-    env::index::{IndexJson, IndexProject, ProjectStatus, Status, VersionEntry, VersionsJson},
     index::{
         INDEX_FILE_NAME, JsonFileError, KPAR_FILE_NAME, META_FILE_NAME, VERSIONS_FILE_NAME,
         open_json_file, overwrite_file, to_json_string,
     },
-    index_utils::{ParseIriError, ParsedIri, parse_iri},
+    index_utils::{
+        IndexJson, IndexProject, ParseIriError, ParsedIri, ProjectStatus, Status, VersionEntry,
+        VersionsJson, parse_iri,
+    },
     project::{
         CanonicalizationError, ProjectRead as _,
         local_kpar::{LocalKParError, LocalKParProject},

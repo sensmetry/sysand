@@ -19,6 +19,7 @@ use std::sync::Arc;
 use crate::{
     auth::Unauthenticated,
     env::index::{AdvertisedVersion, Sha256HexDigest},
+    index_utils::Status,
     model::InterchangeProjectUsageRaw,
     project::{ProjectReadAsync, index_entry::IndexEntryProject},
     purl::PKG_SYSAND_PREFIX,
@@ -52,7 +53,7 @@ fn make_fixture() -> IndexEntryProject<Unauthenticated> {
         project_digest,
         kpar_size: std::num::NonZeroU64::new(42).unwrap(),
         kpar_digest,
-        status: crate::env::index::Status::Available,
+        status: Status::Available,
     };
 
     // `test.invalid` is reserved by RFC 2606; any accidental fetch

@@ -1673,6 +1673,8 @@ mod get_project {
 /// non-normalized request; a missing normalization step would miss
 /// the mock and fail `expect(1)`.
 mod iri {
+    use crate::{index_utils::hash_uri, iri_normalize::canonicalize_iri};
+
     use super::*;
 
     #[test]
@@ -1691,15 +1693,11 @@ mod iri {
         let normalized_iri = "http://example.com/~user";
         let raw_request_iri = "HTTP://Example.COM/%7euser";
 
-        use crate::env::iri_normalize::canonicalize_iri;
         let parsed = fluent_uri::Iri::parse(raw_request_iri)?;
         assert_eq!(canonicalize_iri(parsed)?.as_str(), normalized_iri);
 
         // Compute what the env will look up.
-        use sha2::{Digest, Sha256};
-        let mut h = Sha256::new();
-        h.update(normalized_iri);
-        let expected_hash = format!("{:x}", h.finalize());
+        let expected_hash = hash_uri(normalized_iri);
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -1725,11 +1723,8 @@ mod iri {
 
         let env = index_env_sync(&server)?;
 
-        use sha2::{Digest, Sha256};
         let canonical = "http://example.com/";
-        let mut h = Sha256::new();
-        h.update(canonical);
-        let expected_hash = format!("{:x}", h.finalize());
+        let expected_hash = hash_uri(canonical);
 
         let versions_mock = mock_json_get(
             &mut server,

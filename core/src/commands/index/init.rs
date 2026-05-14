@@ -10,8 +10,8 @@ use camino::Utf8PathBuf;
 use thiserror::Error;
 
 use crate::{
-    env::index::IndexJson,
     index::{INDEX_FILE_NAME, to_json_string},
+    index_utils::IndexJson,
     project::utils::FsIoError,
 };
 

@@ -16,7 +16,10 @@ pub mod auth;
 pub mod config;
 pub mod context;
 pub mod env;
+#[cfg(feature = "filesystem")]
 pub mod index_utils;
+#[cfg(feature = "filesystem")]
+mod iri_normalize;
 pub mod lock;
 pub mod project;
 pub mod purl;

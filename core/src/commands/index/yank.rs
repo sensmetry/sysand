@@ -5,12 +5,11 @@ use camino::Utf8PathBuf;
 use thiserror::Error;
 
 use crate::{
-    env::index::{IndexJson, Status, VersionsJson},
     index::{
         INDEX_FILE_NAME, JsonFileError, NOT_AN_INDEX_MESSAGE, VERSIONS_FILE_NAME, open_json_file,
         overwrite_file, to_json_string,
     },
-    index_utils::{ParseIriError, parse_iri},
+    index_utils::{IndexJson, ParseIriError, Status, VersionsJson, parse_iri},
     project::utils::FsIoError,
 };
 

@@ -17,8 +17,6 @@ pub mod discovery;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod index;
 #[cfg(feature = "filesystem")]
-pub(crate) mod iri_normalize;
-#[cfg(feature = "filesystem")]
 pub mod local_directory;
 pub mod memory;
 pub mod null;
