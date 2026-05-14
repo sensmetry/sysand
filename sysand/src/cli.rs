@@ -1393,6 +1393,14 @@ pub enum IndexCommand {
         #[arg(long)]
         iri: Option<String>,
     },
+    /// Yank a project version from the index rooted in the current
+    /// directory
+    #[clap(verbatim_doc_comment)]
+    Yank {
+        iri: String,
+        #[arg(long)]
+        version: String,
+    },
     /// Remove a project or a specific version of a project from
     /// the index rooted in the current directory
     #[clap(verbatim_doc_comment)]

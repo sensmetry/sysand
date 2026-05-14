@@ -4,7 +4,7 @@
 use anyhow::Result;
 use camino::Utf8Path;
 
-use sysand_core::index::{do_index_add, do_index_init, do_index_remove};
+use sysand_core::index::{do_index_add, do_index_init, do_index_remove, do_index_yank};
 
 pub fn command_index_init() -> Result<()> {
     do_index_init()?;
@@ -16,6 +16,11 @@ pub fn command_index_add<P: AsRef<Utf8Path>, I: AsRef<str>>(
     iri: Option<I>,
 ) -> Result<()> {
     do_index_add(kpar_path, iri)?;
+    Ok(())
+}
+
+pub fn command_index_yank<I: AsRef<str>, V: AsRef<str>>(iri: I, version: V) -> Result<()> {
+    do_index_yank(iri, version)?;
     Ok(())
 }
 

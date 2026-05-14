@@ -7,10 +7,10 @@ use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
 use crate::{
-    env::index::{IndexJson, ProjectStatus, Status, VersionsJson},
+    env::index::{IndexJson, ProjectStatus, Status, VersionEntry, VersionsJson},
     index::{
-        INDEX_FILE_NAME, JsonFileError, VERSIONS_FILE_NAME, open_json_file, overwrite_file,
-        to_json_string,
+        INDEX_FILE_NAME, JsonFileError, NOT_AN_INDEX_MESSAGE, VERSIONS_FILE_NAME, open_json_file,
+        overwrite_file, to_json_string,
     },
     index_utils::{ParseIriError, parse_iri},
     project::utils::{FsIoError, wrapfs},
@@ -18,9 +18,7 @@ use crate::{
 
 #[derive(Debug, Error)]
 pub enum IndexRemoveError {
-    #[error(
-        "current directory is not an index as it doesn't have {INDEX_FILE_NAME} file; make sure you run `sysand index init` in this directory before adding any packages"
-    )]
+    #[error("{NOT_AN_INDEX_MESSAGE}")]
     NotAnIndex(#[source] Box<FsIoError>),
     // TODO(JP): might want to make these more specific
     #[error(transparent)]
@@ -33,6 +31,8 @@ pub enum IndexRemoveError {
     },
     #[error(transparent)]
     InvalidIri(#[from] ParseIriError),
+    #[error("{iri} version {version} does not exist")]
+    VersionNotFound { iri: Box<str>, version: Box<str> },
 }
 
 impl From<JsonFileError> for IndexRemoveError {
@@ -52,8 +52,8 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
     version: Option<V>,
 ) -> Result<(), IndexRemoveError> {
     let index_path = Utf8PathBuf::from(INDEX_FILE_NAME);
-    let (index_file, mut index_value) = open_json_file::<_, IndexJson>(&index_path, false)
-        .map_err(|e| match e {
+    let (index_file, mut index_value) =
+        open_json_file::<IndexJson>(&index_path, false).map_err(|e| match e {
             JsonFileError::FileDoesNotExist(e) => IndexRemoveError::NotAnIndex(e),
             _ => IndexRemoveError::from(e),
         })?;
@@ -63,32 +63,60 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
     let project_path: Utf8PathBuf = parsed_iri.to_path_segments().iter().collect();
 
     let versions_path = project_path.join(VERSIONS_FILE_NAME);
-    let (versions_file, mut versions_value) =
-        open_json_file::<_, VersionsJson>(&versions_path, true)?;
+    let (versions_file, mut versions_value) = open_json_file::<VersionsJson>(&versions_path, true)?;
 
     let removing = "Removing";
     let header = crate::style::get_style_config().header;
     match version {
         Some(version) => {
+            // Specifically don't report any errors if the version is not a valid semver,
+            // since if the project with invalid semver got in there somehow, it should
+            // be possible to remove
             let version = version.as_ref();
             log::info!("{header}{removing:>12}{header:#} {iri} version {version}");
-            let _removed = remove_versions(
+            let mut removed: usize = 0;
+            remove_versions(
                 &project_path,
                 &versions_file,
                 &versions_path,
                 &mut versions_value,
-                |v| v == version,
+                |v| {
+                    if v.version == version {
+                        removed += 1;
+                        if matches!(v.status, Status::Removed) {
+                            log::warn!("{iri} version {version} is already removed");
+                            false
+                        } else {
+                            true
+                        }
+                    } else {
+                        false
+                    }
+                },
             )?;
-            // TODO(JP) report a warning if no such version was removed or if more than one was removed
+            match removed {
+                0 => Err(IndexRemoveError::VersionNotFound {
+                    iri: iri.into(),
+                    version: version.into(),
+                }),
+                1 => Ok(()),
+                // TODO(JP): this is actually impossible. If the same version appears multiple times
+                // in versions.json, upon trying to remove the version directory the second time IO error
+                // would be raised
+                2.. => {
+                    log::warn!("{iri} had duplicate versions {version}, all are removed");
+                    Ok(())
+                }
+            }
         }
         None => {
             log::info!("{header}{removing:>12}{header:#} {iri}");
-            _ = remove_versions(
+            remove_versions(
                 &project_path,
                 &versions_file,
                 &versions_path,
                 &mut versions_value,
-                |_| true,
+                |v| !matches!(v.status, Status::Removed),
             )?;
             // TODO(JP) report a warning if no such project was removed or if more than one was removed
             for project in index_value.projects.iter_mut() {
@@ -98,27 +126,21 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>>(
             }
             let index_str = to_json_string(&index_value);
             overwrite_file(&index_file, &index_path, &index_str)?;
+            Ok(())
         }
     }
-    Ok(())
 }
 
-fn remove_versions<F: Fn(&str) -> bool>(
+fn remove_versions<F: FnMut(&VersionEntry) -> bool>(
     project_path: &Utf8Path,
     versions_file: &File,
     versions_path: &Utf8Path,
     versions_value: &mut VersionsJson,
-    if_remove_version: F,
-) -> Result<usize, IndexRemoveError> {
-    // Specifically don't report any errors if the version is not a valid semver,
-    // since if the project with invalid semver got in there somehow, it should
-    // be possible to remove
-    let mut removed = 0;
+    mut if_remove_version: F,
+) -> Result<(), IndexRemoveError> {
     for i in 0..versions_value.versions.len() {
         let version_entry = &mut versions_value.versions[i];
-        if !matches!(version_entry.status, Status::Removed)
-            && if_remove_version(&version_entry.version)
-        {
+        if if_remove_version(version_entry) {
             // TODO(JP) should if the version is absent from versions.json but the files do exist, should probably remove them anyway
             let version_path = project_path.join(&version_entry.version);
             version_entry.status = Status::Removed;
@@ -129,8 +151,7 @@ fn remove_versions<F: Fn(&str) -> bool>(
             // the version is specified as removed
             overwrite_file(versions_file, versions_path, &versions_str)?;
             wrapfs::remove_dir_all(version_path)?;
-            removed += 1;
         }
     }
-    Ok(removed)
+    Ok(())
 }

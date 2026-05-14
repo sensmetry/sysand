@@ -12,10 +12,12 @@ use camino::Utf8Path;
 mod add;
 mod init;
 mod remove;
+mod yank;
 
 pub use add::do_index_add;
 pub use init::do_index_init;
 pub use remove::do_index_remove;
+pub use yank::do_index_yank;
 
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -44,8 +46,10 @@ pub const META_FILE_NAME: &str = ".meta.json";
 //     project_path.join(version.as_ref()).join("project.kpar")
 // }
 
+pub(crate) const NOT_AN_INDEX_MESSAGE: &str = "current directory is not an index as it doesn't have index.json file; make sure you run `sysand index init` in this directory before adding any packages";
+
 #[derive(Error, Debug)]
-pub enum JsonFileError {
+pub(crate) enum JsonFileError {
     #[error(transparent)]
     FileDoesNotExist(Box<FsIoError>),
     #[error(transparent)]
@@ -57,11 +61,10 @@ pub enum JsonFileError {
         source: serde_json::Error,
     },
 }
-pub(crate) fn open_json_file<P: AsRef<Utf8Path>, T: Default + Serialize + DeserializeOwned>(
-    path: P,
+pub(crate) fn open_json_file<T: Default + Serialize + DeserializeOwned>(
+    path: &Utf8Path,
     create: bool,
 ) -> Result<(File, T), JsonFileError> {
-    let path = path.as_ref();
     // if let Some(dir) = path.parent() {
     //     wrapfs::create_dir_all(dir).map_err(|e| JsonFileError::CreateDirectory {
     //         path: path.as_str().into(),
