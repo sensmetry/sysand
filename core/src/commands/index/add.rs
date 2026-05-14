@@ -62,6 +62,10 @@ pub enum IndexAddError {
         #[source]
         source: semver::Error,
     },
+    #[error("Project {iri} is removed so no new version can be added")]
+    ProjectRemoved { iri: Box<str> },
+    #[error("Two projects with iri {iri} found in {INDEX_FILE_NAME}")]
+    DuplicateProject { iri: Box<str> },
     #[error("`{versions_path}` contains invalid semantic version {version}")]
     InvalidExistingVersion {
         version: String,
@@ -147,6 +151,34 @@ pub fn do_index_add<P: AsRef<Utf8Path>, I: AsRef<str>>(
     let iri = parsed_iri.clone().to_iri();
     let project_path: Utf8PathBuf = parsed_iri.to_path_segments().iter().collect();
 
+    let project_entries: Vec<_> = index_value
+        .projects
+        .iter()
+        .filter_map(|p| if p.iri == iri { Some(p) } else { None })
+        .collect();
+    let is_project_new = match project_entries[..] {
+        [] => {
+            index_value.projects.push(IndexProject {
+                iri: iri.to_string(),
+                status: ProjectStatus::Available,
+            });
+            true
+        }
+        [
+            IndexProject {
+                status: ProjectStatus::Available,
+                ..
+            },
+        ] => false,
+        [
+            IndexProject {
+                status: ProjectStatus::Removed,
+                ..
+            },
+        ] => return Err(IndexAddError::ProjectRemoved { iri: iri.into() }),
+        [_, _, ..] => return Err(IndexAddError::DuplicateProject { iri: iri.into() }),
+    };
+
     let version: &str = &info.version;
     let sem_ver = Version::from_str(version).map_err(|e| IndexAddError::InvalidKparVersion {
         version: version.into(),
@@ -158,14 +190,6 @@ pub fn do_index_add<P: AsRef<Utf8Path>, I: AsRef<str>>(
     let meta_str = to_json_string(&meta);
 
     wrapfs::create_dir_all(&project_path)?;
-
-    let is_project_new = index_value.projects.iter().all(|p| p.iri != iri);
-    if is_project_new {
-        index_value.projects.push(IndexProject {
-            iri: iri.to_string(),
-            status: ProjectStatus::Available,
-        });
-    }
 
     let versions_path = project_path.join(VERSIONS_FILE_NAME);
     let (versions_file, mut versions_value) =
