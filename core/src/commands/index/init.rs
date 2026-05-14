@@ -6,7 +6,7 @@ use std::{
     io::{ErrorKind, Write},
 };
 
-use camino::Utf8PathBuf;
+use camino::Utf8Path;
 use thiserror::Error;
 
 use crate::{
@@ -29,13 +29,13 @@ pub enum IndexInitError {
 //     }
 // }
 
-pub fn do_index_init() -> Result<(), IndexInitError> {
+pub fn do_index_init<R: AsRef<Utf8Path>>(index_root: R) -> Result<(), IndexInitError> {
     let creating = "Creating";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{creating:>12}{header:#} index");
     let index = IndexJson { projects: vec![] };
     let index_str = to_json_string(&index);
-    let index_path = Utf8PathBuf::from(INDEX_FILE_NAME);
+    let index_path = index_root.as_ref().join(INDEX_FILE_NAME);
     // TODO(JP): ask to review this
     let mut file = fs::File::create_new(&index_path).map_err(|err| match err.kind() {
         ErrorKind::AlreadyExists => IndexInitError::AlreadyExists,

@@ -95,17 +95,20 @@ impl From<JsonFileError> for IndexAddError {
     }
 }
 
+// TODO(JP): Ideally the same method would specify that digest is Sha256 and add sha256 prefix
 fn to_explicit_digest(digest: String) -> String {
     format!("sha256:{digest}")
 }
 
-pub fn do_index_add<P: AsRef<Utf8Path>, I: AsRef<str>>(
+pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
+    index_root: R,
     kpar_path: P,
     // The type is str, not Iri so that a better error can be reported in some cases
     // for example when the publisher contains a space
     iri: Option<I>,
 ) -> Result<(), IndexAddError> {
-    let index_path = Utf8PathBuf::from(INDEX_FILE_NAME);
+    let index_root = index_root.as_ref();
+    let index_path = index_root.join(INDEX_FILE_NAME);
     let (mut index_file, mut index_value) = open_json_file::<IndexJson>(&index_path, false)
         .map_err(|e| match e {
             JsonFileError::FileDoesNotExist(e) => IndexAddError::NotAnIndex(e),
@@ -150,8 +153,8 @@ pub fn do_index_add<P: AsRef<Utf8Path>, I: AsRef<str>>(
         }
     };
 
-    let iri = parsed_iri.clone().to_iri();
-    let project_path: Utf8PathBuf = parsed_iri.to_path_segments().iter().collect();
+    let iri = parsed_iri.get_iri();
+    let project_path = index_root.join(parsed_iri.get_path());
 
     let project_entries: Vec<_> = index_value
         .projects

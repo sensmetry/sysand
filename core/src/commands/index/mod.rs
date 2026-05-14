@@ -195,3 +195,7 @@ pub(crate) fn overwrite_file(
 //     // let versions_str = serde_json::to_string(value);
 //     // wrapfs::write(path, contents)
 // }
+
+#[cfg(test)]
+#[path = "./mod_tests.rs"]
+mod tests;

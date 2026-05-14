@@ -95,28 +95,28 @@ pub fn hash_uri<S: AsRef<str>>(uri: S) -> String {
     format!("{:x}", digest)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ParsedIri {
     Sysand { publisher: String, name: String },
     Other { normalized_iri: String },
 }
 
 impl ParsedIri {
-    pub fn to_path_segments(self) -> Vec<String> {
+    pub fn get_path(&self) -> String {
         match self {
-            ParsedIri::Sysand { publisher, name } => vec![publisher, name],
+            ParsedIri::Sysand { publisher, name } => format!("{publisher}/{name}"),
             ParsedIri::Other { normalized_iri } => {
-                vec![IRI_HASH_SEGMENT.to_string(), hash_uri(normalized_iri)]
+                format!("{IRI_HASH_SEGMENT}/{}", hash_uri(normalized_iri))
             }
         }
     }
 
-    pub fn to_iri(self) -> String {
+    pub fn get_iri(&self) -> String {
         match self {
             ParsedIri::Sysand { publisher, name } => {
                 format!("{}{}/{}", PKG_SYSAND_PREFIX, publisher, name)
             }
-            ParsedIri::Other { normalized_iri } => normalized_iri,
+            ParsedIri::Other { normalized_iri } => normalized_iri.clone(),
         }
     }
 }

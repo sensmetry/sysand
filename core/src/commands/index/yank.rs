@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use camino::Utf8PathBuf;
+use camino::Utf8Path;
 use thiserror::Error;
 
 use crate::{
@@ -46,11 +46,13 @@ impl From<JsonFileError> for IndexYankError {
     }
 }
 
-pub fn do_index_yank<I: AsRef<str>, V: AsRef<str>>(
+pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
+    index_root: R,
     iri: I,
     version: V,
 ) -> Result<(), IndexYankError> {
-    let index_path = Utf8PathBuf::from(INDEX_FILE_NAME);
+    let index_root = index_root.as_ref();
+    let index_path = index_root.join(INDEX_FILE_NAME);
     // This is here just to report an error in case this is not an index
     _ = open_json_file::<IndexJson>(&index_path, false).map_err(|e| match e {
         JsonFileError::FileDoesNotExist(e) => IndexYankError::NotAnIndex(e),
@@ -58,8 +60,8 @@ pub fn do_index_yank<I: AsRef<str>, V: AsRef<str>>(
     })?;
 
     let parsed_iri = parse_iri(iri.as_ref())?;
-    let iri = parsed_iri.clone().to_iri();
-    let project_path: Utf8PathBuf = parsed_iri.to_path_segments().iter().collect();
+    let iri = parsed_iri.get_iri();
+    let project_path = index_root.join(parsed_iri.get_path());
 
     let versions_path = project_path.join(VERSIONS_FILE_NAME);
     let (mut versions_file, mut versions_value) =

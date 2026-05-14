@@ -60,16 +60,8 @@ impl ResolvedEndpoints {
         iri: S,
     ) -> Result<url::Url, IndexEnvironmentError> {
         let parsed_iri = parse_iri(iri.as_ref())?;
-        let mut result = self.index_root.clone();
-        // Could also do something like this
-        // result
-        //     .path_segments_mut()?
-        //     .extend(parsed_iri.to_path_segments());
-        for mut segment in parsed_iri.to_path_segments() {
-            segment.push('/');
-            result = Self::url_join(&result, &segment)?;
-        }
-        Ok(result)
+        let path = parsed_iri.get_path();
+        Self::url_join(&self.index_root, &format!("{path}/"))
     }
 
     /// Per-version directory URL ending with a trailing slash, so that

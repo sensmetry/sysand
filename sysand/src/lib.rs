@@ -365,10 +365,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         },
         Command::Index { command } => match command {
-            cli::IndexCommand::Init => command_index_init(),
-            cli::IndexCommand::Add { kpar_path, iri } => command_index_add(kpar_path, iri),
-            cli::IndexCommand::Yank { iri, version } => command_index_yank(iri, version),
-            cli::IndexCommand::Remove { iri, version } => command_index_remove(iri, version),
+            cli::IndexCommand::Init => command_index_init(&ctx),
+            cli::IndexCommand::Add { kpar_path, iri } => command_index_add(kpar_path, iri, &ctx),
+            cli::IndexCommand::Yank { iri, version } => command_index_yank(iri, version, &ctx),
+            cli::IndexCommand::Remove { iri, version } => command_index_remove(iri, version, &ctx),
         },
         Command::Lock { resolution_opts } => {
             if let Some(project_root) = project_root {
