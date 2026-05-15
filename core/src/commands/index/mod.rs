@@ -62,12 +62,6 @@ pub(crate) fn open_json_file<T: Default + Serialize + DeserializeOwned>(
     path: &Utf8Path,
     create: bool,
 ) -> Result<(File, T), JsonFileError> {
-    // if let Some(dir) = path.parent() {
-    //     wrapfs::create_dir_all(dir).map_err(|e| JsonFileError::CreateDirectory {
-    //         path: path.as_str().into(),
-    //         source: e.into(),
-    //     })?;
-    // }
     let mut file = File::options()
         .create(create)
         .read(true)
@@ -112,87 +106,6 @@ pub(crate) fn overwrite_file(
     file.rewind().map_err(map_err)?;
     file.write_all(contents.as_bytes()).map_err(map_err)
 }
-
-// #[derive(Error, Debug)]
-// pub enum JsonFilePatchError {
-//     #[error("unable to create the directory for {path}")]
-//     CreateDirectory {
-//         path: Box<str>,
-//         #[source]
-//         source: Box<FsIoError>,
-//     },
-//     #[error(transparent)]
-//     Io(#[from] Box<FsIoError>),
-//     #[error("patching json {path} failed as the existing json is invalid")]
-//     InvalidExistingJson {
-//         path: Box<str>,
-//         #[source]
-//         source: serde_json::Error,
-//     },
-//     #[error("failed to serialize {path}")]
-//     Serialize {
-//         path: Box<str>,
-//         #[source]
-//         source: serde_json::Error,
-//     },
-// }
-
-// pub fn patch_json_file<P: AsRef<Utf8Path>, T: Default + Serialize + DeserializeOwned>(
-//     path: P,
-//     patch: fn(&mut T),
-// ) -> Result<(), JsonFilePatchError> {
-//     let path = path.as_ref();
-//     if let Some(dir) = path.parent() {
-//         wrapfs::create_dir_all(dir).map_err(|e| JsonFilePatchError::CreateDirectory {
-//             path: path.as_str().into(),
-//             source: e.into(),
-//         })?;
-//     }
-//     let mut file = File::options()
-//         .create(true)
-//         .read(true)
-//         .write(true)
-//         .open(path)
-//         .map_err(|e| Box::new(FsIoError::OpenFile(path.to_owned(), e)))?;
-//     let mut file_contents;
-//     file.read_to_string(file_contents)
-//         .map_err(|e| Box::new(FsIoError::ReadFile(path.to_owned(), e)))?;
-//     let mut value = if file_contents.is_empty() {
-//         T::default()
-//     } else {
-//         serde_json::from_str(&file_contents).map_err(|e| {
-//             JsonFilePatchError::InvalidExistingJson {
-//                 path: path.as_str().into(),
-//                 source: e,
-//             }
-//         })?
-//     };
-//     patch(&mut value);
-//     let file_contents =
-//         serde_json::to_string_pretty(&value).map_err(|e| JsonFilePatchError::Serialize {
-//             path: path.as_str().into(),
-//             source: e,
-//         })?;
-//     file.write_all(file_contents.as_bytes())
-//         .map_err(|e| Box::new(FsIoError::WriteFile(path.to_owned(), e)))?;
-//     Ok(())
-//     // wrapfs::File::open(path)?;
-//     // if file.i
-
-//     // let path = path.as_ref();
-//     // let mut versions = match wrapfs::read_to_string(path) {
-//     //     Ok(versions_str) => serde_json::from_str(&versions_str).map_err(|e| {
-//     //         JsonFilePatchError::InvalidExistingJson {
-//     //             path: path.as_str().into(),
-//     //             source: e,
-//     //         }
-//     //     })?,
-//     //     Err(_) => T::default(),
-//     // };
-//     // patch(&mut versions);
-//     // let versions_str = serde_json::to_string(value);
-//     // wrapfs::write(path, contents)
-// }
 
 #[cfg(test)]
 #[path = "./mod_tests.rs"]
