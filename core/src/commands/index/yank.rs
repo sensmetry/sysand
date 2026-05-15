@@ -1,0 +1,134 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
+
+use camino::{Utf8Path, Utf8PathBuf};
+use thiserror::Error;
+
+use crate::{
+    index::{
+        INDEX_FILE_NAME, JsonFileError, VERSIONS_FILE_NAME, open_json_file, overwrite_file,
+        to_json_string,
+    },
+    index_utils::{IndexJson, ParseIriError, VersionStatus, VersionsJson, parse_iri},
+    project::utils::{FsIoError, wrapfs},
+};
+
+#[derive(Debug, Error)]
+pub enum IndexYankError {
+    #[error("index root directory `{0}` not found")]
+    IndexRootNotFound(Utf8PathBuf),
+    #[error(
+        "directory `{index_root}` is not an index as it doesn't have {INDEX_FILE_NAME} file; make sure you run `sysand index init` in this directory before adding any packages"
+    )]
+    NotAnIndex {
+        index_root: Utf8PathBuf,
+        #[source]
+        source: Box<FsIoError>,
+    },
+    #[error("Project {iri} doesn't exist")]
+    ProjectNotFound { iri: Box<str> },
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
+    #[error("patching json `{path}` failed as the current contents are invalid")]
+    InvalidJsonFile {
+        path: Box<str>,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error(transparent)]
+    InvalidIri(#[from] ParseIriError),
+    #[error(
+        "{iri} version {version} is removed so it cannot be yanked; removed version can only stay removed"
+    )]
+    VersionRemoved { iri: Box<str>, version: String },
+    #[error("{iri} version {version} does not exist")]
+    VersionNotFound { iri: Box<str>, version: Box<str> },
+}
+
+pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
+    index_root: R,
+    iri: I,
+    version: V,
+) -> Result<(), IndexYankError> {
+    let index_root = index_root.as_ref();
+    if !wrapfs::is_dir(index_root)? {
+        return Err(IndexYankError::IndexRootNotFound(index_root.into()));
+    }
+    let index_path = index_root.join(INDEX_FILE_NAME);
+    // This is here for better error reporting
+    let (_, index_value) =
+        open_json_file::<IndexJson>(&index_path, false).map_err(|e| match e {
+            JsonFileError::FileDoesNotExist(e) => IndexYankError::NotAnIndex {
+                index_root: index_root.into(),
+                source: e,
+            },
+            _ => IndexYankError::from(e),
+        })?;
+
+    let parsed_iri = parse_iri(iri.as_ref())?;
+    let iri = parsed_iri.get_iri();
+    if index_value.projects.iter().all(|p| p.iri != iri) {
+        return Err(IndexYankError::ProjectNotFound { iri: iri.into() });
+    };
+    let project_path = index_root.join(parsed_iri.get_path());
+
+    let versions_path = project_path.join(VERSIONS_FILE_NAME);
+    let (mut versions_file, mut versions_value) =
+        open_json_file::<VersionsJson>(&versions_path, true)?;
+
+    let yanking = "Yanking";
+    let header = crate::style::get_style_config().header;
+
+    // Specifically don't report any errors if the version is not a valid semver,
+    // since if the project with invalid semver got in there somehow, it should
+    // be possible to yank
+    let version = version.as_ref();
+    log::info!("{header}{yanking:>12}{header:#} {iri} version {version}");
+
+    let mut yanked: usize = 0;
+    for i in 0..versions_value.versions.len() {
+        let version_entry = &mut versions_value.versions[i];
+        if version_entry.version == version {
+            yanked += 1;
+            match version_entry.status {
+                VersionStatus::Available => {
+                    version_entry.status = VersionStatus::Yanked;
+                    let versions_str = to_json_string(&versions_value);
+                    overwrite_file(&mut versions_file, &versions_path, &versions_str)?;
+                }
+                VersionStatus::Yanked => {
+                    log::warn!("{iri} version {version} is already yanked")
+                }
+                VersionStatus::Removed => {
+                    return Err(IndexYankError::VersionRemoved {
+                        iri: iri.into(),
+                        version: version.to_string(),
+                    });
+                }
+            }
+        }
+    }
+    match yanked {
+        0 => Err(IndexYankError::VersionNotFound {
+            iri: iri.into(),
+            version: version.into(),
+        }),
+        1 => Ok(()),
+        2.. => {
+            log::warn!("{iri} had duplicate versions {version}, all are yanked");
+            Ok(())
+        }
+    }
+}
+
+impl From<JsonFileError> for IndexYankError {
+    fn from(value: JsonFileError) -> Self {
+        match value {
+            JsonFileError::FileDoesNotExist(e) => IndexYankError::Io(e),
+            JsonFileError::Io(e) => IndexYankError::Io(e),
+            JsonFileError::InvalidJsonFile { path, source } => {
+                IndexYankError::InvalidJsonFile { path, source }
+            }
+        }
+    }
+}

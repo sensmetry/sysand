@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::io::Write as _;
+use std::{
+    fs,
+    io::{Read, Write as _},
+};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::{Utf8TempDir, tempdir};
-use sha2::Digest as _;
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use typed_path::{Utf8Component, Utf8UnixPath};
 use zip::ZipArchive;
@@ -151,6 +154,7 @@ impl<ReadError> From<FsIoError> for IntoKparError<ReadError> {
 }
 
 impl LocalKParProject {
+    /// path should be absolute
     pub fn new<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
         path: P,
         root: Q,
@@ -162,6 +166,8 @@ impl LocalKParProject {
             root: Some(root.to_path_buf()),
         })
     }
+
+    /// path should be absolute
     pub fn new_nominal<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>, N: AsRef<Utf8Path>>(
         path: P,
         root: Q,
@@ -175,6 +181,7 @@ impl LocalKParProject {
         })
     }
 
+    /// path should be absolute
     pub fn new_guess_root<P: AsRef<Utf8Path>>(path: P) -> Result<Self, Box<FsIoError>> {
         Ok(LocalKParProject {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
@@ -184,6 +191,7 @@ impl LocalKParProject {
         })
     }
 
+    /// path should be absolute
     pub fn new_guess_root_nominal<P: AsRef<Utf8Path>, N: AsRef<Utf8Path>>(
         path: P,
         nominal: N,
@@ -277,11 +285,26 @@ impl LocalKParProject {
     }
 
     pub fn file_size(&self) -> Result<u64, LocalKParError> {
-        Ok(self
-            .new_file()?
-            .metadata()
+        Ok(fs::metadata(&self.archive_path)
             .map_err(FsIoError::MetadataHandle)?
             .len())
+    }
+
+    pub fn digest_sha256(&self) -> Result<String, LocalKParError> {
+        let mut file = self.new_file()?;
+        let mut buf = [0; 1024];
+        let mut hasher = Sha256::new();
+        loop {
+            let count = file
+                .read(&mut buf)
+                .map_err(|e| FsIoError::ReadFile(self.archive_path.clone(), e))?;
+            if count > 0 {
+                hasher.update(&buf[..count]);
+            } else {
+                break;
+            }
+        }
+        Ok(format!("{:x}", hasher.finalize()))
     }
 }
 

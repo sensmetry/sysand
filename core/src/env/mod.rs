@@ -4,8 +4,6 @@
 use std::{fmt::Debug, marker::Unpin, sync::Arc};
 
 use futures::{Stream, StreamExt};
-use sha2::Digest;
-
 use thiserror::Error;
 
 use crate::{
@@ -19,8 +17,6 @@ pub mod discovery;
 #[cfg(all(feature = "filesystem", feature = "networking"))]
 pub mod index;
 #[cfg(feature = "filesystem")]
-pub(crate) mod iri_normalize;
-#[cfg(feature = "filesystem")]
 pub mod local_directory;
 pub mod memory;
 pub mod null;
@@ -28,17 +24,6 @@ pub mod null;
 pub mod utils;
 
 pub const DEFAULT_ENV_NAME: &str = ".sysand";
-
-/// Get path segment(s) corresponding to the given `uri`
-pub fn segment_uri_generic<S: AsRef<str>, D: Digest>(uri: S) -> std::vec::IntoIter<String>
-where
-    digest::Output<D>: core::fmt::LowerHex,
-{
-    let mut hasher = D::new();
-    hasher.update(uri.as_ref());
-
-    vec![format!("{:x}", hasher.finalize())].into_iter()
-}
 
 pub trait ReadEnvironment {
     type ReadError: ErrorBound;

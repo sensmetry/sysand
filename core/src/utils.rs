@@ -18,9 +18,9 @@ pub mod scheme {
     pub const SCHEME_GIT_HTTP: &Scheme = Scheme::new_or_panic("git+http");
     #[cfg(all(feature = "filesystem", feature = "networking"))]
     pub const SCHEME_GIT_HTTPS: &Scheme = Scheme::new_or_panic("git+https");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "filesystem")]
     pub const SCHEME_HTTP: &Scheme = Scheme::new_or_panic("http");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "filesystem")]
     pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 }
 

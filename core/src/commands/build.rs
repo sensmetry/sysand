@@ -137,7 +137,7 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     #[error("{0}")]
     Extract(String),
     #[error(
-        "unknown file format of '{0}', only SysML v2 (.sysml) and KerML (.kerml) files are supported"
+        "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
     #[error("missing project info file `.project.json`")]

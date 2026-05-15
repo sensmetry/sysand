@@ -26,8 +26,7 @@ use std::{
 };
 
 use semver::Version;
-use serde::{Deserialize, de::DeserializeOwned};
-use sha2::Sha256;
+use serde::de::DeserializeOwned;
 use thiserror::Error;
 
 use crate::{
@@ -35,16 +34,12 @@ use crate::{
     env::{
         ReadEnvironmentAsync,
         discovery::{DiscoveryError, ResolvedEndpoints, fetch_index_config},
-        iri_normalize::canonicalize_iri,
-        segment_uri_generic,
     },
+    index_utils::{IndexJson, ParseIriError, ProjectStatus, VersionStatus, VersionsJson},
     model::InterchangeProjectUsageRaw,
     project::index_entry::{IndexEntryProject, IndexEntryProjectError},
-    purl::{SysandPurlError, parse_sysand_purl},
     resolve::net_utils::json_get_request,
 };
-
-const IRI_HASH_SEGMENT: &str = "_iri";
 
 /// Async HTTP client for the sysand index protocol.
 ///
@@ -185,28 +180,7 @@ pub(crate) struct AdvertisedVersion {
     pub(crate) project_digest: Sha256HexDigest,
     pub(crate) kpar_size: NonZeroU64,
     pub(crate) kpar_digest: Sha256HexDigest,
-    pub(crate) status: Status,
-}
-
-/// Retirement state of a `versions.json` entry; see the index protocol for
-/// the wire contract and transition rules. An omitted `status` parses as
-/// [`Status::Available`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, serde::Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Status {
-    #[default]
-    Available,
-    Yanked,
-    Removed,
-}
-
-impl Status {
-    /// Predicate for `#[serde(skip_serializing_if = "...")]` so emitters
-    /// drop `status` when it would round-trip as the default.
-    #[allow(dead_code)]
-    pub(crate) fn is_available(&self) -> bool {
-        matches!(self, Status::Available)
-    }
+    pub(crate) status: VersionStatus,
 }
 
 #[derive(Error, Debug)]
@@ -262,18 +236,8 @@ pub enum IndexEnvironmentError {
     },
     #[error("versions.json at `{url}` lists version `{version}` more than once")]
     DuplicateVersion { url: Box<str>, version: String },
-    #[error("malformed `pkg:sysand` IRI `{iri}`: {source}")]
-    MalformedSysandPurl {
-        iri: String,
-        #[source]
-        source: SysandPurlError,
-    },
-    #[error("cannot canonicalize IRI `{iri}` for `_iri` bucket: {source}")]
-    MalformedIri {
-        iri: String,
-        #[source]
-        source: super::iri_normalize::IriNormalizeError,
-    },
+    #[error(transparent)]
+    MalformedIri(#[from] ParseIriError),
     #[error(transparent)]
     Project(#[from] Box<IndexEntryProjectError>),
 }
@@ -367,87 +331,6 @@ pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
             url: url.as_str().into(),
             source,
         })
-}
-
-/// Top-level `index.json` — the list of every project IRI the index knows
-/// about. Used by `uris_async` for list-all enumeration. Per-project version
-/// data lives in `versions.json`.
-#[derive(Debug, Deserialize)]
-struct IndexJson {
-    projects: Vec<IndexProject>,
-}
-
-#[derive(Debug, Deserialize)]
-struct IndexProject {
-    iri: String,
-    #[serde(default)]
-    status: ProjectStatus,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum ProjectStatus {
-    #[default]
-    Available,
-    Removed,
-}
-
-/// Per-project `versions.json`: enough to enumerate candidates and
-/// verify archives without downloading first. The publish-time artifact
-/// metadata (`project_digest`, `kpar_size`, `kpar_digest`) lets the
-/// client populate the lockfile lazily; `.project.json` / `.meta.json`
-/// are only fetched once a specific version is materialized, and the
-/// client reconciles them against these digests before exposing either.
-#[derive(Debug, Clone, Deserialize)]
-pub(crate) struct VersionsJson {
-    versions: Vec<VersionEntry>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct VersionEntry {
-    version: String,
-    /// Required so the solver can run on `versions.json` alone, without
-    /// fetching each candidate's `.project.json`.
-    usage: Vec<InterchangeProjectUsageRaw>,
-    /// Canonical project digest (sha256 over canonicalized info+meta),
-    /// used to populate the lockfile checksum without downloading the kpar.
-    project_digest: String,
-    /// Byte length of the kpar archive; lets `sources_async` skip a HEAD.
-    kpar_size: NonZeroU64,
-    /// Digest of the kpar archive bytes, verified against the streamed
-    /// body when the archive is downloaded.
-    kpar_digest: String,
-    /// Retirement state (§8). Optional on the wire; an omitted field
-    /// deserializes as [`Status::Available`].
-    #[serde(default)]
-    status: Status,
-}
-
-/// Map an IRI to the index path segments that locate its project directory.
-/// The detailed wire mapping is specified in `docs/src/index-protocol.md`;
-/// this function keeps malformed `pkg:sysand/...` IRIs out of the generic
-/// `_iri/<hash>/` bucket so user typos fail loudly.
-pub(crate) fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironmentError> {
-    match parse_sysand_purl(iri) {
-        Ok(Some((publisher, name))) => Ok(vec![publisher.to_string(), name.to_string()]),
-        Ok(None) => {
-            let malformed = |source| IndexEnvironmentError::MalformedIri {
-                iri: iri.to_string(),
-                source,
-            };
-            let parsed = fluent_uri::Iri::parse(iri)
-                .map_err(|e| malformed(super::iri_normalize::IriNormalizeError::Parse(e)))?;
-            let normalized = canonicalize_iri(parsed).map_err(malformed)?;
-            let hash = segment_uri_generic::<_, Sha256>(normalized.as_str())
-                .next()
-                .expect("segment_uri_generic always yields one segment");
-            Ok(vec![IRI_HASH_SEGMENT.to_string(), hash])
-        }
-        Err(source) => Err(IndexEnvironmentError::MalformedSysandPurl {
-            iri: iri.to_string(),
-            source,
-        }),
-    }
 }
 
 impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
@@ -658,7 +541,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         let versions: Vec<Result<String, IndexEnvironmentError>> = vs
             .iter()
             .filter(|e| {
-                if e.status == Status::Available {
+                if e.status == VersionStatus::Available {
                     true
                 } else {
                     log::debug!(
@@ -722,7 +605,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         // A `removed` entry's per-version files are intentionally absent.
         // Refuse before issuing the fetch. `yanked` entries stay reachable
         // here; they are excluded from new resolutions at `versions_async`.
-        if advertised.status == Status::Removed {
+        if advertised.status == VersionStatus::Removed {
             return Err(IndexEnvironmentError::VersionRemoved {
                 url: versions_url.as_str().into(),
                 iri: uri.as_ref().to_string(),
