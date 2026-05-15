@@ -294,6 +294,7 @@ fn write_kpar(
 
     let options = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
+        .system(zip::System::Unix)
         .last_modified_time(DateTime::DEFAULT);
 
     println!("{}", serde_json::to_string(&info).unwrap());
