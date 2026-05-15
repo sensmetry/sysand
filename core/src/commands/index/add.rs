@@ -9,8 +9,8 @@ use thiserror::Error;
 
 use crate::{
     index::{
-        INDEX_FILE_NAME, JsonFileError, KPAR_FILE_NAME, META_FILE_NAME, VERSIONS_FILE_NAME,
-        open_json_file, overwrite_file, to_json_string,
+        INDEX_FILE_NAME, INFO_FILE_NAME, JsonFileError, KPAR_FILE_NAME, META_FILE_NAME,
+        VERSIONS_FILE_NAME, open_json_file, overwrite_file, to_json_string,
     },
     index_utils::{
         IndexJson, IndexProject, ParseIriError, ParsedIri, ProjectStatus, VersionEntry,
@@ -40,9 +40,9 @@ pub enum IndexAddError {
         #[source]
         source: serde_json::Error,
     },
-    #[error(".project.json file is missing from KPAR `{0}`")]
+    #[error("{INFO_FILE_NAME} file is missing from KPAR `{0}`")]
     MissingInfo(Utf8PathBuf),
-    #[error(".meta.json file is missing from the KPAR `{0}`")]
+    #[error("{META_FILE_NAME} file is missing from the KPAR `{0}`")]
     MissingMeta(Utf8PathBuf),
     #[error("failed to compute project digest")]
     ProjectDigest(#[from] CanonicalizationError<LocalKParError>),
@@ -50,18 +50,18 @@ pub enum IndexAddError {
     ProjectRead(#[from] LocalKParError),
     #[error(transparent)]
     InvalidIri(#[from] ParseIriError),
-    #[error("invalid publisher `{publisher}` in .project.json of KPAR {kpar_path}")]
+    #[error("invalid publisher `{publisher}` in {INFO_FILE_NAME} of KPAR {kpar_path}")]
     InvalidPublisherInProject {
         publisher: String,
         kpar_path: Utf8PathBuf,
     },
-    #[error("invalid name `{name}` in .project.json of KPAR {kpar_path}")]
+    #[error("invalid name `{name}` in {INFO_FILE_NAME} of KPAR {kpar_path}")]
     InvalidNameInProject {
         name: String,
         kpar_path: Utf8PathBuf,
     },
     #[error(
-        "{iri} specifies project name {iri_name}, which must be the same as normalized name {normalized_name} from .project.json"
+        "{iri} specifies project name {iri_name}, which must be the same as normalized name {normalized_name} from {INFO_FILE_NAME}"
     )]
     InconsistentName {
         iri: Box<str>,
@@ -69,7 +69,7 @@ pub enum IndexAddError {
         normalized_name: Box<str>,
     },
     #[error(
-        "{iri} specifies project publisher {iri_publisher}, which must be the same as normalized publisher {normalized_publisher} from .project.json (if the latter is present)"
+        "{iri} specifies project publisher {iri_publisher}, which must be the same as normalized publisher {normalized_publisher} from {INFO_FILE_NAME} (if the latter is present)"
     )]
     InconsistentPublisher {
         iri: Box<str>,
@@ -77,10 +77,10 @@ pub enum IndexAddError {
         normalized_publisher: Box<str>,
     },
     #[error(
-        "unable to construct project path, for that either .project.json needs to specify publisher, or iri needs to be provided"
+        "unable to construct project path, for that either {INFO_FILE_NAME} needs to specify publisher, or iri needs to be provided"
     )]
     MissingPublisherAndIri,
-    #[error(".meta.json in KPAR {kpar_path} contains invalid semantic version {version}")]
+    #[error("{META_FILE_NAME} in KPAR {kpar_path} contains invalid semantic version {version}")]
     InvalidKparVersion {
         version: Box<str>,
         kpar_path: Utf8PathBuf,
@@ -139,11 +139,10 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     let Some(meta) = local_project.get_meta()? else {
         return Err(IndexAddError::MissingMeta(kpar_path_abs));
     };
-    let project_digest = to_explicit_digest(
-        local_project
-            .checksum_canonical_hex()?
-            .expect("This should only be None when .project.json or .meta.json is missing"),
-    );
+    let project_digest =
+        to_explicit_digest(local_project.checksum_canonical_hex()?.unwrap_or_else(|| {
+            panic!("This should only be None when {INFO_FILE_NAME} or {META_FILE_NAME} is missing")
+        }));
 
     let parsed_iri = match (iri, &info.publisher) {
         (Some(iri), publisher) => {
@@ -299,9 +298,8 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     let version_path = project_path.join(version);
     wrapfs::create_dir(&version_path)?;
 
-    // (try nuking) TODO(JP)(review): probably want to nuke the version dir if any of these fail
     wrapfs::copy(kpar_path, version_path.join(KPAR_FILE_NAME))?;
-    wrapfs::write(version_path.join(INDEX_FILE_NAME), info_str)?;
+    wrapfs::write(version_path.join(INFO_FILE_NAME), info_str)?;
     wrapfs::write(version_path.join(META_FILE_NAME), meta_str)?;
 
     overwrite_file(&mut versions_file, &versions_path, &versions_str)?;
