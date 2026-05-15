@@ -79,4 +79,3 @@ mockito = "1.7.2"
 port_check = "0.3.0"
 predicates = "3.1.4"
 tempfile = { version = "3.26.0", default-features = false }
-zip = "8.0.0"
