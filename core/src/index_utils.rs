@@ -24,7 +24,7 @@ pub(crate) struct IndexJson {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct IndexProject {
     pub(crate) iri: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub(crate) status: ProjectStatus,
 }
 
@@ -75,7 +75,7 @@ pub(crate) struct VersionEntry {
     pub(crate) kpar_digest: String,
     /// Retirement state (§8). Optional on the wire; an omitted field
     /// deserializes as [`Status::Available`].
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub(crate) status: VersionStatus,
 }
 
@@ -162,4 +162,8 @@ pub fn parse_iri(iri: &str) -> Result<ParsedIri, ParseIriError> {
             source,
         }),
     }
+}
+
+fn is_default<T: Default + PartialEq>(t: &T) -> bool {
+    *t == T::default()
 }
