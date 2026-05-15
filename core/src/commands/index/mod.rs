@@ -29,22 +29,6 @@ pub const KPAR_FILE_NAME: &str = "project.kpar";
 pub const INFO_FILE_NAME: &str = ".project.json";
 pub const META_FILE_NAME: &str = ".meta.json";
 
-// pub fn index_path() -> Utf8PathBuf {
-//     Utf8PathBuf::from(INDEX_PATH)
-// }
-
-// pub fn versions_path(project_path: &Utf8Path) -> Utf8PathBuf {
-//     project_path.join("versions.json")
-// }
-
-// pub fn project_dir<S: AsRef<str>>(project_path: &Utf8Path, version: S) -> Utf8PathBuf {
-//     project_path.join(version.as_ref()).join("project.kpar")
-// }
-
-// pub fn index_kpar_path<S: AsRef<str>>(project_path: &Utf8Path, version: S) -> Utf8PathBuf {
-//     project_path.join(version.as_ref()).join("project.kpar")
-// }
-
 #[derive(Error, Debug)]
 pub(crate) enum JsonFileError {
     #[error(transparent)]
