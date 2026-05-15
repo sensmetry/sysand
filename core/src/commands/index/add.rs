@@ -32,7 +32,6 @@ pub enum IndexAddError {
         "current directory is not an index as it doesn't have {INDEX_FILE_NAME} file; make sure you run `sysand index init` in this directory before adding any packages"
     )]
     NotAnIndex(#[source] Box<FsIoError>),
-    // TODO(JP): might want to make these more specific
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("patching json `{path}` failed as the current contents are invalid")]
@@ -101,7 +100,6 @@ pub enum IndexAddError {
     },
     #[error("file `{path} contains duplicate version {version}")]
     DuplicateVersion { version: String, path: Utf8PathBuf },
-    // TODO(JP): include the iri of the project here and look through other errors if need to do the same
     #[error("{iri} version {version} already exists")]
     VersionAlreadyExists { iri: Box<str>, version: Version },
     #[error(
@@ -301,7 +299,7 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     let version_path = project_path.join(version);
     wrapfs::create_dir(&version_path)?;
 
-    // TODO(JP): probably want to nuke the version dir if any of these fail
+    // (try nuking) TODO(JP)(review): probably want to nuke the version dir if any of these fail
     wrapfs::copy(kpar_path, version_path.join(KPAR_FILE_NAME))?;
     wrapfs::write(version_path.join(INDEX_FILE_NAME), info_str)?;
     wrapfs::write(version_path.join(META_FILE_NAME), meta_str)?;
@@ -326,7 +324,6 @@ impl From<JsonFileError> for IndexAddError {
     }
 }
 
-// TODO(JP): Ideally the same method would specify that digest is Sha256 and add sha256 prefix
 fn to_explicit_digest(digest: String) -> String {
     format!("sha256:{digest}")
 }

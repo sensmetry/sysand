@@ -101,9 +101,10 @@ pub(crate) fn overwrite_file(
     contents: &str,
 ) -> Result<(), Box<FsIoError>> {
     let map_err = |e| Box::new(FsIoError::WriteFile(path.into(), e));
-    // TODO(JP): ask if all these are necessary to override the current file contents
-    file.set_len(0).map_err(map_err)?;
+    // Without this the new content would be appended to the end of the file if the file was read first
     file.rewind().map_err(map_err)?;
+    // Without this if the file was longer previously, only the start of it would be overwritten
+    file.set_len(0).map_err(map_err)?;
     file.write_all(contents.as_bytes()).map_err(map_err)
 }
 

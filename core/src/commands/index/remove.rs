@@ -30,7 +30,8 @@ pub enum IndexRemoveError {
         #[source]
         source: Box<FsIoError>,
     },
-    // TODO(JP): might want to make these more specific
+    #[error("Project {iri} doesn't exist")]
+    ProjectNotFound { iri: Box<str> },
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("patching json `{path}` failed as the current contents are invalid")]
@@ -66,6 +67,15 @@ pub fn do_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
 
     let parsed_iri = parse_iri(iri.as_ref())?;
     let iri = parsed_iri.get_iri();
+    let Some(project_entry) = index_value.projects.iter_mut().find(|p| p.iri == iri) else {
+        return Err(IndexRemoveError::ProjectNotFound { iri: iri.into() });
+    };
+    if project_entry.status == ProjectStatus::Removed {
+        log::warn!("{iri} is already removed");
+    } else {
+        project_entry.status = ProjectStatus::Removed;
+    }
+    let index_str = to_json_string(&index_value);
     let project_path = index_root.join(parsed_iri.get_path());
 
     let versions_path = project_path.join(VERSIONS_FILE_NAME);
@@ -81,7 +91,7 @@ pub fn do_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
             // be possible to remove
             let version = version.as_ref();
             log::info!("{header}{removing:>12}{header:#} {iri} version {version}");
-            let mut removed: usize = 0;
+            let mut version_found: bool = false;
             remove_versions(
                 &project_path,
                 &versions_path,
@@ -89,7 +99,7 @@ pub fn do_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
                 &mut versions_value,
                 |v| {
                     if v.version == version {
-                        removed += 1;
+                        version_found = true;
                         if matches!(v.status, VersionStatus::Removed) {
                             log::warn!("{iri} version {version} is already removed");
                             false
@@ -101,19 +111,13 @@ pub fn do_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
                     }
                 },
             )?;
-            match removed {
-                0 => Err(IndexRemoveError::VersionNotFound {
+            if version_found {
+                Ok(())
+            } else {
+                Err(IndexRemoveError::VersionNotFound {
                     iri: iri.into(),
                     version: version.into(),
-                }),
-                1 => Ok(()),
-                // TODO(JP): this is actually impossible. If the same version appears multiple times
-                // in versions.json, upon trying to remove the version directory the second time IO error
-                // would be raised
-                2.. => {
-                    log::warn!("{iri} had duplicate versions {version}, all are removed");
-                    Ok(())
-                }
+                })
             }
         }
         None => {
@@ -125,13 +129,6 @@ pub fn do_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
                 &mut versions_value,
                 |v| !matches!(v.status, VersionStatus::Removed),
             )?;
-            // TODO(JP) report a warning if no such project was removed or if more than one was removed
-            for project in index_value.projects.iter_mut() {
-                if project.iri == iri {
-                    project.status = ProjectStatus::Removed;
-                }
-            }
-            let index_str = to_json_string(&index_value);
             overwrite_file(&mut index_file, &index_path, &index_str)?;
             Ok(())
         }
@@ -160,14 +157,10 @@ fn remove_versions<F: FnMut(&VersionEntry) -> bool>(
     for i in 0..versions_value.versions.len() {
         let version_entry = &mut versions_value.versions[i];
         if if_remove_version(version_entry) {
-            // TODO(JP) should if the version is absent from versions.json but the files do exist, should probably remove them anyway
             let version_path = project_path.join(&version_entry.version);
             version_entry.status = VersionStatus::Removed;
 
             let versions_str = to_json_string(&versions_value);
-            // TODO(JP): ask about this. It's not ideal to re-serialize versions and write the whole
-            // thing to file every time, but I would like to actually remove the files only when
-            // the version is specified as removed
             overwrite_file(versions_file, versions_path, &versions_str)?;
             wrapfs::remove_dir_all(version_path)?;
         }

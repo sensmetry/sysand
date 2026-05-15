@@ -25,7 +25,8 @@ pub enum IndexYankError {
         #[source]
         source: Box<FsIoError>,
     },
-    // TODO(JP): might want to make these more specific
+    #[error("Project {iri} doesn't exist")]
+    ProjectNotFound { iri: Box<str> },
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error("patching json `{path}` failed as the current contents are invalid")]
@@ -54,17 +55,21 @@ pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
         return Err(IndexYankError::IndexRootNotFound(index_root.into()));
     }
     let index_path = index_root.join(INDEX_FILE_NAME);
-    // This is here just to report an error in case this is not an index
-    _ = open_json_file::<IndexJson>(&index_path, false).map_err(|e| match e {
-        JsonFileError::FileDoesNotExist(e) => IndexYankError::NotAnIndex {
-            index_root: index_root.into(),
-            source: e,
-        },
-        _ => IndexYankError::from(e),
-    })?;
+    // This is here for better error reporting
+    let (_, index_value) =
+        open_json_file::<IndexJson>(&index_path, false).map_err(|e| match e {
+            JsonFileError::FileDoesNotExist(e) => IndexYankError::NotAnIndex {
+                index_root: index_root.into(),
+                source: e,
+            },
+            _ => IndexYankError::from(e),
+        })?;
 
     let parsed_iri = parse_iri(iri.as_ref())?;
     let iri = parsed_iri.get_iri();
+    if index_value.projects.iter().all(|p| p.iri != iri) {
+        return Err(IndexYankError::ProjectNotFound { iri: iri.into() });
+    };
     let project_path = index_root.join(parsed_iri.get_path());
 
     let versions_path = project_path.join(VERSIONS_FILE_NAME);
@@ -89,9 +94,6 @@ pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
                 VersionStatus::Available => {
                     version_entry.status = VersionStatus::Yanked;
                     let versions_str = to_json_string(&versions_value);
-                    // TODO(JP): ask about this. It's not ideal to re-serialize versions and write the whole
-                    // thing to file every time, but I would like to actually remove the files only when
-                    // the version is specified as removed
                     overwrite_file(&mut versions_file, &versions_path, &versions_str)?;
                 }
                 VersionStatus::Yanked => {
