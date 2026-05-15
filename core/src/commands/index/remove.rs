@@ -43,18 +43,6 @@ pub enum IndexRemoveError {
     VersionNotFound { iri: Box<str>, version: Box<str> },
 }
 
-impl From<JsonFileError> for IndexRemoveError {
-    fn from(value: JsonFileError) -> Self {
-        match value {
-            JsonFileError::FileDoesNotExist(e) => IndexRemoveError::Io(e),
-            JsonFileError::Io(e) => IndexRemoveError::Io(e),
-            JsonFileError::InvalidJsonFile { path, source } => {
-                IndexRemoveError::InvalidJsonFile { path, source }
-            }
-        }
-    }
-}
-
 pub fn do_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
     index_root: R,
     iri: I,
@@ -141,6 +129,18 @@ pub fn do_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
             let index_str = to_json_string(&index_value);
             overwrite_file(&mut index_file, &index_path, &index_str)?;
             Ok(())
+        }
+    }
+}
+
+impl From<JsonFileError> for IndexRemoveError {
+    fn from(value: JsonFileError) -> Self {
+        match value {
+            JsonFileError::FileDoesNotExist(e) => IndexRemoveError::Io(e),
+            JsonFileError::Io(e) => IndexRemoveError::Io(e),
+            JsonFileError::InvalidJsonFile { path, source } => {
+                IndexRemoveError::InvalidJsonFile { path, source }
+            }
         }
     }
 }

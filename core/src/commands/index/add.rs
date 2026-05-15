@@ -112,23 +112,6 @@ pub enum IndexAddError {
     VersionRemoved { iri: Box<str>, version: Version },
 }
 
-impl From<JsonFileError> for IndexAddError {
-    fn from(value: JsonFileError) -> Self {
-        match value {
-            JsonFileError::FileDoesNotExist(e) => IndexAddError::Io(e),
-            JsonFileError::Io(e) => IndexAddError::Io(e),
-            JsonFileError::InvalidJsonFile { path, source } => {
-                IndexAddError::InvalidJsonFile { path, source }
-            }
-        }
-    }
-}
-
-// TODO(JP): Ideally the same method would specify that digest is Sha256 and add sha256 prefix
-fn to_explicit_digest(digest: String) -> String {
-    format!("sha256:{digest}")
-}
-
 pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     index_root: R,
     kpar_path: P,
@@ -326,6 +309,23 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     }
 
     Ok(())
+}
+
+impl From<JsonFileError> for IndexAddError {
+    fn from(value: JsonFileError) -> Self {
+        match value {
+            JsonFileError::FileDoesNotExist(e) => IndexAddError::Io(e),
+            JsonFileError::Io(e) => IndexAddError::Io(e),
+            JsonFileError::InvalidJsonFile { path, source } => {
+                IndexAddError::InvalidJsonFile { path, source }
+            }
+        }
+    }
+}
+
+// TODO(JP): Ideally the same method would specify that digest is Sha256 and add sha256 prefix
+fn to_explicit_digest(digest: String) -> String {
+    format!("sha256:{digest}")
 }
 
 fn normalize_publisher(publisher: &str, kpar_path: &Utf8Path) -> Result<String, IndexAddError> {

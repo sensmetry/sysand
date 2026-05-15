@@ -42,18 +42,6 @@ pub enum IndexYankError {
     VersionNotFound { iri: Box<str>, version: Box<str> },
 }
 
-impl From<JsonFileError> for IndexYankError {
-    fn from(value: JsonFileError) -> Self {
-        match value {
-            JsonFileError::FileDoesNotExist(e) => IndexYankError::Io(e),
-            JsonFileError::Io(e) => IndexYankError::Io(e),
-            JsonFileError::InvalidJsonFile { path, source } => {
-                IndexYankError::InvalidJsonFile { path, source }
-            }
-        }
-    }
-}
-
 pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
     index_root: R,
     iri: I,
@@ -122,6 +110,18 @@ pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
         2.. => {
             log::warn!("{iri} had duplicate versions {version}, all are yanked");
             Ok(())
+        }
+    }
+}
+
+impl From<JsonFileError> for IndexYankError {
+    fn from(value: JsonFileError) -> Self {
+        match value {
+            JsonFileError::FileDoesNotExist(e) => IndexYankError::Io(e),
+            JsonFileError::Io(e) => IndexYankError::Io(e),
+            JsonFileError::InvalidJsonFile { path, source } => {
+                IndexYankError::InvalidJsonFile { path, source }
+            }
         }
     }
 }
