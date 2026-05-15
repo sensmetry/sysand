@@ -28,9 +28,11 @@ pub enum IndexYankError {
     },
     #[error(transparent)]
     InvalidIri(#[from] ParseIriError),
-    #[error("{iri} version {version} is removed so it cannot be yanked")]
+    #[error(
+        "{iri} version {version} is removed so it cannot be yanked; removed version can only stay removed"
+    )]
     VersionRemoved { iri: Box<str>, version: String },
-    #[error("{iri} version {version} does not exist; removed version can only stay removed")]
+    #[error("{iri} version {version} does not exist")]
     VersionNotFound { iri: Box<str>, version: Box<str> },
 }
 

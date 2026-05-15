@@ -45,6 +45,8 @@ fn test() {
     write_kpar(&kpar_path1, "dummy-publisher", "dummy-name", "1.2.3");
     let kpar_path2 = cwd.path().join("test2.kpar");
     write_kpar(&kpar_path2, "dummy-publisher", "dummy-name", "2.2.3");
+    let kpar_path3 = cwd.path().join("test3.kpar");
+    write_kpar(&kpar_path3, "dummy-publisher", "dummy-name", "3.2.3");
 
     do_index_init(&cwd).unwrap();
 
@@ -80,6 +82,29 @@ fn test() {
         assert!(
             matches!(add_result, IndexAddError::VersionRemoved { .. }),
             "this must be VersionRemoved error: {add_result}"
+        );
+    }
+    {
+        let yank_err = do_index_yank(&cwd, iri, "1.2.3").unwrap_err();
+        assert!(
+            matches!(yank_err, IndexYankError::VersionRemoved { .. }),
+            "this must be VersionRemoved error: {yank_err}"
+        );
+    }
+
+    do_index_remove::<_, _, &str>(&cwd, iri, None).unwrap();
+    {
+        let add_err = do_index_add::<_, _, &str>(&cwd, &kpar_path3, None).unwrap_err();
+        assert!(
+            matches!(add_err, IndexAddError::ProjectRemoved { .. }),
+            "this must be ProjectRemoved error: {add_err}"
+        );
+    }
+    {
+        let yank_err = do_index_yank(&cwd, iri, "2.2.3").unwrap_err();
+        assert!(
+            matches!(yank_err, IndexYankError::VersionRemoved { .. }),
+            "this must be VersionRemoved error: {yank_err}"
         );
     }
 }

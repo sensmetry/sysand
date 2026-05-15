@@ -205,16 +205,13 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     let str_to_semver: HashMap<String, Reverse<Version>> = versions_value
         .versions
         .iter()
-        .map(|v| {
-            println!("Version {}", v.version);
-            match Version::from_str(&v.version) {
-                Ok(other_semver) => Ok((v.version.clone(), Reverse(other_semver))),
-                Err(e) => Err(IndexAddError::InvalidExistingVersion {
-                    version: v.version.clone(),
-                    versions_path: versions_path.clone(),
-                    source: e,
-                }),
-            }
+        .map(|v| match Version::from_str(&v.version) {
+            Ok(other_semver) => Ok((v.version.clone(), Reverse(other_semver))),
+            Err(e) => Err(IndexAddError::InvalidExistingVersion {
+                version: v.version.clone(),
+                versions_path: versions_path.clone(),
+                source: e,
+            }),
         })
         .collect::<Result<_, _>>()?;
     let version_key = |v: &VersionEntry| str_to_semver.get(&v.version).unwrap();
