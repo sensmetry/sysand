@@ -45,8 +45,6 @@ pub const META_FILE_NAME: &str = ".meta.json";
 //     project_path.join(version.as_ref()).join("project.kpar")
 // }
 
-pub(crate) const NOT_AN_INDEX_MESSAGE: &str = "current directory is not an index as it doesn't have index.json file; make sure you run `sysand index init` in this directory before adding any packages";
-
 #[derive(Error, Debug)]
 pub(crate) enum JsonFileError {
     #[error(transparent)]

@@ -37,9 +37,7 @@ fn write_kpar(kpar_path: &Utf8Path, publisher: &str, name: &str, version: &str) 
 #[test]
 fn test() {
     let cwd = tempdir().unwrap();
-    // set_current_dir(&cwd).unwrap();
 
-    // dbg!(&cwd.path());
     let kpar_path1 = cwd.path().join("test1.kpar");
     let iri = "pkg:sysand/dummy-publisher/dummy-name";
     write_kpar(&kpar_path1, "dummy-publisher", "dummy-name", "1.2.3");

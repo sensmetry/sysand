@@ -19,7 +19,7 @@ use crate::{
 pub enum IndexInitError {
     #[error("`sysand index init` cannot be run on an existing index")]
     AlreadyExists,
-    #[error("failed to write index.json")]
+    #[error("failed to write {INDEX_FILE_NAME}")]
     WriteError(#[from] Box<FsIoError>),
 }
 

@@ -3,13 +3,13 @@
 
 use std::fs::File;
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
 use crate::{
     index::{
-        INDEX_FILE_NAME, JsonFileError, NOT_AN_INDEX_MESSAGE, VERSIONS_FILE_NAME, open_json_file,
-        overwrite_file, to_json_string,
+        INDEX_FILE_NAME, JsonFileError, VERSIONS_FILE_NAME, open_json_file, overwrite_file,
+        to_json_string,
     },
     index_utils::{
         IndexJson, ParseIriError, ProjectStatus, VersionEntry, VersionStatus, VersionsJson,
@@ -20,8 +20,14 @@ use crate::{
 
 #[derive(Debug, Error)]
 pub enum IndexRemoveError {
-    #[error("{NOT_AN_INDEX_MESSAGE}")]
-    NotAnIndex(#[source] Box<FsIoError>),
+    #[error(
+        "directory `{index_root}` is not an index as it doesn't have {INDEX_FILE_NAME} file; make sure you run `sysand index init` in this directory before adding any packages"
+    )]
+    NotAnIndex {
+        index_root: Utf8PathBuf,
+        #[source]
+        source: Box<FsIoError>,
+    },
     // TODO(JP): might want to make these more specific
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
@@ -58,7 +64,10 @@ pub fn do_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
     let index_path = index_root.join(INDEX_FILE_NAME);
     let (mut index_file, mut index_value) = open_json_file::<IndexJson>(&index_path, false)
         .map_err(|e| match e {
-            JsonFileError::FileDoesNotExist(e) => IndexRemoveError::NotAnIndex(e),
+            JsonFileError::FileDoesNotExist(e) => IndexRemoveError::NotAnIndex {
+                index_root: index_root.into(),
+                source: e,
+            },
             _ => IndexRemoveError::from(e),
         })?;
 
