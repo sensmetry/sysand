@@ -12,7 +12,7 @@ use thiserror::Error;
 use crate::{
     index::{INDEX_FILE_NAME, to_json_string},
     index_utils::IndexJson,
-    project::utils::FsIoError,
+    project::utils::{FsIoError, wrapfs},
 };
 
 #[derive(Error, Debug)]
@@ -29,6 +29,7 @@ pub fn do_index_init<R: AsRef<Utf8Path>>(index_root: R) -> Result<(), IndexInitE
     log::info!("{header}{creating:>12}{header:#} index");
     let index = IndexJson { projects: vec![] };
     let index_str = to_json_string(&index);
+    wrapfs::create_dir_all(index_root.as_ref())?;
     let index_path = index_root.as_ref().join(INDEX_FILE_NAME);
     // TODO(JP): ask to review this
     let mut file = fs::File::create_new(&index_path).map_err(|e| match e.kind() {

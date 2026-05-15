@@ -4,39 +4,36 @@
 use anyhow::Result;
 use camino::Utf8Path;
 
-use sysand_core::{
-    context::ProjectContext,
-    index::{do_index_add, do_index_init, do_index_remove, do_index_yank},
-};
+use sysand_core::index::{do_index_add, do_index_init, do_index_remove, do_index_yank};
 
-pub fn command_index_init(ctx: &ProjectContext) -> Result<()> {
-    do_index_init(&ctx.current_directory)?;
+pub fn command_index_init<R: AsRef<Utf8Path>>(index_root: R) -> Result<()> {
+    do_index_init(index_root)?;
     Ok(())
 }
 
-pub fn command_index_add<P: AsRef<Utf8Path>, I: AsRef<str>>(
+pub fn command_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
+    index_root: R,
     kpar_path: P,
     iri: Option<I>,
-    ctx: &ProjectContext,
 ) -> Result<()> {
-    do_index_add(&ctx.current_directory, kpar_path, iri)?;
+    do_index_add(index_root, kpar_path, iri)?;
     Ok(())
 }
 
-pub fn command_index_yank<I: AsRef<str>, V: AsRef<str>>(
+pub fn command_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
+    index_root: R,
     iri: I,
     version: V,
-    ctx: &ProjectContext,
 ) -> Result<()> {
-    do_index_yank(&ctx.current_directory, iri, version)?;
+    do_index_yank(index_root, iri, version)?;
     Ok(())
 }
 
-pub fn command_index_remove<I: AsRef<str>, V: AsRef<str>>(
+pub fn command_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
+    index_root: R,
     iri: I,
     version: Option<V>,
-    ctx: &ProjectContext,
 ) -> Result<()> {
-    do_index_remove(&ctx.current_directory, iri, version)?;
+    do_index_remove(index_root, iri, version)?;
     Ok(())
 }

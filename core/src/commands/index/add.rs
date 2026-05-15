@@ -26,6 +26,8 @@ use crate::{
 
 #[derive(Error, Debug)]
 pub enum IndexAddError {
+    #[error("index root directory `{0}` not found")]
+    IndexRootNotFound(Utf8PathBuf),
     #[error(
         "current directory is not an index as it doesn't have {INDEX_FILE_NAME} file; make sure you run `sysand index init` in this directory before adding any packages"
     )]
@@ -120,6 +122,9 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     iri: Option<I>,
 ) -> Result<(), IndexAddError> {
     let index_root = index_root.as_ref();
+    if !wrapfs::is_dir(index_root)? {
+        return Err(IndexAddError::IndexRootNotFound(index_root.into()));
+    }
     let index_path = index_root.join(INDEX_FILE_NAME);
     let (mut index_file, mut index_value) = open_json_file::<IndexJson>(&index_path, false)
         .map_err(|e| match e {

@@ -1385,13 +1385,21 @@ pub enum EnvCommand {
 pub enum IndexCommand {
     /// Initialize sysand index in the current directory
     #[clap(verbatim_doc_comment)]
-    Init,
+    Init {
+        /// Path to the index directory. If not provided, current working directory is used.
+        /// If the directory does not exist, it is created
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
+    },
     /// Add a KPAR to the sysand index rooted in the current directory
     #[clap(verbatim_doc_comment)]
     Add {
         kpar_path: Utf8PathBuf,
         #[arg(long)]
         iri: Option<String>,
+        /// Path to the index directory. If not provided, current working directory is used.
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
     },
     /// Yank a project version from the index rooted in the current
     /// directory
@@ -1400,6 +1408,9 @@ pub enum IndexCommand {
         iri: String,
         #[arg(long)]
         version: String,
+        /// Path to the index directory. If not provided, current working directory is used.
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
     },
     /// Remove a project or a specific version of a project from
     /// the index rooted in the current directory
@@ -1410,6 +1421,9 @@ pub enum IndexCommand {
         /// remove the whole project
         #[arg(long)]
         version: Option<String>,
+        /// Path to the index directory. If not provided, current working directory is used.
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
     },
 }
 
