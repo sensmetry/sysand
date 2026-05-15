@@ -39,12 +39,12 @@ fn test() {
     let cwd = tempdir().unwrap();
 
     let kpar_path1 = cwd.path().join("test1.kpar");
-    let iri = "pkg:sysand/dummy-publisher/dummy-name";
-    write_kpar(&kpar_path1, "dummy-publisher", "dummy-name", "1.2.3");
+    let iri = "pkg:sysand/dummy-publisher/dummy.name";
+    write_kpar(&kpar_path1, "Dummy Publisher", "dummy.Name", "1.2.3");
     let kpar_path2 = cwd.path().join("test2.kpar");
-    write_kpar(&kpar_path2, "dummy-publisher", "dummy-name", "2.2.3");
+    write_kpar(&kpar_path2, "Dummy publisher", "Dummy.name", "2.2.3");
     let kpar_path3 = cwd.path().join("test3.kpar");
-    write_kpar(&kpar_path3, "dummy-publisher", "dummy-name", "3.2.3");
+    write_kpar(&kpar_path3, "dummy Publisher", "dummy.name", "3.2.3");
 
     do_index_init(&cwd).unwrap();
 

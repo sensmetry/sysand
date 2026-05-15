@@ -21,7 +21,7 @@ use crate::{
         local_kpar::{LocalKParError, LocalKParProject},
         utils::{FsIoError, wrapfs},
     },
-    purl::{is_valid_unnormalized_name, is_valid_unnormalized_publisher},
+    purl::{is_valid_unnormalized_name, is_valid_unnormalized_publisher, normalize_field},
 };
 
 #[derive(Error, Debug)]
@@ -49,10 +49,32 @@ pub enum IndexAddError {
     ProjectRead(#[from] LocalKParError),
     #[error(transparent)]
     InvalidIri(#[from] ParseIriError),
-    #[error("invalid publisher in .project.json")]
-    InvalidPublisherInProject,
-    #[error("invalid name in .project.json")]
-    InvalidNameInProject,
+    #[error("invalid publisher `{publisher}` in .project.json of KPAR {kpar_path}")]
+    InvalidPublisherInProject {
+        publisher: String,
+        kpar_path: Utf8PathBuf,
+    },
+    #[error("invalid name `{name}` in .project.json of KPAR {kpar_path}")]
+    InvalidNameInProject {
+        name: String,
+        kpar_path: Utf8PathBuf,
+    },
+    #[error(
+        "{iri} specifies project name {iri_name}, which must be the same as normalized name {normalized_name} from .project.json"
+    )]
+    InconsistentName {
+        iri: Box<str>,
+        iri_name: String,
+        normalized_name: Box<str>,
+    },
+    #[error(
+        "{iri} specifies project publisher {iri_publisher}, which must be the same as normalized publisher {normalized_publisher} from .project.json (if the latter is present)"
+    )]
+    InconsistentPublisher {
+        iri: Box<str>,
+        iri_publisher: String,
+        normalized_publisher: Box<str>,
+    },
     #[error(
         "unable to construct project path, for that either .project.json needs to specify publisher, or iri needs to be provided"
     )]
@@ -122,7 +144,8 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
             _ => IndexAddError::from(e),
         })?;
 
-    let kpar_path_abs = wrapfs::absolute(&kpar_path)?;
+    let kpar_path = kpar_path.as_ref();
+    let kpar_path_abs = wrapfs::absolute(kpar_path)?;
     // TODO(JP)(review): do we want to allow root to be in non-standard place?
     let local_project =
         LocalKParProject::new_guess_root(&kpar_path_abs).map_err(LocalKParError::Io)?;
@@ -139,22 +162,39 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     );
 
     let parsed_iri = match (iri, &info.publisher) {
-        (Some(iri), _) => {
-            parse_iri(iri.as_ref())?
-            // TODO(JP) ensure the project name (and publisher if specified) match the IRI if normalized
+        (Some(iri), publisher) => {
+            let iri = iri.as_ref();
+            let parsed_iri = parse_iri(iri)?;
+            if let ParsedIri::Sysand {
+                publisher: iri_publisher,
+                name: iri_name,
+            } = &parsed_iri
+            {
+                if let Some(publisher) = publisher {
+                    let normalized_publisher = normalize_publisher(publisher, kpar_path)?;
+                    if *iri_publisher != normalized_publisher {
+                        return Err(IndexAddError::InconsistentPublisher {
+                            iri: iri.into(),
+                            iri_publisher: iri_publisher.clone(),
+                            normalized_publisher: normalized_publisher.into(),
+                        });
+                    }
+                }
+                let normalized_name = normalize_name(&info.name, kpar_path)?;
+                if *iri_name != normalized_name {
+                    return Err(IndexAddError::InconsistentName {
+                        iri: iri.into(),
+                        iri_name: iri_name.clone(),
+                        normalized_name: normalized_name.into(),
+                    });
+                }
+            }
+            parsed_iri
         }
-        (None, Some(publisher)) => {
-            if !is_valid_unnormalized_publisher(publisher) {
-                return Err(IndexAddError::InvalidPublisherInProject);
-            }
-            if !is_valid_unnormalized_name(&info.name) {
-                return Err(IndexAddError::InvalidNameInProject);
-            }
-            ParsedIri::Sysand {
-                publisher: publisher.clone(),
-                name: info.name.clone(),
-            }
-        }
+        (None, Some(publisher)) => ParsedIri::Sysand {
+            publisher: normalize_publisher(publisher, kpar_path)?,
+            name: normalize_name(&info.name, kpar_path)?,
+        },
         (None, None) => {
             return Err(IndexAddError::MissingPublisherAndIri);
         }
@@ -188,7 +228,7 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     let version: &str = &info.version;
     let semver = Version::from_str(version).map_err(|e| IndexAddError::InvalidKparVersion {
         version: version.into(),
-        kpar_path: kpar_path.as_ref().into(),
+        kpar_path: kpar_path.into(),
         source: e,
     })?;
 
@@ -286,4 +326,26 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     }
 
     Ok(())
+}
+
+fn normalize_publisher(publisher: &str, kpar_path: &Utf8Path) -> Result<String, IndexAddError> {
+    if is_valid_unnormalized_publisher(publisher) {
+        Ok(normalize_field(publisher))
+    } else {
+        Err(IndexAddError::InvalidPublisherInProject {
+            publisher: publisher.into(),
+            kpar_path: kpar_path.into(),
+        })
+    }
+}
+
+fn normalize_name(name: &str, kpar_path: &Utf8Path) -> Result<String, IndexAddError> {
+    if is_valid_unnormalized_name(name) {
+        Ok(normalize_field(name))
+    } else {
+        Err(IndexAddError::InvalidNameInProject {
+            name: name.into(),
+            kpar_path: kpar_path.into(),
+        })
+    }
 }

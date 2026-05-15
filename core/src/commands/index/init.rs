@@ -31,12 +31,11 @@ pub fn do_index_init<R: AsRef<Utf8Path>>(index_root: R) -> Result<(), IndexInitE
     let index_str = to_json_string(&index);
     let index_path = index_root.as_ref().join(INDEX_FILE_NAME);
     // TODO(JP): ask to review this
-    let mut file = fs::File::create_new(&index_path).map_err(|err| match err.kind() {
+    let mut file = fs::File::create_new(&index_path).map_err(|e| match e.kind() {
         ErrorKind::AlreadyExists => IndexInitError::AlreadyExists,
-        _ => IndexInitError::WriteError(Box::new(FsIoError::CreateFile(index_path.clone(), err))),
+        _ => IndexInitError::WriteError(Box::new(FsIoError::CreateFile(index_path.clone(), e))),
     })?;
-    file.write(index_str.as_bytes()).map_err(|err| {
-        IndexInitError::WriteError(Box::new(FsIoError::WriteFile(index_path, err)))
-    })?;
+    file.write(index_str.as_bytes())
+        .map_err(|e| IndexInitError::WriteError(Box::new(FsIoError::WriteFile(index_path, e))))?;
     Ok(())
 }
