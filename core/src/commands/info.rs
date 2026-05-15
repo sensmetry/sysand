@@ -46,7 +46,7 @@ pub enum InfoError<Error: ErrorBound> {
     NoResolve(Box<str>, String),
     #[error("IRI `{0}` is not supported: {1}")]
     UnsupportedIri(Box<str>, String),
-    #[error("failure during resolution: {0}")]
+    #[error("failure during resolution")]
     Resolution(#[from] Error),
 }
 
