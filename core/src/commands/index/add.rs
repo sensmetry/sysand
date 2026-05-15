@@ -134,9 +134,7 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
 
     let kpar_path = kpar_path.as_ref();
     let kpar_path_abs = wrapfs::absolute(kpar_path)?;
-    // TODO(JP)(review): do we want to allow root to be in non-standard place?
-    let local_project =
-        LocalKParProject::new_guess_root(&kpar_path_abs).map_err(LocalKParError::Io)?;
+    let local_project = LocalKParProject::new(&kpar_path_abs, "").map_err(LocalKParError::Io)?;
     let Some(info) = local_project.get_info()? else {
         return Err(IndexAddError::MissingInfo(kpar_path_abs.clone()));
     };
