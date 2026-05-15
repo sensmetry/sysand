@@ -3,52 +3,83 @@
 
 use std::io::Write as _;
 
-use camino::Utf8PathBuf;
+use camino::Utf8Path;
 use camino_tempfile::tempdir;
+use serde_json::json;
 use zip::write::SimpleFileOptions;
 
-use crate::index::{add::IndexAddError, do_index_add, do_index_init};
+use crate::index::{
+    add::IndexAddError, do_index_add, do_index_init, do_index_remove, do_index_yank,
+    to_json_string, yank::IndexYankError,
+};
+
+fn write_kpar(kpar_path: &Utf8Path, publisher: &str, name: &str, version: &str) {
+    let info = json!({"name": name, "publisher": publisher, "version": version, "usage": []});
+    let meta = json!({"index":{},"created":"0000-00-00T00:00:00.123456789Z"});
+
+    let file = std::fs::File::create(kpar_path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+
+    let options = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Stored)
+        .unix_permissions(0o755);
+
+    zip.start_file(".project.json", options).unwrap();
+    zip.write_all(to_json_string(&info).as_bytes()).unwrap();
+    zip.start_file(".meta.json", options).unwrap();
+    zip.write_all(to_json_string(&meta).as_bytes()).unwrap();
+    zip.start_file("test.sysml", options).unwrap();
+    zip.write_all(br#"package Test;"#).unwrap();
+
+    zip.finish().unwrap();
+}
 
 #[test]
 fn test() {
-    let info = r#"{"name": "dummy-project", "publisher": "dummy-publisher", "version": "1.2.3", "usage": []}"#;
-    let meta = r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#;
-
     let cwd = tempdir().unwrap();
     // set_current_dir(&cwd).unwrap();
 
-    dbg!(&cwd.path());
-    let kpar_path = Utf8PathBuf::from("test.kpar");
+    // dbg!(&cwd.path());
+    let kpar_path1 = cwd.path().join("test1.kpar");
+    let iri = "pkg:sysand/dummy-publisher/dummy-name";
+    write_kpar(&kpar_path1, "dummy-publisher", "dummy-name", "1.2.3");
+    let kpar_path2 = cwd.path().join("test2.kpar");
+    write_kpar(&kpar_path2, "dummy-publisher", "dummy-name", "2.2.3");
 
+    do_index_init(&cwd).unwrap();
+
+    do_index_add::<_, _, &str>(&cwd, &kpar_path1, None).unwrap();
     {
-        let file = std::fs::File::create(&kpar_path).unwrap();
-        let mut zip = zip::ZipWriter::new(file);
+        let add_err = do_index_add::<_, _, &str>(&cwd, &kpar_path1, None).unwrap_err();
+        assert!(
+            matches!(add_err, IndexAddError::VersionAlreadyExists { .. }),
+            "this must be VersionAlreadyExists error: {add_err}"
+        );
+    }
+    do_index_add::<_, _, &str>(&cwd, kpar_path2, None).unwrap();
 
-        let options = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored)
-            .unix_permissions(0o755);
-
-        zip.start_file(".project.json", options).unwrap();
-        zip.write_all(info.as_bytes()).unwrap();
-        zip.start_file(".meta.json", options).unwrap();
-        zip.write_all(meta.as_bytes()).unwrap();
-        zip.start_file("test.sysml", options).unwrap();
-        zip.write_all(br#"package Test;"#).unwrap();
-
-        zip.finish().unwrap();
+    do_index_yank(&cwd, iri, "1.2.3").unwrap();
+    {
+        let yank_err = do_index_yank(&cwd, iri, "1.2.4").unwrap_err();
+        assert!(
+            matches!(yank_err, IndexYankError::VersionNotFound { .. }),
+            "this must be VersionNotFound error: {yank_err}"
+        );
+    }
+    {
+        let add_err = do_index_add::<_, _, &str>(&cwd, &kpar_path1, None).unwrap_err();
+        assert!(
+            matches!(add_err, IndexAddError::VersionYanked { .. }),
+            "this must be VersionYanked error: {add_err}"
+        );
     }
 
-    // println!(
-    //     "{}",
-    //     wrapfs::read_to_string(cwd.path().join("index.json")).unwrap()
-    // );
-    do_index_init(&cwd).unwrap();
-    // println!("{}", wrapfs::read_to_string("index.json").unwrap());
-    do_index_add::<_, _, &str>(&cwd, &kpar_path, None).unwrap();
-    // println!("{}", wrapfs::read_to_string("index.json").unwrap());
-    let add_result = do_index_add::<_, _, &str>(&cwd, &kpar_path, None);
-    assert!(
-        matches!(add_result, Err(IndexAddError::VersionAlreadyExists { .. })),
-        "{add_result:?} should be duplicate error"
-    );
+    do_index_remove(&cwd, iri, Some("1.2.3")).unwrap();
+    {
+        let add_result = do_index_add::<_, _, &str>(&cwd, &kpar_path1, None).unwrap_err();
+        assert!(
+            matches!(add_result, IndexAddError::VersionRemoved { .. }),
+            "this must be VersionRemoved error: {add_result}"
+        );
+    }
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{num::NonZero, str::FromStr};
+use std::{cmp::Reverse, collections::HashMap, num::NonZero, str::FromStr};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use semver::Version;
@@ -64,9 +64,9 @@ pub enum IndexAddError {
         #[source]
         source: semver::Error,
     },
-    #[error("Project {iri} is removed so no new version can be added")]
+    #[error("project {iri} is removed so no new version can be added")]
     ProjectRemoved { iri: Box<str> },
-    #[error("Two projects with iri {iri} found in {INDEX_FILE_NAME}")]
+    #[error("two projects with iri {iri} found in {INDEX_FILE_NAME}")]
     DuplicateProject { iri: Box<str> },
     #[error("`{versions_path}` contains invalid semantic version {version}")]
     InvalidExistingVersion {
@@ -75,12 +75,19 @@ pub enum IndexAddError {
         #[source]
         source: semver::Error,
     },
-    #[error("File `{path} contains duplicate version {version}")]
-    DuplicateVersion { version: Version, path: Utf8PathBuf },
+    #[error("file `{path} contains duplicate version {version}")]
+    DuplicateVersion { version: String, path: Utf8PathBuf },
     // TODO(JP): include the iri of the project here and look through other errors if need to do the same
-    // TODO(JP): add a separate error if the project was removed (or perhaps yanked)
-    #[error("Version {0} already exists")]
-    VersionAlreadyExists(Box<str>),
+    #[error("{iri} version {version} already exists")]
+    VersionAlreadyExists { iri: Box<str>, version: Version },
+    #[error(
+        "{iri} version {version} is yanked so it cannot be added again; yanked version can only stay yanked or be removed"
+    )]
+    VersionYanked { iri: Box<str>, version: Version },
+    #[error(
+        "{iri} version {version} is removed so it cannot be added again; removed version can only stay removed"
+    )]
+    VersionRemoved { iri: Box<str>, version: Version },
 }
 
 impl From<JsonFileError> for IndexAddError {
@@ -169,23 +176,17 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
             });
             true
         }
-        [
-            IndexProject {
-                status: ProjectStatus::Available,
-                ..
-            },
-        ] => false,
-        [
-            IndexProject {
-                status: ProjectStatus::Removed,
-                ..
-            },
-        ] => return Err(IndexAddError::ProjectRemoved { iri: iri.into() }),
+        [project_entry] => match project_entry.status {
+            ProjectStatus::Available => false,
+            ProjectStatus::Removed => {
+                return Err(IndexAddError::ProjectRemoved { iri: iri.into() });
+            }
+        },
         [_, _, ..] => return Err(IndexAddError::DuplicateProject { iri: iri.into() }),
     };
 
     let version: &str = &info.version;
-    let sem_ver = Version::from_str(version).map_err(|e| IndexAddError::InvalidKparVersion {
+    let semver = Version::from_str(version).map_err(|e| IndexAddError::InvalidKparVersion {
         version: version.into(),
         kpar_path: kpar_path.as_ref().into(),
         source: e,
@@ -200,34 +201,57 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
     let (mut versions_file, mut versions_value) =
         open_json_file::<VersionsJson>(&versions_path, true)?;
 
-    let mut sem_vers: Vec<Version> = versions_value
+    // Use Reverse  so that the highest versions go first when
+    let str_to_semver: HashMap<String, Reverse<Version>> = versions_value
         .versions
         .iter()
         .map(|v| {
-            Version::from_str(&v.version).map_err(|e| IndexAddError::InvalidExistingVersion {
-                version: v.version.clone(),
-                versions_path: versions_path.clone(),
-                source: e,
-            })
+            println!("Version {}", v.version);
+            match Version::from_str(&v.version) {
+                Ok(other_semver) => Ok((v.version.clone(), Reverse(other_semver))),
+                Err(e) => Err(IndexAddError::InvalidExistingVersion {
+                    version: v.version.clone(),
+                    versions_path: versions_path.clone(),
+                    source: e,
+                }),
+            }
         })
         .collect::<Result<_, _>>()?;
+    let version_key = |v: &VersionEntry| str_to_semver.get(&v.version).unwrap();
 
-    // Sorting in reverse order so that the highest versions go first
-    sem_vers.sort_by(|a, b| b.cmp(a));
+    versions_value.versions.sort_by_key(version_key);
 
-    for [sem_ver1, sem_ver2] in sem_vers.array_windows() {
-        if sem_ver1 == sem_ver2 {
+    for [ver_entry1, ver_entry2] in versions_value.versions.array_windows() {
+        if ver_entry1.version == ver_entry2.version {
             // Strictly speaking this is unnecessary for adding the new project
             // but still good to check
             return Err(IndexAddError::DuplicateVersion {
-                version: sem_ver1.clone(),
+                version: ver_entry1.version.clone(),
                 path: versions_path,
             });
         }
     }
 
-    let insert_ind = match sem_vers.binary_search_by(|probe| sem_ver.cmp(probe)) {
-        Ok(_) => return Err(IndexAddError::VersionAlreadyExists(version.into())),
+    let insert_ind = match versions_value
+        .versions
+        .binary_search_by_key(&&Reverse(semver.clone()), version_key)
+    {
+        Ok(ind) => {
+            return Err(match versions_value.versions[ind].status {
+                VersionStatus::Available => IndexAddError::VersionAlreadyExists {
+                    iri: iri.into(),
+                    version: semver.clone(),
+                },
+                VersionStatus::Yanked => IndexAddError::VersionYanked {
+                    iri: iri.into(),
+                    version: semver.clone(),
+                },
+                VersionStatus::Removed => IndexAddError::VersionRemoved {
+                    iri: iri.into(),
+                    version: semver.clone(),
+                },
+            });
+        }
         Err(ind) => ind,
     };
     versions_value.versions.insert(
