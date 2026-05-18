@@ -12,6 +12,7 @@ use crate::{
         KerMlChecksumAlg,
     },
     project::{ProjectRead, hash_reader, memory::InMemoryProject},
+    utils::lowercase_hex,
 };
 
 #[test]
@@ -20,7 +21,7 @@ fn sanity_check_hasher() -> Result<(), Box<dyn std::error::Error>> {
 
     // echo -n "FooBarBaz" | sha256sum
     assert_eq!(
-        format!("{:x}", hash_reader(&mut std::io::Cursor::new(input))?),
+        lowercase_hex(hash_reader(&mut std::io::Cursor::new(input))?),
         "4da8b89a905445e96dd0ab6c9be9a72c8b0ffc686a57a3cc6808a8952a3560ed"
     );
 

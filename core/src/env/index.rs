@@ -27,7 +27,6 @@ use std::{
 
 use semver::Version;
 use serde::{Deserialize, de::DeserializeOwned};
-use sha2::Sha256;
 use thiserror::Error;
 
 use crate::{
@@ -36,12 +35,12 @@ use crate::{
         ReadEnvironmentAsync,
         discovery::{DiscoveryError, ResolvedEndpoints, fetch_index_config},
         iri_normalize::canonicalize_iri,
-        segment_uri_generic,
     },
     model::InterchangeProjectUsageRaw,
     project::index_entry::{IndexEntryProject, IndexEntryProjectError},
     purl::{SysandPurlError, parse_sysand_purl},
     resolve::net_utils::json_get_request,
+    utils::sha256_lowercase_hex,
 };
 
 const IRI_HASH_SEGMENT: &str = "_iri";
@@ -438,9 +437,7 @@ pub(crate) fn iri_path_segments(iri: &str) -> Result<Vec<String>, IndexEnvironme
             let parsed = fluent_uri::Iri::parse(iri)
                 .map_err(|e| malformed(super::iri_normalize::IriNormalizeError::Parse(e)))?;
             let normalized = canonicalize_iri(parsed).map_err(malformed)?;
-            let hash = segment_uri_generic::<_, Sha256>(normalized.as_str())
-                .next()
-                .expect("segment_uri_generic always yields one segment");
+            let hash = sha256_lowercase_hex(normalized);
             Ok(vec![IRI_HASH_SEGMENT.to_string(), hash])
         }
         Err(source) => Err(IndexEnvironmentError::MalformedSysandPurl {

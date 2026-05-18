@@ -6,7 +6,6 @@ use std::sync::Arc;
 use bytes::Bytes;
 use camino::Utf8Path;
 use serde::Deserialize;
-use sha2::Digest;
 use thiserror::Error;
 use url::Url;
 
@@ -18,6 +17,7 @@ use crate::{
         PKG_SYSAND_PREFIX, is_valid_unnormalized_name, is_valid_unnormalized_publisher,
         normalize_field,
     },
+    utils::sha256_lowercase_hex,
 };
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
@@ -323,7 +323,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
 
     let kpar_bytes =
         std::fs::read(path).map_err(|e| PublishError::KparRead(path.as_str().into(), e))?;
-    let sha256_digest = format!("{:x}", sha2::Sha256::digest(&kpar_bytes));
+    let sha256_digest = sha256_lowercase_hex(&kpar_bytes);
     let metadata = serde_json::json!({
         "normalized_publisher": normalized_publisher,
         "normalized_name": normalized_name,

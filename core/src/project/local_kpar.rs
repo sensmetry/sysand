@@ -5,7 +5,6 @@ use std::io::Write as _;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::{Utf8TempDir, tempdir};
-use sha2::Digest as _;
 use thiserror::Error;
 use typed_path::{Utf8Component, Utf8UnixPath};
 use zip::ZipArchive;
@@ -18,6 +17,7 @@ use crate::{
         self, ProjectRead,
         utils::{RelativizePathError, ZipArchiveError, relativize_path},
     },
+    utils::sha256_lowercase_hex,
 };
 
 use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
@@ -341,7 +341,7 @@ impl ProjectRead for LocalKParProject {
         &self,
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
-        let tmp_name = format!("{:X}", sha2::Sha256::digest(path.as_ref()));
+        let tmp_name = sha256_lowercase_hex(path.as_ref());
         let tmp_file_path = self.tmp_dir.path().join(tmp_name);
 
         if !tmp_file_path.is_file() {

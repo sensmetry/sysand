@@ -42,13 +42,14 @@ use crate::{
     context::ProjectContext,
     env::{ReadEnvironment, ReadEnvironmentAsync, discovery::ResolvedEndpoints},
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, project_hash_raw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, project_hash_hex},
     project::{
         InlineProjectDigest, ProjectRead, canonical_project_digest_inline,
         index_entry::IndexEntryProjectError, reqwest_kpar_download::ReqwestKparDownloadedError,
     },
     purl::PKG_SYSAND_PREFIX,
     resolve::net_utils::create_reqwest_client,
+    utils::{lowercase_hex, sha256_lowercase_hex},
 };
 
 // Re-exports so that `super::X` paths inside sub-modules (which refer to this
@@ -119,7 +120,9 @@ fn meta_json_body() -> &'static str {
 fn project_digest(info_json: &str, meta_json: &str) -> Result<String, Box<dyn std::error::Error>> {
     let info: InterchangeProjectInfoRaw = serde_json::from_str(info_json)?;
     let meta: InterchangeProjectMetadataRaw = serde_json::from_str(meta_json)?;
-    Ok(format!("sha256:{:x}", project_hash_raw(&info, &meta)))
+    let mut hash = project_hash_hex(&info, &meta);
+    hash.insert_str(0, "sha256:");
+    Ok(hash)
 }
 
 /// Compute the canonical project digest — matches what the server would
@@ -136,7 +139,9 @@ fn canonical_project_digest(
     let InlineProjectDigest::Computed(hash) = canonical_project_digest_inline(&info, &meta) else {
         panic!("canonical digest should be computable inline for this fixture");
     };
-    Ok(format!("sha256:{:x}", hash))
+    let mut hash = lowercase_hex(hash);
+    hash.insert_str(0, "sha256:");
+    Ok(hash)
 }
 
 fn make_runtime() -> Result<Arc<tokio::runtime::Runtime>, Box<dyn std::error::Error>> {
@@ -1667,6 +1672,7 @@ mod get_project {
 /// non-normalized request; a missing normalization step would miss
 /// the mock and fail `expect(1)`.
 mod iri {
+
     use super::*;
 
     #[test]
@@ -1690,10 +1696,7 @@ mod iri {
         assert_eq!(canonicalize_iri(parsed)?.as_str(), normalized_iri);
 
         // Compute what the env will look up.
-        use sha2::{Digest, Sha256};
-        let mut h = Sha256::new();
-        h.update(normalized_iri);
-        let expected_hash = format!("{:x}", h.finalize());
+        let expected_hash = sha256_lowercase_hex(normalized_iri);
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -1719,11 +1722,8 @@ mod iri {
 
         let env = index_env_sync(&server)?;
 
-        use sha2::{Digest, Sha256};
         let canonical = "http://example.com/";
-        let mut h = Sha256::new();
-        h.update(canonical);
-        let expected_hash = format!("{:x}", h.finalize());
+        let expected_hash = sha256_lowercase_hex(canonical);
 
         let versions_mock = mock_json_get(
             &mut server,
@@ -1765,6 +1765,7 @@ mod iri {
 ///   would let `versions_async` hand out strings from a document
 ///   that `get_project_async` will later reject.
 mod digest {
+
     use super::*;
 
     #[test]
@@ -1924,7 +1925,6 @@ mod digest {
         // branch, where the mismatch must surface as
         // `AdvertisedDigestDrift` rather than silently corrupt the
         // lockfile.
-        use sha2::{Digest as _, Sha256};
 
         let mut server = mockito::Server::new();
 
@@ -1934,7 +1934,7 @@ mod digest {
         // kpar for this test; the destructured JSON strings are unused.
         let (kpar_bytes, _info_json, _meta_json) =
             build_minimal_kpar("proj0", "0.3.0", "foo.sysml", "// hi");
-        let kpar_digest_hex = format!("{:x}", Sha256::digest(&kpar_bytes));
+        let kpar_digest_hex = sha256_lowercase_hex(&kpar_bytes);
         let advertised_kpar = format!("sha256:{kpar_digest_hex}");
 
         // `bbb…b` is not the canonical project digest of the archive above,
@@ -2292,6 +2292,7 @@ mod caching {
 ///   `expect(0)` so a regression that reaches for them fails
 ///   loudly.
 mod sources {
+
     use super::*;
 
     #[test]
@@ -2413,14 +2414,13 @@ mod sources {
         // error is a downstream kpar-parser error on the intentionally
         // invalid zip body — the absence of `DigestMismatch` is what
         // proves the digest check passed.
-        use sha2::{Digest as _, Sha256};
 
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
 
         let body: &[u8] = b"not really a kpar either";
-        let actual_hex = format!("{:x}", Sha256::digest(body));
+        let actual_hex = sha256_lowercase_hex(body);
         let advertised = format!("sha256:{actual_hex}");
 
         let versions_mock = mock_json_get(

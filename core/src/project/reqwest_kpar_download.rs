@@ -22,6 +22,7 @@ use crate::{
         local_kpar::{LocalKParError, LocalKParProject},
     },
     resolve::net_utils::kpar_get_request,
+    utils::lowercase_hex,
 };
 
 use super::utils::{FsIoError, wrapfs};
@@ -225,7 +226,7 @@ impl<Policy: HTTPAuthentication> ReqwestKparDownloadedProject<Policy> {
         }
 
         if let (Some(h), Some(expected)) = (hasher, self.expected_sha256_hex.as_deref()) {
-            let computed = format!("{:x}", h.finalize());
+            let computed = lowercase_hex(h.finalize());
             if computed == expected {
                 return Ok(());
             } else {

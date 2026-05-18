@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use sha2::{Digest, Sha256};
-use sysand_core::env::{PutProjectError, ReadEnvironment, WriteEnvironment};
+use sysand_core::{
+    env::{PutProjectError, ReadEnvironment, WriteEnvironment},
+    utils::sha256_lowercase_hex,
+};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
@@ -54,7 +56,7 @@ const VERSIONS_PATH: &str = "versions.txt";
 
 impl LocalBrowserStorageEnvironment {
     pub fn segment_uri<S: AsRef<str>>(&self, uri: S) -> String {
-        format!("{:x}", Sha256::digest(uri.as_ref().as_bytes()))
+        sha256_lowercase_hex(uri.as_ref())
     }
 
     pub fn entries_path(&self) -> Utf8UnixPathBuf {

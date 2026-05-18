@@ -24,8 +24,9 @@ use crate::{
     lock::Source,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
-        InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_raw,
+        InterchangeProjectUsageRaw, KerMlChecksumAlg, ProjectHash, project_hash_hex,
     },
+    utils::lowercase_hex,
 };
 
 // Implementations
@@ -92,6 +93,8 @@ pub(crate) fn canonical_project_digest_inline(
     info: &InterchangeProjectInfoRaw,
     meta: &InterchangeProjectMetadataRaw,
 ) -> InlineProjectDigest {
+    use crate::model::project_hash_raw;
+
     let sha256_alg: &str = KerMlChecksumAlg::Sha256.into();
 
     // Fast path: no checksums at all means canonical == raw.
@@ -300,10 +303,9 @@ pub trait ProjectRead {
                 let mut src = self
                     .read_source(path)
                     .map_err(CanonicalizationError::ProjectRead)?;
-                checksum.value = format!(
-                    "{:x}",
+                checksum.value = lowercase_hex(
                     hash_reader(&mut src)
-                        .map_err(|e| CanonicalizationError::FileRead(path.as_str().into(), e))?
+                        .map_err(|e| CanonicalizationError::FileRead(path.as_str().into(), e))?,
                 );
             } else {
                 checksum.value = checksum.value.to_lowercase();
@@ -318,7 +320,7 @@ pub trait ProjectRead {
         Ok(self
             .get_project()
             .map(|(info, meta)| info.zip(meta))?
-            .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
+            .map(|(info, meta)| project_hash_hex(&info, &meta)))
     }
 
     /// Produces a project hash based on project information and the
@@ -347,7 +349,7 @@ pub trait ProjectRead {
 
         Ok(info
             .zip(meta)
-            .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
+            .map(|(info, meta)| project_hash_hex(&info, &meta)))
     }
 
     // TODO: Make this return an associated type instead?
@@ -622,12 +624,10 @@ pub trait ProjectReadAsync {
                             .read_source_async(&path)
                             .await
                             .map_err(CanonicalizationError::ProjectRead)?;
-                        checksum.value = format!(
-                            "{:x}",
-                            hash_reader_async(&mut src).await.map_err(|e| {
+                        checksum.value =
+                            lowercase_hex(hash_reader_async(&mut src).await.map_err(|e| {
                                 CanonicalizationError::FileRead(path.clone().into(), e)
-                            })?
-                        );
+                            })?);
                     } else {
                         checksum.value = checksum.value.to_lowercase();
                     }
@@ -657,7 +657,7 @@ pub trait ProjectReadAsync {
                 .get_project_async()
                 .await
                 .map(|(info, meta)| info.zip(meta))?
-                .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
+                .map(|(info, meta)| project_hash_hex(&info, &meta)))
         }
     }
 
@@ -685,7 +685,7 @@ pub trait ProjectReadAsync {
 
             Ok(info
                 .zip(meta)
-                .map(|(info, meta)| format!("{:x}", project_hash_raw(&info, &meta))))
+                .map(|(info, meta)| project_hash_hex(&info, &meta)))
         }
     }
 
@@ -970,7 +970,7 @@ pub trait ProjectMut: ProjectRead {
                 meta.add_checksum(
                     path,
                     KerMlChecksumAlg::Sha256,
-                    format!("{:x}", sha256_checksum),
+                    lowercase_hex(sha256_checksum),
                     overwrite,
                 );
             } else {

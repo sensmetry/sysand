@@ -3,14 +3,15 @@
 
 use std::{clone::Clone, collections::HashSet, fmt::Display, hash::Hash};
 
-#[allow(deprecated)] // will change when `sha2` 0.11 is released
-use digest::{generic_array::GenericArray, typenum};
+use digest::array::{Array, typenum};
 use indexmap::IndexMap;
 #[cfg(feature = "python")]
 use pyo3::{FromPyObject, IntoPyObject, pyclass};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
+
+use crate::utils::lowercase_hex;
 
 // pub struct RawIri(String);
 // pub struct ParsedIri(fluent_uri::Iri<String>);
@@ -698,10 +699,9 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
     }
 }
 
-#[allow(deprecated)] // will change when `sha2` 0.11 is released
-pub type ProjectHash = GenericArray<u8, typenum::U32>;
+pub type ProjectHash = Array<u8, typenum::U32>;
 
-pub fn project_hash_str<S: AsRef<str>, T: AsRef<str>>(info: S, meta: T) -> ProjectHash {
+fn project_hash_str<S: AsRef<str>, T: AsRef<str>>(info: S, meta: T) -> ProjectHash {
     use digest::Digest;
     use sha2::Sha256;
     let mut hasher = Sha256::new();
@@ -712,6 +712,7 @@ pub fn project_hash_str<S: AsRef<str>, T: AsRef<str>>(info: S, meta: T) -> Proje
     hasher.finalize()
 }
 
+/// Use `project_hash_hex` where possible
 pub fn project_hash_raw(
     info: &InterchangeProjectInfoRaw,
     meta: &InterchangeProjectMetadataRaw,
@@ -720,6 +721,13 @@ pub fn project_hash_raw(
         serde_json::to_string(&info).expect("unexpected failure to serialise JSON"),
         serde_json::to_string(&meta).expect("unexpected failure to serialise JSON"),
     )
+}
+
+pub fn project_hash_hex(
+    info: &InterchangeProjectInfoRaw,
+    meta: &InterchangeProjectMetadataRaw,
+) -> String {
+    lowercase_hex(project_hash_raw(info, meta))
 }
 
 #[cfg(test)]
