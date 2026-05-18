@@ -3,7 +3,10 @@
 
 use std::{error::Error, fmt::Write as _};
 
-pub mod scheme {
+use digest::{array::Array, typenum};
+use sha2::{Digest, Sha256};
+
+pub(crate) mod scheme {
     #[cfg(feature = "filesystem")]
     use fluent_uri::component::Scheme;
     #[cfg(feature = "filesystem")]
@@ -33,7 +36,7 @@ pub(crate) fn format_sources(mut error: &dyn Error) -> String {
     message
 }
 
-pub fn multiline_array(
+pub(crate) fn multiline_array(
     elements: impl Iterator<Item = impl Into<toml_edit::Value>>,
 ) -> toml_edit::Array {
     let mut array: toml_edit::Array = elements
@@ -46,4 +49,13 @@ pub fn multiline_array(
     array.set_trailing_comma(true);
     array.set_trailing("\n");
     array
+}
+
+pub fn sha256_lowercase_hex(data: impl AsRef<[u8]>) -> String {
+    lowercase_hex(Sha256::digest(data))
+}
+
+/// Encode `bytes` as lowercase hex string
+pub fn lowercase_hex(bytes: Array<u8, typenum::U32>) -> String {
+    hex::encode(bytes)
 }

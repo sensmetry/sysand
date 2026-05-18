@@ -12,6 +12,7 @@ use crate::{
     lock::Source,
     project::{ProjectRead, ProjectReadAsync, reqwest_kpar_download::ReqwestKparDownloadedError},
     resolve::net_utils::create_reqwest_client,
+    utils::sha256_lowercase_hex,
 };
 
 #[test]
@@ -99,8 +100,6 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
 ///     i.e. the bytes weren't interleaved.
 #[test]
 fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::error::Error>> {
-    use sha2::{Digest as _, Sha256};
-
     let kpar_bytes = {
         let mut cursor = std::io::Cursor::new(vec![]);
         let mut zip = zip::ZipWriter::new(&mut cursor);
@@ -115,7 +114,7 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
         cursor.flush()?;
         cursor.into_inner()
     };
-    let expected_digest = format!("{:x}", Sha256::digest(&kpar_bytes));
+    let expected_digest = sha256_lowercase_hex(&kpar_bytes);
 
     let mut server = mockito::Server::new();
     let url = reqwest::Url::parse(&server.url())?;
@@ -171,8 +170,6 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
 
 #[test]
 fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::Error>> {
-    use sha2::{Digest as _, Sha256};
-
     let kpar_bytes = {
         let mut cursor = std::io::Cursor::new(vec![]);
         let mut zip = zip::ZipWriter::new(&mut cursor);
@@ -187,7 +184,7 @@ fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::E
         cursor.flush()?;
         cursor.into_inner()
     };
-    let expected_digest = format!("{:x}", Sha256::digest(&kpar_bytes));
+    let expected_digest = sha256_lowercase_hex(&kpar_bytes);
     let wrong_size = kpar_bytes.len() as u64 - 1;
 
     let mut server = mockito::Server::new();

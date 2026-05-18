@@ -10,8 +10,9 @@ use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
     env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
     lock::{Lock, Source},
-    model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw, project_hash_hex},
     purl::PKG_SYSAND_PREFIX,
+    utils::sha256_lowercase_hex,
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -391,16 +392,14 @@ fn build_index_kpar_bytes(
 fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> {
     // End-to-end check that an index-advertised project digest round-trips
     // through lockfile writing and sync-time archive verification.
-    use sha2::{Digest as _, Sha256};
-    use sysand_core::model::project_hash_raw;
 
     let mut server = Server::new();
 
     let (kpar_bytes, info, meta) = build_index_kpar_bytes("dep", "0.1.0");
-    let kpar_sha256_hex = format!("{:x}", Sha256::digest(&kpar_bytes));
+    let kpar_sha256_hex = sha256_lowercase_hex(&kpar_bytes);
     // No `meta.checksum` entries → canonical digest == raw digest for this
     // fixture; see the docstring on `build_index_kpar_bytes`.
-    let project_digest_hex = format!("{:x}", project_hash_raw(&info, &meta));
+    let project_digest_hex = project_hash_hex(&info, &meta);
     let kpar_size = kpar_bytes.len();
 
     // `sysand lock` targets a specific IRI via `versions_async`; it must not
@@ -536,16 +535,14 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     // canonical project digest and the raw archive digest. A later `sync` must
     // reject a different archive at the same URL even if the URL itself is
     // unchanged.
-    use sha2::{Digest as _, Sha256};
-    use sysand_core::model::project_hash_raw;
 
     let mut server = Server::new();
 
     // Build the lock-time view: the digests below are what end up in the
     // lockfile.
     let (kpar_bytes, info, meta) = build_index_kpar_bytes("dep", "0.1.0");
-    let kpar_digest_hex = format!("{:x}", Sha256::digest(&kpar_bytes));
-    let locked_project_digest = format!("{:x}", project_hash_raw(&info, &meta));
+    let kpar_digest_hex = sha256_lowercase_hex(&kpar_bytes);
+    let locked_project_digest = project_hash_hex(&info, &meta);
     let kpar_size = kpar_bytes.len();
 
     let config_mock = server

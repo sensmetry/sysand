@@ -45,6 +45,7 @@ use crate::{
         canonical_project_digest_inline,
         reqwest_kpar_download::{ReqwestKparDownloadedError, ReqwestKparDownloadedProject},
     },
+    utils::lowercase_hex,
 };
 
 #[derive(Debug)]
@@ -157,7 +158,7 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
                         });
                     }
                 };
-                let computed = format!("{:x}", hash);
+                let computed = lowercase_hex(hash);
                 if computed != self.advertised.project_digest.as_hex() {
                     return Err(IndexEntryProjectError::AdvertisedDigestDrift {
                         url: self.project_json_url.as_str().into(),

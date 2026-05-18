@@ -24,7 +24,7 @@ pub mod solve;
 pub mod stdlib;
 pub mod style;
 pub mod symbols;
-mod utils;
+pub mod utils;
 
 #[cfg(feature = "filesystem")]
 pub mod workspace;

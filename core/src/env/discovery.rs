@@ -47,6 +47,7 @@ impl ResolvedEndpoints {
         }
     }
 
+    // TODO: url joins will not fail for HTTP URLs, therefore, unwrap
     fn url_join(url: &url::Url, join: &str) -> Result<url::Url, IndexEnvironmentError> {
         url.join(join)
             .map_err(|e| IndexEnvironmentError::JoinURL(url.as_str().into(), join.into(), e))
