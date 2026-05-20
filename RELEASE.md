@@ -118,6 +118,35 @@ based on the following rules:
 
 ### Bump version entries
 
-1. Update the `version` entry in `bindings/js/package.json`
-2. Update the `workspace.package.version` entry in `Cargo.toml`
-3. Run `cargo generate-lockfile`
+We look to bump our own declared versions, and do a last minute security audit
+of dependencies for known vulnerabilities and fix them if possible.
+
+1. Update `workspace.package.version` in `Cargo.toml`, and the lockfile by
+   doing:
+
+   ```sh
+   # updates lockfile minimalistically
+   cargo check
+
+   # do a last minute security audit
+   cargo audit
+
+   # and bump manually to address known vulnerabilities
+   cargo update -p vulnerable-crate-1 [--precise 1.2.3]
+   ```
+
+2. Update `version` in `bindings/js/package.json` manually, and the lockfile by
+   doing:
+
+   ```sh
+   cd bindings/js/
+
+   # updates lockfile minimalistically
+   npm install --package-lock-only --ignore-scripts
+
+   # do a last minute security audit
+   npm audit
+
+   # and bump minimalistically to address known vulnerabilities
+   npm audit fix
+   ```
