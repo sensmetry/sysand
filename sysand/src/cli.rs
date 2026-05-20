@@ -181,6 +181,12 @@ pub enum Command {
         /// For multiple related projects, consider using a workspace instead
         #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
         allow_path_usage: bool,
+        /// Append a pre-release build tag to the version in the built KPAR(s).
+        /// For example, `--build-tag 42` turns version `1.2.3` into `1.2.3-dev.42`.
+        /// In workspace builds, `versionConstraint` fields that exactly pin a
+        /// sibling project's version are updated to include the tag as well.
+        #[arg(long, verbatim_doc_comment)]
+        build_tag: Option<String>,
     },
     /// Publish a KPAR to a sysand package index
     Publish {

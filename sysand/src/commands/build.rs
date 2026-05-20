@@ -14,8 +14,16 @@ pub fn command_build_for_project<P: AsRef<Utf8Path>>(
     compression: KparCompressionMethod,
     current_project: LocalSrcProject,
     allow_path_usage: bool,
+    build_tag: Option<&str>,
 ) -> Result<()> {
-    match do_build_kpar(&current_project, &path, compression, true, allow_path_usage) {
+    match do_build_kpar(
+        &current_project,
+        &path,
+        compression,
+        true,
+        allow_path_usage,
+        build_tag,
+    ) {
         Ok(_) => Ok(()),
         Err(err) => match err {
             KParBuildError::PathUsage(_) => bail!(
@@ -32,6 +40,7 @@ pub fn command_build_for_workspace<P: AsRef<Utf8Path>>(
     compression: KparCompressionMethod,
     workspace: Workspace,
     allow_path_usage: bool,
+    build_tag: Option<&str>,
 ) -> Result<()> {
     log::warn!(
         "Workspaces are an experimental feature\n\
@@ -39,7 +48,7 @@ pub fn command_build_for_workspace<P: AsRef<Utf8Path>>(
         releases. For the status of this feature, see\n\
         https://github.com/sensmetry/sysand/issues/101."
     );
-    do_build_workspace_kpars(&workspace, &path, compression, true, allow_path_usage)?;
+    do_build_workspace_kpars(&workspace, &path, compression, true, allow_path_usage, build_tag)?;
 
     Ok(())
 }

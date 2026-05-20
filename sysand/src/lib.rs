@@ -637,6 +637,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             path,
             compression,
             allow_path_usage,
+            build_tag,
         } => {
             if let Some(current_project) = ctx.current_project {
                 // Even if we are in a workspace, the project takes precedence.
@@ -660,6 +661,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     compression.into(),
                     current_project,
                     allow_path_usage,
+                    build_tag.as_deref(),
                 )
             } else {
                 // If the workspace is also missing, report an error about
@@ -678,6 +680,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     compression.into(),
                     current_workspace,
                     allow_path_usage,
+                    build_tag.as_deref(),
                 )
             }
         }

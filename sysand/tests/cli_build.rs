@@ -1021,6 +1021,259 @@ fn assert_kpar_missing(kpar_path: &camino::Utf8Path, archive_path: &str) {
     );
 }
 
+/// Build a single project with `--build-tag` — version in kpar gets the suffix
+#[test]
+fn build_tag_single_project() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        run_sysand(["init", "--version", "1.2.3", "--name", "tagged_project"], None)?;
+    out.assert().success();
+
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "--build-tag", "423", "./out.kpar"], None)?;
+    out.assert().success();
+
+    let kpar_project = LocalKParProject::new_guess_root(cwd.join("out.kpar"))?;
+    let (Some(info), Some(_)) = kpar_project.get_project()? else {
+        panic!("failed to get built project info/meta");
+    };
+    assert_eq!(info.version, "1.2.3-dev.423");
+
+    // Verify original .project.json was NOT modified
+    let original_content = std::fs::read_to_string(cwd.join(".project.json"))?;
+    let original: serde_json::Value = serde_json::from_str(&original_content)?;
+    assert_eq!(original["version"], "1.2.3");
+
+    Ok(())
+}
+
+/// Workspace build with `--build-tag` — versions and exact sibling constraints get the suffix
+#[test]
+fn workspace_build_with_build_tag() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project_a_cwd = cwd.join("project_a");
+    let project_b_cwd = cwd.join("project_b");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project_a", "iris": ["urn:kpar:project_a"]},
+                {"path": "project_b", "iris": ["urn:kpar:project_b"]}
+            ]
+        }"#,
+    )?;
+
+    std::fs::create_dir(&project_a_cwd)?;
+    let out = run_sysand_in(
+        &project_a_cwd,
+        ["init", "--version", "1.0.0", "--name", "project_a"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(project_a_cwd.join("a.sysml"), b"package A;\n")?;
+    let out = run_sysand_in(
+        &project_a_cwd,
+        ["include", "--no-index-symbols", "a.sysml"],
+        None,
+    )?;
+    out.assert().success();
+
+    std::fs::create_dir(&project_b_cwd)?;
+    let out = run_sysand_in(
+        &project_b_cwd,
+        ["init", "--version", "2.0.0", "--name", "project_b"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(project_b_cwd.join("b.sysml"), b"package B;\n")?;
+    let out = run_sysand_in(
+        &project_b_cwd,
+        ["include", "--no-index-symbols", "b.sysml"],
+        None,
+    )?;
+    out.assert().success();
+
+    // Add a usage in project_b that pins project_a's version exactly
+    let proj_b_info_path = project_b_cwd.join(".project.json");
+    let content = std::fs::read_to_string(&proj_b_info_path)?;
+    let mut info: serde_json::Value = serde_json::from_str(&content)?;
+    info["usage"] = serde_json::json!([
+        {"resource": "urn:kpar:project_a", "versionConstraint": "=1.0.0"}
+    ]);
+    std::fs::write(&proj_b_info_path, serde_json::to_string_pretty(&info)?)?;
+
+    let out = run_sysand_in(&cwd, ["build", "--build-tag", "99"], None)?;
+    out.assert().success();
+
+    let output_dir = cwd.join("output");
+    let kpar_a = LocalKParProject::new_guess_root(output_dir.join("project_a-1.0.0-dev.99.kpar"))?;
+    let (Some(info_a), Some(_)) = kpar_a.get_project()? else {
+        panic!("failed to get project_a info/meta");
+    };
+    assert_eq!(info_a.version, "1.0.0-dev.99");
+
+    let kpar_b = LocalKParProject::new_guess_root(output_dir.join("project_b-2.0.0-dev.99.kpar"))?;
+    let (Some(info_b), Some(_)) = kpar_b.get_project()? else {
+        panic!("failed to get project_b info/meta");
+    };
+    assert_eq!(info_b.version, "2.0.0-dev.99");
+    assert_eq!(
+        info_b.usage[0].version_constraint.as_deref(),
+        Some("=1.0.0-dev.99"),
+        "usage constraint should be updated to include the build tag"
+    );
+
+    Ok(())
+}
+
+/// Workspace build with `--build-tag` — usages pointing to external (non-workspace) packages are NOT updated
+#[test]
+fn workspace_build_with_build_tag_external_usage_unchanged() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project_a_cwd = cwd.join("project_a");
+    let project_b_cwd = cwd.join("project_b");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project_a", "iris": ["urn:kpar:project_a"]},
+                {"path": "project_b", "iris": ["urn:kpar:project_b"]}
+            ]
+        }"#,
+    )?;
+
+    for (project_cwd, name, version) in [
+        (&project_a_cwd, "project_a", "1.0.0"),
+        (&project_b_cwd, "project_b", "2.0.0"),
+    ] {
+        std::fs::create_dir(project_cwd)?;
+        let out = run_sysand_in(
+            project_cwd,
+            ["init", "--version", version, "--name", name],
+            None,
+        )?;
+        out.assert().success();
+        std::fs::write(project_cwd.join("src.sysml"), b"package Pkg;\n")?;
+        let out = run_sysand_in(
+            project_cwd,
+            ["include", "--no-index-symbols", "src.sysml"],
+            None,
+        )?;
+        out.assert().success();
+    }
+
+    // project_a has two usages: one to sibling project_b (internal), one to an external IRI
+    let proj_a_info_path = project_a_cwd.join(".project.json");
+    let content = std::fs::read_to_string(&proj_a_info_path)?;
+    let mut info: serde_json::Value = serde_json::from_str(&content)?;
+    info["usage"] = serde_json::json!([
+        {"resource": "urn:kpar:project_b", "versionConstraint": "=2.0.0"},
+        {"resource": "urn:external:some_package", "versionConstraint": "=3.5.0"}
+    ]);
+    std::fs::write(&proj_a_info_path, serde_json::to_string_pretty(&info)?)?;
+
+    let out = run_sysand_in(&cwd, ["build", "--build-tag", "7"], None)?;
+    out.assert().success();
+
+    let output_dir = cwd.join("output");
+    let kpar_a = LocalKParProject::new_guess_root(output_dir.join("project_a-1.0.0-dev.7.kpar"))?;
+    let (Some(info_a), Some(_)) = kpar_a.get_project()? else {
+        panic!("failed to get project_a info/meta");
+    };
+
+    let sibling_usage = info_a
+        .usage
+        .iter()
+        .find(|u| u.resource == "urn:kpar:project_b")
+        .expect("sibling usage not found");
+    assert_eq!(
+        sibling_usage.version_constraint.as_deref(),
+        Some("=2.0.0-dev.7"),
+        "sibling constraint should be updated"
+    );
+
+    let external_usage = info_a
+        .usage
+        .iter()
+        .find(|u| u.resource == "urn:external:some_package")
+        .expect("external usage not found");
+    assert_eq!(
+        external_usage.version_constraint.as_deref(),
+        Some("=3.5.0"),
+        "external constraint must NOT be updated"
+    );
+
+    Ok(())
+}
+
+/// Workspace build with `--build-tag` twice — both builds succeed and source files are not modified
+#[test]
+fn workspace_build_with_build_tag_idempotent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project_a_cwd = cwd.join("project_a");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project_a", "iris": ["urn:kpar:project_a"]}
+            ]
+        }"#,
+    )?;
+
+    std::fs::create_dir(&project_a_cwd)?;
+    let out = run_sysand_in(
+        &project_a_cwd,
+        ["init", "--version", "1.0.0", "--name", "project_a"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(project_a_cwd.join("a.sysml"), b"package A;\n")?;
+    let out = run_sysand_in(
+        &project_a_cwd,
+        ["include", "--no-index-symbols", "a.sysml"],
+        None,
+    )?;
+    out.assert().success();
+
+    // First build
+    let out = run_sysand_in(&cwd, ["build", "--build-tag", "5"], None)?;
+    out.assert().success();
+
+    let kpar_path = cwd.join("output").join("project_a-1.0.0-dev.5.kpar");
+    assert!(kpar_path.is_file());
+    let kpar = LocalKParProject::new_guess_root(&kpar_path)?;
+    let (Some(info), Some(_)) = kpar.get_project()? else {
+        panic!("first build: failed to get project info/meta");
+    };
+    assert_eq!(info.version, "1.0.0-dev.5");
+
+    // Second build — must also succeed (source .project.json unchanged)
+    let out = run_sysand_in(&cwd, ["build", "--build-tag", "5"], None)?;
+    out.assert().success();
+
+    let kpar = LocalKParProject::new_guess_root(&kpar_path)?;
+    let (Some(info), Some(_)) = kpar.get_project()? else {
+        panic!("second build: failed to get project info/meta");
+    };
+    assert_eq!(info.version, "1.0.0-dev.5");
+
+    // Original .project.json must still have the unmodified version
+    let original_content = std::fs::read_to_string(project_a_cwd.join(".project.json"))?;
+    let original: serde_json::Value = serde_json::from_str(&original_content)?;
+    assert_eq!(
+        original["version"], "1.0.0",
+        "original .project.json must not be modified"
+    );
+
+    Ok(())
+}
+
 fn assert_kpar_no_licenses_dir(kpar_path: &camino::Utf8Path) {
     let file = std::fs::File::open(kpar_path).unwrap();
     let archive = zip::ZipArchive::new(file).unwrap();

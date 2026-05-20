@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::collections::HashMap;
+
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
@@ -164,6 +166,9 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
          remove one of them"
     )]
     MetamodelKindAndMetamodelConflict { project_path: String },
+
+    #[error("invalid build tag `{tag}`: {error}")]
+    InvalidBuildTag { tag: String, error: semver::Error },
 }
 
 impl<ProjectReadError: ErrorBound> From<FsIoError> for KParBuildError<ProjectReadError> {
@@ -213,6 +218,16 @@ impl<ProjectReadError: ErrorBound> From<IntoKparError<LocalSrcError>>
     }
 }
 
+fn kpar_file_name(name: &str, version: &str) -> String {
+    format!(
+        "{}-{}.kpar",
+        name.chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '_' })
+            .collect::<String>(),
+        version
+    )
+}
+
 pub fn default_kpar_path<Pr: ProjectRead>(
     project: &Pr,
     workspace: Option<&Workspace>,
@@ -232,15 +247,7 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
     let Some(project_info) = project.get_info().map_err(KParBuildError::ProjectRead)? else {
         return Err(KParBuildError::MissingInfo);
     };
-    Ok(format!(
-        "{}-{}.kpar",
-        project_info
-            .name
-            .chars()
-            .map(|c| if c.is_alphanumeric() { c } else { '_' })
-            .collect::<String>(),
-        project_info.version
-    ))
+    Ok(kpar_file_name(&project_info.name, &project_info.version))
 }
 
 pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
@@ -249,6 +256,7 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     compression: KparCompressionMethod,
     canonicalise: bool,
     allow_path_usage: bool,
+    build_tag: Option<&str>,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     do_build_kpar_inner(
         project,
@@ -257,6 +265,8 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         canonicalise,
         allow_path_usage,
         None,
+        build_tag,
+        &HashMap::new(),
     )
 }
 
@@ -267,6 +277,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     canonicalise: bool,
     allow_path_usage: bool,
     workspace_metamodel_date: Option<&str>,
+    build_tag: Option<&str>,
+    workspace_iri_versions: &HashMap<String, String>,
 ) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
 
@@ -274,7 +286,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     let header = crate::style::get_style_config().header;
     log::info!("{header}{building:>12}{header:#} kpar `{}`", path.as_ref());
 
-    let (_tmp, mut local_project, info, mut meta) =
+    let (_tmp, mut local_project, mut info, mut meta) =
         LocalSrcProject::temporary_from_project(project)?;
     match semver::Version::parse(&info.version) {
         Ok(_) => (),
@@ -313,6 +325,32 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             );
         } else {
             return Err(KParBuildError::PathUsage(u.resource.clone()));
+        }
+    }
+
+    if let Some(tag) = build_tag {
+        if let Ok(mut v) = semver::Version::parse(&info.version) {
+            v.pre = semver::Prerelease::new(&format!("dev.{tag}")).map_err(|e| {
+                KParBuildError::InvalidBuildTag {
+                    tag: tag.to_string(),
+                    error: e,
+                }
+            })?;
+            info.version = v.to_string();
+            for usage in &mut info.usage {
+                if let Some(constraint) = &usage.version_constraint {
+                    if let Some(base_ver) = workspace_iri_versions.get(&usage.resource) {
+                        if constraint == &format!("={base_ver}") {
+                            usage.version_constraint =
+                                Some(format!("={base_ver}-dev.{tag}"));
+                        }
+                    }
+                }
+            }
+            use crate::project::ProjectMut;
+            local_project
+                .put_info(&info, true)
+                .map_err(KParBuildError::from)?;
         }
     }
 
@@ -422,8 +460,25 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     compression: KparCompressionMethod,
     canonicalise: bool,
     allow_path_usage: bool,
+    build_tag: Option<&str>,
 ) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
     let ws_metamodel_date = workspace.metamodel_date();
+
+    // Build IRI → base_version map for workspace projects so usage constraints can be updated.
+    let mut iri_versions: HashMap<String, String> = HashMap::new();
+    if build_tag.is_some() {
+        for project_root in workspace.projects() {
+            let project = LocalSrcProject {
+                nominal_path: None,
+                project_path: workspace.root_path().join(&project_root.path),
+            };
+            if let Ok(Some(info)) = project.get_info() {
+                for iri in &project_root.iris {
+                    iri_versions.insert(iri.to_string(), info.version.clone());
+                }
+            }
+        }
+    }
 
     let mut result = Vec::new();
     for project_root in workspace.projects() {
@@ -432,7 +487,26 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             project_path: workspace.root_path().join(&project_root.path),
         };
 
-        let file_name = default_kpar_file_name(&project)?;
+        let file_name = if let Some(tag) = build_tag {
+            if let Ok(Some(ref info)) = project.get_info() {
+                if let Ok(mut v) = semver::Version::parse(&info.version) {
+                    v.pre = semver::Prerelease::new(&format!("dev.{tag}")).map_err(|e| {
+                        KParBuildError::InvalidBuildTag {
+                            tag: tag.to_string(),
+                            error: e,
+                        }
+                    })?;
+                    kpar_file_name(&info.name, &v.to_string())
+                } else {
+                    default_kpar_file_name(&project)?
+                }
+            } else {
+                default_kpar_file_name(&project)?
+            }
+        } else {
+            default_kpar_file_name(&project)?
+        };
+
         let output_path = path.as_ref().join(file_name);
         let kpar_project = do_build_kpar_inner(
             &project,
@@ -441,6 +515,8 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             canonicalise,
             allow_path_usage,
             ws_metamodel_date,
+            build_tag,
+            &iri_versions,
         )?;
         result.push(kpar_project);
     }
