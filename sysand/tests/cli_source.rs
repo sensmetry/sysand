@@ -127,21 +127,33 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &path_dep,
-        ["add", "--no-index", "urn:kpar:function-library"],
+        [
+            "add",
+            "--no-index",
+            "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
+        ],
         None,
     )?;
     out.assert().success();
 
     let out = run_sysand_in(
         &path_dep,
-        ["add", "--no-index", "urn:kpar:function-library"],
+        [
+            "add",
+            "--no-index",
+            "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
+        ],
         None,
     )?;
     out.assert().success();
 
     let out = run_sysand_in(
         &path_dep,
-        ["add", "--no-index", "urn:kpar:function-library"],
+        [
+            "add",
+            "--no-index",
+            "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
+        ],
         None,
     )?;
     out.assert().success();
