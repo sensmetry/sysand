@@ -17,7 +17,10 @@ use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{
+        InterchangeProjectInfoRaw, InterchangeProjectInfoWithInheritRaw,
+        InterchangeProjectMetadataRaw, InterchangeProjectMetadataWithInheritRaw,
+    },
     project::{
         ProjectMut, ProjectRead,
         utils::{RelativizePathError, ToPathBuf, ToUnixPathBuf, relativize_path, wrapfs},
@@ -228,6 +231,42 @@ impl LocalSrcProject {
         meta.index = new_index;
         self.put_meta(&meta, true)?;
         Ok(())
+    }
+
+    /// Read `.project.json` and `.meta.json` into their workspace-inheritance
+    /// aware raw forms. Returns `None` for each file that does not exist.
+    pub fn get_project_with_inherit(
+        &self,
+    ) -> Result<
+        (
+            Option<InterchangeProjectInfoWithInheritRaw>,
+            Option<InterchangeProjectMetadataWithInheritRaw>,
+        ),
+        LocalSrcError,
+    > {
+        let info_json_path = self.info_path();
+        let info = if info_json_path.exists() {
+            Some(
+                serde_json::from_reader(wrapfs::File::open(&info_json_path)?).map_err(|e| {
+                    ProjectDeserializationError::new("failed to deserialize `.project.json`", e)
+                })?,
+            )
+        } else {
+            None
+        };
+
+        let meta_json_path = self.meta_path();
+        let meta = if meta_json_path.exists() {
+            Some(
+                serde_json::from_reader(wrapfs::File::open(&meta_json_path)?).map_err(|e| {
+                    ProjectDeserializationError::new("failed to deserialize `.meta.json`", e)
+                })?,
+            )
+        } else {
+            None
+        };
+
+        Ok((info, meta))
     }
 }
 

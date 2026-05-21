@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
+use indexmap::IndexMap;
 
 #[cfg(feature = "python")]
 use pyo3::{FromPyObject, IntoPyObject};
@@ -10,7 +10,30 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::model::KNOWN_METAMODELS;
-use crate::project::utils::{FsIoError, wrapfs};
+
+/// Workspace-level defaults for inheritable `.project.json` fields.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceProjectDefaultsRaw {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+}
+
+/// A named workspace group: project-level defaults and optional meta defaults.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGroupEntryRaw {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<WorkspaceProjectDefaultsRaw>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<WorkspaceMetaRaw>,
+}
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
@@ -44,6 +67,12 @@ pub struct WorkspaceInfoG<Iri> {
     pub projects: Vec<WorkspaceProjectInfoG<Iri>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub meta: Option<WorkspaceMetaG<Iri>>,
+    /// Workspace-level defaults for inheritable project fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<WorkspaceProjectDefaultsRaw>,
+    /// Named project groups, each with their own project defaults and meta.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub groups: Option<IndexMap<String, WorkspaceGroupEntryRaw>>,
 }
 
 pub type WorkspaceInfoRaw = WorkspaceInfoG<String>;
@@ -86,86 +115,12 @@ impl TryFrom<WorkspaceInfoRaw> for WorkspaceInfo {
             })
             .transpose()?;
 
-        Ok(Self { projects, meta })
+        // `project` and `groups` fields use only String-based types; pass through unchanged.
+        Ok(Self {
+            projects,
+            meta,
+            project: value.project,
+            groups: value.groups,
+        })
     }
 }
-
-#[derive(Error, Debug)]
-pub enum WorkspaceReadError {
-    #[error(transparent)]
-    Io(#[from] Box<FsIoError>),
-    #[error("failed to deserialize `.workspace.json`: {0}")]
-    Deserialize(#[from] WorkspaceDeserializationError),
-    #[error("invalid workspace configuration in `{0}`: {1}")]
-    Validation(Utf8PathBuf, WorkspaceValidationError),
-}
-
-#[derive(Debug, Error)]
-#[error("workspace deserialization error: {msg}: {err}")]
-pub struct WorkspaceDeserializationError {
-    msg: &'static str,
-    err: serde_json::Error,
-}
-
-impl WorkspaceDeserializationError {
-    pub fn new(msg: &'static str, err: serde_json::Error) -> Self {
-        Self { msg, err }
-    }
-}
-
-#[derive(Debug)]
-pub struct Workspace {
-    root_dir: Utf8PathBuf,
-    info: WorkspaceInfo,
-}
-
-impl Workspace {
-    /// Read and parse workspace info file `.workspace.json` residing in `root_dir`
-    pub fn new(root_dir: Utf8PathBuf) -> Result<Self, WorkspaceReadError> {
-        let info_path = root_dir.join(".workspace.json");
-        let raw_info: WorkspaceInfoRaw = serde_json::from_reader(wrapfs::File::open(&info_path)?)
-            .map_err(|e| {
-            WorkspaceDeserializationError::new("failed to deserialize `.workspace.json`", e)
-        })?;
-        match WorkspaceInfo::try_from(raw_info) {
-            Ok(info) => Ok(Self { root_dir, info }),
-            Err(e) => Err(WorkspaceReadError::Validation(info_path, e)),
-        }
-    }
-
-    pub fn root_path(&self) -> &Utf8Path {
-        &self.root_dir
-    }
-
-    pub fn info_path(&self) -> Utf8PathBuf {
-        self.root_dir.join(".workspace.json")
-    }
-
-    pub fn info(&self) -> &WorkspaceInfo {
-        &self.info
-    }
-
-    pub fn projects(&self) -> &[WorkspaceProjectInfo] {
-        &self.info.projects
-    }
-
-    pub fn meta(&self) -> Option<&WorkspaceMeta> {
-        self.info.meta.as_ref()
-    }
-
-    pub fn metamodel(&self) -> Option<&Iri<String>> {
-        self.info.meta.as_ref().and_then(|m| m.metamodel.as_ref())
-    }
-
-    pub fn absolute_project_paths(&self) -> Vec<Utf8PathBuf> {
-        self.info
-            .projects
-            .iter()
-            .map(|p| self.root_dir.join(&p.path))
-            .collect()
-    }
-}
-
-#[cfg(test)]
-#[path = "./workspace_tests.rs"]
-mod tests;

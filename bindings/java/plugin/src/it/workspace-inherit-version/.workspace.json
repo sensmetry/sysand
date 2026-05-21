@@ -1,0 +1,11 @@
+{
+  "projects": [
+    {
+      "path": "project1",
+      "iris": ["urn:kpar:project1"]
+    }
+  ],
+  "project": {
+    "version": "2.0.0"
+  }
+}
