@@ -1,1 +1,11 @@
-{"name":"Kernel Data Type Library","version":"1.0.0","description":"Standard data type library for the Kernel Modeling Language (KerML)","usage":[{"resource":"urn:kpar:semantic-library","versionConstraint":"1.0.0"}],"topic":["Standard"]}
+{
+  "name": "Kernel Data Type Library",
+  "description": "Standard data type library for the Kernel Modeling Language (KerML)",
+  "version": "1.0.0",
+  "usage": [
+    {
+      "resource": "https://www.omg.org/spec/KerML/20250201/Semantic-Library.kpar",
+      "versionConstraint": "1.0.0"
+    }
+  ]
+}

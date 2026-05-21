@@ -70,57 +70,6 @@ pub fn known_std_libs() -> HashMap<String, Vec<InMemoryProject>> {
 
     entries([
         (
-            "urn:kpar:quantities-and-units-library",
-            QUANTITIES_AND_UNITS_LIBRARY_INFO_20250201,
-            QUANTITIES_AND_UNITS_LIBRARY_META_20250201,
-        ),
-        (
-            "urn:kpar:function-library",
-            FUNCTION_LIBRARY_INFO_20250201,
-            FUNCTION_LIBRARY_META_20250201,
-        ),
-        (
-            "urn:kpar:systems-library",
-            SYSTEMS_LIBRARY_INFO_20250201,
-            SYSTEMS_LIBRARY_META_20250201,
-        ),
-        (
-            "urn:kpar:cause-and-effect-library",
-            CAUSE_AND_EFFECT_LIBRARY_INFO_20250201,
-            CAUSE_AND_EFFECT_LIBRARY_META_20250201,
-        ),
-        (
-            "urn:kpar:requirement-derivation-library",
-            REQUIREMENT_DERIVATION_LIBRARY_INFO_20250201,
-            REQUIREMENT_DERIVATION_LIBRARY_META_20250201,
-        ),
-        (
-            "urn:kpar:metadata-library",
-            METADATA_LIBRARY_INFO_20250201,
-            METADATA_LIBRARY_META_20250201,
-        ),
-        (
-            "urn:kpar:geometry-library",
-            GEOMETRY_LIBRARY_INFO_20250201,
-            GEOMETRY_LIBRARY_META_20250201,
-        ),
-        (
-            "urn:kpar:analysis-library",
-            ANALYSIS_LIBRARY_INFO_20250201,
-            ANALYSIS_LIBRARY_META_20250201,
-        ),
-        (
-            "urn:kpar:data-type-library",
-            DATA_TYPE_LIBRARY_INFO_20250201,
-            DATA_TYPE_LIBRARY_META_20250201,
-        ),
-        (
-            "urn:kpar:semantic-library",
-            SEMANTIC_LIBRARY_INFO_20250201,
-            SEMANTIC_LIBRARY_META_20250201,
-        ),
-        //
-        (
             "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar",
             QUANTITIES_AND_UNITS_LIBRARY_INFO_20250201,
             QUANTITIES_AND_UNITS_LIBRARY_META_20250201,

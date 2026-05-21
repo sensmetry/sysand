@@ -27,16 +27,16 @@ project.
 ## Local projects
 
 To specify the source of a project that you have locally in a directory
-`./path/to/project` by the identifier `urn:kpar:my-project`, is done by adding
+`./path/to/project` by the identifier `pkg:sysand/my-publisher/my-local-src-project`, is done by adding
 the following entry to your `sysand.toml`.
 
 ```toml
 [[project]]
 identifiers = [
-    "urn:kpar:my-project",
+    "pkg:sysand/my-publisher/my-local-src-project",
 ]
 sources = [
-    { src_path = "path/to/project" },
+    { src_path = "pkg:sysand/my-publisher/local-project" },
 ]
 ```
 
@@ -54,7 +54,7 @@ editable in `sysand.toml` by adding
 ```toml
 [[project]]
 identifiers = [
-    "urn:kpar:my-project",
+    "pkg:sysand/my-publisher/my-editable-project",
 ]
 sources = [
     { editable = "path/to/project" },
@@ -66,12 +66,12 @@ This source corresponds to the `--as-editable` flag.
 ## Local KPARs
 
 If you have a project locally available as a compressed KPAR this can be identified
-by `urn:kpar:my-kpar-project` by adding
+by `pkg:sysand/my-publisher/my-kpar-project` by adding
 
 ```toml
 [[project]]
 identifiers = [
-    "urn:kpar:my-kpar-project",
+    "pkg:sysand/my-publisher/my-kpar-project",
 ]
 sources = [
     { kpar_path = "path/to/project.kpar" },
@@ -90,7 +90,7 @@ To specify a KPAR available at a URL as a source, add
 ```toml
 [[project]]
 identifiers = [
-    "urn:kpar:remote-kpar-project",
+    "pkg:sysand/my-publisher/my-remote-kpar-project",
 ]
 sources = [
     { remote_kpar = "https://www.example.com/path/to/project.kpar" },
@@ -104,7 +104,7 @@ For projects that are not packaged you can either use
 ```toml
 [[project]]
 identifiers = [
-    "urn:kpar:remote-project",
+    "pkg:sysand/my-publisher/my-remote-src-project",
 ]
 sources = [
     { remote_src = "https://www.example.com/path/to/project" },
@@ -116,7 +116,7 @@ or, if the project is hosted on a Git forge like GitHub, GitLab etc. use
 ```toml
 [[project]]
 identifiers = [
-    "urn:kpar:remote-git-project",
+    "pkg:sysand/my-publisher/my-remote-git-project",
 ]
 sources = [
     { remote_git = "https://github.com/my_user/project.git" },
