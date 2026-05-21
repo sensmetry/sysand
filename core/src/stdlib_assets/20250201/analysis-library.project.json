@@ -20,7 +20,7 @@
       "versionConstraint": "2.0.0"
     },
     {
-      "resource": "https://www.omg.org/spec/KerML/20250201/Quantities-and-Units-Library.kpar",
+      "resource": "https://www.omg.org/spec/SysML/20250201/Quantities-and-Units-Domain-Library.kpar",
       "versionConstraint": "2.0.0"
     }
   ]
