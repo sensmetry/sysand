@@ -1413,6 +1413,8 @@ pub enum IndexCommand {
     Yank {
         /// Package identifier
         iri: String,
+        // It's String and not semver::Version because it's good to allow yanking a non-semantic
+        // version
         /// Version to yank
         #[arg(long)]
         version: String,
@@ -1428,6 +1430,8 @@ pub enum IndexCommand {
     Remove {
         /// Package identifier
         iri: String,
+        // It's String and not semver::Version because it's good to allow removing a non-semantic
+        // version
         /// If specified, remove the specified version, otherwise remove the whole project
         #[arg(long)]
         version: Option<String>,

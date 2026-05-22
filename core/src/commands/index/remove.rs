@@ -50,6 +50,8 @@ pub enum IndexRemoveError {
 pub fn do_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
     index_root: R,
     iri: I,
+    // It's String and not semver::Version because it's good to allow removing a non-semantic
+    // version
     version: Option<V>,
 ) -> Result<(), IndexRemoveError> {
     let index_root = index_root.as_ref();
