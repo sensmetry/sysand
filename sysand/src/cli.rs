@@ -1388,6 +1388,7 @@ pub enum IndexCommand {
     Init {
         /// Path to the index directory. If not provided, current working directory is used.
         /// If the directory does not exist, it is created
+        #[clap(verbatim_doc_comment)]
         #[arg(long)]
         index_root: Option<Utf8PathBuf>,
     },
@@ -1396,9 +1397,11 @@ pub enum IndexCommand {
     Add {
         /// Project identifier. Default is pkg:sysand/<publisher>/<name>, if publisher is
         /// specified in .project.json. Omitting both publisher and IRI is an error
+        #[clap(verbatim_doc_comment)]
         iri: Option<String>,
         // The type is str, not Iri so that a better error can be reported in some cases
         // for example when the publisher contains a space
+        #[clap(verbatim_doc_comment)]
         /// Path to KPAR
         #[arg(long)]
         kpar_path: Utf8PathBuf,
