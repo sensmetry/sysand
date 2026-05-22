@@ -45,27 +45,29 @@ This will initialize a sysand index in your current directory.
 
 You can now add the packages you want to share into the Sysand index.
 For example, if you have a `MyProject.kpar` file in your current directory,
-you can add it to the package index by:
+you can add it to the package index by (provided .project.json specifies
+`publisher` field):
 
 ```sh
 sysand index add MyProject.kpar --iri pkg:sysand/my-publisher/my-project
 ```
 
 This command will create an entry in the package index with the IRI of
-`pkg:sysand/my-publisher/my-project` that other people can then use to install
-your package.
+`pkg:sysand/my-publisher/my-project-name` that other people can then use to install
+your package. The `publisher` and `name` values normalized values from `.project.json`.
 
 > [!tip]
-> It is recommended that you specify `publisher` field in `.project.json`. In that
-> case you can skip the `--iri` argument, it will be constructed from
-> `publisher` and `name` fields in `.project.json`. `publisher` is person or
-> organization that publishes the project. This is currently not in the KerML
-> specification, we will propose adding it as a mandatory field.
+> If you don't specify `publisher` field in `.project.json`, you must provide
+> `--iri` argument to `sysand index add` command.
+> `publisher` is person or organization that publishes the project. It is
+> currently not in the KerML specification, we will propose adding it as a
+> mandatory field.
 
 > [!tip]
 > Any IRI can be freely chosen for the `--iri` argument, just don't choose an IRI
 > that could point to another resource, like the ones starting with `http(s)`,
-> `file` or `ssh`.
+> `file` or `ssh`. Also `pkg:sysand/<publisher>/<name>` IRI can only be chosen
+> for projects which specify `publisher` in `.project.json`.
 
 Repeat this step for as many times as you have packages (and their versions),
 giving a unique IRI for each different package.

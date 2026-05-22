@@ -97,6 +97,10 @@ pub enum IndexAddError {
         normalized_name: Box<str>,
     },
     #[error(
+        "IRI {iri} is of the form pkg:sysand/<publisher>/<name>, but that's only allowed for projects which specify publisher in {INFO_FILE_NAME}"
+    )]
+    MissingPublisherSpecifiedInIri { iri: Box<str> },
+    #[error(
         "{iri} specifies project publisher {iri_publisher}, which must be the same as normalized publisher {normalized_publisher} from {INFO_FILE_NAME} (if the latter is present)"
     )]
     InconsistentPublisher {
@@ -200,6 +204,8 @@ pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
                             normalized_publisher: normalized_publisher.into(),
                         });
                     }
+                } else {
+                    return Err(IndexAddError::MissingPublisherSpecifiedInIri { iri: iri.into() });
                 }
                 let normalized_name = normalize_name(&info.name, kpar_path)?;
                 if *iri_name != normalized_name {
