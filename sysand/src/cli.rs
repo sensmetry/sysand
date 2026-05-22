@@ -1400,7 +1400,7 @@ pub enum IndexCommand {
         kpar_path: Utf8PathBuf,
         #[arg(long)]
         /// Project identifier. Default is pkg:sysand/<publisher>/<name>, if publisher is
-        /// specified in .project.json. Omitting both publisher and iri is an error
+        /// specified in .project.json. Omitting both publisher and IRI is an error
         iri: Option<String>,
         /// Path to the index directory. If not provided, current working directory is used
         #[arg(long)]
@@ -1423,7 +1423,7 @@ pub enum IndexCommand {
     /// Remove a project or a specific version of a project from a local sysand index.
     /// This breaks the existing lockfiles which use the to-be-removed project or version.
     /// Instead it is recommended to yank a specific version and release a new fixed version.
-    /// Removing project or version cannot be undone
+    /// Project or version removal cannot be undone
     #[clap(verbatim_doc_comment)]
     Remove {
         /// Package identifier

@@ -57,7 +57,7 @@ your package.
 
 > [!tip]
 > It is recommended that you specify `publisher` field in `.project.json`. In that
-> case you can skip the `--iri` argument, in which case it is constructed from
+> case you can skip the `--iri` argument, it will be constructed from
 > `publisher` and `name` fields in `.project.json`. `publisher` is person or
 > organization that publishes the project. This is currently not in the KerML
 > specification, we will propose adding it as a mandatory field.
