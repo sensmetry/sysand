@@ -302,7 +302,7 @@ fn workspace_inherit_metamodel_from_root_in_meta_json() -> Result<(), Box<dyn st
     let meta_path = project1_cwd.join(".meta.json");
     let meta_content = std::fs::read_to_string(&meta_path)?;
     let mut meta_json: serde_json::Value = serde_json::from_str(&meta_content)?;
-    meta_json["metamodel"] = serde_json::json!({"workspace": true});
+    meta_json["metamodel"] = serde_json::json!({"preset": "default"});
     std::fs::write(&meta_path, serde_json::to_string_pretty(&meta_json)?)?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
@@ -928,7 +928,7 @@ fn setup_workspace_project(
 }
 
 /// Workspace project inherits version from workspace root `project` defaults
-/// using `"version": { "workspace": true }`.
+/// using `"version": { "preset": "default" }`.
 #[test]
 fn workspace_inherit_version_from_root() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -949,7 +949,7 @@ fn workspace_inherit_version_from_root() -> Result<(), Box<dyn std::error::Error
     setup_workspace_project(
         &project1_cwd,
         "project1",
-        br#"{"name": "project1", "version": {"workspace": true}, "usage": []}"#,
+        br#"{"name": "project1", "version": {"preset": "default"}, "usage": []}"#,
     )?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
@@ -967,7 +967,7 @@ fn workspace_inherit_version_from_root() -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-/// Workspace project inherits version from a named group. Metamodel is NOT
+/// Workspace project inherits version from a named preset. Metamodel is NOT
 /// implicitly inherited — it must be explicitly referenced in `.meta.json`.
 #[test]
 fn workspace_inherit_version_from_group() -> Result<(), Box<dyn std::error::Error>> {
@@ -980,7 +980,7 @@ fn workspace_inherit_version_from_group() -> Result<(), Box<dyn std::error::Erro
             "projects": [
                 {"path": "project1", "iris": ["urn:kpar:project1"]}
             ],
-            "groups": {
+            "presets": {
                 "kerml": {
                     "project": { "version": "1.0.0" },
                     "meta": { "metamodel": "https://www.omg.org/spec/KerML/20250201" }
@@ -992,7 +992,7 @@ fn workspace_inherit_version_from_group() -> Result<(), Box<dyn std::error::Erro
     setup_workspace_project(
         &project1_cwd,
         "project1",
-        br#"{"name": "project1", "version": {"workspace": "kerml"}, "usage": []}"#,
+        br#"{"name": "project1", "version": {"preset": "kerml"}, "usage": []}"#,
     )?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
@@ -1014,8 +1014,8 @@ fn workspace_inherit_version_from_group() -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-/// `.meta.json` with `"metamodel": { "workspace": "kerml" }` resolves the
-/// metamodel from the named group.
+/// `.meta.json` with `"metamodel": { "preset": "kerml" }` resolves the
+/// metamodel from the named preset.
 #[test]
 fn workspace_inherit_metamodel_from_group_in_meta_json() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1027,7 +1027,7 @@ fn workspace_inherit_metamodel_from_group_in_meta_json() -> Result<(), Box<dyn s
             "projects": [
                 {"path": "project1", "iris": ["urn:kpar:project1"]}
             ],
-            "groups": {
+            "presets": {
                 "kerml": {
                     "project": { "version": "1.0.0" },
                     "meta": { "metamodel": "https://www.omg.org/spec/KerML/20250201" }
@@ -1036,17 +1036,17 @@ fn workspace_inherit_metamodel_from_group_in_meta_json() -> Result<(), Box<dyn s
         }"#,
     )?;
 
-    // Version is literal; only metamodel inherits from the group via .meta.json
+    // Version is literal; only metamodel inherits from the preset via .meta.json
     setup_workspace_project(
         &project1_cwd,
         "project1",
         br#"{"name": "project1", "version": "2.0.0", "usage": []}"#,
     )?;
-    // Overwrite the generated .meta.json with a workspace metamodel reference
+    // Overwrite the generated .meta.json with a preset metamodel reference
     let meta_path = project1_cwd.join(".meta.json");
     let meta_content = std::fs::read_to_string(&meta_path)?;
     let mut meta_json: serde_json::Value = serde_json::from_str(&meta_content)?;
-    meta_json["metamodel"] = serde_json::json!({"workspace": "kerml"});
+    meta_json["metamodel"] = serde_json::json!({"preset": "kerml"});
     std::fs::write(&meta_path, serde_json::to_string_pretty(&meta_json)?)?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
@@ -1067,7 +1067,7 @@ fn workspace_inherit_metamodel_from_group_in_meta_json() -> Result<(), Box<dyn s
     Ok(())
 }
 
-/// Referencing an unknown workspace group reports a clear error.
+/// Referencing an unknown workspace preset reports a clear error.
 #[test]
 fn workspace_inherit_unknown_group_error() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -1085,7 +1085,7 @@ fn workspace_inherit_unknown_group_error() -> Result<(), Box<dyn std::error::Err
     setup_workspace_project(
         &project1_cwd,
         "project1",
-        br#"{"name": "project1", "version": {"workspace": "nonexistent"}, "usage": []}"#,
+        br#"{"name": "project1", "version": {"preset": "nonexistent"}, "usage": []}"#,
     )?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
@@ -1119,7 +1119,7 @@ fn workspace_inherit_publisher_and_license_from_root() -> Result<(), Box<dyn std
     setup_workspace_project(
         &project1_cwd,
         "project1",
-        br#"{"name": "project1", "version": {"workspace": true}, "publisher": {"workspace": true}, "license": {"workspace": true}, "usage": []}"#,
+        br#"{"name": "project1", "version": {"preset": "default"}, "publisher": {"preset": "default"}, "license": {"preset": "default"}, "usage": []}"#,
     )?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
@@ -1158,7 +1158,7 @@ fn workspace_inherit_version_idempotent() -> Result<(), Box<dyn std::error::Erro
     setup_workspace_project(
         &project1_cwd,
         "project1",
-        br#"{"name": "project1", "version": {"workspace": true}, "usage": []}"#,
+        br#"{"name": "project1", "version": {"preset": "default"}, "usage": []}"#,
     )?;
 
     // First build
@@ -1166,13 +1166,13 @@ fn workspace_inherit_version_idempotent() -> Result<(), Box<dyn std::error::Erro
     // Second build — must also succeed
     run_sysand_in(&cwd, ["build"], None)?.assert().success();
 
-    // Verify original .project.json was NOT modified (still has workspace ref)
+    // Verify original .project.json was NOT modified (still has preset ref)
     let original_content = std::fs::read_to_string(project1_cwd.join(".project.json"))?;
     let original: serde_json::Value = serde_json::from_str(&original_content)?;
     assert_eq!(
         original["version"],
-        serde_json::json!({"workspace": true}),
-        "original .project.json should still contain the workspace reference"
+        serde_json::json!({"preset": "default"}),
+        "original .project.json should still contain the preset reference"
     );
 
     Ok(())

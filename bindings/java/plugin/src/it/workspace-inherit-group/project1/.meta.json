@@ -3,7 +3,7 @@
     "A": "a.sysml"
   },
   "created": "2025-10-31T17:01:00.414506000Z",
-  "metamodel": { "workspace": "kerml" },
+  "metamodel": { "preset": "kerml" },
   "checksum": {
     "a.sysml": {
       "value": "",

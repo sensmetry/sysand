@@ -3,26 +3,24 @@
 
 use thiserror::Error;
 
-use crate::model::{
-    InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, WorkspaceInherit, WorkspaceRef,
-};
+use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, WorkspaceInherit};
 
-use super::types::{WorkspaceGroupEntryRaw, WorkspaceInfo};
+use super::types::{WorkspaceInfo, WorkspacePresetEntryRaw};
 
 #[derive(Error, Debug)]
 pub enum WorkspaceInheritanceError {
     #[error(
-        "project `{project}`: field `{field}` references group `{group}`, \
-         but no such group exists in `.workspace.json`"
+        "project `{project}`: field `{field}` references preset `{preset}`, \
+         but no such preset exists in `.workspace.json`"
     )]
-    UnknownGroup {
+    UnknownPreset {
         project: String,
         field: &'static str,
-        group: String,
+        preset: String,
     },
 
     #[error(
-        "project `{project}`: field `{field}` uses {{\"workspace\": true}}, \
+        "project `{project}`: field `{field}` uses {{\"preset\": \"default\"}}, \
          but `.workspace.json` has no `project.{field}` default"
     )]
     MissingRootDefault {
@@ -31,22 +29,13 @@ pub enum WorkspaceInheritanceError {
     },
 
     #[error(
-        "project `{project}`: field `{field}` uses {{\"workspace\": \"{group}\"}}, \
-         but group `{group}` has no `project.{field}` default"
+        "project `{project}`: field `{field}` uses {{\"preset\": \"{preset}\"}}, \
+         but preset `{preset}` has no `project.{field}` default"
     )]
-    MissingGroupDefault {
+    MissingPresetDefault {
         project: String,
         field: &'static str,
-        group: String,
-    },
-
-    #[error(
-        "project `{project}`: field `{field}` uses {{\"workspace\": false}}, \
-         which is not a valid reference (use `true` or a group name)"
-    )]
-    WorkspaceFalse {
-        project: String,
-        field: &'static str,
+        preset: String,
     },
 
     #[error("project `{project}` uses workspace inheritance but no `.workspace.json` was found")]
@@ -56,64 +45,53 @@ pub enum WorkspaceInheritanceError {
 /// Resolve a single required `WorkspaceInherit<String>` field.
 ///
 /// * `Literal(v)` — returned as-is.
-/// * `{ "workspace": true }` — calls `get_root_default(workspace)`; errors with
+/// * `{ "preset": "default" }` — calls `get_root_default(workspace)`; errors with
 ///   [`WorkspaceInheritanceError::MissingRootDefault`] if the workspace has no
 ///   value for this field.
-/// * `{ "workspace": "group" }` — looks up the named group, then calls
-///   `get_group_default`; errors with [`WorkspaceInheritanceError::UnknownGroup`]
-///   or [`WorkspaceInheritanceError::MissingGroupDefault`] as appropriate.
-/// * `{ "workspace": false }` — always errors with
-///   [`WorkspaceInheritanceError::WorkspaceFalse`].
+/// * `{ "preset": "name" }` — looks up the named preset, then calls
+///   `get_preset_default`; errors with [`WorkspaceInheritanceError::UnknownPreset`]
+///   or [`WorkspaceInheritanceError::MissingPresetDefault`] as appropriate.
 ///
-/// Returns the resolved string value and, when a named group was used, the
-/// group name (used by callers that need to know which group was resolved).
+/// Returns the resolved string value and, when a named preset was used, the
+/// preset name (used by callers that need to know which preset was resolved).
 fn resolve_field<'a>(
     field: WorkspaceInherit<String>,
     field_name: &'static str,
     project_name: &str,
     workspace: &'a WorkspaceInfo,
     get_root_default: impl Fn(&'a WorkspaceInfo) -> Option<&'a str>,
-    get_group_default: impl Fn(&'a WorkspaceGroupEntryRaw) -> Option<&'a str>,
+    get_preset_default: impl Fn(&'a WorkspacePresetEntryRaw) -> Option<&'a str>,
 ) -> Result<(String, Option<String>), WorkspaceInheritanceError> {
     match field {
         WorkspaceInherit::Literal(v) => Ok((v, None)),
-        WorkspaceInherit::Workspace {
-            workspace: WorkspaceRef::Root(false),
-        } => Err(WorkspaceInheritanceError::WorkspaceFalse {
-            project: project_name.to_string(),
-            field: field_name,
-        }),
-        WorkspaceInherit::Workspace {
-            workspace: WorkspaceRef::Root(true),
-        } => {
-            let value = get_root_default(workspace).ok_or_else(|| {
-                WorkspaceInheritanceError::MissingRootDefault {
-                    project: project_name.to_string(),
-                    field: field_name,
-                }
-            })?;
-            Ok((value.to_string(), None))
-        }
-        WorkspaceInherit::Workspace {
-            workspace: WorkspaceRef::Group(group),
-        } => {
-            let entry = workspace
-                .groups
-                .as_ref()
-                .and_then(|g| g.get(&group))
-                .ok_or_else(|| WorkspaceInheritanceError::UnknownGroup {
-                    project: project_name.to_string(),
-                    field: field_name,
-                    group: group.clone(),
+        WorkspaceInherit::Preset { preset } => {
+            if preset == "default" {
+                let value = get_root_default(workspace).ok_or_else(|| {
+                    WorkspaceInheritanceError::MissingRootDefault {
+                        project: project_name.to_string(),
+                        field: field_name,
+                    }
                 })?;
-            let value = get_group_default(entry).ok_or_else(|| {
-                WorkspaceInheritanceError::MissingGroupDefault {
-                    project: project_name.to_string(),
-                    field: field_name,
-                    group: group.clone(),
-                }
-            })?;
-            Ok((value.to_string(), Some(group)))
+                Ok((value.to_string(), None))
+            } else {
+                let entry = workspace
+                    .presets
+                    .as_ref()
+                    .and_then(|p| p.get(&preset))
+                    .ok_or_else(|| WorkspaceInheritanceError::UnknownPreset {
+                        project: project_name.to_string(),
+                        field: field_name,
+                        preset: preset.clone(),
+                    })?;
+                let value = get_preset_default(entry).ok_or_else(|| {
+                    WorkspaceInheritanceError::MissingPresetDefault {
+                        project: project_name.to_string(),
+                        field: field_name,
+                        preset: preset.clone(),
+                    }
+                })?;
+                Ok((value.to_string(), Some(preset)))
+            }
         }
     }
 }
@@ -126,7 +104,7 @@ fn resolve_optional_field<'a>(
     project_name: &str,
     workspace: &'a WorkspaceInfo,
     get_root_default: impl Fn(&'a WorkspaceInfo) -> Option<&'a str>,
-    get_group_default: impl Fn(&'a WorkspaceGroupEntryRaw) -> Option<&'a str>,
+    get_preset_default: impl Fn(&'a WorkspacePresetEntryRaw) -> Option<&'a str>,
 ) -> Result<(Option<String>, Option<String>), WorkspaceInheritanceError> {
     match field {
         None => Ok((None, None)),
@@ -137,7 +115,7 @@ fn resolve_optional_field<'a>(
                 project_name,
                 workspace,
                 get_root_default,
-                get_group_default,
+                get_preset_default,
             )?;
             Ok((Some(v), g))
         }
@@ -270,7 +248,7 @@ pub fn project_info_without_workspace(
     ) -> Result<T, WorkspaceInheritanceError> {
         match field {
             WorkspaceInherit::Literal(v) => Ok(v),
-            WorkspaceInherit::Workspace { .. } => Err(WorkspaceInheritanceError::NoWorkspace {
+            WorkspaceInherit::Preset { .. } => Err(WorkspaceInheritanceError::NoWorkspace {
                 project: project_name.to_string(),
             }),
         }
@@ -311,7 +289,7 @@ pub fn project_metadata_without_workspace(
     let metamodel = match raw.metamodel {
         None => None,
         Some(WorkspaceInherit::Literal(v)) => Some(v),
-        Some(WorkspaceInherit::Workspace { .. }) => {
+        Some(WorkspaceInherit::Preset { .. }) => {
             return Err(WorkspaceInheritanceError::NoWorkspace {
                 project: project_name.to_string(),
             });

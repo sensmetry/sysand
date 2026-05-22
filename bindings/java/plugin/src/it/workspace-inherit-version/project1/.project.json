@@ -1,5 +1,5 @@
 {
   "name": "project1",
-  "version": { "workspace": true },
+  "version": { "preset": "default" },
   "usage": []
 }

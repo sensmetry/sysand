@@ -20,22 +20,16 @@ use crate::utils::lowercase_hex;
 // Workspace inheritance types defined here so they are available without the
 // `filesystem` feature, which gates the `workspace` module.
 //
-/// The target of a workspace reference: the root workspace defaults (`true`)
-/// or a named group.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum WorkspaceRef {
-    Root(bool),
-    Group(String),
-}
-
-/// A field value that is either a literal or a workspace inheritance
-/// placeholder (`{ "workspace": true }` or `{ "workspace": "group" }`).
+/// A field value that is either a literal or a workspace preset inheritance
+/// placeholder (`{ "preset": "default" }` or `{ "preset": "name" }`).
+///
+/// Use `"default"` to inherit from the workspace root `project` defaults;
+/// use any other name to inherit from a named preset.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum WorkspaceInherit<T> {
     Literal(T),
-    Workspace { workspace: WorkspaceRef },
+    Preset { preset: String },
 }
 
 pub const KNOWN_METAMODELS: [&str; 2] = [

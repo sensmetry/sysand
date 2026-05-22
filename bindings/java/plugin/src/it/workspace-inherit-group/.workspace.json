@@ -5,7 +5,7 @@
       "iris": ["urn:kpar:project1"]
     }
   ],
-  "groups": {
+  "presets": {
     "kerml": {
       "project": {
         "version": "1.0.0"

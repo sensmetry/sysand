@@ -39,11 +39,13 @@ the workspace.
     used to refer to the project from other projects in the workspace
     instead of using `file://` URLs
 - `meta` (optional): An object containing workspace-level metadata:
-  - `metamodel` (optional): An IRI specifying the metamodel for all projects
-    in the workspace. When set, individual projects must **not** also set
-    `metamodel` in their `.meta.json` — doing so will produce an error.
-    During build, the workspace metamodel is injected into each project
-    that does not already have one set.
+  - `metamodel` (optional): An IRI specifying a default metamodel that can
+    be referenced from project `.meta.json` files using
+    `{ "preset": "default" }`. See [Inheriting fields from workspace defaults](#inheriting-fields-from-workspace-defaults).
+- `project` (optional): An object with default values for inheritable
+  project fields. See [Inheriting fields from workspace defaults](#inheriting-fields-from-workspace-defaults).
+- `presets` (optional): A map of named presets, each with their own
+  `project` and/or `meta` defaults. See [Inheriting fields from workspace defaults](#inheriting-fields-from-workspace-defaults).
 
 ## Example
 
@@ -64,9 +66,108 @@ An example `.workspace.json` file:
       "path": "project3",
       "iris": ["urn:local:project3"]
     }
-  ],
-  "meta": {
-    "metamodel": "https://www.omg.org/spec/SysML/20250201"
+  ]
+}
+```
+
+## Inheriting fields from workspace defaults
+
+When many projects in a workspace share the same version, publisher, license,
+or metamodel, you can define these values once in `.workspace.json` and
+reference them from each project instead of repeating them.
+
+### Root defaults
+
+Define a `project` object at the top level of `.workspace.json`:
+
+```json
+{
+  "projects": [...],
+  "project": {
+    "version": "2.0.0",
+    "publisher": "Acme Corp",
+    "license": "MIT"
   }
 }
 ```
+
+Reference a root default in `.project.json` using `{ "preset": "default" }`:
+
+```json
+{
+  "name": "my-project",
+  "version": { "preset": "default" },
+  "publisher": { "preset": "default" },
+  "usage": []
+}
+```
+
+To inherit the workspace-level `metamodel` in `.meta.json`:
+
+```json
+{
+  "index": { ... },
+  "created": "...",
+  "metamodel": { "preset": "default" }
+}
+```
+
+### Named presets
+
+For workspaces with projects that fall into distinct categories (for example
+KerML vs SysML projects), you can define named presets under the `presets` key.
+Each preset may have a `project` section (for inheritable `.project.json`
+fields) and/or a `meta` section (for the `metamodel` field).
+
+```json
+{
+  "projects": [...],
+  "presets": {
+    "kerml": {
+      "project": { "version": "1.0.0" },
+      "meta": { "metamodel": "https://www.omg.org/spec/KerML/20250201" }
+    },
+    "sysml": {
+      "project": { "version": "2.0.0" },
+      "meta": { "metamodel": "https://www.omg.org/spec/SysML/20250201" }
+    }
+  }
+}
+```
+
+Reference a named preset in `.project.json`:
+
+```json
+{
+  "name": "my-kerml-project",
+  "version": { "preset": "kerml" },
+  "usage": []
+}
+```
+
+Reference a named preset's `metamodel` in `.meta.json`:
+
+```json
+{
+  "index": { ... },
+  "created": "...",
+  "metamodel": { "preset": "kerml" }
+}
+```
+
+### Inheritable fields
+
+| File | Field |
+|------|-------|
+| `.project.json` | `version`, `publisher`, `license` |
+| `.meta.json` | `metamodel` |
+
+### Conflict rules
+
+- A field may be defined either in the root `project` section **or** in a
+  preset — not both. For example, if `project.version` is set, no preset may
+  also set `project.version`.
+- Two sibling presets may both define the same field independently (projects
+  choose at most one preset per field).
+- The preset name `"default"` is reserved; it refers to the root `project`
+  defaults and cannot be used as a named preset key.

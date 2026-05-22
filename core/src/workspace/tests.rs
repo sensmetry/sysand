@@ -4,7 +4,7 @@
 use super::*;
 use crate::model::{
     InterchangeProjectInfoWithInheritRaw, InterchangeProjectMetadataWithInheritRaw,
-    WorkspaceInherit, WorkspaceRef,
+    WorkspaceInherit,
 };
 
 // ---------------------------------------------------------------------------
@@ -80,10 +80,10 @@ fn deserialize_with_project_defaults() {
 }
 
 #[test]
-fn deserialize_with_groups() {
+fn deserialize_with_presets() {
     let json = r#"{
         "projects": [],
-        "groups": {
+        "presets": {
             "kerml": {
                 "project": { "version": "1.0.0" },
                 "meta": { "metamodel": "https://www.omg.org/spec/KerML/20250201" }
@@ -96,9 +96,9 @@ fn deserialize_with_groups() {
     }"#;
     let raw: WorkspaceInfoRaw = serde_json::from_str(json).unwrap();
     let info = WorkspaceInfo::try_from(raw).unwrap();
-    let groups = info.groups.as_ref().unwrap();
-    assert_eq!(groups.len(), 2);
-    let kerml = groups.get("kerml").unwrap();
+    let presets = info.presets.as_ref().unwrap();
+    assert_eq!(presets.len(), 2);
+    let kerml = presets.get("kerml").unwrap();
     assert_eq!(
         kerml.project.as_ref().unwrap().version.as_deref(),
         Some("1.0.0")
@@ -121,27 +121,17 @@ fn workspace_inherit_literal_deserializes() {
 }
 
 #[test]
-fn workspace_inherit_root_deserializes() {
-    let json = r#"{"workspace": true}"#;
+fn workspace_inherit_default_preset_deserializes() {
+    let json = r#"{"preset": "default"}"#;
     let val: WorkspaceInherit<String> = serde_json::from_str(json).unwrap();
-    assert!(matches!(
-        val,
-        WorkspaceInherit::Workspace {
-            workspace: WorkspaceRef::Root(true)
-        }
-    ));
+    assert!(matches!(val, WorkspaceInherit::Preset { ref preset } if preset == "default"));
 }
 
 #[test]
-fn workspace_inherit_group_deserializes() {
-    let json = r#"{"workspace": "kerml"}"#;
+fn workspace_inherit_named_preset_deserializes() {
+    let json = r#"{"preset": "kerml"}"#;
     let val: WorkspaceInherit<String> = serde_json::from_str(json).unwrap();
-    assert!(matches!(
-        val,
-        WorkspaceInherit::Workspace {
-            workspace: WorkspaceRef::Group(ref g)
-        } if g == "kerml"
-    ));
+    assert!(matches!(val, WorkspaceInherit::Preset { ref preset } if preset == "kerml"));
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +140,7 @@ fn workspace_inherit_group_deserializes() {
 
 fn make_workspace_info(
     root_version: Option<&str>,
-    groups: &[(&str, &str, Option<&str>)], // (name, version, metamodel)
+    presets: &[(&str, &str, Option<&str>)], // (name, version, metamodel)
     root_metamodel: Option<&str>,
 ) -> WorkspaceInfo {
     let project = root_version.map(|v| WorkspaceProjectDefaultsRaw {
@@ -159,17 +149,17 @@ fn make_workspace_info(
         license: None,
     });
 
-    let groups_map: Option<indexmap::IndexMap<String, WorkspaceGroupEntryRaw>> =
-        if groups.is_empty() {
+    let presets_map: Option<indexmap::IndexMap<String, WorkspacePresetEntryRaw>> =
+        if presets.is_empty() {
             None
         } else {
             Some(
-                groups
+                presets
                     .iter()
                     .map(|(name, version, metamodel)| {
                         (
                             name.to_string(),
-                            WorkspaceGroupEntryRaw {
+                            WorkspacePresetEntryRaw {
                                 project: Some(WorkspaceProjectDefaultsRaw {
                                     version: Some(version.to_string()),
                                     publisher: None,
@@ -196,7 +186,7 @@ fn make_workspace_info(
         projects: vec![],
         meta,
         project,
-        groups: groups_map,
+        presets: presets_map,
     }
 }
 
@@ -225,17 +215,17 @@ fn resolve_project_info_literal_version() {
 }
 
 #[test]
-fn resolve_project_info_workspace_true() {
+fn resolve_project_info_default_preset() {
     let ws = make_workspace_info(Some("3.0.0"), &[], None);
-    let raw = make_project_info_raw(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Root(true),
+    let raw = make_project_info_raw(WorkspaceInherit::Preset {
+        preset: "default".to_string(),
     });
     let resolved = resolve_project_info(raw, &ws).unwrap();
     assert_eq!(resolved.version, "3.0.0");
 }
 
 #[test]
-fn resolve_project_info_workspace_group() {
+fn resolve_project_info_named_preset() {
     let ws = make_workspace_info(
         None,
         &[(
@@ -245,25 +235,25 @@ fn resolve_project_info_workspace_group() {
         )],
         None,
     );
-    let raw = make_project_info_raw(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Group("kerml".to_string()),
+    let raw = make_project_info_raw(WorkspaceInherit::Preset {
+        preset: "kerml".to_string(),
     });
     let resolved = resolve_project_info(raw, &ws).unwrap();
     assert_eq!(resolved.version, "1.0.0");
 }
 
 #[test]
-fn resolve_project_info_mixed_groups() {
+fn resolve_project_info_mixed_presets() {
     // version from "sysml", publisher from "kerml" — both resolve independently
     let ws_info = WorkspaceInfo {
         projects: vec![],
         meta: None,
         project: None,
-        groups: Some({
+        presets: Some({
             let mut m = indexmap::IndexMap::new();
             m.insert(
                 "kerml".to_string(),
-                WorkspaceGroupEntryRaw {
+                WorkspacePresetEntryRaw {
                     project: Some(WorkspaceProjectDefaultsRaw {
                         version: Some("1.0.0".to_string()),
                         publisher: Some("KerML Corp".to_string()),
@@ -274,7 +264,7 @@ fn resolve_project_info_mixed_groups() {
             );
             m.insert(
                 "sysml".to_string(),
-                WorkspaceGroupEntryRaw {
+                WorkspacePresetEntryRaw {
                     project: Some(WorkspaceProjectDefaultsRaw {
                         version: Some("2.0.0".to_string()),
                         publisher: None,
@@ -288,12 +278,12 @@ fn resolve_project_info_mixed_groups() {
     };
     let raw = InterchangeProjectInfoWithInheritRaw {
         name: "my-project".to_string(),
-        publisher: Some(WorkspaceInherit::Workspace {
-            workspace: WorkspaceRef::Group("kerml".to_string()),
+        publisher: Some(WorkspaceInherit::Preset {
+            preset: "kerml".to_string(),
         }),
         description: None,
-        version: WorkspaceInherit::Workspace {
-            workspace: WorkspaceRef::Group("sysml".to_string()),
+        version: WorkspaceInherit::Preset {
+            preset: "sysml".to_string(),
         },
         license: None,
         maintainer: vec![],
@@ -307,23 +297,23 @@ fn resolve_project_info_mixed_groups() {
 }
 
 #[test]
-fn resolve_project_info_unknown_group_error() {
+fn resolve_project_info_unknown_preset_error() {
     let ws = make_workspace_info(None, &[], None);
-    let raw = make_project_info_raw(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Group("nonexistent".to_string()),
+    let raw = make_project_info_raw(WorkspaceInherit::Preset {
+        preset: "nonexistent".to_string(),
     });
     let err = resolve_project_info(raw, &ws).unwrap_err();
     assert!(matches!(
         err,
-        WorkspaceInheritanceError::UnknownGroup { .. }
+        WorkspaceInheritanceError::UnknownPreset { .. }
     ));
 }
 
 #[test]
 fn resolve_project_info_missing_root_default_error() {
     let ws = make_workspace_info(None, &[], None); // no project defaults
-    let raw = make_project_info_raw(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Root(true),
+    let raw = make_project_info_raw(WorkspaceInherit::Preset {
+        preset: "default".to_string(),
     });
     let err = resolve_project_info(raw, &ws).unwrap_err();
     assert!(matches!(
@@ -333,17 +323,17 @@ fn resolve_project_info_missing_root_default_error() {
 }
 
 #[test]
-fn resolve_project_info_missing_group_default_error() {
-    // Group exists but has no version
+fn resolve_project_info_missing_preset_default_error() {
+    // Preset exists but has no version
     let ws_info = WorkspaceInfo {
         projects: vec![],
         meta: None,
         project: None,
-        groups: Some({
+        presets: Some({
             let mut m = indexmap::IndexMap::new();
             m.insert(
                 "kerml".to_string(),
-                WorkspaceGroupEntryRaw {
+                WorkspacePresetEntryRaw {
                     project: None, // no project defaults
                     meta: None,
                 },
@@ -351,26 +341,13 @@ fn resolve_project_info_missing_group_default_error() {
             m
         }),
     };
-    let raw = make_project_info_raw(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Group("kerml".to_string()),
+    let raw = make_project_info_raw(WorkspaceInherit::Preset {
+        preset: "kerml".to_string(),
     });
     let err = resolve_project_info(raw, &ws_info).unwrap_err();
     assert!(matches!(
         err,
-        WorkspaceInheritanceError::MissingGroupDefault { .. }
-    ));
-}
-
-#[test]
-fn resolve_project_info_workspace_false_error() {
-    let ws = make_workspace_info(None, &[], None);
-    let raw = make_project_info_raw(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Root(false),
-    });
-    let err = resolve_project_info(raw, &ws).unwrap_err();
-    assert!(matches!(
-        err,
-        WorkspaceInheritanceError::WorkspaceFalse { .. }
+        WorkspaceInheritanceError::MissingPresetDefault { .. }
     ));
 }
 
@@ -383,8 +360,8 @@ fn project_info_without_workspace_literal_passes() {
 
 #[test]
 fn project_info_without_workspace_ref_errors() {
-    let raw = make_project_info_raw(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Root(true),
+    let raw = make_project_info_raw(WorkspaceInherit::Preset {
+        preset: "default".to_string(),
     });
     let err = crate::workspace::project_info_without_workspace(raw).unwrap_err();
     assert!(matches!(err, WorkspaceInheritanceError::NoWorkspace { .. }));
@@ -429,10 +406,10 @@ fn resolve_project_metadata_literal_metamodel() {
 }
 
 #[test]
-fn resolve_project_metadata_workspace_true() {
+fn resolve_project_metadata_default_preset() {
     let ws = make_workspace_info(None, &[], Some("https://www.omg.org/spec/SysML/20250201"));
-    let raw = make_meta_raw(Some(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Root(true),
+    let raw = make_meta_raw(Some(WorkspaceInherit::Preset {
+        preset: "default".to_string(),
     }));
     let resolved = crate::workspace::resolve_project_metadata(raw, &ws, "my-project").unwrap();
     assert_eq!(
@@ -442,7 +419,7 @@ fn resolve_project_metadata_workspace_true() {
 }
 
 #[test]
-fn resolve_project_metadata_workspace_group() {
+fn resolve_project_metadata_named_preset() {
     let ws = make_workspace_info(
         None,
         &[(
@@ -452,27 +429,14 @@ fn resolve_project_metadata_workspace_group() {
         )],
         None,
     );
-    let raw = make_meta_raw(Some(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Group("kerml".to_string()),
+    let raw = make_meta_raw(Some(WorkspaceInherit::Preset {
+        preset: "kerml".to_string(),
     }));
     let resolved = crate::workspace::resolve_project_metadata(raw, &ws, "my-project").unwrap();
     assert_eq!(
         resolved.metamodel.as_deref(),
         Some("https://www.omg.org/spec/KerML/20250201")
     );
-}
-
-#[test]
-fn resolve_project_metadata_workspace_false_error() {
-    let ws = make_workspace_info(None, &[], None);
-    let raw = make_meta_raw(Some(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Root(false),
-    }));
-    let err = crate::workspace::resolve_project_metadata(raw, &ws, "my-project").unwrap_err();
-    assert!(matches!(
-        err,
-        WorkspaceInheritanceError::WorkspaceFalse { .. }
-    ));
 }
 
 #[test]
@@ -484,9 +448,46 @@ fn project_metadata_without_workspace_literal_passes() {
 
 #[test]
 fn project_metadata_without_workspace_ref_errors() {
-    let raw = make_meta_raw(Some(WorkspaceInherit::Workspace {
-        workspace: WorkspaceRef::Root(true),
+    let raw = make_meta_raw(Some(WorkspaceInherit::Preset {
+        preset: "default".to_string(),
     }));
     let err = crate::workspace::project_metadata_without_workspace(raw, "my-project").unwrap_err();
     assert!(matches!(err, WorkspaceInheritanceError::NoWorkspace { .. }));
+}
+
+// ---------------------------------------------------------------------------
+// Workspace validation: reserved preset name and root+preset conflict
+// ---------------------------------------------------------------------------
+
+#[test]
+fn reserved_preset_name_default_is_rejected() {
+    let json = r#"{
+        "projects": [],
+        "presets": {
+            "default": { "project": { "version": "1.0.0" } }
+        }
+    }"#;
+    let raw: WorkspaceInfoRaw = serde_json::from_str(json).unwrap();
+    let err = WorkspaceInfo::try_from(raw).unwrap_err();
+    assert!(matches!(err, WorkspaceValidationError::ReservedPresetName));
+}
+
+#[test]
+fn root_and_preset_version_conflict_is_rejected() {
+    let json = r#"{
+        "projects": [],
+        "project": { "version": "1.0.0" },
+        "presets": {
+            "kerml": { "project": { "version": "2.0.0" } }
+        }
+    }"#;
+    let raw: WorkspaceInfoRaw = serde_json::from_str(json).unwrap();
+    let err = WorkspaceInfo::try_from(raw).unwrap_err();
+    assert!(matches!(
+        err,
+        WorkspaceValidationError::RootAndPresetConflict {
+            field: "version",
+            ..
+        }
+    ));
 }

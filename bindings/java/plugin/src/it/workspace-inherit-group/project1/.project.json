@@ -1,5 +1,5 @@
 {
   "name": "project1",
-  "version": { "workspace": "kerml" },
+  "version": { "preset": "kerml" },
   "usage": []
 }
