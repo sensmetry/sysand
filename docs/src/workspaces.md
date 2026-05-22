@@ -157,10 +157,10 @@ Reference a named preset's `metamodel` in `.meta.json`:
 
 ### Inheritable fields
 
-| File | Field |
-|------|-------|
+| File            | Field                             |
+| --------------- | --------------------------------- |
 | `.project.json` | `version`, `publisher`, `license` |
-| `.meta.json` | `metamodel` |
+| `.meta.json`    | `metamodel`                       |
 
 ### Conflict rules
 
