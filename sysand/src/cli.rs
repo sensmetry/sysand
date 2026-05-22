@@ -1396,30 +1396,39 @@ pub enum IndexCommand {
     Add {
         // The type is str, not Iri so that a better error can be reported in some cases
         // for example when the publisher contains a space
+        /// Path to KPAR
         kpar_path: Utf8PathBuf,
         #[arg(long)]
+        /// Project identifier. Default is pkg:sysand/<publisher>/<name>, if publisher is
+        /// specified in .project.json. Omitting both publisher and iri is an error
         iri: Option<String>,
         /// Path to the index directory. If not provided, current working directory is used
         #[arg(long)]
         index_root: Option<Utf8PathBuf>,
     },
-    /// Yank a project version from a local index
+    /// Yank a project version from a local index. The yanked version will still be available
+    /// and used to sync from an existing lockfile, but new lockfiles will not use it.
+    /// A yanked version cannot be un-yanked
     #[clap(verbatim_doc_comment)]
     Yank {
+        /// Package identifier
         iri: String,
+        /// Version to yank
         #[arg(long)]
         version: String,
         /// Path to the index directory. If not provided, current working directory is used
         #[arg(long)]
         index_root: Option<Utf8PathBuf>,
     },
-    /// Remove a project or a specific version of a project from
-    /// a local sysand index
+    /// Remove a project or a specific version of a project from a local sysand index.
+    /// This breaks the existing lockfiles which use the to-be-removed project or version.
+    /// Instead it is recommended to yank a specific version and release a new fixed version.
+    /// Removing project or version cannot be undone
     #[clap(verbatim_doc_comment)]
     Remove {
+        /// Package identifier
         iri: String,
-        /// If specified, remove the specified version, otherwise
-        /// remove the whole project
+        /// If specified, remove the specified version, otherwise remove the whole project
         #[arg(long)]
         version: Option<String>,
         /// Path to the index directory. If not provided, current working directory is used
