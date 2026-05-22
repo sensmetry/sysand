@@ -92,6 +92,7 @@ pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
     log::info!("{header}{yanking:>12}{header:#} {iri} version {version}");
 
     let mut yanked: usize = 0;
+    // This instead .iter_mut() to appease the borrow checker
     for i in 0..versions_value.versions.len() {
         let version_entry = &mut versions_value.versions[i];
         if version_entry.version == version {

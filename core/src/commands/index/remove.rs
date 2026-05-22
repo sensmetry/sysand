@@ -161,6 +161,7 @@ fn remove_versions<F: FnMut(&VersionEntry) -> bool>(
     versions_value: &mut VersionsJson,
     mut if_remove_version: F,
 ) -> Result<(), IndexRemoveError> {
+    // This instead .iter_mut() to appease the borrow checker
     for i in 0..versions_value.versions.len() {
         let version_entry = &mut versions_value.versions[i];
         if if_remove_version(version_entry) {
