@@ -110,7 +110,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
         &cwd,
         [
             "add",
-            "urn:kpar:function-library",
+            "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
             "--no-lock",
             "--include-std",
         ],
@@ -118,7 +118,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(predicate::str::contains(
-        "Adding usage: `urn:kpar:function-library`",
+        "Adding usage: `https://www.omg.org/spec/KerML/20250201/Function-Library.kpar`",
     ));
 
     let cfg = toml::to_string(&sysand_core::config::Config {

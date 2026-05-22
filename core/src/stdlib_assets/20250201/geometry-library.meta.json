@@ -1,1 +1,18 @@
-{"index":{"ShapeItems":"ShapeItems.sysml","SpatialItems":"SpatialItems.sysml"},"created":"2025-03-13T00:00:00Z","metamodel":"https://www.omg.org/spec/SysML/20250201","checksum":{"SpatialItems.sysml":{"value":"d06400ef62cb681a9053a8979631a98d7a4c36abb8e0b3e3a34c00eef2f80f9b","algorithm":"SHA256"},"ShapeItems.sysml":{"value":"dfc6e34848ae7a514e236abaaffa40d412835347c4f967f758424f3ec2bdff45","algorithm":"SHA256"}}}
+{
+  "index": {
+    "ShapeItems": "ShapeItems.sysml",
+    "SpatialItems": "SpatialItems.sysml"
+  },
+  "created": "2025-03-13T00:00:00Z",
+  "metamodel": "https://www.omg.org/spec/SysML/20250201",
+  "checksum": {
+    "SpatialItems.sysml": {
+      "value": "21f4b44f64212e7c4e5802b7d4deeaec26390fc7e4133be0793eee4f4d1c11aa",
+      "algorithm": "SHA256"
+    },
+    "ShapeItems.sysml": {
+      "value": "c9f2a10226e8d1a1280aee1ddb2d3e3ec5fe3a9c236c628a4330ee51e36f16a0",
+      "algorithm": "SHA256"
+    }
+  }
+}
