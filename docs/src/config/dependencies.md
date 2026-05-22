@@ -36,7 +36,7 @@ identifiers = [
     "pkg:sysand/my-publisher/my-local-src-project",
 ]
 sources = [
-    { src_path = "pkg:sysand/my-publisher/local-project" },
+    { src_path = "path/to/project" },
 ]
 ```
 
