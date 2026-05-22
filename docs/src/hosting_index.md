@@ -54,7 +54,8 @@ sysand index add --kpar-path MyProject.kpar
 
 This command will create an entry in the project index with the IRI of
 `pkg:sysand/my-publisher/my-project-name` that other people can then use to install
-your project. The `publisher` and `name` values normalized values from `.project.json`.
+your project. The `publisher` and `name` values are normalized values from fields
+in `.project.json`.
 
 > [!tip]
 > If you don't specify `publisher` field in `.project.json`, you must provide
