@@ -1450,7 +1450,7 @@ pub struct IndexRemoveTarget {
     #[arg(long)]
     pub version: Option<String>,
     /// Remove the whole project
-    #[arg(long, action)]
+    #[arg(long)]
     pub project: bool,
 }
 

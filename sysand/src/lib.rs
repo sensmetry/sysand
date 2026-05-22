@@ -387,10 +387,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 } => {
                     let target = match (target.version, target.project) {
                         (Some(version), false) => RemoveTarget::Version(version),
-                        (None, true) => {
-                            assert!(target.project);
-                            RemoveTarget::Project
-                        }
+                        (None, true) => RemoveTarget::Project,
                         _ => unreachable!(),
                     };
                     command_index_remove(iri, target, root(index_root))
