@@ -10,7 +10,7 @@ Sysand project index. The guide describes three ways to run the index:
 - [GitLab](#GitLab) -- using GitLab Pages
 
 > [!note]
-> This guide is only concerned about hosting the package files in the
+> This guide is only concerned about hosting the project files in the
 > structure that Sysand CLI can understand. Hosting of a front-end website
 > (such as [beta.sysand.org][sysand_index]) is not a part of this guide.
 
@@ -28,7 +28,7 @@ for testing purposes, but the general approach applies to a more sophisticated
 production hosting as well. Get in touch with your IT administrator to get this
 running on your company's infrastructure.
 
-The easiest way to host a project index from which to install packages is to
+The easiest way to host a project index from which to install projects is to
 create a local sysand index and expose it over HTTP.
 
 ### Create Local Index
@@ -41,20 +41,20 @@ sysand index init
 
 This will initialize a sysand index in your current directory.
 
-### Add Packages to the Index
+### Add Project to the Index
 
-You can now add the packages you want to share into the Sysand index.
+You can now add the projects you want to share into the Sysand index.
 For example, if you have a `MyProject.kpar` file in your current directory,
-you can add it to the package index by (provided .project.json specifies
+you can add it to the project index by (provided .project.json specifies
 `publisher` field):
 
 ```sh
 sysand index add --kpar-path MyProject.kpar
 ```
 
-This command will create an entry in the package index with the IRI of
+This command will create an entry in the project index with the IRI of
 `pkg:sysand/my-publisher/my-project-name` that other people can then use to install
-your package. The `publisher` and `name` values normalized values from `.project.json`.
+your project. The `publisher` and `name` values normalized values from `.project.json`.
 
 > [!tip]
 > If you don't specify `publisher` field in `.project.json`, you must provide
@@ -70,14 +70,14 @@ your package. The `publisher` and `name` values normalized values from `.project
 > `file` or `ssh`. Also `pkg:sysand/<publisher>/<name>` IRI can only be chosen
 > for projects which specify `publisher` in `.project.json`.
 
-Repeat this step for as many times as you have packages (and their versions),
-giving a unique IRI for each different package.
+Repeat this step for as many times as you have projects (and their versions),
+giving a unique IRI for each different project.
 
 ### Start an HTTP server
 
-Once you install all the required packages, you can use Python and its
+Once you install all the required projects, you can use Python and its
 [built-in `http.server` module](https://docs.python.org/3/library/http.server.html)
-to quickly start a simple HTTP server that will make the package index accessible
+to quickly start a simple HTTP server that will make the project index accessible
 over the network. To do this, run:
 
 ```sh
@@ -95,13 +95,13 @@ guidelines or to do it for you.
 
 ### Sysand Client Setup
 
-You should now be able to access the package index through
+You should now be able to access the project index through
 [http://localhost:8080](http://localhost:8080).
 To test it, create a new SysML v2 project in another directory by following
 the [User Guide](tutorial.md).
 
 Then, when adding a new usage to the project, use the `--index` argument
-to point to your private package index instead of the public
+to point to your private project index instead of the public
 [beta.sysand.org][sysand_index], for example:
 
 ```sh
@@ -109,7 +109,7 @@ sysand add pkg:sysand/my-publisher/my-project --index http://localhost:8080
 ```
 
 > [!important]
-> `localhost` tells Sysand to look for the package index running on your
+> `localhost` tells Sysand to look for the project index running on your
 > machine. For connecting to other machines replace `localhost` by the
 > address of the other machine, ensuring that networking and firewalls
 > are correctly configured.
@@ -177,7 +177,7 @@ workflow is triggered on every commit to the `main` branch, at which point it:
 
 ### Sysand Client Setup
 
-You should now be able to access the package index through
+You should now be able to access the project index through
 `https://raw.githubusercontent.com/OWNER/REPO/refs/heads/index/`, where `OWNER`
 and `REPO` is specific to where you created the project and how you named it. To
 test it, create a new SysML v2 project in another directory by following the
@@ -196,7 +196,7 @@ environment variables. See [Authentication](authentication.md) for details.
   index repository only, and with only `Contents` read-only permissions.
 
 Now, when adding a new usage to the project, use the `--index` argument
-to point to your private package index instead of the public
+to point to your private project index instead of the public
 [beta.sysand.org][sysand_index], for example:
 
 ```sh
@@ -248,7 +248,7 @@ branch, at which point it:
 
 ### Sysand Client Setup
 
-You should now be able to access the package index through
+You should now be able to access the project index through
 `https://GITLAB-ASSIGNED-DOMAIN.gitlab.io` or your custom domain. To test it,
 create a new SysML v2 project in another directory by following the [User
 Guide](tutorial.md).
@@ -264,7 +264,7 @@ environment variables. See [Authentication](authentication.md) for details.
   Token][gitlab_pat]. We recommend using a token with only `read-api` scope.
 
 Now, when adding a new usage to the project, use the `--index` argument
-to point to your private package index instead of the public
+to point to your private project index instead of the public
 [beta.sysand.org][sysand_index], for example:
 
 ```sh

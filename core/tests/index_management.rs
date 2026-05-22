@@ -8,8 +8,11 @@ use std::{fs, io::Write as _};
 use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::tempdir;
 use serde_json::{Value, json};
-use sysand_core::index::{do_index_add, do_index_init, do_index_remove, do_index_yank};
 use zip::write::SimpleFileOptions;
+
+use sysand_core::index::{
+    RemoveTarget, do_index_add, do_index_init, do_index_remove, do_index_yank,
+};
 
 #[test]
 fn command_test() {
@@ -63,7 +66,7 @@ fn command_test() {
         assert_error_contains(add_err, "is yanked");
     }
 
-    do_index_remove(iri, Some("1.2.3"), &cwd).unwrap();
+    do_index_remove(iri, RemoveTarget::Version("1.2.3".to_string()), &cwd).unwrap();
     {
         let add_result = do_index_add::<&str, _, _>(None, &kpar_path1, &cwd).unwrap_err();
         assert_error_contains(add_result, "is removed");
@@ -73,7 +76,7 @@ fn command_test() {
         assert_error_contains(yank_err, "is removed");
     }
 
-    do_index_remove::<_, &str, _>(iri, None, &cwd).unwrap();
+    do_index_remove(iri, RemoveTarget::Project, &cwd).unwrap();
     {
         let add_err = do_index_add::<&str, _, _>(None, &kpar_path3, &cwd).unwrap_err();
         assert_error_contains(add_err, "is removed");

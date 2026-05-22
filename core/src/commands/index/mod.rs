@@ -15,6 +15,7 @@ mod yank;
 
 pub use add::do_index_add;
 pub use init::do_index_init;
+pub use remove::RemoveTarget;
 pub use remove::do_index_remove;
 pub use yank::do_index_yank;
 

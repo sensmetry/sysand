@@ -31,6 +31,7 @@ use sysand_core::{
     context::ProjectContext,
     discover::{discover_project, discover_workspace},
     env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
+    index::RemoveTarget,
     init::InitError,
     lock::Lock,
     project::{
@@ -381,9 +382,19 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 } => command_index_yank(iri, version, root(index_root)),
                 cli::IndexCommand::Remove {
                     iri,
-                    version,
+                    target,
                     index_root,
-                } => command_index_remove(iri, version, root(index_root)),
+                } => {
+                    let target = match (target.version, target.project) {
+                        (Some(version), false) => RemoveTarget::Version(version),
+                        (None, true) => {
+                            assert!(target.project);
+                            RemoveTarget::Project
+                        }
+                        _ => unreachable!(),
+                    };
+                    command_index_remove(iri, target, root(index_root))
+                }
             }
         }
         Command::Lock { resolution_opts } => {

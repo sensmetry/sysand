@@ -47,11 +47,16 @@ pub enum IndexRemoveError {
     VersionNotFound { iri: Box<str>, version: Box<str> },
 }
 
-pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>, R: AsRef<Utf8Path>>(
-    iri: I,
+pub enum RemoveTarget {
     // It's String and not semver::Version because it's good to allow removing a non-semantic
     // version
-    version: Option<V>,
+    Version(String),
+    Project,
+}
+
+pub fn do_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
+    iri: I,
+    target: RemoveTarget,
     index_root: R,
 ) -> Result<(), IndexRemoveError> {
     let index_root = index_root.as_ref();
@@ -87,12 +92,11 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>, R: AsRef<Utf8Path>>(
 
     let removing = "Removing";
     let header = crate::style::get_style_config().header;
-    match version {
-        Some(version) => {
+    match target {
+        RemoveTarget::Version(version) => {
             // Specifically don't report any errors if the version is not a valid semver,
             // since if the project with invalid semver got in there somehow, it should
             // be possible to remove
-            let version = version.as_ref();
             log::info!("{header}{removing:>12}{header:#} {iri} version {version}");
             let mut version_found: bool = false;
             remove_versions(
@@ -123,7 +127,7 @@ pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>, R: AsRef<Utf8Path>>(
                 })
             }
         }
-        None => {
+        RemoveTarget::Project => {
             log::info!("{header}{removing:>12}{header:#} {iri}");
             remove_versions(
                 &project_path,

@@ -1411,7 +1411,7 @@ pub enum IndexCommand {
     /// A yanked version cannot be un-yanked
     #[clap(verbatim_doc_comment)]
     Yank {
-        /// Package identifier
+        /// Project identifier
         iri: String,
         // It's String and not semver::Version because it's good to allow yanking a non-semantic
         // version
@@ -1428,17 +1428,27 @@ pub enum IndexCommand {
     /// Project or version removal cannot be undone
     #[clap(verbatim_doc_comment)]
     Remove {
-        /// Package identifier
+        /// Project identifier
         iri: String,
-        // It's String and not semver::Version because it's good to allow removing a non-semantic
-        // version
-        /// If specified, remove the specified version, otherwise remove the whole project
-        #[arg(long)]
-        version: Option<String>,
+        #[clap(flatten)]
+        target: IndexRemoveTarget,
         /// Path to the index directory. If not provided, current working directory is used
         #[arg(long)]
         index_root: Option<Utf8PathBuf>,
     },
+}
+
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
+pub struct IndexRemoveTarget {
+    // It's String and not semver::Version because it's good to allow removing a non-semantic
+    // version
+    /// Version to remove
+    #[arg(long)]
+    pub version: Option<String>,
+    /// Remove the whole project
+    #[arg(long, action)]
+    pub project: bool,
 }
 
 #[derive(clap::Args, Debug, Clone)]

@@ -4,7 +4,9 @@
 use anyhow::Result;
 use camino::Utf8Path;
 
-use sysand_core::index::{do_index_add, do_index_init, do_index_remove, do_index_yank};
+use sysand_core::index::{
+    RemoveTarget, do_index_add, do_index_init, do_index_remove, do_index_yank,
+};
 
 pub fn command_index_init<R: AsRef<Utf8Path>>(index_root: R) -> Result<()> {
     do_index_init(index_root)?;
@@ -29,11 +31,11 @@ pub fn command_index_yank<I: AsRef<str>, V: AsRef<str>, R: AsRef<Utf8Path>>(
     Ok(())
 }
 
-pub fn command_index_remove<I: AsRef<str>, V: AsRef<str>, R: AsRef<Utf8Path>>(
+pub fn command_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
     iri: I,
-    version: Option<V>,
+    target: RemoveTarget,
     index_root: R,
 ) -> Result<()> {
-    do_index_remove(iri, version, index_root)?;
+    do_index_remove(iri, target, index_root)?;
     Ok(())
 }
