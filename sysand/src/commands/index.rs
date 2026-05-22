@@ -11,29 +11,29 @@ pub fn command_index_init<R: AsRef<Utf8Path>>(index_root: R) -> Result<()> {
     Ok(())
 }
 
-pub fn command_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
-    index_root: R,
-    kpar_path: P,
+pub fn command_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
     iri: Option<I>,
+    kpar_path: P,
+    index_root: R,
 ) -> Result<()> {
-    do_index_add(index_root, kpar_path, iri)?;
+    do_index_add(iri, kpar_path, index_root)?;
     Ok(())
 }
 
-pub fn command_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
-    index_root: R,
+pub fn command_index_yank<I: AsRef<str>, V: AsRef<str>, R: AsRef<Utf8Path>>(
     iri: I,
     version: V,
+    index_root: R,
 ) -> Result<()> {
-    do_index_yank(index_root, iri, version)?;
+    do_index_yank(iri, version, index_root)?;
     Ok(())
 }
 
-pub fn command_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
-    index_root: R,
+pub fn command_index_remove<I: AsRef<str>, V: AsRef<str>, R: AsRef<Utf8Path>>(
     iri: I,
     version: Option<V>,
+    index_root: R,
 ) -> Result<()> {
-    do_index_remove(index_root, iri, version)?;
+    do_index_remove(iri, version, index_root)?;
     Ok(())
 }

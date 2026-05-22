@@ -137,12 +137,12 @@ pub enum IndexAddError {
     VersionRemoved { iri: Box<str>, version: Version },
 }
 
-pub fn do_index_add<R: AsRef<Utf8Path>, P: AsRef<Utf8Path>, I: AsRef<str>>(
-    index_root: R,
-    kpar_path: P,
+pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
     // The type is str, not Iri so that a better error can be reported in some cases
     // for example when the publisher contains a space
     iri: Option<I>,
+    kpar_path: P,
+    index_root: R,
 ) -> Result<(), IndexAddError> {
     let index_root = index_root.as_ref();
     if !wrapfs::is_dir(index_root)? {

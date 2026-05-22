@@ -1394,14 +1394,14 @@ pub enum IndexCommand {
     /// Add a KPAR to a local sysand index
     #[clap(verbatim_doc_comment)]
     Add {
-        // The type is str, not Iri so that a better error can be reported in some cases
-        // for example when the publisher contains a space
-        /// Path to KPAR
-        kpar_path: Utf8PathBuf,
-        #[arg(long)]
         /// Project identifier. Default is pkg:sysand/<publisher>/<name>, if publisher is
         /// specified in .project.json. Omitting both publisher and IRI is an error
         iri: Option<String>,
+        // The type is str, not Iri so that a better error can be reported in some cases
+        // for example when the publisher contains a space
+        /// Path to KPAR
+        #[arg(long)]
+        kpar_path: Utf8PathBuf,
         /// Path to the index directory. If not provided, current working directory is used
         #[arg(long)]
         index_root: Option<Utf8PathBuf>,

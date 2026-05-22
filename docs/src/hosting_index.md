@@ -49,7 +49,7 @@ you can add it to the package index by (provided .project.json specifies
 `publisher` field):
 
 ```sh
-sysand index add MyProject.kpar --iri pkg:sysand/my-publisher/my-project
+sysand index add --kpar-path MyProject.kpar
 ```
 
 This command will create an entry in the package index with the IRI of
@@ -58,7 +58,8 @@ your package. The `publisher` and `name` values normalized values from `.project
 
 > [!tip]
 > If you don't specify `publisher` field in `.project.json`, you must provide
-> `--iri` argument to `sysand index add` command.
+> IRI as a positional argument, for example
+> `sysand index add my:iri/my-project --kpar-path MyProject.kpar`.
 > `publisher` is person or organization that publishes the project. It is
 > currently not in the KerML specification, we will propose adding it as a
 > mandatory field.

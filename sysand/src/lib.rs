@@ -370,20 +370,20 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             match command {
                 cli::IndexCommand::Init { index_root } => command_index_init(root(index_root)),
                 cli::IndexCommand::Add {
-                    kpar_path,
                     iri,
+                    kpar_path,
                     index_root,
-                } => command_index_add(root(index_root), kpar_path, iri),
+                } => command_index_add(iri, kpar_path, root(index_root)),
                 cli::IndexCommand::Yank {
                     iri,
                     version,
                     index_root,
-                } => command_index_yank(root(index_root), iri, version),
+                } => command_index_yank(iri, version, root(index_root)),
                 cli::IndexCommand::Remove {
                     iri,
                     version,
                     index_root,
-                } => command_index_remove(root(index_root), iri, version),
+                } => command_index_remove(iri, version, root(index_root)),
             }
         }
         Command::Lock { resolution_opts } => {

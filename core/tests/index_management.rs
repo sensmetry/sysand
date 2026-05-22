@@ -46,40 +46,40 @@ fn command_test() {
 
     do_index_init(&cwd).unwrap();
 
-    do_index_add::<_, _, &str>(&cwd, &kpar_path1, None).unwrap();
+    do_index_add::<&str, _, _>(None, &kpar_path1, &cwd).unwrap();
     {
-        let add_err = do_index_add::<_, _, &str>(&cwd, &kpar_path1, None).unwrap_err();
+        let add_err = do_index_add::<&str, _, _>(None, &kpar_path1, &cwd).unwrap_err();
         assert_error_contains(add_err, "already exists");
     }
-    do_index_add::<_, _, &str>(&cwd, kpar_path2, None).unwrap();
+    do_index_add::<&str, _, _>(None, kpar_path2, &cwd).unwrap();
 
-    do_index_yank(&cwd, iri, "1.2.3").unwrap();
+    do_index_yank(iri, "1.2.3", &cwd).unwrap();
     {
-        let yank_err = do_index_yank(&cwd, iri, "1.2.4").unwrap_err();
+        let yank_err = do_index_yank(iri, "1.2.4", &cwd).unwrap_err();
         assert_error_contains(yank_err, "does not exist");
     }
     {
-        let add_err = do_index_add::<_, _, &str>(&cwd, &kpar_path1, None).unwrap_err();
+        let add_err = do_index_add::<&str, _, _>(None, &kpar_path1, &cwd).unwrap_err();
         assert_error_contains(add_err, "is yanked");
     }
 
-    do_index_remove(&cwd, iri, Some("1.2.3")).unwrap();
+    do_index_remove(iri, Some("1.2.3"), &cwd).unwrap();
     {
-        let add_result = do_index_add::<_, _, &str>(&cwd, &kpar_path1, None).unwrap_err();
+        let add_result = do_index_add::<&str, _, _>(None, &kpar_path1, &cwd).unwrap_err();
         assert_error_contains(add_result, "is removed");
     }
     {
-        let yank_err = do_index_yank(&cwd, iri, "1.2.3").unwrap_err();
+        let yank_err = do_index_yank(iri, "1.2.3", &cwd).unwrap_err();
         assert_error_contains(yank_err, "is removed");
     }
 
-    do_index_remove::<_, _, &str>(&cwd, iri, None).unwrap();
+    do_index_remove::<_, &str, _>(iri, None, &cwd).unwrap();
     {
-        let add_err = do_index_add::<_, _, &str>(&cwd, &kpar_path3, None).unwrap_err();
+        let add_err = do_index_add::<&str, _, _>(None, &kpar_path3, &cwd).unwrap_err();
         assert_error_contains(add_err, "is removed");
     }
     {
-        let yank_err = do_index_yank(&cwd, iri, "2.2.3").unwrap_err();
+        let yank_err = do_index_yank(iri, "2.2.3", &cwd).unwrap_err();
         assert_error_contains(yank_err, "is removed");
     }
 }
@@ -122,9 +122,9 @@ fn file_state_test() {
     );
     let index_root = cwd.join("index");
     do_index_init(&index_root).unwrap();
-    do_index_add::<_, _, &str>(&index_root, &kpar1v1_path, None).unwrap();
-    do_index_add::<_, _, &str>(&index_root, &kpar1v2_path, None).unwrap();
-    do_index_add::<_, _, &str>(&index_root, &kpar2v1_path, None).unwrap();
+    do_index_add::<&str, _, _>(None, &kpar1v1_path, &index_root).unwrap();
+    do_index_add::<&str, _, _>(None, &kpar1v2_path, &index_root).unwrap();
+    do_index_add::<&str, _, _>(None, &kpar2v1_path, &index_root).unwrap();
     assert_eq!(
         read_json(index_root.join("index.json")),
         json!({

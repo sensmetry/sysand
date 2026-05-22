@@ -47,12 +47,12 @@ pub enum IndexRemoveError {
     VersionNotFound { iri: Box<str>, version: Box<str> },
 }
 
-pub fn do_index_remove<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
-    index_root: R,
+pub fn do_index_remove<I: AsRef<str>, V: AsRef<str>, R: AsRef<Utf8Path>>(
     iri: I,
     // It's String and not semver::Version because it's good to allow removing a non-semantic
     // version
     version: Option<V>,
+    index_root: R,
 ) -> Result<(), IndexRemoveError> {
     let index_root = index_root.as_ref();
     if !wrapfs::is_dir(index_root)? {
