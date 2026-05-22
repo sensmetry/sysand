@@ -194,8 +194,12 @@ public class Sysand {
      *
      * @param outputPath  The path to the output file.
      * @param projectPath The path to the project.
+     * @param compression The compression method.
+     * @param buildTag    Optional pre-release build tag appended to the version
+     *                    (e.g. {@code "42"} turns {@code 1.2.3} into {@code 1.2.3-dev.42}).
+     *                    Pass {@code null} to leave the version unchanged.
      */
-    private static native void buildProject(String outputPath, String projectPath, String compression)
+    private static native void buildProject(String outputPath, String projectPath, String compression, String buildTag)
             throws com.sensmetry.sysand.exceptions.SysandException;
 
     /**
@@ -204,31 +208,73 @@ public class Sysand {
      *
      * @param outputPath  The path to the output file.
      * @param projectPath The path to the project.
+     * @param compression The compression method.
      */
     public static void buildProject(java.nio.file.Path outputPath, java.nio.file.Path projectPath, com.sensmetry.sysand.model.CompressionMethod compression)
             throws com.sensmetry.sysand.exceptions.SysandException {
-        buildProject(outputPath.toString(), projectPath.toString(), compression.toString());
+        buildProject(outputPath.toString(), projectPath.toString(), compression.toString(), null);
+    }
+
+    /**
+     * Build Model Project Interchange file (.kpar) from the project at the given
+     * path.
+     *
+     * <p><b>Experimental:</b> This API is subject to change in future releases.
+     *
+     * @param outputPath  The path to the output file.
+     * @param projectPath The path to the project.
+     * @param compression The compression method.
+     * @param buildTag    Pre-release build tag appended to the version
+     *                    (e.g. {@code "42"} turns {@code 1.2.3} into {@code 1.2.3-dev.42}).
+     */
+    public static void buildProject(java.nio.file.Path outputPath, java.nio.file.Path projectPath, com.sensmetry.sysand.model.CompressionMethod compression, String buildTag)
+            throws com.sensmetry.sysand.exceptions.SysandException {
+        buildProject(outputPath.toString(), projectPath.toString(), compression.toString(), buildTag);
     }
 
     /**
      * Build Model Project Interchange file (.kpar) from the workspace at the given
      * path.
      *
-     * @param outputPath  The path to the output file.
+     * @param outputPath    The path to the output directory.
      * @param workspacePath The path to the workspace.
+     * @param compression   The compression method.
+     * @param buildTag      Optional pre-release build tag appended to each project's version
+     *                      (e.g. {@code "42"} turns {@code 1.2.3} into {@code 1.2.3-dev.42}).
+     *                      {@code versionConstraint} fields that exactly pin a sibling workspace
+     *                      project's version are updated to include the tag as well.
+     *                      Pass {@code null} to leave versions unchanged.
      */
-    private static native void buildWorkspace(String outputPath, String workspacePath, String compression)
+    private static native void buildWorkspace(String outputPath, String workspacePath, String compression, String buildTag)
             throws com.sensmetry.sysand.exceptions.SysandException;
 
     /**
      * Build Model Project Interchange file (.kpar) from the workspace at the given
      * path.
      *
-     * @param outputPath  The path to the output file.
+     * @param outputPath    The path to the output directory.
      * @param workspacePath The path to the workspace.
+     * @param compression   The compression method.
      */
     public static void buildWorkspace(java.nio.file.Path outputPath, java.nio.file.Path workspacePath, com.sensmetry.sysand.model.CompressionMethod compression)
             throws com.sensmetry.sysand.exceptions.SysandException {
-        buildWorkspace(outputPath.toString(), workspacePath.toString(), compression.toString());
+        buildWorkspace(outputPath.toString(), workspacePath.toString(), compression.toString(), null);
+    }
+
+    /**
+     * Build Model Project Interchange file (.kpar) from the workspace at the given
+     * path.
+     *
+     * <p><b>Experimental:</b> This API is subject to change in future releases.
+     *
+     * @param outputPath    The path to the output directory.
+     * @param workspacePath The path to the workspace.
+     * @param compression   The compression method.
+     * @param buildTag      Pre-release build tag appended to each project's version
+     *                      (e.g. {@code "42"} turns {@code 1.2.3} into {@code 1.2.3-dev.42}).
+     */
+    public static void buildWorkspace(java.nio.file.Path outputPath, java.nio.file.Path workspacePath, com.sensmetry.sysand.model.CompressionMethod compression, String buildTag)
+            throws com.sensmetry.sysand.exceptions.SysandException {
+        buildWorkspace(outputPath.toString(), workspacePath.toString(), compression.toString(), buildTag);
     }
 }
