@@ -70,7 +70,7 @@ pub enum IndexAddError {
         source: InterchangeProjectValidationError,
     },
     #[error(
-        "Version {version} is not allowed to have build metadata in (from {INFO_FILE_NAME} in KPAR {kpar_path})"
+        "Version {version} is not allowed to have build metadata in (from {INFO_FILE_NAME} in KPAR `{kpar_path}`)"
     )]
     VersionHasBuildMetadata {
         version: Version,

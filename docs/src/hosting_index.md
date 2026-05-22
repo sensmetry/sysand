@@ -45,7 +45,7 @@ This will initialize a sysand index in your current directory.
 
 You can now add the projects you want to share into the Sysand index.
 For example, if you have a `MyProject.kpar` file in your current directory,
-you can add it to the project index by (provided .project.json specifies
+you can add it to the project index by (provided `.project.json` specifies
 `publisher` field):
 
 ```sh
@@ -248,7 +248,7 @@ branch, at which point it:
 
 ### Sysand Client Setup
 
-You should now be able to access the project index through
+You should now be able to access the package index through
 `https://GITLAB-ASSIGNED-DOMAIN.gitlab.io` or your custom domain. To test it,
 create a new SysML v2 project in another directory by following the [User
 Guide](tutorial.md).
@@ -264,7 +264,7 @@ environment variables. See [Authentication](authentication.md) for details.
   Token][gitlab_pat]. We recommend using a token with only `read-api` scope.
 
 Now, when adding a new usage to the project, use the `--index` argument
-to point to your private project index instead of the public
+to point to your private package index instead of the public
 [beta.sysand.org][sysand_index], for example:
 
 ```sh
