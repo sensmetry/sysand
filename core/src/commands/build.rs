@@ -316,29 +316,28 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
-    if let Some(tag) = build_tag {
-        if let Ok(mut v) = semver::Version::parse(&info.version) {
-            v.pre = semver::Prerelease::new(&format!("dev.{tag}")).map_err(|e| {
-                KParBuildError::InvalidBuildTag {
-                    tag: tag.to_string(),
-                    error: e,
-                }
-            })?;
-            info.version = v.to_string();
-            for usage in &mut info.usage {
-                if let Some(constraint) = &usage.version_constraint {
-                    if let Some(base_ver) = workspace_iri_versions.get(&usage.resource) {
-                        if constraint == &format!("={base_ver}") {
-                            usage.version_constraint = Some(format!("={base_ver}-dev.{tag}"));
-                        }
-                    }
-                }
+    if let Some(tag) = build_tag
+        && let Ok(mut v) = semver::Version::parse(&info.version)
+    {
+        v.pre = semver::Prerelease::new(&format!("dev.{tag}")).map_err(|e| {
+            KParBuildError::InvalidBuildTag {
+                tag: tag.to_string(),
+                error: e,
             }
-            use crate::project::ProjectMut;
-            local_project
-                .put_info(&info, true)
-                .map_err(KParBuildError::from)?;
+        })?;
+        info.version = v.to_string();
+        for usage in &mut info.usage {
+            if let Some(constraint) = &usage.version_constraint
+                && let Some(base_ver) = workspace_iri_versions.get(&usage.resource)
+                && constraint == &format!("={base_ver}")
+            {
+                usage.version_constraint = Some(format!("={base_ver}-dev.{tag}"));
+            }
         }
+        use crate::project::ProjectMut;
+        local_project
+            .put_info(&info, true)
+            .map_err(KParBuildError::from)?;
     }
 
     if canonicalise {
