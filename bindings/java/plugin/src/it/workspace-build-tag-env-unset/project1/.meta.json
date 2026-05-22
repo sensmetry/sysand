@@ -1,0 +1,12 @@
+{
+  "index": {
+    "A": "a.sysml"
+  },
+  "created": "2025-10-31T17:01:00.414506000Z",
+  "checksum": {
+    "a.sysml": {
+      "value": "",
+      "algorithm": "NONE"
+    }
+  }
+}

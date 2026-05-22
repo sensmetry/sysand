@@ -8,14 +8,15 @@ SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.sensmetry.sysand.it</groupId>
-  <artifactId>workspace-build-tag-env-project</artifactId>
+  <artifactId>workspace-build-tag-env-unset-project</artifactId>
   <version>1.0.0</version>
   <packaging>jar</packaging>
-  <name>workspace-build-tag-env-project</name>
+  <name>workspace-build-tag-env-unset-project</name>
   <properties>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <sysand.buildTag></sysand.buildTag>
   </properties>
   <profiles>
     <!-- maven.compiler.release is only available in Java 9+, but it is required
@@ -29,31 +30,16 @@ SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
         <maven.compiler.release>8</maven.compiler.release>
       </properties>
     </profile>
-
-    <!--
-      Activated automatically when the BUILD_TAG environment variable is present.
-      Passes its value as the buildTag configuration parameter so the built KPAR
-      receives a pre-release version suffix (e.g. 1.0.0 -> 1.0.0-dev.99).
-      When BUILD_TAG is absent the profile is inactive and no tag is applied.
-    -->
     <profile>
-      <id>with-build-tag</id>
+      <id>build-tag-from-env</id>
       <activation>
         <property>
           <name>env.BUILD_TAG</name>
         </property>
       </activation>
-      <build>
-        <plugins>
-          <plugin>
-            <groupId>com.sensmetry</groupId>
-            <artifactId>sysand-maven-plugin</artifactId>
-            <configuration>
-              <buildTag>${env.BUILD_TAG}</buildTag>
-            </configuration>
-          </plugin>
-        </plugins>
-      </build>
+      <properties>
+        <sysand.buildTag>${env.BUILD_TAG}</sysand.buildTag>
+      </properties>
     </profile>
   </profiles>
   <build>
@@ -72,6 +58,7 @@ SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
         <configuration>
           <workspacePath>${project.basedir}</workspacePath>
           <outputPath>${project.basedir}/output</outputPath>
+          <buildTag>${sysand.buildTag}</buildTag>
         </configuration>
       </plugin>
     </plugins>
