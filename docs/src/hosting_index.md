@@ -6,8 +6,8 @@ This section provides instructions on how to use Sysand CLI to host a private
 Sysand project index. The guide describes three ways to run the index:
 
 - [Local Machine](#local-machine) -- running a HTTP file server on your machine
-- [GitHub](#GitHub) -- using a GitHub repository
-- [GitLab](#GitLab) -- using GitLab Pages
+- [GitHub](#github) -- using a GitHub repository
+- [GitLab](#gitlab) -- using GitLab Pages
 
 > [!note]
 > This guide is only concerned about hosting the project files in the
@@ -74,6 +74,12 @@ in `.project.json`.
 Repeat this step for as many times as you have projects (and their versions),
 giving a unique IRI for each different project.
 
+### Yank or Remove
+
+You can also yank a project version, remove a project version, or remove the
+entire project. See [yank command](./commands/index/yank.md) and
+[remove command](./commands/index/remove.md) for more details.
+
 ### Start an HTTP server
 
 Once you install all the required projects, you can use Python and its
@@ -125,87 +131,10 @@ repository. This allows you to host an index without needing to ask your IT
 department to set up a server for you, while also allowing simple access control
 through GitHub's access management.
 
-> [!note]
-> Since GitHub Pages do not support authentication using personal access
-> tokens (in contrast to GitLab Pages), this guide presents a workaround that
-> uses access to raw file contents through `raw.githubusercontent.com`. This
-> solution might not be ideal for hosting big indices, as GitHub can rate-limit
-> access to `raw.githubusercontent.com` without prior notice.
-
 Sensmetry has a [public GitHub repository][github_repo] implementing this
 approach. It is licensed under the Creative Commons Zero license and can be
-freely forked and used in any setting.
-
-### Repository Contents
-
-There are two important branches in the repository:
-
-- `main` branch -- This is the main branch for human interactions. This branch
-  contains the `packages` folder that holds the `.kpar` files of all the
-  projects that need to be shared through the index.
-- `index` branch -- This branch is not supposed to be interacted with by humans.
-  This branch is exposed to the Sysand client as the index. It contains an
-  auto-generated file structure and always uses `git reset --hard` and
-  `git push --force` to avoid exploding the size of the git repository. Ideally,
-  branch rules should be set up that would only allow the automated bot to make
-  changes to the `index` branch.
-
-Other branches can also be used, e.g. to allow reviews of the projects before
-publishing them. However, they should only target the `main` branch, and not
-`index`. Additionally, currently the GitHub Workflow is set up to run only on
-the `main` branch.
-
-### GitHub Workflow
-
-A GitHub Workflow can be found in the
-[`.github/workflows/ci.yml`][github_workflow] file on the `main` branch. This
-workflow is triggered on every commit to the `main` branch, at which point it:
-
-1. Installs Sysand client
-2. Creates a Sysand environment, and installs all `.kpar` projects from the
-   `packages` as described in the [Add Packages to the
-   Environment](#add-packages-to-the-environment) section above
-3. Resets the `index` branch to the initial commit using `git reset --hard`
-4. Takes the environment created in Step 2 and creates a `git commit`
-5. Pushes the new commit to the `index` branch with `git push --force`
-
-> [!note]
-> During step 2, the Workflow generates a `urn` for the project from the
-> contents of the `name` field in `.project.json` of the project. Therefore, our
-> strong suggestion is to keep the `name` only contain lower-case ASCII
-> characters with no spaces. However, the Workflow can be adjusted to allow for
-> other naming conventions.
-
-### Sysand Client Setup
-
-You should now be able to access the project index through
-`https://raw.githubusercontent.com/OWNER/REPO/refs/heads/index/`, where `OWNER`
-and `REPO` is specific to where you created the project and how you named it. To
-test it, create a new SysML v2 project in another directory by following the
-[User Guide](tutorial.md).
-
-Before you can use the index for adding usages, you need to tell Sysand how to
-authenticate with your index. You can do this by setting the following
-environment variables. See [Authentication](authentication.md) for details.
-
-- `SYSAND_CRED_GITHUB` to the value of
-  `https://raw.githubusercontent.com/OWNER/REPO/refs/heads/index/**`. Do not
-  forget to replace `OWNER` and `REPO` to your values. Note: the `**` ending is
-  important.
-- `SYSAND_CRED_GITHUB_BEARER_TOKEN` to the value of the [GitHub Personal Access
-  Token][github_pat]. We recommend using a fine-grained token scoped to this
-  index repository only, and with only `Contents` read-only permissions.
-
-Now, when adding a new usage to the project, use the `--index` argument
-to point to your private project index instead of the public
-[beta.sysand.org][sysand_index], for example:
-
-```sh
-sysand add urn:kpar:my_project --index https://raw.githubusercontent.com/OWNER/REPO/refs/heads/index/
-```
-
-An alternative to `--index` argument is defining the custom index in
-`sysand.toml`. See [Indexes](config/indexes.md) for details.
+freely forked and used in any setting. The repository README contains a detailed
+explanation of how to set up such a repository and use it.
 
 ## GitLab
 
@@ -216,69 +145,9 @@ through GitLab's access management.
 
 Sensmetry has a [public GitLab repository][gitlab_repo] implementing this
 approach. It is licensed under the Creative Commons Zero license and can be
-freely forked and used in any setting.
-
-### Repository Contents
-
-The repository is quite simple, containing a `main` branch that holds the
-`.kpar` files of all the projects that need to be shared through the index and a
-CI/CD pipeline definition.
-
-Other branches can also be used, e.g. to allow reviews of the projects before
-publishing them. Currently, the pipeline builds the index on all branches, but
-publishes the index only on the `main` branch.
-
-### CI/CD Pipeline
-
-A CI/CD Pipeline can be found in the [`.gitlab-ci.yml`][gitlab_pipeline] file on
-the `main` branch. This pipeline is triggered on every commit to the `main`
-branch, at which point it:
-
-1. Installs Sysand client
-2. Creates a Sysand environment, and installs all `.kpar` projects from the
-   `packages` as described in the [Add Packages to the
-   Environment](#add-packages-to-the-environment) section above
-3. Uses `pages` job to deploy the generated Sysand environment to GitLab Pages.
-
-> [!note]
-> During step 2, the pipeline generates a `urn` for the project from the
-> contents of the `name` field in `.project.json` of the project. Therefore, our
-> strong suggestion is to keep the `name` only contain lower-case ASCII
-> characters with no spaces. However, the pipeline can be adjusted to allow for
-> other naming conventions.
-
-### Sysand Client Setup
-
-You should now be able to access the package index through
-`https://GITLAB-ASSIGNED-DOMAIN.gitlab.io` or your custom domain. To test it,
-create a new SysML v2 project in another directory by following the [User
-Guide](tutorial.md).
-
-Before you can use the index for adding usages, you need to tell Sysand how to
-authenticate with your index. You can do this by setting the following
-environment variables. See [Authentication](authentication.md) for details.
-
-- `SYSAND_CRED_GITLAB` to the value of
-  `https://GITLAB-ASSIGNED-DOMAIN.gitlab.io/**`. Do not forget to replace
-  `GITLAB-ASSIGNED-DOMAIN` with your value. Note: the `**` ending is important.
-- `SYSAND_CRED_GITLAB_BEARER_TOKEN` to the value of the [GitLab Personal Access
-  Token][gitlab_pat]. We recommend using a token with only `read-api` scope.
-
-Now, when adding a new usage to the project, use the `--index` argument
-to point to your private package index instead of the public
-[beta.sysand.org][sysand_index], for example:
-
-```sh
-sysand add urn:kpar:my_project --index https://GITLAB-ASSIGNED-DOMAIN.gitlab.io
-```
-
-An alternative to `--index` argument is defining the custom index in
-`sysand.toml`. See [Indexes](config/indexes.md) for details.
+freely forked and used in any setting. The repository README contains a detailed
+explanation of how to set up such a repository and use it.
 
 [sysand_index]: https://beta.sysand.org/
 [github_repo]: https://github.com/sensmetry/sysand-private-index
-[github_workflow]: https://github.com/sensmetry/sysand-private-index/blob/main/.github/workflows/ci.yml
-[github_pat]: https://github.com/settings/personal-access-tokens
 [gitlab_repo]: https://gitlab.com/sensmetry/public/sysand-private-index
-[gitlab_pipeline]: https://gitlab.com/sensmetry/public/sysand-private-index/-/blob/main/.gitlab-ci.yml?ref_type=heads
-[gitlab_pat]: https://gitlab.com/-/user_settings/personal_access_tokens
