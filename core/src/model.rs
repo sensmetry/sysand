@@ -469,7 +469,7 @@ pub type InterchangeProjectMetadataRaw =
 /// inheritance placeholder. Produced by
 /// `LocalSrcProject::get_project_with_inherit` and resolved via
 /// `crate::workspace::resolve_project_metadata`.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectMetadataWithInheritRaw {
     pub index: IndexMap<String, String>,

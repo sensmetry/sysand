@@ -15,6 +15,7 @@ use indexmap::IndexMap;
 
 use crate::{
     context::ProjectContext,
+    discover::discover_workspace,
     env::utils::{CloneError, clone_project},
     lock::Source,
     model::{
@@ -24,6 +25,10 @@ use crate::{
     project::{
         ProjectMut, ProjectRead,
         utils::{RelativizePathError, ToPathBuf, ToUnixPathBuf, relativize_path, wrapfs},
+    },
+    workspace::{
+        WorkspaceInheritanceError, project_info_without_workspace,
+        project_metadata_without_workspace, resolve_project_info, resolve_project_metadata,
     },
 };
 
@@ -227,9 +232,24 @@ impl LocalSrcProject {
     // }
 
     pub fn set_index(&mut self, new_index: IndexMap<String, String>) -> Result<(), LocalSrcError> {
-        let mut meta = self.get_meta()?.ok_or(LocalSrcError::MissingMeta)?;
-        meta.index = new_index;
-        self.put_meta(&meta, true)?;
+        let (_, raw_meta) = self.get_project_with_inherit()?;
+        let mut raw_meta = raw_meta.ok_or(LocalSrcError::MissingMeta)?;
+        raw_meta.index = new_index;
+
+        let meta_json_path = self.meta_path();
+        let mut file = wrapfs::File::create(&meta_json_path)?;
+        serde_json::to_writer_pretty(&mut file, &raw_meta).map_err(|e| {
+            ProjectSerializationError::new(
+                format!(
+                    "failed to serialize and write project metadata to `{}`",
+                    meta_json_path
+                ),
+                e,
+            )
+        })?;
+        file.write(b"\n")
+            .map_err(|e| FsIoError::WriteFile(meta_json_path, e))?;
+
         Ok(())
     }
 
@@ -373,6 +393,10 @@ pub enum LocalSrcError {
         {0}"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
+    #[error(transparent)]
+    WorkspaceInheritance(#[from] WorkspaceInheritanceError),
+    #[error(transparent)]
+    WorkspaceRead(#[from] crate::workspace::WorkspaceReadError),
 }
 
 impl From<FsIoError> for LocalSrcError {
@@ -415,7 +439,7 @@ impl ProjectRead for LocalSrcProject {
     > {
         let info_json_path = self.info_path();
 
-        let info_json = if info_json_path.exists() {
+        let info_raw: Option<InterchangeProjectInfoWithInheritRaw> = if info_json_path.exists() {
             Some(
                 serde_json::from_reader(wrapfs::File::open(&info_json_path)?).map_err(|e| {
                     ProjectDeserializationError::new("failed to deserialize `.project.json`", e)
@@ -427,7 +451,8 @@ impl ProjectRead for LocalSrcProject {
 
         let meta_json_path = self.meta_path();
 
-        let meta_json = if meta_json_path.exists() {
+        let meta_raw: Option<InterchangeProjectMetadataWithInheritRaw> = if meta_json_path.exists()
+        {
             Some(
                 serde_json::from_reader(wrapfs::File::open(&meta_json_path)?).map_err(|e| {
                     ProjectDeserializationError::new("failed to deserialize `.meta.json`", e)
@@ -436,6 +461,58 @@ impl ProjectRead for LocalSrcProject {
         } else {
             None
         };
+
+        // Try to resolve without a workspace first; if any field carries a preset
+        // reference, auto-discover the workspace by walking up from project_path.
+        let resolve_without_workspace = || -> Result<_, WorkspaceInheritanceError> {
+            let info = info_raw
+                .clone()
+                .map(project_info_without_workspace)
+                .transpose()?;
+            let project_name = info
+                .as_ref()
+                .map(|i: &InterchangeProjectInfoRaw| i.name.as_str())
+                .unwrap_or("<unknown>")
+                .to_string();
+            let meta = meta_raw
+                .clone()
+                .map(|m| project_metadata_without_workspace(m, &project_name))
+                .transpose()?;
+            Ok((info, meta))
+        };
+
+        match resolve_without_workspace() {
+            Ok((info_json, meta_json)) => return Ok((info_json, meta_json)),
+            Err(WorkspaceInheritanceError::NoWorkspace { .. }) => {}
+            Err(e) => return Err(LocalSrcError::WorkspaceInheritance(e)),
+        }
+
+        // At least one field uses a preset reference — try to locate .workspace.json.
+        let project_name_for_error = info_raw
+            .as_ref()
+            .map(|i| i.name.clone())
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let workspace = discover_workspace(&self.project_path)?.ok_or({
+            WorkspaceInheritanceError::NoWorkspace {
+                project: project_name_for_error,
+            }
+        })?;
+
+        let info_json = info_raw
+            .map(|r| resolve_project_info(r, workspace.info()))
+            .transpose()
+            .map_err(LocalSrcError::WorkspaceInheritance)?;
+
+        let project_name = info_json
+            .as_ref()
+            .map(|i: &InterchangeProjectInfoRaw| i.name.as_str())
+            .unwrap_or("<unknown>")
+            .to_string();
+
+        let meta_json = meta_raw
+            .map(|m| resolve_project_metadata(m, workspace.info(), &project_name))
+            .transpose()
+            .map_err(LocalSrcError::WorkspaceInheritance)?;
 
         Ok((info_json, meta_json))
     }

@@ -79,6 +79,8 @@ fn do_init_py_local_file(
                     PyValueError::new_err(error.to_string())
                 }
                 LocalSrcError::MissingMeta => PyFileNotFoundError::new_err(err.to_string()),
+                LocalSrcError::WorkspaceInheritance(_) => PyValueError::new_err(err.to_string()),
+                LocalSrcError::WorkspaceRead(_) => PyValueError::new_err(err.to_string()),
             },
         },
     )?;
@@ -108,6 +110,8 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
             }
             LocalWriteError::MissingMeta => PyFileNotFoundError::new_err(werr.to_string()),
             LocalWriteError::AddProject(error) => PyIOError::new_err(error.to_string()),
+            LocalWriteError::WorkspaceInheritance(_) => PyValueError::new_err(werr.to_string()),
+            LocalWriteError::WorkspaceRead(_) => PyValueError::new_err(werr.to_string()),
         },
     })?;
 

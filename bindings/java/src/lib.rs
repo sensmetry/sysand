@@ -108,6 +108,12 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
                 LocalSrcError::MissingMeta => {
                     env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
                 }
+                LocalSrcError::WorkspaceInheritance(_) => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
+                }
+                LocalSrcError::WorkspaceRead(_) => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
+                }
             },
         },
     }
@@ -174,6 +180,12 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
                 }
                 LocalWriteError::AddProject(subsuberror) => {
                     env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
+                }
+                LocalWriteError::WorkspaceInheritance(_) => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
+                }
+                LocalWriteError::WorkspaceRead(_) => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
                 }
             },
         },

@@ -384,6 +384,10 @@ pub enum LocalWriteError {
     ImpossibleRelativePath(#[from] RelativizePathError),
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
+    #[error(transparent)]
+    WorkspaceInheritance(#[from] crate::workspace::WorkspaceInheritanceError),
+    #[error(transparent)]
+    WorkspaceRead(#[from] crate::workspace::WorkspaceReadError),
 }
 
 impl From<FsIoError> for LocalWriteError {
@@ -411,6 +415,8 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => LocalWriteError::MissingMeta,
+            LocalSrcError::WorkspaceInheritance(e) => LocalWriteError::WorkspaceInheritance(e),
+            LocalSrcError::WorkspaceRead(e) => LocalWriteError::WorkspaceRead(e),
         }
     }
 }
