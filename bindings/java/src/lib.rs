@@ -17,6 +17,7 @@ use sysand_core::{
     info::InfoError,
     init::InitError,
     project::{
+        ProjectMut,
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,
     },
@@ -25,7 +26,9 @@ use sysand_core::{
 };
 
 use crate::{
-    conversion::{ToJObject, ToJObjectArray, java_map_to_index_map},
+    conversion::{
+        ToJObject, ToJObjectArray, java_info_to_raw, java_map_to_index_map, java_metadata_to_raw,
+    },
     exceptions::{ExceptionKind, JniExt, StdlibExceptionKind},
 };
 
@@ -348,6 +351,50 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectIndex<'local>(
     };
     let _ = project
         .set_index(rust_index)
+        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, e.to_string()));
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectInfo<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    project_path: JString<'local>,
+    info: JObject<'local>,
+) {
+    let Some(project_path) = env.get_str(&project_path, "projectPath") else {
+        return;
+    };
+    let Some(info_raw) = java_info_to_raw(&mut env, &info) else {
+        return;
+    };
+    let mut project = LocalSrcProject {
+        nominal_path: None,
+        project_path: Utf8PathBuf::from(project_path),
+    };
+    let _ = project
+        .put_info(&info_raw, true)
+        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, e.to_string()));
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectMetadata<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    project_path: JString<'local>,
+    metadata: JObject<'local>,
+) {
+    let Some(project_path) = env.get_str(&project_path, "projectPath") else {
+        return;
+    };
+    let Some(metadata_raw) = java_metadata_to_raw(&mut env, &metadata) else {
+        return;
+    };
+    let mut project = LocalSrcProject {
+        nominal_path: None,
+        project_path: Utf8PathBuf::from(project_path),
+    };
+    let _ = project
+        .put_meta(&metadata_raw, true)
         .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, e.to_string()));
 }
 

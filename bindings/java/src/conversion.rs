@@ -12,6 +12,329 @@ use sysand_core::model::{
     InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw,
 };
 
+fn get_string_field<'local>(
+    env: &mut JNIEnv<'local>,
+    obj: &JObject<'local>,
+    field_name: &str,
+) -> Option<String> {
+    let field_obj = match env.get_field(obj, field_name, "Ljava/lang/String;") {
+        Ok(v) => match v.l() {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+                return None;
+            }
+        },
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+            return None;
+        }
+    };
+    match env.get_string(&JString::from(field_obj)) {
+        Ok(s) => Some(s.into()),
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to read string field `{field_name}`: {e}"));
+            None
+        }
+    }
+}
+
+// Returns None on JNI error, Some(None) for null, Some(Some(s)) for a value.
+fn get_nullable_string_field<'local>(
+    env: &mut JNIEnv<'local>,
+    obj: &JObject<'local>,
+    field_name: &str,
+) -> Option<Option<String>> {
+    let field_obj = match env.get_field(obj, field_name, "Ljava/lang/String;") {
+        Ok(v) => match v.l() {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+                return None;
+            }
+        },
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+            return None;
+        }
+    };
+    if field_obj.is_null() {
+        return Some(None);
+    }
+    match env.get_string(&JString::from(field_obj)) {
+        Ok(s) => Some(Some(s.into())),
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to read string field `{field_name}`: {e}"));
+            None
+        }
+    }
+}
+
+fn get_string_array_field<'local>(
+    env: &mut JNIEnv<'local>,
+    obj: &JObject<'local>,
+    field_name: &str,
+) -> Option<Vec<String>> {
+    let arr_obj = match env.get_field(obj, field_name, "[Ljava/lang/String;") {
+        Ok(v) => match v.l() {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+                return None;
+            }
+        },
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+            return None;
+        }
+    };
+    let arr = JObjectArray::from(arr_obj);
+    let len = match env.get_array_length(&arr) {
+        Ok(l) => l as usize,
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to get length of `{field_name}`: {e}"));
+            return None;
+        }
+    };
+    let mut result = Vec::with_capacity(len);
+    for i in 0..len {
+        let elem = match env.get_object_array_element(&arr, i as i32) {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!(
+                    "Failed to get element of `{field_name}[{i}]`: {e}"
+                ));
+                return None;
+            }
+        };
+        let s = match env.get_string(&JString::from(elem)) {
+            Ok(s) => s.into(),
+            Err(e) => {
+                env.throw_runtime_exception(format!(
+                    "Failed to read string element of `{field_name}[{i}]`: {e}"
+                ));
+                return None;
+            }
+        };
+        result.push(s);
+    }
+    Some(result)
+}
+
+// Returns None on JNI error, Some(None) for null, Some(Some(b)) for a value.
+fn get_nullable_boolean_field<'local>(
+    env: &mut JNIEnv<'local>,
+    obj: &JObject<'local>,
+    field_name: &str,
+) -> Option<Option<bool>> {
+    let field_obj = match env.get_field(obj, field_name, "Ljava/lang/Boolean;") {
+        Ok(v) => match v.l() {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+                return None;
+            }
+        },
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+            return None;
+        }
+    };
+    if field_obj.is_null() {
+        return Some(None);
+    }
+    match env.call_method(&field_obj, "booleanValue", "()Z", &[]) {
+        Ok(v) => match v.z() {
+            Ok(b) => Some(Some(b)),
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to unbox Boolean `{field_name}`: {e}"));
+                None
+            }
+        },
+        Err(e) => {
+            env.throw_runtime_exception(format!(
+                "Failed to call booleanValue on `{field_name}`: {e}"
+            ));
+            None
+        }
+    }
+}
+
+fn get_usage_array_field<'local>(
+    env: &mut JNIEnv<'local>,
+    obj: &JObject<'local>,
+    field_name: &str,
+) -> Option<Vec<InterchangeProjectUsageRaw>> {
+    let sig = format!("[L{INTERCHANGE_PROJECT_USAGE_CLASS};");
+    let arr_obj = match env.get_field(obj, field_name, sig.as_str()) {
+        Ok(v) => match v.l() {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+                return None;
+            }
+        },
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+            return None;
+        }
+    };
+    let arr = JObjectArray::from(arr_obj);
+    let len = match env.get_array_length(&arr) {
+        Ok(l) => l as usize,
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to get length of `{field_name}`: {e}"));
+            return None;
+        }
+    };
+    let mut result = Vec::with_capacity(len);
+    for i in 0..len {
+        let elem = match env.get_object_array_element(&arr, i as i32) {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!(
+                    "Failed to get element of `{field_name}[{i}]`: {e}"
+                ));
+                return None;
+            }
+        };
+        let resource = get_string_field(env, &elem, "resource")?;
+        let version_constraint = get_nullable_string_field(env, &elem, "versionConstraint")?;
+        result.push(InterchangeProjectUsageRaw {
+            resource,
+            version_constraint,
+        });
+    }
+    Some(result)
+}
+
+pub(crate) fn java_info_to_raw<'local>(
+    env: &mut JNIEnv<'local>,
+    info: &JObject<'local>,
+) -> Option<InterchangeProjectInfoRaw> {
+    let name = get_string_field(env, info, "name")?;
+    let publisher = get_nullable_string_field(env, info, "publisher")?;
+    let description = get_nullable_string_field(env, info, "description")?;
+    let version = get_string_field(env, info, "version")?;
+    let license = get_nullable_string_field(env, info, "license")?;
+    let maintainer = get_string_array_field(env, info, "maintainer")?;
+    let website = get_nullable_string_field(env, info, "website")?;
+    let topic = get_string_array_field(env, info, "topic")?;
+    let usage = get_usage_array_field(env, info, "usage")?;
+    Some(InterchangeProjectInfoRaw {
+        name,
+        publisher,
+        description,
+        version,
+        license,
+        maintainer,
+        website,
+        topic,
+        usage,
+    })
+}
+
+pub(crate) fn java_metadata_to_raw<'local>(
+    env: &mut JNIEnv<'local>,
+    meta: &JObject<'local>,
+) -> Option<InterchangeProjectMetadataRaw> {
+    let index_obj = match env.get_field(meta, "index", "Ljava/util/LinkedHashMap;") {
+        Ok(v) => match v.l() {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to get field `index`: {e}"));
+                return None;
+            }
+        },
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to get field `index`: {e}"));
+            return None;
+        }
+    };
+    let index = match java_map_to_index_map(env, &index_obj) {
+        Ok(m) => m,
+        Err(jni::errors::Error::JavaException) => return None,
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to convert index map: {e}"));
+            return None;
+        }
+    };
+    let created = get_string_field(env, meta, "created")?;
+    let metamodel = get_nullable_string_field(env, meta, "metamodel")?;
+    let includes_derived = get_nullable_boolean_field(env, meta, "includesDerived")?;
+    let includes_implied = get_nullable_boolean_field(env, meta, "includesImplied")?;
+    let checksum_obj = match env.get_field(meta, "checksum", "Ljava/util/LinkedHashMap;") {
+        Ok(v) => match v.l() {
+            Ok(o) => o,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to get field `checksum`: {e}"));
+                return None;
+            }
+        },
+        Err(e) => {
+            env.throw_runtime_exception(format!("Failed to get field `checksum`: {e}"));
+            return None;
+        }
+    };
+    let checksum = if checksum_obj.is_null() {
+        None
+    } else {
+        let jmap = match JMap::from_env(env, &checksum_obj) {
+            Ok(m) => m,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to wrap checksum map: {e}"));
+                return None;
+            }
+        };
+        let mut iter = match jmap.iter(env) {
+            Ok(i) => i,
+            Err(e) => {
+                env.throw_runtime_exception(format!("Failed to iterate checksum map: {e}"));
+                return None;
+            }
+        };
+        let mut result = IndexMap::new();
+        loop {
+            let entry = match iter.next(env) {
+                Ok(Some(e)) => e,
+                Ok(None) => break,
+                Err(e) => {
+                    env.throw_runtime_exception(format!(
+                        "Failed to iterate checksum map entry: {e}"
+                    ));
+                    return None;
+                }
+            };
+            let (key, value) = entry;
+            let key_str: String = match env.get_string(&JString::from(key)) {
+                Ok(s) => s.into(),
+                Err(e) => {
+                    env.throw_runtime_exception(format!("Failed to read checksum key: {e}"));
+                    return None;
+                }
+            };
+            let cs_value = get_string_field(env, &value, "value")?;
+            let cs_algorithm = get_string_field(env, &value, "algorithm")?;
+            result.insert(
+                key_str,
+                InterchangeProjectChecksumRaw {
+                    value: cs_value,
+                    algorithm: cs_algorithm,
+                },
+            );
+        }
+        Some(result)
+    };
+    Some(InterchangeProjectMetadataRaw {
+        index,
+        created,
+        metamodel,
+        includes_derived,
+        includes_implied,
+        checksum,
+    })
+}
+
 pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: &str =
     "com/sensmetry/sysand/model/InterchangeProjectUsage";
 pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS: &str =
@@ -204,7 +527,7 @@ impl ToJObject for InterchangeProjectUsageRaw {
         let version_constraint = self.version_constraint.to_jobject(env)?;
         match env.new_object(
             INTERCHANGE_PROJECT_USAGE_CLASS,
-            "()V",
+            "(Ljava/lang/String;Ljava/lang/String;)V",
             &[JValue::from(&resource), JValue::from(&version_constraint)],
         ) {
             Ok(o) => Some(o),
