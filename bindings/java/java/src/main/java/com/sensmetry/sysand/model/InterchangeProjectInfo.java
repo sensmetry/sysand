@@ -41,20 +41,40 @@ public class InterchangeProjectInfo {
         return name;
     }
 
+    public void setName(String name) {
+        this.name = name;
+    }
+
     public String getPublisher() {
         return publisher;
+    }
+
+    public void setPublisher(String publisher) {
+        this.publisher = publisher;
     }
 
     public String getDescription() {
         return description;
     }
 
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
     public String getVersion() {
         return version;
     }
 
+    public void setVersion(String version) {
+        this.version = version;
+    }
+
     public String getLicense() {
         return license;
+    }
+
+    public void setLicense(String license) {
+        this.license = license;
     }
 
     public String[] getMaintainer() {
@@ -63,8 +83,16 @@ public class InterchangeProjectInfo {
         return maintainer.clone();
     }
 
+    public void setMaintainer(String[] maintainer) {
+        this.maintainer = maintainer.clone();
+    }
+
     public String getWebsite() {
         return website;
+    }
+
+    public void setWebsite(String website) {
+        this.website = website;
     }
 
     public String[] getTopic() {
@@ -73,9 +101,17 @@ public class InterchangeProjectInfo {
         return topic.clone();
     }
 
+    public void setTopic(String[] topic) {
+        this.topic = topic.clone();
+    }
+
     public InterchangeProjectUsage[] getUsage() {
         // We need to clone the array to prevent the caller from modifying the
         // internal state.
         return usage.clone();
+    }
+
+    public void setUsage(InterchangeProjectUsage[] usage) {
+        this.usage = usage.clone();
     }
 }

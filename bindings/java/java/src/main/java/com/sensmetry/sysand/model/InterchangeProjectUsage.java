@@ -17,7 +17,15 @@ public class InterchangeProjectUsage {
         return resource;
     }
 
+    public void setResource(String resource) {
+        this.resource = resource;
+    }
+
     public String getVersionConstraint() {
         return versionConstraint;
+    }
+
+    public void setVersionConstraint(String versionConstraint) {
+        this.versionConstraint = versionConstraint;
     }
 }

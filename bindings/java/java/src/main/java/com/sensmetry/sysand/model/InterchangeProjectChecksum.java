@@ -17,8 +17,16 @@ public class InterchangeProjectChecksum {
         return value;
     }
 
+    public void setValue(String value) {
+        this.value = value;
+    }
+
     public String getAlgorithm() {
         return algorithm;
+    }
+
+    public void setAlgorithm(String algorithm) {
+        this.algorithm = algorithm;
     }
 
 }

@@ -34,28 +34,52 @@ public class InterchangeProjectMetadata {
         return index;
     }
 
+    public void setIndex(LinkedHashMap<String, String> index) {
+        this.index = index;
+    }
+
     public String getCreated() {
         return created;
+    }
+
+    public void setCreated(String created) {
+        this.created = created;
     }
 
     public String getMetamodel() {
         return metamodel;
     }
 
+    public void setMetamodel(String metamodel) {
+        this.metamodel = metamodel;
+    }
+
     public Boolean getIncludesDerived() {
         return includesDerived;
+    }
+
+    public void setIncludesDerived(Boolean includesDerived) {
+        this.includesDerived = includesDerived;
     }
 
     public Boolean getIncludesImplied() {
         return includesImplied;
     }
 
+    public void setIncludesImplied(Boolean includesImplied) {
+        this.includesImplied = includesImplied;
+    }
+
     public LinkedHashMap<String, InterchangeProjectChecksum> getChecksum() {
-        // We need to clone the array to prevent the caller from modifying the
+        // We need to clone the map to prevent the caller from modifying the
         // internal state.
         if (checksum == null) {
             return null;
         }
         return new LinkedHashMap<>(checksum);
+    }
+
+    public void setChecksum(LinkedHashMap<String, InterchangeProjectChecksum> checksum) {
+        this.checksum = checksum;
     }
 }
