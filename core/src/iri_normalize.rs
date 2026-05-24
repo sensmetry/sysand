@@ -4,12 +4,10 @@
 use std::{char::REPLACEMENT_CHARACTER, fmt::Write as _};
 
 use crate::purl::parse_sysand_purl;
-#[cfg(feature = "networking")]
 use crate::utils::scheme::{SCHEME_HTTP, SCHEME_HTTPS};
-#[cfg(feature = "networking")]
-use fluent_uri::component::Host;
 use fluent_uri::{
     Iri,
+    component::Host,
     pct_enc::{self, DecodedChunk, EStr},
 };
 use icu_casemap::CaseMapperBorrowed;
@@ -44,7 +42,6 @@ use idna::punycode;
 ///
 /// Returns the canonicalized serialization as
 /// a `String`, or an error if the host fails IDN conversion.
-#[cfg(feature = "networking")]
 pub(crate) fn canonicalize_iri(iri: Iri<&str>) -> Result<String, IriNormalizeError> {
     let normalized = iri.normalize();
     let with_idn = punycode_host(&normalized)?;
@@ -78,7 +75,6 @@ pub(crate) fn canonicalize_iri(iri: Iri<&str>) -> Result<String, IriNormalizeErr
 /// Returns the resulting serialization as an owned `String`; the rewrite is a
 /// localized splice on a known-valid IRI and does not rebuild via the IRI
 /// builder (whose strict typestate is awkward for "change only the host").
-#[cfg(feature = "networking")]
 fn punycode_host(iri: &Iri<String>) -> Result<String, IriNormalizeError> {
     let s = iri.as_str();
     let Some(authority) = iri.authority() else {
@@ -103,7 +99,6 @@ fn punycode_host(iri: &Iri<String>) -> Result<String, IriNormalizeError> {
     ))
 }
 
-#[cfg(feature = "networking")]
 #[derive(Debug, thiserror::Error)]
 pub enum IriNormalizeError {
     #[error("IRI is not a well-formed RFC 3987 IRI: {0}")]

@@ -7,6 +7,8 @@ pub mod build;
 pub mod env;
 pub mod exclude;
 pub mod include;
+#[cfg(feature = "filesystem")]
+pub mod index;
 pub mod info;
 pub mod init;
 pub mod lock;

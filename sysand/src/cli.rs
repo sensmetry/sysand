@@ -206,6 +206,11 @@ pub enum Command {
         #[command(subcommand)]
         command: Option<EnvCommand>,
     },
+    /// Manage a local sysand index
+    Index {
+        #[command(subcommand)]
+        command: IndexCommand,
+    },
     /// Sync `.sysand` to lockfile, creating a lockfile and `.sysand` if needed
     Sync {
         #[command(flatten)]
@@ -1374,6 +1379,79 @@ pub enum EnvCommand {
         #[command(flatten)]
         sources_opts: SourcesOptions,
     },
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum IndexCommand {
+    /// Create a local sysand index
+    #[clap(verbatim_doc_comment)]
+    Init {
+        /// Path to the index directory. If not provided, current working directory is used.
+        /// If the directory does not exist, it is created
+        #[clap(verbatim_doc_comment)]
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
+    },
+    /// Add a KPAR to a local sysand index
+    #[clap(verbatim_doc_comment)]
+    Add {
+        /// Project identifier. Default is pkg:sysand/<publisher>/<name>, if publisher is
+        /// specified in .project.json. Omitting both publisher and IRI is an error
+        #[clap(verbatim_doc_comment)]
+        iri: Option<String>,
+        // The type is str, not Iri so that a better error can be reported in some cases
+        // for example when the publisher contains a space
+        #[clap(verbatim_doc_comment)]
+        /// Path to KPAR
+        #[arg(long)]
+        kpar_path: Utf8PathBuf,
+        /// Path to the index directory. If not provided, current working directory is used
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
+    },
+    /// Yank a project version from a local index. The yanked version will still be available
+    /// and used to sync from an existing lockfile, but new lockfiles will not use it.
+    /// A yanked version cannot be un-yanked
+    #[clap(verbatim_doc_comment)]
+    Yank {
+        /// Project identifier
+        iri: String,
+        // It's String and not semver::Version because it's good to allow yanking a non-semantic
+        // version
+        /// Version to yank
+        #[arg(long)]
+        version: String,
+        /// Path to the index directory. If not provided, current working directory is used
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
+    },
+    /// Remove a project or a specific version of a project from a local sysand index.
+    /// This breaks the existing lockfiles which use the to-be-removed project or version.
+    /// Instead it is recommended to yank a specific version and release a new fixed version.
+    /// Project or version removal cannot be undone
+    #[clap(verbatim_doc_comment)]
+    Remove {
+        /// Project identifier
+        iri: String,
+        #[clap(flatten)]
+        target: IndexRemoveTarget,
+        /// Path to the index directory. If not provided, current working directory is used
+        #[arg(long)]
+        index_root: Option<Utf8PathBuf>,
+    },
+}
+
+#[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
+pub struct IndexRemoveTarget {
+    // It's String and not semver::Version because it's good to allow removing a non-semantic
+    // version
+    /// Version to remove
+    #[arg(long)]
+    pub version: Option<String>,
+    /// Remove the whole project
+    #[arg(long)]
+    pub project: bool,
 }
 
 #[derive(clap::Args, Debug, Clone)]
