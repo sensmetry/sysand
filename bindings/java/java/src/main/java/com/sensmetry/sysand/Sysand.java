@@ -189,6 +189,50 @@ public class Sysand {
     }
 
     /**
+     * Write a {@code .project.json} file for the project at the given path,
+     * overwriting any existing file.
+     *
+     * @param projectPath The path to the project directory.
+     * @param info        The project info to write.
+     */
+    private static native void setProjectInfo(String projectPath, com.sensmetry.sysand.model.InterchangeProjectInfo info)
+            throws com.sensmetry.sysand.exceptions.SysandException;
+
+    /**
+     * Write a {@code .project.json} file for the project at the given path,
+     * overwriting any existing file.
+     *
+     * @param projectPath The path to the project directory.
+     * @param info        The project info to write.
+     */
+    public static void setProjectInfo(java.nio.file.Path projectPath, com.sensmetry.sysand.model.InterchangeProjectInfo info)
+            throws com.sensmetry.sysand.exceptions.SysandException {
+        setProjectInfo(projectPath.toString(), info);
+    }
+
+    /**
+     * Write a {@code .meta.json} file for the project at the given path,
+     * overwriting any existing file.
+     *
+     * @param projectPath The path to the project directory.
+     * @param metadata    The project metadata to write.
+     */
+    private static native void setProjectMetadata(String projectPath, com.sensmetry.sysand.model.InterchangeProjectMetadata metadata)
+            throws com.sensmetry.sysand.exceptions.SysandException;
+
+    /**
+     * Write a {@code .meta.json} file for the project at the given path,
+     * overwriting any existing file.
+     *
+     * @param projectPath The path to the project directory.
+     * @param metadata    The project metadata to write.
+     */
+    public static void setProjectMetadata(java.nio.file.Path projectPath, com.sensmetry.sysand.model.InterchangeProjectMetadata metadata)
+            throws com.sensmetry.sysand.exceptions.SysandException {
+        setProjectMetadata(projectPath.toString(), metadata);
+    }
+
+    /**
      * Build Model Project Interchange file (.kpar) from the project at the given
      * path.
      *
