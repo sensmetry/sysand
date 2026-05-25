@@ -111,6 +111,12 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
                 LocalSrcError::MissingMeta => {
                     env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
                 }
+                LocalSrcError::WorkspaceInheritance(_) => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
+                }
+                LocalSrcError::WorkspaceRead(_) => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
+                }
             },
         },
     }
@@ -177,6 +183,12 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
                 }
                 LocalWriteError::AddProject(subsuberror) => {
                     env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
+                }
+                LocalWriteError::WorkspaceInheritance(_) => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
+                }
+                LocalWriteError::WorkspaceRead(_) => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
                 }
             },
         },
@@ -478,7 +490,10 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
                 ),
             );
         }
-        KParBuildError::WorkspaceMetamodelConflict { .. } => {
+        KParBuildError::WorkspaceInheritance(_) => {
+            env.throw_exception(ExceptionKind::SysandException, error.to_string());
+        }
+        KParBuildError::InvalidBuildTag { .. } => {
             env.throw_exception(ExceptionKind::SysandException, error.to_string());
         }
     }
@@ -504,6 +519,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     output_path: JString<'local>,
     project_path: JString<'local>,
     compression: JString<'local>,
+    build_tag: JString<'local>,
 ) {
     let Some(output_path) = env.get_str(&output_path, "outputPath") else {
         return;
@@ -521,12 +537,18 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     let Some(compression) = compression_from_java_string(&mut env, compression) else {
         return;
     };
+    let build_tag_owned: Option<String> = if build_tag.is_null() {
+        None
+    } else {
+        env.get_str(&build_tag, "buildTag")
+    };
     let command_result = sysand_core::commands::build::do_build_kpar(
         &project,
         &output_path,
         compression,
         true,
         false,
+        build_tag_owned.as_deref(),
     );
     match command_result {
         Ok(_) => {}
@@ -541,6 +563,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
     output_path: JString<'local>,
     workspace_path: JString<'local>,
     compression: JString<'local>,
+    build_tag: JString<'local>,
 ) {
     let Some(output_path) = env.get_str(&output_path, "outputPath") else {
         return;
@@ -561,6 +584,11 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
     let Some(compression) = compression_from_java_string(&mut env, compression) else {
         return;
     };
+    let build_tag_owned: Option<String> = if build_tag.is_null() {
+        None
+    } else {
+        env.get_str(&build_tag, "buildTag")
+    };
     match wrapfs::create_dir_all(&output_path) {
         Ok(_) => {}
         Err(error) => {
@@ -575,6 +603,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
         compression,
         true,
         false,
+        build_tag_owned.as_deref(),
     );
     match command_result {
         Ok(_) => {}

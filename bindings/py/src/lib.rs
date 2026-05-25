@@ -79,6 +79,8 @@ fn do_init_py_local_file(
                     PyValueError::new_err(error.to_string())
                 }
                 LocalSrcError::MissingMeta => PyFileNotFoundError::new_err(err.to_string()),
+                LocalSrcError::WorkspaceInheritance(_) => PyValueError::new_err(err.to_string()),
+                LocalSrcError::WorkspaceRead(_) => PyValueError::new_err(err.to_string()),
             },
         },
     )?;
@@ -108,6 +110,8 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
             }
             LocalWriteError::MissingMeta => PyFileNotFoundError::new_err(werr.to_string()),
             LocalWriteError::AddProject(error) => PyIOError::new_err(error.to_string()),
+            LocalWriteError::WorkspaceInheritance(_) => PyValueError::new_err(werr.to_string()),
+            LocalWriteError::WorkspaceRead(_) => PyValueError::new_err(werr.to_string()),
         },
     })?;
 
@@ -220,7 +224,7 @@ fn do_build_py(
         None => KparCompressionMethod::default(),
     };
 
-    do_build_kpar(&project, &output_path, compression, true, false)
+    do_build_kpar(&project, &output_path, compression, true, false, None)
         .map(|_| ())
         .map_err(|err| match err {
             KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
@@ -236,9 +240,8 @@ fn do_build_py(
             KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
             KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
             KParBuildError::PathUsage(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::WorkspaceMetamodelConflict { .. } => {
-                PyValueError::new_err(err.to_string())
-            }
+            KParBuildError::WorkspaceInheritance(_) => PyValueError::new_err(err.to_string()),
+            KParBuildError::InvalidBuildTag { .. } => PyValueError::new_err(err.to_string()),
         })
 }
 

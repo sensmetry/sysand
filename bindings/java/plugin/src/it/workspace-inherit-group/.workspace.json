@@ -1,0 +1,18 @@
+{
+  "projects": [
+    {
+      "path": "project1",
+      "iris": ["urn:kpar:project1"]
+    }
+  ],
+  "presets": {
+    "kerml": {
+      "project": {
+        "version": "1.0.0"
+      },
+      "meta": {
+        "metamodel": "https://www.omg.org/spec/KerML/20250201"
+      }
+    }
+  }
+}

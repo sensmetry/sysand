@@ -1,0 +1,13 @@
+{
+  "index": {
+    "A": "a.sysml"
+  },
+  "created": "2025-10-31T17:01:00.414506000Z",
+  "metamodel": { "preset": "kerml" },
+  "checksum": {
+    "a.sysml": {
+      "value": "",
+      "algorithm": "NONE"
+    }
+  }
+}
