@@ -75,6 +75,8 @@ impl From<LocalSrcError> for GixDownloadedError {
             LocalSrcError::MissingMeta => GixDownloadedError::Other(
                 "project is missing metadata file `.meta.json`".to_string(),
             ),
+            LocalSrcError::WorkspaceInheritance(e) => GixDownloadedError::Other(e.to_string()),
+            LocalSrcError::WorkspaceRead(e) => GixDownloadedError::Other(e.to_string()),
         }
     }
 }

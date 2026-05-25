@@ -113,6 +113,7 @@ SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
           <showVersion>true</showVersion>
           <streamLogs>true</streamLogs>
           <filterPom>true</filterPom>
+          <postBuildHookScript>verify</postBuildHookScript>
         </configuration>
         <executions>
           <execution>

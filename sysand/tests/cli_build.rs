@@ -207,9 +207,10 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Workspace with `meta.metamodel` set — projects without metamodel get it injected
+/// Workspace `meta.metamodel` is NOT auto-injected — projects must explicitly
+/// inherit via `{ "workspace": true }` in `.meta.json`.
 #[test]
-fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+fn workspace_build_metamodel_not_auto_injected() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
@@ -255,17 +256,17 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
     };
-    assert_eq!(
-        meta.metamodel.as_deref(),
-        Some("https://www.omg.org/spec/SysML/20250201")
+    assert!(
+        meta.metamodel.is_none(),
+        "metamodel should be None when project does not explicitly inherit it"
     );
 
     Ok(())
 }
 
-/// Workspace with unknown `meta.metamodel` — build succeeds with a warning
+/// Project inherits metamodel from workspace root via `{ "workspace": true }` in `.meta.json`.
 #[test]
-fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Error>> {
+fn workspace_inherit_metamodel_from_root_in_meta_json() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
     let project1_cwd = cwd.join("project1");
 
@@ -276,7 +277,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
                 {"path": "project1", "iris": ["urn:kpar:project1"]}
             ],
             "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20251201"
+                "metamodel": "https://www.omg.org/spec/SysML/20250201"
             }
         }"#,
     )?;
@@ -297,10 +298,15 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     )?;
     out.assert().success();
 
+    // Explicitly inherit metamodel from workspace root
+    let meta_path = project1_cwd.join(".meta.json");
+    let meta_content = std::fs::read_to_string(&meta_path)?;
+    let mut meta_json: serde_json::Value = serde_json::from_str(&meta_content)?;
+    meta_json["metamodel"] = serde_json::json!({"preset": "default"});
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta_json)?)?;
+
     let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert()
-        .success()
-        .stderr(predicate::str::contains("unknown metamodel"));
+    out.assert().success();
 
     let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
     assert!(
@@ -315,182 +321,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     };
     assert_eq!(
         meta.metamodel.as_deref(),
-        Some("https://www.omg.org/spec/SysML/20251201")
-    );
-
-    Ok(())
-}
-
-/// Workspace with `meta.metamodel` + project that also has metamodel — build fails
-#[test]
-fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project1_cwd = cwd.join("project1");
-
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{
-            "projects": [
-                {"path": "project1", "iris": ["urn:kpar:project1"]}
-            ],
-            "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
-            }
-        }"#,
-    )?;
-
-    std::fs::create_dir(&project1_cwd)?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["init", "--version", "1.0.0", "--name", "project1"],
-        None,
-    )?;
-    out.assert().success();
-
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["include", "--no-index-symbols", "test.sysml"],
-        None,
-    )?;
-    out.assert().success();
-
-    // Set metamodel in the project's .meta.json to create a conflict
-    let meta_path = project1_cwd.join(".meta.json");
-    let meta_content = std::fs::read_to_string(&meta_path)?;
-    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
-    meta["metamodel"] =
-        serde_json::Value::String("https://www.omg.org/spec/KerML/20250201".to_string());
-    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
-
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert()
-        .failure()
-        .stderr(predicate::str::contains("sets a different metamodel"));
-
-    Ok(())
-}
-
-/// Workspace and project set the **same** metamodel — no conflict, build succeeds
-#[test]
-fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project1_cwd = cwd.join("project1");
-
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{
-            "projects": [
-                {"path": "project1", "iris": ["urn:kpar:project1"]}
-            ],
-            "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
-            }
-        }"#,
-    )?;
-
-    std::fs::create_dir(&project1_cwd)?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["init", "--version", "1.0.0", "--name", "project1"],
-        None,
-    )?;
-    out.assert().success();
-
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["include", "--no-index-symbols", "test.sysml"],
-        None,
-    )?;
-    out.assert().success();
-
-    // Set the same metamodel in the project's .meta.json — should NOT conflict
-    let meta_path = project1_cwd.join(".meta.json");
-    let meta_content = std::fs::read_to_string(&meta_path)?;
-    let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
-    meta["metamodel"] =
-        serde_json::Value::String("https://www.omg.org/spec/SysML/20250201".to_string());
-    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
-
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert().success();
-
-    Ok(())
-}
-
-/// Building a workspace with `meta.metamodel` twice must succeed both times.
-/// This verifies that `put_meta` only writes to the temp directory, not the
-/// original project directory, so the conflict check sees the same unmodified
-/// `.meta.json` on both runs.
-#[test]
-fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd) = new_temp_cwd()?;
-    let project1_cwd = cwd.join("project1");
-
-    std::fs::write(
-        cwd.join(".workspace.json"),
-        br#"{
-            "projects": [
-                {"path": "project1", "iris": ["urn:kpar:project1"]}
-            ],
-            "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20250201"
-            }
-        }"#,
-    )?;
-
-    std::fs::create_dir(&project1_cwd)?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["init", "--version", "1.0.0", "--name", "project1"],
-        None,
-    )?;
-    out.assert().success();
-
-    std::fs::write(project1_cwd.join("test.sysml"), b"package P;\n")?;
-    let out = run_sysand_in(
-        &project1_cwd,
-        ["include", "--no-index-symbols", "test.sysml"],
-        None,
-    )?;
-    out.assert().success();
-
-    // First build
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert().success();
-
-    let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
-    assert!(kpar_path.is_file());
-
-    let kpar_project = LocalKParProject::new_guess_root(&kpar_path)?;
-    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
-        panic!("failed to get built project info/meta");
-    };
-    assert_eq!(
-        meta.metamodel.as_deref(),
         Some("https://www.omg.org/spec/SysML/20250201")
-    );
-
-    // Second build — must also succeed (no conflict from first build's injection)
-    let out = run_sysand_in(&cwd, ["build"], None)?;
-    out.assert().success();
-
-    let kpar_project = LocalKParProject::new_guess_root(&kpar_path)?;
-    let (Some(_), Some(meta)) = kpar_project.get_project()? else {
-        panic!("failed to get built project info/meta on second build");
-    };
-    assert_eq!(
-        meta.metamodel.as_deref(),
-        Some("https://www.omg.org/spec/SysML/20250201")
-    );
-
-    // Verify original project .meta.json was NOT modified
-    let original_meta_content = std::fs::read_to_string(project1_cwd.join(".meta.json"))?;
-    let original_meta: serde_json::Value = serde_json::from_str(&original_meta_content)?;
-    assert!(
-        original_meta.get("metamodel").is_none(),
-        "original project .meta.json should not have metamodel set"
     );
 
     Ok(())
@@ -1057,5 +888,292 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
         .read_to_string(&mut src)?;
 
     assert_eq!(src, "package P;\n");
+    Ok(())
+}
+
+/// Helper: create a minimal workspace project with a .sysml source file.
+///
+/// Initialises the project with a placeholder version, runs `include` to
+/// create `.meta.json`, then replaces `.project.json` with the final content
+/// (which may contain workspace inheritance references that commands other
+/// than `build` cannot resolve).
+fn setup_workspace_project(
+    project_cwd: &camino::Utf8Path,
+    project_name: &str,
+    final_project_json: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir(project_cwd)?;
+    std::fs::write(project_cwd.join("test.sysml"), b"package P;\n")?;
+
+    // Init with a placeholder version so `include` can read a valid .project.json.
+    run_sysand_in(
+        project_cwd,
+        ["init", "--version", "0.0.0", "--name", project_name],
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(
+        project_cwd,
+        ["include", "--no-index-symbols", "test.sysml"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    // Now overwrite with the final .project.json (may contain workspace refs).
+    std::fs::write(project_cwd.join(".project.json"), final_project_json)?;
+    Ok(())
+}
+
+/// Workspace project inherits version from workspace root `project` defaults
+/// using `"version": { "preset": "default" }`.
+#[test]
+fn workspace_inherit_version_from_root() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project1_cwd = cwd.join("project1");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project1", "iris": ["urn:kpar:project1"]}
+            ],
+            "project": {
+                "version": "3.0.0"
+            }
+        }"#,
+    )?;
+
+    setup_workspace_project(
+        &project1_cwd,
+        "project1",
+        br#"{"name": "project1", "version": {"preset": "default"}, "usage": []}"#,
+    )?;
+
+    let out = run_sysand_in(&cwd, ["build"], None)?;
+    out.assert().success();
+
+    let kpar_path = cwd.join("output").join("project1-3.0.0.kpar");
+    assert!(kpar_path.is_file(), "expected output/project1-3.0.0.kpar");
+
+    let kpar_project = LocalKParProject::new_guess_root(&kpar_path)?;
+    let (Some(info), _) = kpar_project.get_project()? else {
+        panic!("failed to get project info");
+    };
+    assert_eq!(info.version, "3.0.0");
+
+    Ok(())
+}
+
+/// Workspace project inherits version from a named preset. Metamodel is NOT
+/// implicitly inherited — it must be explicitly referenced in `.meta.json`.
+#[test]
+fn workspace_inherit_version_from_group() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project1_cwd = cwd.join("project1");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project1", "iris": ["urn:kpar:project1"]}
+            ],
+            "presets": {
+                "kerml": {
+                    "project": { "version": "1.0.0" },
+                    "meta": { "metamodel": "https://www.omg.org/spec/KerML/20250201" }
+                }
+            }
+        }"#,
+    )?;
+
+    setup_workspace_project(
+        &project1_cwd,
+        "project1",
+        br#"{"name": "project1", "version": {"preset": "kerml"}, "usage": []}"#,
+    )?;
+
+    let out = run_sysand_in(&cwd, ["build"], None)?;
+    out.assert().success();
+
+    let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
+    assert!(kpar_path.is_file(), "expected output/project1-1.0.0.kpar");
+
+    let kpar_project = LocalKParProject::new_guess_root(&kpar_path)?;
+    let (Some(info), Some(meta)) = kpar_project.get_project()? else {
+        panic!("failed to get project info/meta");
+    };
+    assert_eq!(info.version, "1.0.0");
+    assert!(
+        meta.metamodel.is_none(),
+        "metamodel should be None when not explicitly inherited"
+    );
+
+    Ok(())
+}
+
+/// `.meta.json` with `"metamodel": { "preset": "kerml" }` resolves the
+/// metamodel from the named preset.
+#[test]
+fn workspace_inherit_metamodel_from_group_in_meta_json() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project1_cwd = cwd.join("project1");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project1", "iris": ["urn:kpar:project1"]}
+            ],
+            "presets": {
+                "kerml": {
+                    "project": { "version": "1.0.0" },
+                    "meta": { "metamodel": "https://www.omg.org/spec/KerML/20250201" }
+                }
+            }
+        }"#,
+    )?;
+
+    // Version is literal; only metamodel inherits from the preset via .meta.json
+    setup_workspace_project(
+        &project1_cwd,
+        "project1",
+        br#"{"name": "project1", "version": "2.0.0", "usage": []}"#,
+    )?;
+    // Overwrite the generated .meta.json with a preset metamodel reference
+    let meta_path = project1_cwd.join(".meta.json");
+    let meta_content = std::fs::read_to_string(&meta_path)?;
+    let mut meta_json: serde_json::Value = serde_json::from_str(&meta_content)?;
+    meta_json["metamodel"] = serde_json::json!({"preset": "kerml"});
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta_json)?)?;
+
+    let out = run_sysand_in(&cwd, ["build"], None)?;
+    out.assert().success();
+
+    let kpar_path = cwd.join("output").join("project1-2.0.0.kpar");
+    assert!(kpar_path.is_file(), "expected output/project1-2.0.0.kpar");
+
+    let kpar_project = LocalKParProject::new_guess_root(&kpar_path)?;
+    let (_, Some(meta)) = kpar_project.get_project()? else {
+        panic!("failed to get project meta");
+    };
+    assert_eq!(
+        meta.metamodel.as_deref(),
+        Some("https://www.omg.org/spec/KerML/20250201")
+    );
+
+    Ok(())
+}
+
+/// Referencing an unknown workspace preset reports a clear error.
+#[test]
+fn workspace_inherit_unknown_group_error() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project1_cwd = cwd.join("project1");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project1", "iris": ["urn:kpar:project1"]}
+            ]
+        }"#,
+    )?;
+
+    setup_workspace_project(
+        &project1_cwd,
+        "project1",
+        br#"{"name": "project1", "version": {"preset": "nonexistent"}, "usage": []}"#,
+    )?;
+
+    let out = run_sysand_in(&cwd, ["build"], None)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("nonexistent"));
+
+    Ok(())
+}
+
+/// Workspace project with inherited publisher and license from root defaults.
+#[test]
+fn workspace_inherit_publisher_and_license_from_root() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project1_cwd = cwd.join("project1");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project1", "iris": ["urn:kpar:project1"]}
+            ],
+            "project": {
+                "version": "1.0.0",
+                "publisher": "Acme Corp",
+                "license": "Apache-2.0"
+            }
+        }"#,
+    )?;
+
+    setup_workspace_project(
+        &project1_cwd,
+        "project1",
+        br#"{"name": "project1", "version": {"preset": "default"}, "publisher": {"preset": "default"}, "license": {"preset": "default"}, "usage": []}"#,
+    )?;
+
+    let out = run_sysand_in(&cwd, ["build"], None)?;
+    out.assert().success();
+
+    let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
+    assert!(kpar_path.is_file(), "expected output/project1-1.0.0.kpar");
+
+    let kpar_project = LocalKParProject::new_guess_root(&kpar_path)?;
+    let (Some(info), _) = kpar_project.get_project()? else {
+        panic!("failed to get project info");
+    };
+    assert_eq!(info.version, "1.0.0");
+    assert_eq!(info.publisher.as_deref(), Some("Acme Corp"));
+    assert_eq!(info.license.as_deref(), Some("Apache-2.0"));
+
+    Ok(())
+}
+
+/// Workspace inheritance is idempotent — building twice succeeds.
+#[test]
+fn workspace_inherit_version_idempotent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let project1_cwd = cwd.join("project1");
+
+    std::fs::write(
+        cwd.join(".workspace.json"),
+        br#"{
+            "projects": [
+                {"path": "project1", "iris": ["urn:kpar:project1"]}
+            ],
+            "project": { "version": "5.0.0" }
+        }"#,
+    )?;
+
+    setup_workspace_project(
+        &project1_cwd,
+        "project1",
+        br#"{"name": "project1", "version": {"preset": "default"}, "usage": []}"#,
+    )?;
+
+    // First build
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
+    // Second build — must also succeed
+    run_sysand_in(&cwd, ["build"], None)?.assert().success();
+
+    // Verify original .project.json was NOT modified (still has preset ref)
+    let original_content = std::fs::read_to_string(project1_cwd.join(".project.json"))?;
+    let original: serde_json::Value = serde_json::from_str(&original_content)?;
+    assert_eq!(
+        original["version"],
+        serde_json::json!({"preset": "default"}),
+        "original .project.json should still contain the preset reference"
+    );
+
     Ok(())
 }

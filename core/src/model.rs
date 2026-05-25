@@ -17,6 +17,21 @@ use crate::utils::lowercase_hex;
 // pub struct ParsedIri(fluent_uri::Iri<String>);
 // pub struct NormalisedIri(fluent_uri::Iri<String>);
 
+// Workspace inheritance types defined here so they are available without the
+// `filesystem` feature, which gates the `workspace` module.
+//
+/// A field value that is either a literal or a workspace preset inheritance
+/// placeholder (`{ "preset": "default" }` or `{ "preset": "name" }`).
+///
+/// Use `"default"` to inherit from the workspace root `project` defaults;
+/// use any other name to inherit from a named preset.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum WorkspaceInherit<T> {
+    Literal(T),
+    Preset { preset: String },
+}
+
 pub const KNOWN_METAMODELS: [&str; 2] = [
     "https://www.omg.org/spec/SysML/20250201",
     "https://www.omg.org/spec/KerML/20250201",
@@ -128,6 +143,40 @@ pub struct InterchangeProjectInfoG<Iri, Version, VersionReq> {
 pub type InterchangeProjectInfoRaw = InterchangeProjectInfoG<String, String, String>;
 pub type InterchangeProjectInfo =
     InterchangeProjectInfoG<fluent_uri::Iri<String>, semver::Version, semver::VersionReq>;
+
+/// Deserialized form of `.project.json` where `version`, `publisher`, and
+/// `license` may carry workspace inheritance placeholders instead of literal
+/// values. Produced by `LocalSrcProject::get_project_with_inherit` and
+/// resolved via `crate::workspace::resolve_project_info`.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InterchangeProjectInfoWithInheritRaw {
+    pub name: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<WorkspaceInherit<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    pub version: WorkspaceInherit<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<WorkspaceInherit<String>>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub maintainer: Vec<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub website: Option<String>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub topic: Vec<String>,
+
+    pub usage: Vec<InterchangeProjectUsageRaw>,
+}
 
 impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     fn from(value: InterchangeProjectInfo) -> Self {
@@ -415,6 +464,26 @@ pub struct InterchangeProjectMetadataG<Iri, Path: Eq + Hash, DateTime, IPC> {
 
 pub type InterchangeProjectMetadataRaw =
     InterchangeProjectMetadataG<String, String, String, InterchangeProjectChecksumRaw>;
+
+/// Deserialized form of `.meta.json` where `metamodel` may carry a workspace
+/// inheritance placeholder. Produced by
+/// `LocalSrcProject::get_project_with_inherit` and resolved via
+/// `crate::workspace::resolve_project_metadata`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InterchangeProjectMetadataWithInheritRaw {
+    pub index: IndexMap<String, String>,
+    pub created: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metamodel: Option<WorkspaceInherit<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub includes_derived: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub includes_implied: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checksum: Option<IndexMap<String, InterchangeProjectChecksumRaw>>,
+}
+
 pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
     fluent_uri::Iri<String>,
     Utf8UnixPathBuf,
