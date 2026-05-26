@@ -14,10 +14,8 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     project::{
-        ProjectRead, ProjectReadAsync,
-        reqwest_kpar_download::{
-            KparMeta, ReqwestIndexKparDownloadedProject, ReqwestKparDownloadedError,
-        },
+        KparMeta, ProjectRead, ProjectReadAsync,
+        reqwest_kpar_download::{ReqwestIndexKparDownloadedProject, ReqwestKparDownloadedError},
     },
     resolve::net_utils::create_reqwest_client,
     utils::sha256_lowercase_hex,

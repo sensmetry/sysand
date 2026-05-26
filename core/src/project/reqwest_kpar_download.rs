@@ -20,7 +20,7 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        ProjectRead, ProjectReadAsync,
+        KparMeta, ProjectRead, ProjectReadAsync,
         local_kpar::{LocalKParError, LocalKParProject, LocalKParProjectRaw},
     },
     resolve::net_utils::kpar_get_request,
@@ -32,12 +32,6 @@ use super::{
     local_kpar::KparInnerPath,
     utils::{FsIoError, wrapfs},
 };
-
-#[derive(Debug)]
-pub struct KparMeta {
-    pub size_bytes: NonZeroU64,
-    pub sha256_hex: String,
-}
 
 /// Project stored at a remote URL such as https://www.example.com/project.kpar.
 /// The URL is expected to resolve to a kpar-archive (ZIP-file) (at least) if

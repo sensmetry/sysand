@@ -13,13 +13,13 @@ use sysand_core::{
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     project::{
-        AsSyncProjectTokio, ProjectReadAsync,
+        AsSyncProjectTokio, KparMeta, ProjectReadAsync,
         gix_git_download::{GixDownloadedError, GixDownloadedProject},
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
         memory::InMemoryProject,
         reqwest_kpar_download::{
-            KparMeta, ReqwestIndexKparDownloadedProject, ReqwestRemoteKparDownloadedProject,
+            ReqwestIndexKparDownloadedProject, ReqwestRemoteKparDownloadedProject,
         },
         reqwest_src::ReqwestSrcProjectAsync,
     },

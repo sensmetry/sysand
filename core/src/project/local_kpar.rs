@@ -21,8 +21,7 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        self, ProjectChecksum, ProjectRead, hash_reader,
-        reqwest_kpar_download::KparMeta,
+        self, KparMeta, ProjectChecksum, ProjectRead, hash_reader,
         utils::{RelativizePathError, ZipArchiveError, relativize_path},
     },
     utils::{lowercase_hex, sha256_lowercase_hex},
@@ -610,6 +609,7 @@ fn guess_root(archive: &mut ZipArchive<fs::File>) -> Result<Utf8UnixPathBuf, Loc
         if let Some(p) = file.enclosed_name() {
             // `enclosed_name()` creates path from `String`
             let p = Utf8UnixPathBuf::from(p.into_os_string().into_string().unwrap());
+            dbg!(&p, p.file_name());
             if p.file_name() == Some(".project.json") {
                 maybe_root = Some(
                     p.parent()

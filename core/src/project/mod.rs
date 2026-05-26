@@ -9,6 +9,7 @@ use std::{
     fmt::Debug,
     io::{self, BufRead as _, BufReader, Read},
     marker::Unpin,
+    num::NonZeroU64,
     sync::Arc,
 };
 use thiserror::Error;
@@ -56,6 +57,12 @@ pub mod cached;
 pub mod reference;
 
 pub mod utils;
+
+#[derive(Debug)]
+pub struct KparMeta {
+    pub size_bytes: NonZeroU64,
+    pub sha256_hex: String,
+}
 
 /// Produce a SHA-256 digest by hashing all the contents of `reader`
 pub(crate) fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, io::Error> {
