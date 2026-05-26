@@ -680,7 +680,7 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
         zip.finish().unwrap();
     }
 
-    let (_, _, out) = run_sysand(["info", "--path", "-v", &zip_path.to_string_lossy()], None)?;
+    let (_, _, out) = run_sysand(["info", "--path", &zip_path.to_string_lossy(), "-v"], None)?;
     println!("{}", str::from_utf8(&out.stdout).unwrap());
     println!("{}", str::from_utf8(&out.stdout).unwrap());
 
