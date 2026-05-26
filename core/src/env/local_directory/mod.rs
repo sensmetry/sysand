@@ -282,41 +282,6 @@ impl LocalDirectoryEnvironment {
     //         self.root_dir.join(project.path.as_str())
     //     }
     // }
-
-    // /// Find a project `uri` version `version` and determine its absolute path
-    // pub fn absolute_project_path_find<S: AsRef<str>, T: AsRef<str>>(
-    //     &self,
-    //     uri: S,
-    //     version: T,
-    // ) -> Option<Utf8PathBuf> {
-    //     self.metadata
-    //         .find_project_version(uri, version)
-    //         .map(|p| self.project_to_absolute_path(p))
-    // }
-
-    // /// Project path relative to the env directory
-    // pub fn relative_project_path_find<S: AsRef<str>, T: AsRef<str>>(
-    //     &self,
-    //     uri: S,
-    //     version: T,
-    // ) -> Option<Utf8PathBuf> {
-    //     self.metadata.find_project_version(uri, version).map(|p| {
-    //         if p.editable {
-    //             // TODO: this assumes that parent is workspace root
-    //             Utf8Path::new("../").join(p.path.as_str())
-    //         } else {
-    //             p.path.as_str().into()
-    //         }
-    //     })
-    // }
-
-    // fn project_to_absolute_path(&self, project: &EnvProject) -> Utf8PathBuf {
-    //     if project.editable {
-    //         self.parent_dir().join(project.path.as_str())
-    //     } else {
-    //         self.root_dir.join(project.path.as_str())
-    //     }
-    // }
 }
 
 #[derive(Error, Debug)]

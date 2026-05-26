@@ -13,7 +13,7 @@ use crate::{
         utils::clone_project,
     },
     model::{InterchangeProjectInfo, InterchangeProjectMetadata},
-    project::{ProjectMut, ProjectRead, memory::InMemoryProject},
+    project::{ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject},
     sync::{SyncError, try_install},
 };
 
@@ -141,4 +141,46 @@ fn try_install_fails_to_install_wrong_checksum() {
     let uris = env.uris().unwrap();
 
     assert_eq!(uris.len(), 0);
+}
+
+#[test]
+fn has_version_verified_different_checksum_kinds() {
+    let storage = storage_example();
+    let uri = "urn:kpar:install_test";
+    let version = "1.2.3";
+    let project_checksum = storage.checksum_canonical_variant().unwrap();
+    // InMemoryProject always produces ProjectChecksum::Project; flip to Kpar to trigger mismatch
+    let kpar_checksum = match &project_checksum {
+        ProjectChecksum::Project(c) => ProjectChecksum::Kpar(c.clone()),
+        ProjectChecksum::Kpar(c) => ProjectChecksum::Project(c.clone()),
+    };
+    let mut env = new_env();
+    env.put_project(uri, version, Some(project_checksum), |p| {
+        clone_project(&storage, p, true).map(|_| ())
+    })
+    .unwrap();
+
+    assert_eq!(
+        env.has_version_verified(uri, version, &kpar_checksum)
+            .unwrap(),
+        ProjectChecksumResult::DifferentChecksumKinds
+    );
+}
+
+#[test]
+fn has_version_verified_version_not_found_for_known_uri() {
+    let storage = storage_example();
+    let uri = "urn:kpar:install_test";
+    let version = "1.2.3";
+    let checksum = storage.checksum_canonical_variant().unwrap();
+    let mut env = new_env();
+    env.put_project(uri, version, Some(checksum.clone()), |p| {
+        clone_project(&storage, p, true).map(|_| ())
+    })
+    .unwrap();
+
+    assert_eq!(
+        env.has_version_verified(uri, "9.9.9", &checksum).unwrap(),
+        ProjectChecksumResult::VersionNotFound
+    );
 }
