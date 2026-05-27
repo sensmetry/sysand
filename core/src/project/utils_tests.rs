@@ -19,12 +19,7 @@ fn simple_relativize_path() -> Result<(), Box<dyn Error>> {
     } else {
         Utf8Path::new("/")
     };
-    let relative = if cfg!(windows) {
-        Utf8Path::new(r"a\b\c")
-    } else {
-        Utf8Path::new("a/b/c")
-    };
-    assert_eq!(relativize_path(path, root)?, relative.as_str());
+    assert_eq!(relativize_path(path, root)?, "a/b/c");
     Ok(())
 }
 
@@ -40,12 +35,7 @@ fn backtracking_relativize_path() -> Result<(), Box<dyn Error>> {
     } else {
         Utf8Path::new("/d/e/f")
     };
-    let relative = if cfg!(windows) {
-        Utf8Path::new(r"..\..\..\a\b\c")
-    } else {
-        Utf8Path::new("../../../a/b/c")
-    };
-    assert_eq!(relativize_path(path, root)?, relative.as_str());
+    assert_eq!(relativize_path(path, root)?, "../../../a/b/c");
     Ok(())
 }
 
