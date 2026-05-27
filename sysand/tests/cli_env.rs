@@ -409,3 +409,104 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
 
 // TODO: Write helper function to generate an index and add tests for
 // installing from index.
+
+/// Installing multiple projects in sequence via `env install --path` keeps all
+/// entries in `env.toml` and physically installs each project into the env
+/// directory. All installed projects are non-editable and carry a `src_cksum`.
+#[test]
+fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
+
+    // Build two projects with valid .meta.json so checksum_canonical_variant succeeds.
+    let (_tmp_a, cwd_a, out) = run_sysand(
+        ["init", "--version", "1.0.0", "--name", "env_multi_proj_a"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(cwd_a.join("A.sysml"), "package A;")?;
+    run_sysand_in(&cwd_a, ["include", "A.sysml"], None)?
+        .assert()
+        .success();
+
+    let (_tmp_b, cwd_b, out) = run_sysand(
+        ["init", "--version", "2.0.0", "--name", "env_multi_proj_b"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(cwd_b.join("B.sysml"), "package B;")?;
+    run_sysand_in(&cwd_b, ["include", "B.sysml"], None)?
+        .assert()
+        .success();
+
+    // Install both projects one after the other.
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:env-multi-a",
+            "--path",
+            cwd_a.as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .success()
+    .stderr(predicate::str::contains("`urn:kpar:env-multi-a` 1.0.0"));
+
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:env-multi-b",
+            "--path",
+            cwd_b.as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .success()
+    .stderr(predicate::str::contains("`urn:kpar:env-multi-b` 2.0.0"));
+
+    let env_toml = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+
+    // Both entries are present and non-editable.
+    assert!(
+        env_toml.contains("urn:kpar:env-multi-a"),
+        "proj_a missing from env.toml"
+    );
+    assert!(
+        env_toml.contains("urn:kpar:env-multi-b"),
+        "proj_b missing from env.toml"
+    );
+    assert!(
+        env_toml.contains("src_cksum"),
+        "expected src_cksum for installed projects"
+    );
+    assert!(
+        !env_toml.contains("editable = true"),
+        "env install must not produce editable entries"
+    );
+
+    // Project files are physically present inside the env.
+    assert!(
+        cwd.join(DEFAULT_ENV_NAME)
+            .join("lib/kpar.env-multi-a_1.0.0")
+            .is_dir()
+    );
+    assert!(
+        cwd.join(DEFAULT_ENV_NAME)
+            .join("lib/kpar.env-multi-b_2.0.0")
+            .is_dir()
+    );
+
+    // env list reports both.
+    run_sysand_in(&cwd, ["env", "list"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("`urn:kpar:env-multi-a` 1.0.0"))
+        .stdout(predicate::str::contains("`urn:kpar:env-multi-b` 2.0.0"));
+
+    Ok(())
+}
