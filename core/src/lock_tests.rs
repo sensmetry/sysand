@@ -6,9 +6,12 @@ use std::{fmt::Display, num::NonZeroU64, slice, str::FromStr};
 use toml_edit::DocumentMut;
 use typed_path::Utf8UnixPathBuf;
 
-use crate::lock::{
-    CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
-    VersionError, check_lock_version,
+use crate::{
+    lock::{
+        CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
+        VersionError, check_lock_version,
+    },
+    project::ProjectChecksum,
 };
 
 #[test]
@@ -720,31 +723,73 @@ fn validate_unsatisfied_usage() {
 }
 
 #[test]
-fn validate_checksum() {
-    let invalid_checksum = "dA8747a6f27A32f10Ba393113bCE29fX88181037a71f093f90e0ad5829D2b780";
-    let Err(err) = Lock {
-        lock_version: CURRENT_LOCK_VERSION.to_string(),
-        projects: vec![Project {
-            name: "a".into(),
-            publisher: None,
-            version: "0.0.1".to_string(),
-            exports: vec![],
-            identifiers: vec![],
-            usages: vec![],
-            sources: vec![Source::LocalSrc {
+fn validate_checksum_invalid_digest_all_source_types() {
+    // 64 chars but contains 'X' — right length, wrong character.
+    const INVALID: &str = "dA8747a6f27A32f10Ba393113bCE29fX88181037a71f093f90e0ad5829D2b780";
+
+    let cases: Vec<(&str, Source)> = vec![
+        (
+            "LocalSrc",
+            Source::LocalSrc {
                 src_path: Utf8UnixPathBuf::from("../path/to/the/project"),
-                checksum: invalid_checksum.to_owned(),
+                checksum: INVALID.to_owned(),
+            },
+        ),
+        (
+            "RemoteSrc",
+            Source::RemoteSrc {
+                remote_src: "https://example.com/src".to_string(),
+                checksum: INVALID.to_owned(),
+            },
+        ),
+        (
+            "LocalKpar",
+            Source::LocalKpar {
+                kpar_path: Utf8UnixPathBuf::from("project.kpar"),
+                kpar_size: NonZeroU64::new(1).unwrap(),
+                kpar_digest: INVALID.to_owned(),
+            },
+        ),
+        (
+            "RemoteKpar",
+            Source::RemoteKpar {
+                remote_kpar: "https://example.com/project.kpar".to_string(),
+                kpar_size: NonZeroU64::new(1).unwrap(),
+                kpar_digest: INVALID.to_owned(),
+            },
+        ),
+        (
+            "IndexKpar",
+            Source::IndexKpar {
+                index_kpar: "https://example.com/indexed.kpar".to_string(),
+                kpar_size: NonZeroU64::new(1).unwrap(),
+                kpar_digest: INVALID.to_owned(),
+            },
+        ),
+    ];
+
+    for (label, source) in cases {
+        let Err(err) = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![Project {
+                name: "a".into(),
+                publisher: None,
+                version: "0.0.1".to_string(),
+                exports: vec![],
+                identifiers: vec![],
+                usages: vec![],
+                sources: vec![source],
             }],
-        }],
+        }
+        .validate() else {
+            panic!("expected InvalidProjectDigestFormat for {label}")
+        };
+        let ValidationError::InvalidProjectDigestFormat { digest, name } = err else {
+            panic!("wrong error variant for {label}: {err:?}")
+        };
+        assert_eq!(digest, INVALID, "{label}");
+        assert_eq!(name, "a", "{label}");
     }
-    .validate() else {
-        panic!()
-    };
-    let ValidationError::InvalidProjectDigestFormat { digest, name } = err else {
-        panic!()
-    };
-    assert_eq!(digest, invalid_checksum);
-    assert_eq!(name, "a");
 }
 
 #[test]
@@ -934,6 +979,9 @@ fn sort_projects_by_version() {
 
 #[test]
 fn canonicalize_checksums() {
+    const MIXED: &str = "dA8747a6f27A32f10Ba393113bCE29f788181037a71f093f90e0ad5829D2b780";
+    const LOWER: &str = "da8747a6f27a32f10ba393113bce29f788181037a71f093f90e0ad5829d2b780";
+
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![Project {
@@ -941,13 +989,39 @@ fn canonicalize_checksums() {
             publisher: None,
             version: "0.0.1".to_string(),
             exports: vec![],
-            identifiers: vec![],
+            identifiers: vec!["urn:kpar:a".to_string()],
             usages: vec![],
-            sources: vec![Source::LocalSrc {
-                src_path: Utf8UnixPathBuf::from("../path/to/the/project"),
-                checksum: "dA8747a6f27A32f10Ba393113bCE29f788181037a71f093f90e0ad5829D2b780"
-                    .to_owned(),
-            }],
+            sources: vec![
+                Source::LocalSrc {
+                    src_path: Utf8UnixPathBuf::from("../path/to/the/project"),
+                    checksum: MIXED.to_owned(),
+                },
+                Source::RemoteSrc {
+                    remote_src: "https://example.com/src".to_string(),
+                    checksum: MIXED.to_owned(),
+                },
+                Source::LocalKpar {
+                    kpar_path: Utf8UnixPathBuf::from("project.kpar"),
+                    kpar_size: NonZeroU64::new(1).unwrap(),
+                    kpar_digest: MIXED.to_owned(),
+                },
+                Source::RemoteKpar {
+                    remote_kpar: "https://example.com/project.kpar".to_string(),
+                    kpar_size: NonZeroU64::new(1).unwrap(),
+                    kpar_digest: MIXED.to_owned(),
+                },
+                Source::IndexKpar {
+                    index_kpar: "https://example.com/indexed.kpar".to_string(),
+                    kpar_size: NonZeroU64::new(1).unwrap(),
+                    kpar_digest: MIXED.to_owned(),
+                },
+                Source::Editable {
+                    editable: Utf8UnixPathBuf::from("editable/path"),
+                },
+                Source::RemoteGit {
+                    remote_git: "https://github.com/example/example.git".to_string(),
+                },
+            ],
         }],
     };
     lock.canonicalize_checksums();
@@ -955,15 +1029,129 @@ fn canonicalize_checksums() {
     let [project] = projects.as_slice() else {
         panic!()
     };
-    let Source::LocalSrc {
-        src_path: _,
-        checksum,
-    } = &project.sources[0]
-    else {
+
+    let Source::LocalSrc { checksum, .. } = &project.sources[0] else {
         panic!()
     };
-    assert_eq!(
-        checksum,
-        "da8747a6f27a32f10ba393113bce29f788181037a71f093f90e0ad5829d2b780"
+    assert_eq!(checksum, LOWER);
+
+    let Source::RemoteSrc { checksum, .. } = &project.sources[1] else {
+        panic!()
+    };
+    assert_eq!(checksum, LOWER);
+
+    let Source::LocalKpar { kpar_digest, .. } = &project.sources[2] else {
+        panic!()
+    };
+    assert_eq!(kpar_digest, LOWER);
+
+    let Source::RemoteKpar { kpar_digest, .. } = &project.sources[3] else {
+        panic!()
+    };
+    assert_eq!(kpar_digest, LOWER);
+
+    let Source::IndexKpar { kpar_digest, .. } = &project.sources[4] else {
+        panic!()
+    };
+    assert_eq!(kpar_digest, LOWER);
+
+    // Editable and RemoteGit carry no checksum; their presence here confirms
+    // canonicalize_checksums does not panic on them.
+    assert!(matches!(&project.sources[5], Source::Editable { .. }));
+    assert!(matches!(&project.sources[6], Source::RemoteGit { .. }));
+}
+
+#[test]
+fn old_lockfile_version_0_4_is_rejected() {
+    let lockfile = format!(
+        r#"{LOCKFILE_PREFIX}lock_version = "0.4"
+
+[[project]]
+name = "Old project"
+version = "1.0.0"
+"#
     );
+
+    let Err(err) = Lock::from_str(&lockfile) else {
+        panic!()
+    };
+    let crate::lock::ParseError::Version(VersionError::Unsupported(ref s)) = err else {
+        panic!("expected unsupported version error, got {err:?}")
+    };
+    assert_eq!(s, "0.4");
+}
+
+#[test]
+fn source_to_checksum_editable_is_none() {
+    let source = Source::Editable {
+        editable: Utf8UnixPathBuf::from("."),
+    };
+    assert!(source.to_checksum().is_none());
+}
+
+#[test]
+fn source_to_checksum_remote_git_is_none() {
+    let source = Source::RemoteGit {
+        remote_git: "https://github.com/example/example.git".to_string(),
+    };
+    assert!(source.to_checksum().is_none());
+}
+
+#[test]
+fn source_to_checksum_local_src_is_project_variant() {
+    let checksum = "a".repeat(64);
+    let source = Source::LocalSrc {
+        src_path: Utf8UnixPathBuf::from("path/to/src"),
+        checksum: checksum.clone(),
+    };
+    assert_eq!(
+        source.to_checksum(),
+        Some(ProjectChecksum::Project(checksum))
+    );
+}
+
+#[test]
+fn source_to_checksum_remote_src_is_project_variant() {
+    let checksum = "b".repeat(64);
+    let source = Source::RemoteSrc {
+        remote_src: "https://example.com/src".to_string(),
+        checksum: checksum.clone(),
+    };
+    assert_eq!(
+        source.to_checksum(),
+        Some(ProjectChecksum::Project(checksum))
+    );
+}
+
+#[test]
+fn source_to_checksum_local_kpar_is_kpar_variant() {
+    let digest = "c".repeat(64);
+    let source = Source::LocalKpar {
+        kpar_path: Utf8UnixPathBuf::from("project.kpar"),
+        kpar_size: NonZeroU64::new(1).unwrap(),
+        kpar_digest: digest.clone(),
+    };
+    assert_eq!(source.to_checksum(), Some(ProjectChecksum::Kpar(digest)));
+}
+
+#[test]
+fn source_to_checksum_remote_kpar_is_kpar_variant() {
+    let digest = "d".repeat(64);
+    let source = Source::RemoteKpar {
+        remote_kpar: "https://example.com/project.kpar".to_string(),
+        kpar_size: NonZeroU64::new(1).unwrap(),
+        kpar_digest: digest.clone(),
+    };
+    assert_eq!(source.to_checksum(), Some(ProjectChecksum::Kpar(digest)));
+}
+
+#[test]
+fn source_to_checksum_index_kpar_is_kpar_variant() {
+    let digest = "e".repeat(64);
+    let source = Source::IndexKpar {
+        index_kpar: "https://example.com/indexed.kpar".to_string(),
+        kpar_size: NonZeroU64::new(1).unwrap(),
+        kpar_digest: digest.clone(),
+    };
+    assert_eq!(source.to_checksum(), Some(ProjectChecksum::Kpar(digest)));
 }

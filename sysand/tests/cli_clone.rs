@@ -156,14 +156,17 @@ fn clone_not_found() -> Result<(), Box<dyn std::error::Error>> {
     // auto path form locator
     let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str], None)?;
 
-    // TODO: test error message
-    out.assert().failure();
+    out.assert().failure().stderr(predicate::str::contains(
+        "incomplete project: missing `.project.json` and `.meta.json`",
+    ));
     assert_dir_empty(&cwd)?;
 
     // explicit path
     let (_temp_dir, cwd, out) = run_sysand(["clone", "--path", "../../does/not/exist"], None)?;
 
-    out.assert().failure();
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("failed to canonicalize path"));
     assert_dir_empty(&cwd)?;
 
     Ok(())

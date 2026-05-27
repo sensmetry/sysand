@@ -304,5 +304,108 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `--allow-multiple` lets a different version of an already-installed project
+/// be installed alongside it; the same version still triggers an error.
+#[test]
+fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
+
+    // Build v1 with a .meta.json so checksum_canonical_variant succeeds.
+    let (_temp_v1, cwd_v1, out) = run_sysand(
+        ["init", "--version", "1.0.0", "--name", "allow_multiple_lib"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(cwd_v1.join("TestLib.sysml"), "package TestLib;")?;
+    run_sysand_in(&cwd_v1, ["include", "TestLib.sysml"], None)?
+        .assert()
+        .success();
+
+    // Build v2 with the same IRI but a different version.
+    let (_temp_v2, cwd_v2, out) = run_sysand(
+        ["init", "--version", "2.0.0", "--name", "allow_multiple_lib"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(cwd_v2.join("TestLib.sysml"), "package TestLib;")?;
+    run_sysand_in(&cwd_v2, ["include", "TestLib.sysml"], None)?
+        .assert()
+        .success();
+
+    // Install v1.
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:allow-multiple-lib",
+            "--path",
+            cwd_v1.as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    // Without --allow-multiple, installing v2 (a different version) fails.
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:allow-multiple-lib",
+            "--path",
+            cwd_v2.as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "project with IRI `urn:kpar:allow-multiple-lib` is already installed",
+    ));
+
+    // With --allow-multiple, installing v2 alongside v1 succeeds.
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:allow-multiple-lib",
+            "--path",
+            cwd_v2.as_str(),
+            "--allow-multiple",
+        ],
+        None,
+    )?
+    .assert()
+    .success()
+    .stderr(predicate::str::contains(
+        "`urn:kpar:allow-multiple-lib` 2.0.0",
+    ));
+
+    // --allow-multiple still rejects reinstalling the same version that is
+    // already present (that requires --allow-overwrite instead).
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:allow-multiple-lib",
+            "--path",
+            cwd_v1.as_str(),
+            "--allow-multiple",
+        ],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "project with IRI `urn:kpar:allow-multiple-lib` already has version `1.0.0` installed",
+    ));
+
+    Ok(())
+}
+
 // TODO: Write helper function to generate an index and add tests for
-// installing from index and for using flag '--allow-multiple'.
+// installing from index.
