@@ -134,7 +134,8 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         .expect("RequirePresent never returns Ok(None)"))
     }
 
-    async fn ensure_downloaded_verified(
+    /// Downloads `.project.json` and `.meta.json`. No verification is done.
+    async fn ensure_downloaded(
         &self,
     ) -> Result<&(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), IndexEntryProjectError>
     {
@@ -166,7 +167,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
         ),
         Self::Error,
     > {
-        let (info, meta) = self.ensure_downloaded_verified().await?;
+        let (info, meta) = self.ensure_downloaded().await?;
         Ok((Some(info.clone()), Some(meta.clone())))
     }
 
@@ -194,11 +195,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
     }
 
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        Ok(Some(self.ensure_downloaded_verified().await?.0.clone()))
+        Ok(Some(self.ensure_downloaded().await?.0.clone()))
     }
 
     async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        Ok(Some(self.ensure_downloaded_verified().await?.1.clone()))
+        Ok(Some(self.ensure_downloaded().await?.1.clone()))
     }
 
     async fn version_async(&self) -> Result<Option<String>, Self::Error> {
