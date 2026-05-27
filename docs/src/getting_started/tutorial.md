@@ -80,7 +80,7 @@ to install packages from the URL that points to the `.kpar` file or to a directo
 that contains the project.
 
 [iri]: https://en.wikipedia.org/wiki/Internationalized_Resource_Identifier
-[index]: https://beta.sysand.org/
+[index]: https://sysand.com/
 
 Install usage `SYSMOD` from Sysand Package Index:
 

@@ -69,7 +69,7 @@ use crate::{
     },
 };
 
-pub const DEFAULT_INDEX_URL: &str = "https://beta.sysand.org";
+pub const DEFAULT_INDEX_URL: &str = "https://sysand.com";
 
 pub mod cli;
 pub mod commands;

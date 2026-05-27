@@ -8,7 +8,7 @@
 
 - [workspaces] Add `metadata` field to `.workspace.json` to allow setting metadata for the whole workspace ([#238](https://github.com/sensmetry/sysand/pull/238)). Fields from there are read and replace keys from `.meta.json` when building the kpars. Currently only `metamodel` is supported. As with all workspace functionality, this is expected to change in the future.
 - [workspaces] Allow specifying custom `meta.index` for each project in workspace ([#241](https://github.com/sensmetry/sysand/pull/241)). Currently this functionality is only exposed through Java bindings.
-- Add `sysand publish` command ([#249](https://github.com/sensmetry/sysand/pull/249)). It allows publishing to an index. Note: this is not ready for use, as `beta.sysand.org` index does not support publishing via an API yet.
+- Add `sysand publish` command ([#249](https://github.com/sensmetry/sysand/pull/249)). It allows publishing to an index. Note: this is not ready for use, as `sysand.com` index does not support publishing via an API yet.
 - Include `README.md` when building the kpar if the file is present ([#239](https://github.com/sensmetry/sysand/pull/239))
 - Add environment metadata file `env.toml`, which resides in `sysand_env` ([#175](https://github.com/sensmetry/sysand/pull/175)). Currently `entries.txt` and per-project `versions.txt` are still also used, but will be removed in the future.
 - Change formatting/linting to use pre-commit hooks, and use `prek` to run those hooks in CI instead of a separate implementations in `**/run_chores.sh` and CI ([#250](https://github.com/sensmetry/sysand/pull/250)).

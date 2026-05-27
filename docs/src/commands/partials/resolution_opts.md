@@ -7,7 +7,7 @@
   indexes
 - `--default-index [<DEFAULT_INDEX>...]`: Comma-delimited list of URLs to use
   as default index URLs. Default indexes are tried before other indexes
-  (default `https://beta.sysand.org`)
+  (default `https://sysand.com`)
 - `--no-index`: Do not use any index when resolving project(s) and/or their
   dependencies
 - `--include-std`: Don't ignore KerML/SysML v2 standard libraries if specified

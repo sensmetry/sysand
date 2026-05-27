@@ -12,7 +12,7 @@ Sysand project index. The guide describes three ways to run the index:
 > [!note]
 > This guide is only concerned about hosting the project files in the
 > structure that Sysand CLI can understand. Hosting of a front-end website
-> (such as [beta.sysand.org][sysand_index]) is not a part of this guide.
+> (such as [sysand.com][sysand_index]) is not a part of this guide.
 
 > [!warning]
 > Sysand is in active development. The structure of indexes and
@@ -109,7 +109,7 @@ the [User Guide](tutorial.md).
 
 Then, when adding a new usage to the project, use the `--index` argument
 to point to your private project index instead of the public
-[beta.sysand.org][sysand_index], for example:
+[sysand.com][sysand_index], for example:
 
 ```sh
 sysand add pkg:sysand/my-publisher/my-project --index http://localhost:8080
@@ -148,6 +148,6 @@ approach. It is licensed under the Creative Commons Zero license and can be
 freely forked and used in any setting. The repository README contains a detailed
 explanation of how to set up such a repository and use it.
 
-[sysand_index]: https://beta.sysand.org/
+[sysand_index]: https://sysand.com/
 [github_repo]: https://github.com/sensmetry/sysand-private-index
 [gitlab_repo]: https://gitlab.com/sensmetry/public/sysand-private-index

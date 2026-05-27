@@ -31,7 +31,7 @@ import-names = ["sysand"]
 
 [project.urls]
 documentation = "https://docs.sysand.org"
-homepage = "https://beta.sysand.org"
+homepage = "https://sysand.com"
 source = "https://github.com/sensmetry/sysand"
 issues = "https://github.com/sensmetry/sysand/issues"
 forum = "https://forum.sensmetry.com/c/sysand/24"
