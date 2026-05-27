@@ -6,7 +6,7 @@ use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     io::{self, BufRead as _, BufReader, Read},
     marker::Unpin,
     num::NonZeroU64,
@@ -149,6 +149,15 @@ pub enum ProjectChecksum {
     Project(String),
     /// SHA256 hex digest of the original KPAR
     Kpar(String),
+}
+
+impl Display for ProjectChecksum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProjectChecksum::Project(c) => write!(f, "kpar:{c}"),
+            ProjectChecksum::Kpar(c) => write!(f, "src:{c}"),
+        }
+    }
 }
 
 /// Anything implementing `ProjectRead` can be treated as a method for accessing (one

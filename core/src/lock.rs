@@ -346,10 +346,9 @@ pub const PROJECT_ENTRIES: &[&str] = &[
     "identifiers",
     "usages",
     "sources",
-    // "checksum",
 ];
 
-/// Fields that are not critical for using the lockfile use `Option`
+/// Fields that might not be set for every project are `Option`
 #[derive(Clone, Eq, Debug, Deserialize, PartialEq)]
 pub struct Project {
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -364,7 +363,6 @@ pub struct Project {
     pub usages: Vec<Usage>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub sources: Vec<Source>,
-    // pub checksum: String,
 }
 
 impl Ord for Project {
@@ -385,8 +383,6 @@ impl PartialOrd for Project {
     }
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-pub struct ProjectHash(u64);
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct StrHash(u64);
 

@@ -126,17 +126,29 @@ fn try_install_fails_to_install_wrong_checksum() {
     let storage = storage_example();
 
     let uri = "urn:kpar:install_test";
-    let checksum = crate::project::ProjectChecksum::Project("00".to_owned());
+    let checksum = ProjectChecksum::Project("00".to_owned());
     let mut env = new_env();
 
-    let SyncError::BadChecksum(msg) = try_install::<_, InMemoryProject, Infallible, Infallible, _>(
-        &uri, "1.2.3", &checksum, storage, &mut env,
+    let SyncError::BadChecksum {
+        iri,
+        expected,
+        actual,
+    } = try_install::<_, _, Infallible, Infallible, _>(
+        &uri, "1.2.3", &checksum, &storage, &mut env,
     )
-    .unwrap_err() else {
+    .unwrap_err()
+    else {
         panic!()
     };
 
-    assert_eq!(msg, uri);
+    assert_eq!(iri, uri);
+    assert_eq!(expected, checksum);
+    assert_eq!(
+        actual,
+        ProjectChecksum::Project(
+            "ac2849f645933d92010698c857cfa0dcde74d7a06028d4bc8a4d607452c72d13".to_owned()
+        )
+    );
 
     let uris = env.uris().unwrap();
 

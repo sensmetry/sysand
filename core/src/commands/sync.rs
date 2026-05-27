@@ -16,8 +16,16 @@ use crate::{
 
 #[derive(Error, Debug)]
 pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
-    #[error("incorrect checksum for project with IRI `{0}` in lockfile")]
-    BadChecksum(String),
+    #[error(
+        "incorrect checksum for project with IRI `{iri}` in lockfile:\n\
+        expected `{expected}`, but the actual is\n\
+        `{actual}`"
+    )]
+    BadChecksum {
+        iri: String,
+        expected: ProjectChecksum,
+        actual: ProjectChecksum,
+    },
     #[error("project with IRI `{0}` is missing `.project.json` or `.meta.json`")]
     BadProject(String),
     #[error("project with IRI(s) {0:?} has no known sources in lockfile")]
@@ -388,11 +396,11 @@ fn try_install<
             cause: e.to_string(),
         })?;
     } else {
-        log::debug!("incorrect checksum for `{uri}` in lockfile");
-        // TODO: reenable once proper Display is implemented
-        // log::debug!("lockfile checksum = `{expected_checksum}`");
-        // log::debug!("project checksum = `{project_checksum}`");
-        return Err(SyncError::BadChecksum(uri.into()));
+        return Err(SyncError::BadChecksum {
+            iri: uri.into(),
+            expected: expected_checksum.to_owned(),
+            actual: actual_checksum,
+        });
     }
     Ok(())
 }
