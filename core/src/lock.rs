@@ -222,7 +222,7 @@ impl Lock {
         let mut seen_projects = HashSet::new();
         let mut seen_exports = HashSet::new();
         for project in &self.projects {
-            if !seen_projects.insert(project) {
+            if !seen_projects.insert(project.identifiers.first()) {
                 let id = match project.identifiers.first() {
                     Some(id) => id,
                     None => {
@@ -367,19 +367,6 @@ pub struct Project {
     // pub checksum: String,
 }
 
-impl std::hash::Hash for Project {
-    /// This will be unique for each project, but a project can
-    /// have multiple hashes due to non-canonical metadata
-    /// The exact calculation may change at any time, so it must
-    /// not be used in any files
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.publisher.hash(state);
-        self.name.hash(state);
-        self.version.hash(state);
-        self.exports.hash(state);
-    }
-}
-
 impl Ord for Project {
     fn cmp(&self, other: &Self) -> Ordering {
         self.name
@@ -432,13 +419,6 @@ impl Project {
         }
         // table.insert("checksum", value(&self.checksum));
         table
-    }
-
-    /// Project hash is its canonical checksum
-    pub fn hash_val(&self) -> ProjectHash {
-        let mut hasher = DefaultHasher::new();
-        self.hash(&mut hasher);
-        ProjectHash(hasher.finish())
     }
 }
 

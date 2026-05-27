@@ -83,8 +83,7 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
         Ok(inner_sources)
     }
 
-    /// This will always panic, as it's irrelevant for editable projects
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
-        panic!()
+        self.inner.checksum_canonical_variant()
     }
 }

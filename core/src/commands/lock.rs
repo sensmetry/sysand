@@ -234,7 +234,14 @@ pub fn do_lock_extend<
     let mut lock_projects = HashSet::new();
     let mut lock_symbols = HashMap::new();
     for (i, p) in lock.projects.iter().enumerate() {
-        lock_projects.insert(p.hash_val());
+        if let Some(iri) = p.identifiers.first() {
+            // FIXME: better deduplication. What to consider? Previously this was
+            // done based on canonical checksum, but such rigor is not necessary,
+            // since if symbols of any two projects overlap the lock will fail anyway.
+            // Current way may produce a lockfile that does not satisfy all version
+            // constraints.
+            lock_projects.insert(iri.clone());
+        }
         for s in p.exports.iter() {
             if let Some(conflict_idx) = lock_symbols.insert(hash_str(s), i) {
                 return Err(LockError::NameCollision(
@@ -288,7 +295,7 @@ pub fn do_lock_extend<
                 .map(|u| Usage::from(u.resource))
                 .collect(),
         };
-        if lock_projects.contains(&lock_project.hash_val()) {
+        if lock_projects.contains(iri.as_str()) {
             log::debug!(
                 "not adding project `{}` ({}) to lock, as lock already contains it",
                 iri,
