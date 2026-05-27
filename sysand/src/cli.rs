@@ -19,9 +19,9 @@ use crate::env_vars;
 /// A package manager for SysML v2 and KerML
 ///
 /// Documentation:
-/// <https://docs.sysand.org/>
+/// <https://client.sysand.com/>
 /// Package index and more information:
-/// <https://beta.sysand.org/>
+/// <https://sysand.com/>
 /// Project repository:
 /// <https://github.com/sensmetry/sysand/>
 #[derive(clap::Parser, Debug)]
@@ -190,9 +190,9 @@ pub enum Command {
         #[clap(verbatim_doc_comment)]
         path: Option<Utf8PathBuf>,
 
-        /// Configured index URL to publish to (e.g. https://sysand.org)
+        /// Configured index URL to publish to (e.g. https://sysand.com)
         /// May point to a path containing sysand-index-config.json, or directly
-        /// to the API root (e.g. https://sysand.org/api)
+        /// to the API root (e.g. https://sysand.com/api)
         #[arg(long, value_name = "URL", verbatim_doc_comment)]
         index: Url,
     },
@@ -1491,7 +1491,7 @@ pub struct ResolutionOptions {
     pub index: Vec<String>,
     /// Comma-delimited list of URLs to use as default index
     /// URLs. Default indexes are tried before other indexes
-    /// (default `https://beta.sysand.org`)
+    /// (default `https://sysand.com`)
     // TODO: verify index use order
     #[arg(
         long,
