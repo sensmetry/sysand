@@ -22,6 +22,7 @@ use fluent_uri::Iri;
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
 use sysand_core::{
+    add::expand_sysand_purl_shorthand,
     auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder},
     commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{
@@ -632,7 +633,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             resolution_opts,
             source_opts,
         } => {
-            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
+            let iri = usage_locator_to_iri(locator.iri, locator.path)?;
             command_add(
                 iri,
                 version_constraint,
@@ -650,7 +651,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             )
         }
         Command::Remove { locator } => {
-            let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
+            let iri = usage_locator_to_iri(locator.iri, locator.path)?;
             command_remove(
                 iri,
                 ctx,
@@ -750,20 +751,20 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     }
 }
 
-fn iri_or_path_to_iri(
-    iri: Option<Iri<String>>,
+fn usage_locator_to_iri(
+    iri: Option<String>,
     path: Option<Utf8PathBuf>,
 ) -> Result<Iri<String>, anyhow::Error> {
     Ok(if let Some(iri) = iri {
-        iri
+        let iri = expand_sysand_purl_shorthand(&iri)?;
+        Iri::parse(iri).expect("BUG: usage locator is invalid IRI")
     } else {
         let Some(path) = path else { unreachable!() };
         let abs_path = wrapfs::canonicalize(&path)?;
         let url: String = Url::from_file_path(abs_path)
             .map_err(|()| anyhow!("unsupported path type of `{path}`"))?
             .into();
-        // This cannot fail, since URL from a path will never have a fragment
-        Iri::parse(url).unwrap()
+        Iri::parse(url).expect("BUG: file URL from path is invalid IRI")
     })
 }
 

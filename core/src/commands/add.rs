@@ -7,6 +7,7 @@ use crate::{
         InterchangeProjectUsageG, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
     project::ProjectMut,
+    purl::{PKG_SYSAND_PREFIX, SysandPurlError, parse_sysand_purl},
 };
 
 const SP: char = ' ';
@@ -21,12 +22,42 @@ pub enum AddError<ProjectError> {
     MissingInfo(&'static str),
 }
 
+pub fn expand_sysand_purl_shorthand(
+    resource: &str,
+) -> Result<String, InterchangeProjectValidationError> {
+    let mut parts = resource.split('/');
+    let publisher = parts.next();
+    let name = parts.next();
+    let has_exactly_two_segments = publisher.is_some() && name.is_some() && parts.next().is_none();
+
+    // IRI always starts with `scheme:`, so differentiate from it by absence of `:`
+    if !resource.contains(':') && has_exactly_two_segments {
+        let purl = format!("{PKG_SYSAND_PREFIX}{resource}");
+        match parse_sysand_purl(&purl) {
+            Ok(Some(_)) => Ok(purl),
+            Err(source @ SysandPurlError::NotNormalized { .. }) => {
+                Err(InterchangeProjectValidationError::MalformedSysandPurl {
+                    iri: resource.to_owned(),
+                    source,
+                })
+            }
+            Ok(None) | Err(_) => Ok(resource.to_owned()),
+        }
+    } else {
+        Ok(resource.to_owned())
+    }
+}
+
 /// Ok(true) => usage added to project info
 /// Ok(false) => usage already present in project info
 pub fn do_add<P: ProjectMut>(
     project: &mut P,
     usage_raw: &InterchangeProjectUsageRaw,
 ) -> Result<bool, AddError<P::Error>> {
+    let usage_raw = InterchangeProjectUsageRaw {
+        resource: expand_sysand_purl_shorthand(&usage_raw.resource)?,
+        version_constraint: usage_raw.version_constraint.clone(),
+    };
     let usage: InterchangeProjectUsageG<String, String> = usage_raw.validate()?.into();
 
     let adding = "Adding";
@@ -109,3 +140,7 @@ pub fn do_add<P: ProjectMut>(
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "./add_tests.rs"]
+mod tests;

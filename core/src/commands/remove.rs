@@ -3,12 +3,18 @@
 
 use thiserror::Error;
 
-use crate::{model::InterchangeProjectUsageRaw, project::ProjectMut};
+use crate::{
+    add::expand_sysand_purl_shorthand,
+    model::{InterchangeProjectUsageRaw, InterchangeProjectValidationError},
+    project::ProjectMut,
+};
 
 #[derive(Error, Debug)]
 pub enum RemoveError<ProjectError> {
     #[error(transparent)]
     Project(ProjectError),
+    #[error(transparent)]
+    Validation(#[from] InterchangeProjectValidationError),
     #[error("could not find usage for `{0}`")]
     UsageNotFound(Box<str>),
     #[error("could not find project information for `{0}`")]
@@ -19,18 +25,16 @@ pub fn do_remove<P: ProjectMut, S: AsRef<str>>(
     project: &mut P,
     iri: S,
 ) -> Result<Vec<InterchangeProjectUsageRaw>, RemoveError<P::Error>> {
+    let iri = expand_sysand_purl_shorthand(iri.as_ref())?;
     let removing = "Removing";
     let header = crate::style::get_style_config().header;
-    log::info!(
-        "{header}{removing:>12}{header:#} `{}` from usages",
-        iri.as_ref()
-    );
+    log::info!("{header}{removing:>12}{header:#} `{}` from usages", iri);
 
     if let Some(mut info) = project.get_info().map_err(RemoveError::Project)? {
-        let popped = info.pop_usage(&iri.as_ref().to_string());
+        let popped = info.pop_usage(&iri);
 
         if popped.is_empty() {
-            Err(RemoveError::UsageNotFound(iri.as_ref().into()))
+            Err(RemoveError::UsageNotFound(iri.into_boxed_str()))
         } else {
             project
                 .put_info(&info, true)
@@ -38,6 +42,10 @@ pub fn do_remove<P: ProjectMut, S: AsRef<str>>(
             Ok(popped)
         }
     } else {
-        Err(RemoveError::MissingInfo(iri.as_ref().into()))
+        Err(RemoveError::MissingInfo(iri.into_boxed_str()))
     }
 }
+
+#[cfg(test)]
+#[path = "./remove_tests.rs"]
+mod tests;
