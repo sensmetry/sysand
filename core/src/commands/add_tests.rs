@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use crate::{
-    add::{do_add, expand_sysand_purl_shorthand},
-    model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
+    add::{do_add_guess, expand_sysand_purl_shorthand},
+    model::InterchangeProjectInfoRaw,
     project::memory::InMemoryProject,
 };
 
@@ -26,17 +26,17 @@ fn project() -> InMemoryProject {
 
 #[test]
 fn purl_shorthand_expansion_keeps_two_segment_non_purl_resource() {
-    assert_eq!(
-        expand_sysand_purl_shorthand("ab/proj0").unwrap(),
-        "ab/proj0"
-    );
+    assert!(matches!(
+        expand_sysand_purl_shorthand("ab/proj0"),
+        Err(crate::purl::SysandPurlError::InvalidPublisher { .. })
+    ));
 }
 
 #[test]
 fn purl_shorthand_expansion_keeps_iri_resource() {
     assert_eq!(
         expand_sysand_purl_shorthand("https://example.com/acme-labs/my.project").unwrap(),
-        "https://example.com/acme-labs/my.project"
+        None
     );
 }
 
@@ -44,12 +44,10 @@ fn purl_shorthand_expansion_keeps_iri_resource() {
 fn add_accepts_normalized_sysand_shorthand() {
     let mut project = project();
 
-    do_add(
+    do_add_guess(
         &mut project,
-        &InterchangeProjectUsageRaw {
-            resource: "acme-labs/my.project".to_owned(),
-            version_constraint: Some("1.2.3".to_owned()),
-        },
+        "acme-labs/my.project".to_owned(),
+        Some("1.2.3".to_owned()),
     )
     .unwrap();
 
@@ -63,12 +61,10 @@ fn add_accepts_normalized_sysand_shorthand() {
 fn add_keeps_iri_resource() {
     let mut project = project();
 
-    do_add(
+    do_add_guess(
         &mut project,
-        &InterchangeProjectUsageRaw {
-            resource: "https://example.com/acme-labs/my.project".to_owned(),
-            version_constraint: None,
-        },
+        "https://example.com/acme-labs/my.project".to_owned(),
+        None,
     )
     .unwrap();
 
@@ -84,14 +80,7 @@ fn add_keeps_iri_resource() {
 fn add_rejects_non_normalized_sysand_shorthand() {
     let mut project = project();
 
-    let err = do_add(
-        &mut project,
-        &InterchangeProjectUsageRaw {
-            resource: "Acme Labs/My.Project".to_owned(),
-            version_constraint: None,
-        },
-    )
-    .unwrap_err();
+    let err = do_add_guess(&mut project, "Acme Labs/My.Project".to_owned(), None).unwrap_err();
 
     let err = err.to_string();
     assert!(err.contains("`Acme Labs/My.Project`"), "{err}");

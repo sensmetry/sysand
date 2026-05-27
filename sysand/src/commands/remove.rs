@@ -4,6 +4,7 @@
 use anyhow::Result;
 use camino::Utf8PathBuf;
 
+use fluent_uri::Iri;
 use sysand_core::{
     config::local_fs::{CONFIG_FILE, remove_project_source_from_config},
     context::ProjectContext,
@@ -12,8 +13,8 @@ use sysand_core::{
 
 use crate::CliError;
 
-pub fn command_remove<S: AsRef<str>>(
-    iri: S,
+pub fn command_remove(
+    iri: Iri<String>,
     ctx: ProjectContext,
     config_file: Option<String>,
     no_config: bool,
@@ -30,7 +31,7 @@ pub fn command_remove<S: AsRef<str>>(
         remove_project_source_from_config(path, &iri)?;
     }
 
-    let usages = do_remove(&mut current_project, &iri)?;
+    let usages = do_remove(&mut current_project, iri.into_string())?;
 
     let removed = "Removed";
     let header = sysand_core::style::get_style_config().header;

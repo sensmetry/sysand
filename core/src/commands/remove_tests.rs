@@ -4,7 +4,7 @@
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     project::memory::InMemoryProject,
-    remove::do_remove,
+    remove::do_remove_guess,
 };
 
 fn project_with_usage(resource: &str) -> InMemoryProject {
@@ -35,7 +35,7 @@ fn project() -> InMemoryProject {
 fn remove_accepts_normalized_sysand_shorthand() {
     let mut project = project();
 
-    let removed = do_remove(&mut project, "acme-labs/my.project").unwrap();
+    let removed = do_remove_guess(&mut project, "acme-labs/my.project".to_owned()).unwrap();
 
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0].resource, "pkg:sysand/acme-labs/my.project");
@@ -46,7 +46,11 @@ fn remove_accepts_normalized_sysand_shorthand() {
 fn remove_keeps_iri_resource() {
     let mut project = project_with_usage("https://example.com/acme-labs/my.project");
 
-    let removed = do_remove(&mut project, "https://example.com/acme-labs/my.project").unwrap();
+    let removed = do_remove_guess(
+        &mut project,
+        "https://example.com/acme-labs/my.project".to_owned(),
+    )
+    .unwrap();
 
     assert_eq!(removed.len(), 1);
     assert_eq!(
@@ -60,7 +64,7 @@ fn remove_keeps_iri_resource() {
 fn remove_rejects_non_normalized_sysand_shorthand() {
     let mut project = project();
 
-    let err = do_remove(&mut project, "Acme Labs/My.Project").unwrap_err();
+    let err = do_remove_guess(&mut project, "Acme Labs/My.Project".to_owned()).unwrap_err();
 
     let err = err.to_string();
     assert!(err.contains("`Acme Labs/My.Project`"), "{err}");

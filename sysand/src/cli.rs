@@ -11,10 +11,7 @@ use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use fluent_uri::Iri;
 use semver::VersionReq;
-use sysand_core::{
-    add::expand_sysand_purl_shorthand, build::KparCompressionMethod,
-    model::InterchangeProjectValidationError, purl::SysandPurlError,
-};
+use sysand_core::{add::expand_sysand_purl_shorthand, build::KparCompressionMethod};
 use url::Url;
 
 use crate::env_vars;
@@ -274,9 +271,9 @@ pub enum Command {
 pub struct AddProjectLocatorArgs {
     /// IRI/URI/URL identifying the project to be used, or
     /// <publisher>/<name> shorthand for pkg:sysand/<publisher>/<name>.
-    /// Paths must use --path.
+    /// Paths must use `--path`
     #[clap(default_value = None, value_parser = parse_usage_locator_suggest_path)]
-    pub iri: Option<String>,
+    pub iri: Option<Iri<String>>,
     /// Path to the project to be added. Since every usage is identified
     /// by an IRI, `file://` URL will be used to refer to the project.
     /// Warning: using this makes the project not portable between different
@@ -296,9 +293,9 @@ pub struct AddProjectLocatorArgs {
 pub struct RemoveProjectLocatorArgs {
     /// IRI identifying the project usage to be removed, or
     /// <publisher>/<name> shorthand for pkg:sysand/<publisher>/<name>.
-    /// Paths must use --path.
+    /// Paths must use `--path`
     #[clap(default_value = None, value_parser = parse_usage_locator_suggest_path)]
-    pub iri: Option<String>,
+    pub iri: Option<Iri<String>>,
     /// Path to the project to be removed from usages. Since every usage is
     /// identified by an IRI, the path will be transformed into a `file://` URL
     #[arg(
@@ -1726,29 +1723,18 @@ impl ValueEnum for MetamodelVersion {
     }
 }
 
-fn parse_usage_locator_suggest_path(s: &str) -> Result<String, String> {
-    match Iri::parse(s.to_owned()) {
-        Ok(_) => Ok(s.to_owned()),
-        Err((err, _val)) => {
-            if is_sysand_purl_shorthand_input(s) {
-                Ok(s.to_owned())
-            } else {
-                use crate::style::USAGE;
-                Err(format!(
-                    "{err}\n{USAGE}hint:{USAGE:#} if you wanted to use a path, use `--path` instead"
-                ))
-            }
-        }
-    }
-}
-
-fn is_sysand_purl_shorthand_input(s: &str) -> bool {
-    match expand_sysand_purl_shorthand(s) {
-        Ok(expanded) => expanded != s,
-        Err(InterchangeProjectValidationError::MalformedSysandPurl {
-            source: SysandPurlError::NotNormalized { .. },
-            ..
-        }) => true,
-        Err(_) => false,
+fn parse_usage_locator_suggest_path(s: &str) -> Result<Iri<String>, String> {
+    use crate::style::USAGE;
+    match Iri::parse(s) {
+        Ok(i) => Ok(i.to_owned()),
+        Err(err) => match expand_sysand_purl_shorthand(s) {
+            Ok(Some(purl)) => Ok(Iri::parse(purl).expect("BUG: Sysand PURL is invalid IRI")),
+            Ok(None) => Err(format!(
+                "{err}\n{USAGE}hint:{USAGE:#} if you wanted to use a path, use `--path` instead"
+            )),
+            Err(e) => Err(format!(
+                "{e}\n{USAGE}hint:{USAGE:#} if you wanted to use a path, use `--path` instead"
+            )),
+        },
     }
 }

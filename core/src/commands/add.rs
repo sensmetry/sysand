@@ -22,9 +22,11 @@ pub enum AddError<ProjectError> {
     MissingInfo(&'static str),
 }
 
-pub fn expand_sysand_purl_shorthand(
-    resource: &str,
-) -> Result<String, InterchangeProjectValidationError> {
+/// If `resource` is of shape `publisher/name`, and both satisfy Sysand PURL
+/// rules, return `Ok(Some(pkg:sysand/publisher/name))`. Otherwise, if it's of shape
+/// `string1/string2` and does not contain `:`, return error. If none of these,
+/// return `Ok(None)`, which indicates that it's likely something else
+pub fn expand_sysand_purl_shorthand(resource: &str) -> Result<Option<String>, SysandPurlError> {
     let mut parts = resource.split('/');
     let publisher = parts.next();
     let name = parts.next();
@@ -34,18 +36,38 @@ pub fn expand_sysand_purl_shorthand(
     if !resource.contains(':') && has_exactly_two_segments {
         let purl = format!("{PKG_SYSAND_PREFIX}{resource}");
         match parse_sysand_purl(&purl) {
-            Ok(Some(_)) => Ok(purl),
-            Err(source @ SysandPurlError::NotNormalized { .. }) => {
-                Err(InterchangeProjectValidationError::MalformedSysandPurl {
-                    iri: resource.to_owned(),
-                    source,
-                })
-            }
-            Ok(None) | Err(_) => Ok(resource.to_owned()),
+            Ok(Some(_)) => Ok(Some(purl)),
+            Err(SysandPurlError::WrongShape { .. }) | Ok(None) => unreachable!(),
+            Err(source) => Err(source),
         }
     } else {
-        Ok(resource.to_owned())
+        Ok(None)
     }
+}
+
+/// Like `do_add`, but try to guess how `resource` should be interpreted.
+/// Currently it can be either an IRI or `publisher/name` PURL shorthand
+pub fn do_add_guess<P: ProjectMut>(
+    project: &mut P,
+    resource: String,
+    version_constraint: Option<String>,
+) -> Result<bool, AddError<P::Error>> {
+    let usage_raw = InterchangeProjectUsageRaw {
+        resource: match expand_sysand_purl_shorthand(&resource) {
+            Ok(Some(purl)) => purl,
+            Ok(None) => resource,
+            Err(source) => {
+                return Err(AddError::Validation(
+                    InterchangeProjectValidationError::MalformedSysandPurl {
+                        iri: resource,
+                        source,
+                    },
+                ));
+            }
+        },
+        version_constraint,
+    };
+    do_add(project, &usage_raw)
 }
 
 /// Ok(true) => usage added to project info
@@ -54,10 +76,6 @@ pub fn do_add<P: ProjectMut>(
     project: &mut P,
     usage_raw: &InterchangeProjectUsageRaw,
 ) -> Result<bool, AddError<P::Error>> {
-    let usage_raw = InterchangeProjectUsageRaw {
-        resource: expand_sysand_purl_shorthand(&usage_raw.resource)?,
-        version_constraint: usage_raw.version_constraint.clone(),
-    };
     let usage: InterchangeProjectUsageG<String, String> = usage_raw.validate()?.into();
 
     let adding = "Adding";

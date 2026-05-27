@@ -21,11 +21,31 @@ pub enum RemoveError<ProjectError> {
     MissingInfo(Box<str>),
 }
 
-pub fn do_remove<P: ProjectMut, S: AsRef<str>>(
+/// Like `do_remove`, but try to guess how `resource` should be interpreted.
+/// Currently it can be either an IRI or `publisher/name` PURL shorthand
+pub fn do_remove_guess<P: ProjectMut>(
     project: &mut P,
-    iri: S,
+    resource: String,
 ) -> Result<Vec<InterchangeProjectUsageRaw>, RemoveError<P::Error>> {
-    let iri = expand_sysand_purl_shorthand(iri.as_ref())?;
+    let iri = match expand_sysand_purl_shorthand(&resource) {
+        Ok(Some(purl)) => purl,
+        Ok(None) => resource,
+        Err(source) => {
+            return Err(RemoveError::Validation(
+                InterchangeProjectValidationError::MalformedSysandPurl {
+                    iri: resource,
+                    source,
+                },
+            ));
+        }
+    };
+    do_remove(project, iri)
+}
+
+pub fn do_remove<P: ProjectMut>(
+    project: &mut P,
+    iri: String,
+) -> Result<Vec<InterchangeProjectUsageRaw>, RemoveError<P::Error>> {
     let removing = "Removing";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{removing:>12}{header:#} `{}` from usages", iri);
