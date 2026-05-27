@@ -601,11 +601,18 @@ impl ProjectRead for LocalKParProjectRaw {
     }
 }
 
+/// Guess the directory of the project within the zip archive. Project
+/// directory here means any directory that contains `.project.json`.
+/// Returned path will be empty if the directory is archive root
 fn guess_root(archive: &mut ZipArchive<fs::File>) -> Result<Utf8UnixPathBuf, LocalKParError> {
     let mut maybe_root = None;
     for i in 0..archive.len() {
         let file = archive.by_index(i).map_err(ZipArchiveError::FileMeta)?;
 
+        // TODO: do more sanitization here; enclosed_name() does some checks, but
+        // it also makes the path OS-native, so Utf8UnixPath won't work with it.
+        // To work around this, we check that the sanitized path can be produced,
+        // but then use the raw path, as it's always Unix-style per zip spec
         if file.enclosed_name().is_some() {
             let p = Utf8UnixPath::new(file.name());
             if let Some(root) = project_root_from_zip_entry_path(p)? {
