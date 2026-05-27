@@ -13,7 +13,7 @@ SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
   <packaging>maven-plugin</packaging>
   <name>${project.groupId}:${project.artifactId}</name>
   <description>Maven plugin for using Sysand.</description>
-  <url>https://sysand.org/</url>
+  <url>https://sysand.com/</url>
   <licenses>
     <license>
       <name>The Apache License, Version 2.0</name>

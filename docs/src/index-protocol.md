@@ -56,8 +56,8 @@ fields:
 
 ```json
 {
-  "index_root": "https://sysand.org/index/",
-  "api_root": "https://sysand.org/api/"
+  "index_root": "https://sysand.com/index/",
+  "api_root": "https://sysand.com/api/"
 }
 ```
 
