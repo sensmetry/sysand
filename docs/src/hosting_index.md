@@ -29,7 +29,7 @@ production hosting as well. Get in touch with your IT administrator to get this
 running on your company's infrastructure.
 
 The easiest way to host a project index from which to install projects is to
-create a local sysand index and expose it over HTTP.
+create a local Sysand index and expose it over HTTP.
 
 ### Create Local Index
 
@@ -39,7 +39,7 @@ First, use the Sysand CLI to create a Sysand environment:
 sysand index init
 ```
 
-This will initialize a sysand index in your current directory.
+This will initialize a Sysand index in your current directory.
 
 ### Add Project to the Index
 

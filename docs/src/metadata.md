@@ -90,7 +90,7 @@ Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
   the project. Can also point to a directory containing a git repository, but
   the directory will be treated as a project directory, unless `git+file` is used.
 - `pkg:sysand`: this is by convention used by all projects in the
-  [Sysand index](https://sysand.com/) and follows the [PURL specification][purl].
+  [Sysand Package Index](https://sysand.com/) and follows the [PURL specification][purl].
 - `ssh`: note that currently only git repositories are supported for this type.
   SSH repository URLs supported by git have to be translated to use standard IRI
   to be accepted by sysand. For example:

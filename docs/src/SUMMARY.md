@@ -45,7 +45,7 @@
   - [sysand sources](commands/sources.md)
   - [sysand print-root](commands/root.md)
 - [Self-hosting a project index](hosting_index.md)
-- [Publishing a package to Sysand Index](publishing.md)
+- [Publishing a package to Sysand Package Index](publishing.md)
 - [Configuration](config.md)
   - [Indexes](config/indexes.md)
   - [Dependencies](config/dependencies.md)

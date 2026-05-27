@@ -74,7 +74,7 @@ dependencies for you.
 Each usage is identified by an [Internationalized Resource Identifier][iri]
 (IRI) with an optional version constraint. To add dependencies, use the `sysand
 add` command. The simplest way to use it is to give an IRI to a package you want
-to install from the [Sysand Index][index]. You can find the IRI (and the full
+to install from the [Sysand Package Index][index]. You can find the IRI (and the full
 install command) in the card of the package on the index. It is also possible
 to install packages from the URL that points to the `.kpar` file or to a directory
 that contains the project.
@@ -82,7 +82,7 @@ that contains the project.
 [iri]: https://en.wikipedia.org/wiki/Internationalized_Resource_Identifier
 [index]: https://sysand.com/
 
-Install usage `DETECT` from Sysand Index:
+Install usage `DETECT` from Sysand Package Index:
 
 ```sh
 sysand add sensmetry/detect

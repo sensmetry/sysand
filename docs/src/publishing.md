@@ -1,4 +1,4 @@
-# Publishing a package to Sysand Index
+# Publishing a package to Sysand Package Index
 
 This guide will instruct how to submit your package to Sysand Package Index
 manually. Sensmetry is currently working on automating this process.
