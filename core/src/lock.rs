@@ -183,8 +183,8 @@ pub enum ValidationError {
         "invalid format of canonical project-digest `{digest}` for project `{name}` in lockfile"
     )]
     InvalidProjectDigestFormat { digest: String, name: String },
-    #[error("invalid format of `index_kpar_digest` `{digest}` for {project_with_name} in lockfile")]
-    InvalidIndexKparDigestFormat {
+    #[error("invalid format of `kpar_digest` `{digest}` for {project_with_name} in lockfile")]
+    InvalidKparDigestFormat {
         digest: String,
         project_with_name: String,
     },
@@ -308,22 +308,18 @@ impl Lock {
     fn validate_source_digest_format(&self) -> Result<(), ValidationError> {
         for project in &self.projects {
             for source in &project.sources {
-                let Source::IndexKpar {
-                    kpar_digest: index_kpar_digest,
-                    ..
-                } = source
-                else {
+                let Source::IndexKpar { kpar_digest, .. } = source else {
                     continue;
                 };
-                if index_kpar_digest.len() == 64
-                    && index_kpar_digest
+                if kpar_digest.len() == 64
+                    && kpar_digest
                         .bytes()
                         .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
                 {
                     continue;
                 }
-                return Err(ValidationError::InvalidIndexKparDigestFormat {
-                    digest: index_kpar_digest.clone(),
+                return Err(ValidationError::InvalidKparDigestFormat {
+                    digest: kpar_digest.clone(),
                     project_with_name: project
                         .identifiers
                         .first()

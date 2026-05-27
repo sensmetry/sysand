@@ -70,7 +70,7 @@ fn zero_index_kpar_size_is_rejected_by_lockfile_parse() {
 [[project]]
 name = "Indexed"
 version = "1.0.0"
-sources = [{{ index_kpar = "https://example.org/project.kpar", index_kpar_size = 0, index_kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}]
+sources = [{{ index_kpar = "https://example.org/project.kpar", kpar_size = 0, kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}]
 "#
     );
 
@@ -748,7 +748,7 @@ fn validate_checksum() {
 }
 
 #[test]
-fn validate_index_kpar_digest_rejects_uppercase() {
+fn validate_kpar_digest_rejects_uppercase() {
     let invalid_digest = "dA8747a6f27A32f10Ba393113bCe29f788181037a71f093f90e0ad5829d2b780";
     let err = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
@@ -768,7 +768,7 @@ fn validate_index_kpar_digest_rejects_uppercase() {
     }
     .validate()
     .unwrap_err();
-    let ValidationError::InvalidIndexKparDigestFormat {
+    let ValidationError::InvalidKparDigestFormat {
         digest,
         project_with_name,
     } = err

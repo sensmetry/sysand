@@ -640,7 +640,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .expect(1)
         .create();
 
-    // Now sync. The stored `index_kpar_digest` should reject the drifted bytes
+    // Now sync. The stored `kpar_digest` should reject the drifted bytes
     // before any install happens.
     let out = run_sysand_in(&cwd, ["sync", "--default-index", &server_url], None)?;
     out.assert()
