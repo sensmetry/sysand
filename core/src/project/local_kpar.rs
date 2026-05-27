@@ -606,16 +606,10 @@ fn guess_root(archive: &mut ZipArchive<fs::File>) -> Result<Utf8UnixPathBuf, Loc
     for i in 0..archive.len() {
         let file = archive.by_index(i).map_err(ZipArchiveError::FileMeta)?;
 
-        if let Some(p) = file.enclosed_name() {
-            // `enclosed_name()` creates path from `String`
-            let p = Utf8UnixPathBuf::from(p.into_os_string().into_string().unwrap());
-            dbg!(&p, p.file_name());
-            if p.file_name() == Some(".project.json") {
-                maybe_root = Some(
-                    p.parent()
-                        .ok_or_else(|| ZipArchiveError::InvalidPath(p.as_path().into()))?
-                        .to_path_buf(),
-                );
+        if file.enclosed_name().is_some() {
+            let p = Utf8UnixPath::new(file.name());
+            if let Some(root) = project_root_from_zip_entry_path(p)? {
+                maybe_root = Some(root);
                 break;
             }
         }
@@ -625,6 +619,20 @@ fn guess_root(archive: &mut ZipArchive<fs::File>) -> Result<Utf8UnixPathBuf, Loc
         Ok(root)
     } else {
         Err(LocalKParError::NotFound(".project.json".into()))
+    }
+}
+
+fn project_root_from_zip_entry_path(
+    p: &Utf8UnixPath,
+) -> Result<Option<Utf8UnixPathBuf>, ZipArchiveError> {
+    if p.file_name() == Some(".project.json") {
+        Ok(Some(
+            p.parent()
+                .ok_or_else(|| ZipArchiveError::InvalidPath(Utf8Path::new(p.as_str()).into()))?
+                .to_path_buf(),
+        ))
+    } else {
+        Ok(None)
     }
 }
 

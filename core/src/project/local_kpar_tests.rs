@@ -95,3 +95,14 @@ fn nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn project_root_uses_zip_path_separators() {
+    let root = super::project_root_from_zip_entry_path(typed_path::Utf8UnixPath::new(
+        "some_root_dir/.project.json",
+    ))
+    .expect("valid archive path")
+    .expect("project info file");
+
+    assert_eq!(root, typed_path::Utf8UnixPath::new("some_root_dir"));
+}
