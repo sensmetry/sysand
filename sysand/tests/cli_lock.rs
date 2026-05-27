@@ -596,7 +596,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     let out = run_sysand_in(&cwd, ["lock", "--default-index", &server_url], None)?;
     out.assert().success().stdout(predicate::str::is_empty());
 
-    // Sanity-check: lockfile recorded the advertised project_digest.
+    // Sanity-check: lockfile recorded the advertised kpar_digest.
     let lock_file: Lock =
         toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
     let dep = lock_file

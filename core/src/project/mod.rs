@@ -286,17 +286,6 @@ pub trait ProjectRead {
     /// `.meta.json` — one of the two required inputs is absent — and
     /// callers can rely on that meaning rather than treating `None` as
     /// an unspecified failure mode.
-    ///
-    /// Wrapper/project-adapter impls **must** forward this method explicitly
-    /// — the trait default calls `get_info` + `canonical_meta` and will
-    /// bypass any leaf override that provides an authoritative digest
-    /// cheaply (e.g. the advertised `project_digest` carried inline by
-    /// [`crate::project::index_entry::IndexEntryProject`]). A wrapper
-    /// that doesn't forward can silently trigger a full archive download
-    /// during solving — the specific bug this contract exists to prevent.
-    /// Leaf backends may override the method to expose a prefetched digest.
-    /// See `canonical_project_digest_inline` for the inline-only
-    /// canonicalization rule used by the indexed-remote path.
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         let info = self
             .get_info()
@@ -631,16 +620,6 @@ pub trait ProjectReadAsync {
 
     /// Produces a project hash based on project information and the
     /// *canonicalized* metadata.
-    ///
-    /// Async wrapper/project-adapter impls **must** forward this method
-    /// explicitly — the trait default calls `get_info_async` +
-    /// `canonical_meta_async` and will bypass any leaf override that
-    /// provides an authoritative digest cheaply (e.g. the advertised
-    /// `project_digest` carried inline by
-    /// [`crate::project::index_entry::IndexEntryProject`]). A wrapper
-    /// that doesn't forward can silently trigger a full archive download
-    /// during solving — the specific bug this contract exists to prevent.
-    /// Leaf backends may override the method to expose a prefetched digest.
     fn checksum_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {

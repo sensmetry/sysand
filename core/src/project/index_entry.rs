@@ -21,13 +21,6 @@
 //!   [`crate::project::reqwest_kpar_download::ReqwestKparDownloadedProject`],
 //!   which verifies the archive against the advertised `kpar_digest` before
 //!   exposing source bytes.
-//! - [`IndexEntryProjectError::AdvertisedDigestDrift`] as the concrete
-//!   error surface for digest mismatches, raised both pre-download (from
-//!   the inline canonical digest — see
-//!   [`crate::project::canonical_project_digest_inline`]) and post-download
-//!   (authoritative check using the downloaded archive). If the inline
-//!   digest requires source reads, the project is rejected with
-//!   [`IndexEntryProjectError::ProjectDigestRequiresSourceReads`] instead.
 
 use std::sync::Arc;
 
@@ -71,20 +64,6 @@ pub struct IndexEntryProject<Policy> {
 pub enum IndexEntryProjectError {
     #[error(transparent)]
     Fetch(#[from] HttpFetchError),
-    #[error(
-        "project at `{url}` has locally-computed canonical digest `{computed}` \
-         but the expected digest was `{expected}`"
-    )]
-    AdvertisedDigestDrift {
-        url: Box<str>,
-        expected: String,
-        computed: String,
-    },
-    #[error(
-        "project at `{url}` cannot be verified from `.project.json` and `.meta.json` alone \
-         because `.meta.json` contains a non-SHA256 source checksum"
-    )]
-    ProjectDigestRequiresSourceReads { url: Box<str> },
     #[error(transparent)]
     Downloaded(#[from] ReqwestKparDownloadedError),
 }

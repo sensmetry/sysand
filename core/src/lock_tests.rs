@@ -782,13 +782,14 @@ fn validate_checksum_invalid_digest_all_source_types() {
             }],
         }
         .validate() else {
-            panic!("expected InvalidProjectDigestFormat for {label}")
+            panic!("expected InvalidDigestFormat for {label}")
         };
-        let ValidationError::InvalidProjectDigestFormat { digest, name } = err else {
+        let ValidationError::InvalidDigestFormat { digest, name, kind } = err else {
             panic!("wrong error variant for {label}: {err:?}")
         };
         assert_eq!(digest, INVALID, "{label}");
         assert_eq!(name, "a", "{label}");
+        assert!(matches!(kind, "kpar" | "project canonical"), "{label}");
     }
 }
 
@@ -813,15 +814,12 @@ fn validate_kpar_digest_rejects_uppercase() {
     }
     .validate()
     .unwrap_err();
-    let ValidationError::InvalidKparDigestFormat {
-        digest,
-        project_with_name,
-    } = err
-    else {
+    let ValidationError::InvalidDigestFormat { digest, kind, name } = err else {
         panic!()
     };
     assert_eq!(digest, invalid_digest);
-    assert_eq!(project_with_name, "urn:kpar:indexed");
+    assert_eq!(name, "Indexed");
+    assert_eq!(kind, "kpar");
 }
 
 #[test]

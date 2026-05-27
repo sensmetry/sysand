@@ -233,7 +233,6 @@ per-version file:
       "usage": [
         { "resource": "pkg:sysand/abc/dep", "versionConstraint": "<2" }
       ],
-      "project_digest": "sha256:<64-hex>",
       "kpar_size": 12345,
       "kpar_digest": "sha256:<64-hex>"
     }
@@ -243,7 +242,7 @@ per-version file:
 
 Per-entry rules:
 
-- All five fields (`version`, `usage`, `project_digest`, `kpar_size`,
+- All fields (`version`, `usage`, `kpar_size`,
   `kpar_digest`) are REQUIRED. A client MUST reject a `versions.json`
   that omits any of them.
 - `version` MUST parse as a [semver 2.0.0][semver] version and MUST NOT
@@ -257,8 +256,7 @@ Per-entry rules:
 - `usage` is an array of dependency declarations in the same shape as in
   `.project.json`. It duplicates the version's project manifest so the
   solver can run from `versions.json` alone.
-- `project_digest` and `kpar_digest` are lowercase SHA-256 in
-  `sha256:<64-hex>` form ([§10]).
+- `kpar_digest` is lowercase SHA-256 in `sha256:<64-hex>` form ([§10]).
 - `kpar_size` is the byte length of the archive.
 - `status` is OPTIONAL. When present, it MUST be one of `"available"`,
   `"yanked"`, or `"removed"`; an omitted `status` is equivalent to
@@ -327,17 +325,8 @@ per-version files are immutable and the lockfile already records everything
 
 ### Wire format
 
-Advertised digests (`project_digest`, `kpar_digest` in `versions.json`)
+Advertised digests (`kpar_digest` in `versions.json`)
 MUST use the form `sha256:<64 lowercase hex>`.
-
-### `project_digest`
-
-`project_digest` is SHA-256 over the canonical form of the `(info, meta)`
-pair served at the same version directory. Because the `meta.checksum`
-rule below constrains `.meta.json` to carry SHA-256 per-file digests
-directly, the canonical form of conforming index content can be
-computed from `.project.json` and `.meta.json` alone, without reading
-`project.kpar` sources.
 
 ### `kpar_digest`
 
@@ -374,7 +363,7 @@ A conforming sysand index server MUST uphold:
   with the same bytes forever or withdrawn (see retirement, below).
 - **Version persistence.** `versions.json`'s `versions` entries are retained:
   once an entry exists it is never removed, and its
-  `version`, `usage`, `project_digest`, `kpar_size`, and `kpar_digest`
+  `version`, `usage`, `kpar_size`, and `kpar_digest`
   fields never change.
 - **Version retirement.** The only mutable field on an existing
   `versions.json` `versions` entry is `status` ([§8]). Permitted transitions
@@ -394,10 +383,6 @@ A conforming sysand index client:
 - MUST verify the streamed body of `project.kpar` against the advertised
   `kpar_digest` during download. In case of mismatch the archive MUST NOT
   be used.
-- When it fetches either `.project.json` or `.meta.json`, MUST fetch both
-  and MUST verify that their canonical `(info, meta)` digest equals the
-  advertised `project_digest` before using either. A mismatch is a hard
-  error.
 - List-all operations MUST ignore `index.json` `projects` entries whose
   `status` is `"removed"`. Direct resolution of a specific IRI does not
   consult `index.json`; it follows the `versions.json` rules in [§8].
@@ -406,6 +391,8 @@ A conforming sysand index client:
   `versions.json` to pick a version (solve, lock); `sync` replays a
   lockfile's pinned `(iri, version)` without re-solving and is
   unaffected by `status`.
+- Currently no verification requirement is placed when fetching
+  `.project.json` or `.meta.json`.
 
 ## 13. Immutability and lockfile reproducibility
 
@@ -416,9 +403,8 @@ direct consequences for sysand lockfiles:
   bytes; a lockfile referencing it stays valid against a conforming
   index for as long as the entry's `status` is not `"removed"`
   ([§8]).
-- The `project_digest` and `kpar_digest` values advertised in
-  `versions.json` are captured in a lockfile to detect any changes
-  when downloading it later.
+- `kpar_digest` value advertised in `versions.json` is included in a
+  lockfile to detect any changes when downloading it later.
 
 Retirement ([§8] `status`) and the lockfile contract:
 

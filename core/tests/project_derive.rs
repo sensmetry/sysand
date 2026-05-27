@@ -194,8 +194,7 @@ fn macro_generic_read() {
 }
 
 /// Test double that returns a fixed canonical digest without touching
-/// info/meta/sources — mimics a leaf type (e.g. a remote-index-backed
-/// project) that supplies a prefetched `project_digest` out of band.
+/// info/meta/sources
 #[derive(Debug)]
 struct FixedDigestProject {
     digest: String,

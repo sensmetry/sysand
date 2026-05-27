@@ -24,12 +24,7 @@
 //!   `sha256:<64-hex>` on the wire.
 //! - **The server is authoritative for textual fields.** The client
 //!   does not diff `info.version` / `info.usage` against the
-//!   `versions.json` entry — the `project_digest` is the integrity
-//!   check.
-//! - **`project_digest` MUST be verified before exposing
-//!   `.project.json` or `.meta.json` to callers.** A mismatch surfaces
-//!   as `AdvertisedDigestDrift`; metadata that would require source reads
-//!   to canonicalize is rejected before either document is released.
+//!   `versions.json` entry or the KPAR
 //! - **Redirects are followed on every resource** (index docs and
 //!   the discovery fetch alike); `reqwest`'s default policy applies.
 //! - **Unknown JSON fields are silently ignored** for forward
@@ -76,18 +71,6 @@ fn versions_json_body<const N: usize>(entries: [(&str, &str); N]) -> String {
     let parts: Vec<String> = entries
         .iter()
         .map(|(version, usage)| {
-            format!(
-                r#"{{"version":"{version}","usage":{usage},"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}"#
-            )
-        })
-        .collect();
-    format!(r#"{{"versions":[{}]}}"#, parts.join(","))
-}
-
-fn versions_json_body_with_project_digest<const N: usize>(entries: [(&str, &str); N]) -> String {
-    let parts: Vec<String> = entries
-        .iter()
-        .map(|(version, usage )| {
             format!(
                 r#"{{"version":"{version}","usage":{usage},"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}"#
             )
@@ -235,10 +218,7 @@ fn mock_json_get_count(
 // /// Build a minimal kpar (ZIP) archive carrying `.project.json`,
 // /// `.meta.json`, and a single source file at the archive root, returning
 // /// the archive bytes alongside the exact info/meta JSON strings written
-// /// into it. Tests that also mock the per-version `.project.json` /
-// /// `.meta.json` endpoints reuse those strings so the index-served content
-// /// matches the in-archive content — the only deliberate drift remains in
-// /// the advertised `project_digest`.
+// /// into it.
 // fn build_minimal_kpar(
 //     name: &str,
 //     version: &str,
@@ -604,8 +584,8 @@ mod uris {
 /// Document-level rules exercised here (see module-level doc for the
 /// cross-cutting ones):
 /// - `version` MUST parse as semver and MUST NOT carry `+build` metadata.
-/// - Duplicates are rejected; the five per-entry fields
-///   (`version`, `usage`, `project_digest`, `kpar_size`, `kpar_digest`)
+/// - Duplicates are rejected; the per-entry fields
+///   (`version`, `usage`, `kpar_size`, `kpar_digest`)
 ///   are all required.
 /// - Wire order is preserved verbatim; ascending order (or a prerelease
 ///   appearing before its release) rejects the whole document.
@@ -663,10 +643,10 @@ mod versions {
 
         let body = format!(
             r#"{{"versions":[
-                {{"version":"4.0.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"available"}},
-                {{"version":"3.0.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"yanked"}},
-                {{"version":"2.0.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"removed"}},
-                {{"version":"1.0.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}
+                {{"version":"4.0.0","usage":[],"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"available"}},
+                {{"version":"3.0.0","usage":[],"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"yanked"}},
+                {{"version":"2.0.0","usage":[],"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"removed"}},
+                {{"version":"1.0.0","usage":[],"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}
             ]}}"#
         );
 
@@ -928,9 +908,7 @@ mod versions {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42}}]}}"#,
-            ),
+            r#"{"versions":[{"version":"0.3.0","usage":[],"kpar_size":42}]}"#,
         );
 
         let err = env
@@ -994,7 +972,6 @@ mod versions {
                     "versions": [
                         {
                             "version": "0.3.0",
-                            "project_digest": "sha256:00000000000000000000000000000000000000000000000000000000deadbeef",
                             "kpar_size": 4096,
                             "kpar_digest": "sha256:00000000000000000000000000000000000000000000000000000000cafef00d",
                             "usage": [],
@@ -1186,7 +1163,7 @@ mod get_project {
 
         let body = format!(
             r#"{{"versions":[
-                {{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"removed"}}
+                {{"version":"0.3.0","usage":[],"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}","status":"removed"}}
             ]}}"#
         );
 
@@ -1261,7 +1238,7 @@ mod get_project {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", "[]")]),
+            versions_json_body([("0.3.0", "[]")]),
         );
 
         let project_json_mock =
@@ -1306,7 +1283,7 @@ mod get_project {
         let versions_mock = mock_json_get(
             &mut server,
             "/_iri/621a5fdf587a3ecc878a98c8be2240dd5bbe561860d11f4da1ece4a4fe2fb8b5/versions.json",
-            versions_json_body_with_project_digest([("1.0.0", "[]")]),
+            versions_json_body([("1.0.0", "[]")]),
         );
 
         let project_json_mock = mock_json_get(
@@ -1365,7 +1342,7 @@ mod get_project {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", &usage_json)]),
+            versions_json_body([("0.3.0", &usage_json)]),
         );
 
         let project_json_mock =
@@ -1418,7 +1395,7 @@ mod get_project {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", &advertised_usage)]),
+            versions_json_body([("0.3.0", &advertised_usage)]),
         );
 
         let project_json_mock = mock_json_get(
@@ -1465,7 +1442,7 @@ mod get_project {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", &usage_json)]),
+            versions_json_body([("0.3.0", &usage_json)]),
         );
 
         let project_json_mock =
@@ -1792,7 +1769,7 @@ mod digest {
 
         let err = env
             .get_project(purl("admin/proj0"), "0.3.0")
-            .expect_err("malformed project_digest must surface as a protocol error");
+            .expect_err("malformed kpar_digest must surface as a protocol error");
         match err {
             super::IndexEnvironmentError::InvalidVersionEntry {
                 version,
@@ -1828,9 +1805,7 @@ mod digest {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"md5:abc"}}]}}"#,
-            ),
+            r#"{"versions":[{"version":"0.3.0","usage":[],"kpar_size":42,"kpar_digest":"md5:abc"}]}"#,
         );
 
         let err = env
@@ -1876,7 +1851,7 @@ mod digest {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", "[]")]),
+            versions_json_body([("0.3.0", "[]")]),
         );
 
         let project_json_mock =
@@ -1925,7 +1900,7 @@ mod caching {
         let versions_mock = mock_json_get(
             &mut server,
             "/admin/proj0/versions.json",
-            versions_json_body_with_project_digest([("0.3.0", "[]")]),
+            versions_json_body([("0.3.0", "[]")]),
         );
 
         let project_json_mock = server
@@ -2065,7 +2040,7 @@ mod sources {
             &mut server,
             "/admin/proj0/versions.json",
             format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":{},"kpar_digest":"{advertised}"}}]}}"#,
+                r#"{{"versions":[{{"version":"0.3.0","usage":[],"kpar_size":{},"kpar_digest":"{advertised}"}}]}}"#,
                 kpar_body.len()
             ),
         );
@@ -2123,7 +2098,7 @@ mod sources {
             &mut server,
             "/admin/proj0/versions.json",
             format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":{},"kpar_digest":"{advertised}"}}]}}"#,
+                r#"{{"versions":[{{"version":"0.3.0","usage":[],"kpar_size":{},"kpar_digest":"{advertised}"}}]}}"#,
                 kpar_body.len(),
             ),
         );
@@ -2179,7 +2154,7 @@ mod sources {
             &mut server,
             "/admin/proj0/versions.json",
             format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":24,"kpar_digest":"{advertised}"}}]}}"#,
+                r#"{{"versions":[{{"version":"0.3.0","usage":[],"kpar_size":24,"kpar_digest":"{advertised}"}}]}}"#,
             ),
         );
 
@@ -2229,7 +2204,7 @@ mod sources {
             &mut server,
             "/admin/proj0/versions.json",
             format!(
-                r#"{{"versions":[{{"version":"0.3.0","usage":[],"project_digest":"{FILLER_DIGEST}","kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}]}}"#,
+                r#"{{"versions":[{{"version":"0.3.0","usage":[],"kpar_size":42,"kpar_digest":"{FILLER_DIGEST}"}}]}}"#,
             ),
         );
 

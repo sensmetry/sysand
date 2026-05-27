@@ -159,6 +159,7 @@ pub enum ResolutionError<EnvironmentError> {
     MissingProjects(Vec<Project>),
 }
 
+// TODO: probably better use IRIs instead of names where possible
 #[derive(Debug, Error)]
 pub enum ValidationError {
     #[error("lockfile version `{0}` is not supported; regenerate it with a lock operation")]
@@ -171,22 +172,11 @@ pub enum ValidationError {
     ProjectWithoutId(String),
     #[error("unsatisfied usage `{usage}` for project `{name}` in lockfile")]
     UnsatisfiedUsage { usage: String, name: String },
-    // #[error(
-    //     "unsatisfied usage `{usage}` for {project_with_name} (found version `{version}`) in lockfile"
-    // )]
-    // UnsatisfiedUsageVersion {
-    //     usage: String,
-    //     version: String,
-    //     project_with_name: String,
-    // },
-    #[error(
-        "invalid format of canonical project-digest `{digest}` for project `{name}` in lockfile"
-    )]
-    InvalidProjectDigestFormat { digest: String, name: String },
-    #[error("invalid format of `kpar_digest` `{digest}` for {project_with_name} in lockfile")]
-    InvalidKparDigestFormat {
+    #[error("invalid format of {kind} digest `{digest}` for project `{name}` in lockfile")]
+    InvalidDigestFormat {
+        kind: &'static str,
         digest: String,
-        project_with_name: String,
+        name: String,
     },
 }
 
@@ -200,8 +190,7 @@ impl Lock {
         self.validate_lock_version()?;
         self.check_name_collision()?;
         self.validate_usages()?;
-        self.validate_project_digest_format()?;
-        self.validate_source_digest_format()?;
+        self.validate_digest_format()?;
         Ok(())
     }
 
@@ -281,51 +270,27 @@ impl Lock {
         Ok(())
     }
 
-    fn validate_project_digest_format(&self) -> Result<(), ValidationError> {
+    fn validate_digest_format(&self) -> Result<(), ValidationError> {
         for project in &self.projects {
             for source in &project.sources {
-                match source {
+                let (c, kind) = match source {
                     Source::LocalSrc { checksum: c, .. }
-                    | Source::LocalKpar { kpar_digest: c, .. }
+                    | Source::RemoteSrc { checksum: c, .. } => (c, "project canonical"),
+                    Source::LocalKpar { kpar_digest: c, .. }
                     | Source::RemoteKpar { kpar_digest: c, .. }
-                    | Source::IndexKpar { kpar_digest: c, .. }
-                    | Source::RemoteSrc { checksum: c, .. } => {
-                        if c.len() != 64 || !c.bytes().all(|c| c.is_ascii_hexdigit()) {
-                            // TODO: improve error message
-                            return Err(ValidationError::InvalidProjectDigestFormat {
-                                digest: c.clone(),
-                                name: project.name.clone(),
-                            });
-                        }
+                    | Source::IndexKpar { kpar_digest: c, .. } => (c, "kpar"),
+                    Source::RemoteGit { remote_git: _ } | Source::Editable { editable: _ } => {
+                        continue;
                     }
-                    Source::RemoteGit { remote_git: _ } | Source::Editable { editable: _ } => (),
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_source_digest_format(&self) -> Result<(), ValidationError> {
-        for project in &self.projects {
-            for source in &project.sources {
-                let Source::IndexKpar { kpar_digest, .. } = source else {
-                    continue;
                 };
-                if kpar_digest.len() == 64
-                    && kpar_digest
-                        .bytes()
-                        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-                {
-                    continue;
+                if c.len() != 64 || !c.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f')) {
+                    // TODO: improve error message
+                    return Err(ValidationError::InvalidDigestFormat {
+                        digest: c.clone(),
+                        name: project.name.clone(),
+                        kind,
+                    });
                 }
-                return Err(ValidationError::InvalidKparDigestFormat {
-                    digest: kpar_digest.clone(),
-                    project_with_name: project
-                        .identifiers
-                        .first()
-                        .cloned()
-                        .unwrap_or_else(|| project.name.clone()),
-                });
             }
         }
         Ok(())

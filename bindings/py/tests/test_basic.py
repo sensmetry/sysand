@@ -131,11 +131,6 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     logging.basicConfig(level=level)
     caplog.set_level(level)
 
-    # Fixture for a non-`pkg:sysand` IRI resolved through the `_iri` index
-    # bucket. `sysand.info` reads per-version JSON without downloading kpar.
-    project_digest = (
-        "sha256:35ed1f7670d4c5b886f63ce9dd94e98dc9cd25c3466dba78c6d135db0092a055"
-    )
     filler_digest = "sha256:" + ("a" * 64)
     # No discovery document: index_root defaults to the discovery root.
     httpserver.expect_request("/sysand-index-config.json").respond_with_data(
@@ -148,7 +143,6 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
                 {
                     "version": "1.2.3",
                     "usage": [],
-                    "project_digest": project_digest,
                     "kpar_size": 42,
                     "kpar_digest": filler_digest,
                 }

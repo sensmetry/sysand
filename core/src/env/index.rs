@@ -55,7 +55,7 @@ use super::ProjectChecksumResult;
 /// `publish`).
 ///
 /// A per-IRI `versions.json` document holds the advertised versions plus
-/// the five per-entry fields (`version`, `usage`, `project_digest`,
+/// the per-entry fields (`version`, `usage`,
 /// `kpar_size`, `kpar_digest`) needed to enumerate candidates and verify
 /// later-fetched project metadata and archives.
 /// The optional `status` field controls retirement filtering. Fetched
