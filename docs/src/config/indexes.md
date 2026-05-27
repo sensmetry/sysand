@@ -1,6 +1,6 @@
 # Indexes
 
-Sysand defaults to using the index [beta.sysand.org](https://beta.sysand.org)
+Sysand defaults to using the index [sysand.com](https://sysand.com)
 but it is possible to specify additional indexes or override this default index.
 
 URLs for additional indexes can be specified with the command line argument `--index`.
@@ -14,7 +14,7 @@ configuration files.
 
 The command line argument `--default-index` (and environment variable
 `SYSAND_DEFAULT_INDEX`) functions the same as `--index` but will override the default
-index `https://beta.sysand.org` and any default indexes defined in configuration
+index `https://sysand.com` and any default indexes defined in configuration
 files.
 
 ## Defining an index in a configuration file

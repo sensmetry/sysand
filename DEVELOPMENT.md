@@ -143,7 +143,7 @@ to make sure that all tests pass locally before submitting a pull request.
 ## Documentation
 
 The "Sysand User Guide" is currently a work in progress. It is located in `docs/`.
-Official version is hosted at [docs.sysand.org](https://docs.sysand.org/).
+Official version is hosted at [client.sysand.com](https://client.sysand.com/).
 To preview it locally, make sure you have [`mdbook`](https://github.com/rust-lang/mdBook)
 installed (`cargo install mdbook`), then either run
 

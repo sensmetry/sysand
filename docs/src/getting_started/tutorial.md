@@ -74,18 +74,18 @@ dependencies for you.
 Each usage is identified by an [Internationalized Resource Identifier][iri]
 (IRI) with an optional version constraint. To add dependencies, use the `sysand
 add` command. The simplest way to use it is to give an IRI to a package you want
-to install from the [Sysand Package Index][index]. You can find the IRI (and the full
+to install from the [Sysand Index][index]. You can find the IRI (and the full
 install command) in the card of the package on the index. It is also possible
 to install packages from the URL that points to the `.kpar` file or to a directory
 that contains the project.
 
 [iri]: https://en.wikipedia.org/wiki/Internationalized_Resource_Identifier
-[index]: https://beta.sysand.org/
+[index]: https://sysand.com/
 
-Install usage `SYSMOD` from Sysand Package Index:
+Install usage `DETECT` from Sysand Index:
 
 ```sh
-sysand add urn:kpar:sysmod
+sysand add sensmetry/detect
 ```
 
 This may take a few seconds to run, as Sysand needs to download the project
@@ -101,7 +101,7 @@ Name: my_project
 Publisher: untitled
 Version: 0.0.1
 Usages:
-    urn:kpar:sysmod
+    pkg:sysand/sensmetry/detect
 ```
 
 Running `sysand sources` again will list all the `.sysml` files from both the
@@ -112,7 +112,11 @@ $ sysand sources
 warning: SysML v2/KerML standard library packages are omitted by default.
          If you want to include them, pass `--include-std` flag
 /path/to/my_project/MyProject.sysml
-/path/to/my_project/.sysand/lib/kpar.sysmod_5.0.0-alpha.2/SYSMOD.sysml
+/path/to/my_project/.sysand/lib/sensmetry-detect_1.3.0/detect_definitions.sysml
+/path/to/my_project/.sysand/lib/sensmetry-detect_1.3.0/detect_input.sysml
+/path/to/my_project/.sysand/lib/sensmetry-detect_1.3.0/detect_requirement_list.sysml
+/path/to/my_project/.sysand/lib/sensmetry-detect_1.3.0/detect_criteria_list.sysml
+/path/to/my_project/.sysand/lib/sensmetry-detect_1.3.0/detect_use_cases.sysml
 ```
 
 > [!note]
@@ -137,7 +141,7 @@ We can see everything installed in the local environment using `sysand env list`
 
 ```console
 $ sysand env list
-`urn:kpar:sysmod` 5.0.0-alpha.2
+`pkg:sysand/sensmetry/detect` 1.3.0
 ```
 
 > [!note]
@@ -154,10 +158,8 @@ execute the following command:
 ```console
 $ sysand sync
     Creating env
-warning: Direct or transitive usages of SysML v2/KerML standard library packages are
-         ignored by default. If you want to process them, pass `--include-std` flag
      Syncing env
-  Installing `urn:kpar:sysmod` 5.0.0-alpha.2
+  Installing `pkg:sysand/sensmetry/detect` 1.3.0
 ```
 
 ## Package the project
