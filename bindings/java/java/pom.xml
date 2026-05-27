@@ -13,7 +13,7 @@ SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
   <version>VERSION</version>
   <name>${project.groupId}:${project.artifactId}</name>
   <description>A package manager for SysML v2 and KerML.</description>
-  <url>https://sysand.org/</url>
+  <url>https://sysand.com/</url>
   <licenses>
     <license>
       <name>The Apache License, Version 2.0</name>

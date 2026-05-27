@@ -48,10 +48,11 @@ away).
 
 ## Options
 
-- `--index <URL>`: URL of the package index to publish to. Required.
-  This may point to a path containing `sysand-index-config.json` (for example,
-  `https://sysand.org`), or directly to the API root that receives publish
-  uploads (for example, `https://my-index.example.com/api`).
+- `--index <URL>`: URL of the package index to publish to. Required. This may
+  point to a path containing `sysand-index-config.json` (for example,
+  `https://sysand.com` or `https://test.sysand.com`), or directly to the API
+  root that receives publish uploads (for example,
+  `https://my-index.example.com/api`).
 
 {{#include ./partials/global_opts.md}}
 
@@ -61,13 +62,19 @@ Build and publish the current project:
 
 ```sh
 sysand build
-sysand publish --index https://sysand.org
+sysand publish --index https://sysand.com
 ```
 
 Publish a specific KPAR file:
 
 ```sh
-sysand publish --index https://sysand.org ./my-project-1.0.0.kpar
+sysand publish --index https://sysand.com ./my-project-1.0.0.kpar
+```
+
+Publish to the `test.sysand.com` index:
+
+```sh
+sysand publish --index https://test.sysand.com
 ```
 
 Publish to a custom index:

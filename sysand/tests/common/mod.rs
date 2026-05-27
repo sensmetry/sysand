@@ -32,7 +32,7 @@ pub fn git_init(path: &Path) -> Result<(), Box<dyn Error>> {
         .assert()
         .success();
     Command::new("git")
-        .args(["config", "user.email", "user@sysand.org"])
+        .args(["config", "user.email", "user@sysand.com"])
         .current_dir(path)
         .output()?
         .assert()

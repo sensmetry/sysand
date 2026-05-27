@@ -89,8 +89,8 @@ Sysand currently supports (i.e. knows how to obtain) these IRI schemes:
 - `file`: can point to either a KPAR file or to a directory containing
   the project. Can also point to a directory containing a git repository, but
   the directory will be treated as a project directory, unless `git+file` is used.
-- `urn:kpar`: this is by convention used by all projects in the
-  [Sysand index](https://beta.sysand.org/), but otherwise has no special meaning
+- `pkg:sysand`: this is by convention used by all projects in the
+  [Sysand Package Index](https://sysand.com/) and follows the [PURL specification][purl].
 - `ssh`: note that currently only git repositories are supported for this type.
   SSH repository URLs supported by git have to be translated to use standard IRI
   to be accepted by sysand. For example:
@@ -118,6 +118,7 @@ to avoid confusion over how to obtain it.
 [uri]: https://en.wikipedia.org/wiki/Uniform_Resource_Identifier
 [url]: https://en.wikipedia.org/wiki/URL
 [git_url]: https://git-scm.com/docs/git-fetch.html#_git_urls
+[purl]: https://ecma-international.org/publications-and-standards/standards/ecma-427/
 
 ### `versionConstraint`
 
