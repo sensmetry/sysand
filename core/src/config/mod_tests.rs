@@ -3,10 +3,7 @@
 
 use url::Url;
 
-use crate::{
-    config::{Config, ConfigProject, Index},
-    lock::Source,
-};
+use crate::config::{Config, ConfigProject, Index, OverrideSource};
 
 #[test]
 fn default_config() {
@@ -36,7 +33,7 @@ fn merge() {
         }],
         projects: vec![ConfigProject {
             identifiers: vec!["urn:kpar:test".to_string()],
-            sources: vec![Source::LocalSrc {
+            sources: vec![OverrideSource::LocalSrc {
                 src_path: "./path/to project".into(),
             }],
         }],

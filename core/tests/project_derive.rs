@@ -8,7 +8,9 @@ use std::{
 
 use sysand_core::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{CanonicalizationError, ProjectMut, ProjectRead, memory::InMemoryProject},
+    project::{
+        CanonicalizationError, ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject,
+    },
 };
 
 // Have to have these in scope for ProjectRead
@@ -192,8 +194,7 @@ fn macro_generic_read() {
 }
 
 /// Test double that returns a fixed canonical digest without touching
-/// info/meta/sources — mimics a leaf type (e.g. a remote-index-backed
-/// project) that supplies a prefetched `project_digest` out of band.
+/// info/meta/sources
 #[derive(Debug)]
 struct FixedDigestProject {
     digest: String,
@@ -237,6 +238,10 @@ impl ProjectRead for FixedDigestProject {
 
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         Ok(Some(self.digest.clone()))
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        Ok(ProjectChecksum::Project(self.digest.clone()))
     }
 }
 

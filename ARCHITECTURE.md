@@ -251,10 +251,12 @@ project-local and optionally user-level configuration.
 Captures a project's resolved usages and their dependencies.
 
 The `sysand lock` command regenerates this file, recording each project's name,
-version, exported symbols, dependency usages, sources (local paths, index URLs,
-git repos, etc.), and a content checksum. The `sysand sync` command reads
-`sysand-lock.toml` to populate `.sysand`, and will run `lock` first if the
-file does not yet exist.
+version, exported symbols, dependency usages, and sources (local paths, index
+URLs, git repos, etc.). Integrity metadata lives on each resolved source:
+source-directory entries carry `checksum`, while KPAR entries carry
+`kpar_size` and `kpar_digest`. The `sysand sync` command reads
+`sysand-lock.toml` to populate `.sysand`, and will run `lock` first if the file
+does not yet exist.
 
 ### Local environment (`.sysand`)
 
@@ -290,6 +292,9 @@ The local environment looks like this:
   itself is not managed by the environment.
 - `workspace`. Whether the project belongs to the current workspace.
   `workspace` projects are always `editable`.
+- `src_cksum` or `kpar_cksum`. The checksum kind and value used when the
+  project was installed. Source-directory installs store `src_cksum`; KPAR
+  installs store `kpar_cksum`.
 
 Each `package_ID` is derived from the project's canonical identifier, and
 `version` is derived from project's version. For exact details on how each
@@ -323,6 +328,6 @@ Sysand-core specifics that aren't part of the protocol:
   behind an internal `OnceCell`, and `project.kpar` is verified against
   the advertised `kpar_digest` during download.
 - Because the kpar isn't on disk during resolution, `Source::IndexKpar`
-  populates `index_kpar_size` and `index_kpar_digest` directly from
-  `versions.json`, so lockfile writing records archive metadata without a
-  HEAD round-trip.
+  populates source-level `kpar_size` and `kpar_digest` directly from
+  `versions.json`, so lockfile writing records archive metadata without a HEAD
+  round-trip.

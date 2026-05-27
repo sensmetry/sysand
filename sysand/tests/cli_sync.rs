@@ -101,15 +101,14 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
 
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
-        r#"lock_version = "0.4"
+        r#"lock_version = "0.5"
 
 [[project]]
 name = "sync_to_local"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_local"]
-checksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c"
 sources = [
-    { src_path = "lib/sync_to_local" },
+    { src_path = "lib/sync_to_local", checksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c" },
 ]
 "#,
     )?;
@@ -138,6 +137,7 @@ path = "lib/kpar.sync_to_local_1.2.3"
 identifiers = [
     "urn:kpar:sync_to_local",
 ]
+src_cksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c"
 "#
         )
     );
@@ -184,15 +184,14 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.4"
+            r#"lock_version = "0.5"
 
 [[project]]
 name = "sync_to_remote"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_remote"]
-checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
 sources = [
-    {{ remote_src = "{}" }},
+    {{ remote_src = "{}", checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895" }},
 ]
 "#,
             &server.url()
@@ -226,6 +225,7 @@ path = "lib/kpar.sync_to_remote_1.2.3"
 identifiers = [
     "urn:kpar:sync_to_remote",
 ]
+src_cksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
 "#
         )
     );
@@ -299,15 +299,14 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.4"
+            r#"lock_version = "0.5"
 
 [[project]]
 name = "sync_to_remote"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_remote"]
-checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
 sources = [
-    {{ remote_src = "{}" }},
+    {{ remote_src = "{}", checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895" }},
 ]
 "#,
             &server.url()
@@ -405,15 +404,14 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
-            r#"lock_version = "0.4"
+            r#"lock_version = "0.5"
 
 [[project]]
 name = "sync_to_remote"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_remote"]
-checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
 sources = [
-    {{ remote_src = "{}" }},
+    {{ remote_src = "{}", checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895" }},
 ]
 "#,
             &server.url()
@@ -437,6 +435,136 @@ sources = [
     meta_mock_auth.assert();
 
     out.assert().failure();
+
+    Ok(())
+}
+
+/// `sync` with a mix of `LocalSrc` (non-editable) and `Editable` deps in the
+/// config must: install the non-editable dep into env, register the editable
+/// dep in env.toml without copying it, and also register the current project as
+/// editable. Re-running sync is idempotent.
+#[test]
+fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::error::Error>> {
+    // Set up main project with .meta.json (required for sync to lock itself).
+    let (_temp_dir, cwd, out) =
+        run_sysand(["init", "--version", "1.0.0", "--name", "sync_mixed"], None)?;
+    out.assert().success();
+    std::fs::write(cwd.join("P.sysml"), "package P;")?;
+    run_sysand_in(&cwd, ["include", "P.sysml"], None)?
+        .assert()
+        .success();
+
+    // Non-editable dep: needs .meta.json so sync can compute its checksum.
+    let (_tmp_src, cwd_src, out) = run_sysand(
+        ["init", "--version", "2.0.0", "--name", "sync_mixed_src"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(cwd_src.join("Q.sysml"), "package Q;")?;
+    run_sysand_in(&cwd_src, ["include", "Q.sysml"], None)?
+        .assert()
+        .success();
+
+    // Editable dep: only .project.json is needed (no install, just reference).
+    let (_tmp_editable, cwd_editable, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "3.0.0",
+            "--name",
+            "sync_mixed_editable",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let config_path = cwd.join("sysand.toml");
+
+    // Record sources without re-locking; sync will generate the lockfile.
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "urn:kpar:sync-mixed-src",
+            "--as-local-src",
+            cwd_src.as_str(),
+        ],
+        Some(config_path.as_str()),
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "urn:kpar:sync-mixed-editable",
+            "--as-editable",
+            cwd_editable.as_str(),
+        ],
+        Some(config_path.as_str()),
+    )?
+    .assert()
+    .success();
+
+    // First sync: generates lockfile, creates env, installs non-editable dep.
+    run_sysand_in(&cwd, ["sync"], Some(config_path.as_str()))?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "Installing `urn:kpar:sync-mixed-src`",
+        ));
+
+    let env_toml = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+
+    // Non-editable dep is installed with a src checksum.
+    assert!(
+        env_toml.contains("urn:kpar:sync-mixed-src"),
+        "non-editable dep missing from env.toml"
+    );
+    assert!(
+        env_toml.contains("src_cksum"),
+        "expected src_cksum for non-editable dep"
+    );
+
+    // Editable dep is registered but not installed as a directory copy.
+    assert!(
+        env_toml.contains("urn:kpar:sync-mixed-editable"),
+        "editable dep missing from env.toml"
+    );
+    assert!(
+        env_toml.contains("editable = true"),
+        "editable dep should have editable = true"
+    );
+
+    // Current project is registered as editable too.
+    assert!(
+        env_toml.contains("sync_mixed"),
+        "current project missing from env.toml"
+    );
+
+    // Non-editable dep is physically present inside the env.
+    assert!(
+        cwd.join(DEFAULT_ENV_NAME)
+            .join("lib/kpar.sync-mixed-src_2.0.0")
+            .is_dir()
+    );
+
+    // Editable dep is NOT copied into the env lib directory.
+    assert!(
+        !cwd.join(DEFAULT_ENV_NAME)
+            .join("lib/kpar.sync-mixed-editable_3.0.0")
+            .is_dir()
+    );
+
+    // Second sync is idempotent.
+    let out = run_sysand_in(&cwd, ["sync"], Some(config_path.as_str()))?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("env is already up to date"));
 
     Ok(())
 }

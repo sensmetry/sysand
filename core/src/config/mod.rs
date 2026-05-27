@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use serde::{Deserialize, Serialize};
+use toml_edit::{InlineTable, Value};
+use typed_path::Utf8UnixPathBuf;
 use url::Url;
 
-use crate::lock::Source;
+use crate::project::utils::{deserialize_unix_path, serialize_unix_path};
 
 #[cfg(feature = "filesystem")]
 pub mod local_fs;
@@ -23,7 +25,79 @@ pub struct ConfigProject {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub identifiers: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub sources: Vec<Source>,
+    pub sources: Vec<OverrideSource>,
+}
+
+#[derive(Clone, Eq, Debug, Deserialize, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(untagged)]
+pub enum OverrideSource {
+    // Path must be a Unix path relative to workspace root
+    Editable {
+        #[serde(
+            deserialize_with = "deserialize_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
+        editable: Utf8UnixPathBuf,
+    },
+    LocalSrc {
+        #[serde(
+            deserialize_with = "deserialize_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
+        src_path: Utf8UnixPathBuf,
+    },
+    LocalKpar {
+        #[serde(
+            deserialize_with = "deserialize_unix_path",
+            serialize_with = "serialize_unix_path"
+        )]
+        kpar_path: Utf8UnixPathBuf,
+    },
+    RemoteKpar {
+        remote_kpar: String,
+    },
+    // TODO: it doesn't make sense to have this in url shape; it should be a
+    // publisher/name/IRI
+    // IndexKpar {
+    //     index_kpar: String,
+    // },
+    RemoteSrc {
+        remote_src: String,
+    },
+    RemoteGit {
+        remote_git: String,
+    },
+}
+
+impl OverrideSource {
+    pub fn to_toml(&self) -> InlineTable {
+        let mut table = InlineTable::new();
+        match self {
+            Self::Editable { editable } => {
+                debug_assert!(
+                    editable.is_relative(),
+                    "editable project path is absolute: `{editable}`"
+                );
+                table.insert("editable", Value::from(editable.as_str()));
+            }
+            Self::LocalKpar { kpar_path } => {
+                table.insert("kpar_path", Value::from(kpar_path.as_str()));
+            }
+            Self::LocalSrc { src_path } => {
+                table.insert("src_path", Value::from(src_path.as_str()));
+            }
+            Self::RemoteGit { remote_git } => {
+                table.insert("remote_git", Value::from(remote_git));
+            }
+            Self::RemoteKpar { remote_kpar } => {
+                table.insert("remote_kpar", Value::from(remote_kpar));
+            }
+            Self::RemoteSrc { remote_src } => {
+                table.insert("remote_src", Value::from(remote_src));
+            }
+        }
+        table
+    }
 }
 
 impl Config {

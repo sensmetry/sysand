@@ -22,7 +22,7 @@ use crate::{
     model::InterchangeProjectValidationError,
     project::{
         CanonicalizationError, ProjectRead as _,
-        local_kpar::{LocalKParError, LocalKParProject},
+        local_kpar::{LocalKParError, LocalKParProjectRaw},
         utils::{FsIoError, wrapfs},
     },
     purl::{is_valid_unnormalized_name, is_valid_unnormalized_publisher, normalize_field},
@@ -157,17 +157,13 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
 
     let kpar_path = kpar_path.as_ref();
     let kpar_path_abs = wrapfs::absolute(kpar_path)?;
-    let local_project = LocalKParProject::new(&kpar_path_abs, "").map_err(LocalKParError::Io)?;
+    let local_project = LocalKParProjectRaw::new_project_at_root(&kpar_path_abs)?;
     let Some(info) = local_project.get_info()? else {
         return Err(IndexAddError::MissingInfo(kpar_path_abs.clone()));
     };
     let Some(meta) = local_project.get_meta()? else {
         return Err(IndexAddError::MissingMeta(kpar_path_abs));
     };
-    let project_digest =
-        to_explicit_digest(local_project.checksum_canonical_hex()?.unwrap_or_else(|| {
-            panic!("This should only be None when {INFO_FILE_NAME} or {META_FILE_NAME} is missing")
-        }));
 
     let map_invalid_project_err = |e| IndexAddError::InvalidProject {
         kpar_path: kpar_path.into(),
@@ -316,7 +312,6 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         VersionEntry {
             version: version.to_string(),
             usage: info.usage,
-            project_digest,
             // The zip file does contain .project.json and .meta.json at this point
             // so it cannot be empty
             kpar_size: NonZero::new(local_project.file_size()?).unwrap(),

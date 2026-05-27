@@ -814,7 +814,7 @@ pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         for identifier in &config_project.identifiers {
             let mut projects = Vec::new();
             for source in &config_project.sources {
-                projects.push(ProjectReference::new(AnyProject::try_from_source(
+                projects.push(ProjectReference::new(AnyProject::try_from_override_source(
                     source.clone(),
                     &project_root,
                     auth_policy.clone(),

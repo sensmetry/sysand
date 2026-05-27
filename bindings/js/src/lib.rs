@@ -51,6 +51,7 @@ pub fn do_init_js_local_storage(
             vfs: local_storage_utils::get_local_browser_storage(prefix)
                 .map_err(|e| JsValue::from_str(&e.to_string()))?,
             root_path: Utf8UnixPath::new(root_path).to_path_buf(),
+            expected_checksum: None,
         },
     )
     .map_err(|e| JsValue::from_str(&e.to_string()))

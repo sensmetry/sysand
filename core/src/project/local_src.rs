@@ -24,7 +24,10 @@ use crate::{
     },
 };
 
-use super::utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError};
+use super::{
+    CanonicalizationError, ProjectChecksum,
+    utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError},
+};
 
 /// Project stored in a local directory as an extracted KPAR archive.
 /// Source file paths with (unix) segments `segment1/.../segmentN` are
@@ -36,10 +39,13 @@ pub struct LocalSrcProject {
     /// E.g. if used in lockfile would be the path relative to the lockfile.
     // TODO: Consider removing this and replacing it with some way of
     // relativizing `project_path` at the call site of .sources().
-    pub nominal_path: Option<Utf8PathBuf>,
+    pub nominal_path: Option<Utf8UnixPathBuf>,
     /// Path used when locating the project internally.
     /// Should be absolute.
     pub project_path: Utf8PathBuf,
+    // TODO: enforce that the project matches the checksum if provided
+    // before reading; see LocalKparProject for example
+    pub expected_checksum: Option<String>,
 }
 
 /// Tries to canonicalize the (longest possible) prefix of a path.
@@ -212,6 +218,7 @@ impl LocalSrcProject {
         let mut tmp_project = Self {
             nominal_path: None,
             project_path: wrapfs::canonicalize(tmp.path())?,
+            expected_checksum: None,
         };
 
         let (info, meta) = clone_project(project, &mut tmp_project, true)?;
@@ -320,6 +327,8 @@ pub enum LocalSrcError {
     AlreadyExists(String),
     #[error("project is missing metadata file `.meta.json`")]
     MissingMeta,
+    #[error("project is missing `.project.json` and/or `.meta.json` files")]
+    MissingInfoMeta,
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
@@ -414,25 +423,52 @@ impl ProjectRead for LocalSrcProject {
         Ok(f)
     }
 
+    // TODO: should `sources` be decoupled from `ProjectRead`? It requires knowing additional
+    // integrity details, such as kpar/project checksums, which therefore have to be stored
+    // inside the ProjectRead implementer, as there is no other wrapper used. This needs a
+    // consistent design for all project types. E.g. should they contain any checksums? when
+    // should they be verified to match the project?
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        if let Some(np) = self.nominal_path.as_ref() {
-            Ok(vec![Source::LocalSrc {
-                src_path: np.as_str().into(),
-            }])
+        let checksum = match &self.expected_checksum {
+            Some(c) => c.clone(),
+            None => self
+                .checksum_canonical_hex()
+                .map_err(|e| match e {
+                    CanonicalizationError::ProjectRead(e) => e,
+                    CanonicalizationError::FileRead(path, error) => LocalSrcError::Io(
+                        FsIoError::ReadFile(String::from(path).into(), error).into(),
+                    ),
+                })?
+                .ok_or(LocalSrcError::MissingInfoMeta)?,
+        };
+        let src_path = if let Some(np) = self.nominal_path.as_ref() {
+            np.as_str().into()
         } else if let Some(w) = &ctx.current_workspace {
-            Ok(vec![Source::LocalSrc {
-                src_path: relativize_path(&self.project_path, w.root_path())?
-                    .into_string()
-                    .into(),
-            }])
+            relativize_path(&self.project_path, w.root_path())?
+                .into_string()
+                .into()
         } else if let Some(cp) = &ctx.current_project {
-            Ok(vec![Source::LocalSrc {
-                src_path: relativize_path(&self.project_path, cp.root_path())?
-                    .into_string()
-                    .into(),
-            }])
+            relativize_path(&self.project_path, cp.root_path())?
+                .into_string()
+                .into()
         } else {
             panic!("`LocalSrcProject` without `nominal_path` does not have any project sources");
+        };
+        Ok(vec![Source::LocalSrc { src_path, checksum }])
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        match self.checksum_canonical_hex() {
+            Ok(c) => match c {
+                Some(c) => Ok(ProjectChecksum::Project(c)),
+                None => Err(LocalSrcError::MissingInfoMeta),
+            },
+            Err(e) => match e {
+                CanonicalizationError::ProjectRead(e) => Err(e),
+                CanonicalizationError::FileRead(path, error) => Err(LocalSrcError::Io(
+                    FsIoError::ReadFile(String::from(path).into(), error).into(),
+                )),
+            },
         }
     }
 }

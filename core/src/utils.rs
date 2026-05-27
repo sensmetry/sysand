@@ -7,7 +7,6 @@ use digest::{array::Array, typenum};
 use sha2::{Digest, Sha256};
 
 pub(crate) mod scheme {
-    #[cfg(feature = "filesystem")]
     use fluent_uri::component::Scheme;
     #[cfg(feature = "filesystem")]
     pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
@@ -21,9 +20,7 @@ pub(crate) mod scheme {
     pub const SCHEME_GIT_HTTP: &Scheme = Scheme::new_or_panic("git+http");
     #[cfg(all(feature = "filesystem", feature = "networking"))]
     pub const SCHEME_GIT_HTTPS: &Scheme = Scheme::new_or_panic("git+https");
-    #[cfg(feature = "filesystem")]
     pub const SCHEME_HTTP: &Scheme = Scheme::new_or_panic("http");
-    #[cfg(feature = "filesystem")]
     pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 }
 
@@ -58,4 +55,28 @@ pub fn sha256_lowercase_hex(data: impl AsRef<[u8]>) -> String {
 /// Encode `bytes` as lowercase hex string
 pub fn lowercase_hex(bytes: Array<u8, typenum::U32>) -> String {
     hex::encode(bytes)
+}
+
+/// Return the deduplicated, in-order list of SPDX identifiers (licenses plus
+/// any `WITH` exceptions) named in `expression`. Each identifier maps to a
+/// `LICENSES/<id>.txt` file under REUSE conventions; the `+` "or later"
+/// modifier does not affect the filename.
+pub(crate) fn license_file_stems(expression: &spdx::Expression) -> Vec<String> {
+    let mut stems: indexmap::IndexSet<String> = indexmap::IndexSet::new();
+    for req in expression.requirements() {
+        let license_name = match &req.req.license {
+            spdx::LicenseItem::Spdx { id, .. } => id.name.to_string(),
+            spdx::LicenseItem::Other(license_ref) => license_ref.to_string(),
+        };
+        stems.insert(license_name);
+
+        if let Some(addition) = &req.req.addition {
+            let addition_name = match addition {
+                spdx::AdditionItem::Spdx(id) => id.name.to_string(),
+                spdx::AdditionItem::Other(add_ref) => add_ref.to_string(),
+            };
+            stems.insert(addition_name);
+        }
+    }
+    stems.into_iter().collect()
 }

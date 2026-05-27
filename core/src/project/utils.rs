@@ -125,6 +125,8 @@ pub enum FsIoError {
     IsFile(Utf8PathBuf, io::Error),
     #[error("failed to get metadata to determine if\n  `{0}` is a directory:\n  {1}")]
     IsDir(Utf8PathBuf, io::Error),
+    #[error("failed to seek file `{0}` to {1}:\n  {2}")]
+    Seek(Utf8PathBuf, u64, io::Error),
 }
 
 /// Wrappers for filesystem I/O functions to return `FsIoError`.
@@ -351,7 +353,7 @@ pub enum ZipArchiveError {
     Finish(Box<Utf8Path>, ZipError),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum RelativizePathError {
     #[error("unable to relativize path `{path}` with respect to `{root}`")]
     NoCommonPrefix {
@@ -432,7 +434,7 @@ fn contains_non_canonical_components(path: &Utf8Path) -> bool {
 pub fn relativize_path<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
     path: P,
     root: R,
-) -> Result<Utf8PathBuf, RelativizePathError> {
+) -> Result<Utf8UnixPathBuf, RelativizePathError> {
     let path = path.as_ref();
     let root = root.as_ref();
 
@@ -471,7 +473,7 @@ pub fn relativize_path<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         }
     }
 
-    let mut result = Utf8PathBuf::new();
+    let mut result = Utf8UnixPathBuf::new();
 
     for r in root_iter {
         if let Utf8Component::Normal(_) = r {
@@ -479,6 +481,7 @@ pub fn relativize_path<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         }
     }
 
+    // TODO: it's probably always expected that we will use Unix paths
     for p in path_iter {
         result.push(p.as_str());
     }
@@ -487,7 +490,7 @@ pub fn relativize_path<P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         result.push(".");
     }
 
-    Ok(result)
+    Ok(result.into_string().into())
 }
 
 #[cfg(test)]

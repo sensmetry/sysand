@@ -8,7 +8,7 @@ use thiserror::Error;
 use sysand_core::{
     context::ProjectContext,
     lock::Source,
-    project::{ProjectMut, ProjectRead, memory::InMemoryProject},
+    project::{ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject},
 };
 
 pub enum GenericProject<A, B>
@@ -125,6 +125,20 @@ where
             GenericProject::Variant3(project) => {
                 project.sources(ctx).map_err(GenericProjectError::Variant3)
             }
+        }
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        match self {
+            GenericProject::Variant1(project) => project
+                .checksum_canonical_variant()
+                .map_err(GenericProjectError::Variant1),
+            GenericProject::Variant2(project) => project
+                .checksum_canonical_variant()
+                .map_err(GenericProjectError::Variant2),
+            GenericProject::Variant3(project) => project
+                .checksum_canonical_variant()
+                .map_err(GenericProjectError::Variant3),
         }
     }
 }

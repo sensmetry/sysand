@@ -12,7 +12,7 @@ use sysand_core::{
     auth::HTTPAuthentication,
     commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
     config::{
-        Config, ConfigProject,
+        Config, ConfigProject, OverrideSource,
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     context::ProjectContext,
@@ -57,14 +57,14 @@ pub fn command_add<Policy: HTTPAuthentication>(
     let source = if let Some(path) = source_opts.from_path {
         let metadata = wrapfs::metadata(&path)?;
         if metadata.is_dir() {
-            Some(sysand_core::lock::Source::LocalSrc {
-                src_path: get_relative(path, current_project.root_path())?
+            Some(OverrideSource::LocalSrc {
+                src_path: get_relative(path, current_project.root_path(), &ctx.current_directory)?
                     .as_str()
                     .into(),
             })
         } else if metadata.is_file() {
-            Some(sysand_core::lock::Source::LocalKpar {
-                kpar_path: get_relative(path, current_project.root_path())?
+            Some(OverrideSource::LocalKpar {
+                kpar_path: get_relative(path, current_project.root_path(), &ctx.current_directory)?
                     .as_str()
                     .into(),
             })
@@ -93,17 +93,15 @@ pub fn command_add<Policy: HTTPAuthentication>(
             runtime.clone(),
             auth_policy.clone(),
         )?;
-        let outcome = std_resolver.resolve_read_raw(&url)?;
+        let outcome = std_resolver.resolve_read(&url)?;
         let mut source = None;
         match outcome {
             ResolutionOutcome::Resolved(alternatives) => {
                 for candidate in alternatives {
                     match candidate {
                         Ok(project) => {
-                            source = project.sources(&ctx)?.first().cloned();
-                            if source.is_some() {
-                                break;
-                            }
+                            source = Some(project.sources(&ctx)?[0].to_override());
+                            break;
                         }
                         Err(err) => {
                             log::debug!("skipping candidate project: {err}");
@@ -121,34 +119,46 @@ pub fn command_add<Policy: HTTPAuthentication>(
         }
         source
     } else if let Some(editable) = source_opts.as_editable {
-        Some(sysand_core::lock::Source::Editable {
-            editable: get_relative(editable, current_project.root_path())?
-                .as_str()
-                .into(),
+        Some(OverrideSource::Editable {
+            editable: get_relative(
+                editable,
+                current_project.root_path(),
+                &ctx.current_directory,
+            )?
+            .as_str()
+            .into(),
         })
     } else if let Some(src_path) = source_opts.as_local_src {
-        Some(sysand_core::lock::Source::LocalSrc {
-            src_path: get_relative(src_path, current_project.root_path())?
-                .as_str()
-                .into(),
+        Some(OverrideSource::LocalSrc {
+            src_path: get_relative(
+                src_path,
+                current_project.root_path(),
+                &ctx.current_directory,
+            )?
+            .as_str()
+            .into(),
         })
     } else if let Some(kpar_path) = source_opts.as_local_kpar {
-        Some(sysand_core::lock::Source::LocalKpar {
-            kpar_path: get_relative(kpar_path, current_project.root_path())?
-                .as_str()
-                .into(),
+        Some(OverrideSource::LocalKpar {
+            kpar_path: get_relative(
+                kpar_path,
+                current_project.root_path(),
+                &ctx.current_directory,
+            )?
+            .as_str()
+            .into(),
         })
     } else if let Some(remote_src) = source_opts.as_remote_src {
-        Some(sysand_core::lock::Source::RemoteSrc {
+        Some(OverrideSource::RemoteSrc {
             remote_src: remote_src.into_string(),
         })
     } else if let Some(remote_kpar) = source_opts.as_remote_kpar {
-        Some(sysand_core::lock::Source::RemoteKpar {
+        // TODO: maybe also allow giving IndexKpar (does it make sense?)
+        Some(OverrideSource::RemoteKpar {
             remote_kpar: remote_kpar.into_string(),
-            remote_kpar_size: None,
         })
     } else if let Some(remote_git) = source_opts.as_remote_git {
-        Some(sysand_core::lock::Source::RemoteGit {
+        Some(OverrideSource::RemoteGit {
             remote_git: remote_git.into_string(),
         })
     } else {
@@ -293,13 +303,14 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
 fn get_relative<P: Into<Utf8PathBuf> + AsRef<Utf8Path>>(
     src_path: P,
     project_root: &Utf8Path,
+    cwd: &Utf8Path,
 ) -> Result<Utf8PathBuf> {
-    let src_path = if src_path.as_ref().is_absolute() || wrapfs::current_dir()? != project_root {
+    let src_path = if src_path.as_ref().is_absolute() || cwd != project_root {
         let path = relativize_path(wrapfs::canonicalize(src_path.as_ref())?, project_root)?;
         if path == "." {
             bail!("cannot add current project as usage of itself");
         }
-        path
+        path.into_string().into()
     } else {
         src_path.into()
     };

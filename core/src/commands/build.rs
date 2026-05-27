@@ -10,10 +10,11 @@ use crate::{
     model::InterchangeProjectValidationError,
     project::{
         ProjectRead,
-        local_kpar::{IntoKparError, LocalKParProject},
+        local_kpar::{IntoKparError, LocalKParProjectRaw},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError},
     },
+    utils::license_file_stems,
     workspace::{Workspace, WorkspaceReadError},
 };
 
@@ -248,7 +249,7 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     compression: KparCompressionMethod,
     canonicalise: bool,
     allow_path_usage: bool,
-) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
+) -> Result<LocalKParProjectRaw, KParBuildError<Pr::Error>> {
     do_build_kpar_inner(
         project,
         path,
@@ -266,7 +267,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     canonicalise: bool,
     allow_path_usage: bool,
     workspace_metamodel: Option<&str>,
-) -> Result<LocalKParProject, KParBuildError<Pr::Error>> {
+) -> Result<LocalKParProjectRaw, KParBuildError<Pr::Error>> {
     use crate::project::local_src::LocalSrcProject;
 
     let building = "Building";
@@ -362,7 +363,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         }
     }
 
-    Ok(LocalKParProject::from_project(
+    Ok(LocalKParProjectRaw::from_project(
         &local_project,
         path,
         compression.into(),
@@ -390,37 +391,13 @@ fn read_optional_project_file(
     }
 }
 
-/// Return the deduplicated, in-order list of SPDX identifiers (licenses plus
-/// any `WITH` exceptions) named in `expression`. Each identifier maps to a
-/// `LICENSES/<id>.txt` file under REUSE conventions; the `+` "or later"
-/// modifier does not affect the filename.
-pub(crate) fn license_file_stems(expression: &spdx::Expression) -> Vec<String> {
-    let mut stems: indexmap::IndexSet<String> = indexmap::IndexSet::new();
-    for req in expression.requirements() {
-        let license_name = match &req.req.license {
-            spdx::LicenseItem::Spdx { id, .. } => id.name.to_string(),
-            spdx::LicenseItem::Other(license_ref) => license_ref.to_string(),
-        };
-        stems.insert(license_name);
-
-        if let Some(addition) = &req.req.addition {
-            let addition_name = match addition {
-                spdx::AdditionItem::Spdx(id) => id.name.to_string(),
-                spdx::AdditionItem::Other(add_ref) => add_ref.to_string(),
-            };
-            stems.insert(addition_name);
-        }
-    }
-    stems.into_iter().collect()
-}
-
 pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &Workspace,
     path: P,
     compression: KparCompressionMethod,
     canonicalise: bool,
     allow_path_usage: bool,
-) -> Result<Vec<LocalKParProject>, KParBuildError<LocalSrcError>> {
+) -> Result<Vec<LocalKParProjectRaw>, KParBuildError<LocalSrcError>> {
     let ws_metamodel = workspace.metamodel().map(|iri| iri.as_str());
 
     let mut result = Vec::new();
@@ -428,6 +405,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
         let project = LocalSrcProject {
             nominal_path: None,
             project_path: workspace.root_path().join(&project_root.path),
+            expected_checksum: None,
         };
 
         let file_name = default_kpar_file_name(&project)?;

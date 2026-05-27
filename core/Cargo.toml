@@ -20,7 +20,7 @@ lenient_checks = []
 # Binding support (but not binding libraries themselves)
 python = ["dep:pyo3"]
 js = ["dep:wasm-bindgen"]
-filesystem = ["dep:camino-tempfile", "dep:dirs", "dep:zip", "dep:idna"]
+filesystem = ["dep:camino-tempfile", "dep:dirs", "dep:zip"]
 networking = ["dep:reqwest", "dep:gix"] # "dep:reqwest-middleware", "dep:partialzip"
 # Different compression methods for creating KPARs
 kpar-bzip2 = ["zip?/bzip2"]
@@ -41,7 +41,7 @@ sha2.workspace = true
 hex.workspace = true
 dirs = { version = "6.0.0", optional = true}
 fluent-uri = { version = "0.4.1", features = ["serde", "net"] }
-idna = { version = "1.1.0", default-features = false, features = ["compiled_data"], optional = true }
+idna = { version = "1.1.0", default-features = false, features = ["compiled_data"] }
 indexmap = { version = "2.13.0", default-features = false, features = ["serde"] }
 log = { version = "0.4.29", default-features = false }
 pubgrub = { version = "0.4.0", default-features = false }

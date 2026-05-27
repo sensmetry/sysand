@@ -17,6 +17,8 @@ use crate::{
     project::{ProjectRead, ProjectReadAsync},
 };
 
+use super::ProjectChecksum;
+
 #[derive(Debug)]
 pub struct NullProject {
     nothing: Infallible,
@@ -78,6 +80,10 @@ impl ProjectRead for NullProject {
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self.nothing {}
     }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        match self.nothing {}
+    }
 }
 
 impl ProjectReadAsync for NullProject {
@@ -108,6 +114,10 @@ impl ProjectReadAsync for NullProject {
     }
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        match self.nothing {}
+    }
+
+    async fn checksum_canonical_variant_async(&self) -> Result<ProjectChecksum, Self::Error> {
         match self.nothing {}
     }
 }

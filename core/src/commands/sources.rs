@@ -12,7 +12,6 @@ use typed_path::Utf8UnixPathBuf;
 use crate::project::local_src::{LocalSrcError, LocalSrcProject, PathError};
 use crate::{
     env::ReadEnvironment,
-    lock::{Lock, ResolutionError},
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
     project::{ProjectRead, memory::InMemoryProject},
     resolve::{
@@ -125,21 +124,4 @@ pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
             PriorityProject::LowerProject(project) => Some(project),
         })
         .collect())
-}
-
-/// Finds all (locked) projects from a `Lock` (typically loaded from lockfile)
-/// in an provided environment.
-pub fn enumerate_projects_lock<Env: ReadEnvironment>(
-    lock: &Lock,
-    env: &Env,
-) -> Result<
-    Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
-    ResolutionError<<Env as ReadEnvironment>::ReadError>,
-> {
-    let projects = lock
-        .resolve_projects(env)?
-        .into_iter()
-        .filter_map(|(_, project_read)| project_read)
-        .collect();
-    Ok(projects)
 }

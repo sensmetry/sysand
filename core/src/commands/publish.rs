@@ -12,7 +12,10 @@ use url::Url;
 use crate::{
     auth::{ForceBearerAuth, HTTPAuthentication},
     env::discovery::{HttpBaseUrlShapeError, validate_http_base_url_shape},
-    project::{ProjectRead, local_kpar::LocalKParProject},
+    project::{
+        ProjectRead,
+        local_kpar::{KparInnerPath, LocalKParProject},
+    },
     purl::{
         PKG_SYSAND_PREFIX, is_valid_unnormalized_name, is_valid_unnormalized_publisher,
         normalize_field,
@@ -265,8 +268,7 @@ pub struct PublishPreparation {
 /// activity.
 pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, PublishError> {
     // Open and validate kpar.
-    let kpar_project = LocalKParProject::new_guess_root(path)
-        .map_err(|e| PublishError::KparOpen(path.as_str().into(), e.to_string()))?;
+    let kpar_project = LocalKParProject::new(path, KparInnerPath::Guess, None, None);
 
     let (info, meta) = kpar_project
         .get_project()

@@ -20,12 +20,13 @@ use sysand_core::{
     },
     stdlib::known_std_libs,
 };
+use typed_path::Utf8UnixPath;
 
 use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions, get_overrides};
 
 /// Generate a lockfile for `current_project`.
 #[expect(clippy::too_many_arguments)]
-pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
+pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
     path: P,
     resolution_opts: ResolutionOptions,
     config: &Config,
@@ -57,7 +58,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
     {
         w.projects()
             .iter()
-            .find(|p| Utf8Path::new(&p.path) == project.nominal_path.as_ref().unwrap())
+            .find(|p| &p.path == project.nominal_path.as_ref().unwrap())
             .map(|p| p.iris.clone())
     } else {
         None
@@ -76,7 +77,7 @@ pub fn command_lock<P: AsRef<Utf8Path>, Policy: HTTPAuthentication, R: AsRef<Utf
 
     let canonical = lock.canonicalize();
     wrapfs::write(
-        path.as_ref().join(DEFAULT_LOCKFILE_NAME),
+        Utf8Path::new(path.as_ref().as_str()).join(DEFAULT_LOCKFILE_NAME),
         canonical.to_string(),
     )?;
 

@@ -63,7 +63,7 @@ manually. Sensmetry is currently working on automating this process.
 
      Add usage to the list with `sysand add <IRI>`
 
-   - **Metamodel**: This field is neccessary to let the library consumers know
+   - **Metamodel**: This field is necessary to let the library consumers know
      which language standard (KerML, SysML, other KerML-based languages) and
      version to use when parsing the library.
 

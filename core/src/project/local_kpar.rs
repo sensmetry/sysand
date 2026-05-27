@@ -2,29 +2,43 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
-    fs,
-    io::{Read, Write as _},
+    cell::OnceCell,
+    fs::{self, File},
+    io::{Read, Seek, Write as _},
+    num::NonZeroU64,
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::{Utf8TempDir, tempdir};
+use serde::de::DeserializeOwned;
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
-use typed_path::{Utf8Component, Utf8UnixPath};
-use zip::ZipArchive;
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
+use zip::{ZipArchive, read::ZipFile, result::ZipError};
 
 use crate::{
     context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
-        self, ProjectRead,
+        self, KparMeta, ProjectChecksum, ProjectRead, hash_reader,
         utils::{RelativizePathError, ZipArchiveError, relativize_path},
     },
     utils::{lowercase_hex, sha256_lowercase_hex},
 };
 
 use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
+
+#[derive(Debug, Clone)]
+pub enum KparInnerPath {
+    /// Project is at the root of the archive, i.e. accessed directly as
+    /// `.project.json` and `.meta.json`
+    Root,
+    /// Project is at a given path within archive
+    Known(Utf8UnixPathBuf),
+    /// Project path within archive is unknown and has to be guessed
+    Guess,
+}
 
 /// Project stored in as a KPar (Zip) archive in the local filesystem.
 /// Source file paths are interpreted relative to `root`. Both `.project.json`
@@ -39,21 +53,38 @@ use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
 /// presence of a (presumed unique) `.project.json`.
 ///
 /// The archive is read directly without extracting it.
+// TODO: add a way to indicate whether to guess root at construction time
+// and use it to indicate that no guessing needed for index kpars
 #[derive(Debug)]
 pub struct LocalKParProject {
-    /// Temporary directory for unpacking files in archive.
-    tmp_dir: Utf8TempDir,
-    /// Path used in `Source::LocalSrc` returned by `.sources()`.
+    /// Path used in `Source::LocalKpar` returned by `.sources()`.
     /// If `None` no source will be given.
     /// E.g. if used in lockfile would be the path relative to the lockfile.
     // TODO: Consider removing this and replacing it with some way of
     // relativizing `archive_path` at the call site of .sources().
-    pub nominal_path: Option<Utf8PathBuf>,
+    pub nominal_path: Option<Utf8UnixPathBuf>,
     /// Path used when locating the project archive internally.
     /// Should be absolute.
-    pub archive_path: Utf8PathBuf,
-    /// Optionally specify name of root directory inside archive.
-    pub root: Option<Utf8PathBuf>,
+    archive_path: Utf8PathBuf,
+    expected: Option<KparMeta>,
+    /// Optionally specify name of project directory inside archive.
+    /// If none, currently always tries to guess before reading
+    /// any project files.
+    pub root: KparInnerPath,
+    init: OnceCell<(LocalKParProjectRaw, KparMeta)>,
+}
+
+/// Assumes that the kpar is already at `archive_path`
+#[derive(Debug)]
+pub struct LocalKParProjectRaw {
+    /// Temporary directory for unpacking files in archive.
+    tmp_dir: Utf8TempDir,
+    /// Path used when locating the project archive internally.
+    /// Should be absolute.
+    archive_path: Utf8PathBuf,
+    /// Path of project directory inside archive. If `None`, project is
+    /// at archive root.
+    root: Option<Utf8UnixPathBuf>,
 }
 
 #[derive(Error, Debug)]
@@ -72,64 +103,26 @@ pub enum LocalKParError {
         {0}"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
+    #[error("kpar at `{path}` has sha256 `{computed}` but the expected digest was `{expected}`")]
+    DigestMismatch {
+        path: Box<str>,
+        expected: String,
+        computed: String,
+    },
+    #[error("kpar at `{path}` has size {actual} bytes but the expected size was {expected} bytes")]
+    SizeMismatch {
+        path: Box<str>,
+        expected: u64,
+        actual: u64,
+    },
+    #[error("kpar at `{path}` is an empty file")]
+    EmptyKpar { path: Box<str> },
 }
 
 impl From<FsIoError> for LocalKParError {
     fn from(v: FsIoError) -> Self {
         Self::Io(Box::new(v))
     }
-}
-
-fn guess_root(archive: &mut ZipArchive<std::fs::File>) -> Result<Utf8PathBuf, LocalKParError> {
-    let mut maybe_root = None;
-    for i in 0..archive.len() {
-        let file = archive.by_index(i).map_err(ZipArchiveError::FileMeta)?;
-
-        if let Some(p) = file.enclosed_name() {
-            // `enclosed_name()` creates path from `String`
-            let p = Utf8PathBuf::from_path_buf(p).unwrap();
-            if p.file_name() == Some(".project.json") {
-                maybe_root = Some(
-                    p.parent()
-                        .ok_or_else(|| ZipArchiveError::InvalidPath(p.as_path().into()))?
-                        .to_path_buf(),
-                );
-                break;
-            }
-        }
-    }
-
-    if let Some(root) = maybe_root {
-        Ok(root)
-    } else {
-        Err(LocalKParError::NotFound(".project.json".into()))
-    }
-}
-
-// Wrapping this in case we want to add more normalisation logic
-fn path_index<P: AsRef<Utf8UnixPath>, Q: AsRef<Utf8Path>>(
-    set_root: Option<Q>,
-    archive: &mut ZipArchive<std::fs::File>,
-    path: P,
-) -> Result<usize, LocalKParError> {
-    // NOTE:
-    let mut native_path = match set_root {
-        Some(root) => root.to_path_buf(),
-        None => guess_root(archive)?,
-    };
-
-    // TODO: Extract this somewhere and clarify behaviour, see
-    //       sysand-core/src/io/local_file.rs#L57-78
-    //       @ 04c7d46fe2e188602df620407d6cedfef3440eb8
-    for component in path.as_ref().components() {
-        native_path.push(component.as_str());
-    }
-
-    let idx = archive
-        .index_for_path(&native_path)
-        .ok_or_else(|| LocalKParError::NotFound(native_path.as_path().into()))?;
-
-    Ok(idx)
 }
 
 #[derive(Debug, Error)]
@@ -155,64 +148,249 @@ impl<ReadError> From<FsIoError> for IntoKparError<ReadError> {
 }
 
 impl LocalKParProject {
-    /// path should be absolute
-    pub fn new<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+    pub fn new<P: AsRef<Utf8Path>>(
         path: P,
-        root: Q,
-    ) -> Result<Self, Box<FsIoError>> {
-        Ok(LocalKParProject {
-            tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
-            nominal_path: None,
+        root: KparInnerPath,
+        nominal: Option<Utf8UnixPathBuf>,
+        expected: Option<KparMeta>,
+    ) -> Self {
+        LocalKParProject {
+            nominal_path: nominal,
+            root,
+            init: OnceCell::new(),
             archive_path: path.to_path_buf(),
-            root: Some(root.to_path_buf()),
-        })
+            expected,
+        }
     }
 
-    /// path should be absolute
-    pub fn new_nominal<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>, N: AsRef<Utf8Path>>(
-        path: P,
-        root: Q,
-        nominal: N,
-    ) -> Result<Self, Box<FsIoError>> {
-        Ok(LocalKParProject {
-            tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
-            nominal_path: Some(nominal.to_path_buf()),
-            archive_path: path.to_path_buf(),
-            root: Some(root.to_path_buf()),
-        })
+    pub fn archive_path(&self) -> &Utf8Path {
+        &self.archive_path
     }
 
-    /// path should be absolute
-    pub fn new_guess_root<P: AsRef<Utf8Path>>(path: P) -> Result<Self, Box<FsIoError>> {
-        Ok(LocalKParProject {
+    fn ensure_initialized(&self) -> Result<&(LocalKParProjectRaw, KparMeta), LocalKParError> {
+        // TODO: use `OnceCell::get_or_try_init()` once it's stable;
+        // using `get_or_init()` directly requires us to always put the error into an `Arc` to
+        // allow returning it repeatedly from functions (`io::Error` is not cloneable)
+        match self.init.get() {
+            Some(val) => Ok(val),
+            None => {
+                let (inner, meta) =
+                    LocalKParProjectRaw::new_hash(&self.archive_path, self.root.to_owned())?;
+                if let Some(expected) = &self.expected {
+                    if meta.size_bytes != expected.size_bytes {
+                        return Err(LocalKParError::SizeMismatch {
+                            path: self.archive_path.as_str().into(),
+                            expected: expected.size_bytes.get(),
+                            actual: meta.size_bytes.get(),
+                        });
+                    } else if meta.sha256_hex != expected.sha256_hex {
+                        return Err(LocalKParError::DigestMismatch {
+                            path: self.archive_path.as_str().into(),
+                            expected: expected.sha256_hex.to_owned(),
+                            computed: meta.sha256_hex,
+                        });
+                    }
+                }
+                Ok(self.init.get_or_init(|| (inner, meta)))
+            }
+        }
+    }
+}
+
+type KParFile<'a> = super::utils::FileWithLifetime<'a>;
+
+// NOTE: Current implementation keeps re-opening the archive file. This appears to
+//       be unavoidable with the current design of this trait.
+impl ProjectRead for LocalKParProject {
+    type Error = LocalKParError;
+
+    fn get_project(
+        &self,
+    ) -> Result<
+        (
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
+        ),
+        Self::Error,
+    > {
+        match self.ensure_initialized() {
+            Ok((inner, _)) => inner.get_project(),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        match self.ensure_initialized() {
+            Ok((inner, _)) => inner.get_info(),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        match self.ensure_initialized() {
+            Ok((inner, _)) => inner.get_meta(),
+            Err(e) => Err(e),
+        }
+    }
+
+    type SourceReader<'a>
+        = KParFile<'a>
+    where
+        Self: 'a;
+
+    fn read_source<P: AsRef<Utf8UnixPath>>(
+        &self,
+        path: P,
+    ) -> Result<Self::SourceReader<'_>, Self::Error> {
+        match self.ensure_initialized() {
+            Ok((inner, _)) => inner.read_source(path),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        match self.ensure_initialized() {
+            Ok((inner, meta)) => {
+                let kpar_path = if let Some(np) = self.nominal_path.as_ref() {
+                    np.as_str().into()
+                } else if let Some(w) = &ctx.current_workspace {
+                    relativize_path(&inner.archive_path, w.root_path())?
+                        .into_string()
+                        .into()
+                } else if let Some(cp) = &ctx.current_project {
+                    relativize_path(&inner.archive_path, cp.root_path())?
+                        .into_string()
+                        .into()
+                } else {
+                    panic!(
+                        "`LocalKparProject` without `nominal_path` does not have any project sources"
+                    );
+                };
+                Ok(vec![Source::LocalKpar {
+                    kpar_path,
+                    kpar_size: meta.size_bytes,
+                    kpar_digest: meta.sha256_hex.to_owned(),
+                }])
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        match self.ensure_initialized() {
+            Ok((_, meta)) => Ok(ProjectChecksum::Kpar(meta.sha256_hex.clone())),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+impl LocalKParProjectRaw {
+    pub fn new_hash<P: AsRef<Utf8Path>>(
+        path: P,
+        root: KparInnerPath,
+    ) -> Result<(Self, KparMeta), LocalKParError> {
+        let path = path.as_ref();
+        let size_bytes = match NonZeroU64::new(wrapfs::metadata(path)?.len()) {
+            Some(n) => n,
+            None => {
+                return Err(LocalKParError::EmptyKpar {
+                    path: path.as_str().into(),
+                });
+            }
+        };
+        let mut archive = wrapfs::File::open(path)?;
+        let sha256_hex = match hash_reader(&mut archive) {
+            Ok(digest) => lowercase_hex(digest),
+            Err(e) => {
+                return Err(LocalKParError::Io(
+                    FsIoError::ReadFile(path.to_owned(), e).into(),
+                ));
+            }
+        };
+
+        let meta = KparMeta {
+            size_bytes,
+            sha256_hex,
+        };
+        let root = match root {
+            KparInnerPath::Root => None,
+            KparInnerPath::Known(path) => Some(path),
+            KparInnerPath::Guess => {
+                archive
+                    .rewind()
+                    .map_err(|e| FsIoError::Seek(path.to_owned(), 0, e))?;
+                let mut zip = zip::ZipArchive::new(archive)
+                    .map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
+                Some(guess_root(&mut zip)?)
+            }
+        };
+
+        let project = LocalKParProjectRaw {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
-            nominal_path: None,
+            archive_path: path.to_path_buf(),
+            root,
+        };
+        Ok((project, meta))
+    }
+
+    pub fn new_project_at_root<P: AsRef<Utf8Path>>(path: P) -> Result<Self, Box<FsIoError>> {
+        Ok(LocalKParProjectRaw {
+            tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
             archive_path: path.to_path_buf(),
             root: None,
         })
     }
 
-    /// path should be absolute
-    pub fn new_guess_root_nominal<P: AsRef<Utf8Path>, N: AsRef<Utf8Path>>(
-        path: P,
-        nominal: N,
-    ) -> Result<Self, Box<FsIoError>> {
-        Ok(LocalKParProject {
+    pub fn new_guess_root<P: AsRef<Utf8Path>>(path: P) -> Result<Self, LocalKParError> {
+        let path = path.as_ref();
+        let archive = wrapfs::File::open(path)?;
+
+        let mut zip = zip::ZipArchive::new(archive)
+            .map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
+        let root = Some(guess_root(&mut zip)?);
+
+        Ok(LocalKParProjectRaw {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
-            nominal_path: Some(nominal.to_path_buf()),
             archive_path: path.to_path_buf(),
-            root: None,
+            root,
         })
     }
 
     pub fn new_temporary() -> Result<Self, Box<FsIoError>> {
         let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
-        Ok(LocalKParProject {
-            nominal_path: None,
+        Ok(LocalKParProjectRaw {
             archive_path: tmp_dir.path().join("project.kpar"),
             tmp_dir,
             root: None,
         })
+    }
+
+    pub fn new_tempdir<P: AsRef<Utf8Path>>(
+        tmp_dir: Utf8TempDir,
+        path: P,
+        root: KparInnerPath,
+    ) -> Result<Self, LocalKParError> {
+        let path = path.as_ref();
+        let root = match root {
+            KparInnerPath::Root => None,
+            KparInnerPath::Known(path) => Some(path),
+            KparInnerPath::Guess => {
+                let archive = wrapfs::File::open(path)?;
+
+                let mut zip = zip::ZipArchive::new(archive)
+                    .map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
+                Some(guess_root(&mut zip)?)
+            }
+        };
+        Ok(LocalKParProjectRaw {
+            archive_path: path.to_owned(),
+            tmp_dir,
+            root,
+        })
+    }
+
+    pub fn archive_path(&self) -> &Utf8Path {
+        &self.archive_path
     }
 
     /// Build a KPAR archive from `from`.
@@ -273,26 +451,57 @@ impl LocalKParProject {
         zip.finish()
             .map_err(|e| ZipArchiveError::Finish(path.as_ref().into(), e))?;
 
-        LocalKParProject::new(&path, ".").map_err(IntoKparError::Io)
-    }
-
-    fn new_file(&self) -> Result<std::fs::File, LocalKParError> {
-        Ok(wrapfs::File::open(&self.archive_path)?)
-    }
-
-    fn new_archive(&self) -> Result<ZipArchive<std::fs::File>, LocalKParError> {
-        Ok(zip::ZipArchive::new(self.new_file()?)
-            .map_err(|e| ZipArchiveError::ReadArchive(self.archive_path.as_path().into(), e))?)
+        Self::new_project_at_root(&path).map_err(IntoKparError::Io)
     }
 
     pub fn file_size(&self) -> Result<u64, LocalKParError> {
-        Ok(fs::metadata(&self.archive_path)
-            .map_err(FsIoError::MetadataHandle)?
-            .len())
+        Ok(wrapfs::metadata(&self.archive_path)?.len())
+    }
+
+    fn open_archive_file(&self) -> Result<fs::File, LocalKParError> {
+        Ok(wrapfs::File::open(&self.archive_path)?)
+    }
+
+    fn open_archive(&self) -> Result<ZipArchive<fs::File>, LocalKParError> {
+        Ok(zip::ZipArchive::new(self.open_archive_file()?)
+            .map_err(|e| ZipArchiveError::ReadArchive(self.archive_path.as_path().into(), e))?)
+    }
+
+    /// `path` must be relative and use Unix separators
+    fn get_relative<'a, P: AsRef<Utf8UnixPath>>(
+        &self,
+        zip: &'a mut ZipArchive<File>,
+        path: P,
+    ) -> Result<ZipFile<'a, File>, (Utf8UnixPathBuf, ZipError)> {
+        let path_in_zip = match self.root.as_ref() {
+            Some(p) => p.join(path.as_ref()),
+            None => path.as_ref().into(),
+        };
+        match zip.by_path(path_in_zip.as_str()) {
+            Ok(f) => Ok(f),
+            Err(e) => Err((path_in_zip, e)),
+        }
+    }
+
+    fn get_parsed<T: DeserializeOwned, P: AsRef<Utf8UnixPath>>(
+        &self,
+        zip: &mut ZipArchive<File>,
+        path: P,
+    ) -> Result<Option<T>, LocalKParError> {
+        match self.get_relative(zip, path) {
+            Ok(f) => Ok(Some(serde_json::from_reader(f).map_err(|e| {
+                ProjectDeserializationError::new("failed to deserialize `.project.json`", e)
+            })?)),
+            Err((_, ZipError::FileNotFound)) => Ok(None),
+            Err((path, err)) => Err(LocalKParError::Zip(ZipArchiveError::NamedFileMeta(
+                path.into_string().into(),
+                err,
+            ))),
+        }
     }
 
     pub fn digest_sha256(&self) -> Result<String, LocalKParError> {
-        let mut file = self.new_file()?;
+        let mut file = self.open_archive_file()?;
         let mut buf = [0; 1024];
         let mut hasher = Sha256::new();
         loop {
@@ -309,11 +518,9 @@ impl LocalKParProject {
     }
 }
 
-type KParFile<'a> = super::utils::FileWithLifetime<'a>;
-
 // NOTE: Current implementation keeps re-opening the archive file. This appears to
 //       be unavoidable with the current design of this trait.
-impl ProjectRead for LocalKParProject {
+impl ProjectRead for LocalKParProjectRaw {
     type Error = LocalKParError;
 
     fn get_project(
@@ -325,35 +532,22 @@ impl ProjectRead for LocalKParProject {
         ),
         Self::Error,
     > {
-        let mut archive = self.new_archive()?;
-
-        let info = match path_index(self.root.as_deref(), &mut archive, ".project.json") {
-            Ok(idx) => serde_json::from_reader(
-                archive
-                    .by_index(idx)
-                    .map_err(|e| ZipArchiveError::NamedFileMeta(".project.json".into(), e))?,
-            )
-            .map_err(|e| {
-                ProjectDeserializationError::new("failed to deserialize `.project.json`", e)
-            })?,
-            Err(LocalKParError::NotFound(_)) => None,
-            Err(err) => return Err(err),
-        };
-
-        let meta = match path_index(self.root.as_deref(), &mut archive, ".meta.json") {
-            Ok(idx) => serde_json::from_reader(
-                archive
-                    .by_index(idx)
-                    .map_err(|e| ZipArchiveError::NamedFileMeta(".meta.json".into(), e))?,
-            )
-            .map_err(|e| {
-                ProjectDeserializationError::new("failed to deserialize `.meta.json`", e)
-            })?,
-            Err(LocalKParError::NotFound(_)) => None,
-            Err(err) => return Err(err),
-        };
-
+        let mut archive = self.open_archive()?;
+        let info = self.get_parsed(&mut archive, ".project.json")?;
+        let meta = self.get_parsed(&mut archive, ".meta.json")?;
         Ok((info, meta))
+    }
+
+    fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
+        let mut archive = self.open_archive()?;
+        let info = self.get_parsed(&mut archive, ".project.json")?;
+        Ok(info)
+    }
+
+    fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
+        let mut archive = self.open_archive()?;
+        let meta = self.get_parsed(&mut archive, ".meta.json")?;
+        Ok(meta)
     }
 
     type SourceReader<'a>
@@ -361,6 +555,8 @@ impl ProjectRead for LocalKParProject {
     where
         Self: 'a;
 
+    // FIXME: this may garble the file if two calls interleave (which can
+    // happen via async wrappers).
     fn read_source<P: AsRef<Utf8UnixPath>>(
         &self,
         path: P,
@@ -371,12 +567,16 @@ impl ProjectRead for LocalKParProject {
         if !tmp_file_path.is_file() {
             let mut tmp_file = wrapfs::File::create(&tmp_file_path)?;
 
-            let mut archive = self.new_archive()?;
-            let idx = path_index(self.root.as_deref(), &mut archive, &path)?;
+            let mut archive = self.open_archive()?;
+            let mut zip_file = self
+                .get_relative(&mut archive, path)
+                .map_err(|(p, e)| ZipArchiveError::NamedFileMeta(p.into_string().into(), e))?;
 
-            let mut zip_file = archive
-                .by_index(idx)
-                .map_err(|e| ZipArchiveError::NamedFileMeta(path.as_ref().as_str().into(), e))?;
+            // let idx = path_index(self.root.as_deref(), &mut archive, &path)?;
+
+            // let mut zip_file = archive
+            //     .by_index(idx)
+            //     .map_err(|e| ZipArchiveError::NamedFileMeta(path.as_ref().as_str().into(), e))?;
 
             std::io::copy(&mut zip_file, &mut tmp_file)
                 .map_err(|e| FsIoError::WriteFile(tmp_file_path.clone(), e))?;
@@ -390,26 +590,56 @@ impl ProjectRead for LocalKParProject {
         // Ok(KparFile { archive: archive, file: &mut archive.by_index(idx)? })
     }
 
-    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        if let Some(np) = self.nominal_path.as_ref() {
-            Ok(vec![Source::LocalKpar {
-                kpar_path: np.as_str().into(),
-            }])
-        } else if let Some(w) = &ctx.current_workspace {
-            Ok(vec![Source::LocalKpar {
-                kpar_path: relativize_path(&self.archive_path, w.root_path())?
-                    .into_string()
-                    .into(),
-            }])
-        } else if let Some(cp) = &ctx.current_project {
-            Ok(vec![Source::LocalKpar {
-                kpar_path: relativize_path(&self.archive_path, cp.root_path())?
-                    .into_string()
-                    .into(),
-            }])
-        } else {
-            panic!("`LocalKparProject` without `nominal_path` does not have any project sources");
+    /// This always panics. Wrapper is responsible for providing an appropriate source
+    fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        panic!()
+    }
+
+    /// This always panics. Wrapper is responsible for providing the checksum
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        panic!()
+    }
+}
+
+/// Guess the directory of the project within the zip archive. Project
+/// directory here means any directory that contains `.project.json`.
+/// Returned path will be empty if the directory is archive root
+fn guess_root(archive: &mut ZipArchive<fs::File>) -> Result<Utf8UnixPathBuf, LocalKParError> {
+    let mut maybe_root = None;
+    for i in 0..archive.len() {
+        let file = archive.by_index(i).map_err(ZipArchiveError::FileMeta)?;
+
+        // TODO: do more sanitization here; enclosed_name() does some checks, but
+        // it also makes the path OS-native, so Utf8UnixPath won't work with it.
+        // To work around this, we check that the sanitized path can be produced,
+        // but then use the raw path, as it's always Unix-style per zip spec
+        if file.enclosed_name().is_some() {
+            let p = Utf8UnixPath::new(file.name());
+            if let Some(root) = project_root_from_zip_entry_path(p)? {
+                maybe_root = Some(root);
+                break;
+            }
         }
+    }
+
+    if let Some(root) = maybe_root {
+        Ok(root)
+    } else {
+        Err(LocalKParError::NotFound(".project.json".into()))
+    }
+}
+
+fn project_root_from_zip_entry_path(
+    p: &Utf8UnixPath,
+) -> Result<Option<Utf8UnixPathBuf>, ZipArchiveError> {
+    if p.file_name() == Some(".project.json") {
+        Ok(Some(
+            p.parent()
+                .ok_or_else(|| ZipArchiveError::InvalidPath(Utf8Path::new(p.as_str()).into()))?
+                .to_path_buf(),
+        ))
+    } else {
+        Ok(None)
     }
 }
 

@@ -44,6 +44,8 @@ use crate::{
     resolve::net_utils::json_get_request,
 };
 
+use super::ProjectChecksumResult;
+
 /// Async HTTP client for the sysand index protocol.
 ///
 /// `index_root` is resolved lazily via `sysand-index-config.json` on
@@ -53,7 +55,7 @@ use crate::{
 /// `publish`).
 ///
 /// A per-IRI `versions.json` document holds the advertised versions plus
-/// the five per-entry fields (`version`, `usage`, `project_digest`,
+/// the per-entry fields (`version`, `usage`,
 /// `kpar_size`, `kpar_digest`) needed to enumerate candidates and verify
 /// later-fetched project metadata and archives.
 /// The optional `status` field controls retirement filtering. Fetched
@@ -180,7 +182,6 @@ impl TryFrom<&str> for Sha256HexDigest {
 pub(crate) struct AdvertisedVersion {
     pub(crate) version: semver::Version,
     pub(crate) usage: Vec<InterchangeProjectUsageRaw>,
-    pub(crate) project_digest: Sha256HexDigest,
     pub(crate) kpar_size: NonZeroU64,
     pub(crate) kpar_digest: Sha256HexDigest,
     pub(crate) status: VersionStatus,
@@ -427,51 +428,43 @@ fn validate_versions(
     url: &url::Url,
     vs: VersionsJson,
 ) -> Result<Rc<[AdvertisedVersion]>, IndexEnvironmentError> {
-    let validated: Rc<[AdvertisedVersion]> =
-        vs.versions
-            .into_iter()
-            .map(|entry| {
-                let version = Version::parse(&entry.version).map_err(|source| {
-                    IndexEnvironmentError::InvalidSemverVersion {
-                        url: url.as_str().into(),
-                        value: entry.version.clone(),
-                        source,
-                    }
-                })?;
-                // `semver::Version::parse` is lenient on the `+build…`
-                // suffix; the wire-format rejection lives here.
-                if !version.build.is_empty() {
-                    return Err(IndexEnvironmentError::VersionHasBuildMetadata {
-                        url: url.as_str().into(),
-                        value: entry.version.clone(),
-                    });
+    let validated: Rc<[AdvertisedVersion]> = vs
+        .versions
+        .into_iter()
+        .map(|entry| {
+            let version = Version::parse(&entry.version).map_err(|source| {
+                IndexEnvironmentError::InvalidSemverVersion {
+                    url: url.as_str().into(),
+                    value: entry.version.clone(),
+                    source,
                 }
-                let project_digest = Sha256HexDigest::try_from(entry.project_digest.as_str())
-                    .map_err(|_| IndexEnvironmentError::InvalidVersionEntry {
+            })?;
+            // `semver::Version::parse` is lenient on the `+build…`
+            // suffix; the wire-format rejection lives here.
+            if !version.build.is_empty() {
+                return Err(IndexEnvironmentError::VersionHasBuildMetadata {
+                    url: url.as_str().into(),
+                    value: entry.version.clone(),
+                });
+            }
+            let kpar_digest =
+                Sha256HexDigest::try_from(entry.kpar_digest.as_str()).map_err(|_| {
+                    IndexEnvironmentError::InvalidVersionEntry {
                         url: url.as_str().into(),
                         version: entry.version.clone(),
-                        field: "project_digest",
-                        value: entry.project_digest.clone(),
-                    })?;
-                let kpar_digest =
-                    Sha256HexDigest::try_from(entry.kpar_digest.as_str()).map_err(|_| {
-                        IndexEnvironmentError::InvalidVersionEntry {
-                            url: url.as_str().into(),
-                            version: entry.version.clone(),
-                            field: "kpar_digest",
-                            value: entry.kpar_digest.clone(),
-                        }
-                    })?;
-                Ok::<_, IndexEnvironmentError>(AdvertisedVersion {
-                    version,
-                    usage: entry.usage,
-                    project_digest,
-                    kpar_size: entry.kpar_size,
-                    kpar_digest,
-                    status: entry.status,
-                })
+                        field: "kpar_digest",
+                        value: entry.kpar_digest.clone(),
+                    }
+                })?;
+            Ok::<_, IndexEnvironmentError>(AdvertisedVersion {
+                version,
+                usage: entry.usage,
+                kpar_size: entry.kpar_size,
+                kpar_digest,
+                status: entry.status,
             })
-            .collect::<Result<_, _>>()?;
+        })
+        .collect::<Result<_, _>>()?;
     // "Pick the best duplicate" has no principled answer — two entries
     // with the same semver may carry different digests. Letting them
     // reach `resolve_candidates` would leak non-determinism into
@@ -501,6 +494,8 @@ fn validate_versions(
 
 type ResultStream<T> = futures::stream::Iter<std::vec::IntoIter<Result<T, IndexEnvironmentError>>>;
 
+/// TODO: move index away from ReadEnvironment traits; most new methods will not be used
+/// for index
 impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<Policy> {
     type ReadError = IndexEnvironmentError;
 
@@ -634,6 +629,16 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         .map_err(Box::new)?;
 
         Ok(project)
+    }
+
+    /// Not useful for an index
+    async fn has_version_verified_async<S: AsRef<str>, V: AsRef<str>>(
+        &self,
+        _uri: S,
+        _version: V,
+        _checksum: &crate::project::ProjectChecksum,
+    ) -> Result<ProjectChecksumResult, Self::ReadError> {
+        panic!()
     }
 }
 

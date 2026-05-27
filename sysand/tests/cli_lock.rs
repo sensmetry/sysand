@@ -8,9 +8,10 @@ use mockito::{Mock, Server, ServerGuard};
 use predicates::{prelude::*, str::contains};
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
+    config::OverrideSource,
     env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
     lock::{Lock, Source},
-    model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw, project_hash_hex},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     purl::PKG_SYSAND_PREFIX,
     utils::sha256_lowercase_hex,
 };
@@ -75,7 +76,7 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
         indexes: vec![],
         projects: vec![sysand_core::config::ConfigProject {
             identifiers: vec!["urn:kpar:local_dep".to_string()],
-            sources: vec![sysand_core::lock::Source::LocalSrc {
+            sources: vec![OverrideSource::LocalSrc {
                 src_path: cwd.join("local_dep").as_str().into(),
             }],
         }],
@@ -125,7 +126,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
         indexes: vec![],
         projects: vec![sysand_core::config::ConfigProject {
             identifiers: vec!["urn:kpar:local_dep".to_string()],
-            sources: vec![sysand_core::lock::Source::LocalSrc {
+            sources: vec![OverrideSource::LocalSrc {
                 src_path: cwd.join("local_dep").as_str().into(),
             }],
         }],
@@ -314,7 +315,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let project_names: Vec<_> = projects
         .iter()
         .cloned()
-        .filter_map(|project| project.name)
+        .map(|project| project.name)
         .collect();
 
     assert!(project_names.contains(&"lock_basic_http_deps".to_string()));
@@ -399,7 +400,6 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
     let kpar_sha256_hex = sha256_lowercase_hex(&kpar_bytes);
     // No `meta.checksum` entries → canonical digest == raw digest for this
     // fixture; see the docstring on `build_index_kpar_bytes`.
-    let project_digest_hex = project_hash_hex(&info, &meta);
     let kpar_size = kpar_bytes.len();
 
     // `sysand lock` targets a specific IRI via `versions_async`; it must not
@@ -428,7 +428,6 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         .with_header("content-type", "application/json")
         .with_body(versions_json_body(&[versions_json_entry_body(
             "0.1.0",
-            &project_digest_hex,
             kpar_size,
             &kpar_sha256_hex,
         )]))
@@ -487,20 +486,16 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
 
     let dep = projects
         .iter()
-        .find(|p| p.name.as_deref() == Some("dep"))
+        .find(|p| p.name == "dep")
         .expect("locked dep should carry name from versions.json");
-    assert_eq!(
-        dep.checksum, project_digest_hex,
-        "lockfile must record the advertised digest verbatim"
-    );
     assert!(
         dep.sources.iter().any(|source| {
             matches!(
                 source,
                 Source::IndexKpar {
-                    index_kpar_digest,
+                    kpar_digest,
                     ..
-                } if index_kpar_digest == &kpar_sha256_hex
+                } if kpar_digest == &kpar_sha256_hex
             )
         }),
         "lockfile must retain the advertised kpar_digest for sync-time verification"
@@ -542,7 +537,6 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     // lockfile.
     let (kpar_bytes, info, meta) = build_index_kpar_bytes("dep", "0.1.0");
     let kpar_digest_hex = sha256_lowercase_hex(&kpar_bytes);
-    let locked_project_digest = project_hash_hex(&info, &meta);
     let kpar_size = kpar_bytes.len();
 
     let config_mock = server
@@ -557,7 +551,6 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .with_header("content-type", "application/json")
         .with_body(versions_json_body(&[versions_json_entry_body(
             "0.1.0",
-            &locked_project_digest,
             kpar_size,
             &kpar_digest_hex,
         )]))
@@ -603,26 +596,22 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     let out = run_sysand_in(&cwd, ["lock", "--default-index", &server_url], None)?;
     out.assert().success().stdout(predicate::str::is_empty());
 
-    // Sanity-check: lockfile recorded the advertised project_digest.
+    // Sanity-check: lockfile recorded the advertised kpar_digest.
     let lock_file: Lock =
         toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
     let dep = lock_file
         .projects
         .iter()
-        .find(|p| p.name.as_deref() == Some("dep"))
+        .find(|p| p.name == "dep")
         .expect("locked dep present");
-    assert_eq!(
-        dep.checksum, locked_project_digest,
-        "lockfile must record advertised project_digest verbatim"
-    );
     assert!(
         dep.sources.iter().any(|source| {
             matches!(
                 source,
                 Source::IndexKpar {
-                    index_kpar_digest,
+                    kpar_digest,
                     ..
-                } if index_kpar_digest == &kpar_digest_hex
+                } if kpar_digest == &kpar_digest_hex
             )
         }),
         "lockfile must retain the advertised kpar_digest for sync-time verification"
@@ -651,7 +640,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .expect(1)
         .create();
 
-    // Now sync. The stored `index_kpar_digest` should reject the drifted bytes
+    // Now sync. The stored `kpar_digest` should reject the drifted bytes
     // before any install happens.
     let out = run_sysand_in(&cwd, ["sync", "--default-index", &server_url], None)?;
     out.assert()

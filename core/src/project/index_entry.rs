@@ -21,13 +21,6 @@
 //!   [`crate::project::reqwest_kpar_download::ReqwestKparDownloadedProject`],
 //!   which verifies the archive against the advertised `kpar_digest` before
 //!   exposing source bytes.
-//! - [`IndexEntryProjectError::AdvertisedDigestDrift`] as the concrete
-//!   error surface for digest mismatches, raised both pre-download (from
-//!   the inline canonical digest — see
-//!   [`crate::project::canonical_project_digest_inline`]) and post-download
-//!   (authoritative check using the downloaded archive). If the inline
-//!   digest requires source reads, the project is rejected with
-//!   [`IndexEntryProjectError::ProjectDigestRequiresSourceReads`] instead.
 
 use std::sync::Arc;
 
@@ -41,18 +34,21 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw},
     project::{
-        CanonicalizationError, InlineProjectDigest, ProjectReadAsync,
-        canonical_project_digest_inline,
-        reqwest_kpar_download::{ReqwestKparDownloadedError, ReqwestKparDownloadedProject},
+        ProjectReadAsync,
+        reqwest_kpar_download::{
+            ReqwestIndexKparDownloadedProject, ReqwestKparDownloadedError,
+            ReqwestRemoteKparDownloadedProject,
+        },
     },
-    utils::lowercase_hex,
 };
+
+use super::ProjectChecksum;
 
 #[derive(Debug)]
 pub struct IndexEntryProject<Policy> {
     /// The kpar archive backend — field name tracks its role in this struct,
     /// type name tracks the transport.
-    pub(crate) archive: ReqwestKparDownloadedProject<Policy>,
+    pub(crate) archive: ReqwestIndexKparDownloadedProject<Policy>,
     /// Single source of truth for protocol-advertised per-version metadata.
     /// `version_async` and `usage_async` return these fields without I/O;
     /// `checksum_canonical_hex_async` does the same until the archive has been
@@ -68,20 +64,6 @@ pub struct IndexEntryProject<Policy> {
 pub enum IndexEntryProjectError {
     #[error(transparent)]
     Fetch(#[from] HttpFetchError),
-    #[error(
-        "project at `{url}` has locally-computed canonical digest `{computed}` \
-         but the expected digest was `{expected}`"
-    )]
-    AdvertisedDigestDrift {
-        url: Box<str>,
-        expected: String,
-        computed: String,
-    },
-    #[error(
-        "project at `{url}` cannot be verified from `.project.json` and `.meta.json` alone \
-         because `.meta.json` contains a non-SHA256 source checksum"
-    )]
-    ProjectDigestRequiresSourceReads { url: Box<str> },
     #[error(transparent)]
     Downloaded(#[from] ReqwestKparDownloadedError),
 }
@@ -99,12 +81,12 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         auth_policy: Arc<Policy>,
     ) -> Result<Self, IndexEntryProjectError> {
         Ok(Self {
-            archive: ReqwestKparDownloadedProject::new(
+            archive: ReqwestIndexKparDownloadedProject::new(
                 kpar_url,
                 client,
                 auth_policy,
-                Some(advertised.kpar_digest.as_hex().to_owned()),
-                Some(advertised.kpar_size),
+                advertised.kpar_size,
+                advertised.kpar_digest.as_hex().to_owned(),
             )?,
             advertised,
             project_json_url,
@@ -131,7 +113,8 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         .expect("RequirePresent never returns Ok(None)"))
     }
 
-    async fn fetched_project_async(
+    /// Downloads `.project.json` and `.meta.json`. No verification is done.
+    async fn ensure_downloaded(
         &self,
     ) -> Result<&(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), IndexEntryProjectError>
     {
@@ -144,28 +127,6 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
                     self.fetch_required_json(self.project_json_url.clone()),
                     self.fetch_required_json(self.meta_json_url.clone()),
                 )?;
-
-                // Pre-expose digest check (see module doc). The index
-                // protocol requires `project_digest` to be verifiable from
-                // (info, meta) alone; source-reading canonicalization is not
-                // a valid fallback here because callers receive info/meta
-                // before any kpar bytes are exposed.
-                let hash = match canonical_project_digest_inline(&info, &meta) {
-                    InlineProjectDigest::Computed(hash) => hash,
-                    InlineProjectDigest::RequiresSourceReads => {
-                        return Err(IndexEntryProjectError::ProjectDigestRequiresSourceReads {
-                            url: self.project_json_url.as_str().into(),
-                        });
-                    }
-                };
-                let computed = lowercase_hex(hash);
-                if computed != self.advertised.project_digest.as_hex() {
-                    return Err(IndexEntryProjectError::AdvertisedDigestDrift {
-                        url: self.project_json_url.as_str().into(),
-                        expected: self.advertised.project_digest.as_hex().to_string(),
-                        computed,
-                    });
-                }
 
                 Ok((info, meta))
             })
@@ -185,12 +146,12 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
         ),
         Self::Error,
     > {
-        let (info, meta) = self.fetched_project_async().await?;
+        let (info, meta) = self.ensure_downloaded().await?;
         Ok((Some(info.clone()), Some(meta.clone())))
     }
 
     type SourceReader<'a>
-        = <ReqwestKparDownloadedProject<Policy> as ProjectReadAsync>::SourceReader<'a>
+        = <ReqwestRemoteKparDownloadedProject<Policy> as ProjectReadAsync>::SourceReader<'a>
     where
         Self: 'a;
 
@@ -206,18 +167,18 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         Ok(vec![Source::IndexKpar {
-            index_kpar: self.archive.url.to_string(),
-            index_kpar_size: self.advertised.kpar_size,
-            index_kpar_digest: self.advertised.kpar_digest.as_hex().to_string(),
+            index_kpar: self.archive.url().to_string(),
+            kpar_size: self.advertised.kpar_size,
+            kpar_digest: self.advertised.kpar_digest.as_hex().to_string(),
         }])
     }
 
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        Ok(Some(self.fetched_project_async().await?.0.clone()))
+        Ok(Some(self.ensure_downloaded().await?.0.clone()))
     }
 
     async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        Ok(Some(self.fetched_project_async().await?.1.clone()))
+        Ok(Some(self.ensure_downloaded().await?.1.clone()))
     }
 
     async fn version_async(&self) -> Result<Option<String>, Self::Error> {
@@ -228,36 +189,14 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
         Ok(Some(self.advertised.usage.clone()))
     }
 
-    async fn checksum_canonical_hex_async(
-        &self,
-    ) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
-        // Gate on verified archive bytes, not merely on the final path
-        // existing. The project digest check below validates info/meta
-        // consistency; archive-byte authenticity belongs to the kpar digest
-        // verification performed by `ensure_downloaded_verified`.
-        if !self.archive.is_downloaded_and_verified() {
-            return Ok(Some(self.advertised.project_digest.as_hex().to_string()));
-        }
-
-        let computed = self
-            .archive
-            .checksum_canonical_hex_async()
-            .await
-            .map_err(|e| e.map_project_read(IndexEntryProjectError::Downloaded))?;
-
-        if let Some(computed_hex) = computed.as_ref()
-            && computed_hex.as_str() != self.advertised.project_digest.as_hex()
-        {
-            return Err(CanonicalizationError::ProjectRead(
-                IndexEntryProjectError::AdvertisedDigestDrift {
-                    url: self.project_json_url.as_str().into(),
-                    expected: self.advertised.project_digest.as_hex().to_string(),
-                    computed: computed_hex.clone(),
-                },
-            ));
-        }
-
-        Ok(computed)
+    // TODO: decide the security requirements here and maybe have separate methods
+    // used for e.g. generating a lockfile, where advertised checksum is fine,
+    // as it will be verified on sync, and the actual verification of e.g. projects being downloaded
+    // against a lockfile, or verifying that the correct ones are installed in env
+    async fn checksum_canonical_variant_async(&self) -> Result<ProjectChecksum, Self::Error> {
+        Ok(ProjectChecksum::Kpar(
+            self.advertised.kpar_digest.as_hex().to_string(),
+        ))
     }
 }
 

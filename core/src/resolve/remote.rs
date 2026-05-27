@@ -184,6 +184,17 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
                 .map_err(|e| e.map_project_read(RemoteProjectError::GitRead)),
         }
     }
+
+    fn checksum_canonical_variant(&self) -> Result<crate::project::ProjectChecksum, Self::Error> {
+        match self {
+            RemoteProject::HTTPProject(project) => project
+                .checksum_canonical_variant()
+                .map_err(RemoteProjectError::HTTPRead),
+            RemoteProject::GitProject(project) => project
+                .checksum_canonical_variant()
+                .map_err(RemoteProjectError::GitRead),
+        }
+    }
 }
 
 pub struct ResolvedRemote<HTTPResolver: ResolveRead, GitResolver: ResolveRead> {

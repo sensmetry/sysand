@@ -8,7 +8,7 @@ use crate::{
         PutProjectError, ReadEnvironment, WriteEnvironment,
         utils::{CloneError, clone_project},
     },
-    project::ProjectRead,
+    project::{ProjectChecksum, ProjectRead},
 };
 
 #[derive(Error, Debug)]
@@ -110,6 +110,7 @@ pub fn do_env_install_project<
     uri: S,
     version: &str,
     storage: &P,
+    checksum: Option<ProjectChecksum>,
     env: &mut E,
     allow_overwrite: bool,
     allow_multiple: bool,
@@ -134,7 +135,7 @@ pub fn do_env_install_project<
         uri.as_ref(),
     );
 
-    env.put_project(uri, version, |p| {
+    env.put_project(uri, version, checksum, |p| {
         clone_project(storage, p, true).map(|_| ())
     })
     .map_err(EnvInstallError::Installation)?;

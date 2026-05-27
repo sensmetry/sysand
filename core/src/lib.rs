@@ -18,7 +18,6 @@ pub mod context;
 pub mod env;
 #[cfg(feature = "filesystem")]
 pub mod index;
-#[cfg(feature = "filesystem")]
 mod iri_normalize;
 pub mod lock;
 pub mod project;

@@ -44,7 +44,7 @@ pub(crate) enum VersionStatus {
 
 /// Per-project `versions.json`: enough to enumerate candidates and
 /// verify archives without downloading first. The publish-time artifact
-/// metadata (`project_digest`, `kpar_size`, `kpar_digest`) lets the
+/// metadata (`kpar_size`, `kpar_digest`) lets the
 /// client populate the lockfile lazily; `.project.json` / `.meta.json`
 /// are only fetched once a specific version is materialized, and the
 /// client reconciles them against these digests before exposing either.
@@ -59,9 +59,6 @@ pub(crate) struct VersionEntry {
     /// Required so the solver can run on `versions.json` alone, without
     /// fetching each candidate's `.project.json`.
     pub(crate) usage: Vec<InterchangeProjectUsageRaw>,
-    /// Canonical project digest (sha256 over canonicalized info+meta),
-    /// used to populate the lockfile checksum without downloading the kpar.
-    pub(crate) project_digest: String,
     /// Byte length of the kpar archive; lets `sources_async` skip a HEAD.
     pub(crate) kpar_size: NonZeroU64,
     /// Digest of the kpar archive bytes, verified against the streamed

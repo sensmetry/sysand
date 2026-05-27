@@ -88,4 +88,8 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         // override a leaf might install.
         self.local.checksum_canonical_hex()
     }
+
+    fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
+        self.local.checksum_canonical_variant()
+    }
 }

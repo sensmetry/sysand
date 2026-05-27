@@ -9,7 +9,7 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
 use super::Config;
 use crate::{
-    lock::Source,
+    config::OverrideSource,
     project::utils::{FsIoError, wrapfs},
     utils::multiline_array,
 };
@@ -73,7 +73,7 @@ pub enum ConfigProjectSourceError {
 pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
     config_path: P,
     iri: S,
-    source: &Source,
+    source: &OverrideSource,
 ) -> Result<(), ConfigProjectSourceError> {
     let config_path = config_path.as_ref();
     let sources = multiline_array(std::iter::once(source.to_toml()));

@@ -80,6 +80,7 @@ path = "lib/kpar.test_0.0.1"
 identifiers = [
     "urn:kpar:test",
 ]
+src_cksum = "69311f2c1fcc3cc8649461ff1961e17df46237399bad1596e099e8483865e3f4"
 "#
     );
 
@@ -208,6 +209,7 @@ path = "lib/127.0.0.1-test_lib_0.0.1"
 identifiers = [
     "{}/test_lib.kpar",
 ]
+kpar_cksum = "1838ad10a9c1fa46c74a92c68212e6fdcf6f6011a94ca5f16e343ea18a8e203b"
 "#,
             server.url()
         )
@@ -302,5 +304,209 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `--allow-multiple` lets a different version of an already-installed project
+/// be installed alongside it; the same version still triggers an error.
+#[test]
+fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
+
+    // Build v1 with a .meta.json so checksum_canonical_variant succeeds.
+    let (_temp_v1, cwd_v1, out) = run_sysand(
+        ["init", "--version", "1.0.0", "--name", "allow_multiple_lib"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(cwd_v1.join("TestLib.sysml"), "package TestLib;")?;
+    run_sysand_in(&cwd_v1, ["include", "TestLib.sysml"], None)?
+        .assert()
+        .success();
+
+    // Build v2 with the same IRI but a different version.
+    let (_temp_v2, cwd_v2, out) = run_sysand(
+        ["init", "--version", "2.0.0", "--name", "allow_multiple_lib"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(cwd_v2.join("TestLib.sysml"), "package TestLib;")?;
+    run_sysand_in(&cwd_v2, ["include", "TestLib.sysml"], None)?
+        .assert()
+        .success();
+
+    // Install v1.
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:allow-multiple-lib",
+            "--path",
+            cwd_v1.as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    // Without --allow-multiple, installing v2 (a different version) fails.
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:allow-multiple-lib",
+            "--path",
+            cwd_v2.as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "project with IRI `urn:kpar:allow-multiple-lib` is already installed",
+    ));
+
+    // With --allow-multiple, installing v2 alongside v1 succeeds.
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:allow-multiple-lib",
+            "--path",
+            cwd_v2.as_str(),
+            "--allow-multiple",
+        ],
+        None,
+    )?
+    .assert()
+    .success()
+    .stderr(predicate::str::contains(
+        "`urn:kpar:allow-multiple-lib` 2.0.0",
+    ));
+
+    // --allow-multiple still rejects reinstalling the same version that is
+    // already present (that requires --allow-overwrite instead).
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:allow-multiple-lib",
+            "--path",
+            cwd_v1.as_str(),
+            "--allow-multiple",
+        ],
+        None,
+    )?
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains(
+        "project with IRI `urn:kpar:allow-multiple-lib` already has version `1.0.0` installed",
+    ));
+
+    Ok(())
+}
+
 // TODO: Write helper function to generate an index and add tests for
-// installing from index and for using flag '--allow-multiple'.
+// installing from index.
+
+/// Installing multiple projects in sequence via `env install --path` keeps all
+/// entries in `env.toml` and physically installs each project into the env
+/// directory. All installed projects are non-editable and carry a `src_cksum`.
+#[test]
+fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
+
+    // Build two projects with valid .meta.json so checksum_canonical_variant succeeds.
+    let (_tmp_a, cwd_a, out) = run_sysand(
+        ["init", "--version", "1.0.0", "--name", "env_multi_proj_a"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(cwd_a.join("A.sysml"), "package A;")?;
+    run_sysand_in(&cwd_a, ["include", "A.sysml"], None)?
+        .assert()
+        .success();
+
+    let (_tmp_b, cwd_b, out) = run_sysand(
+        ["init", "--version", "2.0.0", "--name", "env_multi_proj_b"],
+        None,
+    )?;
+    out.assert().success();
+    std::fs::write(cwd_b.join("B.sysml"), "package B;")?;
+    run_sysand_in(&cwd_b, ["include", "B.sysml"], None)?
+        .assert()
+        .success();
+
+    // Install both projects one after the other.
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:env-multi-a",
+            "--path",
+            cwd_a.as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .success()
+    .stderr(predicate::str::contains("`urn:kpar:env-multi-a` 1.0.0"));
+
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:env-multi-b",
+            "--path",
+            cwd_b.as_str(),
+        ],
+        None,
+    )?
+    .assert()
+    .success()
+    .stderr(predicate::str::contains("`urn:kpar:env-multi-b` 2.0.0"));
+
+    let env_toml = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+
+    // Both entries are present and non-editable.
+    assert!(
+        env_toml.contains("urn:kpar:env-multi-a"),
+        "proj_a missing from env.toml"
+    );
+    assert!(
+        env_toml.contains("urn:kpar:env-multi-b"),
+        "proj_b missing from env.toml"
+    );
+    assert!(
+        env_toml.contains("src_cksum"),
+        "expected src_cksum for installed projects"
+    );
+    assert!(
+        !env_toml.contains("editable = true"),
+        "env install must not produce editable entries"
+    );
+
+    // Project files are physically present inside the env.
+    assert!(
+        cwd.join(DEFAULT_ENV_NAME)
+            .join("lib/kpar.env-multi-a_1.0.0")
+            .is_dir()
+    );
+    assert!(
+        cwd.join(DEFAULT_ENV_NAME)
+            .join("lib/kpar.env-multi-b_2.0.0")
+            .is_dir()
+    );
+
+    // env list reports both.
+    run_sysand_in(&cwd, ["env", "list"], None)?
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("`urn:kpar:env-multi-a` 1.0.0"))
+        .stdout(predicate::str::contains("`urn:kpar:env-multi-b` 2.0.0"));
+
+    Ok(())
+}

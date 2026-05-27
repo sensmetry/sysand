@@ -6,9 +6,10 @@ use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     io::{self, BufRead as _, BufReader, Read},
     marker::Unpin,
+    num::NonZeroU64,
     sync::Arc,
 };
 use thiserror::Error;
@@ -57,69 +58,14 @@ pub mod reference;
 
 pub mod utils;
 
-/// Result of trying to compute the canonical project digest from
-/// `.project.json` and `.meta.json` alone.
-#[cfg(all(feature = "filesystem", feature = "networking"))]
-pub(crate) enum InlineProjectDigest {
-    /// The digest is available without reading source files.
-    Computed(ProjectHash),
-    /// At least one metadata checksum uses a non-SHA256 algorithm, so
-    /// canonicalization would require reading source bytes.
-    RequiresSourceReads,
+#[derive(Debug)]
+pub struct KparMeta {
+    pub size_bytes: NonZeroU64,
+    pub sha256_hex: String,
 }
 
-/// Attempts to compute the canonical project digest without reading any
-/// source files.
-///
-/// Canonicalization (see [`ProjectRead::canonical_meta`]) lowercases SHA256
-/// checksum values and rewrites non-SHA256 checksum entries to SHA256 —
-/// the latter requires reading the corresponding source file. This helper
-/// handles the first case inline and returns
-/// [`InlineProjectDigest::RequiresSourceReads`] in the second case.
-///
-/// Returns [`InlineProjectDigest::Computed`] when every `meta.checksum` entry
-/// uses the `SHA256` algorithm (mixed-case hex values are lowercased inline
-/// before hashing).
-///
-/// Callers verifying an advertised `project_digest` against a locally
-/// reconstructed (info, meta) pair should use this to perform the check
-/// without materializing the project's archive. Callers that can read sources
-/// may fall back to [`ProjectRead::checksum_canonical_hex`] / the async
-/// equivalent when this returns [`InlineProjectDigest::RequiresSourceReads`];
-/// protocol surfaces that require `(info, meta)` to be self-verifying can
-/// reject that outcome explicitly.
-#[cfg(all(feature = "filesystem", feature = "networking"))]
-pub(crate) fn canonical_project_digest_inline(
-    info: &InterchangeProjectInfoRaw,
-    meta: &InterchangeProjectMetadataRaw,
-) -> InlineProjectDigest {
-    use crate::model::project_hash_raw;
-
-    let sha256_alg: &str = KerMlChecksumAlg::Sha256.into();
-
-    // Fast path: no checksums at all means canonical == raw.
-    let needs_canonicalization = meta
-        .checksum
-        .as_ref()
-        .is_some_and(|entries| entries.values().any(|entry| entry.algorithm != sha256_alg));
-
-    if needs_canonicalization {
-        return InlineProjectDigest::RequiresSourceReads;
-    }
-
-    let mut canonical = meta.clone();
-    if let Some(entries) = canonical.checksum.as_mut() {
-        for (_path, entry) in entries.iter_mut() {
-            // All entries are SHA256 here (checked above); lowercase the hex
-            // value to match `canonical_meta`'s output.
-            entry.value = entry.value.to_lowercase();
-        }
-    }
-
-    InlineProjectDigest::Computed(project_hash_raw(info, &canonical))
-}
-
-fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, io::Error> {
+/// Produce a SHA-256 digest by hashing all the contents of `reader`
+pub(crate) fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, io::Error> {
     let mut hasher = Sha256::new();
     let mut buffered = BufReader::new(reader);
 
@@ -195,6 +141,25 @@ pub enum IntoProjectError<ReadError: ErrorBound, W: ProjectMut> {
     MissingMeta,
 }
 
+// TODO: serialize this as "kpar:<hex>" or "meta:<hex>" to avoid having two fields,
+// which can't be both populated
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProjectChecksum {
+    /// Same as `.checksum_canonical_hex()`
+    Project(String),
+    /// SHA256 hex digest of the original KPAR
+    Kpar(String),
+}
+
+impl Display for ProjectChecksum {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProjectChecksum::Project(c) => write!(f, "kpar:{c}"),
+            ProjectChecksum::Kpar(c) => write!(f, "src:{c}"),
+        }
+    }
+}
+
 /// Anything implementing `ProjectRead` can be treated as a method for accessing (one
 /// particular) interchange project.
 pub trait ProjectRead {
@@ -233,7 +198,7 @@ pub trait ProjectRead {
     /// In case no sources are included, they should be derived
     /// from the known info, including `ctx` if possible.
     ///
-    /// Should panic if no sources are available.
+    /// Must not return an empty list; should panic if no sources are available.
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error>;
 
     // Optional and helpers
@@ -330,17 +295,6 @@ pub trait ProjectRead {
     /// `.meta.json` — one of the two required inputs is absent — and
     /// callers can rely on that meaning rather than treating `None` as
     /// an unspecified failure mode.
-    ///
-    /// Wrapper/project-adapter impls **must** forward this method explicitly
-    /// — the trait default calls `get_info` + `canonical_meta` and will
-    /// bypass any leaf override that provides an authoritative digest
-    /// cheaply (e.g. the advertised `project_digest` carried inline by
-    /// [`crate::project::index_entry::IndexEntryProject`]). A wrapper
-    /// that doesn't forward can silently trigger a full archive download
-    /// during solving — the specific bug this contract exists to prevent.
-    /// Leaf backends may override the method to expose a prefetched digest.
-    /// See `canonical_project_digest_inline` for the inline-only
-    /// canonicalization rule used by the indexed-remote path.
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         let info = self
             .get_info()
@@ -351,6 +305,8 @@ pub trait ProjectRead {
             .zip(meta)
             .map(|(info, meta)| project_hash_hex(&info, &meta)))
     }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error>;
 
     // TODO: Make this return an associated type instead?
     /// Treat this `ProjectRead` as a (trivial) `ProjectReadAsync`
@@ -436,6 +392,10 @@ impl<T: ProjectRead> ProjectRead for &T {
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         (*self).checksum_canonical_hex()
     }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        (*self).checksum_canonical_variant()
+    }
 }
 
 impl<T: ProjectRead> ProjectRead for &mut T {
@@ -512,6 +472,10 @@ impl<T: ProjectRead> ProjectRead for &mut T {
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         (**self).checksum_canonical_hex()
     }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        (**self).checksum_canonical_variant()
+    }
 }
 
 pub trait ProjectReadAsync {
@@ -549,6 +513,8 @@ pub trait ProjectReadAsync {
     /// some typical order of preference.
     ///
     /// May be empty if no valid sources are known.
+    // TODO: should we require the checksum to be verified (i.e. actual, instead of
+    // expected)
     fn sources_async(
         &self,
         ctx: &ProjectContext,
@@ -663,16 +629,6 @@ pub trait ProjectReadAsync {
 
     /// Produces a project hash based on project information and the
     /// *canonicalized* metadata.
-    ///
-    /// Async wrapper/project-adapter impls **must** forward this method
-    /// explicitly — the trait default calls `get_info_async` +
-    /// `canonical_meta_async` and will bypass any leaf override that
-    /// provides an authoritative digest cheaply (e.g. the advertised
-    /// `project_digest` carried inline by
-    /// [`crate::project::index_entry::IndexEntryProject`]). A wrapper
-    /// that doesn't forward can silently trigger a full archive download
-    /// during solving — the specific bug this contract exists to prevent.
-    /// Leaf backends may override the method to expose a prefetched digest.
     fn checksum_canonical_hex_async(
         &self,
     ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
@@ -688,6 +644,10 @@ pub trait ProjectReadAsync {
                 .map(|(info, meta)| project_hash_hex(&info, &meta)))
         }
     }
+
+    fn checksum_canonical_variant_async(
+        &self,
+    ) -> impl Future<Output = Result<ProjectChecksum, Self::Error>>;
 
     /// Treat this `ProjectReadAsync` as a `ProjectRead` using the provided tokio runtime.
     fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncProjectTokio<Self>
@@ -793,6 +753,12 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
     ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
         (**self).checksum_canonical_hex_async()
     }
+
+    fn checksum_canonical_variant_async(
+        &self,
+    ) -> impl Future<Output = Result<ProjectChecksum, Self::Error>> {
+        (**self).checksum_canonical_variant_async()
+    }
 }
 
 impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
@@ -886,6 +852,12 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
         &self,
     ) -> impl Future<Output = Result<Option<String>, CanonicalizationError<Self::Error>>> {
         (**self).checksum_canonical_hex_async()
+    }
+
+    fn checksum_canonical_variant_async(
+        &self,
+    ) -> impl Future<Output = Result<ProjectChecksum, Self::Error>> {
+        (**self).checksum_canonical_variant_async()
     }
 }
 
@@ -1191,6 +1163,10 @@ where
     ) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         self.inner.checksum_canonical_hex()
     }
+
+    async fn checksum_canonical_variant_async(&self) -> Result<ProjectChecksum, Self::Error> {
+        self.inner.checksum_canonical_variant()
+    }
 }
 
 /// Wrapper intended to wrap a `ProjectReadAsync`, indicating that it be treated as
@@ -1276,6 +1252,11 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         self.runtime
             .block_on(self.inner.checksum_canonical_hex_async())
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        self.runtime
+            .block_on(self.inner.checksum_canonical_variant_async())
     }
 }
 

@@ -24,6 +24,7 @@ fn empty_remote_definitely_invalid_http_src() -> Result<(), Box<dyn std::error::
         client,
         url,
         auth_policy: Arc::new(Unauthenticated {}),
+        expected_checksum: None,
     }
     .to_tokio_sync(Arc::new(
         tokio::runtime::Builder::new_current_thread()
@@ -78,6 +79,7 @@ fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
         client,
         url,
         auth_policy: Arc::new(Unauthenticated {}),
+        expected_checksum: None,
     }
     .to_tokio_sync(Arc::new(
         tokio::runtime::Builder::new_current_thread()

@@ -108,7 +108,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
                 LocalSrcError::ImpossibleRelativePath(_) => {
                     env.throw_exception(ExceptionKind::PathError, suberror.to_string())
                 }
-                LocalSrcError::MissingMeta => {
+                LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
                     env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
                 }
             },
@@ -172,11 +172,11 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
                 LocalWriteError::ImpossibleRelativePath(_) => {
                     env.throw_exception(ExceptionKind::PathError, suberror.to_string())
                 }
-                LocalWriteError::MissingMeta => {
-                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
-                }
                 LocalWriteError::AddProject(subsuberror) => {
                     env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
+                }
+                LocalWriteError::MissingMeta | LocalWriteError::MissingInfoMeta => {
+                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
                 }
             },
         },
@@ -195,6 +195,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_infoPath<'local>(
     let project = LocalSrcProject {
         nominal_path: None,
         project_path: Utf8PathBuf::from(&path),
+        expected_checksum: None,
     };
 
     let command_result = commands::info::do_info_project(&project);
@@ -348,6 +349,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectIndex<'local>(
     let mut project = LocalSrcProject {
         nominal_path: None,
         project_path: Utf8PathBuf::from(project_path),
+        expected_checksum: None,
     };
     let _ = project
         .set_index(rust_index)
@@ -370,6 +372,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectInfo<'local>(
     let mut project = LocalSrcProject {
         nominal_path: None,
         project_path: Utf8PathBuf::from(project_path),
+        expected_checksum: None,
     };
     let _ = project
         .put_info(&info_raw, true)
@@ -392,6 +395,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectMetadata<'loca
     let mut project = LocalSrcProject {
         nominal_path: None,
         project_path: Utf8PathBuf::from(project_path),
+        expected_checksum: None,
     };
     let _ = project
         .put_meta(&metadata_raw, true)
@@ -514,6 +518,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     let project = LocalSrcProject {
         nominal_path: None,
         project_path: Utf8PathBuf::from(project_path),
+        expected_checksum: None,
     };
     let Some(compression) = env.get_str(&compression, "compression") else {
         return;

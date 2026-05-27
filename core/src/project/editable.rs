@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use camino::Utf8PathBuf;
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     context::ProjectContext,
@@ -20,12 +20,12 @@ use crate::{
 pub struct EditableProject<P: ProjectRead> {
     inner: P,
     /// Must be relative to workspace root
-    nominal_path: Utf8PathBuf,
+    nominal_path: Utf8UnixPathBuf,
     include_original_sources: bool,
 }
 
 impl<P: ProjectRead> EditableProject<P> {
-    pub fn new(nominal_path: Utf8PathBuf, project: P) -> EditableProject<P> {
+    pub fn new(nominal_path: Utf8UnixPathBuf, project: P) -> EditableProject<P> {
         debug_assert!(nominal_path.is_relative());
         EditableProject {
             inner: project,
@@ -81,5 +81,9 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
         );
 
         Ok(inner_sources)
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
+        self.inner.checksum_canonical_variant()
     }
 }

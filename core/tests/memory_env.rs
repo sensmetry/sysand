@@ -76,7 +76,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
 
     source_project.write_source(source_path, &mut Cursor::new(source_code), true)?;
 
-    memory_environment.put_project("urn:sysand_test:1", "1.2.3", |p| {
+    memory_environment.put_project("urn:sysand_test:1", "1.2.3", None, |p| {
         clone_project(&source_project, p, true)?;
 
         Ok::<(), CloneError<InMemoryError, InMemoryError>>(())

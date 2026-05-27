@@ -649,10 +649,6 @@ impl InterchangeProjectMetadataRaw {
             .map(|x| x.0)
             .collect()
     }
-
-    // pub fn remove_index_from<P: AsRef<Utf8UnixPath>>(&mut self, path: &P) {
-    //     todo!()
-    // }
 }
 
 impl TryFrom<InterchangeProjectMetadataRaw> for InterchangeProjectMetadata {

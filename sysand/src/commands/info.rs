@@ -15,7 +15,7 @@ use sysand_core::{
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     },
-    project::{ProjectMut, ProjectRead, any::OverrideProject},
+    project::{ProjectMut, ProjectRead, any::OverrideProject, local_kpar::KparInnerPath},
     resolve::{
         file::FileResolverProject, memory::MemoryResolver, priority::PriorityResolver,
         standard::standard_resolver,
@@ -97,11 +97,17 @@ pub fn pprint_interchange_project(
 fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverProject> {
     let metadata = wrapfs::metadata(&path)?;
     Ok(if metadata.is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root(path)?)
+        FileResolverProject::LocalKParProject(LocalKParProject::new(
+            path,
+            KparInnerPath::Guess,
+            None,
+            None,
+        ))
     } else if metadata.is_dir() {
         FileResolverProject::LocalSrcProject(LocalSrcProject {
             nominal_path: None,
             project_path: path.as_ref().as_str().into(),
+            expected_checksum: None,
         })
     } else {
         // TODO: NoResolve is for IRIs, this is a path

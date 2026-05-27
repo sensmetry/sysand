@@ -14,9 +14,11 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::ProjectReadAsync,
+    project::{CanonicalizationError, ProjectReadAsync, utils::FsIoError},
     resolve::net_utils::{json_get_request, json_head_request, text_get_request},
 };
+
+use super::ProjectChecksum;
 
 /// Project stored at a remote base-URL such as https://www.example.com/project/
 /// (note that the final slash is semantically important!)
@@ -35,6 +37,7 @@ pub struct ReqwestSrcProjectAsync<Policy> {
     /// Base-url of the project
     pub url: reqwest::Url,
     pub auth_policy: Arc<Policy>,
+    pub expected_checksum: Option<String>,
 }
 
 impl<Policy> ReqwestSrcProjectAsync<Policy> {
@@ -51,37 +54,6 @@ impl<Policy> ReqwestSrcProjectAsync<Policy> {
             .join(path.as_ref().as_str())
             .expect("internal URL error")
     }
-
-    // pub fn head_info(&self) -> reqwest_middleware::RequestBuilder {
-    //     self.client
-    //         .head(self.info_url())
-    //         .header(reqwest::header::ACCEPT, "application/json")
-    // }
-
-    // pub fn head_meta(&self) -> reqwest_middleware::RequestBuilder {
-    //     self.client
-    //         .head(self.meta_url())
-    //         .header(reqwest::header::ACCEPT, "application/json")
-    // }
-
-    // pub fn get_info(&self) -> reqwest_middleware::RequestBuilder {
-    //     self.client
-    //         .get(self.info_url())
-    //         .header(reqwest::header::ACCEPT, "application/json")
-    // }
-
-    // pub fn get_meta(&self) -> reqwest_middleware::RequestBuilder {
-    //     self.client
-    //         .get(self.meta_url())
-    //         .header(reqwest::header::ACCEPT, "application/json")
-    // }
-
-    // pub fn reqwest_src<P: AsRef<Utf8UnixPath>>(
-    //     &self,
-    //     path: P,
-    // ) -> reqwest_middleware::RequestBuilder {
-    //     self.client.get(self.src_url(path))
-    // }
 }
 
 #[derive(Error, Debug)]
@@ -94,6 +66,12 @@ pub enum ReqwestSrcError {
     Deserialize(String, serde_json::Error),
     #[error("HTTP request to `{0}` returned unexpected status code {1}")]
     BadStatus(Box<str>, reqwest::StatusCode),
+    #[error("project is missing `.project.json` and/or `.meta.json` files")]
+    MissingInfoMeta,
+    // This is only needed because `checksum_canonical_hex` can return
+    // `io:Error`, which in this case is actually a network/HTTP error
+    #[error(transparent)]
+    Io(#[from] Box<FsIoError>),
 }
 
 impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Policy> {
@@ -196,9 +174,37 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
     }
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        let checksum = match &self.expected_checksum {
+            Some(c) => c.clone(),
+            None => self
+                .checksum_canonical_hex_async()
+                .await
+                .map_err(|e| match e {
+                    CanonicalizationError::ProjectRead(e) => e,
+                    CanonicalizationError::FileRead(path, error) => ReqwestSrcError::Io(
+                        FsIoError::ReadFile(String::from(path).into(), error).into(),
+                    ),
+                })?
+                .ok_or(ReqwestSrcError::MissingInfoMeta)?,
+        };
         Ok(vec![Source::RemoteSrc {
             remote_src: self.url.to_string(),
+            checksum,
         }])
+    }
+
+    async fn checksum_canonical_variant_async(&self) -> Result<ProjectChecksum, Self::Error> {
+        let checksum = self
+            .checksum_canonical_hex_async()
+            .await
+            .map_err(|e| match e {
+                CanonicalizationError::ProjectRead(e) => e,
+                CanonicalizationError::FileRead(path, error) => ReqwestSrcError::Io(
+                    FsIoError::ReadFile(String::from(path).into(), error).into(),
+                ),
+            })?
+            .ok_or(ReqwestSrcError::MissingInfoMeta)?;
+        Ok(ProjectChecksum::Project(checksum))
     }
 }
 

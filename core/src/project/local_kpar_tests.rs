@@ -6,6 +6,8 @@ use std::io::{Read as _, Write};
 use camino_tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
+use crate::project::local_kpar::KparInnerPath;
+
 use super::ProjectRead;
 
 #[test]
@@ -31,7 +33,7 @@ fn basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
         zip.finish().unwrap();
     }
 
-    let project = super::LocalKParProject::new_guess_root(zip_path)?;
+    let project = super::LocalKParProject::new(zip_path, KparInnerPath::Guess, None, None);
 
     let (Some(info), Some(meta)) = project.get_project()? else {
         panic!();
@@ -74,7 +76,7 @@ fn nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
         zip.finish().unwrap();
     }
 
-    let project = super::LocalKParProject::new_guess_root(zip_path)?;
+    let project = super::LocalKParProject::new(zip_path, KparInnerPath::Guess, None, None);
 
     let (Some(info), Some(meta)) = project.get_project()? else {
         panic!();
@@ -92,4 +94,15 @@ fn nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(src, "package Test;");
 
     Ok(())
+}
+
+#[test]
+fn project_root_uses_zip_path_separators() {
+    let root = super::project_root_from_zip_entry_path(typed_path::Utf8UnixPath::new(
+        "some_root_dir/.project.json",
+    ))
+    .expect("valid archive path")
+    .expect("project info file");
+
+    assert_eq!(root, typed_path::Utf8UnixPath::new("some_root_dir"));
 }

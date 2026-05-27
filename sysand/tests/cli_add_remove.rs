@@ -858,9 +858,101 @@ sources = [
     Ok(())
 }
 
-// TODO: Add
-// #[test]
-// fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> { ... }
+/// Add and remove a usage with `--from-url <file://...>`.
+///
+/// `--from-url` auto-resolves the URL and writes a `src_path` source into the
+/// configuration file, similar to `--path` but driven by the URL resolver.
+#[test]
+fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir_dep, cwd_dep, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "add_from_url_dep"],
+        None,
+    )?;
+    out.assert().success();
+
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "add_from_url"],
+        None,
+    )?;
+    out.assert().success();
+
+    let dep_url = file_url_from_path(&cwd_dep);
+    let config_path = cwd.join("sysand.toml");
+
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "--from-url",
+            &dep_url,
+            "urn:kpar:add-from-url-dep",
+        ],
+        Some(config_path.as_str()),
+    )?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(format!(
+            r#"Creating configuration file at `{config_path}`
+      Adding source for `urn:kpar:add-from-url-dep` to configuration file at `{config_path}`
+      Adding usage: `urn:kpar:add-from-url-dep`"#
+        )));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_from_url",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "resource": "urn:kpar:add-from-url-dep"
+    }
+  ]
+}
+"#
+    );
+
+    let config = std::fs::read_to_string(&config_path)?;
+    assert!(
+        config.contains("src_path"),
+        "config should record a src_path source resolved from the file:// URL"
+    );
+    assert!(config.contains("urn:kpar:add-from-url-dep"));
+
+    let out = run_sysand_in(
+        &cwd,
+        ["remove", "urn:kpar:add-from-url-dep"],
+        Some(config_path.as_str()),
+    )?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(format!(
+            r#"Removing source for `urn:kpar:add-from-url-dep` from configuration file at `{config_path}`
+    Removing empty configuration file at `{config_path}`
+    Removing `urn:kpar:add-from-url-dep` from usages
+     Removed `urn:kpar:add-from-url-dep`"#
+        )));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_from_url",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
+    );
+
+    assert!(!config_path.is_file());
+
+    Ok(())
+}
 
 #[test]
 fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error>> {

@@ -244,6 +244,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
     let mut local_project = LocalSrcProject {
         nominal_path: None,
         project_path,
+        expected_checksum: None,
     };
 
     let std_resolver = standard_resolver(
@@ -275,6 +276,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
             let remote_project = LocalSrcProject {
                 nominal_path: None,
                 project_path: path.into(),
+                expected_checksum: None,
             };
             if let Some(version) = version {
                 let project_version = remote_project

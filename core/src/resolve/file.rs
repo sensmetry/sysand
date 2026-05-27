@@ -17,7 +17,7 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         self, ProjectRead,
-        local_kpar::{LocalKParError, LocalKParProject},
+        local_kpar::{KparInnerPath, LocalKParError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ProjectDeserializationError, RelativizePathError, wrapfs},
     },
@@ -160,6 +160,20 @@ pub enum FileResolverProjectError {
         {0}"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
+    #[error("kpar at `{path}` has sha256 `{computed}` but the expected digest was `{expected}`")]
+    DigestMismatch {
+        path: Box<str>,
+        expected: String,
+        computed: String,
+    },
+    #[error("kpar at `{path}` has size {actual} bytes but the expected size was {expected} bytes")]
+    SizeMismatch {
+        path: Box<str>,
+        expected: u64,
+        actual: u64,
+    },
+    #[error("kpar at `{path}` is an empty file")]
+    EmptyKpar { path: Box<str> },
     #[error("{0}")]
     Other(String),
 }
@@ -171,8 +185,8 @@ impl From<FsIoError> for FileResolverProjectError {
 }
 
 pub enum FileResolverProjectReader<'a> {
-    File(<project::local_src::LocalSrcProject as ProjectRead>::SourceReader<'a>),
-    Archive(<project::local_kpar::LocalKParProject as ProjectRead>::SourceReader<'a>),
+    File(<LocalSrcProject as ProjectRead>::SourceReader<'a>),
+    Archive(<LocalKParProject as ProjectRead>::SourceReader<'a>),
 }
 
 impl Read for FileResolverProjectReader<'_> {
@@ -192,6 +206,25 @@ impl From<LocalKParError> for FileResolverProjectError {
             LocalKParError::Io(error) => FileResolverProjectError::Io(error),
             LocalKParError::Zip(err) => FileResolverProjectError::Zip(err),
             LocalKParError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
+            LocalKParError::DigestMismatch {
+                path,
+                expected,
+                computed,
+            } => Self::DigestMismatch {
+                path,
+                expected,
+                computed,
+            },
+            LocalKParError::SizeMismatch {
+                path,
+                expected,
+                actual,
+            } => Self::SizeMismatch {
+                path,
+                expected,
+                actual,
+            },
+            LocalKParError::EmptyKpar { path } => Self::EmptyKpar { path },
         }
     }
 }
@@ -265,6 +298,15 @@ impl ProjectRead for FileResolverProject {
             FileResolverProject::LocalKParProject(proj) => Ok(proj.sources(ctx)?),
         }
     }
+
+    fn checksum_canonical_variant(&self) -> Result<project::ProjectChecksum, Self::Error> {
+        match self {
+            FileResolverProject::LocalSrcProject(proj) => proj
+                .checksum_canonical_variant()
+                .map_err(FileResolverProjectError::LocalSrc),
+            FileResolverProject::LocalKParProject(proj) => Ok(proj.checksum_canonical_variant()?),
+        }
+    }
 }
 
 impl ResolveRead for FileResolver {
@@ -283,9 +325,10 @@ impl ResolveRead for FileResolver {
                 Ok(FileResolverProject::LocalSrcProject(LocalSrcProject {
                     nominal_path: None,
                     project_path: path.clone(),
+                    expected_checksum: None,
                 })),
                 Ok(FileResolverProject::LocalKParProject(
-                    LocalKParProject::new_guess_root(path)?,
+                    LocalKParProject::new(path, KparInnerPath::Guess, None, None),
                 )),
             ]),
             ResolutionOutcome::UnsupportedIRIType(msg) => {

@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{convert::Infallible, fmt::Display, slice, str::FromStr};
+use std::{fmt::Display, num::NonZeroU64, slice, str::FromStr};
 
 use toml_edit::DocumentMut;
 use typed_path::Utf8UnixPathBuf;
 
-use crate::lock::{
-    CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
-    VersionError, check_lock_version, project_with,
+use crate::{
+    lock::{
+        CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
+        VersionError, check_lock_version,
+    },
+    project::ProjectChecksum,
 };
-
-const CHECKSUM: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 #[test]
 fn check_current_lock_version() {
@@ -47,7 +48,6 @@ fn old_registry_lockfile_is_rejected_by_version_gate() {
 [[project]]
 name = "Old registry source"
 version = "1.0.0"
-checksum = "{CHECKSUM}"
 sources = [{{ registry = "https://example.org" }}]
 "#
     );
@@ -73,8 +73,7 @@ fn zero_index_kpar_size_is_rejected_by_lockfile_parse() {
 [[project]]
 name = "Indexed"
 version = "1.0.0"
-checksum = "{CHECKSUM}"
-sources = [{{ index_kpar = "https://example.org/project.kpar", index_kpar_size = 0, index_kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}]
+sources = [{{ index_kpar = "https://example.org/project.kpar", kpar_size = 0, kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }}]
 "#
     );
 
@@ -111,22 +110,19 @@ fn to_toml_matches_expected<D: Display>(projects: Vec<Project>, toml: D) {
 fn minimal_to_toml() {
     to_toml_matches_expected(
         vec![Project {
-            name: None,
+            name: "a".to_owned(),
             publisher: None,
             version: "0.0.1".to_string(),
             exports: vec![],
             identifiers: vec![],
             usages: vec![],
             sources: vec![],
-            checksum: CHECKSUM.to_string(),
         }],
-        format!(
-            r#"
+        r#"
 [[project]]
+name = "a"
 version = "0.0.1"
-checksum = "{CHECKSUM}"
-"#
-        ),
+"#,
     );
 }
 
@@ -135,54 +131,46 @@ fn many_projects_to_toml() {
     to_toml_matches_expected(
         vec![
             Project {
-                name: Some("One".to_string()),
+                name: "One".to_string(),
                 publisher: None,
                 version: "0.0.1".to_string(),
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
                 sources: vec![],
-                checksum: CHECKSUM.to_string(),
             },
             Project {
-                name: Some("Two".to_string()),
+                name: "Two".to_string(),
                 publisher: None,
                 version: "0.0.2".to_string(),
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
                 sources: vec![],
-                checksum: CHECKSUM.to_string(),
             },
             Project {
-                name: Some("Three".to_string()),
+                name: "Three".to_string(),
                 publisher: None,
                 version: "0.0.3".to_string(),
                 exports: vec![],
                 identifiers: vec![],
                 usages: vec![],
                 sources: vec![],
-                checksum: CHECKSUM.to_string(),
             },
         ],
-        format!(
-            r#"
+        r#"
 [[project]]
 name = "One"
 version = "0.0.1"
-checksum = "{CHECKSUM}"
 
 [[project]]
 name = "Two"
 version = "0.0.2"
-checksum = "{CHECKSUM}"
 
 [[project]]
 name = "Three"
 version = "0.0.3"
-checksum = "{CHECKSUM}"
 "#,
-        ),
     );
 }
 
@@ -190,26 +178,22 @@ checksum = "{CHECKSUM}"
 fn one_export_to_toml() {
     to_toml_matches_expected(
         vec![Project {
-            name: Some("One Package".to_string()),
+            name: "One Package".to_string(),
             publisher: None,
             version: "0.1.1".to_string(),
             exports: vec!["PackageName".to_string()],
             identifiers: vec![],
             usages: vec![],
             sources: vec![],
-            checksum: CHECKSUM.to_string(),
         }],
-        format!(
-            r#"
+        r#"
 [[project]]
 name = "One Package"
 version = "0.1.1"
 exports = [
     "PackageName",
 ]
-checksum = "{CHECKSUM}"
-"#
-        ),
+"#,
     );
 }
 
@@ -217,7 +201,7 @@ checksum = "{CHECKSUM}"
 fn many_exports_to_toml() {
     to_toml_matches_expected(
         vec![Project {
-            name: Some("Three Packages".to_string()),
+            name: "Three Packages".to_string(),
             publisher: None,
             version: "0.1.3".to_string(),
             exports: vec![
@@ -228,10 +212,8 @@ fn many_exports_to_toml() {
             identifiers: vec![],
             usages: vec![],
             sources: vec![],
-            checksum: CHECKSUM.to_string(),
         }],
-        format!(
-            r#"
+        r#"
 [[project]]
 name = "Three Packages"
 version = "0.1.3"
@@ -240,9 +222,7 @@ exports = [
     "Package2",
     "Package3",
 ]
-checksum = "{CHECKSUM}"
-"#
-        ),
+"#,
     );
 }
 
@@ -250,26 +230,22 @@ checksum = "{CHECKSUM}"
 fn one_iri_to_toml() {
     to_toml_matches_expected(
         vec![Project {
-            name: Some("One IRI".to_string()),
+            name: "One IRI".to_string(),
             publisher: None,
             version: "0.2.1".to_string(),
             exports: vec![],
             identifiers: vec!["urn:kpar:example".to_string()],
             usages: vec![],
             sources: vec![],
-            checksum: CHECKSUM.to_string(),
         }],
-        format!(
-            r#"
+        r#"
 [[project]]
 name = "One IRI"
 version = "0.2.1"
 identifiers = [
     "urn:kpar:example",
 ]
-checksum = "{CHECKSUM}"
-"#
-        ),
+"#,
     );
 }
 
@@ -277,7 +253,7 @@ checksum = "{CHECKSUM}"
 fn many_identifiers_to_toml() {
     to_toml_matches_expected(
         vec![Project {
-            name: Some("Three IRI:s".to_string()),
+            name: "Three IRI:s".to_string(),
             publisher: None,
             version: "0.2.3".to_string(),
             exports: vec![],
@@ -288,10 +264,8 @@ fn many_identifiers_to_toml() {
             ],
             usages: vec![],
             sources: vec![],
-            checksum: CHECKSUM.to_string(),
         }],
-        format!(
-            r#"
+        r#"
 [[project]]
 name = "Three IRI:s"
 version = "0.2.3"
@@ -300,9 +274,7 @@ identifiers = [
     "ftp://www.example.com",
     "http://www.example.com",
 ]
-checksum = "{CHECKSUM}"
-"#
-        ),
+"#,
     );
 }
 
@@ -310,7 +282,7 @@ checksum = "{CHECKSUM}"
 fn one_source_to_toml() {
     to_toml_matches_expected(
         vec![Project {
-            name: Some("One source".to_string()),
+            name: "One source".to_string(),
             publisher: None,
             version: "0.4.1".to_string(),
             exports: vec![],
@@ -319,19 +291,15 @@ fn one_source_to_toml() {
             sources: vec![Source::Editable {
                 editable: Utf8UnixPathBuf::from("."),
             }],
-            checksum: CHECKSUM.to_string(),
         }],
-        format!(
-            r#"
+        r#"
 [[project]]
 name = "One source"
 version = "0.4.1"
 sources = [
-    {{ editable = "." }},
+    { editable = "." },
 ]
-checksum = "{CHECKSUM}"
-"#
-        ),
+"#,
     );
 }
 
@@ -339,59 +307,63 @@ checksum = "{CHECKSUM}"
 fn many_sources_to_toml() {
     to_toml_matches_expected(
         vec![Project {
-            name: Some("Eight sources".to_string()),
+            name: "Seven sources".to_string(),
             publisher: None,
             version: "0.4.7".to_string(),
             exports: vec![],
             identifiers: vec![],
             usages: vec![],
             sources: vec![
+                Source::Editable {
+                    editable: Utf8UnixPathBuf::from("example/path"),
+                },
                 Source::LocalKpar {
                     kpar_path: Utf8UnixPathBuf::from("example.kpar"),
+                    kpar_size: NonZeroU64::new(64).unwrap(),
+                    kpar_digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_string(),
                 },
                 Source::LocalSrc {
                     src_path: Utf8UnixPathBuf::from("example/path"),
+                    checksum: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_string(),
                 },
                 Source::RemoteKpar {
                     remote_kpar: "www.example.com/remote.kpar".to_string(),
-                    remote_kpar_size: Some(64),
+                    kpar_size: NonZeroU64::new(64).unwrap(),
+                    kpar_digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_string(),
                 },
                 Source::IndexKpar {
                     index_kpar: "www.example.com/index.kpar".to_string(),
-                    index_kpar_size: std::num::NonZeroU64::new(128).unwrap(),
-                    index_kpar_digest:
-                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                            .to_string(),
+                    kpar_size: NonZeroU64::new(128).unwrap(),
+                    kpar_digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_string(),
                 },
                 Source::RemoteSrc {
                     remote_src: "www.example.com/remote".to_string(),
+                    checksum: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_string(),
                 },
                 Source::RemoteGit {
                     remote_git: "github.com/example/remote.git".to_string(),
                 },
-                Source::RemoteApi {
-                    remote_api: "www.example.com/api".to_string(),
-                },
             ],
-            checksum: CHECKSUM.to_string(),
         }],
-        format!(
-            r#"
+        r#"
 [[project]]
-name = "Eight sources"
+name = "Seven sources"
 version = "0.4.7"
 sources = [
-    {{ kpar_path = "example.kpar" }},
-    {{ src_path = "example/path" }},
-    {{ remote_kpar = "www.example.com/remote.kpar", remote_kpar_size = 64 }},
-    {{ index_kpar = "www.example.com/index.kpar", index_kpar_size = 128, index_kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }},
-    {{ remote_src = "www.example.com/remote" }},
-    {{ remote_git = "github.com/example/remote.git" }},
-    {{ remote_api = "www.example.com/api" }},
+    { editable = "example/path" },
+    { kpar_path = "example.kpar", kpar_size = 64, kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { src_path = "example/path", checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { remote_kpar = "www.example.com/remote.kpar", kpar_size = 64, kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { index_kpar = "www.example.com/index.kpar", kpar_size = 128, kpar_digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { remote_src = "www.example.com/remote", checksum = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { remote_git = "github.com/example/remote.git" },
 ]
-checksum = "{CHECKSUM}"
-"#
-        ),
+"#,
     );
 }
 
@@ -399,7 +371,7 @@ checksum = "{CHECKSUM}"
 fn one_usage_to_toml() {
     to_toml_matches_expected(
         vec![Project {
-            name: Some("One usage".to_string()),
+            name: "One usage".to_string(),
             publisher: None,
             version: "0.5.1".to_string(),
             exports: vec![],
@@ -408,19 +380,15 @@ fn one_usage_to_toml() {
                 resource: "urn:kpar:usage".to_string(),
             }],
             sources: vec![],
-            checksum: CHECKSUM.to_string(),
         }],
-        format!(
-            r#"
+        r#"
 [[project]]
 name = "One usage"
 version = "0.5.1"
 usages = [
     "urn:kpar:usage",
 ]
-checksum = "{CHECKSUM}"
-"#
-        ),
+"#,
     );
 }
 
@@ -428,7 +396,7 @@ checksum = "{CHECKSUM}"
 fn many_usage_to_toml() {
     to_toml_matches_expected(
         vec![Project {
-            name: Some("Three usages".to_string()),
+            name: "Three usages".to_string(),
             publisher: None,
             version: "0.5.3".to_string(),
             exports: vec![],
@@ -445,10 +413,8 @@ fn many_usage_to_toml() {
                 },
             ],
             sources: vec![],
-            checksum: CHECKSUM.to_string(),
         }],
-        format!(
-            r#"
+        r#"
 [[project]]
 name = "Three usages"
 version = "0.5.3"
@@ -457,9 +423,7 @@ usages = [
     "urn:kpar:second",
     "urn:kpar:third",
 ]
-checksum = "{CHECKSUM}"
-"#
-        ),
+"#,
     );
 }
 
@@ -474,19 +438,18 @@ fn roundtrip_makes_no_changes<D: Display>(toml: D) {
 
 #[test]
 fn simple_roundtrip() {
-    roundtrip_makes_no_changes(format!(
+    roundtrip_makes_no_changes(
         r#"
 [[project]]
 name = "Simple"
 version = "0.0.1"
-checksum = "{CHECKSUM}"
-"#
-    ));
+"#,
+    );
 }
 
 #[test]
 fn complex_roundtrip() {
-    roundtrip_makes_no_changes(format!(
+    roundtrip_makes_no_changes(
         r#"
 [[project]]
 name = "One"
@@ -499,7 +462,6 @@ exports = [
 usages = [
     "urn:kpar:usage",
 ]
-checksum = "{CHECKSUM}"
 
 [[project]]
 name = "Two"
@@ -512,7 +474,6 @@ identifiers = [
     "ftp://www.example.com",
     "http://www.example.com",
 ]
-checksum = "{CHECKSUM}"
 
 [[project]]
 name = "Three"
@@ -525,13 +486,12 @@ usages = [
     "urn:kpar:second",
     "urn:kpar:third",
 ]
-checksum = "{CHECKSUM}"
-"#
-    ));
+"#,
+    );
 }
 
-fn make_project<S: AsRef<str>>(
-    name: Option<String>,
+fn make_project<N: AsRef<str>, S: AsRef<str>>(
+    name: N,
     publisher: Option<String>,
     version: S,
     exports: &[&'static str],
@@ -539,14 +499,13 @@ fn make_project<S: AsRef<str>>(
     usages: &[Usage],
 ) -> Project {
     Project {
-        name,
+        name: name.as_ref().into(),
         publisher,
         version: version.as_ref().to_string(),
         exports: exports.iter().map(|s| String::from(*s)).collect(),
         identifiers: identifiers.iter().map(|s| String::from(*s)).collect(),
         usages: usages.to_vec(),
         sources: vec![],
-        checksum: CHECKSUM.to_string(),
     }
 }
 
@@ -564,7 +523,7 @@ fn validate_empty() {
 fn validate_minimal() {
     Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
-        projects: vec![make_project(None, None, "0.0.1", &[], &[], &[])],
+        projects: vec![make_project("a", None, "0.0.1", &[], &[], &[])],
     }
     .validate()
     .unwrap();
@@ -577,7 +536,7 @@ fn validate_single_usage() {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![
             make_project(
-                None,
+                "a",
                 None,
                 "0.0.1",
                 &[],
@@ -586,7 +545,7 @@ fn validate_single_usage() {
                     resource: iri.to_string(),
                 }],
             ),
-            make_project(None, None, "0.0.1", &[], &[iri], &[]),
+            make_project("b", None, "0.0.1", &[], &[iri], &[]),
         ],
     }
     .validate()
@@ -601,7 +560,7 @@ fn validate_multiple_usage() {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![
             make_project(
-                None,
+                "a",
                 None,
                 "0.0.1",
                 &[],
@@ -615,8 +574,8 @@ fn validate_multiple_usage() {
                     },
                 ],
             ),
-            make_project(None, None, "0.0.1", &[], &[iri1], &[]),
-            make_project(None, None, "0.0.1", &[], &[iri2], &[]),
+            make_project("b", None, "0.0.1", &[], &[iri1], &[]),
+            make_project("c", None, "0.0.1", &[], &[iri2], &[]),
         ],
     }
     .validate()
@@ -631,7 +590,7 @@ fn validate_chained_usages() {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![
             make_project(
-                None,
+                "a",
                 None,
                 "0.0.1",
                 &[],
@@ -641,7 +600,7 @@ fn validate_chained_usages() {
                 }],
             ),
             make_project(
-                None,
+                "b",
                 None,
                 "0.0.1",
                 &[],
@@ -650,7 +609,7 @@ fn validate_chained_usages() {
                     resource: iri2.to_string(),
                 }],
             ),
-            make_project(None, None, "0.0.1", &[], &[iri2], &[]),
+            make_project("c", None, "0.0.1", &[], &[iri2], &[]),
         ],
     }
     .validate()
@@ -685,7 +644,7 @@ fn validate_single_name_collision() {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![
             make_project(
-                None,
+                "a",
                 None,
                 "0.0.1",
                 &[name],
@@ -694,7 +653,7 @@ fn validate_single_name_collision() {
                     resource: iri.to_string(),
                 }],
             ),
-            make_project(None, None, "0.0.1", &[name], &[iri], &[]),
+            make_project("b", None, "0.0.1", &[name], &[iri], &[]),
         ],
     }
     .validate() else {
@@ -717,7 +676,7 @@ fn validate_multiple_name_collision() {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![
             make_project(
-                None,
+                "a",
                 None,
                 "0.0.1",
                 &[name1, name2, name3],
@@ -726,7 +685,7 @@ fn validate_multiple_name_collision() {
                     resource: iri.to_string(),
                 }],
             ),
-            make_project(None, None, "0.0.1", &[name2, name3, name4], &[iri], &[]),
+            make_project("b", None, "0.0.1", &[name2, name3, name4], &[iri], &[]),
         ],
     }
     .validate() else {
@@ -745,7 +704,7 @@ fn validate_unsatisfied_usage() {
     let Err(err) = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![make_project(
-            None,
+            "a",
             None,
             "0.0.1",
             &[],
@@ -756,54 +715,91 @@ fn validate_unsatisfied_usage() {
     .validate() else {
         panic!()
     };
-    let ValidationError::UnsatisfiedUsage {
-        usage,
-        project_with_name,
-    } = err
-    else {
+    let ValidationError::UnsatisfiedUsage { usage, name } = err else {
         panic!()
     };
     assert_eq!(usage, usage_in.resource);
-    assert_eq!(project_with_name, project_with::<String>(None));
+    assert_eq!(name, "a");
 }
 
 #[test]
-fn validate_checksum() {
-    let invalid_checksum = "dA8747a6f27A32f10Ba393113bCE29fX88181037a71f093f90e0ad5829D2b780";
-    let Err(err) = Lock {
-        lock_version: CURRENT_LOCK_VERSION.to_string(),
-        projects: vec![Project {
-            name: None,
-            publisher: None,
-            version: "0.0.1".to_string(),
-            exports: vec![],
-            identifiers: vec![],
-            usages: vec![],
-            sources: vec![],
-            checksum: invalid_checksum.to_owned(),
-        }],
+fn validate_checksum_invalid_digest_all_source_types() {
+    // 64 chars but contains 'X' — right length, wrong character.
+    const INVALID: &str = "dA8747a6f27A32f10Ba393113bCE29fX88181037a71f093f90e0ad5829D2b780";
+
+    let cases: Vec<(&str, Source)> = vec![
+        (
+            "LocalSrc",
+            Source::LocalSrc {
+                src_path: Utf8UnixPathBuf::from("../path/to/the/project"),
+                checksum: INVALID.to_owned(),
+            },
+        ),
+        (
+            "RemoteSrc",
+            Source::RemoteSrc {
+                remote_src: "https://example.com/src".to_string(),
+                checksum: INVALID.to_owned(),
+            },
+        ),
+        (
+            "LocalKpar",
+            Source::LocalKpar {
+                kpar_path: Utf8UnixPathBuf::from("project.kpar"),
+                kpar_size: NonZeroU64::new(1).unwrap(),
+                kpar_digest: INVALID.to_owned(),
+            },
+        ),
+        (
+            "RemoteKpar",
+            Source::RemoteKpar {
+                remote_kpar: "https://example.com/project.kpar".to_string(),
+                kpar_size: NonZeroU64::new(1).unwrap(),
+                kpar_digest: INVALID.to_owned(),
+            },
+        ),
+        (
+            "IndexKpar",
+            Source::IndexKpar {
+                index_kpar: "https://example.com/indexed.kpar".to_string(),
+                kpar_size: NonZeroU64::new(1).unwrap(),
+                kpar_digest: INVALID.to_owned(),
+            },
+        ),
+    ];
+
+    for (label, source) in cases {
+        let Err(err) = Lock {
+            lock_version: CURRENT_LOCK_VERSION.to_string(),
+            projects: vec![Project {
+                name: "a".into(),
+                publisher: None,
+                version: "0.0.1".to_string(),
+                exports: vec![],
+                identifiers: vec![],
+                usages: vec![],
+                sources: vec![source],
+            }],
+        }
+        .validate() else {
+            panic!("expected InvalidDigestFormat for {label}")
+        };
+        let ValidationError::InvalidDigestFormat { digest, name, kind } = err else {
+            panic!("wrong error variant for {label}: {err:?}")
+        };
+        assert_eq!(digest, INVALID, "{label}");
+        assert_eq!(name, "a", "{label}");
+        assert!(matches!(kind, "kpar" | "project canonical"), "{label}");
     }
-    .validate() else {
-        panic!()
-    };
-    let ValidationError::InvalidProjectDigestFormat {
-        digest,
-        project_with_name,
-    } = err
-    else {
-        panic!()
-    };
-    assert_eq!(digest, invalid_checksum);
-    assert_eq!(project_with_name, project_with::<Infallible>(None));
 }
 
 #[test]
-fn validate_index_kpar_digest_rejects_uppercase() {
+fn validate_kpar_digest_rejects_uppercase() {
     let invalid_digest = "dA8747a6f27A32f10Ba393113bCe29f788181037a71f093f90e0ad5829d2b780";
-    let Err(err) = Lock {
+    let err = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![Project {
-            name: Some("Indexed".to_string()),
+            name: "Indexed".to_string(),
             publisher: None,
             version: "0.0.1".to_string(),
             exports: vec![],
@@ -811,24 +807,19 @@ fn validate_index_kpar_digest_rejects_uppercase() {
             usages: vec![],
             sources: vec![Source::IndexKpar {
                 index_kpar: "https://example.com/indexed.kpar".to_string(),
-                index_kpar_size: std::num::NonZeroU64::new(123).unwrap(),
-                index_kpar_digest: invalid_digest.to_string(),
+                kpar_size: std::num::NonZeroU64::new(123).unwrap(),
+                kpar_digest: invalid_digest.to_string(),
             }],
-            checksum: CHECKSUM.to_string(),
         }],
     }
-    .validate() else {
-        panic!()
-    };
-    let ValidationError::InvalidIndexKparDigestFormat {
-        digest,
-        project_with_name,
-    } = err
-    else {
+    .validate()
+    .unwrap_err();
+    let ValidationError::InvalidDigestFormat { digest, kind, name } = err else {
         panic!()
     };
     assert_eq!(digest, invalid_digest);
-    assert_eq!(project_with_name, "urn:kpar:indexed");
+    assert_eq!(name, "Indexed");
+    assert_eq!(kind, "kpar");
 }
 
 #[test]
@@ -844,7 +835,7 @@ fn sort_empty() {
 
 #[test]
 fn sort_single_trivial() {
-    let project = make_project(None, None, "0.0.1", &[], &[], &[]);
+    let project = make_project("a", None, "0.0.1", &[], &[], &[]);
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![project.clone()],
@@ -856,8 +847,8 @@ fn sort_single_trivial() {
 
 #[test]
 fn sort_exports() {
-    let project1 = make_project(None, None, "0.0.1", &["B", "A"], &[], &[]);
-    let project2 = make_project(None, None, "0.0.1", &["A", "B"], &[], &[]);
+    let project1 = make_project("a", None, "0.0.1", &["B", "A"], &[], &[]);
+    let project2 = make_project("a", None, "0.0.1", &["A", "B"], &[], &[]);
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![project1],
@@ -869,8 +860,8 @@ fn sort_exports() {
 
 #[test]
 fn sort_identifiers() {
-    let project1 = make_project(None, None, "0.0.1", &[], &["urn:kpar:b", "urn:kpar:a"], &[]);
-    let project2 = make_project(None, None, "0.0.1", &[], &["urn:kpar:a", "urn:kpar:b"], &[]);
+    let project1 = make_project("a", None, "0.0.1", &[], &["urn:kpar:b", "urn:kpar:a"], &[]);
+    let project2 = make_project("a", None, "0.0.1", &[], &["urn:kpar:a", "urn:kpar:b"], &[]);
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![project1],
@@ -889,14 +880,14 @@ fn sort_sources() {
         resource: "urn:kpar:b".to_string(),
     };
     let project1 = make_project(
-        None,
+        "a",
         None,
         "0.0.1",
         &[],
         &[],
         &[usage2.clone(), usage1.clone()],
     );
-    let project2 = make_project(None, None, "0.0.1", &[], &[], &[usage1, usage2]);
+    let project2 = make_project("a", None, "0.0.1", &[], &[], &[usage1, usage2]);
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![project1],
@@ -915,14 +906,14 @@ fn sort_sources_with_constraints() {
         resource: "urn:kpar:a".to_string(),
     };
     let project1 = make_project(
-        None,
+        "a",
         None,
         "0.0.1",
         &[],
         &[],
         &[usage2.clone(), usage1.clone()],
     );
-    let project2 = make_project(None, None, "0.0.1", &[], &[], &[usage1, usage2]);
+    let project2 = make_project("a", None, "0.0.1", &[], &[], &[usage1, usage2]);
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![project1],
@@ -934,22 +925,8 @@ fn sort_sources_with_constraints() {
 
 #[test]
 fn sort_projects_by_name() {
-    let project1 = make_project(
-        Some("A".to_string()),
-        None,
-        "0.0.2",
-        &["B"],
-        &["urn:kpar:b"],
-        &[],
-    );
-    let project2 = make_project(
-        Some("B".to_string()),
-        None,
-        "0.0.1",
-        &["A"],
-        &["urn:kpar:a"],
-        &[],
-    );
+    let project1 = make_project("A", None, "0.0.2", &["B"], &["urn:kpar:b"], &[]);
+    let project2 = make_project("B", None, "0.0.1", &["A"], &["urn:kpar:a"], &[]);
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![project2.clone(), project1.clone()],
@@ -961,22 +938,8 @@ fn sort_projects_by_name() {
 
 #[test]
 fn sort_projects_by_exports() {
-    let project1 = make_project(
-        Some("A".to_string()),
-        None,
-        "0.0.2",
-        &["A"],
-        &["urn:kpar:b"],
-        &[],
-    );
-    let project2 = make_project(
-        Some("A".to_string()),
-        None,
-        "0.0.1",
-        &["B"],
-        &["urn:kpar:a"],
-        &[],
-    );
+    let project1 = make_project("A", None, "0.0.2", &["A"], &["urn:kpar:b"], &[]);
+    let project2 = make_project("B", None, "0.0.1", &["B"], &["urn:kpar:a"], &[]);
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![project2.clone(), project1.clone()],
@@ -988,22 +951,8 @@ fn sort_projects_by_exports() {
 
 #[test]
 fn sort_projects_by_identifiers() {
-    let project1 = make_project(
-        Some("A".to_string()),
-        None,
-        "0.0.2",
-        &["A"],
-        &["urn:kpar:a"],
-        &[],
-    );
-    let project2 = make_project(
-        Some("A".to_string()),
-        None,
-        "0.0.1",
-        &["A"],
-        &["urn:kpar:b"],
-        &[],
-    );
+    let project1 = make_project("A", None, "0.0.2", &["A"], &["urn:kpar:a"], &[]);
+    let project2 = make_project("B", None, "0.0.1", &["A"], &["urn:kpar:b"], &[]);
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![project2.clone(), project1.clone()],
@@ -1015,22 +964,8 @@ fn sort_projects_by_identifiers() {
 
 #[test]
 fn sort_projects_by_version() {
-    let project1 = make_project(
-        Some("A".to_string()),
-        None,
-        "0.0.1",
-        &["A"],
-        &["urn:kpar:a"],
-        &[],
-    );
-    let project2 = make_project(
-        Some("A".to_string()),
-        None,
-        "0.0.2",
-        &["A"],
-        &["urn:kpar:a"],
-        &[],
-    );
+    let project1 = make_project("A", None, "0.0.1", &["A"], &["urn:kpar:a"], &[]);
+    let project2 = make_project("B", None, "0.0.2", &["A"], &["urn:kpar:a"], &[]);
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![project2.clone(), project1.clone()],
@@ -1042,18 +977,49 @@ fn sort_projects_by_version() {
 
 #[test]
 fn canonicalize_checksums() {
+    const MIXED: &str = "dA8747a6f27A32f10Ba393113bCE29f788181037a71f093f90e0ad5829D2b780";
+    const LOWER: &str = "da8747a6f27a32f10ba393113bce29f788181037a71f093f90e0ad5829d2b780";
+
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![Project {
-            name: None,
+            name: "a".into(),
             publisher: None,
             version: "0.0.1".to_string(),
             exports: vec![],
-            identifiers: vec![],
+            identifiers: vec!["urn:kpar:a".to_string()],
             usages: vec![],
-            sources: vec![],
-            checksum: "dA8747a6f27A32f10Ba393113bCE29f788181037a71f093f90e0ad5829D2b780"
-                .to_string(),
+            sources: vec![
+                Source::LocalSrc {
+                    src_path: Utf8UnixPathBuf::from("../path/to/the/project"),
+                    checksum: MIXED.to_owned(),
+                },
+                Source::RemoteSrc {
+                    remote_src: "https://example.com/src".to_string(),
+                    checksum: MIXED.to_owned(),
+                },
+                Source::LocalKpar {
+                    kpar_path: Utf8UnixPathBuf::from("project.kpar"),
+                    kpar_size: NonZeroU64::new(1).unwrap(),
+                    kpar_digest: MIXED.to_owned(),
+                },
+                Source::RemoteKpar {
+                    remote_kpar: "https://example.com/project.kpar".to_string(),
+                    kpar_size: NonZeroU64::new(1).unwrap(),
+                    kpar_digest: MIXED.to_owned(),
+                },
+                Source::IndexKpar {
+                    index_kpar: "https://example.com/indexed.kpar".to_string(),
+                    kpar_size: NonZeroU64::new(1).unwrap(),
+                    kpar_digest: MIXED.to_owned(),
+                },
+                Source::Editable {
+                    editable: Utf8UnixPathBuf::from("editable/path"),
+                },
+                Source::RemoteGit {
+                    remote_git: "https://github.com/example/example.git".to_string(),
+                },
+            ],
         }],
     };
     lock.canonicalize_checksums();
@@ -1061,8 +1027,129 @@ fn canonicalize_checksums() {
     let [project] = projects.as_slice() else {
         panic!()
     };
-    assert_eq!(
-        project.checksum,
-        "da8747a6f27a32f10ba393113bce29f788181037a71f093f90e0ad5829d2b780"
+
+    let Source::LocalSrc { checksum, .. } = &project.sources[0] else {
+        panic!()
+    };
+    assert_eq!(checksum, LOWER);
+
+    let Source::RemoteSrc { checksum, .. } = &project.sources[1] else {
+        panic!()
+    };
+    assert_eq!(checksum, LOWER);
+
+    let Source::LocalKpar { kpar_digest, .. } = &project.sources[2] else {
+        panic!()
+    };
+    assert_eq!(kpar_digest, LOWER);
+
+    let Source::RemoteKpar { kpar_digest, .. } = &project.sources[3] else {
+        panic!()
+    };
+    assert_eq!(kpar_digest, LOWER);
+
+    let Source::IndexKpar { kpar_digest, .. } = &project.sources[4] else {
+        panic!()
+    };
+    assert_eq!(kpar_digest, LOWER);
+
+    // Editable and RemoteGit carry no checksum; their presence here confirms
+    // canonicalize_checksums does not panic on them.
+    assert!(matches!(&project.sources[5], Source::Editable { .. }));
+    assert!(matches!(&project.sources[6], Source::RemoteGit { .. }));
+}
+
+#[test]
+fn old_lockfile_version_0_4_is_rejected() {
+    let lockfile = format!(
+        r#"{LOCKFILE_PREFIX}lock_version = "0.4"
+
+[[project]]
+name = "Old project"
+version = "1.0.0"
+"#
     );
+
+    let Err(err) = Lock::from_str(&lockfile) else {
+        panic!()
+    };
+    let crate::lock::ParseError::Version(VersionError::Unsupported(ref s)) = err else {
+        panic!("expected unsupported version error, got {err:?}")
+    };
+    assert_eq!(s, "0.4");
+}
+
+#[test]
+fn source_to_checksum_editable_is_none() {
+    let source = Source::Editable {
+        editable: Utf8UnixPathBuf::from("."),
+    };
+    assert!(source.to_checksum().is_none());
+}
+
+#[test]
+fn source_to_checksum_remote_git_is_none() {
+    let source = Source::RemoteGit {
+        remote_git: "https://github.com/example/example.git".to_string(),
+    };
+    assert!(source.to_checksum().is_none());
+}
+
+#[test]
+fn source_to_checksum_local_src_is_project_variant() {
+    let checksum = "a".repeat(64);
+    let source = Source::LocalSrc {
+        src_path: Utf8UnixPathBuf::from("path/to/src"),
+        checksum: checksum.clone(),
+    };
+    assert_eq!(
+        source.to_checksum(),
+        Some(ProjectChecksum::Project(checksum))
+    );
+}
+
+#[test]
+fn source_to_checksum_remote_src_is_project_variant() {
+    let checksum = "b".repeat(64);
+    let source = Source::RemoteSrc {
+        remote_src: "https://example.com/src".to_string(),
+        checksum: checksum.clone(),
+    };
+    assert_eq!(
+        source.to_checksum(),
+        Some(ProjectChecksum::Project(checksum))
+    );
+}
+
+#[test]
+fn source_to_checksum_local_kpar_is_kpar_variant() {
+    let digest = "c".repeat(64);
+    let source = Source::LocalKpar {
+        kpar_path: Utf8UnixPathBuf::from("project.kpar"),
+        kpar_size: NonZeroU64::new(1).unwrap(),
+        kpar_digest: digest.clone(),
+    };
+    assert_eq!(source.to_checksum(), Some(ProjectChecksum::Kpar(digest)));
+}
+
+#[test]
+fn source_to_checksum_remote_kpar_is_kpar_variant() {
+    let digest = "d".repeat(64);
+    let source = Source::RemoteKpar {
+        remote_kpar: "https://example.com/project.kpar".to_string(),
+        kpar_size: NonZeroU64::new(1).unwrap(),
+        kpar_digest: digest.clone(),
+    };
+    assert_eq!(source.to_checksum(), Some(ProjectChecksum::Kpar(digest)));
+}
+
+#[test]
+fn source_to_checksum_index_kpar_is_kpar_variant() {
+    let digest = "e".repeat(64);
+    let source = Source::IndexKpar {
+        index_kpar: "https://example.com/indexed.kpar".to_string(),
+        kpar_size: NonZeroU64::new(1).unwrap(),
+        kpar_digest: digest.clone(),
+    };
+    assert_eq!(source.to_checksum(), Some(ProjectChecksum::Kpar(digest)));
 }

@@ -41,6 +41,7 @@ pub fn command_init(
         &mut LocalSrcProject {
             nominal_path: None,
             project_path: path,
+            expected_checksum: None,
         },
     )?;
     Ok(())

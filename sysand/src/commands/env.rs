@@ -17,7 +17,10 @@ use sysand_core::{
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
-        ProjectRead, local_kpar::LocalKParProject, local_src::LocalSrcProject, utils::wrapfs,
+        ProjectRead,
+        local_kpar::{KparInnerPath, LocalKParProject},
+        local_src::LocalSrcProject,
+        utils::wrapfs,
     },
     resolve::{
         file::FileResolverProject,
@@ -26,6 +29,7 @@ use sysand_core::{
         standard::standard_resolver,
     },
 };
+use typed_path::Utf8UnixPathBuf;
 
 use crate::{
     DEFAULT_INDEX_URL,
@@ -133,6 +137,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             &iri,
             &version.to_string(),
             &storage,
+            Some(storage.checksum_canonical_variant()?),
             // Initialized above
             &mut ctx.env.unwrap(),
             allow_overwrite,
@@ -221,13 +226,17 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         FileResolverProject::LocalSrcProject(LocalSrcProject {
             // Provide an empty nominal path to satisfy lock. It won't be used for actual
             // syncing, as the project is installed manually
-            nominal_path: Some(Utf8PathBuf::new()),
+            nominal_path: Some(Utf8UnixPathBuf::new()),
             project_path: path.as_str().into(),
+            expected_checksum: None,
         })
     } else if metadata.is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new_guess_root_nominal(
-            &path, &path,
-        )?)
+        FileResolverProject::LocalKParProject(LocalKParProject::new(
+            &path,
+            KparInnerPath::Guess,
+            Some(path.as_str().into()),
+            None,
+        ))
     } else {
         bail!("path `{path}` is neither a directory nor a file");
     };
@@ -266,6 +275,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         iri.as_str(),
         &project_version,
         &project,
+        Some(project.checksum_canonical_variant()?),
         ctx.env.as_mut().unwrap(),
         allow_overwrite,
         allow_multiple,

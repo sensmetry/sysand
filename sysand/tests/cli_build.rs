@@ -8,7 +8,10 @@ use std::io::{Read, Write};
 use sysand::cli::KparCompressionMethodCli;
 use sysand_core::{
     model::{InterchangeProjectChecksumRaw, KerMlChecksumAlg},
-    project::{ProjectRead, local_kpar::LocalKParProject},
+    project::{
+        ProjectRead,
+        local_kpar::{KparInnerPath, LocalKParProject},
+    },
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -43,7 +46,12 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
         .stdout(predicate::str::contains("Name: test_build"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
-    let kpar_project = LocalKParProject::new_guess_root(cwd.join("test_build.kpar"))?;
+    let kpar_project = LocalKParProject::new(
+        cwd.join("test_build.kpar"),
+        KparInnerPath::Guess,
+        None,
+        None,
+    );
 
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
@@ -114,7 +122,12 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
         .stdout(predicate::str::contains("Version: 1.2.3"))
         .stdout(predicate::str::contains(file_url_from_path(&cwd2)));
 
-    let kpar_project = LocalKParProject::new_guess_root(cwd1.join("test_build.kpar"))?;
+    let kpar_project = LocalKParProject::new(
+        cwd1.join("test_build.kpar"),
+        KparInnerPath::Guess,
+        None,
+        None,
+    );
 
     let (Some(_), Some(_)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
@@ -165,7 +178,6 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     for project_name in ["project1", "project2", "project3"] {
-        println!("W9: {}", project_name);
         let kpar_path = cwd
             .join("output")
             .join(format!("{}-1.2.3.kpar", project_name));
@@ -182,7 +194,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
             .stdout(predicate::str::contains(format!("Name: {}", project_name)))
             .stdout(predicate::str::contains("Version: 1.2.3"));
 
-        let kpar_project = LocalKParProject::new_guess_root(kpar_path)?;
+        let kpar_project = LocalKParProject::new(kpar_path, KparInnerPath::Guess, None, None);
 
         let (Some(_), Some(meta)) = kpar_project.get_project()? else {
             panic!("failed to get built project info/meta");
@@ -251,7 +263,7 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
         kpar_path
     );
 
-    let kpar_project = LocalKParProject::new_guess_root(kpar_path)?;
+    let kpar_project = LocalKParProject::new(kpar_path, KparInnerPath::Guess, None, None);
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
     };
@@ -309,7 +321,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
         kpar_path
     );
 
-    let kpar_project = LocalKParProject::new_guess_root(kpar_path)?;
+    let kpar_project = LocalKParProject::new(kpar_path, KparInnerPath::Guess, None, None);
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
     };
@@ -463,7 +475,7 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
     let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
     assert!(kpar_path.is_file());
 
-    let kpar_project = LocalKParProject::new_guess_root(&kpar_path)?;
+    let kpar_project = LocalKParProject::new(&kpar_path, KparInnerPath::Guess, None, None);
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");
     };
@@ -476,7 +488,7 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
     let out = run_sysand_in(&cwd, ["build"], None)?;
     out.assert().success();
 
-    let kpar_project = LocalKParProject::new_guess_root(&kpar_path)?;
+    let kpar_project = LocalKParProject::new(&kpar_path, KparInnerPath::Guess, None, None);
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta on second build");
     };
@@ -1039,7 +1051,12 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
         .stdout(predicate::str::contains("Name: test_build"))
         .stdout(predicate::str::contains("Version: 1.2.3"));
 
-    let kpar_project = LocalKParProject::new_guess_root(cwd.join("test_build.kpar"))?;
+    let kpar_project = LocalKParProject::new(
+        cwd.join("test_build.kpar"),
+        KparInnerPath::Guess,
+        None,
+        None,
+    );
 
     let (Some(info), Some(meta)) = kpar_project.get_project()? else {
         panic!("failed to get built project info/meta");

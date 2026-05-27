@@ -13,7 +13,8 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         CanonicalizationError, ProjectReadAsync,
-        reqwest_kpar_download::ReqwestKparDownloadedProject, reqwest_src::ReqwestSrcProjectAsync,
+        reqwest_kpar_download::ReqwestRemoteKparDownloadedProject,
+        reqwest_src::ReqwestSrcProjectAsync,
     },
     resolve::ResolveReadAsync,
     utils::scheme::{SCHEME_HTTP, SCHEME_HTTPS},
@@ -34,7 +35,7 @@ pub struct HTTPResolverAsync<Policy> {
 pub enum HTTPProjectAsync<Policy> {
     HTTPSrcProject(ReqwestSrcProjectAsync<Policy>),
     // HTTPKParProjectRanged(ReqwestKparRangedProject),
-    HTTPKParProjectDownloaded(Box<ReqwestKparDownloadedProject<Policy>>),
+    HTTPKParProjectDownloaded(Box<ReqwestRemoteKparDownloadedProject<Policy>>),
 }
 
 #[derive(Error, Debug)]
@@ -44,14 +45,14 @@ pub enum HTTPProjectError<Policy: HTTPAuthentication> {
     // #[error(transparent)]
     // KParRanged(<ReqwestKparRangedProject as ProjectRead>::Error),
     #[error(transparent)]
-    KparDownloaded(<ReqwestKparDownloadedProject<Policy> as ProjectReadAsync>::Error),
+    KparDownloaded(<ReqwestRemoteKparDownloadedProject<Policy> as ProjectReadAsync>::Error),
 }
 
 pub enum HTTPProjectAsyncReader<'a, Policy: HTTPAuthentication> {
     SrcProjectReader(<ReqwestSrcProjectAsync<Policy> as ProjectReadAsync>::SourceReader<'a>),
     //KParRangedReader(<ReqwestKparRangedProject as ProjectRead>::SourceReader<'a>),
     KparDownloadedReader(
-        <ReqwestKparDownloadedProject<Policy> as ProjectReadAsync>::SourceReader<'a>,
+        <ReqwestRemoteKparDownloadedProject<Policy> as ProjectReadAsync>::SourceReader<'a>,
     ),
 }
 
@@ -215,6 +216,21 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
                 .map_err(|e| e.map_project_read(HTTPProjectError::KparDownloaded)),
         }
     }
+
+    async fn checksum_canonical_variant_async(
+        &self,
+    ) -> Result<crate::project::ProjectChecksum, Self::Error> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+                .checksum_canonical_variant_async()
+                .await
+                .map_err(HTTPProjectError::SrcProject),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+                .checksum_canonical_variant_async()
+                .await
+                .map_err(HTTPProjectError::KparDownloaded),
+        }
+    }
 }
 
 pub struct HTTPProjects<Policy> {
@@ -255,11 +271,10 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
         // }
 
         Some(HTTPProjectAsync::HTTPKParProjectDownloaded(Box::new(
-            ReqwestKparDownloadedProject::new_guess_root(
+            ReqwestRemoteKparDownloadedProject::new_guess_root(
                 &url,
                 self.client.clone(),
                 self.auth_policy.clone(),
-                None,
                 None,
             )
             .expect("internal IO error"),
@@ -276,6 +291,7 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
                 client: self.client.clone(), // Already internally an Rc
                 url: self.url.clone(),
                 auth_policy: auth_policy.clone(),
+                expected_checksum: None,
             }))
         // If the resolver is set to be lax, try forcing the terminal slash
         } else if self.lax {
@@ -288,6 +304,7 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
                 client: self.client.clone(), // Already internally an Rc
                 url: lax_url,
                 auth_policy,
+                expected_checksum: None,
             }))
         } else {
             None
