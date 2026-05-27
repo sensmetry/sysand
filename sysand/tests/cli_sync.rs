@@ -560,8 +560,9 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
     );
 
     // Second sync is idempotent.
-    run_sysand_in(&cwd, ["sync"], Some(config_path.as_str()))?
-        .assert()
+    let out = run_sysand_in(&cwd, ["sync"], Some(config_path.as_str()))?;
+
+    out.assert()
         .success()
         .stderr(predicate::str::contains("env is already up to date"));
 

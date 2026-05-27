@@ -130,6 +130,8 @@ where
     let header = crate::style::get_style_config().header;
     log::info!("{header}{syncing:>12}{header:#} env");
 
+    // Do `continue 'main_loop` if it becomes clear that no env changes will be made
+    // for the current iteration `project`
     let mut updated = false;
     'main_loop: for project in lockfile.projects.iter() {
         // TODO: We need a proper way to treat multiple IRIs here
@@ -171,27 +173,30 @@ where
             ));
         }
 
-        for uri in &project.identifiers {
+        for iri in &project.identifiers {
             // TODO: move functionality to check if any of a set of IRIs is installed to env trait
             for source in &project.sources {
                 if let Some(checksum) = source.to_checksum()
                     && env
-                        .has_version_verified(uri, &project.version, &checksum)
+                        .has_version_verified(iri, &project.version, &checksum)
                         .map_err(|e| SyncError::ProjectRead(e.to_string()))?
                         == ProjectChecksumResult::Match
                 {
-                    log::debug!("`{uri}` found in .sysand");
+                    log::debug!("`{iri}` found in .sysand");
                     continue 'main_loop;
                 }
             }
         }
 
         let mut no_supported = true;
-        for source in project.sources.iter() {
+        // TODO: does it make sense to install the same project from all the sources?
+        for source in &project.sources {
             let supported = true;
             match source {
-                Source::Editable { .. } => {
+                Source::Editable { editable } => {
                     // Nothing to install for editable
+                    log::debug!("skipping installation of editable project from `{editable}`");
+                    continue 'main_loop;
                 }
                 Source::LocalSrc { src_path, checksum } => {
                     let uri = main_uri
