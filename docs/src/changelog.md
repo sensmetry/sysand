@@ -19,7 +19,7 @@
 #### Added
 
 - Support git usages, using either regular or `git+` IRIs.
-- Support for configuring usage sources. See [docs](https://docs.sysand.org/config/dependencies.html) for details.
+- Support for configuring usage sources. See [docs](https://client.sysand.com/config/dependencies.html) for details.
 - Allow adding usages by path: `sysand add --path ../path/to/the/usage`. Both relative and absolute paths
   are supported. Note that this will likely not work for project sharing, since usages are stored in `.project.json` as
   absolute paths, and so are unlikely to be available on other computers at the same location.
@@ -39,8 +39,8 @@
 
 #### Documentation
 
-- Add documentation about [`sysand clone` command](https://docs.sysand.org/commands/clone.html).
-- Improve documentation about [`sysand info` command](https://docs.sysand.org/commands/info.html).
+- Add documentation about [`sysand clone` command](https://client.sysand.com/commands/clone.html).
+- Improve documentation about [`sysand info` command](https://client.sysand.com/commands/info.html).
 
 ### v0.0.9 - 2026-02-03
 

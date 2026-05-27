@@ -21,11 +21,11 @@ Java are supported).
 ## Documentation
 
 Sysand usage documentation is provided in User Guide at
-[docs.sysand.org](https://docs.sysand.org/).
+[client.sysand.com](https://client.sysand.com/).
 
 ## Installation
 
-See [installation section in User Guide](http://docs.sysand.org/getting_started/installation.html)
+See [installation section in User Guide](https://client.sysand.com/getting_started/installation.html)
 for various ways to download Sysand.
 
 ## Contributing
