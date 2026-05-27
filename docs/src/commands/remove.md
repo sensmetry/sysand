@@ -7,7 +7,7 @@ Will also remove project source overrides from configuration file if available.
 ## Usage
 
 ```sh
-sysand remove [OPTIONS] <IRI>
+sysand remove [OPTIONS] <IRI|PUBLISHER/NAME>
 ```
 
 ## Description
@@ -18,6 +18,7 @@ environment (creating one if not already present).
 
 ## Arguments
 
-- `<IRI>`: IRI identifying the project usage to be removed
+- `<IRI|PUBLISHER/NAME>`: IRI identifying the project usage to be removed, or
+  `<publisher>/<name>` shorthand for `pkg:sysand/<publisher>/<name>`
 
 {{#include ./partials/global_opts.md}}

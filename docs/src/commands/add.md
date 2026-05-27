@@ -5,7 +5,7 @@ Add usage to project information.
 ## Usage
 
 ```sh
-sysand add [OPTIONS] <IRI|--path <PATH>> [VERSION_CONSTRAINT]
+sysand add [OPTIONS] <IRI|PUBLISHER/NAME|--path <PATH>> [VERSION_CONSTRAINT]
 ```
 
 ## Description
@@ -30,7 +30,8 @@ so future syncing will not take this into account.
 
 ## Arguments
 
-- `<IRI>`: IRI/URI/URL identifying the project to be used. See
+- `<IRI|PUBLISHER/NAME>`: IRI/URI/URL identifying the project to be used, or
+  `<publisher>/<name>` shorthand for `pkg:sysand/<publisher>/<name>`. See
   [`usage` field](../metadata.md#usage) for details.
 - `[VERSION_CONSTRAINT]`: A constraint on the allowable versions of a used
   project. Assumes that the project uses Semantic Versioning. See

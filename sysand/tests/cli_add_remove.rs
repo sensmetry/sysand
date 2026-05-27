@@ -63,6 +63,190 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[test]
+fn add_accepts_sysand_shorthand_without_lock() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "add_shorthand"],
+        None,
+    )?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my.project"], None)?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        "Adding usage: `pkg:sysand/acme-labs/my.project`",
+    ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_shorthand",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "resource": "pkg:sysand/acme-labs/my.project"
+    }
+  ]
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn add_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "reject_add_shorthand",
+        ],
+        None,
+    )?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["add", "--no-lock", "Acme Labs/My.Project"], None)?;
+
+    out.assert().failure().stderr(
+        predicate::str::contains("Acme Labs/My.Project")
+            .and(predicate::str::contains("pkg:sysand/acme-labs/my.project")),
+    );
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "reject_add_shorthand",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn add_path_like_positional_suggests_path_option() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, _cwd, out) = run_sysand(["add", "a/b/c"], None)?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("use `--path` instead"));
+
+    Ok(())
+}
+
+#[test]
+fn remove_accepts_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "remove_shorthand"],
+        None,
+    )?;
+
+    out.assert().success();
+
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-lock", "pkg:sysand/acme-labs/my.project"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let out = run_sysand_in(&cwd, ["remove", "acme-labs/my.project"], None)?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        "Removed `pkg:sysand/acme-labs/my.project`",
+    ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "remove_shorthand",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn remove_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "reject_remove_shorthand",
+        ],
+        None,
+    )?;
+
+    out.assert().success();
+
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-lock", "pkg:sysand/acme-labs/my.project"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let out = run_sysand_in(&cwd, ["remove", "Acme Labs/My.Project"], None)?;
+
+    out.assert().failure().stderr(
+        predicate::str::contains("Acme Labs/My.Project")
+            .and(predicate::str::contains("pkg:sysand/acme-labs/my.project")),
+    );
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "reject_remove_shorthand",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "resource": "pkg:sysand/acme-labs/my.project"
+    }
+  ]
+}
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn remove_path_like_positional_suggests_path_option() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, _cwd, out) = run_sysand(["remove", "a/b/c"], None)?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("use `--path` instead"));
+
+    Ok(())
+}
+
 /// Add and remove usages with `--path <path>`
 #[test]
 fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
@@ -950,6 +1134,200 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     assert!(!config_path.is_file());
+
+    Ok(())
+}
+
+/// Passing the full `pkg:sysand/publisher/name` PURL form directly must not
+/// cause double-expansion. The scheme's colon prevents it from matching the
+/// `publisher/name` shorthand heuristic, so the value is stored verbatim.
+#[test]
+fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "add_full_purl"],
+        None,
+    )?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(
+        &cwd,
+        ["add", "--no-lock", "pkg:sysand/acme-labs/my.project"],
+        None,
+    )?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        "Adding usage: `pkg:sysand/acme-labs/my.project`",
+    ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_full_purl",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "resource": "pkg:sysand/acme-labs/my.project"
+    }
+  ]
+}
+"#
+    );
+
+    let out = run_sysand_in(&cwd, ["remove", "pkg:sysand/acme-labs/my.project"], None)?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        r#"Removing `pkg:sysand/acme-labs/my.project` from usages
+     Removed `pkg:sysand/acme-labs/my.project`"#,
+    ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "add_full_purl",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
+    );
+
+    Ok(())
+}
+
+/// A `urn:` IRI whose path segment contains a slash has exactly two slash-separated
+/// parts (`urn:kpar:acme-labs` and `my.project`), making it superficially resemble
+/// `publisher/name` shorthand. The colon in the scheme must prevent any shorthand
+/// expansion so the IRI is stored and removed verbatim.
+#[test]
+fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_temp_dir, cwd, out) =
+        run_sysand(["init", "--version", "1.2.3", "--name", "urn_slash"], None)?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(
+        &cwd,
+        ["add", "--no-lock", "urn:kpar:acme-labs/my.project"],
+        None,
+    )?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        "Adding usage: `urn:kpar:acme-labs/my.project`",
+    ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "urn_slash",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "resource": "urn:kpar:acme-labs/my.project"
+    }
+  ]
+}
+"#
+    );
+
+    let out = run_sysand_in(&cwd, ["remove", "urn:kpar:acme-labs/my.project"], None)?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        r#"Removing `urn:kpar:acme-labs/my.project` from usages
+     Removed `urn:kpar:acme-labs/my.project`"#,
+    ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "urn_slash",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
+    );
+
+    Ok(())
+}
+
+/// Adding via the `publisher/name` shorthand and removing via the full
+/// `pkg:sysand/publisher/name` PURL form must work — the stored resource is
+/// identical regardless of which form was used on input.
+#[test]
+fn add_shorthand_then_remove_full_purl() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "shorthand_then_full_purl",
+        ],
+        None,
+    )?;
+
+    out.assert().success();
+
+    run_sysand_in(&cwd, ["add", "--no-lock", "acme-labs/my.project"], None)?
+        .assert()
+        .success();
+
+    let out = run_sysand_in(&cwd, ["remove", "pkg:sysand/acme-labs/my.project"], None)?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        "Removed `pkg:sysand/acme-labs/my.project`",
+    ));
+
+    let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
+
+    assert_eq!(
+        info_json,
+        r#"{
+  "name": "shorthand_then_full_purl",
+  "publisher": "untitled",
+  "version": "1.2.3",
+  "usage": []
+}
+"#
+    );
+
+    Ok(())
+}
+
+/// When removing a shorthand that is not present, the error message must name
+/// the expanded PURL form so the user understands what was looked up.
+#[test]
+fn remove_nonexistent_shorthand() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "remove_nonexistent_shorthand",
+        ],
+        None,
+    )?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["remove", "acme-labs/nonexistent"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "could not find usage for `pkg:sysand/acme-labs/nonexistent`",
+    ));
 
     Ok(())
 }

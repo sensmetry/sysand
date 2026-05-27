@@ -762,8 +762,7 @@ fn iri_or_path_to_iri(
         let url: String = Url::from_file_path(abs_path)
             .map_err(|()| anyhow!("unsupported path type of `{path}`"))?
             .into();
-        // This cannot fail, since URL from a path will never have a fragment
-        Iri::parse(url).unwrap()
+        Iri::parse(url).expect("BUG: file URL from path is invalid IRI")
     })
 }
 

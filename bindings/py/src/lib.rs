@@ -10,7 +10,7 @@ use pyo3::{
 };
 use semver::{Version, VersionReq};
 use sysand_core::{
-    add::do_add,
+    add::do_add_guess,
     auth::Unauthenticated,
     build::{KParBuildError, KparCompressionMethod, do_build_kpar},
     commands::{
@@ -28,14 +28,14 @@ use sysand_core::{
     include::do_include,
     info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,
     },
-    remove::do_remove,
+    remove::do_remove_guess,
     resolve::{net_utils::create_reqwest_client, standard::standard_resolver},
     sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
     stdlib::known_std_libs,
@@ -443,13 +443,7 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
     };
 
     // TODO: do dependency resolution and locking?
-    match do_add(
-        &mut project,
-        &InterchangeProjectUsageRaw {
-            resource: iri,
-            version_constraint: version,
-        },
-    ) {
+    match do_add_guess(&mut project, iri, version) {
         Ok(_added) => Ok(()),
         Err(e) => Err(PyRuntimeError::new_err(e.to_string())),
     }
@@ -468,7 +462,7 @@ fn do_remove_py(path: String, iri: String) -> PyResult<()> {
         expected_checksum: None,
     };
 
-    do_remove(&mut project, iri).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+    do_remove_guess(&mut project, iri).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
     Ok(())
 }

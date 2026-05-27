@@ -53,6 +53,31 @@ def test_basic_env() -> None:
         )
 
 
+def test_add_accepts_sysand_shorthand() -> None:
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        sysand.init("test_add_accepts_sysand_shorthand", "a", "1.2.3", tmpdirname)
+
+        sysand.add(tmpdirname, "acme-labs/my.project")
+
+        assert (
+            (Path(tmpdirname) / ".project.json").read_text()
+            == '{\n  "name": "test_add_accepts_sysand_shorthand",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": [\n    {\n      "resource": "pkg:sysand/acme-labs/my.project"\n    }\n  ]\n}\n'
+        )
+
+
+def test_remove_accepts_sysand_shorthand() -> None:
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        sysand.init("test_remove_accepts_sysand_shorthand", "a", "1.2.3", tmpdirname)
+
+        sysand.add(tmpdirname, "acme-labs/my.project")
+        sysand.remove(tmpdirname, "acme-labs/my.project")
+
+        assert (
+            (Path(tmpdirname) / ".project.json").read_text()
+            == '{\n  "name": "test_remove_accepts_sysand_shorthand",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": []\n}\n'
+        )
+
+
 def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
     level = logging.DEBUG
     logging.basicConfig(level=level)

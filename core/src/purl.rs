@@ -172,7 +172,9 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
         });
     };
 
-    if !is_valid_purl_name(name) || !is_valid_purl_publisher(publisher) {
+    let invalid_publisher = !is_valid_purl_publisher(publisher);
+    let invalid_name = !is_valid_purl_name(name);
+    if invalid_publisher || invalid_name {
         if is_valid_unnormalized_name(name) && is_valid_unnormalized_publisher(publisher) {
             return Err(SysandPurlError::NotNormalized {
                 purl: iri.to_owned(),
@@ -181,7 +183,7 @@ pub fn parse_sysand_purl(iri: &str) -> Result<Option<(&str, &str)>, SysandPurlEr
             });
         }
 
-        if !is_valid_purl_publisher(publisher) {
+        if invalid_publisher {
             return Err(SysandPurlError::InvalidPublisher {
                 purl: iri.to_owned(),
                 publisher: (*publisher).to_owned(),
