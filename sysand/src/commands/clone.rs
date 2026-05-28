@@ -273,6 +273,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
             );
         }
         ProjectLocator::Path(path) => {
+            // TODO: support cloning KPARs
             let remote_project = LocalSrcProject {
                 nominal_path: None,
                 project_path: path.into(),
