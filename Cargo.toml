@@ -11,9 +11,9 @@ members = [
 default-members = ["sysand", "core"]
 
 [workspace.package]
-version = "0.1.0-alpha.1"
+version = "0.1.0-rc.1"
 edition = "2024"
-rust-version = "1.94"
+rust-version = "1.95"
 publish = false
 authors = ["Sensmetry <opensource@sensmetry.com>"]
 license = "MIT OR Apache-2.0"
