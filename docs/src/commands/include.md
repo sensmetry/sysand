@@ -1,6 +1,8 @@
 # `sysand include`
 
-Include model interchange files in project metadata
+Include model interchange files in project metadata. This can
+be used multiple times for the same file to update its metadata,
+as the metadata will not be updated automatically
 
 ## Usage
 

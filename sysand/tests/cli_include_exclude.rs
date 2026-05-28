@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::io::Write;
+use std::{fs, io::Write};
 
 use assert_cmd::prelude::*;
 use indexmap::IndexMap;
@@ -27,7 +27,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -36,7 +36,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     assert_eq!(
         meta.index,
@@ -60,7 +60,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     // let meta = meta.validate()?;
 
@@ -83,7 +83,7 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -92,7 +92,7 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     assert_eq!(
         meta.index,
@@ -126,7 +126,7 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -144,7 +144,7 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     assert!(meta.index.is_empty());
 
@@ -176,7 +176,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;
+    let mut sysml_file = fs::File::create(cwd.join("test.sysml"))?;
     sysml_file.sync_all()?;
 
     out.assert().success();
@@ -186,7 +186,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     assert!(meta.index.is_empty());
 
@@ -210,7 +210,7 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     assert_eq!(
         meta.index,
@@ -233,6 +233,55 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn include_same_file_replaces_old_symbols() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "include_same_file_replaces_old_symbols",
+        ],
+        None,
+    )?;
+
+    fs::write(cwd.join("test.sysml"), b"package A;\npackage B;\n")?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
+
+    out.assert().success();
+
+    let meta: InterchangeProjectMetadataRaw =
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
+
+    assert_eq!(
+        meta.index,
+        IndexMap::from([
+            ("A".to_string(), "test.sysml".to_string()),
+            ("B".to_string(), "test.sysml".to_string()),
+        ])
+    );
+
+    fs::write(cwd.join("test.sysml"), b"package C;\n")?;
+
+    let out = run_sysand_in(&cwd, ["include", "test.sysml"], None)?;
+
+    out.assert().success();
+
+    let meta: InterchangeProjectMetadataRaw =
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
+
+    assert_eq!(
+        meta.index,
+        IndexMap::from([("C".to_string(), "test.sysml".to_string()),])
+    );
+
+    Ok(())
+}
+
+#[test]
 fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
@@ -245,9 +294,9 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
-    std::fs::create_dir(cwd.join("extra"))?;
-    std::fs::write(cwd.join("extra").join("test.sysml"), b"package Extra;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::create_dir(cwd.join("extra"))?;
+    fs::write(cwd.join("extra").join("test.sysml"), b"package Extra;\n")?;
 
     out.assert().success();
 
@@ -265,7 +314,7 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     // let meta = meta.validate()?;
 
@@ -304,7 +353,7 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     // let meta = meta.validate()?;
 
@@ -327,11 +376,11 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
         None,
     )?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
-    std::fs::create_dir(cwd.join("extra"))?;
+    fs::create_dir(cwd.join("extra"))?;
 
-    std::fs::write(cwd.join("extra").join("test.sysml"), b"package Extra;\n")?;
+    fs::write(cwd.join("extra").join("test.sysml"), b"package Extra;\n")?;
 
     out.assert().success();
 
@@ -349,7 +398,7 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
     out.assert().success();
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     // let meta = meta.validate()?;
 
@@ -388,7 +437,7 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
     out.assert().success();
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     // let meta = meta.validate()?;
 
@@ -434,7 +483,7 @@ fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     // let meta = meta.validate()?;
 
@@ -466,7 +515,7 @@ fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let meta: InterchangeProjectMetadataRaw =
-        serde_json::from_reader(std::fs::File::open(cwd.join(".meta.json"))?)?;
+        serde_json::from_reader(fs::File::open(cwd.join(".meta.json"))?)?;
 
     // let meta = meta.validate()?;
 

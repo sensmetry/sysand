@@ -975,25 +975,39 @@ pub trait ProjectMut: ProjectRead {
         })
     }
 
-    fn merge_index<S: AsRef<str>, P: AsRef<Utf8UnixPath>, I: Iterator<Item = (S, P)>>(
+    /// Replace `index` entries pointing to `path` with `symbols`. If `overwrite == true`,
+    /// also point any pre-existing `symbols` to `path`
+    fn replace_index_for_file<S: AsRef<str>, P: AsRef<Utf8UnixPath>, I: Iterator<Item = S>>(
         &mut self,
         symbols: I,
+        path: P,
         overwrite: bool,
     ) -> Result<IndexMergeOutcome, ProjectOrIOError<Self::Error>> {
+        let path = path.as_ref();
         let mut meta = self
             .get_meta()
             .map_err(ProjectOrIOError::Project)?
             .unwrap_or_default();
 
+        // Remove if present any existing symbols from the same file
+        meta.index.retain(|s, v| {
+            if v == path {
+                log::debug!("meta.index: removing obsolete symbol `{s}` (file `{v}`)");
+                false
+            } else {
+                true
+            }
+        });
+
         let mut new = vec![];
         let mut existing = vec![];
 
-        for (symbol, path) in symbols {
+        for symbol in symbols {
             let this_symbol = symbol.as_ref().to_string();
             match meta.index.entry(this_symbol.clone()) {
                 indexmap::map::Entry::Occupied(mut occupied_entry) => {
                     let current = if overwrite {
-                        occupied_entry.insert(path.as_ref().to_string())
+                        occupied_entry.insert(path.to_string())
                     } else {
                         occupied_entry.get().clone()
                     };
@@ -1001,7 +1015,7 @@ pub trait ProjectMut: ProjectRead {
                     existing.push((this_symbol, current));
                 }
                 indexmap::map::Entry::Vacant(vacant_entry) => {
-                    vacant_entry.insert(path.as_ref().to_string());
+                    vacant_entry.insert(path.to_string());
                     new.push(this_symbol);
                 }
             }
@@ -1065,12 +1079,13 @@ impl<T: ProjectMut> ProjectMut for &mut T {
         (**self).exclude_source(path)
     }
 
-    fn merge_index<S: AsRef<str>, P: AsRef<Utf8UnixPath>, I: Iterator<Item = (S, P)>>(
+    fn replace_index_for_file<S: AsRef<str>, P: AsRef<Utf8UnixPath>, I: Iterator<Item = S>>(
         &mut self,
         symbols: I,
+        path: P,
         overwrite: bool,
     ) -> Result<IndexMergeOutcome, ProjectOrIOError<Self::Error>> {
-        (**self).merge_index(symbols, overwrite)
+        (**self).replace_index_for_file(symbols, path, overwrite)
     }
 }
 

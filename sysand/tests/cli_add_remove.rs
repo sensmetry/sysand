@@ -1389,7 +1389,11 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
 
     run_sysand_in(
         &cwd,
-        ["add", "urn:kpar:add_and_remove_with_lock_preinstall_dep"],
+        [
+            "add",
+            "urn:kpar:add_and_remove_with_lock_preinstall_dep",
+            "--no-index",
+        ],
         None,
     )?
     .assert()

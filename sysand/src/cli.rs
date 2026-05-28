@@ -139,7 +139,9 @@ pub enum Command {
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
     },
-    /// Include model interchange files in project metadata
+    /// Include model interchange files in project metadata. This can
+    /// be used multiple times for the same file to update its metadata,
+    /// as the metadata will not be updated automatically
     Include {
         /// File(s) to include in the project.
         #[arg(num_args = 1..)]

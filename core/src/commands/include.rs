@@ -38,7 +38,8 @@ impl<ProjectError> From<ProjectOrIOError<ProjectError>> for IncludeError<Project
     }
 }
 
-// TODO: Add some option to make the file format explicit
+// TODO: Add a CLI option to make the file format explicit (useful in cases
+// of non-standard file extensions)
 pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
     project: &mut Pr,
     path: P,
@@ -58,7 +59,7 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
                 )
                 .map_err(|e| IncludeError::Extract(path.as_ref().as_str().into(), e))?;
 
-                project.merge_index(new_symbols.into_iter().map(|x| (x, path.as_ref())), true)?;
+                project.replace_index_for_file(new_symbols.into_iter(), &path, true)?;
             }
             Some(Language::KerML) => {
                 let new_symbols = crate::symbols::top_level_kerml(
@@ -66,7 +67,7 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
                 )
                 .map_err(|e| IncludeError::Extract(path.as_ref().as_str().into(), e))?;
 
-                project.merge_index(new_symbols.into_iter().map(|x| (x, path.as_ref())), true)?;
+                project.replace_index_for_file(new_symbols.into_iter(), &path, true)?;
             }
             _ => {
                 return Err(IncludeError::UnknownFormat(path.as_ref().as_str().into()));
