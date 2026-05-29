@@ -95,6 +95,28 @@ fn clone_project_default_target() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[test]
+fn clone_local_kpar_project_default_target() -> Result<(), Box<dyn std::error::Error>> {
+    let test_path = fixture_path("test_lib.kpar");
+    let test_path_str = test_path.as_str();
+
+    let (_temp_dir, cwd, out) = run_sysand(["clone", test_path_str], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("Cloned `Lib test` 0.0.1"));
+    assert_libtest_cloned_synced(&cwd);
+
+    let (_temp_dir, cwd, out) = run_sysand(["clone", "--path", test_path_str], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains("Cloned `Lib test` 0.0.1"));
+    assert_libtest_cloned_synced(&cwd);
+
+    Ok(())
+}
+
 // clone remote project
 // #[test]
 // fn clone_remote_project() -> Result<(), Box<dyn std::error::Error>> {
