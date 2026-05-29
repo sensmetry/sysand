@@ -11,8 +11,3 @@ version.txt
 AGENTS.md
 AGENTS.local.md
 CLAUDE.md
-
-sysand-amd64/
-sysand-arm64/
-sysand-linux-arm64.tar.xz
-sysand-linux-x86_64.tar.xz
