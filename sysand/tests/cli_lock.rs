@@ -364,7 +364,7 @@ fn build_index_kpar_bytes(
 ) {
     use std::io::Write as _;
 
-    let info_json = format!(r#"{{"name":"{name}","version":"{version}","usage":[]}}"#);
+    let info_json = format!(r#"{{"name":"{name}","version":"{version}"}}"#);
     // Fixed created-timestamp so the digest is reproducible.
     let meta_json = r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#;
 

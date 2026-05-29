@@ -44,16 +44,16 @@ fn json_hash_agrees_with_shell() {
 
     assert_eq!(
         serde_json::to_string(&info).unwrap(),
-        r#"{"name":"json_hash_agrees_with_shell","version":"1.2.3","usage":[]}"#
+        r#"{"name":"json_hash_agrees_with_shell","version":"1.2.3"}"#
     );
     assert_eq!(
         serde_json::to_string(&meta).unwrap(),
         r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#
     );
 
-    // cat <(echo -n '{"name":"json_hash_agrees_with_shell","version":"1.2.3","usage":[]}') <(echo -n '{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}') | sha256sum | cut -f 1 -d ' '
+    // cat <(echo -n '{"name":"json_hash_agrees_with_shell","version":"1.2.3"}') <(echo -n '{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}') | sha256sum | cut -f 1 -d ' '
     assert_eq!(
         lowercase_hex(super::project_hash_raw(&info, &meta)),
-        "b98340d7d7f41cefc3f7dd2b30d65fb48836b12a8d47884975e5c8637edfeea1"
+        "3b08c7119d89c406de6bdfbed29566077209d295736264229ad5d2e33991b3b4"
     );
 }

@@ -26,7 +26,7 @@ public class BasicTest {
             // java.nio.file.Files.readString is available in Java 11+
             // String projectJson = java.nio.file.Files.readString(tempDir.resolve(".project.json"));
             String projectJson = new String(Files.readAllBytes(tempDir.resolve(".project.json")));
-            assertEquals("{\n  \"name\": \"test\",\n  \"publisher\": \"a\",\n  \"version\": \"1.0.0\",\n  \"usage\": []\n}\n", projectJson);
+            assertEquals("{\n  \"name\": \"test\",\n  \"publisher\": \"a\",\n  \"version\": \"1.0.0\"\n}\n", projectJson);
 
             // String metaJson = Files.readString(tempDir.resolve(".meta.json"));
             String metaJson = new String(Files.readAllBytes(tempDir.resolve(".meta.json")));

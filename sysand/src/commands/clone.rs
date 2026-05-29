@@ -14,7 +14,10 @@ use sysand_core::{
     config::Config,
     context::ProjectContext,
     env::{local_directory::utils::clean_dir, utils::clone_project},
-    project::{ProjectRead, editable::EditableProject, local_src::LocalSrcProject, utils::wrapfs},
+    project::{
+        ProjectRead, editable::EditableProject, local_kpar::LocalKParProjectRaw,
+        local_src::LocalSrcProject, utils::wrapfs,
+    },
     resolve::{
         ResolutionOutcome, ResolveRead,
         memory::{AcceptAll, MemoryResolver},
@@ -273,40 +276,71 @@ fn obtain_project<Policy: HTTPAuthentication>(
             );
         }
         ProjectLocator::Path(path) => {
-            // TODO: support cloning KPARs
-            let remote_project = LocalSrcProject {
-                nominal_path: None,
-                project_path: path.into(),
-                expected_checksum: None,
+            if wrapfs::is_file(path)? {
+                let remote_project = LocalKParProjectRaw::new_guess_root(path)?;
+                clone_local(
+                    version,
+                    cloning,
+                    cloned,
+                    header,
+                    &mut local_project,
+                    path,
+                    remote_project,
+                )?;
+            } else {
+                let remote_project = LocalSrcProject {
+                    nominal_path: None,
+                    project_path: path.into(),
+                    expected_checksum: None,
+                };
+                clone_local(
+                    version,
+                    cloning,
+                    cloned,
+                    header,
+                    &mut local_project,
+                    path,
+                    remote_project,
+                )?;
             };
-            if let Some(version) = version {
-                let project_version = remote_project
-                    .get_info()?
-                    .ok_or_else(|| anyhow!("missing project info"))?
-                    .version;
-                if version != project_version {
-                    bail!(
-                        "given version {version} does not match project version {project_version}"
-                    )
-                }
-            }
-            log::info!(
-                "{header}{cloning:>12}{header:#} project from `{}` to\n\
-                {:>12} `{}`",
-                wrapfs::canonicalize(&remote_project.project_path)?,
-                ' ',
-                local_project.project_path,
-            );
-            let (info, _meta) = clone_project(&remote_project, &mut local_project, true)?;
-            log::info!(
-                "{header}{cloned:>12}{header:#} `{}` {}",
-                info.name,
-                info.version
-            );
         }
     }
 
     Ok((include_std, locator, local_project, std_resolver))
+}
+
+fn clone_local<P: ProjectRead>(
+    version: Option<String>,
+    cloning: &str,
+    cloned: &str,
+    header: clap::builder::styling::Style,
+    local_project: &mut LocalSrcProject,
+    path: &Utf8PathBuf,
+    remote_project: P,
+) -> Result<(), anyhow::Error> {
+    if let Some(version) = version {
+        let project_version = remote_project
+            .get_info()?
+            .ok_or_else(|| anyhow!("missing project info"))?
+            .version;
+        if version != project_version {
+            bail!("given version {version} does not match project version {project_version}")
+        }
+    }
+    log::info!(
+        "{header}{cloning:>12}{header:#} project from `{}` to\n\
+                {:>12} `{}`",
+        wrapfs::canonicalize(path)?,
+        ' ',
+        local_project.project_path,
+    );
+    let (info, _meta) = clone_project(&remote_project, local_project, true)?;
+    log::info!(
+        "{header}{cloned:>12}{header:#} `{}` {}",
+        info.name,
+        info.version
+    );
+    Ok(())
 }
 
 /// Obtains a project identified by `iri` via `resolver`. If

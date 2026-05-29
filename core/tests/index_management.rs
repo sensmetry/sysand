@@ -167,8 +167,7 @@ fn file_state_test() {
         json!({
           "name": "Test.project1",
           "publisher": "Test Publisher",
-          "version": "0.1.0",
-          "usage": []
+          "version": "0.1.0"
         })
     );
     assert_eq!(
@@ -188,8 +187,7 @@ fn file_state_test() {
         json!({
           "name": "Test.project1",
           "publisher": "Test Publisher",
-          "version": "0.2.0",
-          "usage": []
+          "version": "0.2.0"
         })
     );
     assert_eq!(

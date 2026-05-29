@@ -31,8 +31,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
         r#"{
   "name": "init_basic",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -65,8 +64,7 @@ fn init_basic_cwd() -> Result<(), Box<dyn std::error::Error>> {
         r#"{
   "name": "init_basic_cwd",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -109,8 +107,7 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
         r#"{
   "name": "other_than_init_explicit_name",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );

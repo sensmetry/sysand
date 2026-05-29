@@ -226,7 +226,7 @@ fn mock_json_get_count(
 //     src_body: &str,
 // ) -> (Vec<u8>, String, &'static str) {
 //     use std::io::Write as _;
-//     let info_json = format!(r#"{{"name":"{name}","version":"{version}","usage":[]}}"#);
+//     let info_json = format!(r#"{{"name":"{name}","version":"{version}"}}"#);
 //     let meta_json: &'static str = r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#;
 //     let mut buf: Vec<u8> = Vec::new();
 //     {

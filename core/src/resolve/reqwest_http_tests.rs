@@ -21,7 +21,7 @@ fn basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/foo/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"basic_http_src_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"basic_http_src_url","version":"1.2.3"}"#)
         .expect(1)
         .create();
 
@@ -168,7 +168,7 @@ fn basic_http_url_lax_without_slash_not_prefer_ranged() -> Result<(), Box<dyn st
 
 //         zip.start_file("some_root_dir/.project.json", options)?;
 //         zip.write_all(
-//             br#"{"name":"resolves_ranged_if_successful","version":"1.2.3","usage":[]}"#,
+//             br#"{"name":"resolves_ranged_if_successful","version":"1.2.3"}"#,
 //         )?;
 //         zip.start_file("some_root_dir/.meta.json", options)?;
 //         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
@@ -233,7 +233,7 @@ fn basic_http_url_lax_without_slash_not_prefer_ranged() -> Result<(), Box<dyn st
 
 //         zip.start_file("some_root_dir/.project.json", options)?;
 //         zip.write_all(
-//             br#"{"name":"resolves_non_ranged_if_unsupported","version":"1.2.3","usage":[]}"#,
+//             br#"{"name":"resolves_non_ranged_if_unsupported","version":"1.2.3"}"#,
 //         )?;
 //         zip.start_file("some_root_dir/.meta.json", options)?;
 //         zip.write_all(br#"{"index":{},"created":"123"}"#)?;

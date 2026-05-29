@@ -205,7 +205,7 @@ pub enum PublishError {
         source: semver::Error,
     },
     #[error(
-        "version field `{version}` is invalid for publishing: build metadata (`+...`) is forbidden by the index protocol"
+        "version field `{version}` is invalid for publishing: build metadata (`+...`) cannot be used for projects in the index"
     )]
     VersionBuildMetadata { version: Box<str> },
 
@@ -213,11 +213,11 @@ pub enum PublishError {
     MissingLicense,
 
     #[error(
-        "license field `{license}` is invalid for publishing: must be a valid SPDX license expression ({source})"
+        "license field `{license}` is invalid for publishing, it must be a valid SPDX license expression, but failed to parse:\n{err}"
     )]
     InvalidLicense {
         license: Box<str>,
-        source: spdx::error::ParseError,
+        err: spdx::error::ParseError,
     },
 
     #[error("invalid index URL `{url}` for publish: {reason}")]
@@ -304,9 +304,9 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             version: version.as_str().into(),
         });
     }
-    spdx::Expression::parse(license).map_err(|source| PublishError::InvalidLicense {
+    spdx::Expression::parse(license).map_err(|err| PublishError::InvalidLicense {
         license: license.into(),
-        source,
+        err,
     })?;
     let normalized_publisher = normalize_field(publisher);
     let normalized_name = normalize_field(name);

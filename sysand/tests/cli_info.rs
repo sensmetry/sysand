@@ -167,7 +167,7 @@ fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
         .mock("HEAD", "/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(1)
         .create();
 
@@ -175,7 +175,7 @@ fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(3) // TODO: Reduce this to 1
         .create();
 
@@ -239,7 +239,7 @@ fn info_basic_http_url_irrelevant_auth() -> Result<(), Box<dyn Error>> {
         .mock("HEAD", "/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(1)
         .create();
 
@@ -247,7 +247,7 @@ fn info_basic_http_url_irrelevant_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(3) // TODO: Reduce this to 1
         .create();
 
@@ -337,7 +337,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(1) // TODO: Reduce this
         .create();
 
@@ -349,7 +349,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         )
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(1) // TODO: Reduce this
         .create();
 
@@ -358,7 +358,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(3) // TODO: Reduce this to 1
         .create();
 
@@ -370,7 +370,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         )
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(3) // TODO: Reduce this to 1
         .create();
 
@@ -492,7 +492,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(1) // TODO: Reduce this
         .create();
 
@@ -504,7 +504,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         )
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(1) // TODO: Reduce this
         .create();
 
@@ -513,7 +513,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(3) // TODO: Reduce this to 1
         .create();
 
@@ -525,7 +525,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         )
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
         .expect(3) // TODO: Reduce this to 1
         .create();
 
@@ -616,7 +616,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
 //             .unix_permissions(0o755);
 
 //         zip.start_file("some_root_dir/.project.json", options)?;
-//         zip.write_all(br#"{"name":"info_non_ranged_http_kpar","version":"1.2.3","usage":[]}"#)?;
+//         zip.write_all(br#"{"name":"info_non_ranged_http_kpar","version":"1.2.3"}"#)?;
 //         zip.start_file("some_root_dir/.meta.json", options)?;
 //         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
 //         zip.start_file("some_root_dir/test.sysml", options)?;
@@ -673,7 +673,7 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
             .unix_permissions(0o755);
 
         zip.start_file("some_root_dir/.project.json", options)?;
-        zip.write_all(br#"{"name":"info_basic_local_kpar","version":"1.2.3","usage":[]}"#)?;
+        zip.write_all(br#"{"name":"info_basic_local_kpar","version":"1.2.3"}"#)?;
         zip.start_file("some_root_dir/.meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)?;
 
@@ -703,7 +703,7 @@ fn info_basic_file_git() -> Result<(), Box<dyn Error>> {
         // TODO: Replace by commands::*::do_* when sufficiently complete, also use gix to create repo?
         std::fs::write(
             cwd.path().join(".project.json"),
-            r#"{"name":"info_basic_file_git","version":"1.2.3","usage":[]}"#,
+            r#"{"name":"info_basic_file_git","version":"1.2.3"}"#,
         )?;
         Command::new("git")
             .arg("add")
@@ -760,7 +760,7 @@ fn info_basic_file_git() -> Result<(), Box<dyn Error>> {
 
 /// Render a minimal `.project.json` body for the given name/version.
 fn project_json_for(name: &str, version: &str) -> String {
-    format!(r#"{{"name":"{name}","version":"{version}","usage":[]}}"#)
+    format!(r#"{{"name":"{name}","version":"{version}"}}"#)
 }
 
 /// Render a minimal `.meta.json` body. The fixed timestamp keeps any test

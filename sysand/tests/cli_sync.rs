@@ -85,8 +85,7 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
         proj_dir.join(".project.json"),
         r#"{
   "name": "sync_to_local",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#,
     )?;
@@ -108,7 +107,7 @@ name = "sync_to_local"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_local"]
 sources = [
-    { src_path = "lib/sync_to_local", checksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c" },
+    { src_path = "lib/sync_to_local", checksum = "fd4566669f12f969e04aa970d27659057357d078d00530d442de21d517959f92" },
 ]
 "#,
     )?;
@@ -137,7 +136,7 @@ path = "lib/kpar.sync_to_local_1.2.3"
 identifiers = [
     "urn:kpar:sync_to_local",
 ]
-src_cksum = "4b3adfb7bea950c7c598093c50323fa2ea9f816cb4b10cd299b205bfd4b47a5c"
+src_cksum = "fd4566669f12f969e04aa970d27659057357d078d00530d442de21d517959f92"
 "#
         )
     );
@@ -167,7 +166,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3"}"#)
         .expect(2) // TODO: Reduce this to 1 after caching
         .match_request(|r| r.has_header(header::USER_AGENT))
         .create();
@@ -191,7 +190,7 @@ name = "sync_to_remote"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_remote"]
 sources = [
-    {{ remote_src = "{}", checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895" }},
+    {{ remote_src = "{}", checksum = "3bd4c3c6b54690d38eeb035e136b667b4307063451b140feb2f49d266f653a26" }},
 ]
 "#,
             &server.url()
@@ -225,7 +224,7 @@ path = "lib/kpar.sync_to_remote_1.2.3"
 identifiers = [
     "urn:kpar:sync_to_remote",
 ]
-src_cksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895"
+src_cksum = "3bd4c3c6b54690d38eeb035e136b667b4307063451b140feb2f49d266f653a26"
 "#
         )
     );
@@ -259,7 +258,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3"}"#)
         .expect(2) // TODO: Reduce this to 1
         .create();
 
@@ -271,7 +270,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3"}"#)
         .expect(2) // TODO: Reduce this to 1
         .create();
 
@@ -306,7 +305,7 @@ name = "sync_to_remote"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_remote"]
 sources = [
-    {{ remote_src = "{}", checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895" }},
+    {{ remote_src = "{}", checksum = "3bd4c3c6b54690d38eeb035e136b667b4307063451b140feb2f49d266f653a26" }},
 ]
 "#,
             &server.url()
@@ -328,16 +327,16 @@ sources = [
         ]),
     )?;
 
-    info_mock.assert();
-    info_mock_auth.assert();
-    meta_mock.assert();
-    meta_mock_auth.assert();
-
     out.assert()
         .success()
         .stderr(predicate::str::contains("Creating"))
         .stderr(predicate::str::contains("Syncing"))
         .stderr(predicate::str::contains("Installing"));
+
+    info_mock.assert();
+    info_mock_auth.assert();
+    meta_mock.assert();
+    meta_mock_auth.assert();
 
     let out = run_sysand_in(&cwd, ["env", "list"], None)?;
 
@@ -378,7 +377,7 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         )
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"sync_to_remote","version":"1.2.3"}"#)
         .expect(0)
         .create();
 
@@ -411,7 +410,7 @@ name = "sync_to_remote"
 version = "1.2.3"
 identifiers = ["urn:kpar:sync_to_remote"]
 sources = [
-    {{ remote_src = "{}", checksum = "39f49107a084ab27624ee78d4d37f87a1f7606a2b5d242cdcd9374cf20ab1895" }},
+    {{ remote_src = "{}", checksum = "3bd4c3c6b54690d38eeb035e136b667b4307063451b140feb2f49d266f653a26" }},
 ]
 "#,
             &server.url()

@@ -32,7 +32,7 @@ def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
         with open(Path(tmpdirname) / ".project.json", "r") as f:
             assert (
                 f.read()
-                == '{\n  "name": "test_basic_init",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": []\n}\n'
+                == '{\n  "name": "test_basic_init",\n  "publisher": "a",\n  "version": "1.2.3"\n}\n'
             )
         with open(Path(tmpdirname) / ".meta.json", "r") as f:
             assert re.match(
@@ -74,7 +74,7 @@ def test_remove_accepts_sysand_shorthand() -> None:
 
         assert (
             (Path(tmpdirname) / ".project.json").read_text()
-            == '{\n  "name": "test_remove_accepts_sysand_shorthand",\n  "publisher": "a",\n  "version": "1.2.3",\n  "usage": []\n}\n'
+            == '{\n  "name": "test_remove_accepts_sysand_shorthand",\n  "publisher": "a",\n  "version": "1.2.3"\n}\n'
         )
 
 
@@ -123,7 +123,7 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
     caplog.set_level(level)
 
     httpserver.expect_request("/.project.json").respond_with_json(
-        {"name": "test_http_info", "publisher": "a", "version": "1.2.3", "usage": []}
+        {"name": "test_http_info", "publisher": "a", "version": "1.2.3"}
     )
     httpserver.expect_request("/.meta.json").respond_with_json(
         {"index": {}, "created": "0000-00-00T00:00:00.123456789Z"}
@@ -175,7 +175,7 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
         }
     )
     httpserver.expect_request(f"{iri_dir}/1.2.3/.project.json").respond_with_json(
-        {"name": "test_index_info", "version": "1.2.3", "usage": []}
+        {"name": "test_index_info", "version": "1.2.3"}
     )
     httpserver.expect_request(f"{iri_dir}/1.2.3/.meta.json").respond_with_json(
         {"index": {}, "created": "2026-01-01T00:00:00Z"}
