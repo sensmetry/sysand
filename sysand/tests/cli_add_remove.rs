@@ -519,6 +519,7 @@ fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
         ["init", "--version", "1.2.3", "--name", "add_and_remove"],
         None,
     )?;
+    dbg!("hello");
 
     out.assert().success();
 
