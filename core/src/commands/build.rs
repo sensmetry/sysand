@@ -356,7 +356,12 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 ));
             }
             for only_in_new in new_symbols.difference(&old_symbols) {
-                log::warn!("index is missing symbol `{only_in_new}` found in file `{p}`");
+                // TODO: figure out a way to only print suggestions when running the CLI
+                log::warn!(
+                    "index is missing symbol `{only_in_new}` found in file `{p}`;\n\
+                    include the file again to update its exported symbols, or pass `--update-meta`\n\
+                    to do so for all files"
+                );
             }
         }
     }

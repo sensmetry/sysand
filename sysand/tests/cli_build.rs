@@ -103,6 +103,87 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[test]
+fn project_build_errors_when_index_symbol_is_missing_from_file()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "test_build_missing_index_symbol",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    std::fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "include",
+            "--compute-checksum",
+            "--no-index-symbols",
+            "test.sysml",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let meta_path = cwd.join(".meta.json");
+    let mut meta: serde_json::Value = serde_json::from_str(&fs::read_to_string(&meta_path)?)?;
+    meta["index"] = json!({
+        "Missing": "test.sysml"
+    });
+    std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert().failure().stderr(predicate::str::contains(
+        "file `test.sysml` is missing symbol `Missing` found in index",
+    ));
+    assert!(!cwd.join("test_build.kpar").exists());
+
+    Ok(())
+}
+
+#[test]
+fn project_build_warns_when_file_symbol_is_missing_from_index()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--name",
+            "test_build_missing_index_entry",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    std::fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "include",
+            "--compute-checksum",
+            "--no-index-symbols",
+            "test.sysml",
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert().success().stderr(predicate::str::contains(
+        "index is missing symbol `Present` found in file `test.sysml`",
+    ));
+    assert!(cwd.join("test_build.kpar").exists());
+
+    Ok(())
+}
+
 /// Build a project that has a path (`file:`) usage
 #[test]
 fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
