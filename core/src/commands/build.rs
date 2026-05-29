@@ -359,8 +359,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 // TODO: figure out a way to only print suggestions when running the CLI
                 log::warn!(
                     "index is missing symbol `{only_in_new}` found in file `{p}`;\n\
-                    include the file again to update its exported symbols, or pass `--update-meta`\n\
-                    to do so for all files"
+                    if this is not intentional, include the file again to update its\n\
+                    exported symbols, or pass `--update-meta` to do so for all files"
                 );
             }
         }
