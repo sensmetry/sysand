@@ -48,7 +48,7 @@ fn basic_project_urls_http_src() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.project.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"name":"basic_project_urls","version":"1.2.3","usage":[]}"#)
+        .with_body(r#"{"name":"basic_project_urls","version":"1.2.3"}"#)
         .match_request(|r| r.has_header(header::USER_AGENT))
         .expect(1)
         .create();

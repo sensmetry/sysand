@@ -80,7 +80,7 @@ path = "lib/kpar.test_0.0.1"
 identifiers = [
     "urn:kpar:test",
 ]
-src_cksum = "69311f2c1fcc3cc8649461ff1961e17df46237399bad1596e099e8483865e3f4"
+src_cksum = "c83ef78e3b8d52d622dea6db2e7c6c326801500ae1e99f6a54c39a1f473367b3"
 "#
     );
 

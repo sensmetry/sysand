@@ -44,7 +44,7 @@ pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: Replace by commands::*::do_* when sufficiently complete, also use gix to create repo?
     std::fs::write(
         repo_dir.path().join(".project.json"),
-        r#"{"name":"basic_gix_access","version":"1.2.3","usage":[]}"#,
+        r#"{"name":"basic_gix_access","version":"1.2.3"}"#,
     )?;
     Command::new("git")
         .arg("add")

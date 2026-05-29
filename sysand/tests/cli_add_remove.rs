@@ -54,8 +54,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
         r#"{
   "name": "add_and_remove",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -127,8 +126,7 @@ fn add_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::erro
         r#"{
   "name": "reject_add_shorthand",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -177,8 +175,7 @@ fn remove_accepts_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
         r#"{
   "name": "remove_shorthand",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -320,8 +317,7 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
         r#"{
   "name": "add_and_remove_path1",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -413,8 +409,7 @@ sources = [
         r#"{
   "name": "add_and_remove",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -508,8 +503,7 @@ sources = [
         r#"{
   "name": "add_and_remove",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -603,8 +597,7 @@ sources = [
         r#"{
   "name": "add_and_remove",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -698,8 +691,7 @@ sources = [
         r#"{
   "name": "add_and_remove",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -793,8 +785,7 @@ sources = [
         r#"{
   "name": "add_and_remove",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -888,8 +879,7 @@ sources = [
         r#"{
   "name": "add_and_remove",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -1031,8 +1021,7 @@ sources = [
         r#"{
   "name": "add_and_remove",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -1127,8 +1116,7 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
         r#"{
   "name": "add_from_url",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -1191,8 +1179,7 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
         r#"{
   "name": "add_full_purl",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -1253,8 +1240,7 @@ fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dy
         r#"{
   "name": "urn_slash",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -1297,8 +1283,7 @@ fn add_shorthand_then_remove_full_purl() -> Result<(), Box<dyn std::error::Error
         r#"{
   "name": "shorthand_then_full_purl",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );
@@ -1434,8 +1419,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
         r#"{
   "name": "add_and_remove_with_lock_preinstall",
   "publisher": "untitled",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );

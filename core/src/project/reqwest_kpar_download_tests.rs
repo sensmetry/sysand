@@ -34,7 +34,7 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
             .unix_permissions(0o755);
 
         zip.start_file("some_root_dir/.project.json", options)?;
-        zip.write_all(br#"{"name":"basic_download_request","version":"1.2.3","usage":[]}"#)?;
+        zip.write_all(br#"{"name":"basic_download_request","version":"1.2.3"}"#)?;
         zip.start_file("some_root_dir/.meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
         zip.start_file("some_root_dir/test.sysml", options)?;
@@ -114,7 +114,7 @@ fn concurrent_downloads_fan_in_to_single_fetch() -> Result<(), Box<dyn std::erro
             .compression_method(zip::CompressionMethod::Stored)
             .unix_permissions(0o755);
         zip.start_file(".project.json", options)?;
-        zip.write_all(br#"{"name":"concurrent","version":"1.0.0","usage":[]}"#)?;
+        zip.write_all(br#"{"name":"concurrent","version":"1.0.0"}"#)?;
         zip.start_file(".meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"x"}"#)?;
         zip.finish().unwrap();
@@ -183,7 +183,7 @@ fn expected_size_mismatch_rejects_download() -> Result<(), Box<dyn std::error::E
             .compression_method(zip::CompressionMethod::Stored)
             .unix_permissions(0o755);
         zip.start_file(".project.json", options)?;
-        zip.write_all(br#"{"name":"size-mismatch","version":"1.0.0","usage":[]}"#)?;
+        zip.write_all(br#"{"name":"size-mismatch","version":"1.0.0"}"#)?;
         zip.start_file(".meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"x"}"#)?;
         zip.finish().unwrap();

@@ -24,7 +24,7 @@ fn basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
             .unix_permissions(0o755);
 
         zip.start_file(".project.json", options)?;
-        zip.write_all(br#"{"name":"basic_kpar_archive","version":"1.2.3","usage":[]}"#)?;
+        zip.write_all(br#"{"name":"basic_kpar_archive","version":"1.2.3"}"#)?;
         zip.start_file(".meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
         zip.start_file("test.sysml", options)?;
@@ -67,7 +67,7 @@ fn nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
             .unix_permissions(0o755);
 
         zip.start_file("some_root_dir/.project.json", options)?;
-        zip.write_all(br#"{"name":"nested_kpar_archive","version":"1.2.3","usage":[]}"#)?;
+        zip.write_all(br#"{"name":"nested_kpar_archive","version":"1.2.3"}"#)?;
         zip.start_file("some_root_dir/.meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
         zip.start_file("some_root_dir/test.sysml", options)?;

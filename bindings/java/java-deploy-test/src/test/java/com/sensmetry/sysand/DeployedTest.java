@@ -21,7 +21,7 @@ public class DeployedTest {
             assertTrue(java.nio.file.Files.exists(tempDir.resolve(".meta.json")), "Metadata file should exist");
 
             String projectJson = java.nio.file.Files.readString(tempDir.resolve(".project.json"));
-            assertEquals("{\n  \"name\": \"test\",\n  \"version\": \"1.0.0\",\n  \"usage\": []\n}", projectJson);
+            assertEquals("{\n  \"name\": \"test\",\n  \"version\": \"1.0.0\"\n}", projectJson);
 
             String metaJson = java.nio.file.Files.readString(tempDir.resolve(".meta.json"));
             Pattern regex = Pattern.compile(

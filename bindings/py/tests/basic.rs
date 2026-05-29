@@ -38,8 +38,7 @@ fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
         r#"{
   "name": "basic_init",
   "publisher": "a",
-  "version": "1.2.3",
-  "usage": []
+  "version": "1.2.3"
 }
 "#
     );

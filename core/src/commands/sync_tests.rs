@@ -146,7 +146,7 @@ fn try_install_fails_to_install_wrong_checksum() {
     assert_eq!(
         actual,
         ProjectChecksum::Project(
-            "ac2849f645933d92010698c857cfa0dcde74d7a06028d4bc8a4d607452c72d13".to_owned()
+            "9612357c41e64a174582b813ca2f1695fd11baf7166624ea2bdf76b406ee2d71".to_owned()
         )
     );
 

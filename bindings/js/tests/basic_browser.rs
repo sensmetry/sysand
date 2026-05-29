@@ -37,7 +37,7 @@ mod browser_tests {
             local_storage
                 .get_item("sysand_storage/.project.json")
                 .unwrap(),
-            Some(r#"{"name":"basic_init","publisher":"a","version":"1.2.3","license":"MIT OR Apache-2.0","usage":[]}"#.to_string())
+            Some(r#"{"name":"basic_init","publisher":"a","version":"1.2.3","license":"MIT OR Apache-2.0"}"#.to_string())
         );
 
         let re = Regex::new(r#"\{"index":\{\},"created":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"}"#)
