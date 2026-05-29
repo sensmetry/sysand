@@ -9,7 +9,7 @@
 # crt-static reference: See https://rust-lang.github.io/rfcs/1721-crt-static.html
 # dumpbin verification: https://github.com/sensmetry/sysand/pull/91#issuecomment-4081523020
 #
-# Increase the stack size, since Windows default 1 MiB causes a stack
+# Increase the stack size to 8MiB, since Windows default 1 MiB causes a stack
 # overflow on almost any CLI operation
 [target.'cfg(windows)']
 rustflags = ["-Ctarget-feature=+crt-static", "-Clink-args=/STACK:8388608"]
