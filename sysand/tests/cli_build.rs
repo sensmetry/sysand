@@ -274,32 +274,6 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         let new_meta_contents = fs::read_to_string(&project.meta_path)?;
         assert_eq!(project.orig_info_contents, new_info_contents);
         assert_eq!(project.orig_meta_contents, new_meta_contents);
-
-        // out.assert()
-        //     .success()
-        //     .stdout(predicate::str::contains(format!("Name: {}", project.name)))
-        //     .stdout(predicate::str::contains("Version: 1.2.3"));
-
-        // let kpar_project = LocalKParProject::new_guess_root(kpar_path)?;
-
-        // let (Some(_), Some(meta)) = kpar_project.get_project()? else {
-        //     panic!("failed to get built project info/meta");
-        // };
-
-        // // Ensure things get canonicalised during build
-
-        // assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
-        // assert_eq!(
-        //     meta.checksum.as_ref().unwrap().get("test.sysml").unwrap(),
-        //     &InterchangeProjectChecksumRaw {
-        //         value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
-        //             .to_string(),
-        //         algorithm: KerMlChecksumAlg::Sha256.into(),
-        //     }
-        // );
-
-        // assert_eq!(meta.index.len(), 1);
-        // assert_eq!(meta.index.get("P").unwrap(), "test.sysml");
     }
 
     // Now canonicalize meta during build. Previous artifacts should be overwritten
