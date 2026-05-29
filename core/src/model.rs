@@ -122,6 +122,8 @@ pub struct InterchangeProjectInfoG<Iri, Version, VersionReq> {
     #[serde(default)]
     pub topic: Vec<String>,
 
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub usage: Vec<InterchangeProjectUsageG<Iri, VersionReq>>,
 }
 
