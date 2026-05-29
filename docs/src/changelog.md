@@ -1,6 +1,85 @@
 # Changelog
 
-## v0.0
+### v0.1.0 - 2026-06-01
+
+This is a big release. The main changes are the support for the new Sysand Index
+at https://sysand.com, and changing the local environment structure to have human
+readable directory names. Projects from the new index can now be referred to
+by the new `publisher/name` syntax in `sysand add` and `sysand remove`, instead of
+an IRI.
+
+Lock file (`sysand-lock.toml`) format has changed, and has to be regenerated
+by running `sysand lock`.
+
+Local Sysand environment will now have a different structure and live in
+`.sysand`; existing `sysand_env` directories won't be used anymore and can be
+removed. To populate the new environment with projects recorded in lock file,
+run `sysand sync`.
+
+Index structure has also changed, so all indexes will need to be recreated
+using the new `sysand index` commands.
+
+#### API and Breaking Changes
+
+- feat!: implement the new sysand index read protocol (#288)
+- feat!: use new local environment structure (#297)
+- feat!: rename `sysand_env` to `.sysand` (#336)
+- feat!: make all KPAR sources have kpar_digest and src sources have checksum (#352)
+- feat!: default to new index and prepare docs for the 0.1.0 release (#356)
+- feat!: make standard library identifiers not use `urn:kpar:` (#345)
+
+#### New features added
+
+- feat: support sysand add/remove PURL shorthand (#354)
+- feat: add index management commands (#335)
+- feat: support cloning local kpars (#363)
+- feat: add installation scripts (#370)
+- feat: add Dockerfile and automation to publish on/for releases (#362)
+- feat: add Java bindings for writing .project.json and .meta.json (#349)
+- feat(build): bundle LICENSES into kpar (#332)
+- feat(build): bundle CHANGELOG.md into kpar (#331)
+
+#### Enhancements made
+
+- Don't update metadata by default when building projects (#298)
+- feat: make built KPARs reproducible by setting OS/time metadata to fixed values (#372)
+- Improve 'sysand info' command output (#292)
+
+#### Bugs fixed
+
+- fix: remove old symbols if the same file is included multiple times (#359)
+
+#### Maintenance and upkeep improvements
+
+- feat(dockerimage): provide flexible tags (#365)
+- release: prepare 0.1.0-rc.1 (#357)
+- release: prepare 0.1.0-alpha.1 (#340)
+- refactor: centralize sha256 calculations, update sha2 to 0.11 and gix to 0.83 (#339)
+- refactor: don't use test\_ prefix for tests (#322)
+- prepare 0.0.12-dev.1 release (#319)
+- chore: transition from xz to gzip compression on tars (#369)
+
+#### Documentation improvements
+
+- docs: refine release instructions (#341)
+- docs: reduce complexity of RELEASE.md with latest github-activity (#328)
+- docs: declare changelog procedure, add backfilled changelog, and introduce commit/PR title practice (#323)
+- docs: make navigation sections not expanded (#321)
+- Add more details to RELEASE.md (#318)
+
+#### Continuous integration improvements
+
+- ci: release procedure rework (#314)
+
+#### Other merged PRs
+
+- fix(deps): update dependency org.apache.maven:maven-plugin-api to v3.9.16 (#351)
+- chore(deps): update all github actions (#350)
+- chore(deps): update taiki-e/install-action action to v2.77.5 (#337)
+- chore(deps): update dependency org.apache.maven.plugins:maven-invoker-plugin to v3.10.1 (#330)
+- chore(deps): update all github actions (#329)
+- chore(deps): update dependency org.apache.maven.plugins:maven-invoker-plugin to v3.10.0 (#316)
+- chore(deps): update taiki-e/install-action action to v2.75.23 (#315)
 
 ### v0.0.11 - 2026-04-30
 
