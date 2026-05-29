@@ -1,0 +1,95 @@
+name: Publish Image
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag associated with the release to publish
+        required: true
+        type: string
+      use_default_branch_dockerfile:
+        description: Use the Dockerfile from the default branch instead of the release tag
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-image:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.use_default_branch_dockerfile && github.event.repository.default_branch || inputs.tag || github.event.release.tag_name }}
+
+      - name: Declare image tag
+        id: image
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: echo "tag=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for release assets to be uploaded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          for attempt in {1..10}; do
+            assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+
+            has_amd64_asset="$(grep -Fxc "sysand-linux-x86_64.tar.xz" <<< "$assets")"
+            has_arm64_asset="$(grep -Fxc "sysand-linux-arm64.tar.xz" <<< "$assets")"
+            if [[ "$has_amd64_asset" == 1 && "$has_arm64_asset" == 1 ]]; then
+              break
+            fi
+
+            if [[ "$attempt" == 10 ]]; then
+              echo "Release $TAG does not include sysand-linux-x86_64.tar.xz and sysand-linux-arm64.tar.xz assets." >&2
+              exit 1
+            fi
+
+            echo "Release $TAG does not include all image assets yet. Sleeping before attempt $((attempt + 1))..."
+            sleep 6
+          done
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          gh release download "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern sysand-linux-x86_64.tar.xz \
+              --pattern sysand-linux-arm64.tar.xz
+
+          mkdir sysand-amd64 sysand-arm64
+          tar -xJf sysand-linux-x86_64.tar.xz -C sysand-amd64
+          tar -xJf sysand-linux-arm64.tar.xz -C sysand-arm64
+
+      - name: Set up QEMU (for docker buildx)
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
+
+      - name: Set up Docker Buildx (for multi-arch builds)
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Log in to ghcr.io (GitHub Container Registry)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ steps.image.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
