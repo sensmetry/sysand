@@ -1,11 +1,10 @@
 # Installation
 
-There are a few ways to download Sysand:
+There are a few ways to install Sysand:
 
-- From PyPI
-- From this page
-- From GitHub releases
-- Compile from source
+- By installing the `sysand` Python package from PyPI
+- By downloading a sysand binary manually or with an installation script
+- By compiling Sysand from its source code
 
 ## PyPI
 
@@ -217,6 +216,100 @@ sysand --version
 ```
 
 You should see an output similar to: `sysand X.Y.Z`
+
+## Install script
+
+Sysand provides a script to download and install sysand.
+
+The scripts download the official GitHub Release archive for your platform,
+extract the `sysand` executable, and copy it into an install directory. By
+default, `latest` means the latest non-prerelease GitHub release. To install a
+prerelease, pass an explicit version.
+
+The scripts do not edit your shell profile or `PATH` settings. If the install
+directory is not already on `PATH`, the script prints a note after installation.
+
+### Windows
+
+The default install directory is `%LOCALAPPDATA%\Programs\Sysand`.
+On Windows, the `PATH` note checks your user `Path` setting.
+
+Download, inspect, then run the script:
+
+```powershell
+Invoke-WebRequest https://client.sysand.com/install.ps1 -OutFile install.ps1
+notepad install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Or run it directly:
+
+```powershell
+irm https://client.sysand.com/install.ps1 | iex
+```
+
+To install a specific release version, use `-Version`. The leading `v` is
+optional.
+
+```powershell
+.\install.ps1 -Version 0.1.0
+.\install.ps1 -Version 0.1.0-rc.1
+.\install.ps1 -Version v0.1.0-rc.1
+```
+
+To choose a different install directory:
+
+```powershell
+.\install.ps1 -InstallDir "$env:USERPROFILE\bin"
+```
+
+Download the script first when passing `-Version` or `-InstallDir`.
+
+### macOS and Linux
+
+The default install directory is `$HOME/.local/bin`.
+
+Download, inspect, then run the script:
+
+```sh
+curl -fsSLO https://client.sysand.com/install.sh
+less install.sh
+sh install.sh
+```
+
+Or run it directly:
+
+```sh
+curl -fsSL https://client.sysand.com/install.sh | sh
+```
+
+To install a specific release version, use `--version`. The leading `v` is
+optional.
+
+```sh
+sh install.sh --version 0.1.0
+sh install.sh --version 0.1.0-rc.1
+sh install.sh --version v0.1.0-rc.1
+```
+
+To choose a different install directory:
+
+```sh
+sh install.sh --install-dir "$HOME/bin"
+```
+
+To install into `/usr/local/bin`, use `--system-install`. If the current user is
+not root, the install step uses `sudo`.
+
+```sh
+sh install.sh --system-install
+```
+
+Flags can also be passed when piping the script:
+
+```sh
+curl -fsSL https://client.sysand.com/install.sh | sh -s -- --install-dir "$HOME/bin"
+```
 
 ## Download development version
 

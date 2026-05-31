@@ -1,0 +1,273 @@
+name: Test Install Script
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-slim
+    outputs:
+      test: ${{ steps.decisions.outputs.test }}
+      gate: ${{ steps.decisions.outputs.gate }}
+    steps:
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'docs/src/install.sh'
+              - 'docs/src/install.ps1'
+              - 'docs/src/getting_started/installation.md'
+              - '.github/workflows/test-install-script.yml'
+      - id: decisions
+        run: |
+          test=${{ steps.filter.outputs.src == 'true' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
+          gate=${{ github.event_name == 'pull_request' }}
+          echo "test=$test" >> "$GITHUB_OUTPUT"
+          echo "gate=$gate" >> "$GITHUB_OUTPUT"
+
+  unix:
+    name: Unix installer (${{ matrix.os }})
+    needs: [plan]
+    if: needs.plan.outputs.test == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            asset: sysand-linux-x86_64.tar.gz
+          - os: ubuntu-24.04-arm
+            asset: sysand-linux-arm64.tar.gz
+          - os: macos-15-intel
+            asset: sysand-macos-x86_64.tar.gz
+          - os: macos-latest
+            asset: sysand-macos-arm64.tar.gz
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check shell syntax
+        run: sh -n docs/src/install.sh
+
+      - name: Run shellcheck
+        if: runner.os == 'Linux'
+        run: shellcheck docs/src/install.sh
+
+      - name: Check help text
+        run: |
+          docs/src/install.sh --help > "$RUNNER_TEMP/install-help.txt"
+          grep -F -- "--install-dir" "$RUNNER_TEMP/install-help.txt"
+          grep -F -- "--system-install" "$RUNNER_TEMP/install-help.txt"
+          grep -F -- "latest non-prerelease" "$RUNNER_TEMP/install-help.txt"
+
+      - name: Create fake release archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/fake-release" "$RUNNER_TEMP/fake-archive"
+          cat > "$RUNNER_TEMP/fake-archive/sysand" <<'EOF'
+          #!/bin/sh
+          echo "sysand 0.0.0-test"
+          EOF
+          chmod +x "$RUNNER_TEMP/fake-archive/sysand"
+          tar -czf "$RUNNER_TEMP/fake-release/${{ matrix.asset }}" -C "$RUNNER_TEMP/fake-archive" sysand
+
+      - name: Serve fake release archive
+        run: |
+          cd "$RUNNER_TEMP/fake-release"
+          python3 -m http.server 8765 --bind 127.0.0.1 &
+          echo "$!" > "$RUNNER_TEMP/http-server.pid"
+
+          for attempt in $(seq 1 20); do
+            if curl -fsS "http://127.0.0.1:8765/${{ matrix.asset }}" >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "fake release server did not start" >&2
+          exit 1
+
+      - name: Run installer against fake release archive
+        run: |
+          install_dir="$RUNNER_TEMP/sysand-bin"
+          SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765" \
+            sh docs/src/install.sh --install-dir "$install_dir" --version 0.0.0-test
+
+          version="$("$install_dir/sysand" --version)"
+          test "$version" = "sysand 0.0.0-test"
+
+      - name: Check conflicting install flags
+        run: |
+          if sh docs/src/install.sh --install-dir "$RUNNER_TEMP/sysand-bin" --system-install; then
+            echo "expected --install-dir followed by --system-install to fail" >&2
+            exit 1
+          fi
+
+          if sh docs/src/install.sh --system-install --install-dir "$RUNNER_TEMP/sysand-bin"; then
+            echo "expected --system-install followed by --install-dir to fail" >&2
+            exit 1
+          fi
+
+      - name: Stop fake release server
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/http-server.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/http-server.pid")" || true
+          fi
+
+  windows:
+    name: Windows installer (${{ matrix.os }})
+    needs: [plan]
+    if: needs.plan.outputs.test == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: sysand-windows-x86_64.zip
+            runtime: win-x64
+          - os: windows-11-arm
+            asset: sysand-windows-arm64.zip
+            runtime: win-arm64
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check PowerShell syntax
+        shell: pwsh
+        run: |
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+              "$PWD\docs\src\install.ps1",
+              [ref]$null,
+              [ref]$errors
+          )
+          if ($errors.Count -gt 0) {
+              $errors | Format-List | Out-String | Write-Error
+              exit 1
+          }
+
+      - name: Check help text
+        shell: pwsh
+        run: |
+          $help = .\docs\src\install.ps1 -Help
+          foreach ($expected in @("-InstallDir", "-Version", "latest non-prerelease")) {
+              if (($help -join "`n") -notlike "*$expected*") {
+                  Write-Error "help text did not contain: $expected"
+                  exit 1
+              }
+          }
+
+      - name: Create fake sysand.exe
+        shell: pwsh
+        run: |
+          $projectDir = Join-Path $env:RUNNER_TEMP "fake-sysand-src"
+          $publishDir = Join-Path $env:RUNNER_TEMP "fake-sysand-publish"
+          dotnet new console --output $projectDir --framework net8.0
+          @'
+          Console.WriteLine("sysand 0.0.0-test");
+          '@ | Set-Content -Path (Join-Path $projectDir "Program.cs")
+          dotnet publish `
+              $projectDir `
+              --configuration Release `
+              --runtime ${{ matrix.runtime }} `
+              --self-contained true `
+              --output $publishDir `
+              -p:AssemblyName=sysand `
+              -p:PublishSingleFile=true
+
+          $releaseDir = Join-Path $env:RUNNER_TEMP "fake-release"
+          New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+          Compress-Archive `
+              -Path (Join-Path $publishDir "sysand.exe") `
+              -DestinationPath (Join-Path $releaseDir "${{ matrix.asset }}") `
+              -Force
+
+      - name: Serve fake release archive
+        shell: pwsh
+        run: |
+          $releaseDir = Join-Path $env:RUNNER_TEMP "fake-release"
+          $process = Start-Process `
+              -FilePath python `
+              -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1" `
+              -WorkingDirectory $releaseDir `
+              -PassThru
+          $process.Id | Set-Content -Path (Join-Path $env:RUNNER_TEMP "http-server.pid")
+
+          for ($attempt = 1; $attempt -le 20; $attempt++) {
+              try {
+                  Invoke-WebRequest -Uri "http://127.0.0.1:8765/${{ matrix.asset }}" -UseBasicParsing | Out-Null
+                  exit 0
+              } catch {
+                  Start-Sleep -Seconds 1
+              }
+          }
+
+          Write-Error "fake release server did not start"
+          exit 1
+
+      - name: Run installer against fake release archive
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP "sysand-bin"
+          $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765"
+          .\docs\src\install.ps1 -InstallDir $installDir -Version 0.0.0-test
+
+          $version = & (Join-Path $installDir "sysand.exe") --version
+          if ($version -ne "sysand 0.0.0-test") {
+              Write-Error "unexpected version output: $version"
+              exit 1
+          }
+
+      - name: Stop fake release server
+        if: always()
+        shell: pwsh
+        run: |
+          $pidFile = Join-Path $env:RUNNER_TEMP "http-server.pid"
+          if (Test-Path $pidFile) {
+              Stop-Process -Id (Get-Content $pidFile) -Force -ErrorAction SilentlyContinue
+          }
+
+  docs:
+    name: Installer docs
+    needs: [plan]
+    if: needs.plan.outputs.test == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install mdBook
+        uses: peaceiris/actions-mdbook@ee69d230fe19748b7abf22df32acaa93833fad08 # v2
+        with:
+          mdbook-version: "latest"
+
+      - name: Build docs
+        run: mdbook build docs
+
+      - name: Check installer files are in the Pages artifact root
+        run: |
+          test -f docs/book/install.sh
+          test -f docs/book/install.ps1
+
+  ci-gate:
+    name: Test Install Script CI Gate
+    needs: [plan, unix, windows, docs]
+    if: needs.plan.outputs.gate == 'true' && !cancelled()
+    runs-on: ubuntu-slim
+    steps:
+      - run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            exit 1
+          fi
