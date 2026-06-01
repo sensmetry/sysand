@@ -57,14 +57,14 @@ jobs:
           for attempt in {1..10}; do
             assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
 
-            has_amd64_asset="$(grep -Fxc "sysand-linux-x86_64.tar.xz" <<< "$assets")"
-            has_arm64_asset="$(grep -Fxc "sysand-linux-arm64.tar.xz" <<< "$assets")"
+            has_amd64_asset="$(grep -Fxc "sysand-linux-x86_64.tar.gz" <<< "$assets")"
+            has_arm64_asset="$(grep -Fxc "sysand-linux-arm64.tar.gz" <<< "$assets")"
             if [[ "$has_amd64_asset" == 1 && "$has_arm64_asset" == 1 ]]; then
               break
             fi
 
             if [[ "$attempt" == 10 ]]; then
-              echo "Release $TAG does not include sysand-linux-x86_64.tar.xz and sysand-linux-arm64.tar.xz assets." >&2
+              echo "Release $TAG does not include sysand-linux-x86_64.tar.gz and sysand-linux-arm64.tar.gz assets." >&2
               exit 1
             fi
 
@@ -79,12 +79,12 @@ jobs:
         run: |
           gh release download "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --pattern sysand-linux-x86_64.tar.xz \
-              --pattern sysand-linux-arm64.tar.xz
+              --pattern sysand-linux-x86_64.tar.gz \
+              --pattern sysand-linux-arm64.tar.gz
 
           mkdir sysand-amd64 sysand-arm64
-          tar -xJf sysand-linux-x86_64.tar.xz -C sysand-amd64
-          tar -xJf sysand-linux-arm64.tar.xz -C sysand-arm64
+          tar -xzf sysand-linux-x86_64.tar.gz -C sysand-amd64
+          tar -xzf sysand-linux-arm64.tar.gz -C sysand-arm64
 
       - name: Set up QEMU (for docker buildx)
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
