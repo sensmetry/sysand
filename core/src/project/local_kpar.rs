@@ -407,7 +407,10 @@ impl LocalKParProjectRaw {
         let file = wrapfs::File::create(&path)?;
         let mut zip = zip::ZipWriter::new(file);
 
-        let options = zip::write::SimpleFileOptions::default().compression_method(compression);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(compression)
+            .system(zip::System::Unix)
+            .last_modified_time(zip::DateTime::DEFAULT);
 
         let (info, meta) = from.get_project().map_err(IntoKparError::ProjectRead)?;
         let info = info.ok_or(IntoKparError::MissingInfo)?;

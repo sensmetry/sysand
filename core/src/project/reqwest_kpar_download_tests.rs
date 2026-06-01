@@ -31,6 +31,7 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
 
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored)
+            // TODO: why set permissions explicitly here?
             .unix_permissions(0o755);
 
         zip.start_file("some_root_dir/.project.json", options)?;
