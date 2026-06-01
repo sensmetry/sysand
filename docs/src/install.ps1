@@ -46,8 +46,8 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     Fail "Version must not be empty."
 }
 
-if ($Version -notmatch '^[A-Za-z0-9._-]+$') {
-    Fail "Version may only contain letters, numbers, dots, underscores, and dashes."
+if ($Version -notmatch '^[A-Za-z0-9.-]+$') {
+    Fail "Version may only contain letters, numbers, dots, and dashes."
 }
 
 # Accept versions with or without a leading "v". GitHub release tags use "v".

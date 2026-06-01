@@ -217,7 +217,7 @@ sysand --version
 
 You should see an output similar to: `sysand X.Y.Z`
 
-## Install script
+## Installation script
 
 Sysand provides a script to download and install sysand.
 

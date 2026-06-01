@@ -99,8 +99,8 @@ validate_version() {
   [ -n "$version" ] || fail "version must not be empty"
 
   case "$version" in
-    *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-]*)
-      fail "version may only contain letters, numbers, dots, underscores, and dashes"
+    *[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-]*)
+      fail "version may only contain letters, numbers, dots, and dashes"
       ;;
   esac
 }

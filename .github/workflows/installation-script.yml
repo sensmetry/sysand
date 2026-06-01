@@ -1,4 +1,4 @@
-name: Test Install Script
+name: Test Installation Script
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
               - 'docs/src/install.sh'
               - 'docs/src/install.ps1'
               - 'docs/src/getting_started/installation.md'
-              - '.github/workflows/test-install-script.yml'
+              - '.github/workflows/installation-script.yml'
       - id: decisions
         run: |
           test=${{ steps.filter.outputs.src == 'true' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
@@ -73,6 +73,15 @@ jobs:
           grep -F -- "--system-install" "$RUNNER_TEMP/install-help.txt"
           grep -F -- "latest non-prerelease" "$RUNNER_TEMP/install-help.txt"
 
+      - name: Reject invalid version
+        run: |
+          for invalid_version in 0.0.0_test 0.0.0+build; do
+            if sh docs/src/install.sh --version "$invalid_version"; then
+              echo "expected version '$invalid_version' to fail" >&2
+              exit 1
+            fi
+          done
+
       - name: Create fake release archive
         run: |
           mkdir -p "$RUNNER_TEMP/fake-release" "$RUNNER_TEMP/fake-archive"
@@ -87,7 +96,6 @@ jobs:
         run: |
           cd "$RUNNER_TEMP/fake-release"
           python3 -m http.server 8765 --bind 127.0.0.1 &
-          echo "$!" > "$RUNNER_TEMP/http-server.pid"
 
           for attempt in $(seq 1 20); do
             if curl -fsS "http://127.0.0.1:8765/${{ matrix.asset }}" >/dev/null; then
@@ -118,13 +126,6 @@ jobs:
           if sh docs/src/install.sh --system-install --install-dir "$RUNNER_TEMP/sysand-bin"; then
             echo "expected --system-install followed by --install-dir to fail" >&2
             exit 1
-          fi
-
-      - name: Stop fake release server
-        if: always()
-        run: |
-          if [ -f "$RUNNER_TEMP/http-server.pid" ]; then
-            kill "$(cat "$RUNNER_TEMP/http-server.pid")" || true
           fi
 
   windows:
@@ -170,6 +171,22 @@ jobs:
               }
           }
 
+      - name: Reject invalid version
+        shell: pwsh
+        run: |
+          foreach ($invalidVersion in @("0.0.0_test", "0.0.0+build")) {
+              $process = Start-Process `
+                  -FilePath pwsh `
+                  -ArgumentList "-NoProfile", "-File", ".\docs\src\install.ps1", "-Version", $invalidVersion `
+                  -Wait `
+                  -PassThru `
+                  -NoNewWindow
+              if ($process.ExitCode -eq 0) {
+                  Write-Error "expected version '$invalidVersion' to fail"
+                  exit 1
+              }
+          }
+
       - name: Create fake sysand.exe
         shell: pwsh
         run: |
@@ -204,7 +221,6 @@ jobs:
               -ArgumentList "-m", "http.server", "8765", "--bind", "127.0.0.1" `
               -WorkingDirectory $releaseDir `
               -PassThru
-          $process.Id | Set-Content -Path (Join-Path $env:RUNNER_TEMP "http-server.pid")
 
           for ($attempt = 1; $attempt -le 20; $attempt++) {
               try {
@@ -231,15 +247,6 @@ jobs:
               exit 1
           }
 
-      - name: Stop fake release server
-        if: always()
-        shell: pwsh
-        run: |
-          $pidFile = Join-Path $env:RUNNER_TEMP "http-server.pid"
-          if (Test-Path $pidFile) {
-              Stop-Process -Id (Get-Content $pidFile) -Force -ErrorAction SilentlyContinue
-          }
-
   docs:
     name: Installer docs
     needs: [plan]
@@ -262,7 +269,7 @@ jobs:
           test -f docs/book/install.ps1
 
   ci-gate:
-    name: Test Install Script CI Gate
+    name: Installation Script CI Gate
     needs: [plan, unix, windows, docs]
     if: needs.plan.outputs.gate == 'true' && !cancelled()
     runs-on: ubuntu-slim
