@@ -1,6 +1,6 @@
 # `sysand index`
 
-Manage a local sysand index. See guide [Hosting Index](../hosting_index.md).
+Manage a local sysand index. See guide [Hosting Index](../hosting-index.md).
 
 ## Usage
 

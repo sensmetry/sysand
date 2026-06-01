@@ -25,7 +25,7 @@ Sysand client usage documentation is provided in User Guide at
 
 ## Installation
 
-See [installation section in User Guide](http://client.sysand.com/getting_started/installation.html)
+See [installation section in User Guide](http://client.sysand.com/getting-started/installation.html)
 for various ways to download Sysand.
 
 ## Contributing
