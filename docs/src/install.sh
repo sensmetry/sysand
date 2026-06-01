@@ -167,10 +167,8 @@ download_file() {
 run_system_install() {
   if [ "$(id -u)" = "0" ]; then
     "$@"
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo "$@"
   else
-    fail "sudo is required for --system-install when not running as root"
+    sudo "$@"
   fi
 }
 
