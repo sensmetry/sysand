@@ -60,19 +60,19 @@ or from [latest GitHub release][gh_rel].
   <tr>
     <td><strong>x86_x64</strong></td>
     <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-windows-x86_64.zip"><button><i class="fas fa-download"></i> Download</button></a></td>
-    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-macos-x86_64.tar.xz"><button><i class="fas fa-download"></i> Download</button></a></td>
-    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-x86_64.tar.xz"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-macos-x86_64.tar.gz"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-x86_64.tar.gz"><button><i class="fas fa-download"></i> Download</button></a></td>
   </tr>
   <tr>
     <td><strong>ARM64</strong></td>
     <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-windows-arm64.zip"><button><i class="fas fa-download"></i> Download</button></a></td>
-    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-macos-arm64.tar.xz"><button><i class="fas fa-download"></i> Download</button></a></td>
-    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-arm64.tar.xz"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-macos-arm64.tar.gz"><button><i class="fas fa-download"></i> Download</button></a></td>
+    <td><a href="https://github.com/sensmetry/sysand/releases/latest/download/sysand-linux-arm64.tar.gz"><button><i class="fas fa-download"></i> Download</button></a></td>
   </tr>
 </table>
 <!-- markdownlint-enable MD033 MD013 -->
 
-The download is an archive (`.zip` on Windows, `.tar.xz` on macOS and
+The download is an archive (`.zip` on Windows, `.tar.gz` on macOS and
 Linux) containing a single `sysand` executable (`sysand.exe` on
 Windows). After downloading, extract the archive and follow the steps
 for your platform:
@@ -143,11 +143,11 @@ if ($currentPath -notlike "*$newPath*") {
 
 ```sh
 # For Intel Macs
-tar -xJf ~/Downloads/sysand-macos-x86_64.tar.xz -C ~/Downloads
+tar -xzf ~/Downloads/sysand-macos-x86_64.tar.gz -C ~/Downloads
 sudo mv ~/Downloads/sysand /usr/local/bin/sysand
 
 # For Apple Silicon Macs
-tar -xJf ~/Downloads/sysand-macos-arm64.tar.xz -C ~/Downloads
+tar -xzf ~/Downloads/sysand-macos-arm64.tar.gz -C ~/Downloads
 sudo mv ~/Downloads/sysand /usr/local/bin/sysand
 ```
 
@@ -181,11 +181,11 @@ source ~/.zshrc
 
 ```sh
 # For x86_64 systems
-tar -xJf sysand-linux-x86_64.tar.xz
+tar -xzf sysand-linux-x86_64.tar.gz
 sudo mv sysand /usr/local/bin/sysand
 
 # For ARM64 systems
-tar -xJf sysand-linux-arm64.tar.xz
+tar -xzf sysand-linux-arm64.tar.gz
 sudo mv sysand /usr/local/bin/sysand
 ```
 
