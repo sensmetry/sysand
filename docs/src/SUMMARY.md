@@ -1,8 +1,8 @@
 # Summary
 
-- [Getting started](getting_started.md)
-  - [Installation](getting_started/installation.md)
-  - [Tutorial](getting_started/tutorial.md)
+- [Getting started](getting-started.md)
+  - [Installation](getting-started/installation.md)
+  - [Tutorial](getting-started/tutorial.md)
 - [Project metadata](metadata.md)
 - [Authentication](authentication.md)
 - [Workspaces](workspaces.md)
@@ -44,7 +44,7 @@
     - [sysand info created](commands/info/created.md)
   - [sysand sources](commands/sources.md)
   - [sysand print-root](commands/root.md)
-- [Self-hosting a project index](hosting_index.md)
+- [Self-hosting a project index](hosting-index.md)
 - [Publishing a package to Sysand Package Index](publishing.md)
 - [Configuration](config.md)
   - [Indexes](config/indexes.md)

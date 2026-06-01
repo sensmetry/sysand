@@ -30,7 +30,7 @@ jobs:
             src:
               - 'docs/src/install.sh'
               - 'docs/src/install.ps1'
-              - 'docs/src/getting_started/installation.md'
+              - 'docs/src/getting-started/installation.md'
               - '.github/workflows/installation-script.yml'
       - id: decisions
         run: |
