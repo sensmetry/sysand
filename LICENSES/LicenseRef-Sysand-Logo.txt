@@ -1,0 +1,6 @@
+Sysand Logo License
+
+The Sysand logo and logo-derived icon assets are not licensed under the
+repository's open-source software licenses.
+
+All rights reserved.

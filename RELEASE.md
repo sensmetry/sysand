@@ -7,7 +7,7 @@ versioned release with signed and packaged Rust binaries.
 To make a versioned release, follow this procedure:
 
 1. Create a PR titled "Prepare release for vX.Y.Z".
-   1. Add a `docs/src/changelog.md` entry ([changelog-instructions]).
+   1. Add a `docs/changelog.md` entry ([changelog-instructions]).
    2. Determine the next version ([versioning-instructions]).
    3. Bump version entries ([bump-instructions]).
 2. When the PR is reviewed and merged, wait for the `main` CI pipelines to
@@ -35,10 +35,12 @@ The final version release has several publication paths:
 - Java artifacts are built and deployed to Maven Central by this repository's
   `Java (Bindings)` workflow when `sysand-signing` creates the final `v*`
   release tag.
-- Documentation is deployed by this repository's mdBook workflow when the final
-  non-prerelease GitHub Release is published.
+- Documentation is deployed by this repository's `Deploy Docs` workflow when
+  the final non-prerelease GitHub Release is published, or when the workflow is
+  [triggered manually][deploy-docs-workflow].
 
 [sysand-signing]: https://gitlab.com/sensmetry/internal2/tech/syside/sysand/sysand-signing
+[deploy-docs-workflow]: https://github.com/sensmetry/sysand/actions/workflows/deploy-docs.yml
 [changelog-instructions]: #add-a-changelog-entry
 [versioning-instructions]: #determine-the-next-version
 [bump-instructions]: #bump-version-entries
@@ -94,7 +96,7 @@ We generate changelogs from merged PRs using their titles and labels with the
       github-activity --heading-level=3
       ```
 
-3. Add it to `docs/src/changelog.md` and make final manual edits.
+3. Add it to `docs/changelog.md` and make final manual edits.
    - Add it under a section like `## vX.Y`
    - Update title to `### vX.Y.Z - YYYY-MM-DD`
    - Remove the "(full changelog)" link

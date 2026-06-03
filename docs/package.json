@@ -1,0 +1,11 @@
+{
+  "name": "sysand-docs",
+  "private": true,
+  "scripts": {
+    "build": "myst build --html && node scripts/patch-static-assets.mjs",
+    "start": "myst start"
+  },
+  "devDependencies": {
+    "mystmd": "1.9.1"
+  }
+}

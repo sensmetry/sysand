@@ -20,12 +20,13 @@ Java are supported).
 
 ## Documentation
 
-Sysand client usage documentation is provided in User Guide at
-[client.sysand.com](https://client.sysand.com/).
+Sysand client usage documentation is provided in
+[Sysand Client Documentation](https://client.sysand.com/).
 
 ## Installation
 
-See [installation section in User Guide](http://client.sysand.com/getting-started/installation.html)
+See the
+[installation section in Sysand Client Documentation](https://client.sysand.com/getting-started/installation/)
 for various ways to download Sysand.
 
 ## Contributing

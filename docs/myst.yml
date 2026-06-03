@@ -1,0 +1,95 @@
+# MyST configuration reference: https://mystmd.org/guide/configuration
+#
+version: 1
+
+project:
+  title: Home
+  description: Documentation for the Sysand CLI tool.
+  keywords:
+    - Sysand
+    - SysML
+    - SysMLv2
+    - KerML
+    - package manager
+  toc:
+    - file: index.md
+    - file: getting-started.md
+      children:
+        - file: getting-started/installation.md
+        - file: getting-started/tutorial.md
+    - file: metadata.md
+    - file: authentication.md
+    - file: workspaces.md
+    - file: commands.md
+      children:
+        - file: commands/init.md
+        - file: commands/clone.md
+        - file: commands/add.md
+        - file: commands/remove.md
+        - file: commands/include.md
+        - file: commands/exclude.md
+        - file: commands/build.md
+        - file: commands/publish.md
+        - file: commands/lock.md
+        - file: commands/env.md
+          children:
+            - file: commands/env/install.md
+            - file: commands/env/uninstall.md
+            - file: commands/env/list.md
+            - file: commands/env/sources.md
+        - file: commands/index/index-command.md
+          children:
+            - file: commands/index/init.md
+            - file: commands/index/add.md
+            - file: commands/index/yank.md
+            - file: commands/index/remove.md
+        - file: commands/info.md
+          children:
+            - file: commands/info/name.md
+            - file: commands/info/description.md
+            - file: commands/info/version.md
+            - file: commands/info/license.md
+            - file: commands/info/website.md
+            - file: commands/info/includes-derived.md
+            - file: commands/info/includes-implied.md
+            - file: commands/info/maintainer.md
+            - file: commands/info/topic.md
+            - file: commands/info/metamodel.md
+            - file: commands/info/usage.md
+            - file: commands/info/index-command.md
+            - file: commands/info/checksum.md
+            - file: commands/info/created.md
+        - file: commands/sync.md
+        - file: commands/sources.md
+        - file: commands/root.md
+    - file: hosting-index.md
+    - file: publishing.md
+    - file: config.md
+      children:
+        - file: config/indexes.md
+        - file: config/dependencies.md
+    - file: changelog.md
+    - title: For developers
+      children:
+        - file: index-protocol.md
+        - file: index-api-protocol.md
+
+site:
+  title: Sysand Client Documentation
+  nav:
+    - title: Index docs
+      url: https://docs.sysand.com
+    - title: Client docs
+      url: https://client.sysand.com
+    - title: Index
+      url: https://sysand.com
+  options:
+    logo_text: Sysand Client Documentation
+    logo_alt: Sysand
+    logo: assets/logo-mark-96.png
+    logo_dark: assets/logo-mark-96.png
+    favicon: assets/favicons/favicon.ico
+    folders: true
+    style: assets/site.css
+    hide_footer_links: true
+    hide_outline: true

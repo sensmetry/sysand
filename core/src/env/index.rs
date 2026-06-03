@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! HTTP client for the sysand index protocol. See
-//! `docs/src/index-protocol.md` for the wire format and the authority
+//! `docs/index-protocol.md` for the wire format and the authority
 //! split between `versions.json`, per-version `.project.json`/`.meta.json`,
 //! and the kpar archive; this module is the client-side implementation.
 //!
@@ -14,7 +14,7 @@
 //!   `index.json` and per-version 404s remain hard errors.
 //! - Retired versions are filtered at candidate enumeration, and `removed`
 //!   entries are rejected before per-version files are fetched.
-//! - The wire contract is kept in `docs/src/index-protocol.md`; the code
+//! - The wire contract is kept in `docs/index-protocol.md`; the code
 //!   does not use `#[serde(deny_unknown_fields)]` so new optional fields are
 //!   ignored by default.
 
