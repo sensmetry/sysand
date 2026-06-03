@@ -237,7 +237,7 @@ specifies a default metamodel for projects' `.meta.json` files:
 ### `sysand.toml`
 
 Defines sysand configuration, and has [user facing configuration
-documentation](docs/src/config.md).
+documentation](docs/config.md).
 
 The sysand CLI is by default merging a user-level sysand config from
 `$XDG_CONFIG_HOME/sysand/sysand.toml` or a platform equivalent location with a
@@ -308,7 +308,7 @@ An index environment is sysand's client-side reader for sysand index
 servers. The **wire contract** — directory layout, `index.json`,
 `versions.json`, per-version files, IRI→path resolution, required digests,
 and server/client obligations — is specified in
-[`docs/src/index-protocol.md`](docs/src/index-protocol.md) and deliberately
+[`docs/index-protocol.md`](docs/index-protocol.md) and deliberately
 not duplicated here.
 
 Index tree creation and mutation are owned by the `sysand index` command

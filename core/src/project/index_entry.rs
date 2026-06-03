@@ -6,7 +6,7 @@
 //! `IndexEntryProject` is the `ProjectRead`/`ProjectReadAsync` leaf returned
 //! by [`crate::env::index::IndexEnvironmentAsync`] once a concrete version
 //! has been selected. The protocol rules are documented in
-//! `docs/src/index-protocol.md`; this module only calls out the
+//! `docs/index-protocol.md`; this module only calls out the
 //! implementation split:
 //!
 //! - Advertised-tier reads ([`ProjectReadAsync::version_async`],

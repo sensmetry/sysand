@@ -142,22 +142,25 @@ to make sure that all tests pass locally before submitting a pull request.
 
 ## Documentation
 
-The "Sysand User Guide" is currently a work in progress. It is located in `docs/`.
-Official version is hosted at [client.sysand.com](https://client.sysand.com/).
-To preview it locally, make sure you have [`mdbook`](https://github.com/rust-lang/mdBook)
-installed (`cargo install mdbook`), then either run
+The "Sysand Client Documentation" is currently a work in progress. It is located
+in `docs/`. Official version is hosted at
+[client.sysand.com](https://client.sysand.com/).
+
+To preview it locally, make sure you have [Node.js](https://nodejs.org/)
+installed, then run:
 
 ```sh
-mdbook build docs/
+cd docs
+npm ci
+npm run start
 ```
 
-and open `docs/book/index.html`, or run
+and open the local URL printed by MyST. To build the static site, run:
 
 ```sh
-mdbook serve docs/
+cd docs
+npm run build
 ```
-
-and open [localhost:3000](http://localhost:3000/).
 
 ## Rust code structure
 

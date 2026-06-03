@@ -1,0 +1,34 @@
+/* MyST renders a source-file download button in this otherwise empty row. */
+.myst-fm-block-header {
+  display: none !important;
+}
+
+/* Match the Django header mark size and avoid tiny SVG rasterization artifacts. */
+.myst-home-link-logo img {
+  height: 28px !important;
+  width: 28px !important;
+}
+
+/* With the right-side outline disabled, use that space for the article body. */
+@media (min-width: 1024px) {
+  article.content > * {
+    grid-column: body-start / page-end;
+  }
+}
+
+/* MyST nav titles are plain text; use the theme's Font Awesome icon font for
+   generated links that leave the current docs site. */
+.myst-top-nav a[href^="https://"]::after,
+.myst-primary-sidebar-topnav a[href^="https://"]::after {
+  content: "\f08e";
+  display: inline-block;
+  font-family: FontAwesome, sans-serif;
+  font-size: 0.78em;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1;
+  margin-left: 0.35em;
+  opacity: 0.8;
+  text-decoration: none;
+  vertical-align: 0.08em;
+}

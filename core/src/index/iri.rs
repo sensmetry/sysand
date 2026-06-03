@@ -26,7 +26,7 @@ pub enum ParseIriError {
 }
 
 /// Parse an IRI to later construct the index path segments that locate its project directory.
-/// The detailed wire mapping is specified in `docs/src/index-protocol.md`;
+/// The detailed wire mapping is specified in `docs/index-protocol.md`;
 /// this function keeps malformed `pkg:sysand/...` IRIs out of the generic
 /// `_iri/<hash>/` bucket so user typos fail loudly.
 pub(crate) fn parse_iri(iri: &str) -> Result<ParsedIri, ParseIriError> {

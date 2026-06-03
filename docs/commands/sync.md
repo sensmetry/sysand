@@ -1,0 +1,31 @@
+# `sysand sync`
+
+Sync `.sysand` to lockfile, creating a lockfile and `.sysand` if needed
+
+## Usage
+
+```sh
+sysand sync [OPTIONS]
+```
+
+## Description
+
+Installs all projects in the current projects lockfile `sysand-lock.toml` from
+the sources listed, into the local `.sysand` environment.
+
+If a lockfile is not found, a new lockfile will be generated from the usages in
+the project information in the same way as [sysand lock](lock.md).
+
+If no existing `.sysand` is found, a new one will be created in the same way
+as [sysand env](env.md).
+
+Current project is determined as in [sysand print-root](root.md) and
+if none is found uses the current directory instead.
+
+```{include} ./partials/resolution_opts.md
+
+```
+
+```{include} ./partials/global_opts.md
+
+```
