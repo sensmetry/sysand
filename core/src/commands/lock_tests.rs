@@ -4,8 +4,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    commands::lock::{LockError, do_lock_extend},
-    lock::{Lock, Project},
+    commands::lock::{LockError, do_lock_extend, do_lock_projects},
+    lock::{Lock, Project, Source},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    project::memory::InMemoryProject,
     resolve::null::NullResolver,
 };
 
@@ -45,4 +47,43 @@ fn lock_export_conflict() {
     );
 
     assert!(matches!(res, Err(LockError::NameCollision(_))));
+}
+
+#[test]
+fn lock_preserves_project_publisher() {
+    let mut project = InMemoryProject::from_info_meta(
+        InterchangeProjectInfoRaw {
+            name: "published_project".into(),
+            publisher: Some("Acme Labs".into()),
+            version: "1.2.3".into(),
+            description: None,
+            license: None,
+            maintainer: vec![],
+            website: None,
+            topic: vec![],
+            usage: vec![],
+        },
+        InterchangeProjectMetadataRaw {
+            index: Default::default(),
+            created: "2026-01-01T00:00:00Z".into(),
+            metamodel: None,
+            includes_derived: None,
+            includes_implied: None,
+            checksum: None,
+        },
+    );
+    project.nominal_sources = vec![Source::Editable {
+        editable: ".".into(),
+    }];
+
+    let lock = do_lock_projects(
+        [(None, &project)],
+        NullResolver {},
+        &HashMap::new(),
+        &Default::default(),
+    )
+    .unwrap()
+    .lock;
+
+    assert_eq!(lock.projects[0].publisher.as_deref(), Some("Acme Labs"));
 }

@@ -104,19 +104,17 @@ impl LocalDirectoryEnvironment {
     // TODO: Integrate the updating of editable metadata into `WriteEnvironment` trait.
     //       This will likely require updating it to support
     //       multiple identifiers per project.
-    /// Precondition: sync has completed, i.e. projects from `lock` are installed
-    /// by `self.put_project()`.
-    /// Call is idempotent.
-    /// Does not update metadata file.
-    // TODO: what to do if lock does not contain projects that are present in env:
-    // - workspace: env also has to remove it, the project was deleted/renamed
-    // - editable: unclear; it could be (re)moved/renamed, but also it could be that
-    //   workspace just no longer depends on it, so it's absent from lock.
+    /// Updates list of projects present in env metadata, but not installed in the
+    /// environment (for now this includes only `editable` projects). All previous
+    /// non-installed projects are removed first.
+    /// To install a project in the environment, use `put_project()`.
+    /// Call is idempotent. Does not update metadata file
     pub fn merge_lock(&mut self, lock: &Lock, ws: Option<&Workspace>) {
+        self.metadata.projects.retain(Self::is_installed);
         for project in &lock.projects {
             // Projects that are installed in the environment are ignored, so only
             // editable (and workspace, which are a subset of editable) projects have to be added
-            if let [Source::Editable { editable }, ..] = project.sources.as_slice() {
+            if let Some(Source::Editable { editable }) = project.sources.first() {
                 let usages = project
                     .usages
                     .iter()
@@ -126,34 +124,18 @@ impl LocalDirectoryEnvironment {
                 let workspace_member = ws
                     .map(|w| w.projects().iter().any(|p| p.path.as_str() == editable))
                     .unwrap_or_default();
-                // This is called once per `sync`, so has to be idempotent
-                if let Some(existing) = self
-                    .metadata
-                    .find_project_version_any_mut(&project.identifiers, &project.version)
-                {
-                    assert_eq!(existing.workspace, workspace_member);
-                    assert!(existing.editable);
 
-                    for iri in &project.identifiers {
-                        if !existing.identifiers.contains(iri) {
-                            existing.identifiers.push(iri.to_owned());
-                        }
-                    }
-                    existing.path = editable.as_str().into();
-                    existing.usages = usages;
-                } else {
-                    self.metadata.projects.push(EnvProject {
-                        publisher: project.publisher.to_owned(),
-                        name: project.name.to_owned(),
-                        version: project.version.to_owned(),
-                        path: editable.as_str().into(),
-                        identifiers: project.identifiers.to_owned(),
-                        usages,
-                        editable: true,
-                        workspace: workspace_member,
-                        checksum: None,
-                    });
-                }
+                self.metadata.projects.push(EnvProject {
+                    publisher: project.publisher.to_owned(),
+                    name: project.name.to_owned(),
+                    version: project.version.to_owned(),
+                    path: editable.as_str().into(),
+                    identifiers: project.identifiers.to_owned(),
+                    usages,
+                    editable: true,
+                    workspace: workspace_member,
+                    checksum: None,
+                });
             }
         }
     }

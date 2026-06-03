@@ -393,6 +393,15 @@ impl LocalKParProjectRaw {
         &self.archive_path
     }
 
+    /// Returns project root in archive. If `None`, project is at the
+    /// root of the archive
+    pub fn project_root_in_archive(&self) -> Option<&Utf8UnixPath> {
+        // TODO: maybe it'd be worth enforcing that Some(p) => p is not empty?
+        //       Would simplify a bunch of places which currently must check
+        //       both
+        self.root.as_deref()
+    }
+
     /// Build a KPAR archive from `from`.
     ///
     /// `extra_files` are added to the archive alongside the project's source
@@ -461,6 +470,23 @@ impl LocalKParProjectRaw {
         Ok(wrapfs::metadata(&self.archive_path)?.len())
     }
 
+    pub fn digest_sha256(&self) -> Result<String, LocalKParError> {
+        let mut file = self.open_archive_file()?;
+        let mut buf = [0; 1024];
+        let mut hasher = Sha256::new();
+        loop {
+            let count = file
+                .read(&mut buf)
+                .map_err(|e| FsIoError::ReadFile(self.archive_path.clone(), e))?;
+            if count > 0 {
+                hasher.update(&buf[..count]);
+            } else {
+                break;
+            }
+        }
+        Ok(lowercase_hex(hasher.finalize()))
+    }
+
     fn open_archive_file(&self) -> Result<fs::File, LocalKParError> {
         Ok(wrapfs::File::open(&self.archive_path)?)
     }
@@ -501,23 +527,6 @@ impl LocalKParProjectRaw {
                 err,
             ))),
         }
-    }
-
-    pub fn digest_sha256(&self) -> Result<String, LocalKParError> {
-        let mut file = self.open_archive_file()?;
-        let mut buf = [0; 1024];
-        let mut hasher = Sha256::new();
-        loop {
-            let count = file
-                .read(&mut buf)
-                .map_err(|e| FsIoError::ReadFile(self.archive_path.clone(), e))?;
-            if count > 0 {
-                hasher.update(&buf[..count]);
-            } else {
-                break;
-            }
-        }
-        Ok(lowercase_hex(hasher.finalize()))
     }
 }
 
@@ -574,12 +583,6 @@ impl ProjectRead for LocalKParProjectRaw {
             let mut zip_file = self
                 .get_relative(&mut archive, path)
                 .map_err(|(p, e)| ZipArchiveError::NamedFileMeta(p.into_string().into(), e))?;
-
-            // let idx = path_index(self.root.as_deref(), &mut archive, &path)?;
-
-            // let mut zip_file = archive
-            //     .by_index(idx)
-            //     .map_err(|e| ZipArchiveError::NamedFileMeta(path.as_ref().as_str().into(), e))?;
 
             std::io::copy(&mut zip_file, &mut tmp_file)
                 .map_err(|e| FsIoError::WriteFile(tmp_file_path.clone(), e))?;

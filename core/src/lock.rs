@@ -395,6 +395,9 @@ pub fn hash_str(val: &str) -> StrHash {
 impl Project {
     pub fn to_toml(&self) -> Table {
         let mut table = Table::new();
+        if let Some(publisher) = &self.publisher {
+            table.insert("publisher", value(publisher));
+        }
         table.insert("name", value(&self.name));
         table.insert("version", value(&self.version));
         let exports = multiline_array(self.exports.iter().map(Value::from));
