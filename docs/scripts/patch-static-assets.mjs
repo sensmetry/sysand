@@ -36,33 +36,6 @@ const faviconHead = [
   '<meta name="theme-color" content="#0d1117"/>',
 ].join("");
 
-// MyST treats absolute URLs as external links and opens them in a new tab.
-// These Sysand-owned top-nav links are part of the same product surface, so
-// they should behave like normal navigation between Sysand web properties.
-const sameWindowNavLinks = [
-  { title: "Index docs", url: "https://docs.sysand.com" },
-  { title: "Client docs", url: "https://client.sysand.com" },
-  { title: "Index", url: "https://sysand.com" },
-];
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function normalizeNavLinks(html) {
-  let updatedHtml = html;
-  // Limit the rewrite to exact title/url pairs so arbitrary external links in
-  // page content keep their default new-tab behavior.
-  for (const { title, url } of sameWindowNavLinks) {
-    const pattern = new RegExp(
-      `(<a href="${escapeRegExp(url)}") target="_blank" rel="noopener noreferrer"([^>]*>${escapeRegExp(title)}</a>)`,
-      "g",
-    );
-    updatedHtml = updatedHtml.replace(pattern, "$1$2");
-  }
-  return updatedHtml;
-}
-
 function htmlFiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
@@ -76,5 +49,5 @@ for (const file of htmlFiles(outputDir)) {
   if (!html.includes('rel="apple-touch-icon"')) {
     html = html.replace("</head>", `${faviconHead}</head>`);
   }
-  writeFileSync(file, normalizeNavLinks(html));
+  writeFileSync(file, html);
 }
