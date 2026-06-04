@@ -19,7 +19,7 @@ use crate::env_vars;
 /// A package manager for SysML v2 and KerML
 ///
 /// Documentation:
-/// <https://docs.sysand.com/>
+/// <https://docs.sysand.com/client/>
 /// Package index and more information:
 /// <https://sysand.com/>
 /// Project repository:

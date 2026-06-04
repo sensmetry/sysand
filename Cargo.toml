@@ -19,7 +19,7 @@ authors = ["Sensmetry <opensource@sensmetry.com>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/sensmetry/sysand"
 description = "A package manager for SysML v2 and KerML"
-documentation = "https://docs.sysand.com"
+documentation = "https://docs.sysand.com/client/"
 homepage = "https://sysand.com"
 
 [workspace.dependencies]
