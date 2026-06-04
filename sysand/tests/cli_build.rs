@@ -4,6 +4,7 @@
 use assert_cmd::prelude::*;
 use camino::Utf8PathBuf;
 use clap::ValueEnum;
+use indexmap::IndexMap;
 use predicates::prelude::*;
 use serde_json::json;
 use std::{
@@ -23,6 +24,22 @@ use sysand_core::{
 mod common;
 pub use common::*;
 
+// Checksum for file `test.sysml` containing only `package P;`
+fn expected_checksum() -> Option<IndexMap<String, InterchangeProjectChecksumRaw>> {
+    Some(IndexMap::from([(
+        "test.sysml".to_owned(),
+        InterchangeProjectChecksumRaw {
+            value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8".to_string(),
+            algorithm: KerMlChecksumAlg::Sha256.into(),
+        },
+    )]))
+}
+
+// Index §for file `test.sysml` containing only `package P;`
+fn expected_index() -> IndexMap<String, String> {
+    IndexMap::from([("P".to_owned(), "test.sysml".to_owned())])
+}
+
 #[test]
 fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) =
@@ -40,7 +57,7 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     let orig_info_contents = fs::read_to_string(&orig_info_path)?;
     let orig_meta_contents = fs::read_to_string(&orig_meta_path)?;
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar", "--keep-index"], None)?;
 
     out.assert().success();
 
@@ -61,20 +78,26 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
         panic!("failed to get built project info/meta");
     };
 
-    // Ensure the build artifact matches original project
-    let original_meta: InterchangeProjectMetadataRaw = serde_json::from_str(&orig_meta_contents)?;
-    let original_info: InterchangeProjectInfoRaw = serde_json::from_str(&orig_info_contents)?;
-    assert_eq!(original_info, info);
-    assert_eq!(original_meta, meta);
-
     // Ensure no changes were made to the original project
     let new_info_contents = fs::read_to_string(&orig_info_path)?;
     let new_meta_contents = fs::read_to_string(&orig_meta_path)?;
     assert_eq!(orig_info_contents, new_info_contents);
     assert_eq!(orig_meta_contents, new_meta_contents);
 
+    // Ensure build artifact info matches original project
+    let original_meta: InterchangeProjectMetadataRaw = serde_json::from_str(&orig_meta_contents)?;
+    let original_info: InterchangeProjectInfoRaw = serde_json::from_str(&orig_info_contents)?;
+    assert_eq!(original_info, info);
+
+    let expected_checksum = expected_checksum();
+
+    // Index should not change
+    assert_eq!(meta.index, original_meta.index);
+    // File hash should still be updated
+    assert_eq!(meta.checksum, expected_checksum);
+
     // Now canonicalize meta during build
-    let out = run_sysand_in(&cwd, ["build", "--update-meta", "./test_build2.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test_build2.kpar"], None)?;
     out.assert().success();
     let kpar_project = LocalKParProjectRaw::new_guess_root(cwd.join("test_build2.kpar"))?;
 
@@ -82,17 +105,9 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
         panic!("failed to get built project info/meta");
     };
     // File hash should be updated
-    assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
-    assert_eq!(
-        meta.checksum.as_ref().unwrap().get("test.sysml").unwrap(),
-        &InterchangeProjectChecksumRaw {
-            value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8".to_string(),
-            algorithm: KerMlChecksumAlg::Sha256.into()
-        }
-    );
+    assert_eq!(meta.checksum, expected_checksum);
 
-    assert_eq!(meta.index.len(), 1);
-    assert_eq!(meta.index.get("P").unwrap(), "test.sysml");
+    assert_eq!(meta.index, expected_index());
 
     // Ensure no changes were made to the original project
     let new_info_contents = fs::read_to_string(&orig_info_path)?;
@@ -104,8 +119,7 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn project_build_errors_when_index_symbol_is_missing_from_file()
--> Result<(), Box<dyn std::error::Error>> {
+fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
@@ -138,11 +152,18 @@ fn project_build_errors_when_index_symbol_is_missing_from_file()
     });
     std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test_build_good.kpar"], None)?;
+    out.assert().success();
+    // Build should only fail when symbols are not updated
+    let out = run_sysand_in(
+        &cwd,
+        ["build", "./test_build_bad.kpar", "--keep-index"],
+        None,
+    )?;
     out.assert().failure().stderr(predicate::str::contains(
         "file `test.sysml` is missing symbol `Missing` found in index",
     ));
-    assert!(!cwd.join("test_build.kpar").exists());
+    assert!(!cwd.join("test_build_bad.kpar").exists());
 
     Ok(())
 }
@@ -175,7 +196,7 @@ fn project_build_warns_when_file_symbol_is_missing_from_index()
     )?;
     out.assert().success();
 
-    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar", "--keep-index"], None)?;
     out.assert().success().stderr(predicate::str::contains(
         "index is missing symbol `Present` found in file `test.sysml`",
     ));
@@ -316,7 +337,9 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         WProject::new(project3_cwd)?,
     ];
 
-    let out = run_sysand_in(&cwd, ["build"], None)?;
+    let expected_checksum = expected_checksum();
+
+    let out = run_sysand_in(&cwd, ["build", "--keep-index"], None)?;
     out.assert().success();
 
     for project in &projects {
@@ -348,7 +371,10 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         let original_info: InterchangeProjectInfoRaw =
             serde_json::from_str(&project.orig_info_contents)?;
         assert_eq!(original_info, info);
-        assert_eq!(original_meta, meta);
+        // Index should not change
+        assert_eq!(meta.index, original_meta.index);
+        // File hash should still be updated
+        assert_eq!(meta.checksum, expected_checksum);
 
         // Ensure no changes were made to the original project
         let new_info_contents = fs::read_to_string(&project.info_path)?;
@@ -358,11 +384,11 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Now canonicalize meta during build. Previous artifacts should be overwritten
-    let out = run_sysand_in(&cwd, ["build", "--update-meta"], None)?;
+    let out = run_sysand_in(&cwd, ["build"], None)?;
     out.assert().success();
+    let expected_index = expected_index();
 
     for project in &projects {
-        println!("W9: {}", project.name);
         let kpar_path = cwd
             .join("output")
             .join(format!("{}-1.2.3.kpar", project.name));
@@ -386,18 +412,9 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         // File hash should be updated
-        assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
-        assert_eq!(
-            meta.checksum.as_ref().unwrap().get("test.sysml").unwrap(),
-            &InterchangeProjectChecksumRaw {
-                value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
-                    .to_string(),
-                algorithm: KerMlChecksumAlg::Sha256.into()
-            }
-        );
+        assert_eq!(meta.checksum, expected_checksum);
 
-        assert_eq!(meta.index.len(), 1);
-        assert_eq!(meta.index.get("P").unwrap(), "test.sysml");
+        assert_eq!(meta.index, expected_index);
 
         // Ensure no changes were made to the original project
         let new_info_contents = fs::read_to_string(&project.info_path)?;
@@ -1222,7 +1239,14 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
     let out = match compression {
         Some(compression) => run_sysand_in(
             &cwd,
-            ["build", "--compression", compression, "./test_build.kpar"],
+            [
+                "build",
+                "--compression",
+                compression,
+                "./test_build.kpar",
+                // Pass `--update-meta` to see that its behaviour is same as default
+                "--update-meta",
+            ],
             None,
         )?,
         None => run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?,
@@ -1250,8 +1274,8 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
     assert_eq!(info.name, "test_build");
     assert_eq!(info.version, "1.2.3");
 
-    assert_eq!(meta.checksum.as_ref().unwrap().len(), 1);
-    assert_eq!(meta.index.len(), 0);
+    assert_eq!(meta.checksum, expected_checksum());
+    assert_eq!(meta.index, expected_index());
     let mut src = String::new();
     kpar_project
         .read_source("test.sysml")?

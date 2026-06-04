@@ -183,11 +183,14 @@ pub enum Command {
         /// For multiple related projects, consider using a workspace instead
         #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
         allow_path_usage: bool,
-        /// Update project metadata to be included in the build artifacts. This
-        /// includes updating project symbol index and adding/updating source file
-        /// checksums. Original project(s) will not be affected
+        /// Note: this is now the default and kept only for compatibility.
+        /// Update project metadata before building. This includes updating
+        /// project symbol index and adding/updating source file checksums
         #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
         update_meta: bool,
+        /// Don't update exported symbols index in the built KPAR metadata
+        #[arg(long, conflicts_with = "update_meta")]
+        keep_index: bool,
     },
     /// Publish a KPAR to a sysand package index
     Publish {

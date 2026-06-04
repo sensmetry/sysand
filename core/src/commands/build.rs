@@ -253,14 +253,14 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
     compression: KparCompressionMethod,
-    update_index_checksum: bool,
+    update_index: bool,
     allow_path_usage: bool,
 ) -> Result<LocalKParProjectRaw, KParBuildError<Pr::Error>> {
     do_build_kpar_inner(
         project,
         path,
         compression,
-        update_index_checksum,
+        update_index,
         allow_path_usage,
         None,
     )
@@ -270,7 +270,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
     compression: KparCompressionMethod,
-    update_index_checksum: bool,
+    update_index: bool,
     allow_path_usage: bool,
     workspace_metamodel: Option<&str>,
 ) -> Result<LocalKParProjectRaw, KParBuildError<Pr::Error>> {
@@ -340,12 +340,13 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
 
     let meta = meta.validate()?;
     // Check whether index symbols are up to date
-    if update_index_checksum {
+    if update_index {
         for p in meta.source_paths(true) {
             do_include(&mut local_project, p, true, true, None)?
         }
     } else {
         for p in meta.source_paths(true) {
+            do_include(&mut local_project, &p, true, false, None)?;
             let new_symbols = extract_symbols(&mut local_project, &p, None)?;
             let new_symbols: HashSet<String> = new_symbols.into_iter().collect();
             let old_symbols = meta.file_index_symbols(&p);
@@ -360,7 +361,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 log::warn!(
                     "index is missing symbol `{only_in_new}` found in file `{p}`;\n\
                     if this is not intentional, include the file again to update its\n\
-                    exported symbols, or pass `--update-meta` to do so for all files"
+                    exported symbols, or omit `--keep-index` to do so for all files"
                 );
             }
         }
@@ -419,7 +420,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     workspace: &Workspace,
     path: P,
     compression: KparCompressionMethod,
-    update_index_checksum: bool,
+    update_index: bool,
     allow_path_usage: bool,
 ) -> Result<Vec<LocalKParProjectRaw>, KParBuildError<LocalSrcError>> {
     let ws_metamodel = workspace.metamodel().map(|iri| iri.as_str());
@@ -438,7 +439,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
             &project,
             &output_path,
             compression,
-            update_index_checksum,
+            update_index,
             allow_path_usage,
             ws_metamodel,
         )?;
