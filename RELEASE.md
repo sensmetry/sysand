@@ -7,7 +7,7 @@ versioned release with signed and packaged Rust binaries.
 To make a versioned release, follow this procedure:
 
 1. Create a PR titled "Prepare release for vX.Y.Z".
-   1. Add a `docs/changelog.md` entry ([changelog-instructions]).
+   1. Prepare a changelog draft ([changelog-instructions]).
    2. Determine the next version ([versioning-instructions]).
    3. Bump version entries ([bump-instructions]).
 2. When the PR is reviewed and merged, wait for the `main` CI pipelines to
@@ -35,12 +35,11 @@ The final version release has several publication paths:
 - Java artifacts are built and deployed to Maven Central by this repository's
   `Java (Bindings)` workflow when `sysand-signing` creates the final `v*`
   release tag.
-- Documentation is deployed by this repository's `Deploy Docs` workflow when
-  the final non-prerelease GitHub Release is published, or when the workflow is
-  [triggered manually][deploy-docs-workflow].
+- Documentation is maintained and deployed by the [sysand-index] GitLab project.
+  This repository still owns the technical design notes in `design/`.
 
 [sysand-signing]: https://gitlab.com/sensmetry/internal2/tech/syside/sysand/sysand-signing
-[deploy-docs-workflow]: https://github.com/sensmetry/sysand/actions/workflows/deploy-docs.yml
+[sysand-index]: https://gitlab.com/sensmetry/internal2/tech/syside/sysand/index-website
 [changelog-instructions]: #add-a-changelog-entry
 [versioning-instructions]: #determine-the-next-version
 [bump-instructions]: #bump-version-entries
@@ -80,7 +79,7 @@ We generate changelogs from merged PRs using their titles and labels with the
       - `enhancement` - for user-impacting enhanced functionality
       - `maintenance` - for all other code-touching changes
       - `ci` - for changes that only touch the CI system
-      - `docs` - for changes that only touch docs/ or other markdown files
+      - `docs` - for changes that only touch `design/` or other markdown files
 
       If any PR introduces a breaking change that does not have the `breaking`
       label, add it as well.
@@ -96,11 +95,12 @@ We generate changelogs from merged PRs using their titles and labels with the
       github-activity --heading-level=3
       ```
 
-3. Add it to `docs/changelog.md` and make final manual edits.
-   - Add it under a section like `## vX.Y`
-   - Update title to `### vX.Y.Z - YYYY-MM-DD`
-   - Remove the "(full changelog)" link
-   - Write a leading paragraph summarizing the release
+3. Add it to the sysand client changelog maintained in the [sysand-index]
+   repository and make final manual edits.
+   - Add it under a section like `## vX.Y`.
+   - Update title to `### vX.Y.Z - YYYY-MM-DD`.
+   - Remove the "(full changelog)" link.
+   - Write a leading paragraph summarizing the release.
 
 [`github-activity`]: https://pypi.org/project/github-activity/
 [development.md]: DEVELOPMENT.md

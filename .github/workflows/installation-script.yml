@@ -28,9 +28,8 @@ jobs:
         with:
           filters: |
             src:
-              - 'docs/install.sh'
-              - 'docs/install.ps1'
-              - 'docs/getting-started/installation.md'
+              - 'scripts/install.sh'
+              - 'scripts/install.ps1'
               - '.github/workflows/installation-script.yml'
       - id: decisions
         run: |
@@ -60,15 +59,15 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Check shell syntax
-        run: sh -n docs/install.sh
+        run: sh -n scripts/install.sh
 
       - name: Run shellcheck
         if: runner.os == 'Linux'
-        run: shellcheck docs/install.sh
+        run: shellcheck scripts/install.sh
 
       - name: Check help text
         run: |
-          docs/install.sh --help > "$RUNNER_TEMP/install-help.txt"
+          scripts/install.sh --help > "$RUNNER_TEMP/install-help.txt"
           grep -F -- "--install-dir" "$RUNNER_TEMP/install-help.txt"
           grep -F -- "--system-install" "$RUNNER_TEMP/install-help.txt"
           grep -F -- "latest non-prerelease" "$RUNNER_TEMP/install-help.txt"
@@ -76,7 +75,7 @@ jobs:
       - name: Reject invalid version
         run: |
           for invalid_version in 0.0.0_test 0.0.0+build; do
-            if sh docs/install.sh --version "$invalid_version"; then
+            if sh scripts/install.sh --version "$invalid_version"; then
               echo "expected version '$invalid_version' to fail" >&2
               exit 1
             fi
@@ -111,19 +110,19 @@ jobs:
         run: |
           install_dir="$RUNNER_TEMP/sysand-bin"
           SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765" \
-            sh docs/install.sh --install-dir "$install_dir" --version 0.0.0-test
+            sh scripts/install.sh --install-dir "$install_dir" --version 0.0.0-test
 
           version="$("$install_dir/sysand" --version)"
           test "$version" = "sysand 0.0.0-test"
 
       - name: Check conflicting install flags
         run: |
-          if sh docs/install.sh --install-dir "$RUNNER_TEMP/sysand-bin" --system-install; then
+          if sh scripts/install.sh --install-dir "$RUNNER_TEMP/sysand-bin" --system-install; then
             echo "expected --install-dir followed by --system-install to fail" >&2
             exit 1
           fi
 
-          if sh docs/install.sh --system-install --install-dir "$RUNNER_TEMP/sysand-bin"; then
+          if sh scripts/install.sh --system-install --install-dir "$RUNNER_TEMP/sysand-bin"; then
             echo "expected --system-install followed by --install-dir to fail" >&2
             exit 1
           fi
@@ -151,7 +150,7 @@ jobs:
         run: |
           $errors = $null
           $null = [System.Management.Automation.Language.Parser]::ParseFile(
-              "$PWD\docs\install.ps1",
+              "$PWD\scripts\install.ps1",
               [ref]$null,
               [ref]$errors
           )
@@ -163,7 +162,7 @@ jobs:
       - name: Check help text
         shell: pwsh
         run: |
-          $help = .\docs\install.ps1 -Help
+          $help = .\scripts\install.ps1 -Help
           foreach ($expected in @("-InstallDir", "-Version", "latest non-prerelease")) {
               if (($help -join "`n") -notlike "*$expected*") {
                   Write-Error "help text did not contain: $expected"
@@ -177,7 +176,7 @@ jobs:
           foreach ($invalidVersion in @("0.0.0_test", "0.0.0+build")) {
               $process = Start-Process `
                   -FilePath pwsh `
-                  -ArgumentList "-NoProfile", "-File", ".\docs\install.ps1", "-Version", $invalidVersion `
+                  -ArgumentList "-NoProfile", "-File", ".\scripts\install.ps1", "-Version", $invalidVersion `
                   -Wait `
                   -PassThru `
                   -NoNewWindow
@@ -239,7 +238,7 @@ jobs:
         run: |
           $installDir = Join-Path $env:RUNNER_TEMP "sysand-bin"
           $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765"
-          .\docs\install.ps1 -InstallDir $installDir -Version 0.0.0-test
+          .\scripts\install.ps1 -InstallDir $installDir -Version 0.0.0-test
 
           $version = & (Join-Path $installDir "sysand.exe") --version
           if ($version -ne "sysand 0.0.0-test") {
@@ -247,36 +246,9 @@ jobs:
               exit 1
           }
 
-  docs:
-    name: Installer docs
-    needs: [plan]
-    if: needs.plan.outputs.test == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: docs/package-lock.json
-
-      - name: Install docs dependencies
-        working-directory: docs
-        run: npm ci
-
-      - name: Build docs
-        working-directory: docs
-        run: npm run build
-
-      - name: Check installer files are in the Pages artifact root
-        run: |
-          test -f docs/_build/html/install.sh
-          test -f docs/_build/html/install.ps1
-
   ci-gate:
     name: Installation Script CI Gate
-    needs: [plan, unix, windows, docs]
+    needs: [plan, unix, windows]
     if: needs.plan.outputs.gate == 'true' && !cancelled()
     runs-on: ubuntu-slim
     steps:

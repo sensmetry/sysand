@@ -41,6 +41,11 @@ repos:
           - --copyright-prefix=spdx-symbol
           - --template=compact
           - --skip-existing
+        exclude: |-
+          (?x)(
+              scripts/install\.sh|
+              scripts/install\.ps1
+          )
         types_or: [rust, python, java, groovy, shell, xml, javascript]
 
   # Autoformat: rust

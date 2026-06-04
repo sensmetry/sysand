@@ -29,7 +29,7 @@ The sysand index API is complementary:
   API.
 - Clients discover the API's base URL via `api_root` in
   `sysand-index-config.json` (see
-  [§3 Discovery and configuration](index-protocol.md#id-3-discovery-and-configuration)
+  [§3 Discovery and configuration](index-protocol.md#3-discovery-and-configuration)
   in the index protocol). When `api_root` is absent, clients default it
   to the discovery root.
 

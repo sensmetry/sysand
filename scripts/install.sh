@@ -1,8 +1,5 @@
 #!/bin/sh
 
-# SPDX-License-Identifier: MIT OR Apache-2.0
-# SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
-
 # Sysand installer for Linux and macOS.
 #
 # This script is intentionally small and direct so it can be inspected before
