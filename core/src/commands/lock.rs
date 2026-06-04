@@ -163,16 +163,6 @@ pub fn do_lock_projects<
                     field: IncompleteField::Meta,
                 })
             })?;
-        // let canonical_digest = project
-        //     .checksum_canonical_hex()
-        //     .map_err(LockProjectError::InputProjectCanonicalizationError)?
-        //     .ok_or_else(|| {
-        //         LockProjectError::LockError(LockError::IncompleteProject {
-        //             project_label: named_project_label,
-        //             field: IncompleteField::CanonicalDigest,
-        //         })
-        //     })?;
-
         let sources = project
             .sources(ctx)
             .map_err(LockProjectError::InputProjectError)?;
@@ -186,7 +176,6 @@ pub fn do_lock_projects<
             identifiers: identifiers
                 .map(|ids| ids.into_iter().map(|id| id.into_string()).collect())
                 .unwrap_or_default(),
-            // checksum: canonical_digest,
             sources,
             usages: info
                 .usage

@@ -132,7 +132,7 @@ fn many_projects_to_toml() {
         vec![
             Project {
                 name: "One".to_string(),
-                publisher: None,
+                publisher: Some("Pub 1".to_string()),
                 version: "0.0.1".to_string(),
                 exports: vec![],
                 identifiers: vec![],
@@ -150,7 +150,7 @@ fn many_projects_to_toml() {
             },
             Project {
                 name: "Three".to_string(),
-                publisher: None,
+                publisher: Some("Pub 3".to_string()),
                 version: "0.0.3".to_string(),
                 exports: vec![],
                 identifiers: vec![],
@@ -160,6 +160,7 @@ fn many_projects_to_toml() {
         ],
         r#"
 [[project]]
+publisher = "Pub 1"
 name = "One"
 version = "0.0.1"
 
@@ -168,6 +169,7 @@ name = "Two"
 version = "0.0.2"
 
 [[project]]
+publisher = "Pub 3"
 name = "Three"
 version = "0.0.3"
 "#,

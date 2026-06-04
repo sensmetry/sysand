@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use std::fs;
+
 use assert_cmd::prelude::*;
 use indexmap::IndexMap;
 use mockito::Matcher;
@@ -22,7 +24,7 @@ fn sync_to_current() -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
 
-    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+    fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
     out.assert().success();
 
@@ -39,7 +41,7 @@ fn sync_to_current() -> Result<(), Box<dyn std::error::Error>> {
 
     let env_path = cwd.join(DEFAULT_ENV_NAME);
 
-    let env_metadata = std::fs::read_to_string(env_path.join(METADATA_PATH))?;
+    let env_metadata = fs::read_to_string(env_path.join(METADATA_PATH))?;
 
     assert_eq!(
         env_metadata,
@@ -58,7 +60,7 @@ editable = true
         )
     );
 
-    let entries: Result<Vec<_>, _> = std::fs::read_dir(env_path)?.collect();
+    let entries: Result<Vec<_>, _> = fs::read_dir(env_path)?.collect();
 
     let mut entry_names: Vec<_> = entries?
         .iter()
@@ -73,15 +75,81 @@ editable = true
 }
 
 #[test]
+fn repeated_sync_keeps_lockfile_and_env_toml_stable() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "lock_sync_stable"],
+        None,
+    )?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let (_dep_temp_dir, dep_cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "2.0.0",
+            "--name",
+            "lock_sync_stable_dep",
+        ],
+        None,
+    )?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let config_path = cwd.join("sysand.toml");
+    let cfg = Some(config_path.as_str());
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "urn:kpar:lock-sync-stable-dep",
+            "--as-editable",
+            dep_cwd.as_str(),
+        ],
+        cfg,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["lock"], cfg)?
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+
+    let lock_path = cwd.join(DEFAULT_LOCKFILE_NAME);
+    let recorded_lockfile = fs::read_to_string(&lock_path)?;
+
+    run_sysand_in(&cwd, ["sync"], cfg)?.assert().success();
+
+    let env_meta_path = cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH);
+    let recorded_env_toml = fs::read_to_string(&env_meta_path)?;
+
+    run_sysand_in(&cwd, ["sync"], cfg)?.assert().success();
+
+    assert_eq!(
+        fs::read_to_string(&lock_path)?,
+        recorded_lockfile,
+        "sysand-lock.toml changed after repeated syncs"
+    );
+    assert_eq!(
+        fs::read_to_string(&env_meta_path)?,
+        recorded_env_toml,
+        ".sysand/env.toml changed after repeated syncs"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
 
     // Create local project that can be referred to with src_path
     let lib_dir = cwd.join("lib");
-    std::fs::create_dir(&lib_dir)?;
+    fs::create_dir(&lib_dir)?;
     let proj_dir = lib_dir.join("sync_to_local");
-    std::fs::create_dir(&proj_dir)?;
-    std::fs::write(
+    fs::create_dir(&proj_dir)?;
+    fs::write(
         proj_dir.join(".project.json"),
         r#"{
   "name": "sync_to_local",
@@ -89,7 +157,7 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
 }
 "#,
     )?;
-    std::fs::write(
+    fs::write(
         proj_dir.join(".meta.json"),
         r#"{
   "index": {},
@@ -98,7 +166,7 @@ fn sync_to_local() -> Result<(), Box<dyn std::error::Error>> {
 "#,
     )?;
 
-    std::fs::write(
+    fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         r#"lock_version = "0.5"
 
@@ -120,7 +188,7 @@ sources = [
         .stderr(predicate::str::contains("Syncing"))
         .stderr(predicate::str::contains("Installing"));
 
-    let env_metadata = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+    let env_metadata = fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
 
     assert_eq!(
         env_metadata,
@@ -180,7 +248,7 @@ fn sync_to_remote() -> Result<(), Box<dyn std::error::Error>> {
         .match_request(|r| r.has_header(header::USER_AGENT))
         .create();
 
-    std::fs::write(
+    fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
             r#"lock_version = "0.5"
@@ -208,7 +276,7 @@ sources = [
     info_mock.assert();
     meta_mock.assert();
 
-    let env_metadata = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+    let env_metadata = fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
 
     assert_eq!(
         env_metadata,
@@ -295,7 +363,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .expect(2) // TODO: Reduce this to 1
         .create();
 
-    std::fs::write(
+    fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
             r#"lock_version = "0.5"
@@ -400,7 +468,7 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .expect(0)
         .create();
 
-    std::fs::write(
+    fs::write(
         cwd.join(DEFAULT_LOCKFILE_NAME),
         format!(
             r#"lock_version = "0.5"
@@ -448,7 +516,7 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
     let (_temp_dir, cwd, out) =
         run_sysand(["init", "--version", "1.0.0", "--name", "sync_mixed"], None)?;
     out.assert().success();
-    std::fs::write(cwd.join("P.sysml"), "package P;")?;
+    fs::write(cwd.join("P.sysml"), "package P;")?;
     run_sysand_in(&cwd, ["include", "P.sysml"], None)?
         .assert()
         .success();
@@ -459,7 +527,7 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
         None,
     )?;
     out.assert().success();
-    std::fs::write(cwd_src.join("Q.sysml"), "package Q;")?;
+    fs::write(cwd_src.join("Q.sysml"), "package Q;")?;
     run_sysand_in(&cwd_src, ["include", "Q.sysml"], None)?
         .assert()
         .success();
@@ -516,7 +584,7 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
             "Installing `urn:kpar:sync-mixed-src`",
         ));
 
-    let env_toml = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+    let env_toml = fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
 
     // Non-editable dep is installed with a src checksum.
     assert!(
