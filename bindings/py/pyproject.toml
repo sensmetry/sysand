@@ -30,7 +30,7 @@ maintainers = [
 import-names = ["sysand"]
 
 [project.urls]
-documentation = "https://docs.sysand.com"
+documentation = "https://docs.sysand.com/client/"
 homepage = "https://sysand.com"
 source = "https://github.com/sensmetry/sysand"
 issues = "https://github.com/sensmetry/sysand/issues"
