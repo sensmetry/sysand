@@ -2,7 +2,7 @@
 
 Requirements for contributing are specified in
 [CONTRIBUTING.md](CONTRIBUTING.md), and overview of the project's architecture
-is maintained in [ARCHITECTURE.md](ARCHITECTURE.md).
+is maintained in [design/architecture.md](design/architecture.md).
 
 ## Setup
 
@@ -142,25 +142,10 @@ to make sure that all tests pass locally before submitting a pull request.
 
 ## Documentation
 
-The "Sysand Client Documentation" is currently a work in progress. It is located
-in `docs/`. Official version is hosted at
-[client.sysand.com](https://client.sysand.com/).
+The documentation for Sysand client is maintained together with the Sysand index
+documentation that lives in a [Sensmetry internal GitLab repository].
 
-To preview it locally, make sure you have [Node.js](https://nodejs.org/)
-installed, then run:
-
-```sh
-cd docs
-npm ci
-npm run start
-```
-
-and open the local URL printed by MyST. To build the static site, run:
-
-```sh
-cd docs
-npm run build
-```
+[Sensmetry internal GitLab repository]: https://gitlab.com/sensmetry/internal2/tech/syside/sysand/index-website
 
 ## Rust code structure
 

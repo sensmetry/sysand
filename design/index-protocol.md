@@ -3,8 +3,6 @@
 > **Status: v0, unversioned.** This document is not yet a stable contract.
 > Breaking changes between sysand releases are expected until v1.
 
-(id-1-scope)=
-
 ## 1. Scope
 
 This document specifies the **sysand index** — the tree of files a sysand
@@ -22,8 +20,6 @@ The keywords MUST, MUST NOT, REQUIRED, SHALL, SHALL NOT, SHOULD, SHOULD
 NOT, RECOMMENDED, MAY, and OPTIONAL are to be interpreted as described in
 [RFC 2119][rfc2119].
 
-(id-2-implementability)=
-
 ## 2. Implementability
 
 A sysand index MUST be serveable from an ordinary HTTP static-file server, i.e.
@@ -37,8 +33,6 @@ clients MUST follow such redirects. The digest commitments in
 regardless of transport.
 
 The `sysand index` CLI command group produces and maintains index trees.
-
-(id-3-discovery-and-configuration)=
 
 ## 3. Discovery and configuration
 
@@ -91,8 +85,6 @@ both default to the discovery root. Any other non-success response (e.g.
 Clients MUST follow HTTP redirects on the discovery fetch. Unknown fields
 in the document are silently ignored (see [§14]).
 
-(id-4-layout)=
-
 ## 4. Layout
 
 Anchored at `index_root`, a sysand index is a tree:
@@ -120,8 +112,6 @@ A project lives in exactly one of the two trees — `_iri/...` or
 `<publisher>/<name>/...` — depending on its IRI shape
 ([§5]).
 
-(id-5-iri-path-resolution)=
-
 ## 5. IRI → path resolution
 
 Given a project IRI, clients resolve the project directory as follows:
@@ -138,8 +128,6 @@ Given a project IRI, clients resolve the project directory as follows:
 
 Clients MUST reject `pkg:sysand/` IRIs that are not canonical
 ([§6]).
-
-(id-5-1-iri-canonicalization-for-the-iri-hash-bucket)=
 
 ### 5.1. IRI canonicalization for the `_iri` hash bucket
 
@@ -163,8 +151,6 @@ Two IRIs that yield the same byte sequence after steps 1–3 are the same
 project for the purposes of this protocol; any other difference yields a
 different project even if a scheme-specific interpretation would consider
 them equivalent.
-
-(id-6-sysand-purl-relation-to-canonicalization)=
 
 ## 6. Sysand PURL relation to canonicalization
 
@@ -200,8 +186,6 @@ normalization is done. Any Sysand PURL not satisfying the Sysand PURL rules
 above is considered invalid and must be rejected without any further
 processing.
 
-(id-7-index-json)=
-
 ## 7. `index.json`
 
 Served at `<index_root>/index.json`. A flat enumeration of every project
@@ -234,8 +218,6 @@ An empty index has `index.json` that contains `{ "projects": [] }`.
 
 A 404 on `index.json` is a hard error, i.e. the URL is assumed to not
 point to an index.
-
-(id-8-versions-json)=
 
 ## 8. `versions.json`
 
@@ -303,8 +285,6 @@ Absence:
   every project listed in `index.json` ([§11]); the 404 case
   therefore corresponds to a project the index does not list.
 
-(id-9-per-version-files)=
-
 ## 9. Per-version files
 
 Each version in `versions.json` has a subdirectory under the project
@@ -341,8 +321,6 @@ it needs:
 per-version files are immutable and the lockfile already records everything
 `sync` needs to download the archive and verify it.
 
-(id-10-digests-and-canonicalization)=
-
 ## 10. Digests and canonicalization
 
 ### Wire format
@@ -359,8 +337,6 @@ MUST use the form `sha256:<64 lowercase hex>`.
 Per-source-file checksums inside `.meta.json` (`meta.checksum`) are
 `{ "value", "algorithm" }` pairs. In v0, `algorithm` MUST be `SHA256`
 and `value` MUST consist of lowercase hex digits.
-
-(id-11-server-obligations)=
 
 ## 11. Server obligations
 
@@ -399,8 +375,6 @@ A conforming sysand index server MUST uphold:
   archive is not frozen in v0 and is expected to evolve alongside the
   `sysand index` CLI (see [§15]).
 
-(id-12-client-obligations)=
-
 ## 12. Client obligations
 
 A conforming sysand index client:
@@ -419,8 +393,6 @@ A conforming sysand index client:
   unaffected by `status`.
 - Currently no verification requirement is placed when fetching
   `.project.json` or `.meta.json`.
-
-(id-13-immutability-and-lockfile-reproducibility)=
 
 ## 13. Immutability and lockfile reproducibility
 
@@ -441,16 +413,12 @@ Retirement ([§8] `status`) and the lockfile contract:
 - A `removed` entry breaks `sync` for any lockfile that pins it, as the
   project files for that version are no longer present in the server.
 
-(id-14-forward-compatibility)=
-
 ## 14. Forward compatibility
 
 - Unknown fields in any JSON document MUST be ignored by the clients. Clients
   MAY still choose to inform the user of such changes.
 - Protocol version is not explicitly provided anywhere currently.
 - Breaking changes to this protocol are expected before v1.
-
-(id-15-sysand-index-cli-preview)=
 
 ## 15. `sysand index` CLI (preview)
 
@@ -459,22 +427,22 @@ tree: laying out files, generating digests, and keeping
 `versions.json` consistent with the per-version artifacts. This is the
 only supported path for creating and mutating an index tree.
 
-[§1]: #id-1-scope
-[§2]: #id-2-implementability
-[§3]: #id-3-discovery-and-configuration
-[§4]: #id-4-layout
-[§5]: #id-5-iri-path-resolution
-[§5.1]: #id-5-1-iri-canonicalization-for-the-iri-hash-bucket
-[§6]: #id-6-sysand-purl-relation-to-canonicalization
-[§7]: #id-7-index-json
-[§8]: #id-8-versions-json
-[§9]: #id-9-per-version-files
-[§10]: #id-10-digests-and-canonicalization
-[§11]: #id-11-server-obligations
-[§12]: #id-12-client-obligations
-[§13]: #id-13-immutability-and-lockfile-reproducibility
-[§14]: #id-14-forward-compatibility
-[§15]: #id-15-sysand-index-cli-preview
+[§1]: #1-scope
+[§2]: #2-implementability
+[§3]: #3-discovery-and-configuration
+[§4]: #4-layout
+[§5]: #5-iri--path-resolution
+[§5.1]: #51-iri-canonicalization-for-the-_iri-hash-bucket
+[§6]: #6-sysand-purl-relation-to-canonicalization
+[§7]: #7-indexjson
+[§8]: #8-versionsjson
+[§9]: #9-per-version-files
+[§10]: #10-digests-and-canonicalization
+[§11]: #11-server-obligations
+[§12]: #12-client-obligations
+[§13]: #13-immutability-and-lockfile-reproducibility
+[§14]: #14-forward-compatibility
+[§15]: #15-sysand-index-cli-preview
 [rfc2119]: https://www.rfc-editor.org/rfc/rfc2119.html
 [rfc3986-43]: https://www.rfc-editor.org/rfc/rfc3986.html#section-4.3
 [rfc3986-reg-name]: https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2

@@ -36,7 +36,7 @@ use crate::{
 /// - remote_resolver is prioritised, but may be ignored if it does not resolve valid projects
 ///   (typically due to using non-resolving URLs to reference a resource)
 /// - index_resolver wraps a sysand index server and is what will typically be
-///   hit when using non-resolvable IRIs (see `docs/index-protocol.md`)
+///   hit when using non-resolvable IRIs (see `design/index-protocol.md`)
 /// - local_resolver serves to provide a cache, but may contain "dangling" cached projects
 ///
 /// Each resolver is optional, and can be skipped by passing `None`. `NO_RESOLVER` is a typed `None`

@@ -3,7 +3,7 @@
 
 //! Discovery of `index_root` and `api_root` via
 //! `<discovery-root>/sysand-index-config.json`. The wire contract lives in
-//! `docs/index-protocol.md`; this module implements the client-side fetch
+//! `design/index-protocol.md`; this module implements the client-side fetch
 //! and URL-shape validation.
 //!
 //! The underlying `reqwest` middleware applies its default redirect policy
