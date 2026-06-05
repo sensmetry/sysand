@@ -414,6 +414,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         Command::Sync { resolution_opts } => {
+            // TODO: only print this if we actually skip install of any std libs
             let provided_iris = if !resolution_opts.include_std {
                 crate::logger::warn_std_deps();
                 known_std_libs()
@@ -669,7 +670,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             compression,
             update_meta,
             allow_path_usage,
+            keep_index,
         } => {
+            if update_meta {
+                log::warn!("`--update-meta` is now the default behavior and is no longer needed")
+            }
             if let Some(current_project) = ctx.current_project {
                 // Even if we are in a workspace, the project takes precedence.
                 let path = if let Some(path) = path {
@@ -691,7 +696,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     path,
                     compression.into(),
                     current_project,
-                    update_meta,
+                    !keep_index,
                     allow_path_usage,
                 )
             } else {
@@ -710,7 +715,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     output_dir,
                     compression.into(),
                     current_workspace,
-                    update_meta,
+                    !keep_index,
                     allow_path_usage,
                 )
             }

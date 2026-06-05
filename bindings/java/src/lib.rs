@@ -527,8 +527,11 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
         &project,
         &output_path,
         compression,
+        // Currently keeping index updating disabled, since users can set their own index,
+        // and flipping this to true would overwrite that potentially custom index.
+        // TODO: add this as argument
         false,
-        false,
+        true,
     );
     match command_result {
         Ok(_) => {}
@@ -575,8 +578,11 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
         &workspace,
         &output_path,
         compression,
-        true,
+        // Currently keeping index updating disabled, since users can set their own index,
+        // and flipping this to true would overwrite that potentially custom index.
+        // TODO: add this as argument
         false,
+        true,
     );
     match command_result {
         Ok(_) => {}
