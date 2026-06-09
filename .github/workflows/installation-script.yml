@@ -69,7 +69,8 @@ jobs:
         run: |
           scripts/install.sh --help > "$RUNNER_TEMP/install-help.txt"
           grep -F -- "--install-dir" "$RUNNER_TEMP/install-help.txt"
-          grep -F -- "--system-install" "$RUNNER_TEMP/install-help.txt"
+          grep -F -- "--no-modify-path" "$RUNNER_TEMP/install-help.txt"
+          grep -F -- '$HOME/.local/bin' "$RUNNER_TEMP/install-help.txt"
           grep -F -- "latest non-prerelease" "$RUNNER_TEMP/install-help.txt"
 
       - name: Reject invalid version
@@ -88,7 +89,7 @@ jobs:
           #!/bin/sh
           echo "sysand 0.0.0-test"
           EOF
-          chmod +x "$RUNNER_TEMP/fake-archive/sysand"
+          chmod 644 "$RUNNER_TEMP/fake-archive/sysand"
           tar -czf "$RUNNER_TEMP/fake-release/${{ matrix.asset }}" -C "$RUNNER_TEMP/fake-archive" sysand
 
       - name: Serve fake release archive
@@ -109,23 +110,47 @@ jobs:
       - name: Run installer against fake release archive
         run: |
           install_dir="$RUNNER_TEMP/sysand-bin"
+          github_path="$RUNNER_TEMP/github-path"
           SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765" \
+            GITHUB_PATH="$github_path" \
             sh scripts/install.sh --install-dir "$install_dir" --version 0.0.0-test
 
           version="$("$install_dir/sysand" --version)"
           test "$version" = "sysand 0.0.0-test"
+          grep -Fx -- "$install_dir" "$github_path"
+          test "$(grep -Fxc -- "$install_dir" "$github_path")" = 1
 
-      - name: Check conflicting install flags
+      - name: Upgrade from fake release archive
         run: |
-          if sh scripts/install.sh --install-dir "$RUNNER_TEMP/sysand-bin" --system-install; then
-            echo "expected --install-dir followed by --system-install to fail" >&2
+          cat > "$RUNNER_TEMP/fake-archive/sysand" <<'EOF'
+          #!/bin/sh
+          echo "sysand 0.0.1-test"
+          EOF
+          chmod 644 "$RUNNER_TEMP/fake-archive/sysand"
+          tar -czf "$RUNNER_TEMP/fake-release/${{ matrix.asset }}" -C "$RUNNER_TEMP/fake-archive" sysand
+
+          install_dir="$RUNNER_TEMP/sysand-bin"
+          SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765" \
+            sh scripts/install.sh --install-dir "$install_dir" --version 0.0.1-test
+
+          version="$("$install_dir/sysand" --version)"
+          test "$version" = "sysand 0.0.1-test"
+
+      - name: Failed upgrade keeps previous install
+        run: |
+          rm -f "$RUNNER_TEMP/fake-archive/sysand"
+          printf 'not sysand\n' > "$RUNNER_TEMP/fake-archive/README.txt"
+          tar -czf "$RUNNER_TEMP/fake-release/${{ matrix.asset }}" -C "$RUNNER_TEMP/fake-archive" README.txt
+
+          install_dir="$RUNNER_TEMP/sysand-bin"
+          if SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765" \
+              sh scripts/install.sh --install-dir "$install_dir" --version 0.0.2-test; then
+            echo "expected broken archive install to fail" >&2
             exit 1
           fi
 
-          if sh scripts/install.sh --system-install --install-dir "$RUNNER_TEMP/sysand-bin"; then
-            echo "expected --system-install followed by --install-dir to fail" >&2
-            exit 1
-          fi
+          version="$("$install_dir/sysand" --version)"
+          test "$version" = "sysand 0.0.1-test"
 
   windows:
     name: Windows installer (${{ matrix.os }})
@@ -163,7 +188,7 @@ jobs:
         shell: pwsh
         run: |
           $help = .\scripts\install.ps1 -Help
-          foreach ($expected in @("-InstallDir", "-Version", "latest non-prerelease")) {
+          foreach ($expected in @("-InstallDir", "-NoModifyPath", "-Version", "Sensmetry\Sysand\bin", "latest non-prerelease")) {
               if (($help -join "`n") -notlike "*$expected*") {
                   Write-Error "help text did not contain: $expected"
                   exit 1
@@ -237,12 +262,86 @@ jobs:
         shell: pwsh
         run: |
           $installDir = Join-Path $env:RUNNER_TEMP "sysand-bin"
+          $githubPath = Join-Path $env:RUNNER_TEMP "github-path-windows"
           $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765"
+          $env:GITHUB_PATH = $githubPath
           .\scripts\install.ps1 -InstallDir $installDir -Version 0.0.0-test
 
           $version = & (Join-Path $installDir "sysand.exe") --version
           if ($version -ne "sysand 0.0.0-test") {
               Write-Error "unexpected version output: $version"
+              exit 1
+          }
+          if ((Get-Content -Path $githubPath) -notcontains $installDir) {
+              Write-Error "GITHUB_PATH did not contain install directory"
+              exit 1
+          }
+          if (@(Get-Content -Path $githubPath | Where-Object { $_ -eq $installDir }).Count -ne 1) {
+              Write-Error "GITHUB_PATH contained duplicate install directory entries"
+              exit 1
+          }
+
+      - name: Upgrade from fake release archive
+        shell: pwsh
+        run: |
+          $projectDir = Join-Path $env:RUNNER_TEMP "fake-sysand-src"
+          $publishDir = Join-Path $env:RUNNER_TEMP "fake-sysand-publish-upgrade"
+          @'
+          Console.WriteLine("sysand 0.0.1-test");
+          '@ | Set-Content -Path (Join-Path $projectDir "Program.cs")
+          dotnet publish `
+              $projectDir `
+              --configuration Release `
+              --runtime ${{ matrix.runtime }} `
+              --self-contained true `
+              --output $publishDir `
+              -p:AssemblyName=sysand `
+              -p:PublishSingleFile=true
+
+          $releaseDir = Join-Path $env:RUNNER_TEMP "fake-release"
+          Compress-Archive `
+              -Path (Join-Path $publishDir "sysand.exe") `
+              -DestinationPath (Join-Path $releaseDir "${{ matrix.asset }}") `
+              -Force
+
+          $installDir = Join-Path $env:RUNNER_TEMP "sysand-bin"
+          $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765"
+          .\scripts\install.ps1 -InstallDir $installDir -Version 0.0.1-test -NoModifyPath
+
+          $version = & (Join-Path $installDir "sysand.exe") --version
+          if ($version -ne "sysand 0.0.1-test") {
+              Write-Error "unexpected version output after upgrade: $version"
+              exit 1
+          }
+
+      - name: Failed upgrade keeps previous install
+        shell: pwsh
+        run: |
+          $releaseDir = Join-Path $env:RUNNER_TEMP "fake-release"
+          $brokenDir = Join-Path $env:RUNNER_TEMP "fake-broken-release"
+          New-Item -ItemType Directory -Path $brokenDir -Force | Out-Null
+          "not sysand" | Set-Content -Path (Join-Path $brokenDir "README.txt")
+          Compress-Archive `
+              -Path (Join-Path $brokenDir "README.txt") `
+              -DestinationPath (Join-Path $releaseDir "${{ matrix.asset }}") `
+              -Force
+
+          $installDir = Join-Path $env:RUNNER_TEMP "sysand-bin"
+          $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765"
+          $process = Start-Process `
+              -FilePath pwsh `
+              -ArgumentList "-NoProfile", "-File", ".\scripts\install.ps1", "-InstallDir", $installDir, "-Version", "0.0.2-test", "-NoModifyPath" `
+              -Wait `
+              -PassThru `
+              -NoNewWindow
+          if ($process.ExitCode -eq 0) {
+              Write-Error "expected broken archive install to fail"
+              exit 1
+          }
+
+          $version = & (Join-Path $installDir "sysand.exe") --version
+          if ($version -ne "sysand 0.0.1-test") {
+              Write-Error "unexpected version output after failed upgrade: $version"
               exit 1
           }
 

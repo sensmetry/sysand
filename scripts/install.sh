@@ -3,16 +3,17 @@
 # Sysand installer for Linux and macOS.
 #
 # This script is intentionally small and direct so it can be inspected before
-# running. It downloads a release archive, extracts the sysand binary, and copies
-# it into an install directory.
+# running. It downloads a release archive, extracts the sysand binary, and
+# atomically replaces the installed binary.
 
 set -eu
 
 repo="sensmetry/sysand"
 version="latest"
-install_dir="${HOME}/.local/bin"
-custom_install_dir="false"
-system_install="false"
+install_dir=""
+modify_path="true"
+required_glibc_major="2"
+required_glibc_minor="39"
 
 print_usage() {
   cat <<'EOF'
@@ -29,9 +30,7 @@ Options:
   --install-dir <path>  Install into a specific directory.
                         Default: $HOME/.local/bin
 
-  --system-install      Install into /usr/local/bin.
-                        If the current user is not root, the install step uses
-                        sudo.
+  --no-modify-path      Do not add the install directory to PATH.
 
   -h, --help            Print this help text.
 EOF
@@ -55,15 +54,12 @@ while [ "$#" -gt 0 ]; do
       ;;
     --install-dir)
       [ "$#" -ge 2 ] || fail "--install-dir requires a value"
-      [ "$system_install" = "false" ] || fail "--install-dir cannot be used with --system-install"
+      [ -n "$2" ] || fail "--install-dir requires a non-empty value"
       install_dir="$2"
-      custom_install_dir="true"
       shift 2
       ;;
-    --system-install)
-      [ "$custom_install_dir" = "false" ] || fail "--system-install cannot be used with --install-dir"
-      install_dir="/usr/local/bin"
-      system_install="true"
+    --no-modify-path)
+      modify_path="false"
       shift
       ;;
     -h|--help)
@@ -75,6 +71,20 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+
+if [ -n "${SYSAND_NO_MODIFY_PATH:-}" ]; then
+  modify_path="false"
+fi
+
+default_install_dir() {
+  if [ -n "${HOME:-}" ]; then
+    printf "%s\n" "${HOME}/.local/bin"
+  else
+    fail "could not determine an install directory; set HOME or use --install-dir"
+  fi
+}
+
+[ -n "$install_dir" ] || install_dir="$(default_install_dir)"
 
 # Accept versions with or without a leading "v". GitHub release tags use "v".
 normalize_version() {
@@ -115,6 +125,39 @@ detect_os() {
       fail "unsupported operating system: $(uname -s)"
       ;;
   esac
+}
+
+check_glibc_requirement() {
+  [ "$os" = "linux" ] || return 0
+
+  glibc_version="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{ print $2 }')" \
+    || fail "Linux Sysand binaries require glibc ${required_glibc_major}.${required_glibc_minor} or newer, but glibc could not be detected"
+
+  case "$glibc_version" in
+    *.*)
+      glibc_major="${glibc_version%%.*}"
+      glibc_minor="${glibc_version#*.}"
+      glibc_minor="${glibc_minor%%.*}"
+      ;;
+    *)
+      fail "Linux Sysand binaries require glibc ${required_glibc_major}.${required_glibc_minor} or newer, but detected glibc version \`${glibc_version}\` could not be parsed"
+      ;;
+  esac
+
+  case "${glibc_major}:${glibc_minor}" in
+    *[!0123456789:]*|:*|*:)
+      fail "Linux Sysand binaries require glibc ${required_glibc_major}.${required_glibc_minor} or newer, but detected glibc version \`${glibc_version}\` could not be parsed"
+      ;;
+  esac
+
+  if [ "$glibc_major" -lt "$required_glibc_major" ] 2>/dev/null; then
+    fail "Linux Sysand binaries require glibc ${required_glibc_major}.${required_glibc_minor} or newer, but detected glibc \`${glibc_version}\`"
+  fi
+
+  if [ "$glibc_major" -eq "$required_glibc_major" ] 2>/dev/null \
+      && [ "$glibc_minor" -lt "$required_glibc_minor" ] 2>/dev/null; then
+    fail "Linux Sysand binaries require glibc ${required_glibc_major}.${required_glibc_minor} or newer, but detected glibc \`${glibc_version}\`"
+  fi
 }
 
 # Detect the CPU architecture name used by Sysand release assets.
@@ -161,44 +204,122 @@ download_file() {
   fi
 }
 
-run_system_install() {
-  if [ "$(id -u)" = "0" ]; then
-    "$@"
-  else
-    sudo "$@"
-  fi
-}
-
 install_binary() {
-  if [ "$system_install" = "true" ]; then
-    run_system_install mkdir -p "$install_dir"
-    run_system_install cp "$extracted_binary" "${install_dir}/sysand"
-  else
-    mkdir -p "$install_dir"
-    cp "$extracted_binary" "${install_dir}/sysand"
+  mkdir -p "$install_dir"
+  installed_tmp="$(mktemp "${install_dir}/.sysand.XXXXXX")" \
+    || fail "failed to create temporary install file in \`${install_dir}\`"
+  if ! cp "$extracted_binary" "$installed_tmp"; then
+    rm -f "$installed_tmp"
+    fail "failed to copy sysand into \`${install_dir}\`"
+  fi
+  if ! chmod 755 "$installed_tmp"; then
+    rm -f "$installed_tmp"
+    fail "failed to make \`${installed_tmp}\` executable"
+  fi
+  if ! mv -f "$installed_tmp" "${install_dir}/sysand"; then
+    rm -f "$installed_tmp"
+    fail "failed to replace \`${install_dir}/sysand\`"
   fi
 }
 
-print_path_note() {
-  case ":${PATH:-}:" in
-    *":${install_dir}:"*)
+shell_quote() {
+  printf "%s\n" "$1" | sed "s/'/'\\\\''/g; 1s/^/'/; \$s/\$/'/"
+}
+
+add_to_github_path() {
+  [ -n "${GITHUB_PATH:-}" ] || return 1
+  if [ -f "$GITHUB_PATH" ] && grep -Fx -- "$install_dir" "$GITHUB_PATH" >/dev/null 2>&1; then
+    return 0
+  fi
+  printf "%s\n" "$install_dir" >> "$GITHUB_PATH"
+  return 0
+}
+
+profile_path() {
+  [ -n "${HOME:-}" ] || fail "could not update shell profile because HOME is not set; rerun with --no-modify-path"
+
+  case "${SHELL:-}" in
+    */zsh)
+      printf "%s\n" "${HOME}/.zprofile"
+      ;;
+    */bash)
+      if [ -f "${HOME}/.bashrc" ]; then
+        printf "%s\n" "${HOME}/.bashrc"
+      else
+        printf "%s\n" "${HOME}/.profile"
+      fi
       ;;
     *)
-      echo
-      echo "Note: ${install_dir} is not currently on PATH."
-      echo "Add it to your shell profile to run sysand by name, for example:"
-      echo "  export PATH=\"${install_dir}:\$PATH\""
+      printf "%s\n" "${HOME}/.profile"
       ;;
   esac
+}
+
+add_to_shell_profile() {
+  profile="$(profile_path)"
+  quoted_install_dir="$(shell_quote "$install_dir")"
+
+  if [ -f "$profile" ] && grep -F "# >>> sysand installer >>>" "$profile" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  {
+    printf "\n"
+    printf "# >>> sysand installer >>>\n"
+    printf "sysand_bin_dir=%s\n" "$quoted_install_dir"
+    printf "case \":\${PATH}:\" in\n"
+    printf "  *\":\${sysand_bin_dir}:\"*) ;;\n"
+    printf "  *) export PATH=\"\${sysand_bin_dir}:\${PATH}\" ;;\n"
+    printf "esac\n"
+    printf "# <<< sysand installer <<<\n"
+  } >> "$profile" || fail "failed to update shell profile \`${profile}\`"
+
+  echo
+  echo "Added ${install_dir} to PATH in ${profile}."
+}
+
+modify_path_if_needed() {
+  [ "$modify_path" = "true" ] || return 0
+
+  if add_to_github_path; then
+    echo "Added ${install_dir} to GITHUB_PATH."
+    return 0
+  fi
+
+  case ":${PATH:-}:" in
+    *":${install_dir}:"*)
+      return 0
+      ;;
+  esac
+
+  add_to_shell_profile
+}
+
+print_next_steps() {
+  [ "${GITHUB_ACTIONS:-}" = "true" ] && return 0
+
+  echo
+  if [ "$modify_path" = "true" ]; then
+    echo "Open a new terminal to run sysand by name."
+  else
+    echo "PATH was not modified. Add ${install_dir} to PATH to run sysand by name."
+  fi
+  echo
+  echo "For this already-open shell, run:"
+  echo "  export PATH=\"${install_dir}:\$PATH\""
 }
 
 need_cmd uname
 need_cmd mktemp
 need_cmd tar
+need_cmd awk
+need_cmd grep
+need_cmd sed
 
 validate_version
 normalize_version
 detect_os
+check_glibc_requirement
 detect_arch
 build_download_url
 
@@ -222,4 +343,5 @@ echo "Installing sysand to ${install_dir}/sysand"
 install_binary
 
 echo "Installed $("${install_dir}/sysand" --version)"
-print_path_note
+modify_path_if_needed
+print_next_steps
