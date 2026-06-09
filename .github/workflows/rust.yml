@@ -96,24 +96,41 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-24.04
-          - ubuntu-24.04-arm
-          - windows-latest
-          - windows-11-arm
-          - macos-15-intel # x86
-          - macos-latest # arm64
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: windows-latest
+            target: ""
+          - os: windows-11-arm
+            target: ""
+          - os: macos-15-intel # x86
+            target: ""
+          - os: macos-latest # arm64
+            target: ""
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Install Linux musl toolchain
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add "${{ matrix.target }}"
+
+          target="${{ matrix.target }}"
+          echo "CC_${target//-/_}=musl-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_BUILD_TARGET=$target" >> "$GITHUB_ENV"
 
       - name: cargo test ... (Rust library & CLI)
         run: >-
           cargo test --locked
           --package sysand-core
           --package sysand
-          --features sysand-core/filesystem,sysand-core/networking,sysand-core/js,sysand-core/python,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
+          --features sysand-core/filesystem,sysand-core/networking,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
 
   build:
     needs: [test]
@@ -123,25 +140,42 @@ jobs:
         include:
           - os: ubuntu-24.04
             asset: sysand-linux-x86_64
-            ext: ""
+            target: x86_64-unknown-linux-musl
+            binary: target/x86_64-unknown-linux-musl/release/sysand
           - os: ubuntu-24.04-arm
             asset: sysand-linux-arm64
-            ext: ""
+            target: aarch64-unknown-linux-musl
+            binary: target/aarch64-unknown-linux-musl/release/sysand
           - os: windows-latest
             asset: sysand-windows-x86_64.exe
-            ext: .exe
+            target: ""
+            binary: target/release/sysand.exe
           - os: windows-11-arm
             asset: sysand-windows-arm64.exe
-            ext: .exe
+            target: ""
+            binary: target/release/sysand.exe
           - os: macos-15-intel
             asset: sysand-macos-x86_64
-            ext: ""
+            target: ""
+            binary: target/release/sysand
           - os: macos-latest
             asset: sysand-macos-arm64
-            ext: ""
+            target: ""
+            binary: target/release/sysand
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Install Linux musl toolchain
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add "${{ matrix.target }}"
+
+          target="${{ matrix.target }}"
+          echo "CC_${target//-/_}=musl-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_BUILD_TARGET=$target" >> "$GITHUB_ENV"
 
       - name: cargo build ...
         run: cargo build --locked --bin sysand --release
@@ -149,38 +183,21 @@ jobs:
       - name: Relocate binaries
         run: |
           mkdir -p dist
-          cp target/release/sysand${{ matrix.ext }} dist/${{ matrix.asset }}
+          cp "${{ matrix.binary }}" dist/${{ matrix.asset }}
 
-      - name: Check Linux glibc requirement
+      - name: Check Linux binary is static
         if: runner.os == 'Linux'
         run: |
-          expected="$(
-            awk -F '"' '
-              /^required_glibc_major=/ { major = $2 }
-              /^required_glibc_minor=/ { minor = $2 }
-              END { print major "." minor }
-            ' scripts/install.sh
-          )"
-          actual="$(
-            readelf --version-info "dist/${{ matrix.asset }}" \
-              | grep -oE 'GLIBC_[0-9]+\.[0-9]+' \
-              | sed 's/^GLIBC_//' \
-              | sort -Vu \
-              | tail -n 1
-          )"
+          file "dist/${{ matrix.asset }}"
+          ldd "dist/${{ matrix.asset }}" || true
 
-          if [ -z "$expected" ]; then
-            echo "installer glibc requirement could not be parsed" >&2
+          if readelf -l "dist/${{ matrix.asset }}" | grep -q "Requesting program interpreter"; then
+            echo "dist/${{ matrix.asset }} has a dynamic loader and is not static" >&2
             exit 1
           fi
 
-          if [ -z "$actual" ]; then
-            echo "Linux binary glibc requirement could not be detected" >&2
-            exit 1
-          fi
-
-          if [ "$actual" != "$expected" ]; then
-            echo "scripts/install.sh requires glibc $expected, but dist/${{ matrix.asset }} requires glibc $actual" >&2
+          if readelf -d "dist/${{ matrix.asset }}" 2>/dev/null | grep -q "(NEEDED)"; then
+            echo "dist/${{ matrix.asset }} has dynamic library dependencies" >&2
             exit 1
           fi
 

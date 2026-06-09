@@ -12,8 +12,6 @@ repo="sensmetry/sysand"
 version="latest"
 install_dir=""
 modify_path="true"
-required_glibc_major="2"
-required_glibc_minor="39"
 
 print_usage() {
   cat <<'EOF'
@@ -125,39 +123,6 @@ detect_os() {
       fail "unsupported operating system: $(uname -s)"
       ;;
   esac
-}
-
-check_glibc_requirement() {
-  [ "$os" = "linux" ] || return 0
-
-  glibc_version="$(getconf GNU_LIBC_VERSION 2>/dev/null | awk '{ print $2 }')" \
-    || fail "Linux Sysand binaries require glibc ${required_glibc_major}.${required_glibc_minor} or newer, but glibc could not be detected"
-
-  case "$glibc_version" in
-    *.*)
-      glibc_major="${glibc_version%%.*}"
-      glibc_minor="${glibc_version#*.}"
-      glibc_minor="${glibc_minor%%.*}"
-      ;;
-    *)
-      fail "Linux Sysand binaries require glibc ${required_glibc_major}.${required_glibc_minor} or newer, but detected glibc version \`${glibc_version}\` could not be parsed"
-      ;;
-  esac
-
-  case "${glibc_major}:${glibc_minor}" in
-    *[!0123456789:]*|:*|*:)
-      fail "Linux Sysand binaries require glibc ${required_glibc_major}.${required_glibc_minor} or newer, but detected glibc version \`${glibc_version}\` could not be parsed"
-      ;;
-  esac
-
-  if [ "$glibc_major" -lt "$required_glibc_major" ] 2>/dev/null; then
-    fail "Linux Sysand binaries require glibc ${required_glibc_major}.${required_glibc_minor} or newer, but detected glibc \`${glibc_version}\`"
-  fi
-
-  if [ "$glibc_major" -eq "$required_glibc_major" ] 2>/dev/null \
-      && [ "$glibc_minor" -lt "$required_glibc_minor" ] 2>/dev/null; then
-    fail "Linux Sysand binaries require glibc ${required_glibc_major}.${required_glibc_minor} or newer, but detected glibc \`${glibc_version}\`"
-  fi
 }
 
 # Detect the CPU architecture name used by Sysand release assets.
@@ -312,14 +277,12 @@ print_next_steps() {
 need_cmd uname
 need_cmd mktemp
 need_cmd tar
-need_cmd awk
 need_cmd grep
 need_cmd sed
 
 validate_version
 normalize_version
 detect_os
-check_glibc_requirement
 detect_arch
 build_download_url
 
