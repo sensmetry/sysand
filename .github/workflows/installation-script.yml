@@ -48,9 +48,9 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            asset: sysand-linux-x86_64.tar.gz
+            asset: sysand-linux-x86_64-gnu.tar.gz
           - os: ubuntu-24.04-arm
-            asset: sysand-linux-arm64.tar.gz
+            asset: sysand-linux-arm64-gnu.tar.gz
           - os: macos-15-intel
             asset: sysand-macos-x86_64.tar.gz
           - os: macos-latest

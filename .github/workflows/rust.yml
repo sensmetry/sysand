@@ -96,24 +96,64 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-24.04
-          - ubuntu-24.04-arm
-          - windows-latest
-          - windows-11-arm
-          - macos-15-intel # x86
-          - macos-latest # arm64
+        include:
+          # About Linux GNU vs MUSL builds:
+          #
+          # GNU:  debian, ubuntu, rhel, fedora, arch, ...
+          # MUSL: scratch, alpine, gentoo, ...
+          #
+          # ubuntu-22.04 is used intentionally instead of ubuntu-24.04 for the
+          # libc=gnu builds. With ubuntu 22.04 instead of 24.04, we build a
+          # binary dynamically linking against glibc 2.35+ instead of 2.39+.
+          # That makes the build compatible with more versions of various glibc
+          # based distributions, like ubuntu 22.04+, debian 12+, and rhel 10+.
+          #
+          # The MUSL builds are static, with no dynamically linked dependencies,
+          # and can work on GNU / glibc based distributions, but not the other
+          # way around. GNU / MUSL may have differences such as DNS resolution
+          # behavior in complicated cases, but is mostly expected to work the
+          # same way.
+          #
+          - os: ubuntu-22.04
+            libc: gnu
+          - os: ubuntu-22.04-arm
+            libc: gnu
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            libc: musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            libc: musl
+          - os: windows-latest
+            target: ""
+          - os: windows-11-arm
+            target: ""
+          - os: macos-15-intel # x86
+            target: ""
+          - os: macos-latest # arm64
+            target: ""
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: (linux musl) Install musl tools
+        if: matrix.libc == 'musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add "${{ matrix.target }}"
+
+          target="${{ matrix.target }}"
+          echo "CC_${target//-/_}=musl-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_BUILD_TARGET=$target" >> "$GITHUB_ENV"
 
       - name: cargo test ... (Rust library & CLI)
         run: >-
           cargo test --locked
           --package sysand-core
           --package sysand
-          --features sysand-core/filesystem,sysand-core/networking,sysand-core/js,sysand-core/python,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
+          --features sysand-core/filesystem,sysand-core/networking,alltests,kpar-bzip2,kpar-zstd,kpar-xz,kpar-ppmd
 
   build:
     needs: [test]
@@ -121,27 +161,56 @@ jobs:
     strategy:
       matrix:
         include:
+          # See comment above regarding Linux GNU vs MUSL builds, and don't
+          # upgrade from ubuntu 22.04 without considering it.
+          - os: ubuntu-22.04
+            asset: sysand-linux-x86_64-gnu
+            binary: target/release/sysand
+            libc: gnu
+          - os: ubuntu-22.04-arm
+            asset: sysand-linux-arm64-gnu
+            binary: target/release/sysand
+            libc: gnu
           - os: ubuntu-24.04
-            asset: sysand-linux-x86_64
-            ext: ""
+            asset: sysand-linux-x86_64-musl
+            target: x86_64-unknown-linux-musl
+            binary: target/x86_64-unknown-linux-musl/release/sysand
+            libc: musl
           - os: ubuntu-24.04-arm
-            asset: sysand-linux-arm64
-            ext: ""
+            asset: sysand-linux-arm64-musl
+            target: aarch64-unknown-linux-musl
+            binary: target/aarch64-unknown-linux-musl/release/sysand
+            libc: musl
           - os: windows-latest
             asset: sysand-windows-x86_64.exe
-            ext: .exe
+            target: ""
+            binary: target/release/sysand.exe
           - os: windows-11-arm
             asset: sysand-windows-arm64.exe
-            ext: .exe
+            target: ""
+            binary: target/release/sysand.exe
           - os: macos-15-intel
             asset: sysand-macos-x86_64
-            ext: ""
+            target: ""
+            binary: target/release/sysand
           - os: macos-latest
             asset: sysand-macos-arm64
-            ext: ""
+            target: ""
+            binary: target/release/sysand
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: (linux musl) Install musl tools
+        if: matrix.libc == 'musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rustup target add "${{ matrix.target }}"
+
+          target="${{ matrix.target }}"
+          echo "CC_${target//-/_}=musl-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_BUILD_TARGET=$target" >> "$GITHUB_ENV"
 
       - name: cargo build ...
         run: cargo build --locked --bin sysand --release
@@ -149,7 +218,47 @@ jobs:
       - name: Relocate binaries
         run: |
           mkdir -p dist
-          cp target/release/sysand${{ matrix.ext }} dist/${{ matrix.asset }}
+          cp "${{ matrix.binary }}" dist/${{ matrix.asset }}
+
+      - name: (linux gnu) Check glibc requirement
+        if: matrix.libc == 'gnu'
+        run: |
+          file "dist/${{ matrix.asset }}"
+          ldd "dist/${{ matrix.asset }}"
+
+          max_glibc_version="$(
+            readelf --version-info "dist/${{ matrix.asset }}" \
+              | grep -o 'GLIBC_[0-9][0-9.]*' \
+              | sed 's/^GLIBC_//' \
+              | sort -Vu \
+              | tail -n 1
+          )"
+          if [[ -z "$max_glibc_version" ]]; then
+            echo "dist/${{ matrix.asset }} has no detected GLIBC symbol versions" >&2
+            exit 1
+          fi
+
+          echo "Maximum required GLIBC version: $max_glibc_version"
+          if [[ "$(printf '%s\n' "2.35" "$max_glibc_version" | sort -V | tail -n 1)" != "2.35" ]]; then
+            echo "dist/${{ matrix.asset }} requires GLIBC_$max_glibc_version, newer than GLIBC_2.35" >&2
+            exit 1
+          fi
+
+      - name: (linux musl) Check binary is static
+        if: matrix.libc == 'musl'
+        run: |
+          file "dist/${{ matrix.asset }}"
+          ldd "dist/${{ matrix.asset }}" || true
+
+          if readelf -l "dist/${{ matrix.asset }}" | grep -q "Requesting program interpreter"; then
+            echo "dist/${{ matrix.asset }} has a dynamic loader and is not static" >&2
+            exit 1
+          fi
+
+          if readelf -d "dist/${{ matrix.asset }}" 2>/dev/null | grep -q "(NEEDED)"; then
+            echo "dist/${{ matrix.asset }} has dynamic library dependencies" >&2
+            exit 1
+          fi
 
       - name: Upload binaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

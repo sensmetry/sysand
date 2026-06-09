@@ -134,7 +134,11 @@ detect_arch() {
 
 # Build the release asset URL. "latest" means GitHub's latest non-prerelease.
 build_download_url() {
-  asset="sysand-${os}-${arch}.tar.gz"
+  if [ "$os" = "linux" ]; then
+    asset="sysand-${os}-${arch}-gnu.tar.gz"
+  else
+    asset="sysand-${os}-${arch}.tar.gz"
+  fi
 
   # SYSAND_INSTALL_BASE_URL is for local tests. It should point at a directory
   # containing the release asset files.
