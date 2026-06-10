@@ -49,12 +49,20 @@ jobs:
         include:
           - os: ubuntu-24.04
             asset: sysand-linux-x86_64-gnu.tar.gz
+            shell: /bin/bash
+            profile: .bashrc
           - os: ubuntu-24.04-arm
             asset: sysand-linux-arm64-gnu.tar.gz
+            shell: /bin/bash
+            profile: .bashrc
           - os: macos-15-intel
             asset: sysand-macos-x86_64.tar.gz
+            shell: /bin/zsh
+            profile: .zshrc
           - os: macos-latest
             asset: sysand-macos-arm64.tar.gz
+            shell: /bin/zsh
+            profile: .zshrc
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -68,36 +76,64 @@ jobs:
       - name: Check help text
         run: |
           scripts/install.sh --help > "$RUNNER_TEMP/install-help.txt"
-          grep -F -- "--install-dir" "$RUNNER_TEMP/install-help.txt"
-          grep -F -- "--system-install" "$RUNNER_TEMP/install-help.txt"
-          grep -F -- "latest non-prerelease" "$RUNNER_TEMP/install-help.txt"
+          grep -F "SYSAND_VERSION" "$RUNNER_TEMP/install-help.txt"
+          grep -F "latest non-prerelease" "$RUNNER_TEMP/install-help.txt"
+
+      - name: Reject removed flags with migration errors
+        run: |
+          if out=$(sh scripts/install.sh --version 1.0 2>&1); then
+            echo "expected --version to fail" >&2
+            exit 1
+          fi
+          echo "$out" | grep -F "SYSAND_VERSION"
+
+          if out=$(sh scripts/install.sh --install-dir "$RUNNER_TEMP/x" 2>&1); then
+            echo "expected --install-dir to fail" >&2
+            exit 1
+          fi
+          echo "$out" | grep -F ".local/bin"
+
+          if sh scripts/install.sh --system-install; then
+            echo "expected --system-install to fail" >&2
+            exit 1
+          fi
+
+          if sh scripts/install.sh --bogus; then
+            echo "expected unknown option to fail" >&2
+            exit 1
+          fi
 
       - name: Reject invalid version
         run: |
-          for invalid_version in 0.0.0_test 0.0.0+build; do
-            if sh scripts/install.sh --version "$invalid_version"; then
+          for invalid_version in 0.0.0_test 0.0.0+build 0.0.0-TEST; do
+            if SYSAND_VERSION="$invalid_version" sh scripts/install.sh; then
               echo "expected version '$invalid_version' to fail" >&2
               exit 1
             fi
           done
 
-      - name: Create fake release archive
+      - name: Create fake release archives
         run: |
-          mkdir -p "$RUNNER_TEMP/fake-release" "$RUNNER_TEMP/fake-archive"
-          cat > "$RUNNER_TEMP/fake-archive/sysand" <<'EOF'
+          for fake in v1:0.0.0-test1 v2:0.0.0-test2; do
+            subdir="${fake%%:*}"
+            fake_version="${fake#*:}"
+            mkdir -p "$RUNNER_TEMP/fake-release/$subdir" "$RUNNER_TEMP/fake-archive"
+            cat > "$RUNNER_TEMP/fake-archive/sysand" <<EOF
           #!/bin/sh
-          echo "sysand 0.0.0-test"
+          echo "sysand $fake_version"
           EOF
-          chmod +x "$RUNNER_TEMP/fake-archive/sysand"
-          tar -czf "$RUNNER_TEMP/fake-release/${{ matrix.asset }}" -C "$RUNNER_TEMP/fake-archive" sysand
+            chmod +x "$RUNNER_TEMP/fake-archive/sysand"
+            tar -czf "$RUNNER_TEMP/fake-release/$subdir/${{ matrix.asset }}" \
+              -C "$RUNNER_TEMP/fake-archive" sysand
+          done
 
-      - name: Serve fake release archive
+      - name: Serve fake release archives
         run: |
           cd "$RUNNER_TEMP/fake-release"
           python3 -m http.server 8765 --bind 127.0.0.1 &
 
           for attempt in $(seq 1 20); do
-            if curl -fsS "http://127.0.0.1:8765/${{ matrix.asset }}" >/dev/null; then
+            if curl -fsS "http://127.0.0.1:8765/v1/${{ matrix.asset }}" >/dev/null; then
               exit 0
             fi
             sleep 1
@@ -106,47 +142,165 @@ jobs:
           echo "fake release server did not start" >&2
           exit 1
 
-      - name: Run installer against fake release archive
+      - name: Install via the GITHUB_PATH branch
         run: |
-          install_dir="$RUNNER_TEMP/sysand-bin"
-          SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765" \
-            sh scripts/install.sh --install-dir "$install_dir" --version 0.0.0-test
+          fake_home="$RUNNER_TEMP/fake-home"
+          gh_path="$RUNNER_TEMP/gh-path"
+          : > "$gh_path"
 
-          version="$("$install_dir/sysand" --version)"
+          HOME="$fake_home" GITHUB_PATH="$gh_path" \
+            SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765/v1" \
+            sh scripts/install.sh
+
+          version="$("$fake_home/.local/bin/sysand" --version)"
+          test "$version" = "sysand 0.0.0-test1"
+          grep -qx "$fake_home/.local/bin" "$gh_path"
+
+      - name: Update over existing install with profile persistence
+        run: |
+          fake_home="$RUNNER_TEMP/fake-home"
+
+          # Two sequential runs: an update over v1 and an idempotency check.
+          out=""
+          for run in 1 2; do
+            out="$(env -u GITHUB_PATH -u CI \
+              HOME="$fake_home" SHELL="${{ matrix.shell }}" \
+              SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765/v2" \
+              sh scripts/install.sh)"
+            echo "$out"
+          done
+
+          if echo "$out" | grep -F "To use sysand"; then
+            echo "expected no session PATH instructions when already persisted" >&2
+            exit 1
+          fi
+
+          version="$("$fake_home/.local/bin/sysand" --version)"
+          test "$version" = "sysand 0.0.0-test2"
+
+          count="$(grep -cF 'export PATH="$HOME/.local/bin:$PATH"' "$fake_home/${{ matrix.profile }}")"
+          test "$count" = "1"
+
+          extra="$(cd "$fake_home/.local/bin" && ls -A | grep -vx sysand || true)"
+          if [ -n "$extra" ]; then
+            echo "unexpected files in install dir: $extra" >&2
+            exit 1
+          fi
+
+      - name: Skip profile persistence when CI is set
+        run: |
+          fake_home="$RUNNER_TEMP/fake-home-ci"
+          out="$(env -u GITHUB_PATH CI=true \
+            HOME="$fake_home" SHELL="${{ matrix.shell }}" \
+            SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765/v1" \
+            sh scripts/install.sh)"
+          echo "$out"
+          echo "$out" | grep -F "CI environment detected"
+          if [ -f "$fake_home/${{ matrix.profile }}" ]; then
+            echo "expected no profile to be written in CI" >&2
+            exit 1
+          fi
+
+  linux-container:
+    name: Linux installer (${{ matrix.image }})
+    needs: [plan]
+    if: needs.plan.outputs.test == 'true'
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    defaults:
+      run:
+        shell: sh -e {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # No glibc; also proves the script runs under busybox sh. Checkout
+          # works because the runner ships a musl build of node for Alpine.
+          - image: alpine:3.20
+            setup: apk add curl python3 tar
+          # glibc 2.31, older than the gnu build's 2.35 requirement.
+          - image: debian:11
+            setup: apt-get update && apt-get install -y curl python3
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install dependencies
+        run: ${{ matrix.setup }}
+
+      - name: Run installer against fake musl release
+        run: |
+          # Serving only the musl asset makes a wrong libc choice fail the
+          # download.
+          mkdir -p "$RUNNER_TEMP/fake-release" "$RUNNER_TEMP/fake-archive"
+          cat > "$RUNNER_TEMP/fake-archive/sysand" <<'EOF'
+          #!/bin/sh
+          echo "sysand 0.0.0-test"
+          EOF
+          chmod +x "$RUNNER_TEMP/fake-archive/sysand"
+          tar -czf "$RUNNER_TEMP/fake-release/sysand-linux-x86_64-musl.tar.gz" \
+            -C "$RUNNER_TEMP/fake-archive" sysand
+
+          cd "$RUNNER_TEMP/fake-release"
+          python3 -m http.server 8765 --bind 127.0.0.1 &
+          cd "$GITHUB_WORKSPACE"
+
+          started=""
+          for attempt in $(seq 1 20); do
+            if curl -fsS "http://127.0.0.1:8765/sysand-linux-x86_64-musl.tar.gz" >/dev/null; then
+              started="yes"
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$started" ]; then
+            echo "fake release server did not start" >&2
+            exit 1
+          fi
+
+          fake_home="$RUNNER_TEMP/fake-home"
+          gh_path="$RUNNER_TEMP/gh-path"
+          : > "$gh_path"
+
+          HOME="$fake_home" GITHUB_PATH="$gh_path" \
+            SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765" \
+            sh scripts/install.sh > "$RUNNER_TEMP/install-output.txt"
+          cat "$RUNNER_TEMP/install-output.txt"
+
+          grep -F "musl build" "$RUNNER_TEMP/install-output.txt"
+          version="$("$fake_home/.local/bin/sysand" --version)"
           test "$version" = "sysand 0.0.0-test"
-
-      - name: Check conflicting install flags
-        run: |
-          if sh scripts/install.sh --install-dir "$RUNNER_TEMP/sysand-bin" --system-install; then
-            echo "expected --install-dir followed by --system-install to fail" >&2
-            exit 1
-          fi
-
-          if sh scripts/install.sh --system-install --install-dir "$RUNNER_TEMP/sysand-bin"; then
-            echo "expected --system-install followed by --install-dir to fail" >&2
-            exit 1
-          fi
+          grep -qx "$fake_home/.local/bin" "$gh_path"
 
   windows:
-    name: Windows installer (${{ matrix.os }})
+    name: Windows installer (${{ matrix.os }}, ${{ matrix.pshell }})
     needs: [plan]
     if: needs.plan.outputs.test == 'true'
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.pshell }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
+            pshell: pwsh
+            asset: sysand-windows-x86_64.zip
+            runtime: win-x64
+          # Windows PowerShell 5.1: pwsh's parser accepts newer syntax the
+          # script must avoid, so parse and install under 5.1 as well.
+          - os: windows-latest
+            pshell: powershell
             asset: sysand-windows-x86_64.zip
             runtime: win-x64
           - os: windows-11-arm
+            pshell: pwsh
             asset: sysand-windows-arm64.zip
             runtime: win-arm64
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Check PowerShell syntax
-        shell: pwsh
         run: |
           $errors = $null
           $null = [System.Management.Automation.Language.Parser]::ParseFile(
@@ -160,58 +314,83 @@ jobs:
           }
 
       - name: Check help text
-        shell: pwsh
         run: |
-          $help = .\scripts\install.ps1 -Help
-          foreach ($expected in @("-InstallDir", "-Version", "latest non-prerelease")) {
-              if (($help -join "`n") -notlike "*$expected*") {
+          $help = (& .\scripts\install.ps1 -Help) -join "`n"
+          foreach ($expected in @("SYSAND_VERSION", "latest non-prerelease")) {
+              if ($help -notlike "*$expected*") {
                   Write-Error "help text did not contain: $expected"
                   exit 1
               }
           }
 
-      - name: Reject invalid version
-        shell: pwsh
+      - name: Reject arguments with a migration error
         run: |
-          foreach ($invalidVersion in @("0.0.0_test", "0.0.0+build")) {
-              $process = Start-Process `
-                  -FilePath pwsh `
-                  -ArgumentList "-NoProfile", "-File", ".\scripts\install.ps1", "-Version", $invalidVersion `
-                  -Wait `
-                  -PassThru `
-                  -NoNewWindow
-              if ($process.ExitCode -eq 0) {
+          $failed = $false
+          try {
+              & .\scripts\install.ps1 -Version "1.0"
+          } catch {
+              $failed = $true
+              if ("$_" -notlike "*SYSAND_VERSION*") {
+                  Write-Error "unexpected message: $_"
+                  exit 1
+              }
+          }
+          if (-not $failed) {
+              Write-Error "expected arguments to be rejected"
+              exit 1
+          }
+
+      - name: Reject invalid version
+        run: |
+          foreach ($invalidVersion in @("0.0.0_test", "0.0.0+build", "0.0.0-TEST")) {
+              $env:SYSAND_VERSION = $invalidVersion
+              $failed = $false
+              try {
+                  & .\scripts\install.ps1
+              } catch {
+                  $failed = $true
+              }
+              if (-not $failed) {
                   Write-Error "expected version '$invalidVersion' to fail"
                   exit 1
               }
           }
 
-      - name: Create fake sysand.exe
+      - name: Create fake release archives
         shell: pwsh
         run: |
-          $projectDir = Join-Path $env:RUNNER_TEMP "fake-sysand-src"
-          $publishDir = Join-Path $env:RUNNER_TEMP "fake-sysand-publish"
-          dotnet new console --output $projectDir --framework net8.0
-          @'
-          Console.WriteLine("sysand 0.0.0-test");
-          '@ | Set-Content -Path (Join-Path $projectDir "Program.cs")
-          dotnet publish `
-              $projectDir `
-              --configuration Release `
-              --runtime ${{ matrix.runtime }} `
-              --self-contained true `
-              --output $publishDir `
-              -p:AssemblyName=sysand `
-              -p:PublishSingleFile=true
+          foreach ($fake in @(@("v1", "0.0.0-test1"), @("v2", "0.0.0-test2"))) {
+              $subdir = $fake[0]
+              $fakeVersion = $fake[1]
+              $projectDir = Join-Path $env:RUNNER_TEMP "fake-sysand-src-$subdir"
+              $publishDir = Join-Path $env:RUNNER_TEMP "fake-sysand-publish-$subdir"
+              dotnet new console --output $projectDir --framework net8.0
+              @"
+          if (args.Length > 0 && args[0] == "wait")
+          {
+              System.Threading.Thread.Sleep(120000);
+              return;
+          }
+          Console.WriteLine("sysand $fakeVersion");
+          "@ | Set-Content -Path (Join-Path $projectDir "Program.cs")
+              dotnet publish `
+                  $projectDir `
+                  --configuration Release `
+                  --runtime ${{ matrix.runtime }} `
+                  --self-contained true `
+                  --output $publishDir `
+                  -p:AssemblyName=sysand `
+                  -p:PublishSingleFile=true
 
-          $releaseDir = Join-Path $env:RUNNER_TEMP "fake-release"
-          New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
-          Compress-Archive `
-              -Path (Join-Path $publishDir "sysand.exe") `
-              -DestinationPath (Join-Path $releaseDir "${{ matrix.asset }}") `
-              -Force
+              $releaseDir = Join-Path $env:RUNNER_TEMP "fake-release\$subdir"
+              New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+              Compress-Archive `
+                  -Path (Join-Path $publishDir "sysand.exe") `
+                  -DestinationPath (Join-Path $releaseDir "${{ matrix.asset }}") `
+                  -Force
+          }
 
-      - name: Serve fake release archive
+      - name: Serve fake release archives
         shell: pwsh
         run: |
           $releaseDir = Join-Path $env:RUNNER_TEMP "fake-release"
@@ -223,7 +402,7 @@ jobs:
 
           for ($attempt = 1; $attempt -le 20; $attempt++) {
               try {
-                  Invoke-WebRequest -Uri "http://127.0.0.1:8765/${{ matrix.asset }}" -UseBasicParsing | Out-Null
+                  Invoke-WebRequest -Uri "http://127.0.0.1:8765/v1/${{ matrix.asset }}" -UseBasicParsing | Out-Null
                   exit 0
               } catch {
                   Start-Sleep -Seconds 1
@@ -233,22 +412,184 @@ jobs:
           Write-Error "fake release server did not start"
           exit 1
 
-      - name: Run installer against fake release archive
-        shell: pwsh
+      - name: Back up user PATH registry value
         run: |
-          $installDir = Join-Path $env:RUNNER_TEMP "sysand-bin"
-          $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765"
-          .\scripts\install.ps1 -InstallDir $installDir -Version 0.0.0-test
+          $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $false)
+          $backup = @{ HasPath = $false; RawPath = ""; Kind = "" }
+          if ($envKey.GetValueNames() -contains "Path") {
+              $backup.HasPath = $true
+              $backup.RawPath = $envKey.GetValue(
+                  "Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+              $backup.Kind = $envKey.GetValueKind("Path").ToString()
+          }
+          $envKey.Dispose()
+          $backup | Export-Clixml -Path (Join-Path $env:RUNNER_TEMP "user-path-backup.xml")
 
+      - name: Install via the GITHUB_PATH branch
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "fake-localappdata"
+          $ghPath = Join-Path $env:RUNNER_TEMP "gh-path"
+          Set-Content -Path $ghPath -Value ""
+          $env:GITHUB_PATH = $ghPath
+          $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765/v1"
+
+          & .\scripts\install.ps1
+
+          $installDir = Join-Path $env:LOCALAPPDATA "Programs\Sensmetry\Sysand\bin"
           $version = & (Join-Path $installDir "sysand.exe") --version
-          if ($version -ne "sysand 0.0.0-test") {
+          if ($version -ne "sysand 0.0.0-test1") {
               Write-Error "unexpected version output: $version"
               exit 1
           }
+          if (-not (Select-String -Path $ghPath -SimpleMatch $installDir -Quiet)) {
+              Write-Error "GITHUB_PATH does not contain the install directory"
+              exit 1
+          }
+
+      - name: Skip user PATH update when CI is set
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "fake-localappdata"
+          $env:GITHUB_PATH = ""
+          $env:CI = "true"
+          $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765/v1"
+
+          function Get-RawUserPath {
+              $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $false)
+              try {
+                  if ($envKey.GetValueNames() -contains "Path") {
+                      return $envKey.GetValue(
+                          "Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                  }
+                  return $null
+              } finally {
+                  $envKey.Dispose()
+              }
+          }
+
+          $before = Get-RawUserPath
+          & .\scripts\install.ps1
+          $after = Get-RawUserPath
+          if ($after -ne $before) {
+              Write-Error "user PATH was modified in CI: '$before' -> '$after'"
+              exit 1
+          }
+
+      - name: Update in-use install with PATH and legacy cleanup
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "fake-localappdata"
+          $installDir = Join-Path $env:LOCALAPPDATA "Programs\Sensmetry\Sysand\bin"
+          $legacyDir = Join-Path $env:LOCALAPPDATA "Programs\Sysand"
+          $env:GITHUB_PATH = ""
+          $env:CI = ""
+          $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765/v2"
+
+          # Pre-seed a REG_EXPAND_SZ user PATH with an unexpanded entry plus
+          # the legacy install directory.
+          $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+          $envKey.SetValue(
+              "Path",
+              "%USERPROFILE%\bin;$legacyDir",
+              [Microsoft.Win32.RegistryValueKind]::ExpandString)
+          $envKey.Dispose()
+
+          # Pre-create a legacy installation.
+          New-Item -ItemType Directory -Path $legacyDir -Force | Out-Null
+          Copy-Item -Path (Join-Path $installDir "sysand.exe") -Destination (Join-Path $legacyDir "sysand.exe")
+
+          # Keep the installed v1 binary running during the update.
+          $proc = Start-Process `
+              -FilePath (Join-Path $installDir "sysand.exe") `
+              -ArgumentList "wait" `
+              -PassThru `
+              -NoNewWindow
+          try {
+              & .\scripts\install.ps1
+          } finally {
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+
+          $version = & (Join-Path $installDir "sysand.exe") --version
+          if ($version -ne "sysand 0.0.0-test2") {
+              Write-Error "unexpected version after update: $version"
+              exit 1
+          }
+          $oldFiles = @(Get-ChildItem -Path $installDir -File | Where-Object { $_.Name -like "sysand.exe.old.*" })
+          if ($oldFiles.Count -eq 0) {
+              Write-Error "expected a sysand.exe.old.* file after updating an in-use binary"
+              exit 1
+          }
+          if (Test-Path (Join-Path $legacyDir "sysand.exe")) {
+              Write-Error "legacy binary was not removed"
+              exit 1
+          }
+
+          $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $false)
+          $rawPath = $envKey.GetValue(
+              "Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+          $kind = $envKey.GetValueKind("Path")
+          $envKey.Dispose()
+          if ($kind -ne [Microsoft.Win32.RegistryValueKind]::ExpandString) {
+              Write-Error "user PATH value kind changed to $kind"
+              exit 1
+          }
+          if ($rawPath -notlike "*%USERPROFILE%\bin*") {
+              Write-Error "unexpanded PATH entry was clobbered: $rawPath"
+              exit 1
+          }
+          $entries = @($rawPath -split ";" | Where-Object { $_ -ne "" })
+          if (@($entries | Where-Object { $_ -eq $installDir }).Count -ne 1) {
+              Write-Error "install dir not on user PATH exactly once: $rawPath"
+              exit 1
+          }
+          if (@($entries | Where-Object { $_ -eq $legacyDir }).Count -ne 0) {
+              Write-Error "legacy PATH entry was not removed: $rawPath"
+              exit 1
+          }
+
+          # A re-run with nothing in use cleans leftovers, adds no duplicate
+          # PATH entry, and repeats no session PATH instructions.
+          $rerunOutput = (& .\scripts\install.ps1) -join "`n"
+          Write-Host $rerunOutput
+          if ($rerunOutput -like "*To use sysand in this session*") {
+              Write-Error "expected no session PATH instructions when already persisted"
+              exit 1
+          }
+
+          $leftovers = @(Get-ChildItem -Path $installDir -File | Where-Object { $_.Name -ne "sysand.exe" })
+          if ($leftovers.Count -ne 0) {
+              Write-Error "unexpected leftovers after re-run: $($leftovers.Name -join ', ')"
+              exit 1
+          }
+          $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $false)
+          $rawPath = $envKey.GetValue(
+              "Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+          $envKey.Dispose()
+          $entries = @($rawPath -split ";" | Where-Object { $_ -ne "" })
+          if (@($entries | Where-Object { $_ -eq $installDir }).Count -ne 1) {
+              Write-Error "install dir duplicated on user PATH: $rawPath"
+              exit 1
+          }
+
+      - name: Restore user PATH registry value
+        if: always()
+        run: |
+          $backupFile = Join-Path $env:RUNNER_TEMP "user-path-backup.xml"
+          if (-not (Test-Path $backupFile)) {
+              exit 0
+          }
+          $backup = Import-Clixml -Path $backupFile
+          $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+          if ($backup.HasPath) {
+              $kind = [Enum]::Parse([Microsoft.Win32.RegistryValueKind], $backup.Kind)
+              $envKey.SetValue("Path", $backup.RawPath, $kind)
+          } elseif ($envKey.GetValueNames() -contains "Path") {
+              $envKey.DeleteValue("Path")
+          }
+          $envKey.Dispose()
 
   ci-gate:
     name: Installation Script CI Gate
-    needs: [plan, unix, windows]
+    needs: [plan, unix, linux-container, windows]
     if: needs.plan.outputs.gate == 'true' && !cancelled()
     runs-on: ubuntu-slim
     steps:
