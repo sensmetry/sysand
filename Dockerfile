@@ -14,5 +14,5 @@ RUN apt-get update \
         curl \
  && rm -rf /var/lib/apt/lists/*
 
-# sysand-amd64 / sysand-arm64 are populated via the publish-image workflow/job
+# sysand-amd64 / sysand-arm64 are populated via the publish-images workflow/job
 COPY --chmod=0755 sysand-${TARGETARCH}/sysand /usr/local/bin/sysand

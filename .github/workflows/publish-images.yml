@@ -1,4 +1,4 @@
-name: Publish Image
+name: Publish Images
 
 on:
   release:
@@ -10,7 +10,7 @@ on:
         required: true
         type: string
       use_default_branch_dockerfile:
-        description: Use the Dockerfile from the default branch instead of the release tag
+        description: Use the Dockerfiles from the default branch instead of the release tag
         type: boolean
         default: true
 
@@ -19,7 +19,7 @@ permissions:
   packages: write
 
 jobs:
-  publish-image:
+  publish-images:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -49,26 +49,46 @@ jobs:
           newTag: ${{ steps.repo-tags.outputs.new }}
           prefix: "ghcr.io/${{ github.repository }}:"
 
+      - name: Declare alpine image tags
+        id: tags-alpine
+        uses: jupyterhub/action-major-minor-tag-calculator@40566ffdf246e5a9e640cf768df890ead4424b22 # v4.0.0
+        with:
+          existingTags: ${{ steps.repo-tags.outputs.tags }}
+          newTag: ${{ steps.repo-tags.outputs.new }}
+          prefix: "ghcr.io/${{ github.repository }}:"
+          suffix: "-alpine"
+
       - name: Wait for release assets to be uploaded
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
+          required_assets=(
+            sysand-linux-x86_64-gnu.tar.gz
+            sysand-linux-arm64-gnu.tar.gz
+            sysand-linux-x86_64-musl.tar.gz
+            sysand-linux-arm64-musl.tar.gz
+          )
+
           for attempt in {1..10}; do
             assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
 
-            has_amd64_asset="$(grep -Fxc "sysand-linux-x86_64-gnu.tar.gz" <<< "$assets")"
-            has_arm64_asset="$(grep -Fxc "sysand-linux-arm64-gnu.tar.gz" <<< "$assets")"
-            if [[ "$has_amd64_asset" == 1 && "$has_arm64_asset" == 1 ]]; then
+            missing_assets=()
+            for asset in "${required_assets[@]}"; do
+              if ! grep -Fxq "$asset" <<< "$assets"; then
+                missing_assets+=("$asset")
+              fi
+            done
+            if [[ "${#missing_assets[@]}" == 0 ]]; then
               break
             fi
 
             if [[ "$attempt" == 10 ]]; then
-              echo "Release $TAG does not include sysand-linux-x86_64-gnu.tar.gz and sysand-linux-arm64-gnu.tar.gz assets." >&2
+              echo "Release $TAG does not include assets: ${missing_assets[*]}" >&2
               exit 1
             fi
 
-            echo "Release $TAG does not include all image assets yet. Sleeping before attempt $((attempt + 1))..."
+            echo "Release $TAG does not include assets yet: ${missing_assets[*]}. Sleeping before attempt $((attempt + 1))..."
             sleep 6
           done
 
@@ -80,11 +100,15 @@ jobs:
           gh release download "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --pattern sysand-linux-x86_64-gnu.tar.gz \
-              --pattern sysand-linux-arm64-gnu.tar.gz
+              --pattern sysand-linux-arm64-gnu.tar.gz \
+              --pattern sysand-linux-x86_64-musl.tar.gz \
+              --pattern sysand-linux-arm64-musl.tar.gz
 
-          mkdir sysand-amd64 sysand-arm64
+          mkdir sysand-amd64 sysand-arm64 sysand-amd64-musl sysand-arm64-musl
           tar -xzf sysand-linux-x86_64-gnu.tar.gz -C sysand-amd64
           tar -xzf sysand-linux-arm64-gnu.tar.gz -C sysand-arm64
+          tar -xzf sysand-linux-x86_64-musl.tar.gz -C sysand-amd64-musl
+          tar -xzf sysand-linux-arm64-musl.tar.gz -C sysand-arm64-musl
 
       - name: Set up QEMU (for docker buildx)
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
@@ -107,5 +131,16 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ join(fromJson(steps.tags.outputs.tags)) }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Build and push alpine image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: Dockerfile.alpine
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ join(fromJson(steps.tags-alpine.outputs.tags)) }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
