@@ -446,6 +446,28 @@ jobs:
               exit 1
           }
 
+      - name: Install via piped invocation (irm | iex)
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "fake-localappdata-iex"
+          $ghPath = Join-Path $env:RUNNER_TEMP "gh-path-iex"
+          Set-Content -Path $ghPath -Value ""
+          $env:GITHUB_PATH = $ghPath
+          $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765/v1"
+
+          $preferenceBefore = $ErrorActionPreference
+          Get-Content -Path .\scripts\install.ps1 -Raw | Invoke-Expression
+          if ($ErrorActionPreference -ne $preferenceBefore) {
+              Write-Error "ErrorActionPreference leaked out of the installer"
+              exit 1
+          }
+
+          $installDir = Join-Path $env:LOCALAPPDATA "Programs\Sensmetry\Sysand\bin"
+          $version = & (Join-Path $installDir "sysand.exe") --version
+          if ($version -ne "sysand 0.0.0-test1") {
+              Write-Error "unexpected version output: $version"
+              exit 1
+          }
+
       - name: Skip user PATH update when CI is set
         run: |
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "fake-localappdata"
