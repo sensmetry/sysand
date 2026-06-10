@@ -6,8 +6,9 @@
 # installation), and ensures that directory is on the user PATH.
 #
 # Configuration is via environment variables:
-#   SYSAND_VERSION           Release version to install, for example 0.1.0 or
-#                            v0.1.0-rc.1. Default: latest non-prerelease.
+#   SYSAND_VERSION           Release version to install, for example 0.1.2 or
+#                            v0.1.2-rc.1. Must be 0.1.2 or later.
+#                            Default: latest non-prerelease.
 #   SYSAND_INSTALL_BASE_URL  For local tests. It should point at a directory
 #                            containing the release asset files.
 #
@@ -26,9 +27,9 @@ replacing any existing installation, and ensures that directory is on the
 user PATH.
 
 Configuration via environment variables:
-  SYSAND_VERSION   Release version to install, for example 0.1.0 or
-                   0.1.0-rc.1. A leading "v" is also accepted.
-                   Default: latest non-prerelease.
+  SYSAND_VERSION   Release version to install, for example 0.1.2 or
+                   0.1.2-dev.1. A leading "v" is also accepted. Must be
+                   0.1.2 or later. Default: latest non-prerelease.
 
 Uninstall by deleting %LOCALAPPDATA%\Programs\Sensmetry\Sysand and removing
 the install directory from your user PATH.
@@ -69,6 +70,20 @@ if ($Version -eq "latest") {
     $Tag = $Version
 } else {
     $Tag = "v$Version"
+}
+
+# Releases before 0.1.2 do not publish all the assets this installer expects,
+# so only 0.1.2 or later is supported.
+if ($Version -ne "latest") {
+    $Release = $Version.TrimStart("v").Split("-")[0]
+    $Parsed = $null
+    if ($Release -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$' -or
+        -not [System.Version]::TryParse($Release, [ref]$Parsed)) {
+        Fail "could not parse SYSAND_VERSION '$Version' as major.minor.patch"
+    }
+    if ($Parsed -lt [System.Version]"0.1.2") {
+        Fail "this installer only supports sysand 0.1.2 or later (requested $Version)"
+    }
 }
 
 # Detect the CPU architecture name used by Sysand release assets.

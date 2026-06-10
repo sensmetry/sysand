@@ -112,6 +112,22 @@ jobs:
             fi
           done
 
+      - name: Reject unsupported version
+        run: |
+          for unsupported_version in 0.1.1 v0.1.1 0.1.0 0.1.1-rc.1; do
+            if out=$(SYSAND_VERSION="$unsupported_version" sh scripts/install.sh 2>&1); then
+              echo "expected version '$unsupported_version' to fail" >&2
+              exit 1
+            fi
+            echo "$out" | grep -F "0.1.2 or later"
+          done
+
+          if out=$(SYSAND_VERSION="0.1" sh scripts/install.sh 2>&1); then
+            echo "expected version '0.1' to fail" >&2
+            exit 1
+          fi
+          echo "$out" | grep -F "could not parse"
+
       - name: Create fake release archives
         run: |
           for fake in v1:0.0.0-test1 v2:0.0.0-test2; do
@@ -148,7 +164,10 @@ jobs:
           gh_path="$RUNNER_TEMP/gh-path"
           : > "$gh_path"
 
+          # A semver prerelease version must pass the supported-version check;
+          # the fake base URL ignores the tag, so this only exercises the check.
           HOME="$fake_home" GITHUB_PATH="$gh_path" \
+            SYSAND_VERSION="1.2.3-alpha.1" \
             SYSAND_INSTALL_BASE_URL="http://127.0.0.1:8765/v1" \
             sh scripts/install.sh
 
@@ -356,6 +375,42 @@ jobs:
               }
           }
 
+      - name: Reject unsupported version
+        run: |
+          foreach ($unsupportedVersion in @("0.1.1", "v0.1.1", "0.1.0", "0.1.1-rc.1")) {
+              $env:SYSAND_VERSION = $unsupportedVersion
+              $failed = $false
+              try {
+                  & .\scripts\install.ps1
+              } catch {
+                  $failed = $true
+                  if ("$_" -notlike "*0.1.2 or later*") {
+                      Write-Error "unexpected message for '$unsupportedVersion': $_"
+                      exit 1
+                  }
+              }
+              if (-not $failed) {
+                  Write-Error "expected version '$unsupportedVersion' to fail"
+                  exit 1
+              }
+          }
+
+          $env:SYSAND_VERSION = "0.1"
+          $failed = $false
+          try {
+              & .\scripts\install.ps1
+          } catch {
+              $failed = $true
+              if ("$_" -notlike "*could not parse*") {
+                  Write-Error "unexpected message for '0.1': $_"
+                  exit 1
+              }
+          }
+          if (-not $failed) {
+              Write-Error "expected version '0.1' to fail"
+              exit 1
+          }
+
       - name: Create fake release archives
         shell: pwsh
         run: |
@@ -412,19 +467,6 @@ jobs:
           Write-Error "fake release server did not start"
           exit 1
 
-      - name: Back up user PATH registry value
-        run: |
-          $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $false)
-          $backup = @{ HasPath = $false; RawPath = ""; Kind = "" }
-          if ($envKey.GetValueNames() -contains "Path") {
-              $backup.HasPath = $true
-              $backup.RawPath = $envKey.GetValue(
-                  "Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-              $backup.Kind = $envKey.GetValueKind("Path").ToString()
-          }
-          $envKey.Dispose()
-          $backup | Export-Clixml -Path (Join-Path $env:RUNNER_TEMP "user-path-backup.xml")
-
       - name: Install via the GITHUB_PATH branch
         run: |
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "fake-localappdata"
@@ -432,6 +474,9 @@ jobs:
           Set-Content -Path $ghPath -Value ""
           $env:GITHUB_PATH = $ghPath
           $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765/v1"
+          # A semver prerelease version must pass the supported-version check;
+          # the fake base URL ignores the tag, so this only exercises the check.
+          $env:SYSAND_VERSION = "1.2.3-alpha.1"
 
           & .\scripts\install.ps1
 
@@ -591,23 +636,6 @@ jobs:
               Write-Error "install dir duplicated on user PATH: $rawPath"
               exit 1
           }
-
-      - name: Restore user PATH registry value
-        if: always()
-        run: |
-          $backupFile = Join-Path $env:RUNNER_TEMP "user-path-backup.xml"
-          if (-not (Test-Path $backupFile)) {
-              exit 0
-          }
-          $backup = Import-Clixml -Path $backupFile
-          $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
-          if ($backup.HasPath) {
-              $kind = [Enum]::Parse([Microsoft.Win32.RegistryValueKind], $backup.Kind)
-              $envKey.SetValue("Path", $backup.RawPath, $kind)
-          } elseif ($envKey.GetValueNames() -contains "Path") {
-              $envKey.DeleteValue("Path")
-          }
-          $envKey.Dispose()
 
   ci-gate:
     name: Installation Script CI Gate

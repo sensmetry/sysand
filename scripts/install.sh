@@ -8,8 +8,9 @@
 # ensures that directory is on PATH.
 #
 # Configuration is via environment variables:
-#   SYSAND_VERSION           Release version to install, for example 0.1.0 or
-#                            v0.1.0-rc.1. Default: latest non-prerelease.
+#   SYSAND_VERSION           Release version to install, for example 0.1.2 or
+#                            v0.1.2-rc.1. Must be 0.1.2 or later.
+#                            Default: latest non-prerelease.
 #   SYSAND_INSTALL_BASE_URL  For local tests. It should point at a directory
 #                            containing the release asset files.
 
@@ -29,9 +30,9 @@ Installs the sysand binary to $HOME/.local/bin, replacing any existing
 installation, and ensures that directory is on PATH.
 
 Configuration via environment variables:
-  SYSAND_VERSION   Release version to install, for example 0.1.0 or
-                   0.1.0-rc.1. A leading "v" is also accepted.
-                   Default: latest non-prerelease.
+  SYSAND_VERSION   Release version to install, for example 0.1.2 or
+                   0.1.2-dev.1. A leading "v" is also accepted. Must be
+                   0.1.2 or later. Default: latest non-prerelease.
 
 Uninstall by deleting $HOME/.local/bin/sysand and removing the PATH line the
 installer added to your shell profile.
@@ -89,6 +90,36 @@ validate_version() {
       fail "SYSAND_VERSION may only contain lowercase letters, numbers, dots, and dashes"
       ;;
   esac
+}
+
+# Releases before 0.1.2 do not publish all the assets this installer expects
+# (for example the musl builds), so only 0.1.2 or later is supported.
+check_version_supported() {
+  [ "$version" != "latest" ] || return 0
+
+  release="${version#v}"
+  release="${release%%-*}"
+  case "$release" in
+    *.*.*) ;;
+    *)
+      fail "could not parse SYSAND_VERSION \`${version}\` as major.minor.patch"
+      ;;
+  esac
+  major="${release%%.*}"
+  rest="${release#*.}"
+  minor="${rest%%.*}"
+  rest="${rest#*.}"
+  patch="${rest%%.*}"
+  case "${major}~${minor}~${patch}" in
+    *[!0-9~]*|*~~*)
+      fail "could not parse SYSAND_VERSION \`${version}\` as major.minor.patch"
+      ;;
+  esac
+
+  if [ "$major" -eq 0 ] &&
+    { [ "$minor" -lt 1 ] || { [ "$minor" -eq 1 ] && [ "$patch" -lt 2 ]; }; }; then
+    fail "this installer only supports sysand 0.1.2 or later (requested ${version})"
+  fi
 }
 
 # Detect the operating system name used by Sysand release assets.
@@ -216,21 +247,14 @@ build_download_url() {
   fi
 }
 
-download_failed() {
-  if [ "${libc:-}" = "musl" ]; then
-    echo "note: musl assets are only published for sysand releases newer than 0.1.1" >&2
-  fi
-  fail "failed to download \`${asset}\` from \`${download_url}\`"
-}
-
 download_file() {
   url="$1"
   output="$2"
 
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$output" || download_failed
+    curl -fsSL "$url" -o "$output" || fail "failed to download \`${asset}\` from \`${url}\`"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q "$url" -O "$output" || download_failed
+    wget -q "$url" -O "$output" || fail "failed to download \`${asset}\` from \`${url}\`"
   else
     fail "curl or wget is required"
   fi
@@ -349,6 +373,7 @@ main() {
   path_line='export PATH="$HOME/.local/bin:$PATH"'
 
   validate_version
+  check_version_supported
   normalize_version
   detect_os
   detect_arch
