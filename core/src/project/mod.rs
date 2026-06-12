@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use camino::Utf8Path;
+use digest::{array::Array, typenum};
 use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
@@ -65,7 +66,7 @@ pub struct KparMeta {
 }
 
 /// Produce a SHA-256 digest by hashing all the contents of `reader`
-pub(crate) fn hash_reader<R: Read>(reader: &mut R) -> Result<ProjectHash, io::Error> {
+pub(crate) fn hash_reader<R: Read>(reader: &mut R) -> Result<Array<u8, typenum::U32>, io::Error> {
     let mut hasher = Sha256::new();
     let mut buffered = BufReader::new(reader);
 

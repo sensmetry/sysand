@@ -491,7 +491,7 @@ impl LocalKParProjectRaw {
         Ok(wrapfs::File::open(&self.archive_path)?)
     }
 
-    fn open_archive(&self) -> Result<ZipArchive<fs::File>, LocalKParError> {
+    pub(crate) fn open_archive(&self) -> Result<ZipArchive<fs::File>, LocalKParError> {
         Ok(zip::ZipArchive::new(self.open_archive_file()?)
             .map_err(|e| ZipArchiveError::ReadArchive(self.archive_path.as_path().into(), e))?)
     }

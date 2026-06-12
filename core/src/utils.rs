@@ -4,6 +4,7 @@
 use std::{error::Error, fmt::Write as _};
 
 use digest::{array::Array, typenum};
+use indexmap::IndexSet;
 use sha2::{Digest, Sha256};
 
 pub(crate) mod scheme {
@@ -61,8 +62,8 @@ pub fn lowercase_hex(bytes: Array<u8, typenum::U32>) -> String {
 /// any `WITH` exceptions) named in `expression`. Each identifier maps to a
 /// `LICENSES/<id>.txt` file under REUSE conventions; the `+` "or later"
 /// modifier does not affect the filename.
-pub(crate) fn license_file_stems(expression: &spdx::Expression) -> Vec<String> {
-    let mut stems: indexmap::IndexSet<String> = indexmap::IndexSet::new();
+pub(crate) fn license_file_stems(expression: &spdx::Expression) -> IndexSet<String> {
+    let mut stems: IndexSet<String> = IndexSet::new();
     for req in expression.requirements() {
         let license_name = match &req.req.license {
             spdx::LicenseItem::Spdx { id, .. } => id.name.to_string(),
@@ -78,5 +79,5 @@ pub(crate) fn license_file_stems(expression: &spdx::Expression) -> Vec<String> {
             stems.insert(addition_name);
         }
     }
-    stems.into_iter().collect()
+    stems
 }
