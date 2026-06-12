@@ -135,6 +135,15 @@ pub enum IndexAddError {
         "{iri} version {version} is removed so it cannot be added again; removed version can only stay removed"
     )]
     VersionRemoved { iri: Box<str>, version: Version },
+    #[error(
+        "archive `{kpar_path}` does not contain a project at its root,\n\
+         the project is at `{root_in_kpar}` within the archive;\n\
+         project must be at the root of the archive"
+    )]
+    ProjectNotAtRoot {
+        kpar_path: Box<Utf8Path>,
+        root_in_kpar: Box<Utf8Path>,
+    },
 }
 
 pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
@@ -157,7 +166,15 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
 
     let kpar_path = kpar_path.as_ref();
     let kpar_path_abs = wrapfs::absolute(kpar_path)?;
-    let local_project = LocalKParProjectRaw::new_project_at_root(&kpar_path_abs)?;
+    let local_project = LocalKParProjectRaw::new_guess_root(&kpar_path_abs)?;
+    if let Some(p) = local_project.project_root_in_archive()
+        && !p.as_str().is_empty()
+    {
+        return Err(IndexAddError::ProjectNotAtRoot {
+            kpar_path: kpar_path_abs.as_str().into(),
+            root_in_kpar: p.as_str().into(),
+        });
+    }
     let Some(info) = local_project.get_info()? else {
         return Err(IndexAddError::MissingInfo(kpar_path_abs.clone()));
     };

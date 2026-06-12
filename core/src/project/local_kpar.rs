@@ -517,9 +517,9 @@ impl LocalKParProjectRaw {
         zip: &mut ZipArchive<File>,
         path: P,
     ) -> Result<Option<T>, LocalKParError> {
-        match self.get_relative(zip, path) {
+        match self.get_relative(zip, &path) {
             Ok(f) => Ok(Some(serde_json::from_reader(f).map_err(|e| {
-                ProjectDeserializationError::new("failed to deserialize `.project.json`", e)
+                ProjectDeserializationError::new(path.as_ref().as_str(), e)
             })?)),
             Err((_, ZipError::FileNotFound)) => Ok(None),
             Err((path, err)) => Err(LocalKParError::Zip(ZipArchiveError::NamedFileMeta(
