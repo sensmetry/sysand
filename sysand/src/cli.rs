@@ -11,7 +11,11 @@ use camino::Utf8PathBuf;
 use clap::{ValueEnum, builder::StyledStr, crate_authors};
 use fluent_uri::Iri;
 use semver::VersionReq;
-use sysand_core::{add::expand_sysand_purl_shorthand, build::KparCompressionMethod};
+use sysand_core::{
+    add::expand_sysand_purl_shorthand,
+    build::KparCompressionMethod,
+    model::{KERML_METAMODEL_PREFIX, SYSML_METAMODEL_PREFIX},
+};
 use url::Url;
 
 use crate::env_vars;
@@ -142,6 +146,7 @@ pub enum Command {
     /// Include model interchange files in project metadata. This can
     /// be used multiple times for the same file to update its metadata,
     /// as the metadata will not be updated automatically
+    #[clap(verbatim_doc_comment)]
     Include {
         /// File(s) to include in the project.
         #[arg(num_args = 1..)]
@@ -1643,16 +1648,11 @@ pub enum MetamodelKind {
     KerML,
 }
 
-impl MetamodelKind {
-    pub const SYSML: &str = "https://www.omg.org/spec/SysML/";
-    pub const KERML: &str = "https://www.omg.org/spec/KerML/";
-}
-
 impl From<&MetamodelKind> for &'static str {
     fn from(value: &MetamodelKind) -> Self {
         match value {
-            MetamodelKind::SysML => MetamodelKind::SYSML,
-            MetamodelKind::KerML => MetamodelKind::KERML,
+            MetamodelKind::SysML => SYSML_METAMODEL_PREFIX,
+            MetamodelKind::KerML => KERML_METAMODEL_PREFIX,
         }
     }
 }

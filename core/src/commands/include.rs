@@ -5,7 +5,7 @@ use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
 use crate::{
-    project::{ProjectMut, ProjectOrIOError, utils::FsIoError},
+    project::{ProjectMut, ProjectOrIOError, ProjectRead, utils::FsIoError},
     symbols::{ExtractError, Language},
 };
 
@@ -52,7 +52,7 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
     log::info!("{header}{including:>12}{header:#} file `{}`", path.as_ref());
 
     if index_symbols {
-        let new_symbols = extract_symbols(project, &path, force_format)?;
+        let new_symbols = extract_symbols(&project, &path, force_format)?;
         project.replace_index_for_file(new_symbols.into_iter(), &path, true)?;
     }
 
@@ -61,11 +61,11 @@ pub fn do_include<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
 }
 
 /// Extract top level symbols from file at `path` belonging to `project`
-pub fn extract_symbols<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
-    project: &mut Pr,
+pub fn extract_symbols<PR: ProjectRead, P: AsRef<Utf8UnixPath>>(
+    project: PR,
     path: &P,
     force_format: Option<Language>,
-) -> Result<Vec<String>, IncludeError<Pr::Error>> {
+) -> Result<Vec<String>, IncludeError<PR::Error>> {
     match force_format.or_else(|| Language::guess_from_path(path)) {
         Some(Language::SysML) => crate::symbols::top_level_sysml(
             project.read_source(path).map_err(IncludeError::Project)?,
