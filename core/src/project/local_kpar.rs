@@ -460,10 +460,6 @@ impl LocalKParProjectRaw {
                 .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
         }
 
-        // This can only fail if the comment is too long
-        zip.set_comment(concat!("produced by: sysand v", env!("CARGO_PKG_VERSION")))
-            .unwrap();
-
         zip.finish()
             .map_err(|e| ZipArchiveError::Finish(path.as_ref().into(), e))?;
 

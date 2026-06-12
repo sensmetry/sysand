@@ -454,11 +454,6 @@ pub struct PublishPreparation {
 // All of the publish checks will need to be revisited when we start supporting
 // publishing to other indexes, many of them will not apply
 
-// TODO: if sysand starts putting in "produced by: sysand v<version>" into
-// all zips produced, we can skip most of the checks to speed things up;
-// even if the zip was altered or we skip a check we were not supposed to,
-// server will catch it
-
 /// Reads and validates a `.kpar` file, returning the upload payload and
 /// metadata. Does not touch network. Should be called before any network
 /// activity.
