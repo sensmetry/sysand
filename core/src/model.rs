@@ -22,6 +22,9 @@ pub const KNOWN_METAMODELS: [&str; 2] = [
     "https://www.omg.org/spec/KerML/20250201",
 ];
 
+pub const SYSML_METAMODEL_PREFIX: &str = "https://www.omg.org/spec/SysML/";
+pub const KERML_METAMODEL_PREFIX: &str = "https://www.omg.org/spec/KerML/";
+
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]

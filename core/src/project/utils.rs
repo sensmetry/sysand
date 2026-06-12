@@ -216,6 +216,10 @@ pub mod wrapfs {
             .map_err(|e| Box::new(FsIoError::ReadFile(path.as_ref().into(), e)))
     }
 
+    pub fn read<P: AsRef<Utf8Path>>(path: P) -> Result<Vec<u8>, Box<FsIoError>> {
+        fs::read(path.as_ref()).map_err(|e| Box::new(FsIoError::ReadFile(path.as_ref().into(), e)))
+    }
+
     pub fn metadata<P: AsRef<Utf8Path>>(path: P) -> Result<fs::Metadata, Box<FsIoError>> {
         fs::metadata(path.as_ref())
             .map_err(|e| Box::new(FsIoError::Metadata(path.as_ref().into(), e)))

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use std::fs;
+
 use assert_cmd::prelude::*;
 use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::Utf8TempDir;
@@ -28,6 +30,10 @@ fn init_project(name: &str) -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn std::e
         None,
     )?;
     out.assert().success();
+    let mut licenses = cwd.join("LICENSES");
+    fs::create_dir(&licenses)?;
+    licenses.push("MIT.txt");
+    fs::File::create(licenses)?;
     Ok((temp_dir, cwd))
 }
 
@@ -39,7 +45,8 @@ fn run_sysand_ok(cwd: &Utf8Path, args: &[&str], cfg: Option<&str>) -> TestResult
 
 fn include_basic_model(cwd: &Utf8Path) -> TestResult {
     std::fs::write(cwd.join("test.sysml"), "package P;\n")?;
-    run_sysand_ok(cwd, &["include", "--no-index-symbols", "test.sysml"], None)
+    run_sysand_ok(cwd, &["include", "--no-index-symbols", "test.sysml"], None)?;
+    run_sysand_ok(cwd, &["info", "metamodel", "--set", "sysml"], None)
 }
 
 fn build_default_kpar(cwd: &Utf8Path) -> TestResult {
@@ -374,8 +381,8 @@ fn publish_rejects_invalid_semver_version() -> TestResult {
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("version field"))
-        .stderr(predicate::str::contains("Semantic Versioning 2.0 version"))
+        .stderr(predicate::str::contains("`not-semver`"))
+        .stderr(predicate::str::contains("Semantic Version"))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     Ok(())
@@ -385,6 +392,7 @@ fn publish_rejects_invalid_semver_version() -> TestResult {
 fn publish_rejects_version_build_metadata() -> TestResult {
     let (_temp_dir, cwd) = init_project("version-build-metadata")?;
 
+    // Manually set the field, since set_project_field runs the CLI
     let project_file = cwd.join(".project.json");
     let project_json = std::fs::read_to_string(&project_file)?;
     let project_json =
@@ -404,8 +412,8 @@ fn publish_rejects_version_build_metadata() -> TestResult {
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("version field"))
-        .stderr(predicate::str::contains("build metadata"))
+        .stderr(predicate::str::contains("version `1.2.3+build`"))
+        .stderr(predicate::str::contains("metadata"))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     Ok(())
@@ -428,7 +436,7 @@ fn publish_rejects_noncanonicalizable_publisher() -> TestResult {
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("publisher field"))
+        .stderr(predicate::str::contains("publisher `bad__publisher`"))
         .stderr(predicate::str::contains("must be 3-50 characters"))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
@@ -452,7 +460,7 @@ fn publish_rejects_noncanonicalizable_name() -> TestResult {
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("name field"))
+        .stderr(predicate::str::contains("name `bad__name`"))
         .stderr(predicate::str::contains("must be 3-50 characters"))
         .stderr(predicate::str::contains("HTTP request failed").not());
 

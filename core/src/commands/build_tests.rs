@@ -44,6 +44,8 @@ fn surfaces_non_not_found_io_errors() {
 
 fn stems(expr: &str) -> Vec<String> {
     license_file_stems(&spdx::Expression::parse(expr).unwrap())
+        .into_iter()
+        .collect()
 }
 
 #[test]
