@@ -308,15 +308,18 @@ pub mod wrapfs {
 }
 
 #[derive(Debug, Error)]
-#[error("project deserialization error: {msg}: {err}")]
+#[error("project deserialization error: failed to deserialize `{path}`: {err}")]
 pub struct ProjectDeserializationError {
-    msg: &'static str,
+    path: Box<Utf8Path>,
     err: serde_json::Error,
 }
 
 impl ProjectDeserializationError {
-    pub fn new(msg: &'static str, err: serde_json::Error) -> Self {
-        Self { msg, err }
+    pub fn new(path: impl AsRef<Utf8Path>, err: serde_json::Error) -> Self {
+        Self {
+            path: path.as_ref().into(),
+            err,
+        }
     }
 }
 

@@ -387,9 +387,8 @@ impl ProjectRead for LocalSrcProject {
 
         let info_json = if info_json_path.exists() {
             Some(
-                serde_json::from_reader(wrapfs::File::open(&info_json_path)?).map_err(|e| {
-                    ProjectDeserializationError::new("failed to deserialize `.project.json`", e)
-                })?,
+                serde_json::from_reader(wrapfs::File::open(&info_json_path)?)
+                    .map_err(|e| ProjectDeserializationError::new(".project.json", e))?,
             )
         } else {
             None
@@ -399,9 +398,8 @@ impl ProjectRead for LocalSrcProject {
 
         let meta_json = if meta_json_path.exists() {
             Some(
-                serde_json::from_reader(wrapfs::File::open(&meta_json_path)?).map_err(|e| {
-                    ProjectDeserializationError::new("failed to deserialize `.meta.json`", e)
-                })?,
+                serde_json::from_reader(wrapfs::File::open(&meta_json_path)?)
+                    .map_err(|e| ProjectDeserializationError::new(".meta.json", e))?,
             )
         } else {
             None
