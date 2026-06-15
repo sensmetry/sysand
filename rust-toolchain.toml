@@ -8,6 +8,6 @@
 # - Check latest stable version: rustup check
 #
 [toolchain]
-channel = "1.95"
+channel = "1.96"
 components = [ "rustfmt", "clippy" ]
 profile = "minimal"
