@@ -66,7 +66,7 @@ We generate changelogs from merged PRs using their titles and labels with the
    1. Generate an initial changelog entry.
 
       ```sh
-      github-activity --heading-level=3
+      github-activity --heading-level=2
       ```
 
    2. Revise PR labels.
@@ -92,7 +92,7 @@ We generate changelogs from merged PRs using their titles and labels with the
    4. Generate a final changelog.
 
       ```sh
-      github-activity --heading-level=3
+      github-activity --heading-level=2
       ```
 
 3. Add it to the sysand client changelog maintained in the [sysand-index]

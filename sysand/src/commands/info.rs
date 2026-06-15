@@ -441,6 +441,15 @@ fn set_info(
         }
         SetInfoVerb::SetLicense(value) => {
             info.license = Some(value.clone());
+            log::info!(
+                "Note: every license/exception should have its corresponding\n\
+                file in LICENSES/ directory, and for publishing this is required.\n\
+                It is recommended to use SPDX license text files from\n\
+                https://spdx.org/licenses/ or\n\
+                https://github.com/spdx/license-list-data/tree/main/text\n\
+                just note that some of them have placeholder copyright\n\
+                holder/dates in the text that should be replaced"
+            )
         }
         SetInfoVerb::SetMaintainer(value) => {
             info.maintainer = value.clone();

@@ -492,6 +492,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 // Only print std warning when command is to print all info
                 // or just usages.
                 // These are the only cases where stdlib usages affect output
+                // TODO: be more precise, this warning is annoying
                 match subcommand {
                     None
                     | Some(InfoCommand::Usage {
