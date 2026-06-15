@@ -11,7 +11,6 @@ use bytes::Bytes;
 use camino::Utf8Path;
 use serde::Deserialize;
 use thiserror::Error;
-use typed_path::{Utf8UnixComponent, Utf8UnixPath};
 use url::Url;
 use zip::result::ZipError;
 
@@ -185,8 +184,9 @@ pub struct PublishResponse {
     pub is_new_project: bool,
 }
 
-// TODO: link to https://docs.sysand.com/reference/kpar-archive-validation upon encountering
+// TODO: link to https://docs.sysand.com/index/reference/kpar-archive-validation upon encountering
 // any validation error; maybe from CLI, maybe from here?
+// TODO: add help in CLI that knowns which commands can be used to fix some issues
 #[derive(Error, Debug)]
 pub enum PublishError {
     #[error(
@@ -196,12 +196,36 @@ pub enum PublishError {
     ExecInArchive { path: Box<str> },
     #[error("archive is corrupt: it contains overlapping files")]
     OverlappingFiles,
+    #[error(
+        "archive is corrupt: directory entry for `{path}`
+        is marked as compressed with {comp}, but directory entries\n\
+        cannot have any content to compress"
+    )]
+    CompressedDirEntry {
+        path: Box<str>,
+        comp: zip::CompressionMethod,
+    },
     #[error("archive is corrupt: path `{path:?}` contains a NULL character")]
     NullChar { path: Box<str> },
     #[error(
+        "archive is corrupt: path `{path}`\n\
+        contains two consecutive directory separators `//`"
+    )]
+    DoubleSlash { path: Box<str> },
+    #[error("archive is corrupt: path `{path}` is absolute")]
+    AbsolutePath { path: Box<str> },
+    #[error(
+        "item in archive has path `{path}`\n\
+        that contains a backslash `\\`; backslash is not allowed in paths to\n\
+        preserve consistent interpretation across different operating systems;\n\
+        backslash could be present because the path is Windows path, which is\n\
+        not allowed by the Zip format specification"
+    )]
+    Backslash { path: Box<str> },
+    #[error(
         "archive contains a file `{path}` which uses unsupported\n\
         {comp} compression; published archives currently must use DEFLATE\n\
-        compression"
+        compression for all files"
     )]
     UnsupportedCompression {
         path: Box<str>,
@@ -237,11 +261,11 @@ pub enum PublishError {
         actual: Box<str>,
     },
     #[error(
-        "archive contains file with invalid path `{path}`\n\
+        "archive contains file with invalid path `{path}`;\n\
         relative components . and .. and absolute paths are not allowed
         for security reasons"
     )]
-    DisallowedPath { path: Box<str> },
+    RelativePathComponents { path: Box<str> },
     #[error(
         "unsupported checksum algorithm `{alg}` for file `{path}`\n\
         only SHA256 is currently supported"
@@ -259,7 +283,7 @@ pub enum PublishError {
     #[error("project does not include `checksum` field in `.meta.json`")]
     MissingChecksum,
     #[error(
-        "project doesn't list any source file (empty `checksum` field in\n\
+        "project doesn't list any source files (empty `checksum` field in\n\
         `.meta.json`); the project is not useful if it has no files\n\
         (did you forget to include them?)"
     )]
@@ -298,7 +322,6 @@ pub enum PublishError {
         metamodels are currently allowed in the index"
     )]
     UnsupportedMetamodel { metamodel: String },
-    // TODO: add help in CLI that knowns which commands can be used to fix such issues
     #[error("project does not have a metamodel set")]
     MissingMetamodel,
     #[error("project metamodel `{metamodel}` has invalid version `{version}`")]
@@ -458,6 +481,14 @@ pub struct PublishPreparation {
 /// metadata. Does not touch network. Should be called before any network
 /// activity.
 pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, PublishError> {
+    let file_size = wrapfs::metadata(path).map_err(PublishError::Io)?.len();
+    if file_size > MAX_KPAR_PUBLISH_SIZE {
+        return Err(PublishError::KparTooLarge {
+            size: file_size,
+            limit: MAX_KPAR_PUBLISH_SIZE,
+        });
+    }
+
     // Open and validate kpar.
     let kpar_project = LocalKParProjectRaw::new_guess_root(path)
         .map_err(|e| PublishError::KparRead(path.as_str().into(), e))?;
@@ -539,6 +570,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     let mut archive = kpar_project
         .open_archive()
         .map_err(|e| PublishError::KparRead(path.as_str().into(), e))?;
+    // Check for one kind of zip bomb. Other kinds are difficult to check for.
     if archive
         .has_overlapping_files()
         .map_err(|e| PublishError::KparReadZip(path.as_str().into(), e))?
@@ -548,46 +580,66 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
     // Bools track whether the file is expected by metadata/our conventions
     let mut kpar_files: HashMap<String, bool> = HashMap::new();
     for i in 0..archive.len() {
-        let f = archive.by_index_raw(i).unwrap();
+        let f = archive
+            .by_index_raw(i)
+            .map_err(|e| PublishError::KparReadZip(path.as_str().into(), e))?;
+
         let name = f.name();
-        if name.contains('\0') {
-            return Err(PublishError::NullChar { path: name.into() });
-        }
-        if f.encrypted() {
-            return Err(PublishError::Encrypted { path: name.into() });
+        for c in name.bytes() {
+            if c == b'\0' {
+                return Err(PublishError::NullChar { path: name.into() });
+            } else if c == b'\\' {
+                return Err(PublishError::Backslash { path: name.into() });
+            }
         }
         if f.is_symlink() {
             return Err(PublishError::Symlink { path: name.into() });
         }
-        if f.compression() != zip::CompressionMethod::Deflated {
-            return Err(PublishError::UnsupportedCompression {
+
+        if name.starts_with('/') {
+            return Err(PublishError::AbsolutePath { path: name.into() });
+        }
+        // Manually split into componenets, `Utf8UnixPath::components()` does
+        // some normalization, which is undesirable here
+        for c in name.split_terminator('/') {
+            if c.is_empty() {
+                // `split_terminator()` ignores trailing slash, and the path is
+                // not absolute, so the only way for it to contain an empty
+                // component is to have two consecutive slashes
+                return Err(PublishError::DoubleSlash { path: name.into() });
+            } else if c == "." || c == ".." {
+                return Err(PublishError::RelativePathComponents { path: name.into() });
+            }
+        }
+
+        // Directory entries don't contain any contents, so encryption
+        // or compression doesn't matter, but extraction can still fail
+        // if such metadata is set
+        if f.encrypted() {
+            return Err(PublishError::Encrypted { path: name.into() });
+        }
+        if !f.is_dir() {
+            if f.compression() != zip::CompressionMethod::Deflated {
+                return Err(PublishError::UnsupportedCompression {
+                    path: name.into(),
+                    comp: f.compression(),
+                });
+            }
+            // Check all exec bits for files; exec bit for dirs means dir can be opened
+            if let Some(mode) = f.unix_mode()
+                && (mode & 0o111) != 0
+            {
+                return Err(PublishError::ExecInArchive { path: name.into() });
+            }
+
+            // Ignore directory entries, as we don't have any use for them
+            kpar_files.insert(name.to_owned(), false);
+        } else if f.compression() != zip::CompressionMethod::Stored {
+            return Err(PublishError::CompressedDirEntry {
                 path: name.into(),
                 comp: f.compression(),
             });
         }
-        // Check all exec bits for files; exec bit for dirs means dir can be opened
-        if !f.is_dir()
-            && let Some(mode) = f.unix_mode()
-            && (mode & 0o111) != 0
-        {
-            return Err(PublishError::ExecInArchive { path: name.into() });
-        }
-
-        for c in Utf8UnixPath::new(name).components() {
-            // TODO: this is likely to fail in ugly ways if zip includes a Windows path,
-            // but Unix paths are required by zip spec
-            // It will also mostly ignore `.` components
-            match c {
-                Utf8UnixComponent::Normal(_) => (),
-                Utf8UnixComponent::RootDir
-                | Utf8UnixComponent::CurDir
-                | Utf8UnixComponent::ParentDir => {
-                    return Err(PublishError::DisallowedPath { path: name.into() });
-                }
-            }
-        }
-
-        kpar_files.insert(name.to_owned(), false);
     }
 
     for stem in license_file_stems(&license_expr) {
@@ -699,7 +751,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
                             });
                         }
                     }
-                } else {
+                } else if !actual_symbols.is_empty() {
                     // It is valid for a file to not export any symbols
                     log::warn!(
                         "project file `{src_file}` exports symbols {actual_symbols:?},\n\
@@ -725,7 +777,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             ' '
         ),
     }
-    match kpar_files.get_mut("README.md") {
+    match kpar_files.get_mut("CHANGELOG.md") {
         Some(v) => *v = true,
         None => log::warn!(
             "KPAR does not contain a changelog file CHANGELOG.md;\n\
@@ -734,21 +786,13 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             ' '
         ),
     }
-    *kpar_files.get_mut(".project.json").unwrap() = true;
-    *kpar_files.get_mut(".meta.json").unwrap() = true;
+    kpar_files.remove_entry(".project.json").unwrap();
+    kpar_files.remove_entry(".meta.json").unwrap();
 
     for (path, expected) in kpar_files {
         if !expected {
             return Err(PublishError::UnexpectedFile { path: path.into() });
         }
-    }
-
-    let file_size = wrapfs::metadata(path).map_err(PublishError::Io)?.len();
-    if file_size > MAX_KPAR_PUBLISH_SIZE {
-        return Err(PublishError::KparTooLarge {
-            size: file_size,
-            limit: MAX_KPAR_PUBLISH_SIZE,
-        });
     }
 
     let kpar_bytes = wrapfs::read(path).map_err(PublishError::Io)?;
@@ -901,15 +945,15 @@ fn check_std_libs(
     prefix: &str,
 ) -> Result<bool, PublishError> {
     if let Some(stripped) = usage.resource.strip_prefix(prefix) {
-        if let Some(vc) = usage.version_constraint.as_deref() {
-            return Err(PublishError::StdWithVersionConstraint {
-                name: usage.resource.as_str().into(),
-                vc: vc.into(),
-            });
-        }
         for s in lib_names {
             if let Some(metamodel_version) = stripped.strip_suffix(s) {
                 if is_valid_metamodel_version(metamodel_version) {
+                    if let Some(vc) = usage.version_constraint.as_deref() {
+                        return Err(PublishError::StdWithVersionConstraint {
+                            name: usage.resource.as_str().into(),
+                            vc: vc.into(),
+                        });
+                    }
                     return Ok(true);
                 } else {
                     return Err(PublishError::InvalidStdLibVersion {

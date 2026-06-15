@@ -632,7 +632,7 @@ mod prepare_publish {
             ("./test.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::DisallowedPath { .. }));
+        assert!(matches!(err, PublishError::RelativePathComponents { .. }));
     }
 
     // ── MissingLicenseFile ───────────────────────────────────────────────────
@@ -820,5 +820,160 @@ mod prepare_publish {
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert!(matches!(err, PublishError::UnexpectedFile { .. }));
+    }
+
+    // ── Backslash ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn backslash_in_path() {
+        let (proj, meta) = pre_loop_entries();
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("subdir\\file.sysml", b"package Test;", deflate()),
+        ]);
+        let err = prepare_publish_payload(&path).expect_err("expected Err");
+        assert!(matches!(err, PublishError::Backslash { .. }), "got: {err}");
+    }
+
+    // ── AbsolutePath ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn absolute_path() {
+        let (proj, meta) = pre_loop_entries();
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("/absolute/file.sysml", b"package Test;", deflate()),
+        ]);
+        let err = prepare_publish_payload(&path).expect_err("expected Err");
+        assert!(
+            matches!(err, PublishError::AbsolutePath { .. }),
+            "got: {err}"
+        );
+    }
+
+    // ── DoubleSlash ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn double_slash_in_path() {
+        let (proj, meta) = pre_loop_entries();
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("foo//bar.sysml", b"package Test;", deflate()),
+        ]);
+        let err = prepare_publish_payload(&path).expect_err("expected Err");
+        assert!(
+            matches!(err, PublishError::DoubleSlash { .. }),
+            "got: {err}"
+        );
+    }
+
+    // ── RelativePathComponents with .. ────────────────────────────────────────
+
+    #[test]
+    fn relative_path_parent_dir() {
+        let (proj, meta) = pre_loop_entries();
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("../escape.sysml", b"package Test;", deflate()),
+        ]);
+        let err = prepare_publish_payload(&path).expect_err("expected Err");
+        assert!(
+            matches!(err, PublishError::RelativePathComponents { .. }),
+            "got: {err}"
+        );
+    }
+
+    // ── CompressedDirEntry ────────────────────────────────────────────────────
+
+    #[test]
+    fn compressed_dir_entry() {
+        // A directory entry (name ends with '/') must use Stored compression.
+        let (proj, meta) = pre_loop_entries();
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("subdir/", b"", deflate()),
+        ]);
+        let err = prepare_publish_payload(&path).expect_err("expected Err");
+        assert!(
+            matches!(err, PublishError::CompressedDirEntry { .. }),
+            "got: {err}"
+        );
+    }
+
+    // ── Directory entry with Stored compression is accepted ───────────────────
+
+    #[test]
+    fn dir_entry_with_stored_passes_archive_loop() {
+        // A Stored-compression directory entry must not trigger UnsupportedCompression
+        // or CompressedDirEntry; the function should proceed past the archive loop.
+        let (proj, meta) = pre_loop_entries();
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("LICENSES/", b"", stored()),
+            ("LICENSES/MIT.txt", b"MIT License", deflate()),
+        ]);
+        let err = prepare_publish_payload(&path).expect_err("expected Err");
+        assert!(
+            matches!(err, PublishError::MissingChecksum),
+            "expected MissingChecksum (past archive loop), got: {err}"
+        );
+    }
+
+    // ── CHANGELOG.md is accepted ──────────────────────────────────────────────
+
+    #[test]
+    fn changelog_md_accepted() {
+        let content = b"package Test;";
+        let (proj, meta) = valid_entries(content);
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("LICENSES/MIT.txt", b"MIT License", deflate()),
+            ("test.sysml", content, deflate()),
+            (
+                "CHANGELOG.md",
+                b"# Changelog\n\n## 1.0.0\n- initial release",
+                deflate(),
+            ),
+        ]);
+        prepare_publish_payload(&path)
+            .expect("CHANGELOG.md must not be rejected as UnexpectedFile");
+    }
+
+    // ── README.md is accepted ─────────────────────────────────────────────────
+
+    #[test]
+    fn readme_md_accepted() {
+        let content = b"package Test;";
+        let (proj, meta) = valid_entries(content);
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("LICENSES/MIT.txt", b"MIT License", deflate()),
+            ("test.sysml", content, deflate()),
+            ("README.md", b"# My Package", deflate()),
+        ]);
+        prepare_publish_payload(&path).expect("README.md must not be rejected as UnexpectedFile");
+    }
+
+    // ── Happy path ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn valid_kpar_succeeds() {
+        let content = b"package Test;";
+        let (proj, meta) = valid_entries(content);
+        let (_tmp, path) = write_zip(&[
+            (".project.json", proj.as_slice(), deflate()),
+            (".meta.json", meta.as_slice(), deflate()),
+            ("LICENSES/MIT.txt", b"MIT License", deflate()),
+            ("test.sysml", content, deflate()),
+        ]);
+        prepare_publish_payload(&path).expect("fully valid kpar should succeed");
     }
 }
