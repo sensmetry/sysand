@@ -3,7 +3,7 @@
 
 use std::{
     collections::{HashMap, hash_map::Entry},
-    io::{self},
+    io::{self, Read as _},
     sync::Arc,
 };
 
@@ -23,7 +23,7 @@ use crate::{
         KerMlChecksumAlg, SYSML_METAMODEL_PREFIX,
     },
     project::{
-        ProjectRead, hash_reader,
+        ProjectRead,
         local_kpar::{LocalKParError, LocalKParProjectRaw},
         utils::{FsIoError, wrapfs},
     },
@@ -32,7 +32,7 @@ use crate::{
         normalize_field, parse_sysand_purl,
     },
     symbols::Language,
-    utils::{license_file_stems, lowercase_hex, sha256_lowercase_hex},
+    utils::{license_file_stems, sha256_lowercase_hex},
 };
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
@@ -723,11 +723,13 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
                             path: src_file.as_str().into(),
                             source: e,
                         })?;
-                let digest = hash_reader(&mut file).map_err(|e| PublishError::KparFileReadIo {
-                    path: src_file.as_str().into(),
-                    source: e,
-                })?;
-                let actual_checksum = lowercase_hex(digest);
+                let mut source = String::new();
+                file.read_to_string(&mut source)
+                    .map_err(|e| PublishError::KparFileReadIo {
+                        path: src_file.as_str().into(),
+                        source: e,
+                    })?;
+                let actual_checksum = sha256_lowercase_hex(&source);
                 if !actual_checksum.eq_ignore_ascii_case(&file_checksum.value) {
                     return Err(PublishError::IncorrectFileChecksum {
                         path: src_file.as_str().into(),
@@ -736,9 +738,8 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
                     });
                 }
 
-                // FIXME: don't read the whole file into memory at once
                 let actual_symbols =
-                    extract_symbols(&kpar_project, &src_file, Some(metamodel_kind.lang_kind()))
+                    extract_symbols(&src_file, &source, Some(metamodel_kind.lang_kind()))
                         .map_err(|e| PublishError::IndexFail { source: e })?;
                 // Actual symbols must be a superset of recorded
                 if let Some(symbols) = symbols_for_files.get(&src_file) {

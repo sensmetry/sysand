@@ -877,18 +877,6 @@ impl<ProjectError> From<FsIoError> for ProjectOrIOError<ProjectError> {
     }
 }
 
-#[derive(Debug)]
-pub struct IndexMergeOutcome {
-    pub new: Vec<String>,
-    pub existing: Vec<(String, String)>,
-}
-
-#[derive(Debug)]
-pub struct SourceExclusionOutcome {
-    pub removed_checksum: Option<InterchangeProjectChecksumRaw>,
-    pub removed_symbols: Vec<String>,
-}
-
 pub trait ProjectMut: ProjectRead {
     fn put_info(
         &mut self,
@@ -918,116 +906,9 @@ pub trait ProjectMut: ProjectRead {
         source: &mut R,
         overwrite: bool,
     ) -> Result<(), Self::Error>;
-
-    // Utilities
-
-    fn include_source<P: AsRef<Utf8UnixPath>>(
-        &mut self,
-        path: P,
-        compute_checksum: bool,
-        overwrite: bool,
-    ) -> Result<(), ProjectOrIOError<Self::Error>> {
-        let path = path.as_ref();
-        let mut meta = self
-            .get_meta()
-            .map_err(ProjectOrIOError::Project)?
-            .unwrap_or_default();
-
-        {
-            let mut reader = self.read_source(path).map_err(ProjectOrIOError::Project)?;
-
-            if compute_checksum {
-                let sha256_checksum = hash_reader(&mut reader)
-                    .map_err(|e| FsIoError::ReadFile(path.as_str().into(), e))?;
-
-                meta.add_checksum(
-                    path,
-                    KerMlChecksumAlg::Sha256,
-                    lowercase_hex(sha256_checksum),
-                    overwrite,
-                );
-            } else {
-                meta.add_checksum(path, KerMlChecksumAlg::None, "", overwrite);
-            }
-        }
-
-        self.put_meta(&meta, true)
-            .map_err(ProjectOrIOError::Project)
-    }
-
-    fn exclude_source<P: AsRef<Utf8UnixPath>>(
-        &mut self,
-        path: P,
-    ) -> Result<SourceExclusionOutcome, ProjectOrIOError<Self::Error>> {
-        let mut meta = self
-            .get_meta()
-            .map_err(ProjectOrIOError::Project)?
-            .unwrap_or_default();
-
-        let removed_checksum = meta.remove_checksum(&path);
-        let removed_symbols = meta.remove_index(&path);
-
-        self.put_meta(&meta, true)
-            .map_err(ProjectOrIOError::Project)?;
-
-        Ok(SourceExclusionOutcome {
-            removed_checksum,
-            removed_symbols,
-        })
-    }
-
-    /// Replace `index` entries pointing to `path` with `symbols`. If `overwrite == true`,
-    /// also point any pre-existing `symbols` to `path`
-    fn replace_index_for_file<S: AsRef<str>, P: AsRef<Utf8UnixPath>, I: Iterator<Item = S>>(
-        &mut self,
-        symbols: I,
-        path: P,
-        overwrite: bool,
-    ) -> Result<IndexMergeOutcome, ProjectOrIOError<Self::Error>> {
-        let path = path.as_ref();
-        let mut meta = self
-            .get_meta()
-            .map_err(ProjectOrIOError::Project)?
-            .unwrap_or_default();
-
-        // Remove if present any existing symbols from the same file
-        meta.index.retain(|s, v| {
-            if v == path {
-                log::debug!("meta.index: removing obsolete symbol `{s}` (file `{v}`)");
-                false
-            } else {
-                true
-            }
-        });
-
-        let mut new = vec![];
-        let mut existing = vec![];
-
-        for symbol in symbols {
-            let this_symbol = symbol.as_ref().to_string();
-            match meta.index.entry(this_symbol.clone()) {
-                indexmap::map::Entry::Occupied(mut occupied_entry) => {
-                    let current = if overwrite {
-                        occupied_entry.insert(path.to_string())
-                    } else {
-                        occupied_entry.get().clone()
-                    };
-
-                    existing.push((this_symbol, current));
-                }
-                indexmap::map::Entry::Vacant(vacant_entry) => {
-                    vacant_entry.insert(path.to_string());
-                    new.push(this_symbol);
-                }
-            }
-        }
-
-        self.put_meta(&meta, true)
-            .map_err(ProjectOrIOError::Project)?;
-
-        Ok(IndexMergeOutcome { new, existing })
-    }
 }
+
+// ----- Blanket trait impls -----
 
 impl<T: ProjectMut> ProjectMut for &mut T {
     fn put_info(
@@ -1062,31 +943,6 @@ impl<T: ProjectMut> ProjectMut for &mut T {
         overwrite: bool,
     ) -> Result<(), Self::Error> {
         (**self).put_project(info, meta, overwrite)
-    }
-
-    fn include_source<P: AsRef<Utf8UnixPath>>(
-        &mut self,
-        path: P,
-        compute_checksum: bool,
-        overwrite: bool,
-    ) -> Result<(), ProjectOrIOError<Self::Error>> {
-        (**self).include_source(path, compute_checksum, overwrite)
-    }
-
-    fn exclude_source<P: AsRef<Utf8UnixPath>>(
-        &mut self,
-        path: P,
-    ) -> Result<SourceExclusionOutcome, ProjectOrIOError<Self::Error>> {
-        (**self).exclude_source(path)
-    }
-
-    fn replace_index_for_file<S: AsRef<str>, P: AsRef<Utf8UnixPath>, I: Iterator<Item = S>>(
-        &mut self,
-        symbols: I,
-        path: P,
-        overwrite: bool,
-    ) -> Result<IndexMergeOutcome, ProjectOrIOError<Self::Error>> {
-        (**self).replace_index_for_file(symbols, path, overwrite)
     }
 }
 

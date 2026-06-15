@@ -410,18 +410,6 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
                 format!("Project read error: {}", error),
             );
         }
-        KParBuildError::LocalSrc(error) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Local src error: {}", error),
-            );
-        }
-        KParBuildError::IncompleteSource(error) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Incomplete source error: {}", error),
-            );
-        }
         KParBuildError::Io(error) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
@@ -454,6 +442,12 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
         }
         KParBuildError::MissingMeta => {
             env.throw_exception(ExceptionKind::SysandException, "Missing project metadata");
+        }
+        KParBuildError::MissingInfoMeta => {
+            env.throw_exception(
+                ExceptionKind::SysandException,
+                "Missing project information and metadata",
+            );
         }
         KParBuildError::Zip(error) => {
             env.throw_exception(

@@ -4,7 +4,10 @@
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
-use crate::project::{ProjectMut, ProjectOrIOError, SourceExclusionOutcome, utils::FsIoError};
+use crate::{
+    model::InterchangeProjectChecksumRaw,
+    project::{ProjectMut, ProjectOrIOError, utils::FsIoError},
+};
 
 #[derive(Error, Debug)]
 pub enum ExcludeError<ProjectError> {
@@ -14,6 +17,8 @@ pub enum ExcludeError<ProjectError> {
     Io(#[from] Box<FsIoError>),
     #[error("could not find file `{0}` in project metadata")]
     SourceNotFound(Box<str>),
+    #[error("project is missing metadata file `.meta.json`")]
+    MissingMeta,
 }
 
 impl<ProjectError> From<ProjectOrIOError<ProjectError>> for ExcludeError<ProjectError> {
@@ -25,21 +30,42 @@ impl<ProjectError> From<ProjectOrIOError<ProjectError>> for ExcludeError<Project
     }
 }
 
-pub fn do_exclude<Pr: ProjectMut, P: AsRef<Utf8UnixPath>>(
+pub fn do_exclude<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>(
     project: &mut Pr,
-    path: P,
-) -> Result<SourceExclusionOutcome, ExcludeError<Pr::Error>> {
-    let excluding = "Excluding";
-    let header = crate::style::get_style_config().header;
-    log::info!("{header}{excluding:>12}{header:#} file: {}", path.as_ref(),);
+    paths: I,
+) -> Result<Vec<SourceExclusionOutcome>, ExcludeError<Pr::Error>> {
+    let mut meta = match project.get_meta().map_err(ProjectOrIOError::Project)? {
+        Some(m) => m,
+        None => return Err(ExcludeError::MissingMeta),
+    };
 
-    let outcome = project.exclude_source(&path)?;
+    let mut outcomes = Vec::new();
+    for path in paths {
+        let path = path.as_ref();
+        let excluding = "Excluding";
+        let header = crate::style::get_style_config().header;
+        log::info!("{header}{excluding:>12}{header:#} file: `{path}`");
 
-    if outcome.removed_checksum.is_some() || !outcome.removed_symbols.is_empty() {
-        Ok(outcome)
-    } else {
-        Err(ExcludeError::SourceNotFound(path.as_ref().as_str().into()))
+        let removed_checksum = meta.remove_checksum(&path);
+        let removed_symbols = meta.remove_index(&path);
+        let outcome = SourceExclusionOutcome {
+            removed_checksum,
+            removed_symbols,
+        };
+
+        if outcome.removed_checksum.is_none() && outcome.removed_symbols.is_empty() {
+            return Err(ExcludeError::SourceNotFound(path.as_str().into()));
+        }
+        outcomes.push(outcome);
     }
+    project
+        .put_meta(&meta, true)
+        .map_err(ProjectOrIOError::Project)?;
+    Ok(outcomes)
+}
 
-    // Ok(project.exclude_source(path)?)
+#[derive(Debug)]
+pub struct SourceExclusionOutcome {
+    pub removed_checksum: Option<InterchangeProjectChecksumRaw>,
+    pub removed_symbols: Vec<String>,
 }

@@ -164,7 +164,7 @@ pub enum Command {
     Exclude {
         /// File(s) to exclude from the project
         #[arg(num_args = 1..)]
-        paths: Vec<String>,
+        paths: Vec<Utf8PathBuf>,
     },
     /// Build a KerML Project Archive (KPAR). If executed in a workspace
     /// outside of a project, builds all projects in the workspace.
