@@ -1505,9 +1505,8 @@ pub struct ResolutionOptions {
     )]
     pub index: Vec<String>,
     /// Comma-delimited list of URLs to use as default index
-    /// URLs. Default indexes are tried before other indexes
+    /// URLs. Default indexes are tried after other indexes
     /// (default `https://sysand.com`)
-    // TODO: verify index use order
     #[arg(
         long,
         num_args = 0..,
