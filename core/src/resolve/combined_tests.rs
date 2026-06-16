@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::collections::HashMap;
 
 use fluent_uri::Iri;
@@ -328,10 +329,5 @@ fn no_semantic_versions_error_test() {
 
     let info_meta = do_info(example_uri, &resolver);
 
-    // Would like to use assert_matches, but that's not yet stable, see
-    // https://github.com/rust-lang/rust/issues/82775
-    assert!(matches!(
-        info_meta,
-        Err(InfoError::NoSemanticVersionsFound(_))
-    ));
+    assert_matches!(info_meta, Err(InfoError::NoSemanticVersionsFound(_)));
 }

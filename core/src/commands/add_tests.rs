@@ -6,6 +6,7 @@ use crate::{
     model::InterchangeProjectInfoRaw,
     project::memory::InMemoryProject,
 };
+use std::assert_matches;
 
 fn project() -> InMemoryProject {
     InMemoryProject {
@@ -26,10 +27,10 @@ fn project() -> InMemoryProject {
 
 #[test]
 fn purl_shorthand_expansion_keeps_two_segment_non_purl_resource() {
-    assert!(matches!(
+    assert_matches!(
         expand_sysand_purl_shorthand("ab/proj0"),
         Err(crate::purl::SysandPurlError::InvalidPublisher { .. })
-    ));
+    );
 }
 
 #[test]

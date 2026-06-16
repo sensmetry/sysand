@@ -6,6 +6,7 @@ use super::{
     check_usage, error_body_to_string, map_publish_response, validate_endpoint_url_shape,
 };
 use crate::model::InterchangeProjectUsageRaw;
+use std::assert_matches;
 use url::Url;
 
 #[test]
@@ -61,7 +62,7 @@ fn build_upload_url_rejects_upload_endpoint_path() {
         "https://example.org/api/v1/upload/",
     ] {
         let err = build_upload_url(&Url::parse(url).unwrap()).unwrap_err();
-        assert!(matches!(err, PublishError::InvalidApiRoot { .. }));
+        assert_matches!(err, PublishError::InvalidApiRoot { .. });
     }
 }
 
@@ -69,19 +70,19 @@ fn build_upload_url_rejects_upload_endpoint_path() {
 fn build_upload_url_rejects_query_and_fragment() {
     let err =
         build_upload_url(&Url::parse("https://example.org/index?x=1#frag").unwrap()).unwrap_err();
-    assert!(matches!(err, PublishError::InvalidApiRoot { .. }));
+    assert_matches!(err, PublishError::InvalidApiRoot { .. });
 }
 
 #[test]
 fn build_upload_url_rejects_non_http_scheme() {
     let err = build_upload_url(&Url::parse("ftp://example.org").unwrap()).unwrap_err();
-    assert!(matches!(err, PublishError::InvalidApiRoot { .. }));
+    assert_matches!(err, PublishError::InvalidApiRoot { .. });
 }
 
 #[test]
 fn build_upload_url_rejects_non_hierarchical_url() {
     let err = build_upload_url(&Url::parse("mailto:test@example.org").unwrap()).unwrap_err();
-    assert!(matches!(err, PublishError::InvalidApiRoot { .. }));
+    assert_matches!(err, PublishError::InvalidApiRoot { .. });
 }
 
 #[test]
@@ -91,7 +92,7 @@ fn build_upload_url_rejects_userinfo() {
         "https://user:password@example.org/api/",
     ] {
         let err = build_upload_url(&Url::parse(raw).unwrap()).unwrap_err();
-        assert!(matches!(err, PublishError::InvalidApiRoot { .. }));
+        assert_matches!(err, PublishError::InvalidApiRoot { .. });
     }
 }
 
@@ -134,21 +135,21 @@ fn check_metamodel_accepts_valid_kerml() {
 #[test]
 fn check_metamodel_rejects_unsupported_metamodel() {
     let err = check_metamodel("https://example.com/some-meta").unwrap_err();
-    assert!(matches!(err, PublishError::UnsupportedMetamodel { .. }));
+    assert_matches!(err, PublishError::UnsupportedMetamodel { .. });
 }
 
 #[test]
 fn check_metamodel_rejects_invalid_sysml_version() {
     // Valid SysML prefix but non-date version string.
     let err = check_metamodel("https://www.omg.org/spec/SysML/notadate").unwrap_err();
-    assert!(matches!(err, PublishError::InvalidMetamodelVersion { .. }));
+    assert_matches!(err, PublishError::InvalidMetamodelVersion { .. });
 }
 
 #[test]
 fn check_metamodel_rejects_invalid_kerml_version() {
     // Month 13 is not a valid calendar month.
     let err = check_metamodel("https://www.omg.org/spec/KerML/20251301").unwrap_err();
-    assert!(matches!(err, PublishError::InvalidMetamodelVersion { .. }));
+    assert_matches!(err, PublishError::InvalidMetamodelVersion { .. });
 }
 
 // --- check_usage ---
@@ -194,14 +195,14 @@ fn check_usage_accepts_all_known_std_libs() {
 fn check_usage_rejects_disallowed_usage() {
     // Not a pkg:sysand purl and not a std-lib IRI prefix.
     let err = check_usage(&usage("https://example.com/some/library")).unwrap_err();
-    assert!(matches!(err, PublishError::DisallowedUsage { .. }));
+    assert_matches!(err, PublishError::DisallowedUsage { .. });
 }
 
 #[test]
 fn check_usage_rejects_invalid_purl() {
     // pkg:sysand prefix present but name segment is syntactically invalid.
     let err = check_usage(&usage("pkg:sysand/publisher/bad__name")).unwrap_err();
-    assert!(matches!(err, PublishError::InvalidPurl { .. }));
+    assert_matches!(err, PublishError::InvalidPurl { .. });
 }
 
 #[test]
@@ -211,7 +212,7 @@ fn check_usage_rejects_std_lib_with_version_constraint() {
         ">=1.0.0",
     ))
     .unwrap_err();
-    assert!(matches!(err, PublishError::StdWithVersionConstraint { .. }));
+    assert_matches!(err, PublishError::StdWithVersionConstraint { .. });
 }
 
 #[test]
@@ -221,7 +222,7 @@ fn check_usage_rejects_invalid_std_lib_version() {
         "https://www.omg.org/spec/SysML/baddate/Systems-Library.kpar",
     ))
     .unwrap_err();
-    assert!(matches!(err, PublishError::InvalidStdLibVersion { .. }));
+    assert_matches!(err, PublishError::InvalidStdLibVersion { .. });
 }
 
 #[test]
@@ -231,7 +232,7 @@ fn check_usage_rejects_unknown_std_lib() {
         "https://www.omg.org/spec/SysML/20250201/Nonexistent-Library.kpar",
     ))
     .unwrap_err();
-    assert!(matches!(err, PublishError::UnknownStdLib { .. }));
+    assert_matches!(err, PublishError::UnknownStdLib { .. });
 }
 
 // --- map_publish_response ---
@@ -245,7 +246,7 @@ fn map_publish_response_400_maps_to_bad_request() {
         "http://example.org/v1/upload",
     )
     .unwrap_err();
-    assert!(matches!(err, PublishError::BadRequest(_)));
+    assert_matches!(err, PublishError::BadRequest(_));
 }
 
 #[test]
@@ -280,27 +281,28 @@ fn map_publish_response_201_is_ok_new_project() {
 fn validate_discovery_root_rejects_non_http_scheme() {
     let url = Url::parse("ftp://example.org").unwrap();
     let err = validate_endpoint_url_shape(&url, EndpointKind::DiscoveryRoot).unwrap_err();
-    assert!(matches!(err, PublishError::InvalidDiscoveryRoot { .. }));
+    assert_matches!(err, PublishError::InvalidDiscoveryRoot { .. });
 }
 
 #[test]
 fn validate_discovery_root_rejects_upload_endpoint_path() {
     let url = Url::parse("https://example.org/v1/upload").unwrap();
     let err = validate_endpoint_url_shape(&url, EndpointKind::DiscoveryRoot).unwrap_err();
-    assert!(matches!(err, PublishError::InvalidDiscoveryRoot { .. }));
+    assert_matches!(err, PublishError::InvalidDiscoveryRoot { .. });
 }
 
 #[test]
 fn validate_discovery_root_rejects_query_and_fragment() {
     let url = Url::parse("https://example.org/index?x=1").unwrap();
     let err = validate_endpoint_url_shape(&url, EndpointKind::DiscoveryRoot).unwrap_err();
-    assert!(matches!(err, PublishError::InvalidDiscoveryRoot { .. }));
+    assert_matches!(err, PublishError::InvalidDiscoveryRoot { .. });
 }
 
 // --- prepare_publish_payload error cases ---
 
 mod prepare_publish {
     use crate::utils::sha256_lowercase_hex;
+    use std::assert_matches;
 
     use super::super::prepare_publish_payload;
     use super::PublishError;
@@ -390,7 +392,7 @@ mod prepare_publish {
         std::fs::write(tmp.path(), b"this is not a zip file").unwrap();
         let path = Utf8Path::new(tmp.path().to_str().unwrap());
         let err = prepare_publish_payload(path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::KparRead(..)));
+        assert_matches!(err, PublishError::KparRead(..));
     }
 
     #[test]
@@ -398,7 +400,7 @@ mod prepare_publish {
         // A valid ZIP but containing no .project.json — guess_root fails.
         let (_tmp, path) = write_zip(&[("unrelated.txt", b"hello", deflate())]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::KparRead(..)));
+        assert_matches!(err, PublishError::KparRead(..));
     }
 
     // ── ProjectNotAtRoot ─────────────────────────────────────────────────────
@@ -409,7 +411,7 @@ mod prepare_publish {
         let (_tmp, path) =
             write_zip(&[("subdir/.project.json", base_project().as_slice(), deflate())]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::ProjectNotAtRoot { .. }));
+        assert_matches!(err, PublishError::ProjectNotAtRoot { .. });
     }
 
     // ── MissingMeta ──────────────────────────────────────────────────────────
@@ -418,7 +420,7 @@ mod prepare_publish {
     fn missing_meta() {
         let (_tmp, path) = write_zip(&[(".project.json", base_project().as_slice(), deflate())]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::MissingMeta));
+        assert_matches!(err, PublishError::MissingMeta);
     }
 
     // ── InfoMetaValidation ───────────────────────────────────────────────────
@@ -431,13 +433,13 @@ mod prepare_publish {
             (".meta.json", meta_json_empty().as_slice(), deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(
+        assert_matches!(
             err,
             PublishError::InfoMetaValidation {
                 name: "project",
                 ..
             }
-        ));
+        );
     }
 
     #[test]
@@ -449,10 +451,7 @@ mod prepare_publish {
             (".meta.json", bad_meta, deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(
-            err,
-            PublishError::InfoMetaValidation { name: "meta", .. }
-        ));
+        assert_matches!(err, PublishError::InfoMetaValidation { name: "meta", .. });
     }
 
     // ── MissingPublisher ─────────────────────────────────────────────────────
@@ -465,7 +464,7 @@ mod prepare_publish {
             (".meta.json", meta_json_empty().as_slice(), deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::MissingPublisher));
+        assert_matches!(err, PublishError::MissingPublisher);
     }
 
     // ── InvalidPublisher ─────────────────────────────────────────────────────
@@ -478,7 +477,7 @@ mod prepare_publish {
             (".meta.json", meta_json_empty().as_slice(), deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::InvalidPublisher(..)));
+        assert_matches!(err, PublishError::InvalidPublisher(..));
     }
 
     // ── InvalidName ──────────────────────────────────────────────────────────
@@ -491,7 +490,7 @@ mod prepare_publish {
             (".meta.json", meta_json_empty().as_slice(), deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::InvalidName(..)));
+        assert_matches!(err, PublishError::InvalidName(..));
     }
 
     // ── VersionBuildMetadata ─────────────────────────────────────────────────
@@ -504,7 +503,7 @@ mod prepare_publish {
             (".meta.json", meta_json_empty().as_slice(), deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::VersionBuildMetadata { .. }));
+        assert_matches!(err, PublishError::VersionBuildMetadata { .. });
     }
 
     // ── MissingLicense ───────────────────────────────────────────────────────
@@ -517,7 +516,7 @@ mod prepare_publish {
             (".meta.json", meta_json_empty().as_slice(), deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::MissingLicense));
+        assert_matches!(err, PublishError::MissingLicense);
     }
 
     // ── InvalidLicense ───────────────────────────────────────────────────────
@@ -530,7 +529,7 @@ mod prepare_publish {
             (".meta.json", meta_json_empty().as_slice(), deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::InvalidLicense { .. }));
+        assert_matches!(err, PublishError::InvalidLicense { .. });
     }
 
     // ── MissingMetamodel ─────────────────────────────────────────────────────
@@ -543,7 +542,7 @@ mod prepare_publish {
             (".meta.json", no_meta, deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::MissingMetamodel));
+        assert_matches!(err, PublishError::MissingMetamodel);
     }
 
     // ── Archive-loop errors (ExecInArchive, UnsupportedCompression, Encrypted)
@@ -561,7 +560,7 @@ mod prepare_publish {
             ("test.sysml", b"package Test;", exec),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::ExecInArchive { .. }));
+        assert_matches!(err, PublishError::ExecInArchive { .. });
     }
 
     #[test]
@@ -573,8 +572,9 @@ mod prepare_publish {
             ("test.sysml", b"package Test;", stored()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(
-            matches!(err, PublishError::UnsupportedCompression { .. }),
+        assert_matches!(
+            err,
+            PublishError::UnsupportedCompression { .. },
             "got: {err}"
         );
     }
@@ -596,7 +596,7 @@ mod prepare_publish {
             zip.finish().unwrap();
         }
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::Symlink { .. }));
+        assert_matches!(err, PublishError::Symlink { .. });
     }
 
     #[test]
@@ -618,7 +618,7 @@ mod prepare_publish {
             zip.finish().unwrap();
         }
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::Encrypted { .. }));
+        assert_matches!(err, PublishError::Encrypted { .. });
     }
 
     // ── DisallowedPath ───────────────────────────────────────────────────────
@@ -632,7 +632,7 @@ mod prepare_publish {
             ("./test.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::RelativePathComponents { .. }));
+        assert_matches!(err, PublishError::RelativePathComponents { .. });
     }
 
     // ── MissingLicenseFile ───────────────────────────────────────────────────
@@ -647,7 +647,7 @@ mod prepare_publish {
             (".meta.json", meta.as_slice(), deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::MissingLicenseFile { .. }));
+        assert_matches!(err, PublishError::MissingLicenseFile { .. });
     }
 
     // ── MissingChecksum ──────────────────────────────────────────────────────
@@ -663,7 +663,7 @@ mod prepare_publish {
             ("LICENSES/MIT.txt", b"MIT License", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::MissingChecksum));
+        assert_matches!(err, PublishError::MissingChecksum);
     }
 
     // ── EmptyChecksum ────────────────────────────────────────────────────────
@@ -679,7 +679,7 @@ mod prepare_publish {
             ("LICENSES/MIT.txt", b"MIT License", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::EmptyChecksum));
+        assert_matches!(err, PublishError::EmptyChecksum);
     }
 
     // ── IncorrectFileFormat ──────────────────────────────────────────────────
@@ -699,7 +699,7 @@ mod prepare_publish {
             ("f.kerml", b"content", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::IncorrectFileFormat { .. }));
+        assert_matches!(err, PublishError::IncorrectFileFormat { .. });
     }
 
     // ── UnsupportedFileChecksumType ──────────────────────────────────────────
@@ -717,10 +717,7 @@ mod prepare_publish {
             ("LICENSES/MIT.txt", b"MIT License", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(
-            err,
-            PublishError::UnsupportedFileChecksumType { .. }
-        ));
+        assert_matches!(err, PublishError::UnsupportedFileChecksumType { .. });
     }
 
     // ── MissingFile ──────────────────────────────────────────────────────────
@@ -739,7 +736,7 @@ mod prepare_publish {
             // test.sysml intentionally omitted
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::MissingFile { .. }));
+        assert_matches!(err, PublishError::MissingFile { .. });
     }
 
     // ── IncorrectFileChecksum ────────────────────────────────────────────────
@@ -757,7 +754,7 @@ mod prepare_publish {
             ("test.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::IncorrectFileChecksum { .. }));
+        assert_matches!(err, PublishError::IncorrectFileChecksum { .. });
     }
 
     // ── NonexistentSymbolExported ────────────────────────────────────────────
@@ -778,10 +775,7 @@ mod prepare_publish {
             ("test.sysml", content, deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(
-            err,
-            PublishError::NonexistentSymbolExported { .. }
-        ));
+        assert_matches!(err, PublishError::NonexistentSymbolExported { .. });
     }
 
     // ── IndexFail ────────────────────────────────────────────────────────────
@@ -801,7 +795,7 @@ mod prepare_publish {
             ("test.sysml", content, deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::IndexFail { .. }));
+        assert_matches!(err, PublishError::IndexFail { .. });
     }
 
     // ── UnexpectedFile ───────────────────────────────────────────────────────
@@ -819,7 +813,7 @@ mod prepare_publish {
             ("extra.txt", b"surprise", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::UnexpectedFile { .. }));
+        assert_matches!(err, PublishError::UnexpectedFile { .. });
     }
 
     // ── Backslash ────────────────────────────────────────────────────────────
@@ -833,7 +827,7 @@ mod prepare_publish {
             ("subdir\\file.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(matches!(err, PublishError::Backslash { .. }), "got: {err}");
+        assert_matches!(err, PublishError::Backslash { .. }, "got: {err}");
     }
 
     // ── AbsolutePath ─────────────────────────────────────────────────────────
@@ -847,10 +841,7 @@ mod prepare_publish {
             ("/absolute/file.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(
-            matches!(err, PublishError::AbsolutePath { .. }),
-            "got: {err}"
-        );
+        assert_matches!(err, PublishError::AbsolutePath { .. }, "got: {err}");
     }
 
     // ── DoubleSlash ───────────────────────────────────────────────────────────
@@ -864,10 +855,7 @@ mod prepare_publish {
             ("foo//bar.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(
-            matches!(err, PublishError::DoubleSlash { .. }),
-            "got: {err}"
-        );
+        assert_matches!(err, PublishError::DoubleSlash { .. }, "got: {err}");
     }
 
     // ── RelativePathComponents with .. ────────────────────────────────────────
@@ -881,8 +869,9 @@ mod prepare_publish {
             ("../escape.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(
-            matches!(err, PublishError::RelativePathComponents { .. }),
+        assert_matches!(
+            err,
+            PublishError::RelativePathComponents { .. },
             "got: {err}"
         );
     }
@@ -899,10 +888,7 @@ mod prepare_publish {
             ("subdir/", b"", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(
-            matches!(err, PublishError::CompressedDirEntry { .. }),
-            "got: {err}"
-        );
+        assert_matches!(err, PublishError::CompressedDirEntry { .. }, "got: {err}");
     }
 
     // ── Directory entry with Stored compression is accepted ───────────────────
@@ -919,8 +905,9 @@ mod prepare_publish {
             ("LICENSES/MIT.txt", b"MIT License", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert!(
-            matches!(err, PublishError::MissingChecksum),
+        assert_matches!(
+            err,
+            PublishError::MissingChecksum,
             "expected MissingChecksum (past archive loop), got: {err}"
         );
     }

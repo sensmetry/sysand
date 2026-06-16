@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::collections::HashMap;
 
 use crate::{
@@ -46,7 +47,7 @@ fn lock_export_conflict() {
         &Default::default(),
     );
 
-    assert!(matches!(res, Err(LockError::NameCollision(_))));
+    assert_matches!(res, Err(LockError::NameCollision(_)));
 }
 
 #[test]

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::*;
+use std::assert_matches;
 
 #[test]
 fn deserialize_with_meta_metamodel() {
@@ -46,5 +47,5 @@ fn deserialize_invalid_metamodel_iri() {
     let result = WorkspaceInfo::try_from(raw);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, WorkspaceValidationError::InvalidIri(..)));
+    assert_matches!(err, WorkspaceValidationError::InvalidIri(..));
 }

@@ -247,6 +247,7 @@ fn mock_json_get_count(
 
 mod uris {
     use crate::{index::iri::ParseIriError, utils::format_sources};
+    use std::assert_matches;
 
     use super::*;
 
@@ -325,12 +326,10 @@ mod uris {
                 .expect_err(&format!(
                     "expected `{iri}` to be rejected as malformed pkg:sysand"
                 ));
-            assert!(
-                matches!(
-                    err,
-                    super::IndexEnvironmentError::MalformedIri(
-                        ParseIriError::MalformedSysandPurl { .. }
-                    )
+            assert_matches!(
+                err,
+                super::IndexEnvironmentError::MalformedIri(
+                    ParseIriError::MalformedSysandPurl { .. }
                 ),
                 "expected MalformedSysandPurl for `{iri}`, got {err:?}"
             );
@@ -591,6 +590,7 @@ mod uris {
 ///   appearing before its release) rejects the whole document.
 mod versions {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn versions_from_versions_json() -> Result<(), Box<dyn std::error::Error>> {
@@ -914,11 +914,9 @@ mod versions {
         let err = env
             .versions(purl("admin/proj0"))
             .expect_err("missing required field must reject the document");
-        assert!(
-            matches!(
-                err,
-                super::IndexEnvironmentError::Fetch(super::HttpFetchError::JsonParse { .. })
-            ),
+        assert_matches!(
+            err,
+            super::IndexEnvironmentError::Fetch(super::HttpFetchError::JsonParse { .. }),
             "expected Fetch(JsonParse), got {err:?}"
         );
 

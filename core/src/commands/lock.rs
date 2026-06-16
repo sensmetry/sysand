@@ -104,7 +104,8 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
     SelfNameCollision(Box<SelfNameCollisionError>),
 }
 
-pub struct LockOutcome<PD> {
+#[derive(Debug)]
+pub struct LockOutcome<PD: Debug> {
     pub lock: Lock,
     pub dependencies: Vec<(fluent_uri::Iri<String>, PD)>,
 }

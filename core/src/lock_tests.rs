@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use std::assert_matches;
 use std::{fmt::Display, num::NonZeroU64, slice, str::FromStr};
 
 use toml_edit::DocumentMut;
@@ -791,7 +792,7 @@ fn validate_checksum_invalid_digest_all_source_types() {
         };
         assert_eq!(digest, INVALID, "{label}");
         assert_eq!(name, "a", "{label}");
-        assert!(matches!(kind, "kpar" | "project canonical"), "{label}");
+        assert_matches!(kind, "kpar" | "project canonical", "{label}");
     }
 }
 
@@ -1057,8 +1058,8 @@ fn canonicalize_checksums() {
 
     // Editable and RemoteGit carry no checksum; their presence here confirms
     // canonicalize_checksums does not panic on them.
-    assert!(matches!(&project.sources[5], Source::Editable { .. }));
-    assert!(matches!(&project.sources[6], Source::RemoteGit { .. }));
+    assert_matches!(&project.sources[5], Source::Editable { .. });
+    assert_matches!(&project.sources[6], Source::RemoteGit { .. });
 }
 
 #[test]
