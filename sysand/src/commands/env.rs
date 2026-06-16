@@ -20,8 +20,11 @@ use sysand_core::{
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
-        ProjectRead, editable::EditableProject, local_kpar::LocalKParProject,
-        local_src::LocalSrcProject, utils::wrapfs,
+        ProjectRead,
+        editable::EditableProject,
+        local_kpar::LocalKParProject,
+        local_src::LocalSrcProject,
+        utils::{Identifier, wrapfs},
     },
     resolve::{
         file::FileResolverProject,
@@ -300,6 +303,8 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             dependencies: _dependencies,
         } = sysand_core::commands::lock::do_lock_projects(
             [(Some(vec![iri]), &project)],
+            // TODO: does it matter if path is not absolute?
+            Some(path),
             resolver,
             &provided_iris,
             &ctx,
@@ -321,6 +326,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     Ok(())
 }
 
+/// Assumes that `iri` is valid IRI
 fn add_single_env_project<S: AsRef<str>, V: AsRef<str>>(
     iri: S,
     version: V,
@@ -333,7 +339,12 @@ fn add_single_env_project<S: AsRef<str>, V: AsRef<str>>(
         nominal_path: Some(project_path.strip_prefix(env.root_path())?.to_owned()),
         project_path,
     };
-    env_metadata.add_local_project(vec![iri.as_ref().to_owned()], project, false, false)?;
+    env_metadata.add_local_project(
+        vec![Identifier::from_iri_unchecked_str(iri.as_ref())],
+        project,
+        false,
+        false,
+    )?;
     wrapfs::write(metadata_path, env_metadata.to_string())?;
 
     Ok(())

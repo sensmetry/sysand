@@ -281,6 +281,11 @@ pub enum ExpCommand {
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
     },
+    /// Create a local `sysand_env` directory for installing dependencies
+    Env {
+        #[command(subcommand)]
+        command: Option<ExpEnvCommand>,
+    },
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
@@ -1574,6 +1579,34 @@ pub enum EnvCommand {
 
         #[command(flatten)]
         sources_opts: SourcesOptions,
+    },
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum ExpEnvCommand {
+    /// Install project in `sysand_env`
+    Install {
+        /// IRI identifying the project to be installed
+        iri: Iri<String>,
+        /// Version to be installed. Defaults to the latest
+        /// version according to SemVer 2.0, ignoring pre-releases
+        #[clap(verbatim_doc_comment)]
+        version: Option<String>,
+        /// Path to interchange project
+        #[arg(long, default_value = None)]
+        path: Option<Utf8PathBuf>,
+
+        #[command(flatten)]
+        install_opts: InstallOptions,
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
+    /// Uninstall project in `sysand_env`
+    Uninstall {
+        /// IRI identifying the project to be uninstalled
+        iri: Iri<String>,
+        /// Version to be uninstalled
+        version: Option<String>,
     },
 }
 
