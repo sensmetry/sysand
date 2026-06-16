@@ -9,7 +9,7 @@
 
 mod lex;
 
-use std::{collections::HashMap, io, iter::Peekable};
+use std::{collections::HashMap, iter::Peekable};
 
 use logos::{Logos, Source};
 use thiserror::Error;
@@ -19,7 +19,7 @@ use typed_path::Utf8UnixPath;
 
 use crate::symbols::lex::LexingError;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Language {
     SysML,
     KerML,
@@ -356,10 +356,6 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
 
 #[derive(Debug, Error)]
 pub enum ExtractError {
-    #[error("failed to read file to extract symbols: {0}")]
-    ReadTopLevelSysml(io::Error),
-    #[error("failed to read file to extract symbols: {0}")]
-    ReadTopLevelKerml(io::Error),
     #[error("syntax error at line {0}, byte {1}:\n{2}")]
     Syntax(u32, u32, LexingError),
     #[error(
@@ -370,17 +366,6 @@ pub enum ExtractError {
     TokenRange,
     #[error("error at line {0}, byte {1}:\n`{2}`: {3}")]
     Parse(u32, u32, String, String),
-}
-
-fn read_source<R: io::Read>(
-    mut reader: R,
-    error_constructor: impl FnOnce(io::Error) -> ExtractError,
-) -> Result<String, ExtractError> {
-    let mut source = String::new();
-    reader
-        .read_to_string(&mut source)
-        .map_err(error_constructor)?;
-    Ok(source)
 }
 
 type TokenInfo = (Token, Box<str>, logos::Span);
@@ -498,10 +483,9 @@ fn collect_symbols(
 /// A lexer that extracts top-level symbols from a SysML file.
 ///
 /// It is used for handling `index` field of `.meta.json` files.
-pub fn top_level_sysml<R: io::Read>(reader: R) -> Result<Vec<String>, ExtractError> {
-    let source = read_source(reader, ExtractError::ReadTopLevelSysml)?;
-
-    let all = lex_source(&source)?;
+pub fn top_level_sysml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractError> {
+    let source = source.as_ref();
+    let all = lex_source(source)?;
 
     let keywords = HashMap::from([
         // Simple
@@ -590,13 +574,13 @@ pub fn top_level_sysml<R: io::Read>(reader: R) -> Result<Vec<String>, ExtractErr
         ("then", KeywordType::SkipRest),
     ]);
 
-    collect_symbols(&source, all, &keywords)
+    collect_symbols(source, all, &keywords)
 }
 
-pub fn top_level_kerml<R: io::Read>(reader: R) -> Result<Vec<String>, ExtractError> {
-    let source = read_source(reader, ExtractError::ReadTopLevelKerml)?;
+pub fn top_level_kerml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractError> {
+    let source = source.as_ref();
 
-    let all = lex_source(&source)?;
+    let all = lex_source(source)?;
 
     let keywords = HashMap::from([
         ("public", KeywordType::Simple),
@@ -607,7 +591,7 @@ pub fn top_level_kerml<R: io::Read>(reader: R) -> Result<Vec<String>, ExtractErr
         ("package", KeywordType::Simple),
     ]);
 
-    collect_symbols(&source, all, &keywords)
+    collect_symbols(source, all, &keywords)
 }
 
 // Returns: (line, byte), both 1-indexed

@@ -2,29 +2,28 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use camino::{Utf8Path, Utf8PathBuf};
+use indexmap::IndexMap;
 use thiserror::Error;
 
-use std::collections::HashSet;
+use std::{collections::HashSet, io::Write as _};
 
 use crate::{
-    env::utils::{CloneError, ErrorBound},
-    include::{IncludeError, do_include, extract_symbols},
-    model::InterchangeProjectValidationError,
+    env::utils::ErrorBound,
+    include::{IncludeError, extract_symbols, read_project_file_to_string},
+    model::{InterchangeProjectChecksumRaw, InterchangeProjectValidationError, KerMlChecksumAlg},
     project::{
         ProjectRead,
-        local_kpar::{IntoKparError, LocalKParProjectRaw},
+        local_kpar::LocalKParProjectRaw,
         local_src::{LocalSrcError, LocalSrcProject},
-        utils::{FsIoError, ZipArchiveError},
+        utils::{FsIoError, ZipArchiveError, wrapfs},
     },
-    utils::license_file_stems,
+    utils::{license_file_stems, sha256_lowercase_hex},
     workspace::{Workspace, WorkspaceReadError},
 };
 
 #[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
 // Currently python interop is done with strings instead
-// in part to have less boilerplate, in part because the old
-// Python we use doesn't have pattern matching which ensures
-// all cases are covered
+// to have less boilerplate
 // #[cfg_attr(feature = "python", pyclass(eq))]
 pub enum KparCompressionMethod {
     /// Store the files as is
@@ -130,10 +129,6 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     #[error(transparent)]
     WorkspaceRead(#[from] WorkspaceReadError),
     #[error(transparent)]
-    LocalSrc(#[from] LocalSrcError),
-    #[error("incomplete project: {0}")]
-    IncompleteSource(&'static str),
-    #[error(transparent)]
     Io(#[from] Box<FsIoError>),
     #[error(transparent)]
     Validation(#[from] InterchangeProjectValidationError),
@@ -143,6 +138,8 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
         "unknown file format of `{0}`, only SysML v2 (.sysml) and KerML (.kerml) files are supported"
     )]
     UnknownFormat(Box<str>),
+    #[error("missing project info file `.project.json` and metadata file `.meta.json`")]
+    MissingInfoMeta,
     #[error("missing project info file `.project.json`")]
     MissingInfo,
     #[error("missing project metadata file `.meta.json`")]
@@ -176,43 +173,15 @@ impl<ProjectReadError: ErrorBound> From<FsIoError> for KParBuildError<ProjectRea
     }
 }
 
-impl<ProjectReadError: ErrorBound> From<CloneError<ProjectReadError, LocalSrcError>>
+impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
     for KParBuildError<ProjectReadError>
 {
-    fn from(value: CloneError<ProjectReadError, LocalSrcError>) -> Self {
+    fn from(value: IncludeError<ProjectReadError>) -> Self {
         match value {
-            CloneError::ProjectRead(error) => Self::ProjectRead(error),
-            CloneError::EnvWrite(error) => error.into(),
-            CloneError::IncompleteSource(error) => Self::IncompleteSource(error),
-            CloneError::Io(error) => error.into(),
-        }
-    }
-}
-
-impl<ProjectReadError: ErrorBound> From<IncludeError<LocalSrcError>>
-    for KParBuildError<ProjectReadError>
-{
-    fn from(value: IncludeError<LocalSrcError>) -> Self {
-        match value {
-            IncludeError::Project(error) => error.into(),
+            IncludeError::Project(error) => Self::ProjectRead(error),
             IncludeError::Io(error) => error.into(),
             IncludeError::Extract(..) => Self::Extract(value.to_string()),
-            IncludeError::UnknownFormat(error) => KParBuildError::UnknownFormat(error),
-        }
-    }
-}
-
-impl<ProjectReadError: ErrorBound> From<IntoKparError<LocalSrcError>>
-    for KParBuildError<ProjectReadError>
-{
-    fn from(value: IntoKparError<LocalSrcError>) -> Self {
-        match value {
-            IntoKparError::MissingInfo => KParBuildError::MissingInfo,
-            IntoKparError::MissingMeta => KParBuildError::MissingMeta,
-            IntoKparError::ProjectRead(error) => error.into(),
-            IntoKparError::Zip(zip_error) => zip_error.into(),
-            IntoKparError::Io(error) => error.into(),
-            IntoKparError::Serialize(msg, e) => Self::Serialize(msg, e),
+            IncludeError::UnknownFormat(error) => Self::UnknownFormat(error),
         }
     }
 }
@@ -247,8 +216,8 @@ pub fn default_kpar_file_name<Pr: ProjectRead>(
     ))
 }
 
-/// `update_index_checksum` controls whether to parse symbols from current
-/// file to update index and also update file checksum
+/// `update_index` controls whether to parse symbols from current
+/// file to update index
 pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
@@ -256,16 +225,26 @@ pub fn do_build_kpar<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     update_index: bool,
     allow_path_usage: bool,
 ) -> Result<LocalKParProjectRaw, KParBuildError<Pr::Error>> {
-    do_build_kpar_inner(
+    let path = path.as_ref();
+    match do_build_kpar_inner(
         project,
         path,
         compression,
         update_index,
         allow_path_usage,
         None,
-    )
+    ) {
+        Ok(p) => Ok(p),
+        Err(e) => {
+            if let Err(e) = wrapfs::remove_file(path) {
+                log::debug!("cleanup: failed to remove archive file `{path}`: {e}");
+            }
+            Err(e)
+        }
+    }
 }
 
+/// Caller must delete the created archive on error
 fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     project: &Pr,
     path: P,
@@ -278,8 +257,17 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     let header = crate::style::get_style_config().header;
     log::info!("{header}{building:>12}{header:#} kpar `{}`", path.as_ref());
 
-    let (_tmp, mut local_project, info, mut meta) =
-        LocalSrcProject::temporary_from_project(project)?;
+    let (info, mut meta) = match project.get_project() {
+        Ok(im) => match im {
+            (Some(i), Some(m)) => (i, m),
+            (None, Some(_)) => return Err(KParBuildError::MissingInfo),
+            (Some(_), None) => return Err(KParBuildError::MissingMeta),
+            (None, None) => return Err(KParBuildError::MissingInfoMeta),
+        },
+        Err(e) => return Err(KParBuildError::ProjectRead(e)),
+    };
+    meta.validate()?;
+
     match semver::Version::parse(&info.version) {
         Ok(_) => (),
         Err(e) => log::warn!(
@@ -325,29 +313,65 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             if proj_metamodel != ws_metamodel {
                 return Err(KParBuildError::WorkspaceMetamodelConflict {
                     workspace_metamodel: ws_metamodel.to_string(),
-                    project_metamodel: proj_metamodel.clone(),
+                    project_metamodel: proj_metamodel.into(),
                     project_path: path.as_ref().to_string(),
                 });
             }
         } else {
             meta.metamodel = Some(ws_metamodel.to_string());
-            use crate::project::ProjectMut;
-            local_project
-                .put_meta(&meta, true)
-                .map_err(KParBuildError::from)?;
         }
     }
 
-    let meta = meta.validate()?;
-    // Check whether index symbols are up to date
+    let archive_file = wrapfs::File::create(&path)?;
+    let mut zip = zip::ZipWriter::new(archive_file);
+
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(compression.into())
+        .system(zip::System::Unix)
+        .last_modified_time(zip::DateTime::DEFAULT);
+
+    let source_paths = meta.source_paths(true);
+    let mut checksums = if let Some(mut checksum) = meta.checksum.take() {
+        checksum.clear();
+        checksum
+    } else {
+        IndexMap::new()
+    };
+    let len = source_paths.len();
     if update_index {
-        for p in meta.source_paths(true) {
-            do_include(&mut local_project, p, true, true, None)?
+        meta.index.clear();
+        for (i, p) in source_paths.into_iter().enumerate() {
+            // `log` always appends a newline, so `\r` does not work with it
+            eprint!("\rupdating file metadata ({}/{len})", i + 1);
+
+            let source = read_project_file_to_string(project, &p)?;
+            let checksum = sha256_lowercase_hex(&source);
+            let symbols = extract_symbols(&p, &source, None)?;
+
+            zip.start_file(&p, options)
+                .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&p).into(), e))?;
+            zip.write_all(source.as_bytes())
+                .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+
+            for s in symbols {
+                meta.index.insert(s, p.clone());
+            }
+            checksums.insert(
+                p,
+                InterchangeProjectChecksumRaw {
+                    value: checksum,
+                    algorithm: KerMlChecksumAlg::Sha256.into(),
+                },
+            );
         }
     } else {
-        for p in meta.source_paths(true) {
-            do_include(&mut local_project, &p, true, false, None)?;
-            let new_symbols = extract_symbols(&mut local_project, &p, None)?;
+        for (i, p) in source_paths.into_iter().enumerate() {
+            eprint!("\rupdating file checksums ({}/{len})", i + 1);
+
+            let source = read_project_file_to_string(project, &p)?;
+            let checksum = sha256_lowercase_hex(&source);
+            let new_symbols = extract_symbols(&p, &source, None)?;
+
             let new_symbols: HashSet<String> = new_symbols.into_iter().collect();
             let old_symbols = meta.file_index_symbols(&p);
             if let Some(only_in_old) = old_symbols.difference(&new_symbols).next() {
@@ -364,8 +388,23 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                     exported symbols, or omit `--keep-index` to do so for all files"
                 );
             }
+
+            zip.start_file(&p, options)
+                .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&p).into(), e))?;
+            zip.write_all(source.as_bytes())
+                .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+
+            checksums.insert(
+                p,
+                InterchangeProjectChecksumRaw {
+                    value: checksum,
+                    algorithm: KerMlChecksumAlg::Sha256.into(),
+                },
+            );
         }
     }
+    eprintln!();
+    meta.checksum = Some(checksums);
 
     let project_root = project.project_root();
     let mut extra_files: Vec<(String, String)> = Vec::new();
@@ -387,13 +426,35 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
             }
         }
     }
+    for (archive_path, content) in extra_files {
+        zip.start_file(&archive_path, options)
+            .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&archive_path).into(), e))?;
+        zip.write_all(content.as_bytes())
+            .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+    }
 
-    Ok(LocalKParProjectRaw::from_project(
-        &local_project,
-        path,
-        compression.into(),
-        &extra_files,
-    )?)
+    // KerML Clause 10.3: “In addition, the archive shall contain, at its
+    // top level, exactly one file named .project.json and exactly one file
+    // named .meta.json.”
+
+    let info_content =
+        serde_json::to_string(&info).expect("BUG: failed to serialize .project.json");
+    let meta_content = serde_json::to_string(&meta).expect("BUG: failed to serialize .meta.json");
+
+    zip.start_file(".project.json", options)
+        .map_err(|e| ZipArchiveError::Write(Utf8Path::new(".project.json").into(), e))?;
+    zip.write_all(info_content.as_bytes())
+        .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+
+    zip.start_file(".meta.json", options)
+        .map_err(|e| ZipArchiveError::Write(Utf8Path::new(".meta.json").into(), e))?;
+    zip.write_all(meta_content.as_bytes())
+        .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
+
+    zip.finish()
+        .map_err(|e| ZipArchiveError::Finish(path.as_ref().into(), e))?;
+
+    Ok(LocalKParProjectRaw::new_project_at_root(&path)?)
 }
 
 fn read_optional_project_file(
@@ -435,14 +496,22 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
 
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);
-        let kpar_project = do_build_kpar_inner(
+        let kpar_project = match do_build_kpar_inner(
             &project,
             &output_path,
             compression,
             update_index,
             allow_path_usage,
             ws_metamodel,
-        )?;
+        ) {
+            Ok(p) => p,
+            Err(e) => {
+                if let Err(e) = wrapfs::remove_file(&output_path) {
+                    log::debug!("cleanup: failed to remove archive file `{output_path}`: {e}");
+                }
+                return Err(e);
+            }
+        };
         result.push(kpar_project);
     }
     Ok(result)

@@ -4,7 +4,7 @@
 use std::{
     cell::OnceCell,
     fs::{self, File},
-    io::{Read, Seek, Write as _},
+    io::{Read, Seek},
     num::NonZeroU64,
 };
 
@@ -400,70 +400,6 @@ impl LocalKParProjectRaw {
         //       Would simplify a bunch of places which currently must check
         //       both
         self.root.as_deref()
-    }
-
-    /// Build a KPAR archive from `from`.
-    ///
-    /// `extra_files` are added to the archive alongside the project's source
-    /// files. Each entry is `(archive_path, content)`; `archive_path` uses `/`
-    /// as the separator and is interpreted relative to the archive root.
-    pub fn from_project<Pr: ProjectRead, P: AsRef<Utf8Path>>(
-        from: &Pr,
-        path: P,
-        compression: zip::CompressionMethod,
-        extra_files: &[(String, String)],
-    ) -> Result<Self, IntoKparError<Pr::Error>> {
-        let file = wrapfs::File::create(&path)?;
-        let mut zip = zip::ZipWriter::new(file);
-
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(compression)
-            .system(zip::System::Unix)
-            .last_modified_time(zip::DateTime::DEFAULT);
-
-        let (info, meta) = from.get_project().map_err(IntoKparError::ProjectRead)?;
-        let info = info.ok_or(IntoKparError::MissingInfo)?;
-        let meta = meta.ok_or(IntoKparError::MissingMeta)?;
-        let info_content = serde_json::to_string(&info)
-            .map_err(|e| IntoKparError::Serialize("failed to serialize project info", e))?;
-        let meta_content = serde_json::to_string(&meta)
-            .map_err(|e| IntoKparError::Serialize("failed to serialize project metadata", e))?;
-
-        // KerML Clause 10.3: “In addition, the archive shall contain, at its
-        // top level, exactly one file named .project.json and exactly one file
-        // named .meta.json.”
-
-        zip.start_file(".project.json", options)
-            .map_err(|e| ZipArchiveError::Write(Utf8Path::new(".project.json").into(), e))?;
-        zip.write(info_content.as_bytes())
-            .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
-
-        zip.start_file(".meta.json", options)
-            .map_err(|e| ZipArchiveError::Write(Utf8Path::new(".meta.json").into(), e))?;
-        zip.write(meta_content.as_bytes())
-            .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
-
-        for source_path in meta.source_paths(true) {
-            let mut reader = from
-                .read_source(&source_path)
-                .map_err(IntoKparError::ProjectRead)?;
-            zip.start_file(&source_path, options)
-                .map_err(|e| ZipArchiveError::Write(Utf8Path::new(&source_path).into(), e))?;
-            std::io::copy(&mut reader, &mut zip)
-                .map_err(|e| FsIoError::CopyFile(source_path.into(), path.to_path_buf(), e))?;
-        }
-
-        for (archive_path, content) in extra_files {
-            zip.start_file(archive_path, options)
-                .map_err(|e| ZipArchiveError::Write(Utf8Path::new(archive_path).into(), e))?;
-            zip.write_all(content.as_bytes())
-                .map_err(|e| FsIoError::WriteFile(path.as_ref().into(), e))?;
-        }
-
-        zip.finish()
-            .map_err(|e| ZipArchiveError::Finish(path.as_ref().into(), e))?;
-
-        Self::new_project_at_root(&path).map_err(IntoKparError::Io)
     }
 
     pub fn file_size(&self) -> Result<u64, LocalKParError> {

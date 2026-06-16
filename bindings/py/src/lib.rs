@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, process::ExitCode, sync::Arc};
+use std::{collections::HashMap, iter, process::ExitCode, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use pyo3::{
@@ -41,6 +41,7 @@ use sysand_core::{
     stdlib::known_std_libs,
     symbols::Language,
 };
+use typed_path::Utf8UnixPathBuf;
 
 #[pyfunction(name = "_run_cli")]
 fn run_cli(args: Vec<String>) -> PyResult<bool> {
@@ -229,14 +230,13 @@ fn do_build_py(
         .map(|_| ())
         .map_err(|err| match err {
             KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::LocalSrc(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::IncompleteSource(_) => PyRuntimeError::new_err(err.to_string()),
             KParBuildError::Io(_) => PyIOError::new_err(err.to_string()),
             KParBuildError::Validation(_) => PyValueError::new_err(err.to_string()),
             KParBuildError::Extract(_) => PyValueError::new_err(err.to_string()),
             KParBuildError::UnknownFormat(_) => PyValueError::new_err(err.to_string()),
             KParBuildError::MissingInfo => PyValueError::new_err(err.to_string()),
             KParBuildError::MissingMeta => PyValueError::new_err(err.to_string()),
+            KParBuildError::MissingInfoMeta => PyValueError::new_err(err.to_string()),
             KParBuildError::Zip(_) => PyIOError::new_err(err.to_string()),
             KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
             KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
@@ -468,6 +468,8 @@ fn do_remove_py(path: String, iri: String) -> PyResult<()> {
     Ok(())
 }
 
+/// `src_path` must be relative to project root and use Unix separators.
+/// No normalization will be performed
 #[pyfunction(name = "do_include_py")]
 #[pyo3(
     signature = (path, src_path, compute_checksum, index_symbols, force_format),
@@ -486,7 +488,6 @@ fn do_include_py(
         project_path: path.into(),
         expected_checksum: None,
     };
-
     let force_format = match force_format {
         Some(language_str) => match Language::from_suffix(&language_str) {
             Some(language) => Some(language),
@@ -502,7 +503,7 @@ fn do_include_py(
 
     do_include(
         &mut project,
-        src_path,
+        iter::once(Utf8UnixPathBuf::from(src_path)),
         compute_checksum,
         index_symbols,
         force_format,
@@ -510,6 +511,8 @@ fn do_include_py(
     .map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
+/// `src_path` must be relative to project root and use Unix separators.
+/// No normalization will be performed
 #[pyfunction(name = "do_exclude_py")]
 #[pyo3(
     signature = (path, src_path),
@@ -522,8 +525,9 @@ fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
         project_path: path.into(),
         expected_checksum: None,
     };
-
-    do_exclude(&mut project, src_path).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+    // TODO: print the whole error chain
+    do_exclude(&mut project, iter::once(Utf8UnixPathBuf::from(src_path)))
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
     Ok(())
 }

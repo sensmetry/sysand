@@ -3,13 +3,12 @@
 
 use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
-// use glob::glob;
 use sysand_core::{context::ProjectContext, include::do_include, project::utils::wrapfs};
 
 use crate::CliError;
 
 pub fn command_include(
-    files: Vec<Utf8PathBuf>,
+    paths: Vec<Utf8PathBuf>,
     compute_checksum: bool,
     index_symbols: bool,
     ctx: ProjectContext,
@@ -18,20 +17,20 @@ pub fn command_include(
         .current_project
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
-    for file in files {
-        if !wrapfs::is_file(file.to_path_buf())? {
-            bail!("`{file}` does not exist or is not a file");
+    let mut unix_paths = Vec::with_capacity(paths.len());
+    for p in paths {
+        if !wrapfs::is_file(&p)? {
+            bail!("`{p}` does not exist or is not a file");
         }
-        let unix_path = current_project.get_unix_path(file)?;
-
-        do_include(
-            &mut current_project,
-            unix_path,
-            compute_checksum,
-            index_symbols,
-            None,
-        )?;
+        unix_paths.push(current_project.get_unix_path(p)?);
     }
+    do_include(
+        &mut current_project,
+        unix_paths.into_iter(),
+        compute_checksum,
+        index_symbols,
+        None,
+    )?;
 
     Ok(())
 }
