@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
+# SPDX-FileCopyrightText: © 2025-2026 Sysand contributors <opensource@sensmetry.com>
 
 from enum import Enum, auto
 import typing
@@ -36,6 +36,17 @@ class InterchangeProjectMetadata(typing.TypedDict):
     checksum: typing.Optional[typing.List[InterchangeProjectChecksum]]
 
 
+class Dependencies(Enum):
+    NONE = auto()
+    """Do not list any dependency sources"""
+    DEPS = auto()
+    """List dependency sources, excluding standard libraries"""
+    DEPS_STD = auto()
+    """List dependency sources, including standard libraries"""
+    STD = auto()
+    """List only standard-library dependency sources"""
+
+
 class CompressionMethod(Enum):
     STORED = auto()
     """Store the files as is"""
@@ -56,5 +67,6 @@ __all__ = [
     "InterchangeProjectInfo",
     "InterchangeProjectChecksum",
     "InterchangeProjectMetadata",
+    "Dependencies",
     "CompressionMethod",
 ]

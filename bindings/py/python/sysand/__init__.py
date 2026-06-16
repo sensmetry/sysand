@@ -6,6 +6,7 @@ from ._model import (
     InterchangeProjectInfo,
     InterchangeProjectChecksum,
     InterchangeProjectMetadata,
+    Dependencies,
     CompressionMethod,
 )
 
@@ -50,6 +51,7 @@ __all__ = [
     "InterchangeProjectInfo",
     "InterchangeProjectChecksum",
     "InterchangeProjectMetadata",
+    "Dependencies",
     "CompressionMethod",
     ## Add
     "add",
