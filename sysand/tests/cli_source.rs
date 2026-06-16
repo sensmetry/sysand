@@ -76,6 +76,18 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     assert_eq!(wrapfs::canonicalize(p)?, expected_path);
 
+    let out = run_sysand_in(&path, ["sources", "--only-deps"], None)?;
+
+    let p = String::from_utf8(
+        out.assert()
+            .success()
+            .get_output()
+            .stdout
+            .trim_ascii_end()
+            .to_owned(),
+    )?;
+    assert_eq!(wrapfs::canonicalize(p)?, dep_expected_path);
+
     let out = run_sysand_in(
         &path,
         ["env", "sources", "urn:kpar:list_sources_dep", "--no-deps"],

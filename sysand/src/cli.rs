@@ -15,6 +15,7 @@ use sysand_core::{
     add::expand_sysand_purl_shorthand,
     build::KparCompressionMethod,
     model::{KERML_METAMODEL_PREFIX, SYSML_METAMODEL_PREFIX},
+    sources::Dependencies,
 };
 use url::Url;
 
@@ -1616,9 +1617,35 @@ pub struct SourcesOptions {
     /// Do not include sources for dependencies
     #[arg(long, default_value_t = false, conflicts_with = "include_std")]
     pub no_deps: bool,
+    /// Only include sources for dependencies, not the project's own sources
+    #[arg(long, default_value_t = false, conflicts_with = "no_deps")]
+    pub only_deps: bool,
     /// Include (installed) KerML/SysML v2 standard libraries
     #[arg(long, default_value_t = false)]
     pub include_std: bool,
+}
+
+impl SourcesOptions {
+    /// Whether the project's own sources should be excluded (`--only-deps`).
+    pub fn no_own(&self) -> bool {
+        self.only_deps
+    }
+
+    /// Resolve which dependency sources to list from the flags.
+    pub fn dependencies(&self) -> Dependencies {
+        // TODO(0.2.0): the CLI cannot produce `Dependencies::Std` ("only standard
+        // libraries"), which the Python API supports. Exposing it cleanly would
+        // mean reworking the `--no-deps`/`--include-std` flags into an orthogonal
+        // `--no-own` + `--dependencies=<none|deps|deps-std|std>` scheme, which is a
+        // breaking CLI change and is therefore deferred to 0.2.0.
+        if self.no_deps {
+            Dependencies::None
+        } else if self.include_std {
+            Dependencies::DepsStd
+        } else {
+            Dependencies::Deps
+        }
+    }
 }
 
 #[derive(clap::Args, Debug)]

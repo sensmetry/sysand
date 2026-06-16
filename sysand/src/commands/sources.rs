@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::collections::HashMap;
-
 use crate::CliError;
 
 use anstream::println;
@@ -11,8 +9,8 @@ use semver::VersionReq;
 use sysand_core::{
     context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
-    project::{ProjectRead, memory::InMemoryProject},
-    sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
+    project::ProjectRead,
+    sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
 };
 
 use sysand_core::env::ReadEnvironment;
@@ -20,10 +18,9 @@ use sysand_core::env::ReadEnvironment;
 pub fn command_sources_env<S: AsRef<str>>(
     iri: S,
     version: Option<VersionReq>,
-    include_deps: bool,
+    no_own: bool,
+    dependencies: Dependencies,
     env: Option<LocalDirectoryEnvironment>,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
-    include_std: bool,
 ) -> Result<()> {
     let Some(env) = env else {
         bail!("unable to identify local environment");
@@ -61,19 +58,21 @@ pub fn command_sources_env<S: AsRef<str>>(
         }
     };
 
-    for src_path in do_sources_local_src_project_no_deps(&project, true)? {
-        println!("{}", src_path);
+    if !no_own {
+        for src_path in do_sources_local_src_project_no_deps(&project, true)? {
+            println!("{}", src_path);
+        }
     }
 
-    if include_deps {
+    if dependencies != Dependencies::None {
         let Some(info) = project.get_info()? else {
             bail!("project is missing project information")
         };
 
-        if !include_std {
+        if dependencies == Dependencies::Deps {
             crate::logger::warn_std_deps();
         }
-        for dep in find_project_dependencies(info.validate()?.usage, env, provided_iris)? {
+        for dep in resolve_dependencies(info.validate()?.usage, env, dependencies)? {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
                 println!("{}", src_path);
             }
@@ -84,9 +83,9 @@ pub fn command_sources_env<S: AsRef<str>>(
 }
 
 pub fn command_sources_project(
-    include_deps: bool,
+    no_own: bool,
+    dependencies: Dependencies,
     ctx: ProjectContext,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
 ) -> Result<()> {
     let current_project = ctx
         .current_project
@@ -97,16 +96,18 @@ pub fn command_sources_project(
     };
     let info = info.validate()?;
 
-    for src_path in do_sources_local_src_project_no_deps(&current_project, true)? {
-        println!("{}", src_path);
+    if !no_own {
+        for src_path in do_sources_local_src_project_no_deps(&current_project, true)? {
+            println!("{}", src_path);
+        }
     }
 
-    if include_deps {
+    if dependencies != Dependencies::None {
         let deps = match ctx.env {
-            Some(env) => find_project_dependencies(info.usage, env, provided_iris)?,
+            Some(env) => resolve_dependencies(info.usage, env, dependencies)?,
             None => {
                 let env = NullEnvironment::new();
-                find_project_dependencies(info.usage, env, provided_iris)?
+                resolve_dependencies(info.usage, env, dependencies)?
             }
         };
 

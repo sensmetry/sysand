@@ -18,7 +18,7 @@ def root(path: str | Path = ".") -> Path | None:
         The canonicalized project root as a :class:`~pathlib.Path`, or ``None``
         if ``path`` is not inside a project.
     """
-    result = sysand_rs.do_root_py(str(path))  # type: ignore
+    result = sysand_rs.do_root_py(str(path))
     return Path(result) if result is not None else None
 
 
