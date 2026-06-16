@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::*;
+use std::assert_matches;
 
 fn minimal_toml(path: &str, editable: bool) -> String {
     format!(
@@ -20,8 +21,9 @@ editable = {editable}
 fn non_editable_parent_dir_component_is_rejected() {
     let toml = minimal_toml("../escape", false);
     let err = EnvMetadata::from_str(&toml).unwrap_err();
-    assert!(
-        matches!(err, ParseError::NonNormalizedProjectPath(_)),
+    assert_matches!(
+        err,
+        ParseError::NonNormalizedProjectPath(_),
         "unexpected error: {err}"
     );
 }
@@ -30,8 +32,9 @@ fn non_editable_parent_dir_component_is_rejected() {
 fn non_editable_cur_dir_component_is_rejected() {
     let toml = minimal_toml("./subdir", false);
     let err = EnvMetadata::from_str(&toml).unwrap_err();
-    assert!(
-        matches!(err, ParseError::NonNormalizedProjectPath(_)),
+    assert_matches!(
+        err,
+        ParseError::NonNormalizedProjectPath(_),
         "unexpected error: {err}"
     );
 }
@@ -40,8 +43,9 @@ fn non_editable_cur_dir_component_is_rejected() {
 fn non_editable_absolute_path_is_rejected() {
     let toml = minimal_toml("/absolute/path", false);
     let err = EnvMetadata::from_str(&toml).unwrap_err();
-    assert!(
-        matches!(err, ParseError::AbsoluteProjectPath(_)),
+    assert_matches!(
+        err,
+        ParseError::AbsoluteProjectPath(_),
         "unexpected error: {err}"
     );
 }
@@ -62,8 +66,9 @@ fn editable_project_with_parent_dir_is_accepted() {
 fn unsupported_version_is_rejected() {
     let toml = r#"version = "99.0""#;
     let err = EnvMetadata::from_str(toml).unwrap_err();
-    assert!(
-        matches!(err, ParseError::UnsupportedVersion(_)),
+    assert_matches!(
+        err,
+        ParseError::UnsupportedVersion(_),
         "unexpected error: {err}"
     );
 }

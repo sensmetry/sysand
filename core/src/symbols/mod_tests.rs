@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::*;
+use std::assert_matches;
 
 fn tokens_match(src: &str, tokens: &[Token]) -> Result<(), Box<dyn std::error::Error>> {
     let tokenized: Result<Vec<Token>, _> = Token::lexer(src).collect();
@@ -12,10 +13,7 @@ fn tokens_match(src: &str, tokens: &[Token]) -> Result<(), Box<dyn std::error::E
 
 fn unclosed_comment_doesnt_parse(src: &str) {
     let tokens: Result<Vec<Token>, _> = Token::lexer(src).collect();
-    assert!(
-        matches!(tokens, Err(LexingError::Unterminated("/*"))),
-        "src: {src:?}"
-    );
+    assert_matches!(tokens, Err(LexingError::Unterminated("/*")), "src: {src:?}");
 }
 
 #[test]

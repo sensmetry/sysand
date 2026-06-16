@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use semver::Version;
+use std::assert_matches;
 use sysand_core::{commands::init::do_init, init::do_init_memory, model::InterchangeProjectInfo};
 
 /// `sysand init` should create valid, minimal, .project.json
@@ -78,12 +79,12 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
         &mut memory_storage,
     );
 
-    assert!(matches!(
+    assert_matches!(
         second_result,
         Err(sysand_core::commands::init::InitError::Project(
             sysand_core::project::memory::InMemoryError::AlreadyExists(_)
         ))
-    ));
+    );
 
     assert_eq!(memory_storage.info, original_info,);
 

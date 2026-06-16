@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::*;
+use std::assert_matches;
 
 #[test]
 fn publisher_field_validation() {
@@ -102,26 +103,26 @@ fn parse_sysand_purl_rejects_wrong_segment_count() {
     );
     // Trailing-slash form parses to two segments (`["a", ""]`); the publisher
     // is too short, so we reject on InvalidPublisher rather than WrongShape.
-    assert!(matches!(
+    assert_matches!(
         parse_sysand_purl("pkg:sysand/a/"),
         Err(SysandPurlError::InvalidPublisher { .. })
-    ));
+    );
 }
 
 #[test]
 fn parse_sysand_purl_rejects_traversal_and_dot_publishers() {
-    assert!(matches!(
+    assert_matches!(
         parse_sysand_purl("pkg:sysand/../attacker"),
         Err(SysandPurlError::WrongShape { .. } | SysandPurlError::InvalidPublisher { .. })
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         parse_sysand_purl("pkg:sysand/.hidden/proj"),
         Err(SysandPurlError::InvalidPublisher { .. })
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         parse_sysand_purl("pkg:sysand/pub/.hidden"),
         Err(SysandPurlError::InvalidName { .. })
-    ));
+    );
 }
 
 #[test]
@@ -172,20 +173,20 @@ fn parse_sysand_purl_error_messages_include_input_purl() {
 
 #[test]
 fn parse_sysand_purl_rejects_non_ascii_and_invalid_chars() {
-    assert!(matches!(
+    assert_matches!(
         parse_sysand_purl("pkg:sysand/Åcme/proj"),
         Err(SysandPurlError::InvalidPublisher { .. })
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         parse_sysand_purl("pkg:sysand/pub\t/proj"),
         Err(SysandPurlError::InvalidPublisher { .. })
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         parse_sysand_purl("pkg:sysand/ab/proj0"),
         Err(SysandPurlError::InvalidPublisher { .. })
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         parse_sysand_purl("pkg:sysand/aąčb/oroūj0"),
         Err(SysandPurlError::InvalidPublisher { .. })
-    ));
+    );
 }
