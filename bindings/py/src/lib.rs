@@ -37,6 +37,7 @@ use sysand_core::{
     },
     remove::do_remove_guess,
     resolve::{net_utils::create_reqwest_client, standard::standard_resolver},
+    root::do_root,
     sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
     stdlib::known_std_libs,
     symbols::Language,
@@ -199,6 +200,17 @@ fn do_info_py(
             ) => Err(PyRuntimeError::new_err(format_err(e))),
         }
     })
+}
+
+#[pyfunction(name = "do_root_py")]
+#[pyo3(
+    signature = (path),
+)]
+fn do_root_py(path: String) -> PyResult<Option<String>> {
+    let _ = pyo3_log::try_init();
+
+    let root = do_root(Utf8PathBuf::from(path)).map_err(|e| PyIOError::new_err(format_err(e)))?;
+    Ok(root.map(Utf8PathBuf::into_string))
 }
 
 #[pyfunction(name = "do_build_py")]
@@ -610,6 +622,7 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_env_py_local_dir, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py_path, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py, m)?)?;
+    m.add_function(wrap_pyfunction!(do_root_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_build_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_sources_env_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_sources_project_py, m)?)?;

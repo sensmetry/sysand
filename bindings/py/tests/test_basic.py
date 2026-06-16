@@ -276,6 +276,28 @@ def test_end_to_end_install_sources() -> None:
             )
 
 
+def test_root() -> None:
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        tmpdirname = Path(tmpdirname).resolve()
+        sysand.init("test_root", "a", "1.2.3", tmpdirname)
+
+        subdir = tmpdirname / "sub" / "nested"
+        subdir.mkdir(parents=True)
+
+        root_from_top = sysand.root(tmpdirname)
+        root_from_sub = sysand.root(subdir)
+
+        assert root_from_top is not None
+        assert root_from_sub is not None
+        assert os.path.samefile(root_from_top, tmpdirname)
+        assert os.path.samefile(root_from_sub, tmpdirname)
+
+
+def test_root_not_in_project() -> None:
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        assert sysand.root(tmpdirname) is None
+
+
 @pytest.mark.parametrize(
     "compression",
     [None, sysand.CompressionMethod.STORED, sysand.CompressionMethod.DEFLATED],
