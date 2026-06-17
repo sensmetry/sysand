@@ -25,6 +25,7 @@ use crate::{
     },
     iri_normalize::IriVersionFilename,
     lock::{Lock, Source},
+    model::InterchangeProjectUsageRaw,
     project::{
         local_src::{LocalSrcError, LocalSrcProject, PathError},
         utils::{
@@ -118,7 +119,7 @@ impl LocalDirectoryEnvironment {
                 let usages = project
                     .usages
                     .iter()
-                    .map(|usage| usage.resource.clone())
+                    .map(|usage| usage.inner().clone())
                     .collect();
 
                 let workspace_member = ws
@@ -463,7 +464,13 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             existing.publisher = info.publisher;
             existing.name = info.name;
             existing.version = info.version;
-            existing.usages = info.usage.into_iter().map(|u| u.resource).collect();
+            existing.usages = info
+                .usage
+                .into_iter()
+                .map(|u| match u {
+                    InterchangeProjectUsageRaw::Resource { resource, .. } => resource,
+                })
+                .collect();
             existing.checksum = checksum.map(Into::into);
 
             self.write().map_err(LocalWriteError::from)?;

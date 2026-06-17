@@ -7,6 +7,7 @@ use std::{
     fmt::Display,
     hash::{DefaultHasher, Hash, Hasher},
     num::NonZeroU64,
+    ops::Deref,
     str::FromStr,
 };
 
@@ -259,9 +260,9 @@ impl Lock {
         }
         for project in &self.projects {
             for usage in &project.usages {
-                if !iri_versions.contains(&usage.resource) {
+                if !iri_versions.contains(usage.inner()) {
                     return Err(ValidationError::UnsatisfiedUsage {
-                        usage: usage.resource.clone(),
+                        usage: usage.inner().to_owned(),
                         name: project.name.clone(),
                     });
                 }
@@ -620,27 +621,39 @@ impl Source {
 }
 
 #[derive(Clone, Eq, Debug, Ord, PartialEq, PartialOrd)]
-pub struct Usage {
-    pub resource: String,
+pub struct Usage(String);
+
+impl Deref for Usage {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl From<String> for Usage {
     fn from(resource: String) -> Self {
-        Self { resource }
+        Self(resource)
     }
 }
 
 impl From<Iri<String>> for Usage {
     fn from(resource: Iri<String>) -> Self {
-        Self {
-            resource: resource.into_string(),
-        }
+        Self(resource.into_string())
     }
 }
 
 impl Usage {
+    pub fn inner(&self) -> &String {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+
     fn to_toml(&self) -> Value {
-        Value::from(&self.resource)
+        Value::from(&self.0)
     }
 }
 
@@ -650,7 +663,7 @@ impl<'de> Deserialize<'de> for Usage {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(Usage { resource: s })
+        Ok(Self(s))
     }
 }
 

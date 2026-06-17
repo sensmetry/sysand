@@ -8,6 +8,7 @@ use fluent_uri::Iri;
 use sysand_core::{
     config::local_fs::{CONFIG_FILE, remove_project_source_from_config},
     context::ProjectContext,
+    model::InterchangeProjectUsageRaw,
     remove::do_remove,
 };
 
@@ -36,33 +37,36 @@ pub fn command_remove(
     let removed = "Removed";
     let header = sysand_core::style::get_style_config().header;
     if let [usage] = usages.as_slice() {
-        match usage.version_constraint {
-            Some(ref vc) => {
-                log::info!(
-                    "{header}{removed:>12}{header:#} `{}` with version constraints `{}`",
-                    &usage.resource,
-                    vc
-                );
-            }
-            None => {
-                log::info!("{header}{removed:>12}{header:#} `{}`", &usage.resource,);
-            }
+        match usage {
+            InterchangeProjectUsageRaw::Resource {
+                resource,
+                version_constraint,
+            } => match version_constraint {
+                Some(vc) => {
+                    log::info!(
+                        "{header}{removed:>12}{header:#} `{resource}` with version constraints `{vc}`"
+                    );
+                }
+                None => {
+                    log::info!("{header}{removed:>12}{header:#} `{resource}`");
+                }
+            },
         }
     } else {
         log::info!("{header}{removed:>12}{header:#}:");
         for usage in usages {
-            match usage.version_constraint {
-                Some(vc) => {
-                    log::info!(
-                        "{:>13} `{}` with version constraints `{}`",
-                        ' ',
-                        &usage.resource,
-                        vc
-                    );
-                }
-                None => {
-                    log::info!("{:>13} `{}`", ' ', &usage.resource,);
-                }
+            match usage {
+                InterchangeProjectUsageRaw::Resource {
+                    resource,
+                    version_constraint,
+                } => match version_constraint {
+                    Some(vc) => {
+                        log::info!("{:>13} `{resource}` with version constraints `{vc}`", ' ');
+                    }
+                    None => {
+                        log::info!("{:>13} `{resource}`", ' ');
+                    }
+                },
             }
         }
     }

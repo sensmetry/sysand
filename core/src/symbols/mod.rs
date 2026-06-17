@@ -27,10 +27,13 @@ pub enum Language {
 
 impl Language {
     pub fn from_suffix<S: AsRef<str>>(suffix: S) -> Option<Language> {
-        match suffix.as_ref().to_ascii_lowercase().as_str() {
-            "sysml" => Some(Language::SysML),
-            "kerml" => Some(Language::KerML),
-            _ => None,
+        let suffix = suffix.as_ref();
+        if suffix.eq_ignore_ascii_case("sysml") {
+            Some(Language::SysML)
+        } else if suffix.eq_ignore_ascii_case("kerml") {
+            Some(Language::KerML)
+        } else {
+            None
         }
     }
 

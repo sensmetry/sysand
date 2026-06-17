@@ -9,6 +9,7 @@ import com.sensmetry.sysand.model.InterchangeProjectChecksum;
 import com.sensmetry.sysand.model.InterchangeProjectInfo;
 import com.sensmetry.sysand.model.InterchangeProjectMetadata;
 import com.sensmetry.sysand.model.InterchangeProjectUsage;
+import com.sensmetry.sysand.model.InterchangeProjectUsageResource;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -80,8 +81,8 @@ public class SetProjectInfoTest {
         Path dir = initProject();
 
         InterchangeProjectUsage[] usages = new InterchangeProjectUsage[]{
-                new InterchangeProjectUsage("urn:example:dep-a", ">=1.0.0"),
-                new InterchangeProjectUsage("urn:example:dep-b", null),
+                new InterchangeProjectUsageResource("urn:example:dep-a", ">=1.0.0"),
+                new InterchangeProjectUsageResource("urn:example:dep-b", null),
         };
         InterchangeProjectInfo updated = new InterchangeProjectInfo(
                 "original", "pub", null, "1.0.0", null,
@@ -90,10 +91,12 @@ public class SetProjectInfoTest {
 
         com.sensmetry.sysand.model.InterchangeProject project = Sysand.infoPath(dir);
         assertEquals(2, project.info.getUsage().length);
-        assertEquals("urn:example:dep-a", project.info.getUsage()[0].getResource());
-        assertEquals(">=1.0.0", project.info.getUsage()[0].getVersionConstraint());
-        assertEquals("urn:example:dep-b", project.info.getUsage()[1].getResource());
-        assertNull(project.info.getUsage()[1].getVersionConstraint());
+        InterchangeProjectUsageResource u1 = (InterchangeProjectUsageResource)project.info.getUsage()[0];
+        assertEquals("urn:example:dep-a", u1.getResource());
+        assertEquals(">=1.0.0", u1.getVersionConstraint());
+        InterchangeProjectUsageResource u2 = (InterchangeProjectUsageResource)project.info.getUsage()[1];
+        assertEquals("urn:example:dep-b", u2.getResource());
+        assertNull(u2.getVersionConstraint());
     }
 
     @Test

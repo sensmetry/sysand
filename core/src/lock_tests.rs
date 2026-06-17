@@ -379,9 +379,7 @@ fn one_usage_to_toml() {
             version: "0.5.1".to_string(),
             exports: vec![],
             identifiers: vec![],
-            usages: vec![Usage {
-                resource: "urn:kpar:usage".to_string(),
-            }],
+            usages: vec![Usage::from("urn:kpar:usage".to_string())],
             sources: vec![],
         }],
         r#"
@@ -405,15 +403,9 @@ fn many_usage_to_toml() {
             exports: vec![],
             identifiers: vec![],
             usages: vec![
-                Usage {
-                    resource: "urn:kpar:first".to_string(),
-                },
-                Usage {
-                    resource: "urn:kpar:second".to_string(),
-                },
-                Usage {
-                    resource: "urn:kpar:third".to_string(),
-                },
+                Usage::from("urn:kpar:first".to_string()),
+                Usage::from("urn:kpar:second".to_string()),
+                Usage::from("urn:kpar:third".to_string()),
             ],
             sources: vec![],
         }],
@@ -544,9 +536,7 @@ fn validate_single_usage() {
                 "0.0.1",
                 &[],
                 &[],
-                &[Usage {
-                    resource: iri.to_string(),
-                }],
+                &[Usage::from(iri.to_string())],
             ),
             make_project("b", None, "0.0.1", &[], &[iri], &[]),
         ],
@@ -568,14 +558,7 @@ fn validate_multiple_usage() {
                 "0.0.1",
                 &[],
                 &[],
-                &[
-                    Usage {
-                        resource: iri1.to_string(),
-                    },
-                    Usage {
-                        resource: iri2.to_string(),
-                    },
-                ],
+                &[Usage::from(iri1.to_string()), Usage::from(iri2.to_string())],
             ),
             make_project("b", None, "0.0.1", &[], &[iri1], &[]),
             make_project("c", None, "0.0.1", &[], &[iri2], &[]),
@@ -598,9 +581,7 @@ fn validate_chained_usages() {
                 "0.0.1",
                 &[],
                 &[],
-                &[Usage {
-                    resource: iri1.to_string(),
-                }],
+                &[Usage::from(iri1.to_string())],
             ),
             make_project(
                 "b",
@@ -608,9 +589,7 @@ fn validate_chained_usages() {
                 "0.0.1",
                 &[],
                 &[iri1],
-                &[Usage {
-                    resource: iri2.to_string(),
-                }],
+                &[Usage::from(iri2.to_string())],
             ),
             make_project("c", None, "0.0.1", &[], &[iri2], &[]),
         ],
@@ -652,9 +631,7 @@ fn validate_single_name_collision() {
                 "0.0.1",
                 &[name],
                 &[],
-                &[Usage {
-                    resource: iri.to_string(),
-                }],
+                &[Usage::from(iri.to_string())],
             ),
             make_project("b", None, "0.0.1", &[name], &[iri], &[]),
         ],
@@ -684,9 +661,7 @@ fn validate_multiple_name_collision() {
                 "0.0.1",
                 &[name1, name2, name3],
                 &[],
-                &[Usage {
-                    resource: iri.to_string(),
-                }],
+                &[Usage::from(iri.to_string())],
             ),
             make_project("b", None, "0.0.1", &[name2, name3, name4], &[iri], &[]),
         ],
@@ -701,9 +676,7 @@ fn validate_multiple_name_collision() {
 
 #[test]
 fn validate_unsatisfied_usage() {
-    let usage_in = Usage {
-        resource: "urn:kpar:test".to_string(),
-    };
+    let usage_in = Usage::from("urn:kpar:test".to_string());
     let Err(err) = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![make_project(
@@ -721,7 +694,7 @@ fn validate_unsatisfied_usage() {
     let ValidationError::UnsatisfiedUsage { usage, name } = err else {
         panic!()
     };
-    assert_eq!(usage, usage_in.resource);
+    assert_eq!(usage, *usage_in);
     assert_eq!(name, "a");
 }
 
@@ -876,12 +849,8 @@ fn sort_identifiers() {
 
 #[test]
 fn sort_sources() {
-    let usage1 = Usage {
-        resource: "urn:kpar:a".to_string(),
-    };
-    let usage2 = Usage {
-        resource: "urn:kpar:b".to_string(),
-    };
+    let usage1 = Usage::from("urn:kpar:a".to_string());
+    let usage2 = Usage::from("urn:kpar:b".to_string());
     let project1 = make_project(
         "a",
         None,
@@ -902,12 +871,8 @@ fn sort_sources() {
 
 #[test]
 fn sort_sources_with_constraints() {
-    let usage1 = Usage {
-        resource: "urn:kpar:a".to_string(),
-    };
-    let usage2 = Usage {
-        resource: "urn:kpar:a".to_string(),
-    };
+    let usage1 = Usage::from("urn:kpar:a".to_string());
+    let usage2 = Usage::from("urn:kpar:a".to_string());
     let project1 = make_project(
         "a",
         None,

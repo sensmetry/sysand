@@ -17,7 +17,7 @@ fn project_with_usage(resource: &str) -> InMemoryProject {
             license: None,
             maintainer: vec![],
             topic: vec![],
-            usage: vec![InterchangeProjectUsageRaw {
+            usage: vec![InterchangeProjectUsageRaw::Resource {
                 resource: resource.to_owned(),
                 version_constraint: None,
             }],
@@ -38,7 +38,13 @@ fn remove_accepts_normalized_sysand_shorthand() {
     let removed = do_remove_guess(&mut project, "acme-labs/my.project".to_owned()).unwrap();
 
     assert_eq!(removed.len(), 1);
-    assert_eq!(removed[0].resource, "pkg:sysand/acme-labs/my.project");
+    assert_eq!(
+        removed[0],
+        InterchangeProjectUsageRaw::Resource {
+            resource: "pkg:sysand/acme-labs/my.project".to_string(),
+            version_constraint: None
+        }
+    );
     assert!(project.info.unwrap().usage.is_empty());
 }
 
@@ -54,8 +60,11 @@ fn remove_keeps_iri_resource() {
 
     assert_eq!(removed.len(), 1);
     assert_eq!(
-        removed[0].resource,
-        "https://example.com/acme-labs/my.project"
+        removed[0],
+        InterchangeProjectUsageRaw::Resource {
+            resource: "https://example.com/acme-labs/my.project".to_string(),
+            version_constraint: None
+        }
     );
     assert!(project.info.unwrap().usage.is_empty());
 }

@@ -119,7 +119,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().success().stderr(predicate::str::contains(
-        "Adding usage: `https://www.omg.org/spec/KerML/20250201/Function-Library.kpar`",
+        "Adding usage: IRI `https://www.omg.org/spec/KerML/20250201/Function-Library.kpar`",
     ));
 
     let cfg = toml::to_string(&sysand_core::config::Config {
@@ -243,7 +243,7 @@ fn inject_usages_versions<
     )?;
 
     for (usage, version_req) in usages {
-        info.usage.push(InterchangeProjectUsageRaw {
+        info.usage.push(InterchangeProjectUsageRaw::Resource {
             resource: usage.as_ref().to_string(),
             version_constraint: version_req.map(|x| x.as_ref().to_string()),
         });

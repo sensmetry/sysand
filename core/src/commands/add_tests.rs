@@ -3,7 +3,7 @@
 
 use crate::{
     add::{do_add_guess, expand_sysand_purl_shorthand},
-    model::InterchangeProjectInfoRaw,
+    model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     project::memory::InMemoryProject,
 };
 use std::assert_matches;
@@ -54,8 +54,13 @@ fn add_accepts_normalized_sysand_shorthand() {
 
     let info = project.info.unwrap();
     assert_eq!(info.usage.len(), 1);
-    assert_eq!(info.usage[0].resource, "pkg:sysand/acme-labs/my.project");
-    assert_eq!(info.usage[0].version_constraint.as_deref(), Some("^1.2.3"));
+    assert_eq!(
+        info.usage[0],
+        InterchangeProjectUsageRaw::Resource {
+            resource: "pkg:sysand/acme-labs/my.project".to_string(),
+            version_constraint: Some("^1.2.3".to_string())
+        }
+    );
 }
 
 #[test]
@@ -72,8 +77,11 @@ fn add_keeps_iri_resource() {
     let info = project.info.unwrap();
     assert_eq!(info.usage.len(), 1);
     assert_eq!(
-        info.usage[0].resource,
-        "https://example.com/acme-labs/my.project"
+        info.usage[0],
+        InterchangeProjectUsageRaw::Resource {
+            resource: "https://example.com/acme-labs/my.project".to_string(),
+            version_constraint: None
+        }
     );
 }
 

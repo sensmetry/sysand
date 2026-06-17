@@ -198,12 +198,30 @@ fn get_usage_array_field<'local>(
                 return None;
             }
         };
-        let resource = get_string_field(env, &elem, "resource")?;
-        let version_constraint = get_nullable_string_field(env, &elem, "versionConstraint")?;
-        result.push(InterchangeProjectUsageRaw {
-            resource,
-            version_constraint,
-        });
+        match env.is_instance_of(&elem, INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS) {
+            Ok(true) => {
+                let resource = get_string_field(env, &elem, "resource")?;
+                let version_constraint =
+                    get_nullable_string_field(env, &elem, "versionConstraint")?;
+                result.push(InterchangeProjectUsageRaw::Resource {
+                    resource,
+                    version_constraint,
+                });
+            }
+            Ok(false) => {
+                env.throw_runtime_exception(
+                    "Unknown usage type, only InterchangeProjectUsageResource is supported",
+                );
+                return None;
+            }
+            Err(e) => {
+                env.throw_runtime_exception(format!(
+                    "Failed to check whether `{field_name}[{i}]` is InterchangeProjectUsageResource:\n\
+                    {e}"
+                ));
+                return None;
+            }
+        }
     }
     Some(result)
 }
@@ -335,6 +353,8 @@ pub(crate) fn java_metadata_to_raw<'local>(
     })
 }
 
+pub(crate) const INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS: &str =
+    "com/sensmetry/sysand/model/InterchangeProjectUsageResource";
 pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: &str =
     "com/sensmetry/sysand/model/InterchangeProjectUsage";
 pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS: &str =
@@ -523,17 +543,24 @@ impl ToJObject for InterchangeProjectChecksumRaw {
 
 impl ToJObject for InterchangeProjectUsageRaw {
     fn to_jobject<'local>(&self, env: &mut JNIEnv<'local>) -> Option<JObject<'local>> {
-        let resource = self.resource.to_jobject(env)?;
-        let version_constraint = self.version_constraint.to_jobject(env)?;
-        match env.new_object(
-            INTERCHANGE_PROJECT_USAGE_CLASS,
-            "(Ljava/lang/String;Ljava/lang/String;)V",
-            &[JValue::from(&resource), JValue::from(&version_constraint)],
-        ) {
-            Ok(o) => Some(o),
-            Err(e) => {
-                env.throw_runtime_exception(format!("Failed to create LinkedHashMap: {e}"));
-                None
+        match self {
+            InterchangeProjectUsageRaw::Resource {
+                resource,
+                version_constraint,
+            } => {
+                let resource = resource.to_jobject(env)?;
+                let version_constraint = version_constraint.to_jobject(env)?;
+                match env.new_object(
+                    INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS,
+                    "(Ljava/lang/String;Ljava/lang/String;)V",
+                    &[JValue::from(&resource), JValue::from(&version_constraint)],
+                ) {
+                    Ok(o) => Some(o),
+                    Err(e) => {
+                        env.throw_runtime_exception(format!("Failed to create LinkedHashMap: {e}"));
+                        None
+                    }
+                }
             }
         }
     }

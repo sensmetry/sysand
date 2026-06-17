@@ -3,29 +3,7 @@
 
 package com.sensmetry.sysand.model;
 
-public class InterchangeProjectUsage {
-
-    private String resource;
-    private String versionConstraint;
-
-    public InterchangeProjectUsage(String resource, String versionConstraint) {
-        this.resource = resource;
-        this.versionConstraint = versionConstraint;
-    }
-
-    public String getResource() {
-        return resource;
-    }
-
-    public void setResource(String resource) {
-        this.resource = resource;
-    }
-
-    public String getVersionConstraint() {
-        return versionConstraint;
-    }
-
-    public void setVersionConstraint(String versionConstraint) {
-        this.versionConstraint = versionConstraint;
-    }
-}
+// TODO(Java 17+): use sealed classes and interfaces 
+// This is meant to be a sealed interface and Sysand only supports
+// usage classes from this package.
+public interface InterchangeProjectUsage {}

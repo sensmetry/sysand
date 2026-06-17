@@ -42,7 +42,7 @@ fn make_fixture() -> IndexEntryProject<Unauthenticated> {
 
     let advertised = AdvertisedVersion {
         version: semver::Version::parse("1.2.3").unwrap(),
-        usage: vec![InterchangeProjectUsageRaw {
+        usage: vec![InterchangeProjectUsageRaw::Resource {
             resource: format!("{PKG_SYSAND_PREFIX}acme/widget"),
             version_constraint: Some("^1.0".to_string()),
         }],
@@ -94,7 +94,13 @@ fn usage_async_returns_advertised_without_fetch() {
         .unwrap()
         .expect("advertised usage is Some");
     assert_eq!(usage.len(), 1);
-    assert_eq!(usage[0].resource, format!("{PKG_SYSAND_PREFIX}acme/widget"));
+    assert_eq!(
+        usage[0],
+        InterchangeProjectUsageRaw::Resource {
+            resource: format!("{PKG_SYSAND_PREFIX}acme/widget"),
+            version_constraint: Some("^1.0".to_string())
+        }
+    );
     assert!(!project.archive.is_downloaded_and_verified());
 }
 
