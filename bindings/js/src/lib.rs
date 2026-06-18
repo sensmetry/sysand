@@ -8,6 +8,7 @@ use sysand_core::commands::init::do_init;
 
 pub mod env;
 pub mod io;
+mod panic_hook;
 
 #[cfg(feature = "browser")]
 mod local_storage_utils;
@@ -19,7 +20,7 @@ pub fn init_logger() {
 
 #[wasm_bindgen(js_name = ensure_debug_hook)]
 pub fn ensure_debug_hook() {
-    console_error_panic_hook::set_once();
+    panic_hook::set_once();
 }
 
 #[cfg(feature = "browser")]
