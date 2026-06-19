@@ -19,7 +19,7 @@ use crate::{
 /// program's dir to workspace root.
 pub struct EditableProject<P: ProjectRead> {
     inner: P,
-    /// Must be relative to workspace root
+    /// Resolved relative to workspace root
     nominal_path: Utf8UnixPathBuf,
     include_original_sources: bool,
 }

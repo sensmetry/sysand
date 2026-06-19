@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
-use crate::utils::lowercase_hex;
+use crate::utils::{
+    RelativePathKind, RelativeUnixPathError, lowercase_hex, parse_relative_unix_path,
+};
 
 // pub struct RawIri(String);
 // pub struct ParsedIri(fluent_uri::Iri<String>);
@@ -517,10 +519,12 @@ pub enum InterchangeProjectValidationError {
         constraint: String,
         source: semver::Error,
     },
+    #[error("exported symbol index (`index` field in `.meta.json`) references an invalid path")]
+    InvalidPathInIndex(#[source] RelativeUnixPathError),
+    #[error("source file checksum (`checksum` field in `.meta.json`) references an invalid path")]
+    InvalidPathInChecksum(#[source] RelativeUnixPathError),
     #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
     InvalidCreatedTime(Box<str>, chrono::ParseError),
-    #[error("file `{0}` is present in symbol index, but absent in file checksums")]
-    MissingFileInChecksum(Box<str>),
     #[error(
         "invalid file checksum algorithm `{0}`, expected one of:\n\
         SHA1, SHA224, SHA256, SHA-384, SHA3-256, SHA3-384, SHA3-512\n\
@@ -560,24 +564,26 @@ impl Default for InterchangeProjectMetadataRaw {
 }
 
 impl InterchangeProjectMetadataRaw {
-    /// Caller is responsible for identifying the project when reporting the error
+    /// Caller is responsible for identifying the project when reporting the error.
+    /// Check that `self` is valid according to KerML 1.0 spec. No additional checks
+    /// are performed.
     pub fn validate(
         &self,
     ) -> Result<InterchangeProjectMetadata, InterchangeProjectValidationError> {
+        let mut index = IndexMap::with_capacity(self.index.len());
+        // Spec does not require any specific relationship between `index`
+        // and `checksum` files
+        for (symbol, path) in self.index.iter() {
+            let path = parse_relative_unix_path(path, RelativePathKind::SubFile)
+                .map_err(InterchangeProjectValidationError::InvalidPathInIndex)?;
+            index.insert(symbol.to_owned(), path.to_owned());
+        }
         let checksum = if let Some(checksum) = &self.checksum {
-            // Checksum must include all the files mentioned in index,
-            // but index may mention less files than checksum.
-            for path in self.index.values() {
-                if !checksum.contains_key(path) {
-                    return Err(InterchangeProjectValidationError::MissingFileInChecksum(
-                        path.as_str().into(),
-                    ));
-                }
-            }
-
             let mut res = IndexMap::with_capacity(checksum.len());
             for (k, v) in checksum {
-                let k = Utf8UnixPath::new(k).to_path_buf();
+                let k = parse_relative_unix_path(k, RelativePathKind::SubFile)
+                    .map_err(InterchangeProjectValidationError::InvalidPathInChecksum)?
+                    .to_path_buf();
                 let algorithm: KerMlChecksumAlg =
                     v.algorithm.as_str().try_into().map_err(|_| {
                         InterchangeProjectValidationError::InvalidChecksumAlg(
@@ -609,12 +615,22 @@ impl InterchangeProjectMetadataRaw {
             None
         };
 
+        let metamodel = if let Some(m) = &self.metamodel {
+            if !KNOWN_METAMODELS.contains(&m.as_str()) {
+                log::warn!("project uses an unknown metamodel `{}`", m);
+            }
+            match fluent_uri::Iri::parse(m.to_owned()) {
+                Ok(i) => Some(i),
+                Err((e, val)) => {
+                    return Err(InterchangeProjectValidationError::InvalidMetamodel(val, e));
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(InterchangeProjectMetadata {
-            index: self
-                .index
-                .iter()
-                .map(|(k, v)| (k.to_owned(), Utf8UnixPath::new(v).to_path_buf()))
-                .collect(),
+            index,
             // TODO: this is not strictly correct, as RFC3339 only partially overlaps with ISO8601
             created: chrono::DateTime::parse_from_rfc3339(&self.created)
                 .map_err(|e| {
@@ -624,17 +640,7 @@ impl InterchangeProjectMetadataRaw {
                     )
                 })?
                 .into(),
-            metamodel: self
-                .metamodel
-                .clone()
-                .map(|m| {
-                    if !KNOWN_METAMODELS.contains(&m.as_str()) {
-                        log::warn!("project uses an unknown metamodel `{}`", m);
-                    }
-                    fluent_uri::Iri::parse(m)
-                })
-                .transpose()
-                .map_err(|(e, val)| InterchangeProjectValidationError::InvalidMetamodel(val, e))?,
+            metamodel,
             includes_derived: self.includes_derived,
             includes_implied: self.includes_implied,
             checksum,

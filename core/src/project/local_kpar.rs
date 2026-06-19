@@ -41,16 +41,15 @@ pub enum KparInnerPath {
 }
 
 /// Project stored in as a KPar (Zip) archive in the local filesystem.
-/// Source file paths are interpreted relative to `root`. Both `.project.json`
-/// and `.meta.json` are searched for in `root`. If `root` is not given, it is
-/// guessed based on the location of the `.project.json`-file.
+/// Source file paths are resolved relative to and under `root`. Both
+/// `.project.json` and `.meta.json` are searched for in `root`.
+/// Use `LocalKParProject::new_guess_root` to guess `root` based on the
+/// presence of a (presumed unique) `.project.json`.
 ///
 /// Paths used in the archive are expected to match those used in the metadata
 /// manifest (.meta.json)! Sysand *MAY* try to normalize paths in order
 /// to match filenames, but no guarantees are made.
 ///
-/// Use `LocalKParProject::new_guess_root` to guess `root` based on the
-/// presence of a (presumed unique) `.project.json`.
 ///
 /// The archive is read directly without extracting it.
 // TODO: add a way to indicate whether to guess root at construction time
@@ -59,7 +58,8 @@ pub enum KparInnerPath {
 pub struct LocalKParProject {
     /// Path used in `Source::LocalKpar` returned by `.sources()`.
     /// If `None` no source will be given.
-    /// E.g. if used in lockfile would be the path relative to the lockfile.
+    /// E.g. if used in lockfile would be the path resolved relative
+    /// to the lockfile.
     // TODO: Consider removing this and replacing it with some way of
     // relativizing `archive_path` at the call site of .sources().
     pub nominal_path: Option<Utf8UnixPathBuf>,

@@ -473,8 +473,8 @@ fn do_remove_py(path: String, iri: String) -> PyResult<()> {
     Ok(())
 }
 
-/// `src_path` must be relative to project root and use Unix separators.
-/// No normalization will be performed
+/// `src_path` must be relative to and under the project root
+/// and use Unix separators. No normalization will be performed
 #[pyfunction(name = "do_include_py")]
 #[pyo3(
     signature = (path, src_path, compute_checksum, index_symbols, force_format),
@@ -516,8 +516,8 @@ fn do_include_py(
     .map_err(|e| PyRuntimeError::new_err(format_err(e)))
 }
 
-/// `src_path` must be relative to project root and use Unix separators.
-/// No normalization will be performed
+/// `src_path` must be relative to and under the project root
+/// and use Unix separators. No normalization will be performed
 #[pyfunction(name = "do_exclude_py")]
 #[pyo3(
     signature = (path, src_path),

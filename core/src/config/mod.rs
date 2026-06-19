@@ -11,6 +11,7 @@ use crate::project::utils::{deserialize_unix_path, serialize_unix_path};
 #[cfg(feature = "filesystem")]
 pub mod local_fs;
 
+// TODO: validate IRIs and paths
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(rename = "index", skip_serializing_if = "Vec::is_empty", default)]
@@ -39,6 +40,7 @@ pub enum OverrideSource {
         )]
         editable: Utf8UnixPathBuf,
     },
+    // Path must be a Unix path relative to workspace root
     LocalSrc {
         #[serde(
             deserialize_with = "deserialize_unix_path",
@@ -46,6 +48,7 @@ pub enum OverrideSource {
         )]
         src_path: Utf8UnixPathBuf,
     },
+    // Path must be a Unix path relative to workspace root
     LocalKpar {
         #[serde(
             deserialize_with = "deserialize_unix_path",

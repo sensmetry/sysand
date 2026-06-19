@@ -32,7 +32,10 @@ use crate::{
         normalize_field, parse_sysand_purl,
     },
     symbols::Language,
-    utils::{license_file_stems, sha256_lowercase_hex},
+    utils::{
+        RelativePathKind, RelativeUnixPathError, license_file_stems, parse_relative_unix_path,
+        sha256_lowercase_hex,
+    },
 };
 
 /// Defensive upper bound on kpar file size (100 MiB) to catch unexpected uploads by mistake.
@@ -199,29 +202,14 @@ pub enum PublishError {
     #[error(
         "archive is corrupt: directory entry for `{path}`
         is marked as compressed with {comp}, but directory entries\n\
-        cannot have any content to compress"
+        do not have any content to compress"
     )]
     CompressedDirEntry {
         path: Box<str>,
         comp: zip::CompressionMethod,
     },
-    #[error("archive is corrupt: path `{path:?}` contains a NULL character")]
-    NullChar { path: Box<str> },
-    #[error(
-        "archive is corrupt: path `{path}`\n\
-        contains two consecutive directory separators `//`"
-    )]
-    DoubleSlash { path: Box<str> },
-    #[error("archive is corrupt: path `{path}` is absolute")]
-    AbsolutePath { path: Box<str> },
-    #[error(
-        "item in archive has path `{path}`\n\
-        that contains a backslash `\\`; backslash is not allowed in paths to\n\
-        preserve consistent interpretation across different operating systems;\n\
-        backslash could be present because the path is Windows path, which is\n\
-        not allowed by the Zip format specification"
-    )]
-    Backslash { path: Box<str> },
+    #[error("archive contains an item with an invalid path")]
+    InvalidPathInArchive(#[source] RelativeUnixPathError),
     #[error(
         "archive contains a file `{path}` which uses unsupported\n\
         {comp} compression; published archives currently must use DEFLATE\n\
@@ -260,12 +248,6 @@ pub enum PublishError {
         expected: Box<str>,
         actual: Box<str>,
     },
-    #[error(
-        "archive contains file with invalid path `{path}`;\n\
-        relative components . and .. and absolute paths are not allowed
-        for security reasons"
-    )]
-    RelativePathComponents { path: Box<str> },
     #[error(
         "unsupported checksum algorithm `{alg}` for file `{path}`\n\
         only SHA256 is currently supported"
@@ -586,31 +568,11 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
             .map_err(|e| PublishError::KparReadZip(path.as_str().into(), e))?;
 
         let name = f.name();
-        for c in name.bytes() {
-            if c == b'\0' {
-                return Err(PublishError::NullChar { path: name.into() });
-            } else if c == b'\\' {
-                return Err(PublishError::Backslash { path: name.into() });
-            }
-        }
+        parse_relative_unix_path(name, RelativePathKind::SubDirectory)
+            .map_err(PublishError::InvalidPathInArchive)?;
+
         if f.is_symlink() {
             return Err(PublishError::Symlink { path: name.into() });
-        }
-
-        if name.starts_with('/') {
-            return Err(PublishError::AbsolutePath { path: name.into() });
-        }
-        // Manually split into componenets, `Utf8UnixPath::components()` does
-        // some normalization, which is undesirable here
-        for c in name.split_terminator('/') {
-            if c.is_empty() {
-                // `split_terminator()` ignores trailing slash, and the path is
-                // not absolute, so the only way for it to contain an empty
-                // component is to have two consecutive slashes
-                return Err(PublishError::DoubleSlash { path: name.into() });
-            } else if c == "." || c == ".." {
-                return Err(PublishError::RelativePathComponents { path: name.into() });
-            }
         }
 
         // Directory entries don't contain any contents, so encryption
