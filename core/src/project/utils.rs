@@ -237,12 +237,16 @@ pub mod wrapfs {
     /// UTF-8, returns `io::Error` of `InvalidData` kind.
     /// On Windows this returns most compatible form of a path instead of UNC.
     pub fn canonicalize<P: AsRef<Utf8Path>>(path: P) -> Result<Utf8PathBuf, Box<FsIoError>> {
-        dunce::canonicalize(path.as_ref())
-            .and_then(|path| {
-                Utf8PathBuf::from_path_buf(path)
-                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
-            })
+        canonicalize_raw(path.as_ref())
             .map_err(|e| Box::new(FsIoError::Canonicalize(path.as_ref().into(), e)))
+    }
+
+    /// Same as `canonicalize`, but does not wrap the error
+    pub fn canonicalize_raw<P: AsRef<Utf8Path>>(path: P) -> Result<Utf8PathBuf, io::Error> {
+        dunce::canonicalize(path.as_ref()).and_then(|path| {
+            Utf8PathBuf::from_path_buf(path)
+                .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+        })
     }
 
     /// see `std::path::absolute()`

@@ -6,14 +6,16 @@
 use std::{io::Read, process::Command};
 
 use assert_cmd::prelude::*;
-use tempfile::tempdir;
+#[cfg(feature = "alltests")]
+use camino::Utf8Path;
+use camino_tempfile::tempdir;
 
 use crate::project::{ProjectRead, gix_git_download::GixDownloadedProject};
 //use predicates::prelude::*;
 
 /// Initializes a git repository at `path` with a pre-configured test user.
 #[cfg(feature = "alltests")]
-fn git_init(path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+fn git_init(path: &Utf8Path) -> Result<(), Box<dyn std::error::Error>> {
     Command::new("git")
         .arg("init")
         .current_dir(path)
@@ -38,6 +40,8 @@ fn git_init(path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(feature = "alltests")]
 #[test]
 pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::project::utils::wrapfs;
+
     let repo_dir = tempdir()?;
     git_init(repo_dir.path())?;
 
@@ -105,11 +109,7 @@ pub fn basic_gix_access() -> Result<(), Box<dyn std::error::Error>> {
 
     // sleep(Duration::from_millis(100));
 
-    let canonical = repo_dir.path().canonicalize()?;
-    // On Windows, canonicalize() returns extended-length paths with a `\\?\`
-    // prefix that gix cannot parse as a valid file URL. Strip it.
-    let path = canonical.to_str().unwrap();
-    let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+    let path = wrapfs::canonicalize(repo_dir.path())?;
     let project = GixDownloadedProject::new(format!("file://{path}"))?;
 
     let (Some(info), Some(meta)) = project.get_project()? else {

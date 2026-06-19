@@ -3657,7 +3657,6 @@ dependencies = [
  "serde_json",
  "spdx",
  "sysand-core",
- "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "toml",
@@ -3705,7 +3704,6 @@ dependencies = [
  "sha2 0.11.0",
  "spdx",
  "sysand-macros",
- "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "toml",
@@ -3767,6 +3765,7 @@ name = "sysand-py"
 version = "0.1.4"
 dependencies = [
  "camino",
+ "camino-tempfile",
  "predicates",
  "pyo3",
  "pyo3-log",
@@ -3775,7 +3774,6 @@ dependencies = [
  "semver",
  "sysand",
  "sysand-core",
- "tempfile",
  "tokio",
  "typed-path",
  "url",

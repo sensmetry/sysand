@@ -56,7 +56,7 @@ fn canonicalize_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
     let mut absolute_part = path.to_path_buf();
 
     loop {
-        if let Ok(canonical_absolute) = absolute_part.canonicalize_utf8() {
+        if let Ok(canonical_absolute) = wrapfs::canonicalize_raw(&absolute_part) {
             absolute_part = canonical_absolute;
             break;
         }
@@ -118,8 +118,7 @@ impl LocalSrcProject {
         path: P,
     ) -> Result<Utf8UnixPathBuf, UnixPathError> {
         let root_path = self.root_path();
-        let project_path = root_path
-            .canonicalize_utf8()
+        let project_path = wrapfs::canonicalize_raw(root_path)
             .map_err(|e| UnixPathError::Canonicalize(root_path.to_owned(), e))?;
 
         let path = relativize_path_in(&path, project_path)
@@ -179,19 +178,6 @@ impl LocalSrcProject {
     pub fn get_source_paths(&self) -> Result<HashSet<Utf8PathBuf>, LocalSrcError> {
         let mut result = HashSet::new();
 
-        // if let Some(meta) = self.get_meta()? {
-        //     for index_path in meta.0.keys() {
-        //         all_paths.insert(root_path.join(index_path).canonicalize()?);
-        //     }
-
-        //     if let Some(checksums) = meta.5 {
-        //         for checksum_path in checksums.keys() {
-        //             all_paths.insert(root_path.join(checksum_path).canonicalize()?);
-        //         }
-        //     }
-        // }
-
-        // Ok(all_paths)
         if let Some(meta) = self.get_meta()? {
             for path in meta.source_paths(true) {
                 let source_path = self.get_source_path(path)?;
@@ -225,10 +211,6 @@ impl LocalSrcProject {
 
         Ok((tmp, tmp_project, info, meta))
     }
-
-    // pub fn source_paths(&self) -> &str {
-    //     self.get_project()
-    // }
 
     pub fn set_index(&mut self, new_index: IndexMap<String, String>) -> Result<(), LocalSrcError> {
         let mut meta = self.get_meta()?.ok_or(LocalSrcError::MissingMeta)?;

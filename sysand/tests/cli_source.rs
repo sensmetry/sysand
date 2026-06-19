@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::fs::canonicalize;
-
 use assert_cmd::prelude::*;
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
+use sysand_core::project::utils::wrapfs;
 
 #[test]
 fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
@@ -75,7 +74,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
             .trim_ascii_end()
             .to_owned(),
     )?;
-    assert_eq!(canonicalize(p)?, expected_path);
+    assert_eq!(wrapfs::canonicalize(p)?, expected_path);
 
     let out = run_sysand_in(
         &path,
@@ -91,7 +90,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
             .trim_ascii_end()
             .to_owned(),
     )?;
-    assert_eq!(canonicalize(p)?, dep_expected_path);
+    assert_eq!(wrapfs::canonicalize(p)?, dep_expected_path);
 
     let out = run_sysand_in(&path, ["sources"], None)?;
 
@@ -104,7 +103,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
             .to_owned(),
     )?;
     for (actual, expected) in p.split('\n').zip(combined_path) {
-        assert_eq!(canonicalize(actual)?, expected.as_path());
+        assert_eq!(wrapfs::canonicalize(actual)?, expected.as_path());
     }
 
     Ok(())

@@ -4,14 +4,14 @@
 use anyhow::{Result, anyhow};
 
 use camino::Utf8Path;
-use sysand_core::root::do_root;
+use sysand_core::{project::utils::wrapfs, root::do_root};
 
 use crate::CliError;
 
 pub fn command_print_root<P: AsRef<Utf8Path>>(path: P) -> Result<()> {
     match do_root(path)? {
         Some(root) => {
-            println!("{}", root.canonicalize()?.display());
+            println!("{}", wrapfs::canonicalize(root)?);
             Ok(())
         }
         None => Err(anyhow!(CliError::InvalidDirectory(
