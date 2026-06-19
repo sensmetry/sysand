@@ -1071,6 +1071,8 @@ mod versions {
 /// - A caller-supplied version not listed in `versions.json` surfaces
 ///   as `VersionNotInIndex`; there is no kpar-only fallback.
 mod get_project {
+    use crate::model::InterchangeProjectUsageRaw;
+
     use super::*;
 
     #[test]
@@ -1353,11 +1355,20 @@ mod get_project {
         let info = info.expect("info should be prefetched");
 
         assert_eq!(info.usage.len(), 2);
-        assert_eq!(info.usage[0].resource, purl("admin/dep"));
-        assert_eq!(info.usage[0].version_constraint.as_deref(), Some("<2"));
-        assert_eq!(info.usage[1].resource, purl("admin/other"));
-        assert_eq!(info.usage[1].version_constraint, None);
-
+        assert_eq!(
+            info.usage[0],
+            InterchangeProjectUsageRaw::Resource {
+                resource: purl("admin/dep"),
+                version_constraint: Some("<2".to_string())
+            }
+        );
+        assert_eq!(
+            info.usage[1],
+            InterchangeProjectUsageRaw::Resource {
+                resource: purl("admin/other"),
+                version_constraint: None
+            }
+        );
         versions_mock.assert();
         project_json_mock.assert();
         meta_json_mock.assert();
@@ -1457,9 +1468,13 @@ mod get_project {
         assert_eq!(info.publisher.as_deref(), Some("real_publisher"));
         assert_eq!(info.version, "0.3.0");
         assert_eq!(info.usage.len(), 1);
-        assert_eq!(info.usage[0].resource, purl("x/y"));
-        assert_eq!(info.usage[0].version_constraint.as_deref(), Some(">=1"));
-
+        assert_eq!(
+            info.usage[0],
+            InterchangeProjectUsageRaw::Resource {
+                resource: purl("x/y"),
+                version_constraint: Some(">=1".to_string())
+            }
+        );
         assert_eq!(
             meta.metamodel.as_deref(),
             Some("https://www.omg.org/spec/KerML/20250201")

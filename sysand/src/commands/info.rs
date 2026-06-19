@@ -14,6 +14,7 @@ use sysand_core::{
     context::ProjectContext,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw,
     },
     project::{ProjectMut, ProjectRead, any::OverrideProject, local_kpar::KparInnerPath},
     resolve::{
@@ -66,25 +67,37 @@ pub fn pprint_interchange_project(
     if info.usage.is_empty() {
         println!("No usages.");
     } else {
-        let has_ignored_usages = info
-            .usage
-            .iter()
-            .any(|u| excluded_iris.contains(&u.resource));
+        let has_ignored_usages = info.usage.iter().any(|u| match u {
+            InterchangeProjectUsageRaw::Resource { resource, .. } => {
+                excluded_iris.contains(resource)
+            }
+        });
         let usages_to_print: Vec<_> = info
             .usage
             .iter()
-            .filter(|u| !excluded_iris.contains(&u.resource))
+            .filter(|u| match u {
+                InterchangeProjectUsageRaw::Resource { resource, .. } => {
+                    !excluded_iris.contains(resource)
+                }
+            })
             .collect();
         if has_ignored_usages && usages_to_print.is_empty() {
             println!("All usages are ignored");
         } else {
             println!("{header}Usages:{header:#}");
             for usage in usages_to_print.iter() {
-                print!("    {}", usage.resource);
-                if let Some(ref v) = usage.version_constraint {
-                    println!(" ({})", v);
-                } else {
-                    println!();
+                match usage {
+                    InterchangeProjectUsageRaw::Resource {
+                        resource,
+                        version_constraint,
+                    } => {
+                        print!("    {resource}");
+                        if let Some(v) = version_constraint {
+                            println!(" ({v})");
+                        } else {
+                            println!();
+                        }
+                    }
                 }
             }
             if has_ignored_usages {
@@ -346,11 +359,16 @@ fn apply_get_info(
             Some(
                 info.usage
                     .into_iter()
-                    .map(|usage| {
-                        if let Some(version_constraint) = usage.version_constraint {
-                            format!("{} ({})", usage.resource, version_constraint)
-                        } else {
-                            usage.resource.clone()
+                    .map(|usage| match usage {
+                        InterchangeProjectUsageRaw::Resource {
+                            resource,
+                            version_constraint,
+                        } => {
+                            if let Some(version_constraint) = version_constraint {
+                                format!("{resource} ({version_constraint})")
+                            } else {
+                                resource.clone()
+                            }
                         }
                     })
                     .collect(),

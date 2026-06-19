@@ -33,7 +33,7 @@ fn trivial_memory_project(
             topic: vec![],
             usage: usage
                 .into_iter()
-                .map(|(d, dv)| InterchangeProjectUsageRaw {
+                .map(|(d, dv)| InterchangeProjectUsageRaw::Resource {
                     resource: d.to_string(),
                     version_constraint: dv.map(|x| x.to_string()),
                 })
@@ -93,7 +93,7 @@ fn version_selection() -> Result<(), Box<dyn std::error::Error>> {
         simple_resolver_environment(&[("urn:kpar:version_selection", &[project_v1, project_v2])]);
 
     let solution = super::solve(
-        vec![InterchangeProjectUsage {
+        vec![InterchangeProjectUsage::Resource {
             resource: fluent_uri::Iri::parse("urn:kpar:version_selection")?.into(),
             version_constraint: Some(semver::VersionReq::parse(">=2.0.0")?),
         }],
@@ -151,11 +151,11 @@ fn diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
 
     let solution = super::solve(
         vec![
-            InterchangeProjectUsage {
+            InterchangeProjectUsage::Resource {
                 resource: fluent_uri::Iri::parse("urn:kpar:diamond_selection_a")?.into(),
                 version_constraint: Some(semver::VersionReq::parse(">=0.1.0")?),
             },
-            InterchangeProjectUsage {
+            InterchangeProjectUsage::Resource {
                 resource: fluent_uri::Iri::parse("urn:kpar:diamond_selection_b")?.into(),
                 version_constraint: None,
             },

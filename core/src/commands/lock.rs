@@ -20,7 +20,9 @@ use crate::project::{editable::EditableProject, local_src::LocalSrcProject, util
 use crate::{
     context::ProjectContext,
     lock::{Lock, Project, Usage, hash_str},
-    model::{InterchangeProjectUsage, InterchangeProjectValidationError},
+    model::{
+        InterchangeProjectUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
+    },
     project::{CanonicalizationError, ProjectRead, memory::InMemoryProject, utils::FsIoError},
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
@@ -181,7 +183,11 @@ pub fn do_lock_projects<
             usages: info
                 .usage
                 .iter()
-                .map(|u| Usage::from(u.resource.clone()))
+                .map(|u| match u {
+                    InterchangeProjectUsageRaw::Resource { resource, .. } => {
+                        Usage::from(resource.to_owned())
+                    }
+                })
                 .collect(),
         });
 
@@ -282,13 +288,14 @@ pub fn do_lock_extend<
             usages: info
                 .usage
                 .into_iter()
-                .map(|u| Usage::from(u.resource))
+                .map(|u| match u {
+                    InterchangeProjectUsageRaw::Resource { resource, .. } => Usage::from(resource),
+                })
                 .collect(),
         };
         if lock_projects.contains(iri.as_str()) {
             log::debug!(
-                "not adding project `{}` ({}) to lock, as lock already contains it",
-                iri,
+                "not adding project `{iri}` ({}) to lock, as lock already contains it",
                 lock_project.version
             );
         } else {

@@ -327,53 +327,59 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
     let mut deps: Vec<(DependencyIdentifier, DiscreteHashSet)> = Vec::new();
 
     for usage in usages {
-        if let Some(constraint) = &usage.version_constraint {
-            let mut valid_candidates = HashSet::new();
+        match usage {
+            InterchangeProjectUsage::Resource {
+                resource,
+                version_constraint,
+            } => {
+                if let Some(constraint) = version_constraint {
+                    let mut valid_candidates = HashSet::new();
 
-            let mut found_versions = Vec::new();
-            for (i, candidate_info) in resolve_candidates(resolver, &usage.resource, cache)?
-                .iter()
-                .enumerate()
-            {
-                found_versions.push(candidate_info.version.clone());
-                if constraint.matches(&candidate_info.version) {
-                    valid_candidates.insert(i);
+                    let mut found_versions = Vec::new();
+                    for (i, candidate_info) in resolve_candidates(resolver, resource, cache)?
+                        .iter()
+                        .enumerate()
+                    {
+                        found_versions.push(candidate_info.version.clone());
+                        if constraint.matches(&candidate_info.version) {
+                            valid_candidates.insert(i);
+                        }
+                    }
+                    if valid_candidates.is_empty() {
+                        let mut versions = String::new();
+                        // `found_versions` must contain at least one element
+                        write!(versions, "`{}`", found_versions[0]).unwrap();
+                        for v in &found_versions[1..] {
+                            write!(versions, ", `{}`", v).unwrap();
+                        }
+                        return Err(InternalSolverError::VersionNotAvailable(format!(
+                            "project `{resource}`\n\
+                            was found, but the requested version constraint `{constraint}`\n\
+                            was not satisfied by any of the found versions:\n\
+                            {versions}"
+                        )));
+                    }
+
+                    deps.push((
+                        DependencyIdentifier::Remote(resource.clone()),
+                        DiscreteHashSet::Finite(valid_candidates),
+                    ));
+                } else {
+                    // Check that the project can be found
+                    resolve_candidates(resolver, resource, cache)?;
+                    // TODO: reenable this when it's fixed to give better error messages
+                    // https://github.com/pubgrub-rs/pubgrub/pull/216
+                    // match resolve_candidates(resolver, &usage.resource, cache) {
+                    //     Ok(_) => (),
+                    //     Err(err) => return Ok(pubgrub::Dependencies::Unavailable(err.to_string())),
+                    // };
+
+                    deps.push((
+                        DependencyIdentifier::Remote(resource.clone()),
+                        DiscreteHashSet::empty().complement(),
+                    ));
                 }
             }
-            if valid_candidates.is_empty() {
-                let mut versions = String::new();
-                // `found_versions` must contain at least one element
-                write!(versions, "`{}`", found_versions[0]).unwrap();
-                for v in &found_versions[1..] {
-                    write!(versions, ", `{}`", v).unwrap();
-                }
-                return Err(InternalSolverError::VersionNotAvailable(format!(
-                    "project `{}`\n\
-                    was found, but the requested version constraint `{}`\n\
-                    was not satisfied by any of the found versions:\n\
-                    {}",
-                    usage.resource, constraint, versions
-                )));
-            }
-
-            deps.push((
-                DependencyIdentifier::Remote(usage.resource.clone()),
-                DiscreteHashSet::Finite(valid_candidates),
-            ));
-        } else {
-            // Check that the project can be found
-            resolve_candidates(resolver, &usage.resource, cache)?;
-            // TODO: reenable this when it's fixed to give better error messages
-            // https://github.com/pubgrub-rs/pubgrub/pull/216
-            // match resolve_candidates(resolver, &usage.resource, cache) {
-            //     Ok(_) => (),
-            //     Err(err) => return Ok(pubgrub::Dependencies::Unavailable(err.to_string())),
-            // };
-
-            deps.push((
-                DependencyIdentifier::Remote(usage.resource.clone()),
-                DiscreteHashSet::empty().complement(),
-            ));
         }
     }
 

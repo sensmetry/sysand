@@ -193,7 +193,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         HashMap::default()
     };
 
-    let usage_raw = InterchangeProjectUsageRaw {
+    let usage_raw = InterchangeProjectUsageRaw::Resource {
         resource: iri.to_owned(),
         version_constraint,
     };

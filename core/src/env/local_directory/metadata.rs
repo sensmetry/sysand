@@ -11,6 +11,7 @@ use typed_path::{Utf8UnixComponent, Utf8UnixPathBuf};
 
 use crate::{
     env::ProjectChecksum,
+    model::InterchangeProjectUsageRaw,
     project::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, deserialize_unix_path, wrapfs},
@@ -224,7 +225,13 @@ impl EnvMetadata {
                 .expect("BUG: no nominal path for project")
                 .to_owned(),
             identifiers,
-            usages: info.usage.into_iter().map(|u| u.resource).collect(),
+            usages: info
+                .usage
+                .into_iter()
+                .map(|u| match u {
+                    InterchangeProjectUsageRaw::Resource { resource, .. } => resource,
+                })
+                .collect(),
             editable,
             workspace,
             checksum: checksum.map(Into::into),

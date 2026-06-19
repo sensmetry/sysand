@@ -10,7 +10,10 @@ use std::{collections::HashSet, io::Write as _};
 use crate::{
     env::utils::ErrorBound,
     include::{IncludeError, extract_symbols, read_project_file_to_string},
-    model::{InterchangeProjectChecksumRaw, InterchangeProjectValidationError, KerMlChecksumAlg},
+    model::{
+        InterchangeProjectChecksumRaw, InterchangeProjectUsageRaw,
+        InterchangeProjectValidationError, KerMlChecksumAlg,
+    },
     project::{
         ProjectRead,
         local_kpar::LocalKParProjectRaw,
@@ -288,23 +291,27 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 }
             });
 
-    if let Some(u) = info.usage.iter().find(|x| {
+    if let Some(resource) = info.usage.iter().find_map(|x| {
         // Case-insensitively match `file:` scheme
-        x.resource.len() >= 5
-            && x.resource
-                .as_bytes()
-                .iter()
-                .zip(b"file:")
-                .all(|(c1, &c2)| c1.to_ascii_lowercase() == c2)
+        match x {
+            InterchangeProjectUsageRaw::Resource { resource, .. } => {
+                if let Some(scheme) = resource.get(..5)
+                    && scheme.eq_ignore_ascii_case("file:")
+                {
+                    Some(resource)
+                } else {
+                    None
+                }
+            }
+        }
     }) {
         if allow_path_usage {
             log::warn!(
-                "project includes a path usage `{}`,\n\
-            which is unlikely to be available on other computers at the same path",
-                u.resource
+                "project includes a path usage `{resource}`,\n\
+                which is unlikely to be available on other computers at the same path"
             );
         } else {
-            return Err(KParBuildError::PathUsage(u.resource.clone()));
+            return Err(KParBuildError::PathUsage(resource.clone()));
         }
     }
 

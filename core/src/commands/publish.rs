@@ -925,15 +925,19 @@ fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
         return Ok(());
     }
 
-    match parse_sysand_purl(&usage.resource) {
-        Ok(Some(_)) => Ok(()),
-        Ok(None) => Err(PublishError::DisallowedUsage {
-            name: usage.resource.as_str().into(),
-        }),
-        Err(e) => Err(PublishError::InvalidPurl {
-            name: usage.resource.as_str().into(),
-            source: e,
-        }),
+    match usage {
+        InterchangeProjectUsageRaw::Resource { resource, .. } => {
+            match parse_sysand_purl(resource) {
+                Ok(Some(_)) => Ok(()),
+                Ok(None) => Err(PublishError::DisallowedUsage {
+                    name: resource.as_str().into(),
+                }),
+                Err(e) => Err(PublishError::InvalidPurl {
+                    name: resource.as_str().into(),
+                    source: e,
+                }),
+            }
+        }
     }
 }
 
@@ -945,30 +949,37 @@ fn check_std_libs(
     lib_names: &[&str],
     prefix: &str,
 ) -> Result<bool, PublishError> {
-    if let Some(stripped) = usage.resource.strip_prefix(prefix) {
-        for s in lib_names {
-            if let Some(metamodel_version) = stripped.strip_suffix(s) {
-                if is_valid_metamodel_version(metamodel_version) {
-                    if let Some(vc) = usage.version_constraint.as_deref() {
-                        return Err(PublishError::StdWithVersionConstraint {
-                            name: usage.resource.as_str().into(),
-                            vc: vc.into(),
-                        });
+    match usage {
+        InterchangeProjectUsageRaw::Resource {
+            resource,
+            version_constraint,
+        } => {
+            if let Some(stripped) = resource.strip_prefix(prefix) {
+                for s in lib_names {
+                    if let Some(metamodel_version) = stripped.strip_suffix(s) {
+                        if is_valid_metamodel_version(metamodel_version) {
+                            if let Some(vc) = version_constraint.as_deref() {
+                                return Err(PublishError::StdWithVersionConstraint {
+                                    name: resource.as_str().into(),
+                                    vc: vc.into(),
+                                });
+                            }
+                            return Ok(true);
+                        } else {
+                            return Err(PublishError::InvalidStdLibVersion {
+                                name: resource.as_str().into(),
+                                std_version: metamodel_version.into(),
+                            });
+                        }
                     }
-                    return Ok(true);
-                } else {
-                    return Err(PublishError::InvalidStdLibVersion {
-                        name: usage.resource.as_str().into(),
-                        std_version: metamodel_version.into(),
-                    });
                 }
+                return Err(PublishError::UnknownStdLib {
+                    name: resource.as_str().into(),
+                });
             }
+            Ok(false)
         }
-        return Err(PublishError::UnknownStdLib {
-            name: usage.resource.as_str().into(),
-        });
     }
-    Ok(false)
 }
 
 /// Check that `v` is a number of the form `20yymmxx`, where `yy` and `xx` are pairs

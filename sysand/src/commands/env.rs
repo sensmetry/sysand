@@ -144,7 +144,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             allow_multiple,
         )?;
     } else {
-        let usages = vec![InterchangeProjectUsage {
+        let usages = vec![InterchangeProjectUsage::Resource {
             resource: fluent_uri::Iri::from_str(iri.as_ref())?,
             version_constraint: version.map(|v| semver::VersionReq::parse(&v)).transpose()?,
         }];

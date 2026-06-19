@@ -155,14 +155,14 @@ fn check_metamodel_rejects_invalid_kerml_version() {
 // --- check_usage ---
 
 fn usage(resource: &str) -> InterchangeProjectUsageRaw {
-    InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Resource {
         resource: resource.to_string(),
         version_constraint: None,
     }
 }
 
 fn usage_with_vc(resource: &str, vc: &str) -> InterchangeProjectUsageRaw {
-    InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Resource {
         resource: resource.to_string(),
         version_constraint: Some(vc.to_string()),
     }

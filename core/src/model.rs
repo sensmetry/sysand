@@ -27,53 +27,73 @@ pub const KERML_METAMODEL_PREFIX: &str = "https://www.omg.org/spec/KerML/";
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-#[serde(rename_all = "camelCase")]
-pub struct InterchangeProjectUsageG<Iri, VersionReq> {
-    pub resource: Iri, // TODO: We should have a fallback for invalid IRIs
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvers
+#[serde(untagged)]
+pub enum InterchangeProjectUsageG<Iri, VersionReq> {
+    // `rename_all` does not apply to enum variant fields if applied on
+    // the whole enum
+    #[serde(rename_all = "camelCase")]
+    Resource {
+        resource: Iri, // TODO: We should have a fallback for invalid IRIs
+        #[serde(skip_serializing_if = "Option::is_none")]
+        version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvers
+    },
 }
+
 pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String>;
 pub type InterchangeProjectUsage =
     InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>;
 
 impl InterchangeProjectUsageRaw {
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
-        // `pkg:sysand/<publisher>/<name>` is the canonical sysand project
-        // identifier; the index protocol routes it directly under
-        // `<publisher>/<name>/`. Reject malformed or non-normalized
-        // `pkg:sysand` IRIs at validation time so users get an actionable
-        // error (with a suggested normalized form) instead of a downstream
-        // "not found" — see `crate::purl::parse_sysand_purl`.
-        crate::purl::parse_sysand_purl(&self.resource).map_err(|e| {
-            InterchangeProjectValidationError::MalformedSysandPurl {
-                iri: self.resource.clone(),
-                source: e,
-            }
-        })?;
+        match self {
+            InterchangeProjectUsageG::Resource {
+                resource,
+                version_constraint,
+            } => {
+                // `pkg:sysand/<publisher>/<name>` is the canonical sysand project
+                // identifier; the index protocol routes it directly under
+                // `<publisher>/<name>/`. Reject malformed or non-normalized
+                // `pkg:sysand` IRIs at validation time so users get an actionable
+                // error (with a suggested normalized form) instead of a downstream
+                // "not found" — see `crate::purl::parse_sysand_purl`.
+                crate::purl::parse_sysand_purl(resource).map_err(|e| {
+                    InterchangeProjectValidationError::MalformedSysandPurl {
+                        iri: resource.clone(),
+                        source: e,
+                    }
+                })?;
 
-        Ok(InterchangeProjectUsage {
-            resource: fluent_uri::Iri::parse(self.resource.clone())
-                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
+                Ok(InterchangeProjectUsage::Resource {
+                    resource: fluent_uri::Iri::parse(resource.clone())
+                        .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
 
-            version_constraint: self
-                .version_constraint
-                .as_ref()
-                .map(|c| {
-                    semver::VersionReq::parse(c).map_err(|e| {
-                        InterchangeProjectValidationError::SemVerConstraintParse(c.to_owned(), e)
-                    })
+                    version_constraint: version_constraint
+                        .as_ref()
+                        .map(|c| {
+                            semver::VersionReq::parse(c).map_err(|e| {
+                                InterchangeProjectValidationError::SemVerConstraintParse(
+                                    c.to_owned(),
+                                    e,
+                                )
+                            })
+                        })
+                        .transpose()?,
                 })
-                .transpose()?,
-        })
+            }
+        }
     }
 }
 
 impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
     fn from(value: InterchangeProjectUsage) -> InterchangeProjectUsageRaw {
-        InterchangeProjectUsageRaw {
-            resource: value.resource.to_string(),
-            version_constraint: value.version_constraint.map(|x| x.to_string()),
+        match value {
+            InterchangeProjectUsageG::Resource {
+                resource,
+                version_constraint,
+            } => InterchangeProjectUsageRaw::Resource {
+                resource: resource.into_string(),
+                version_constraint: version_constraint.map(|x| x.to_string()),
+            },
         }
     }
 }
@@ -82,9 +102,14 @@ impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>>
     for InterchangeProjectUsageG<String, semver::VersionReq>
 {
     fn from(value: InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>) -> Self {
-        InterchangeProjectUsageG {
-            resource: value.resource.to_string(),
-            version_constraint: value.version_constraint,
+        match value {
+            InterchangeProjectUsageG::Resource {
+                resource,
+                version_constraint,
+            } => InterchangeProjectUsageG::Resource {
+                resource: resource.into_string(),
+                version_constraint,
+            },
         }
     }
 }
@@ -94,6 +119,22 @@ impl TryFrom<InterchangeProjectUsageRaw> for InterchangeProjectUsage {
 
     fn try_from(value: InterchangeProjectUsageRaw) -> Result<InterchangeProjectUsage, Self::Error> {
         value.validate()
+    }
+}
+impl<Iri: Display, VersionReq: Display> Display for InterchangeProjectUsageG<Iri, VersionReq> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InterchangeProjectUsageG::Resource {
+                resource,
+                version_constraint,
+            } => {
+                write!(f, "IRI `{resource}`")?;
+                if let Some(vc) = version_constraint {
+                    write!(f, " ({vc})")?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -185,7 +226,7 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
         self.usage
             .extract_if(
                 ..,
-                |InterchangeProjectUsageG {
+                |InterchangeProjectUsageG::Resource {
                      resource: this_resource,
                      ..
                  }| this_resource == resource,
