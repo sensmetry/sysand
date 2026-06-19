@@ -80,18 +80,7 @@ fn init_default_version() -> Result<(), Box<dyn std::error::Error>> {
 /// project in cwd.
 #[test]
 fn init_basic_cwd() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--publisher",
-            "b",
-            "--name",
-            "init_basic_cwd",
-            "--version",
-            "1.2.3",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("b", "init_basic_cwd", "1.2.3")?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -224,18 +213,8 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn init_fail_on_double_init_cwd() -> Result<(), Box<dyn std::error::Error>> {
     // Run 1
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--publisher",
-            "a",
-            "--name",
-            "init_fail_on_double_init_cwd",
-            "--version",
-            "1.2.3",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "init_fail_on_double_init_cwd", "1.2.3")?;
     out.assert().success().stdout(predicate::str::is_empty());
 
     let original_info = std::fs::read_to_string(cwd.join(".project.json"))?;

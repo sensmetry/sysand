@@ -112,7 +112,6 @@ SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
           <cloneProjectsTo>${project.build.directory}/it</cloneProjectsTo>
           <showVersion>true</showVersion>
           <streamLogs>true</streamLogs>
-          <filterPom>true</filterPom>
         </configuration>
         <executions>
           <execution>

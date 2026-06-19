@@ -81,11 +81,10 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 ))
             }
             OverrideSource::LocalKpar { kpar_path } => {
-                Ok(AnyProject::LocalKpar(LocalKParProject::new(
+                Ok(AnyProject::LocalKpar(LocalKParProject::new_access(
                     project_root.as_ref().join(kpar_path.as_str()),
                     KparInnerPath::Guess,
                     Some(kpar_path),
-                    None,
                 )))
             }
             OverrideSource::LocalSrc { src_path } => {

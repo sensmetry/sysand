@@ -37,6 +37,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     ws: Option<&Workspace>,
 ) -> Result<()> {
+    let relative_root = ws.map_or(project_root.as_ref(), Workspace::root_path);
     sysand_core::commands::sync::do_sync(
         lock,
         env,
@@ -47,7 +48,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
              checksum: String|
              -> LocalSrcProject {
                 LocalSrcProject::new_for_sync(
-                    project_root.as_ref().join(src_path.as_str()),
+                    relative_root.join(src_path.as_str()),
                     Some(src_path),
                     publisher,
                     name,
@@ -69,11 +70,18 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             },
         ),
         Some(
-            |kpar_path: String, kpar_size: NonZeroU64, kpar_digest: String| -> LocalKParProject {
-                LocalKParProject::new(
-                    project_root.as_ref().join(&kpar_path),
+            |kpar_path: Utf8UnixPathBuf,
+             kpar_size: NonZeroU64,
+             kpar_digest: String,
+             publisher: Option<String>,
+             name: String|
+             -> LocalKParProject {
+                LocalKParProject::new_for_sync(
+                    relative_root.join(kpar_path.as_str()),
                     KparInnerPath::Guess,
-                    Some(kpar_path.into()),
+                    Some(kpar_path),
+                    publisher,
+                    name,
                     Some(KparMeta {
                         size_bytes: kpar_size,
                         sha256_hex: kpar_digest,

@@ -18,6 +18,49 @@ use sysand_core::{
 };
 use sysand_core::{project::local_src::LocalSrcError, utils::format_err};
 
+pub(crate) const STRING: FieldSignature = jni_sig!(java.lang.String);
+pub(crate) const BOOLEAN: FieldSignature = jni_sig!(java.lang.Boolean);
+pub(crate) const LINKED_HASH_MAP: FieldSignature = jni_sig!(java.util.LinkedHashMap);
+pub(crate) const INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageResource);
+pub(crate) const INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS_CONSTRUCTOR: MethodSignature =
+    jni_sig!((java.lang.String, java.lang.String));
+pub(crate) const INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageDirectory);
+pub(crate) const INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS_CONSTRUCTOR: MethodSignature =
+    jni_sig!((java.lang.String, java.lang.String, java.lang.String));
+pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageKparPath);
+pub(crate) const INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS_CONSTRUCTOR: MethodSignature =
+    jni_sig!((java.lang.String, java.lang.String, java.lang.String));
+pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsage);
+pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS_ARRAY: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsage[]);
+pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectInfo);
+pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS_CONSTRUCTOR: MethodSignature = jni_sig!((java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String[], java.lang.String, java.lang.String[], com.sensmetry.sysand.model.InterchangeProjectUsage[]));
+pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectMetadata);
+pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS_CONSTRUCTOR: MethodSignature = jni_sig!((
+    java.util.LinkedHashMap,
+    java.lang.String,
+    java.lang.String,
+    java.lang.Boolean,
+    java.lang.Boolean,
+    java.util.LinkedHashMap
+));
+pub(crate) const INTERCHANGE_PROJECT_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProject);
+pub(crate) const INTERCHANGE_PROJECT_CLASS_CONSTRUCTOR: MethodSignature = jni_sig!((
+    com.sensmetry.sysand.model.InterchangeProjectInfo,
+    com.sensmetry.sysand.model.InterchangeProjectMetadata
+));
+pub(crate) const INTERCHANGE_PROJECT_CHECKSUM_CLASS: FieldSignature =
+    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectChecksum);
+pub(crate) const INTERCHANGE_PROJECT_CHECKSUM_CLASS_CONSTRUCTOR: MethodSignature =
+    jni_sig!((java.lang.String, java.lang.String));
+
 /// Unwrap or throw a `RuntimeException` with the given format string
 /// as a message
 macro_rules! unwrap_throw {
@@ -225,6 +268,20 @@ fn get_usage_array_field<'local>(
                 publisher,
                 name,
             });
+        } else if try_instance_of(
+            env,
+            &elem,
+            INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS,
+            &label,
+        )? {
+            let kpar_path = get_string_field(env, &elem, jni_str!("kparPath"))?;
+            let publisher = get_string_field(env, &elem, jni_str!("publisher"))?;
+            let name = get_string_field(env, &elem, jni_str!("name"))?;
+            result.push(InterchangeProjectUsageRaw::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            });
         } else {
             env.throw_runtime_exception(format!("Unknown usage type for `{label}`"));
             return None;
@@ -333,45 +390,6 @@ pub(crate) fn java_metadata_to_raw<'local>(
         checksum,
     })
 }
-
-pub(crate) const STRING: FieldSignature = jni_sig!(java.lang.String);
-pub(crate) const BOOLEAN: FieldSignature = jni_sig!(java.lang.Boolean);
-pub(crate) const LINKED_HASH_MAP: FieldSignature = jni_sig!(java.util.LinkedHashMap);
-pub(crate) const INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS: FieldSignature =
-    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageResource);
-pub(crate) const INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS_CONSTRUCTOR: MethodSignature =
-    jni_sig!((java.lang.String, java.lang.String));
-pub(crate) const INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS: FieldSignature =
-    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsageDirectory);
-pub(crate) const INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS_CONSTRUCTOR: MethodSignature =
-    jni_sig!((java.lang.String, java.lang.String, java.lang.String));
-pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: FieldSignature =
-    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsage);
-pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS_ARRAY: FieldSignature =
-    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectUsage[]);
-pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS: FieldSignature =
-    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectInfo);
-pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS_CONSTRUCTOR: MethodSignature = jni_sig!((java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String, java.lang.String[], java.lang.String, java.lang.String[], com.sensmetry.sysand.model.InterchangeProjectUsage[]));
-pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS: FieldSignature =
-    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectMetadata);
-pub(crate) const INTERCHANGE_PROJECT_METADATA_CLASS_CONSTRUCTOR: MethodSignature = jni_sig!((
-    java.util.LinkedHashMap,
-    java.lang.String,
-    java.lang.String,
-    java.lang.Boolean,
-    java.lang.Boolean,
-    java.util.LinkedHashMap
-));
-pub(crate) const INTERCHANGE_PROJECT_CLASS: FieldSignature =
-    jni_sig!(com.sensmetry.sysand.model.InterchangeProject);
-pub(crate) const INTERCHANGE_PROJECT_CLASS_CONSTRUCTOR: MethodSignature = jni_sig!((
-    com.sensmetry.sysand.model.InterchangeProjectInfo,
-    com.sensmetry.sysand.model.InterchangeProjectMetadata
-));
-pub(crate) const INTERCHANGE_PROJECT_CHECKSUM_CLASS: FieldSignature =
-    jni_sig!(com.sensmetry.sysand.model.InterchangeProjectChecksum);
-pub(crate) const INTERCHANGE_PROJECT_CHECKSUM_CLASS_CONSTRUCTOR: MethodSignature =
-    jni_sig!((java.lang.String, java.lang.String));
 
 pub(crate) trait ToJObject {
     /// `None` return = exception thrown. Parent must return
@@ -594,6 +612,28 @@ impl ToJObject for InterchangeProjectUsageRaw {
                         ],
                     ),
                     "Failed to create InterchangeProjectUsageDirectory"
+                )
+            }
+            InterchangeProjectUsageRaw::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            } => {
+                let kpar_path = kpar_path.to_jobject(env)?;
+                let publisher = publisher.to_jobject(env)?;
+                let name = name.to_jobject(env)?;
+                unwrap_throw!(
+                    env,
+                    env.new_object(
+                        INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS.sig(),
+                        INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS_CONSTRUCTOR,
+                        &[
+                            JValue::from(&kpar_path),
+                            JValue::from(&publisher),
+                            JValue::from(&name),
+                        ],
+                    ),
+                    "Failed to create InterchangeProjectUsageKparPath"
                 )
             }
         };

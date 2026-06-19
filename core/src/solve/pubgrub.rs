@@ -457,12 +457,9 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                     ));
                 }
             }
-            InterchangeProjectUsage::Directory {
-                dir: _,
-                publisher: _,
-                name: _,
-            } => {
-                // Usually `candidates` will contain a single candidate for this type,
+            InterchangeProjectUsage::Directory { .. }
+            | InterchangeProjectUsage::KparPath { .. } => {
+                // Usually `candidates` will contain a single candidate for these types,
                 // but e.g. environment may have multiple project versions, and will
                 // return all of them based on the identifier
                 deps.push((

@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+//! Core types for interchange projects. Originally matched KerML 1.0 spec,
+//! but now includes various changes.
+//!
+//! IMPORTANT: when updating any of these types, update the corresponding
+//! bindings' types (in `_model.py` for Python and various Java classes)
+
 use std::{clone::Clone, collections::HashSet, fmt::Display, hash::Hash};
 
 use digest::array::{Array, typenum};
@@ -24,8 +30,10 @@ pub const KNOWN_METAMODELS: [&str; 2] = [
     "https://www.omg.org/spec/KerML/20250201",
 ];
 
-pub const SYSML_METAMODEL_PREFIX: &str = "https://www.omg.org/spec/SysML/";
-pub const KERML_METAMODEL_PREFIX: &str = "https://www.omg.org/spec/KerML/";
+/// Prefix shared between SysML v2 metamodel and standard libs
+pub const SYSML_SPEC_PREFIX: &str = "https://www.omg.org/spec/SysML/";
+/// Prefix shared between KerML metamodel and standard libs
+pub const KERML_SPEC_PREFIX: &str = "https://www.omg.org/spec/KerML/";
 
 /// A dependency on another interchange project. In the dependency solver,
 /// usages are treated as referring to the same project iff they derive the
@@ -33,7 +41,11 @@ pub const KERML_METAMODEL_PREFIX: &str = "https://www.omg.org/spec/KerML/";
 /// all usages of that identifier accept (in particular, it satisfies
 /// all version constraints)
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(
+    feature = "python",
+    derive(FromPyObject, IntoPyObject),
+    pyo3(from_item_all)
+)]
 #[serde(untagged)]
 pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
     /// Untyped usage, the only shape KerML 1.0 specifies. Kept for
@@ -48,6 +60,7 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
     // `rename_all` does not apply to enum variant fields if applied on
     // the whole enum
     #[serde(rename_all = "camelCase")]
+    #[cfg_attr(feature = "python", pyo3(from_item_all))]
     Resource {
         resource: Iri, // TODO: We should have a fallback for invalid IRIs
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,8 +71,18 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
     /// actual values found at `dir`, without any normalization.
     /// No version constraint, as the directory contains a single version
     // TODO: should absolute paths also be supported (like Cargo)?
+    #[cfg_attr(feature = "python", pyo3(from_item_all))]
     Directory {
         dir: Path,
+        publisher: String,
+        name: String,
+    },
+    /// The project KPAR at `kpar_path`, relative to the root of
+    /// the project declaring the usage.
+    /// Project must be at the archive root
+    #[cfg_attr(feature = "python", pyo3(from_item_all))]
+    KparPath {
+        kpar_path: Path,
         publisher: String,
         name: String,
     },
@@ -73,7 +96,7 @@ impl InterchangeProjectUsageRaw {
     /// Caller is responsible for identifying the project when reporting the error
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
         match self {
-            InterchangeProjectUsageG::Resource {
+            InterchangeProjectUsageRaw::Resource {
                 resource,
                 version_constraint,
             } => {
@@ -109,13 +132,29 @@ impl InterchangeProjectUsageRaw {
                         .transpose()?,
                 })
             }
-            InterchangeProjectUsageG::Directory {
+            InterchangeProjectUsageRaw::Directory {
                 dir: path,
                 publisher,
                 name,
             } => match parse_relative_unix_path(path, RelativePathKind::Directory) {
-                Ok(p) => Ok(InterchangeProjectUsageG::Directory {
+                Ok(p) => Ok(InterchangeProjectUsage::Directory {
                     dir: p.to_owned(),
+                    publisher: publisher.clone(),
+                    name: name.clone(),
+                }),
+                Err(e) => Err(InterchangeProjectValidationError::InvalidUsagePath {
+                    publisher: publisher.clone(),
+                    name: name.clone(),
+                    source: e,
+                }),
+            },
+            InterchangeProjectUsageRaw::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            } => match parse_relative_unix_path(kpar_path, RelativePathKind::File) {
+                Ok(p) => Ok(InterchangeProjectUsage::KparPath {
+                    kpar_path: p.to_owned(),
                     publisher: publisher.clone(),
                     name: name.clone(),
                 }),
@@ -133,10 +172,7 @@ impl<Iri, VersionReq, Path> InterchangeProjectUsageG<Iri, VersionReq, Path> {
     /// Typed usages (all non-`Resource`) are treated specially in some places,
     /// as e.g. if they resolve to invalid projects, it can't be ignored
     pub fn is_typed(&self) -> bool {
-        match self {
-            InterchangeProjectUsageG::Resource { .. } => false,
-            InterchangeProjectUsageG::Directory { .. } => true,
-        }
+        !matches!(self, InterchangeProjectUsageG::Resource { .. })
     }
 }
 
@@ -156,6 +192,15 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
                 name,
             } => InterchangeProjectUsageRaw::Directory {
                 dir: dir.into_string(),
+                publisher,
+                name,
+            },
+            InterchangeProjectUsage::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            } => InterchangeProjectUsageRaw::KparPath {
+                kpar_path: kpar_path.into_string(),
                 publisher,
                 name,
             },
@@ -190,6 +235,15 @@ impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq, 
                 publisher,
                 name,
             },
+            InterchangeProjectUsageG::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            } => InterchangeProjectUsageG::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            },
         }
     }
 }
@@ -215,13 +269,24 @@ impl<Iri: Display, VersionReq: Display, Path: Display> Display
             } => {
                 write!(f, "`{publisher}/{name}` from `{dir}`")?;
             }
+            InterchangeProjectUsageG::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            } => {
+                write!(f, "`{publisher}/{name}` in `{kpar_path}`")?;
+            }
         }
         Ok(())
     }
 }
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(
+    feature = "python",
+    derive(FromPyObject, IntoPyObject),
+    pyo3(from_item_all)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectInfoG<Iri, Version, VersionReq, Path> {
     pub name: String,
@@ -324,6 +389,11 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone, Path>
                 InterchangeProjectUsageG::Resource { .. } => false,
                 InterchangeProjectUsageG::Directory {
                     dir: _,
+                    publisher: p,
+                    name: n,
+                }
+                | InterchangeProjectUsageG::KparPath {
+                    kpar_path: _,
                     publisher: p,
                     name: n,
                 } => p == publisher && n == name,
@@ -515,7 +585,11 @@ impl KerMlChecksumAlg {
 }
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(
+    feature = "python",
+    derive(FromPyObject, IntoPyObject),
+    pyo3(from_item_all)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectChecksum {
     // TODO: use Vec<u8> or Box<[u8]> and store raw hash bytes
@@ -524,7 +598,11 @@ pub struct InterchangeProjectChecksum {
 }
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(
+    feature = "python",
+    derive(FromPyObject, IntoPyObject),
+    pyo3(from_item_all)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectChecksumRaw {
     pub value: String,
@@ -532,7 +610,11 @@ pub struct InterchangeProjectChecksumRaw {
 }
 
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+#[cfg_attr(
+    feature = "python",
+    derive(FromPyObject, IntoPyObject),
+    pyo3(from_item_all)
+)]
 #[serde(rename_all = "camelCase")]
 pub struct InterchangeProjectMetadataG<Iri, Path: Eq + Hash, DateTime, IPC> {
     pub index: IndexMap<String, Path>,

@@ -24,8 +24,7 @@ use sysand_core::{
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
     },
-    utils::SP,
-    utils::format_err,
+    utils::{SP, format_err},
 };
 
 use crate::{

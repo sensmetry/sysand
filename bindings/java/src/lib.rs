@@ -516,6 +516,31 @@ fn build_workspace<'local>(
     Ok(())
 }
 
+// Test-only hook: the declaring Java class `SysandTestHooks` lives in the
+// java-test sources, not in the published jar, so this entry point is not
+// reachable through the public Java API. For the same reason, it can't be
+// registered in JNI_OnLoad, since the test classes are not included in
+// the release; instead specifying `extern` exports the correctly mangled
+// function name for the JVM to find
+const _: NativeMethod = native_method!(
+    java_type = com.sensmetry.sysand.SysandTestHooks,
+    static extern fn model_roundtrip(info: com.sensmetry.sysand.model.InterchangeProjectInfo, metadata: com.sensmetry.sysand.model.InterchangeProjectMetadata) -> com.sensmetry.sysand.model.InterchangeProject
+);
+fn model_roundtrip<'local>(
+    env: &mut Env<'local>,
+    _class: JClass<'local>,
+    info: JObject<'local>,
+    metadata: JObject<'local>,
+) -> JniResult<JObject<'local>> {
+    let Some(info) = java_info_to_raw(env, &info) else {
+        ret_null!()
+    };
+    let Some(metadata) = java_metadata_to_raw(env, &metadata) else {
+        ret_null!()
+    };
+    Ok((info, metadata).to_jobject(env).unwrap_or_default())
+}
+
 /// `JNI_OnLoad` is automatically called by the JVM when the library
 /// is loaded. Do not call this manually.
 ///
@@ -531,14 +556,14 @@ pub unsafe extern "system" fn JNI_OnLoad(
     let vm = unsafe { JavaVM::from_raw(vm_ptr) };
 
     let registration_result = vm.attach_current_thread(|env| {
-        let class = env.load_class(jni_str!("com.sensmetry.sysand.Sysand"))?;
+        let sysand = env.load_class(jni_str!("com.sensmetry.sysand.Sysand"))?;
         // SAFETY: `native_method!()` checks signatures to match intended on the Rust side,
         //         and also checks that `class`/`this` arguments are correct.
         //         Function names/args might not match those in Java, these will be checked
         //         and error out on mismatch.
         unsafe {
             env.register_native_methods(
-                class,
+                sysand,
                 &[
                     SYSAND_INIT,
                     SYSAND_BUILD_PROJECT,
@@ -564,7 +589,7 @@ pub unsafe extern "system" fn JNI_OnLoad(
         }
         Err(e) => {
             eprintln!(
-                "failed to attach to Java VM or register native methods: {}",
+                "error: failed to attach to Java VM or register native methods:\n{}",
                 format_err(e)
             );
             // Registration failed, return JNI_ERR to abort library loading

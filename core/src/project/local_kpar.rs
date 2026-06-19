@@ -62,15 +62,18 @@ pub struct LocalKParProject {
     /// to the lockfile.
     // TODO: Consider removing this and replacing it with some way of
     // relativizing `archive_path` at the call site of .sources().
-    pub nominal_path: Option<Utf8UnixPathBuf>,
+    nominal_path: Option<Utf8UnixPathBuf>,
     /// Path used when locating the project archive internally.
     /// Should be absolute.
     archive_path: Utf8PathBuf,
     expected: Option<KparMeta>,
+    // Separate from `expected`, since usages know publisher+name,
+    // but not size/checksum
+    expected_pub_name: Option<(Option<String>, String)>,
     /// Optionally specify name of project directory inside archive.
     /// If none, currently always tries to guess before reading
     /// any project files.
-    pub root: KparInnerPath,
+    root: KparInnerPath,
     init: OnceCell<(LocalKParProjectRaw, KparMeta)>,
 }
 
@@ -117,6 +120,19 @@ pub enum LocalKParError {
     },
     #[error("kpar at `{path}` is an empty file")]
     EmptyKpar { path: Box<str> },
+    #[error(
+        "project publisher `{}` does not match expected `{}`",
+        if let Some(a) = actual { a.as_str() } else { "<none>" },
+        if let Some(p) = expected { p.as_str() } else { "<none>" }
+    )]
+    PublisherMismatch {
+        expected: Option<String>,
+        actual: Option<String>,
+    },
+    #[error("project name `{actual}` does not match expected `{expected}`")]
+    NameMismatch { expected: String, actual: String },
+    #[error("project is missing project information file `.project.json`")]
+    MissingInfo,
 }
 
 impl From<FsIoError> for LocalKParError {
@@ -148,18 +164,56 @@ impl<ReadError> From<FsIoError> for IntoKparError<ReadError> {
 }
 
 impl LocalKParProject {
-    pub fn new<P: AsRef<Utf8Path>>(
-        path: P,
+    /// Access the project. No invariants will be checked. If `nominal_path` is provided,
+    /// `sources()` will work.
+    pub fn new_access(
+        path: impl Into<Utf8PathBuf>,
         root: KparInnerPath,
-        nominal: Option<Utf8UnixPathBuf>,
-        expected: Option<KparMeta>,
-    ) -> Self {
+        nominal_path: Option<Utf8UnixPathBuf>,
+    ) -> LocalKParProject {
         LocalKParProject {
-            nominal_path: nominal,
+            nominal_path,
             root,
             init: OnceCell::new(),
-            archive_path: path.to_path_buf(),
+            archive_path: path.into(),
+            expected: None,
+            expected_pub_name: None,
+        }
+    }
+
+    /// Assumes the project is at archive root
+    pub fn new_for_solve(
+        path: impl Into<Utf8PathBuf>,
+        nominal_path: Option<Utf8UnixPathBuf>,
+        publisher: Option<String>,
+        name: String,
+    ) -> LocalKParProject {
+        LocalKParProject {
+            nominal_path,
+            root: KparInnerPath::Root,
+            init: OnceCell::new(),
+            archive_path: path.into(),
+            expected: None,
+            expected_pub_name: Some((publisher, name)),
+        }
+    }
+
+    /// Construct from lockfile information, where everything is known
+    pub fn new_for_sync(
+        path: impl Into<Utf8PathBuf>,
+        root: KparInnerPath,
+        nominal_path: Option<Utf8UnixPathBuf>,
+        publisher: Option<String>,
+        name: String,
+        expected: Option<KparMeta>,
+    ) -> LocalKParProject {
+        LocalKParProject {
+            nominal_path,
+            root,
+            init: OnceCell::new(),
+            archive_path: path.into(),
             expected,
+            expected_pub_name: Some((publisher, name)),
         }
     }
 
@@ -176,6 +230,7 @@ impl LocalKParProject {
             None => {
                 let (inner, meta) =
                     LocalKParProjectRaw::new_hash(&self.archive_path, self.root.to_owned())?;
+                // TODO: move these sorts of checks out of this type
                 if let Some(expected) = &self.expected {
                     if meta.size_bytes != expected.size_bytes {
                         return Err(LocalKParError::SizeMismatch {
@@ -188,6 +243,24 @@ impl LocalKParProject {
                             path: self.archive_path.as_str().into(),
                             expected: expected.sha256_hex.to_owned(),
                             computed: meta.sha256_hex,
+                        });
+                    }
+                }
+                // No need to check publisher/name if checksum is already verified,
+                // but this will ensure that e.g. lockfile is accurate
+                if let Some((expected_publisher, expected_name)) = &self.expected_pub_name {
+                    let Some(info) = inner.get_info()? else {
+                        return Err(LocalKParError::MissingInfo);
+                    };
+                    if expected_publisher != &info.publisher {
+                        return Err(LocalKParError::PublisherMismatch {
+                            expected: expected_publisher.to_owned(),
+                            actual: info.publisher,
+                        });
+                    } else if expected_name != &info.name {
+                        return Err(LocalKParError::NameMismatch {
+                            expected: expected_name.to_owned(),
+                            actual: info.name,
                         });
                     }
                 }
@@ -286,7 +359,7 @@ impl ProjectRead for LocalKParProject {
     fn project_root(&self) -> Option<&Utf8Path> {
         // TODO: is this appropriate? KPAR is not really meant
         // to be tied to a specific folder
-        Some(&self.archive_path)
+        None
     }
 }
 

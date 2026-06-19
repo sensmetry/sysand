@@ -188,16 +188,21 @@ impl Display for ResolutionInfo {
                 }
             }
             InterchangeProjectUsage::Directory {
-                dir,
+                dir: path,
+                publisher,
+                name,
+            }
+            | InterchangeProjectUsage::KparPath {
+                kpar_path: path,
                 publisher,
                 name,
             } => {
                 if let Some(bp) = &self.base_path {
-                    let abs_path = bp.join(dir.as_str());
+                    let abs_path = bp.join(path.as_str());
                     let abs_path = wrapfs::absolute(&abs_path).unwrap_or(abs_path);
                     write!(f, "`{publisher}/{name}` from `{abs_path}`")?;
                 } else {
-                    write!(f, "`{publisher}/{name}` from `{dir}` (full path unknown)")?;
+                    write!(f, "`{publisher}/{name}` from `{path}` (base path unknown)")?;
                 }
             }
         }

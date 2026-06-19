@@ -21,7 +21,6 @@ pub type ProvidedIdentifiers = HashSet<Identifier>;
 
 #[cfg(feature = "filesystem")]
 pub(crate) mod scheme {
-    #[cfg(feature = "filesystem")]
     use fluent_uri::component::Scheme;
     pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
     #[cfg(feature = "networking")]

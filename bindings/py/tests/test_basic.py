@@ -199,6 +199,57 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     assert meta["checksum"] is None
 
 
+def test_model_roundtrip() -> None:
+    # Round-trips the typed dicts through the Rust model types
+    from sysand._sysand_core import _do_model_roundtrip_py  # type: ignore
+
+    info: sysand.InterchangeProjectInfo = {
+        "name": "roundtrip-project",
+        "publisher": "acme",
+        "description": "A project with every exposed info field",
+        "version": "1.2.3",
+        "license": "MIT",
+        "maintainer": ["Alice", "Bob"],
+        "website": "https://example.com/roundtrip",
+        "topic": ["sysml", "bindings"],
+        "usage": [
+            sysand.InterchangeProjectUsageResource(
+                resource="pkg:sysand/acme/remote-lib",
+                version_constraint=">=1.0.0",
+            ),
+            sysand.InterchangeProjectUsageDirectory(
+                dir="../local-lib", publisher="local-pub", name="local-lib"
+            ),
+            sysand.InterchangeProjectUsageKparPath(
+                kpar_path="deps/archive-lib.kpar",
+                publisher="archive-pub",
+                name="archive-lib",
+            ),
+        ],
+    }
+
+    metadata: sysand.InterchangeProjectMetadata = {
+        "index": {"Alpha": "src/Alpha.sysml", "Beta": "src/nested/Beta.kerml"},
+        "created": "2026-01-02T03:04:05Z",
+        "metamodel": "https://www.omg.org/spec/SysML/20250201",
+        "includes_derived": True,
+        "includes_implied": False,
+        "checksum": {
+            "src/Alpha.sysml": sysand.InterchangeProjectChecksum(
+                value="0123456789abcdef", algorithm="MD5"
+            ),
+            "src/nested/Beta.kerml": sysand.InterchangeProjectChecksum(
+                value="deadbeef", algorithm="ADLER32"
+            ),
+        },
+    }
+
+    roundtripped_info, roundtripped_metadata = _do_model_roundtrip_py(info, metadata)
+
+    assert roundtripped_info == info
+    assert roundtripped_metadata == metadata
+
+
 def compare_sources(
     sources: Union[List[Path], List[str]],
     expected_sources: Union[List[Path], List[str]],

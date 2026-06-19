@@ -10,6 +10,7 @@ import com.sensmetry.sysand.model.InterchangeProjectInfo;
 import com.sensmetry.sysand.model.InterchangeProjectMetadata;
 import com.sensmetry.sysand.model.InterchangeProjectUsage;
 import com.sensmetry.sysand.model.InterchangeProjectUsageDirectory;
+import com.sensmetry.sysand.model.InterchangeProjectUsageKparPath;
 import com.sensmetry.sysand.model.InterchangeProjectUsageResource;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -181,6 +182,29 @@ public class SetProjectInfoTest {
         assertEquals("../some-dep", d.getDirectory());
         assertEquals("acme", d.getPublisher());
         assertEquals("lib", d.getName());
+    }
+
+    @Test
+    public void testSetProjectInfoWithKparPathUsage() throws Exception {
+        Path dir = initProject();
+
+        InterchangeProjectUsageKparPath usage = new InterchangeProjectUsageKparPath(
+                "deps/lib.kpar", "acme", "lib");
+        InterchangeProjectInfo updated = new InterchangeProjectInfo(
+                "original", "pub", null, "1.0.0", null,
+                new String[]{}, null, new String[]{},
+                new InterchangeProjectUsage[]{usage});
+
+        Sysand.setProjectInfo(dir, updated);
+
+        com.sensmetry.sysand.model.InterchangeProject project = Sysand.infoPath(dir);
+        assertEquals(1, project.info.getUsage().length);
+        assertInstanceOf(InterchangeProjectUsageKparPath.class, project.info.getUsage()[0]);
+        InterchangeProjectUsageKparPath k =
+                (InterchangeProjectUsageKparPath) project.info.getUsage()[0];
+        assertEquals("deps/lib.kpar", k.getKparPath());
+        assertEquals("acme", k.getPublisher());
+        assertEquals("lib", k.getName());
     }
 
     // --- setProjectMetadata ---

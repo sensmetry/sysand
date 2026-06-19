@@ -76,7 +76,8 @@ pub fn pprint_interchange_project(
                 InterchangeProjectUsageRaw::Resource { resource, .. } => {
                     !excluded_iris.contains(resource)
                 }
-                InterchangeProjectUsageRaw::Directory { .. } => true,
+                InterchangeProjectUsageRaw::Directory { .. }
+                | InterchangeProjectUsageRaw::KparPath { .. } => true,
             })
             .collect();
         let has_ignored_usages = info.usage.len() > usages_to_print.len();
@@ -105,19 +106,19 @@ pub fn pprint_interchange_project(
 }
 
 fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverProject> {
-    let metadata = wrapfs::metadata(&path)?;
+    let path = path.as_ref();
+    let metadata = wrapfs::metadata(path)?;
     Ok(if metadata.is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new(
+        FileResolverProject::LocalKParProject(LocalKParProject::new_access(
             path,
             KparInnerPath::Guess,
             None,
-            None,
         ))
     } else if metadata.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(path.as_ref(), None))
+        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(path, None))
     } else {
         // TODO: NoResolve is for IRIs, this is a path
-        bail!(CliError::NoResolve(path.as_ref().to_string()));
+        bail!(CliError::NoResolve(path.to_string()));
     })
 }
 

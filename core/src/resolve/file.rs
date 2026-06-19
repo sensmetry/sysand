@@ -104,6 +104,30 @@ impl FileResolver {
         }
         Ok(ResolutionOutcome::Resolved(path))
     }
+
+    /// Resolve `relative` against `base`, canonicalize it, and check it
+    /// against the sandbox roots.
+    fn resolve_relative_path(
+        &self,
+        base: &Utf8Path,
+        relative: &str,
+    ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
+        let abs_path = base.join(relative);
+        let canonical = match wrapfs::canonicalize_raw(&abs_path) {
+            Ok(p) => p,
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                return Ok(ResolutionOutcome::NotFound {
+                    reason: format!("path `{abs_path}` does not exist"),
+                });
+            }
+            Err(e) => {
+                return Err(FileResolverError::Io(
+                    FsIoError::Canonicalize(abs_path, e).into(),
+                ));
+            }
+        };
+        self.check_sandbox(canonical)
+    }
 }
 
 #[derive(Debug)]
@@ -146,6 +170,19 @@ pub enum FileResolverProjectError {
     },
     #[error("kpar at `{path}` is an empty file")]
     EmptyKpar { path: Box<str> },
+    #[error(
+        "project publisher `{}` does not match expected `{}`",
+        if let Some(a) = actual { a.as_str() } else { "<none>" },
+        if let Some(p) = expected { p.as_str() } else { "<none>" }
+    )]
+    PublisherMismatch {
+        expected: Option<String>,
+        actual: Option<String>,
+    },
+    #[error("project name `{actual}` does not match expected `{expected}`")]
+    NameMismatch { expected: String, actual: String },
+    #[error("project is missing project information file `.project.json`")]
+    MissingInfo,
     #[error("{0}")]
     Other(String),
 }
@@ -197,6 +234,13 @@ impl From<LocalKParError> for FileResolverProjectError {
                 actual,
             },
             LocalKParError::EmptyKpar { path } => Self::EmptyKpar { path },
+            LocalKParError::PublisherMismatch { expected, actual } => {
+                Self::PublisherMismatch { expected, actual }
+            }
+            LocalKParError::NameMismatch { expected, actual } => {
+                Self::NameMismatch { expected, actual }
+            }
+            LocalKParError::MissingInfo => Self::MissingInfo,
         }
     }
 }
@@ -313,7 +357,7 @@ impl ResolveRead for FileResolver {
                                 LocalSrcProject::new_access(path.clone(), None),
                             )),
                             Ok(FileResolverProject::LocalKParProject(
-                                LocalKParProject::new(path, KparInnerPath::Guess, None, None),
+                                LocalKParProject::new_access(path, KparInnerPath::Guess, None),
                             )),
                         ]
                     }))
@@ -329,28 +373,43 @@ impl ResolveRead for FileResolver {
             } => {
                 // TODO: should absolute paths be supported here? Cargo does.
                 if let Some(base) = resolve.base_path() {
-                    let abs_path = base.join(dir.as_str());
-                    let canonical = match wrapfs::canonicalize_raw(&abs_path) {
-                        Ok(p) => p,
-                        Err(e) if e.kind() == ErrorKind::NotFound => {
-                            return Ok(ResolutionOutcome::NotFound {
-                                reason: format!("path `{abs_path}` does not exist"),
-                            });
-                        }
-                        Err(e) => {
-                            return Err(FileResolverError::Io(
-                                FsIoError::Canonicalize(abs_path, e).into(),
-                            ));
-                        }
-                    };
-                    let res = self.check_sandbox(canonical)?;
+                    let res = self.resolve_relative_path(base, dir.as_str())?;
                     Ok(res.map(|path| {
                         vec![Ok(FileResolverProject::LocalSrcProject(
                             LocalSrcProject::new_for_solve(
                                 path,
+                                // Can't use `dir` here, since `FileResolver` is used for env projects,
+                                // and in that case using `dir` would resolve relative to the project
+                                // inside `.sysand`, and the dependency would not be found
                                 None,
                                 Some(publisher.clone()),
                                 name.clone(),
+                            ),
+                        ))]
+                    }))
+                } else {
+                    // TODO: return Err?
+                    Ok(ResolutionOutcome::Unresolvable {
+                        reason: String::from(
+                            "cannot resolve relative path usage without a base path",
+                        ),
+                    })
+                }
+            }
+            InterchangeProjectUsage::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            } => {
+                if let Some(base) = resolve.base_path() {
+                    let res = self.resolve_relative_path(base, kpar_path.as_str())?;
+                    Ok(res.map(|path| {
+                        vec![Ok(FileResolverProject::LocalKParProject(
+                            LocalKParProject::new_for_solve(
+                                path,
+                                None,
+                                Some(publisher.to_owned()),
+                                name.to_owned(),
                             ),
                         ))]
                     }))

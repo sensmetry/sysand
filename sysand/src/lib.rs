@@ -729,7 +729,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 no_lock,
                 no_sync,
             } => {
-                let add = ExpAddArgs::Dir { dir: locator.dir };
+                let add = if let Some(dir) = locator.dir {
+                    ExpAddArgs::Dir { dir }
+                } else if let Some(kpar_path) = locator.kpar_path {
+                    ExpAddArgs::KparPath { kpar_path }
+                } else {
+                    unreachable!("clap group requires exactly one of `dir`/`kpar_path`")
+                };
                 exp_command_add(
                     add,
                     no_lock,

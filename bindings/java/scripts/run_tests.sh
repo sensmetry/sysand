@@ -16,3 +16,4 @@ cd "$PACKAGE_DIR"
 cargo test
 python3 scripts/java-builder.py build
 python3 scripts/java-builder.py test
+python3 scripts/java-builder.py build-plugin

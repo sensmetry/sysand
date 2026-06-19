@@ -557,6 +557,69 @@ impl ProjectRead for StubProject {
     }
 }
 
+/// Multiple versions of the same dependency are not allowed.
+/// Pubgrub does not allow multiple versions of the same project in
+/// the dependency graph, unless we implement it ourselves (e.g.
+/// make package identifier include a major version, so different
+/// major versions will be treated as different packages by pubgrub).
+/// SysMLv2 spec seemingly disallows having multiple versions of the
+/// same project in the dependency graph, but we may want to support
+/// it anyway
+#[test]
+fn usages_multiple_versions_of_same_project() {
+    let widget_v1 = trivial_memory_project("widget", "1.0.0", vec![]);
+    let widget_v2 = trivial_memory_project("widget", "2.0.0", vec![]);
+
+    let resolver = simple_resolver_environment(&[("urn:kpar:widget", &[widget_v1, widget_v2])]);
+
+    super::solve(
+        vec![
+            InterchangeProjectUsage::Resource {
+                resource: Iri::parse("urn:kpar:widget").unwrap().into(),
+                version_constraint: Some(semver::VersionReq::parse("=1.0.0").unwrap()),
+            },
+            InterchangeProjectUsage::Resource {
+                resource: Iri::parse("urn:kpar:widget").unwrap().into(),
+                version_constraint: Some(semver::VersionReq::parse("=2.0.0").unwrap()),
+            },
+        ],
+        None,
+        resolver,
+    )
+    .unwrap_err();
+}
+
+/// Transitive dependencies must not contain two different versions of the same project
+#[test]
+fn transitive_usages_different_versions_of_same_project() {
+    let app_a = trivial_memory_project("app_a", "1.0.0", [("urn:kpar:widget", Some("=1.0.0"))]);
+    let app_b = trivial_memory_project("app_b", "1.0.0", [("urn:kpar:widget", Some("=2.0.0"))]);
+    let widget_v1 = trivial_memory_project("widget", "1.0.0", []);
+    let widget_v2 = trivial_memory_project("widget", "2.0.0", []);
+
+    let resolver = simple_resolver_environment(&[
+        ("urn:kpar:app_a", &[app_a]),
+        ("urn:kpar:app_b", &[app_b]),
+        ("urn:kpar:widget", &[widget_v1, widget_v2]),
+    ]);
+
+    super::solve(
+        vec![
+            InterchangeProjectUsage::Resource {
+                resource: Iri::parse("urn:kpar:app_a").unwrap().into(),
+                version_constraint: None,
+            },
+            InterchangeProjectUsage::Resource {
+                resource: Iri::parse("urn:kpar:app_b").unwrap().into(),
+                version_constraint: None,
+            },
+        ],
+        None,
+        resolver,
+    )
+    .unwrap_err();
+}
+
 /// A resolver whose only candidate for any usage is an error
 #[derive(Debug)]
 struct ErrorCandidateResolver;

@@ -82,7 +82,7 @@ impl LocalSrcProject {
         }
     }
 
-    /// Construct lockfile information, where everything is known
+    /// Construct from lockfile information, where everything is known
     pub fn new_for_sync(
         path: impl Into<Utf8PathBuf>,
         nominal_path: Option<Utf8UnixPathBuf>,
