@@ -16,7 +16,7 @@ use thiserror::Error;
 pub const DEFAULT_LOCKFILE_NAME: &str = "sysand-lock.toml";
 
 #[cfg(feature = "filesystem")]
-use crate::project::{editable::EditableProject, local_src::LocalSrcProject};
+use crate::project::{editable::EditableProject, local_src::LocalSrcProject, utils::wrapfs};
 use crate::{
     context::ProjectContext,
     lock::{Lock, Project, Usage, hash_str},
@@ -353,11 +353,7 @@ pub fn do_lock_local_editable<
         path.to_owned(),
         LocalSrcProject {
             nominal_path: None,
-            project_path: project_root.as_ref().canonicalize_utf8().map_err(|e| {
-                LockError::Io(
-                    FsIoError::Canonicalize(project_root.as_ref().join(path.as_str()), e).into(),
-                )
-            })?,
+            project_path: wrapfs::canonicalize(&project_root).map_err(LockError::Io)?,
             expected_checksum: None,
         },
     );

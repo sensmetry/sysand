@@ -306,7 +306,8 @@ mod prepare_publish {
 
     use super::super::prepare_publish_payload;
     use super::PublishError;
-    use camino::Utf8Path;
+    use camino::Utf8PathBuf;
+    use camino_tempfile::NamedUtf8TempFile;
     use std::io::Write;
     use zip::write::SimpleFileOptions;
 
@@ -324,13 +325,11 @@ mod prepare_publish {
 
     /// Write a ZIP with the given entries to a NamedTempFile; keep the file
     /// alive by returning it alongside the path.
-    fn write_zip(
-        entries: &[(&str, &[u8], SimpleFileOptions)],
-    ) -> (tempfile::NamedTempFile, camino::Utf8PathBuf) {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = camino::Utf8PathBuf::from(tmp.path().to_str().unwrap());
+    fn write_zip(entries: &[(&str, &[u8], SimpleFileOptions)]) -> (NamedUtf8TempFile, Utf8PathBuf) {
+        let tmp = NamedUtf8TempFile::new().unwrap();
+        let path = Utf8PathBuf::from(tmp.path());
         {
-            let f = std::fs::File::create(tmp.path()).unwrap();
+            let f = std::fs::File::create(&path).unwrap();
             let mut zip = zip::ZipWriter::new(f);
             for (name, content, opts) in entries {
                 zip.start_file(*name, *opts).unwrap();
@@ -388,10 +387,9 @@ mod prepare_publish {
 
     #[test]
     fn kpar_read_rejects_non_zip_file() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let tmp = NamedUtf8TempFile::new().unwrap();
         std::fs::write(tmp.path(), b"this is not a zip file").unwrap();
-        let path = Utf8Path::new(tmp.path().to_str().unwrap());
-        let err = prepare_publish_payload(path).expect_err("expected Err");
+        let err = prepare_publish_payload(tmp.path()).expect_err("expected Err");
         assert_matches!(err, PublishError::KparRead(..));
     }
 
@@ -582,8 +580,7 @@ mod prepare_publish {
     #[test]
     fn symlink_in_archive() {
         let (proj, meta) = pre_loop_entries();
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = camino::Utf8PathBuf::from(tmp.path().to_str().unwrap());
+        let tmp = NamedUtf8TempFile::new().unwrap();
         {
             let f = std::fs::File::create(tmp.path()).unwrap();
             let mut zip = zip::ZipWriter::new(f);
@@ -595,7 +592,7 @@ mod prepare_publish {
                 .unwrap();
             zip.finish().unwrap();
         }
-        let err = prepare_publish_payload(&path).expect_err("expected Err");
+        let err = prepare_publish_payload(tmp.path()).expect_err("expected Err");
         assert_matches!(err, PublishError::Symlink { .. });
     }
 
@@ -604,8 +601,7 @@ mod prepare_publish {
         use zip::unstable::write::FileOptionsExt;
         let (proj, meta) = pre_loop_entries();
         let enc_opts = deflate().with_deprecated_encryption(b"secret").unwrap();
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = camino::Utf8PathBuf::from(tmp.path().to_str().unwrap());
+        let tmp = NamedUtf8TempFile::new().unwrap();
         {
             let f = std::fs::File::create(tmp.path()).unwrap();
             let mut zip = zip::ZipWriter::new(f);
@@ -617,7 +613,7 @@ mod prepare_publish {
             zip.write_all(b"package Test;").unwrap();
             zip.finish().unwrap();
         }
-        let err = prepare_publish_payload(&path).expect_err("expected Err");
+        let err = prepare_publish_payload(tmp.path()).expect_err("expected Err");
         assert_matches!(err, PublishError::Encrypted { .. });
     }
 

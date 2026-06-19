@@ -61,24 +61,23 @@ fn discover<P: AsRef<Utf8Path>, F: Fn(&Utf8Path) -> Result<bool, Box<FsIoError>>
         match current.parent() {
             Some(parent) if parent.as_str().is_empty() => {
                 log::debug!("discover: hit empty relative path, trying to canonicalize");
-                match current.canonicalize_utf8() {
+                match wrapfs::canonicalize_raw(&current) {
                     Ok(current_canonical) => match current_canonical.parent() {
                         Some(parent_canonical) => current = parent_canonical.to_path_buf(),
                         None => {
                             log::debug!(
-                                "discover: canonicalized path `{}` has no parent either",
-                                current_canonical
+                                "discover: canonicalized path `{current_canonical}` has no parent either"
                             );
                             return Ok(None);
                         }
                     },
                     Err(e) => {
-                        log::debug!("discover: unable to canonicalize path `{}`: {e}", current);
+                        log::debug!("discover: unable to canonicalize path `{current}`: {e}");
                     }
                 }
             }
             Some(parent) => {
-                log::debug!("discover: checking in parent of `{}`", current);
+                log::debug!("discover: checking in `{parent}`");
                 current = parent.to_path_buf();
             }
             None => {

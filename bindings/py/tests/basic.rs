@@ -4,12 +4,12 @@
 use predicates::prelude::*;
 use pyo3::prelude::*;
 
+use camino_tempfile::Utf8TempDir;
 use sysand_py::sysand_py;
-use tempfile::TempDir;
 
 #[test]
 fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
-    let proj_dir: TempDir = TempDir::new()?;
+    let proj_dir = Utf8TempDir::new()?;
     let proj_dir_path = proj_dir.path();
 
     pyo3::append_to_inittab!(sysand_py);
@@ -22,7 +22,7 @@ fn basic_init() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to get do_init_py_local_file function");
 
         do_init_py_local_file_fn
-            .call1(("basic_init", "a", "1.2.3", proj_dir_path.to_str().unwrap()))
+            .call1(("basic_init", "a", "1.2.3", proj_dir_path.as_str()))
             .unwrap();
     });
 

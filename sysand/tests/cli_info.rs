@@ -8,6 +8,7 @@ use std::{error::Error, io::Write as _};
 
 use assert_cmd::prelude::*;
 use camino::Utf8PathBuf;
+use camino_tempfile::Utf8TempDir;
 use indexmap::IndexMap;
 use mockito::Matcher;
 use predicates::prelude::*;
@@ -15,6 +16,7 @@ use predicates::prelude::*;
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
 pub use common::*;
+use sysand_core::project::utils::wrapfs;
 
 /// Register a `sysand-index-config.json` 404 mock on `server`.
 /// Configured index URLs go through the discovery step, which fetches this
@@ -661,8 +663,8 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
-    let cwd = tempfile::TempDir::new()?;
-    let zip_path = cwd.path().canonicalize()?.join("test.kpar");
+    let cwd = Utf8TempDir::new()?;
+    let zip_path = wrapfs::canonicalize(cwd.path())?.join("test.kpar");
 
     {
         let file = std::fs::File::create(&zip_path).unwrap();
@@ -680,10 +682,7 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
         zip.finish().unwrap();
     }
 
-    let (_, _, out) = run_sysand(["info", "--path", &zip_path.to_string_lossy(), "-v"], None)?;
-    println!("{}", str::from_utf8(&out.stdout).unwrap());
-    println!("{}", str::from_utf8(&out.stdout).unwrap());
-
+    let (_, _, out) = run_sysand(["info", "--path", zip_path.as_str(), "-v"], None)?;
     out.assert()
         .success()
         .stdout(predicate::str::contains("Name: info_basic_local_kpar"))
@@ -695,7 +694,7 @@ fn info_basic_local_kpar() -> Result<(), Box<dyn Error>> {
 #[cfg(feature = "alltests")]
 #[test]
 fn info_basic_file_git() -> Result<(), Box<dyn Error>> {
-    let cwd = tempfile::TempDir::new()?;
+    let cwd = Utf8TempDir::new()?;
 
     {
         git_init(cwd.path())?;
