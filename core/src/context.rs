@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-#[cfg(feature = "filesystem")]
 use camino::Utf8PathBuf;
 
 #[cfg(feature = "filesystem")]
@@ -26,4 +25,18 @@ pub struct ProjectContext {
     /// the environment metadata file exists.
     #[cfg(feature = "filesystem")]
     pub env: Option<LocalDirectoryEnvironment>,
+}
+
+impl ProjectContext {
+    pub fn project_root(&self) -> Option<Utf8PathBuf> {
+        #[cfg(feature = "filesystem")]
+        let ret = self
+            .current_project
+            .as_ref()
+            .map(|p| p.project_path.clone());
+        #[cfg(not(feature = "filesystem"))]
+        let ret = None;
+
+        ret
+    }
 }

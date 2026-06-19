@@ -4,8 +4,9 @@
 use thiserror::Error;
 
 use crate::{
+    model::InterchangeProjectUsage,
     project::gix_git_download::{GixDownloadedError, GixDownloadedProject},
-    resolve::{ResolutionOutcome, ResolveRead},
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::scheme::{
         SCHEME_FILE, SCHEME_GIT_FILE, SCHEME_GIT_HTTP, SCHEME_GIT_HTTPS, SCHEME_GIT_SSH,
         SCHEME_HTTP, SCHEME_HTTPS, SCHEME_SSH,
@@ -30,44 +31,50 @@ impl ResolveRead for GitResolver {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        let scheme = uri.scheme();
+        match resolve.usage() {
+            InterchangeProjectUsage::Resource {
+                resource,
+                version_constraint: _,
+            } => {
+                let scheme = resource.scheme();
 
-        if ![
-            SCHEME_HTTP,
-            SCHEME_HTTPS,
-            SCHEME_FILE,
-            SCHEME_SSH,
-            SCHEME_GIT_HTTP,
-            SCHEME_GIT_HTTPS,
-            SCHEME_GIT_FILE,
-            SCHEME_GIT_SSH,
-        ]
-        .contains(&scheme)
-        {
-            return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "url scheme `{}` of IRI `{}` is not known to be git-compatible",
-                scheme,
-                uri.as_str()
-            )));
-        }
+                if ![
+                    SCHEME_HTTP,
+                    SCHEME_HTTPS,
+                    SCHEME_FILE,
+                    SCHEME_SSH,
+                    SCHEME_GIT_HTTP,
+                    SCHEME_GIT_HTTPS,
+                    SCHEME_GIT_FILE,
+                    SCHEME_GIT_SSH,
+                ]
+                .contains(&scheme)
+                {
+                    return Ok(ResolutionOutcome::UnsupportedUsageType {
+                        reason: format!(
+                            "url scheme `{scheme}` of IRI `{resource}` is not known to be git-compatible"
+                        ),
+                    });
+                }
 
-        Ok(ResolutionOutcome::Resolved(std::iter::once(
-            // TODO: use trim_prefix() once it's stable
-            GixDownloadedProject::new(uri.as_str().strip_prefix("git+").unwrap_or(uri.as_str()))
-                .map_err(|e| e.into()),
-        )))
-    }
-
-    fn resolve_read_raw<S: AsRef<str>>(
-        &self,
-        uri: S,
-    ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        if let Some(stripped_uri) = uri.as_ref().strip_prefix("git+") {
-            self.default_resolve_read_raw(stripped_uri)
-        } else {
-            self.default_resolve_read_raw(uri)
+                Ok(ResolutionOutcome::Resolved(std::iter::once(
+                    // TODO: use trim_prefix() once it's stable
+                    GixDownloadedProject::new(
+                        resource
+                            .as_str()
+                            .strip_prefix("git+")
+                            .unwrap_or(resource.as_str()),
+                    )
+                    .map_err(|e| e.into()),
+                )))
+            }
+            InterchangeProjectUsage::Directory { .. } => {
+                Ok(ResolutionOutcome::UnsupportedUsageType {
+                    reason: String::from("not a git usage"),
+                })
+            }
         }
     }
 }

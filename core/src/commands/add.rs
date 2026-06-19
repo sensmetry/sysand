@@ -76,14 +76,14 @@ pub fn do_add<P: ProjectMut>(
     project: &mut P,
     usage_raw: &InterchangeProjectUsageRaw,
 ) -> Result<bool, AddError<P::Error>> {
-    let usage: InterchangeProjectUsageG<String, String> = usage_raw.validate()?.into();
+    let usage: InterchangeProjectUsageG<String, String, String> = usage_raw.validate()?.into();
 
     let adding = "Adding";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{adding:>12}{header:#} usage: {usage_raw}");
 
     if let Some(info) = project.get_info().map_err(AddError::Project)?.as_mut() {
-        let mut found = false;
+        let mut dont_add = false;
         match &usage {
             InterchangeProjectUsageRaw::Resource {
                 resource: new_resource,
@@ -118,7 +118,7 @@ pub fn do_add<P: ProjectMut>(
                                          {SP:>8} `{vc}` will be added to it",
                                     );
                                     *vc_current = Some(vc.to_owned());
-                                    found = true;
+                                    dont_add = true;
                                 }
                                 (Some(vc_new), Some(vc_current)) => {
                                     // TODO: more intelligent merging of constraints
@@ -137,18 +137,48 @@ pub fn do_add<P: ProjectMut>(
                                         );
                                         vc_current.push_str(", ");
                                         vc_current.push_str(vc_new);
-                                        found = true;
+                                        dont_add = true;
                                     }
                                 }
                             }
                             break;
                         }
-                        InterchangeProjectUsageRaw::Resource { .. } => (),
+                        _ => (),
+                    }
+                }
+            }
+            InterchangeProjectUsageRaw::Directory {
+                dir: new_dir,
+                publisher: new_publisher,
+                name: new_name,
+            } => {
+                for u in info.usage.iter_mut() {
+                    if let InterchangeProjectUsageRaw::Directory {
+                        dir,
+                        publisher,
+                        name,
+                    } = u
+                    {
+                        if publisher == new_publisher && name == new_name {
+                            log::warn!(
+                                "usage `{publisher}`/`{name}` is already present,\n\
+                                    {SP:>8} so it won't be added again; remove existing usage first\n\
+                                    {SP:>8} if you wish to replace it"
+                            );
+                            return Ok(false);
+                        } else if dir == new_dir {
+                            log::warn!(
+                                "existing usage `{publisher}`/`{name}` points to path
+                                    {SP:>8} `{dir}`, so the same path won't be added again;
+                                    {SP:>8} remove existing usage first if you wish to replace it"
+                            );
+                            return Ok(false);
+                        }
                     }
                 }
             }
         }
-        if !found {
+        if !dont_add {
             info.usage.push(usage);
         }
         project.put_info(info, true).map_err(AddError::Project)?;

@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{error::Error, fmt::Write as _};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    fmt::Write as _,
+};
 
 use digest::{array::Array, typenum};
 use indexmap::IndexSet;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8WindowsPath};
+
+use crate::project::{memory::InMemoryProject, utils::Identifier};
+
+pub type ProvidedProjects = HashMap<Identifier, Vec<InMemoryProject>>;
+pub type ProvidedIdentifiers = HashSet<Identifier>;
 
 pub(crate) mod scheme {
     use fluent_uri::component::Scheme;

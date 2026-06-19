@@ -355,6 +355,8 @@ pub(crate) fn java_metadata_to_raw<'local>(
 
 pub(crate) const INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS: &str =
     "com/sensmetry/sysand/model/InterchangeProjectUsageResource";
+pub(crate) const INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS: &str =
+    "com/sensmetry/sysand/model/InterchangeProjectUsageDirectory";
 pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: &str =
     "com/sensmetry/sysand/model/InterchangeProjectUsage";
 pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS: &str =
@@ -557,7 +559,35 @@ impl ToJObject for InterchangeProjectUsageRaw {
                 ) {
                     Ok(o) => Some(o),
                     Err(e) => {
-                        env.throw_runtime_exception(format!("Failed to create LinkedHashMap: {e}"));
+                        env.throw_runtime_exception(format!(
+                            "Failed to create InterchangeProjectUsageResource: {e}"
+                        ));
+                        None
+                    }
+                }
+            }
+            InterchangeProjectUsageRaw::Directory {
+                dir,
+                publisher,
+                name,
+            } => {
+                let dir = dir.to_jobject(env)?;
+                let publisher = publisher.to_jobject(env)?;
+                let name = name.to_jobject(env)?;
+                match env.new_object(
+                    INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS,
+                    "(Ljava/lang/String;Ljava/lang/String;)V",
+                    &[
+                        JValue::from(&dir),
+                        JValue::from(&publisher),
+                        JValue::from(&name),
+                    ],
+                ) {
+                    Ok(o) => Some(o),
+                    Err(e) => {
+                        env.throw_runtime_exception(format!(
+                            "Failed to create InterchangeProjectUsageDirectory: {e}"
+                        ));
                         None
                     }
                 }

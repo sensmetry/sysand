@@ -3,7 +3,6 @@
 
 use std::{fmt, result::Result, sync::Arc};
 
-use camino::Utf8PathBuf;
 use reqwest_middleware::ClientWithMiddleware;
 
 use crate::{
@@ -13,7 +12,7 @@ use crate::{
         local_directory::LocalDirectoryEnvironment,
     },
     resolve::{
-        AsSyncResolveTokio, ResolveRead, ResolveReadAsync,
+        AsSyncResolveTokio, ResolutionInfo, ResolveRead, ResolveReadAsync,
         combined::CombinedResolver,
         env::EnvResolver,
         file::FileResolver,
@@ -53,16 +52,15 @@ impl<Policy: HTTPAuthentication> ResolveRead for StandardResolver<Policy> {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<crate::resolve::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        self.0.resolve_read(uri)
+        self.0.resolve_read(resolve)
     }
 }
 
-pub fn standard_file_resolver(cwd: Option<Utf8PathBuf>) -> FileResolver {
+pub fn standard_file_resolver() -> FileResolver {
     FileResolver {
         sandbox_roots: None,
-        relative_path_root: cwd,
     }
 }
 
@@ -115,14 +113,13 @@ pub fn standard_index_resolver<Policy: HTTPAuthentication>(
 
 // TODO: Replace most of these arguments by some general CLIOptions object
 pub fn standard_resolver<Policy: HTTPAuthentication>(
-    cwd: Option<Utf8PathBuf>,
     local_env: Option<LocalDirectoryEnvironment>,
     client: Option<ClientWithMiddleware>,
     index_urls: Option<Vec<url::Url>>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<StandardResolver<Policy>, DiscoveryError> {
-    let file_resolver = standard_file_resolver(cwd);
+    let file_resolver = standard_file_resolver();
     let local_resolver = local_env.map(standard_local_resolver);
     let remote_resolver = client
         .clone()

@@ -86,13 +86,10 @@ public class Sysand {
      * Get the project information and metadata at the given URI.
      *
      * @param uri              The URI of the project.
-     * @param relativeFileRoot The path which should be used as the root for
-     *                         relative file URIs.
      * @return The project information and metadata.
      */
     public static native com.sensmetry.sysand.model.InterchangeProject info(
             String uri,
-            String relativeFileRoot,
             String indexUrl)
             throws com.sensmetry.sysand.exceptions.SysandException;
 
@@ -100,13 +97,10 @@ public class Sysand {
      * Get the project information and metadata at the given URI.
      *
      * @param uri              The URI of the project.
-     * @param relativeFileRoot The path which should be used as the root for
-     *                         relative file URIs.
      * @return The project information and metadata.
      */
     public static com.sensmetry.sysand.model.InterchangeProject info(
             java.net.URI uri,
-            java.nio.file.Path relativeFileRoot,
             java.net.URL indexUrl)
             throws com.sensmetry.sysand.exceptions.SysandException {
         String indexUrlString;
@@ -115,7 +109,7 @@ public class Sysand {
         } else {
             indexUrlString = null;
         }
-        return info(uri.toString(), relativeFileRoot.toString(), indexUrlString);
+        return info(uri.toString(), indexUrlString);
     }
 
     /**
@@ -130,7 +124,7 @@ public class Sysand {
             java.net.URI uri,
             java.nio.file.Path relativeFileRoot)
             throws com.sensmetry.sysand.exceptions.SysandException {
-        return info(uri, relativeFileRoot, null);
+        return info(uri, null);
     }
 
     /**
@@ -143,7 +137,7 @@ public class Sysand {
     public static com.sensmetry.sysand.model.InterchangeProject info(java.net.URI uri)
             throws com.sensmetry.sysand.exceptions.SysandException {
         java.nio.file.Path relativeFileRoot = java.nio.file.Paths.get(".");
-        return info(uri, relativeFileRoot, null);
+        return info(uri, null);
     }
 
     /**

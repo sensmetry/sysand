@@ -21,8 +21,8 @@ use sysand_core::{
         ProjectRead,
         utils::{relativize_path, wrapfs},
     },
-    resolve::{ResolutionOutcome, ResolveRead, standard::standard_resolver},
-    utils::format_err,
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, standard::standard_resolver},
+    utils::{ProvidedProjects, format_err},
 };
 
 use crate::{
@@ -86,7 +86,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
             Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
         };
         let std_resolver = standard_resolver(
-            None,
             // TODO: why not use env here?
             None,
             Some(client.clone()),
@@ -94,7 +93,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
             runtime.clone(),
             auth_policy.clone(),
         )?;
-        let outcome = std_resolver.resolve_read(&url)?;
+        let resolve = ResolutionInfo::iri(url);
+        let outcome = std_resolver.resolve_read(&resolve)?;
         let mut source = None;
         match outcome {
             ResolutionOutcome::Resolved(alternatives) => {
@@ -110,13 +110,18 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     }
                 }
             }
-            ResolutionOutcome::UnsupportedIRIType(e) => bail!("unsupported URL `{url}`:\n{e}"),
-            ResolutionOutcome::Unresolvable(e) => {
-                bail!("failed to resolve URL `{url}`:\n{e}")
+            ResolutionOutcome::UnsupportedUsageType { reason } => {
+                bail!("unsupported project locator {resolve}: {reason}")
+            }
+            ResolutionOutcome::NotFound { reason } => {
+                bail!("project not found at {resolve}: {reason}")
+            }
+            ResolutionOutcome::Unresolvable { reason } => {
+                bail!("{resolve} is not resovable: {reason}")
             }
         }
         if source.is_none() {
-            bail!("unable to find project at URL `{url}`")
+            bail!("unable to find project {resolve}")
         }
         source
     } else if let Some(editable) = source_opts.as_editable {
@@ -251,7 +256,7 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     project_root: P,
     project_identifiers: Option<Vec<Iri<String>>>,
-    provided_iris: HashMap<String, Vec<sysand_core::project::memory::InMemoryProject>>,
+    provided_iris: ProvidedProjects,
     ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
     let resolver = create_resolver(

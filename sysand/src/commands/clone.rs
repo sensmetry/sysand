@@ -19,11 +19,12 @@ use sysand_core::{
         local_src::LocalSrcProject, utils::wrapfs,
     },
     resolve::{
-        ResolutionOutcome, ResolveRead,
+        ResolutionInfo, ResolutionOutcome, ResolveRead,
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
     },
+    utils::format_err,
 };
 
 use crate::{
@@ -109,20 +110,16 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     };
 
     if !no_deps {
-        let provided_iris = if !include_std {
+        let provided_usages = if !include_std {
             crate::known_std_libs()
         } else {
             HashMap::default()
         };
-        let mut memory_projects = HashMap::default();
-        for (k, v) in provided_iris.iter() {
-            memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
-        }
 
         let resolver = PriorityResolver::new(
             MemoryResolver {
                 iri_predicate: AcceptAll {},
-                projects: memory_projects,
+                projects: provided_usages.clone(),
             },
             std_resolver,
         );
@@ -137,15 +134,16 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         } = sysand_core::commands::lock::do_lock_projects(
             [(identifiers, &project)],
             resolver,
-            &provided_iris,
+            &provided_usages,
             &ctx,
         )?;
         // Warn if we have any std lib dependencies
-        if !provided_iris.is_empty()
-            && lock
-                .projects
-                .iter()
-                .any(|x| x.identifiers.iter().any(|y| provided_iris.contains_key(y)))
+        if !provided_usages.is_empty()
+            && lock.projects.iter().any(|x| {
+                x.identifiers
+                    .iter()
+                    .any(|y| provided_usages.contains_key(y))
+            })
         {
             crate::logger::warn_std_deps();
         }
@@ -166,7 +164,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             &project.inner().project_path,
             &mut env,
             client,
-            &provided_iris,
+            &provided_usages,
             runtime,
             auth_policy,
             ctx.current_workspace.as_ref(),
@@ -252,7 +250,6 @@ fn obtain_project<Policy: HTTPAuthentication>(
 
     let std_resolver = standard_resolver(
         None,
-        None,
         Some(client.clone()),
         index_urls,
         runtime.clone(),
@@ -267,7 +264,8 @@ fn obtain_project<Policy: HTTPAuthentication>(
                 ' ',
                 local_project.project_path,
             );
-            let (_version, storage) = get_project_version(iri, version, &std_resolver)?;
+            let resolve = ResolutionInfo::iri(iri.to_owned());
+            let (_version, storage) = get_project_version(&resolve, version, &std_resolver)?;
             let (info, _meta) = clone_project(&storage, &mut local_project, true)?;
             log::info!(
                 "{header}{cloned:>12}{header:#} `{}` {}",
@@ -343,15 +341,15 @@ fn clone_local<P: ProjectRead>(
     Ok(())
 }
 
-/// Obtains a project identified by `iri` via `resolver`. If
+/// Obtains a project identified by `resolve` via `resolver`. If
 /// version is given, obtains exactly that version. If not,
 /// obtains the latest version (including prerelease versions)
 pub fn get_project_version<R: ResolveRead>(
-    iri: &Iri<String>,
+    resolve: &ResolutionInfo,
     version: Option<String>,
     resolver: &R,
 ) -> Result<(semver::Version, R::ProjectStorage), anyhow::Error> {
-    match resolver.resolve_read(iri)? {
+    match resolver.resolve_read(resolve)? {
         ResolutionOutcome::Resolved(alternatives) => {
             // If no version is supplied, choose the highest
             // Else, choose version that is supplied
@@ -373,14 +371,17 @@ pub fn get_project_version<R: ResolveRead>(
                         // These errors may be ugly, as `candidates` includes all
                         // possible candidates, with expectation that only some
                         // of them will work. So we don't show these by default
-                        log::debug!("skipping candidate project: {e}");
+                        log::debug!("skipping candidate project: {}", format_err(e));
                         continue;
                     }
                 };
                 let maybe_info = match candidate_project.get_info() {
                     Ok(mi) => mi,
                     Err(e) => {
-                        log::debug!("skipping candidate project, failed to get info: {e}");
+                        log::debug!(
+                            "skipping candidate project, failed to get info: {}",
+                            format_err(e)
+                        );
                         continue;
                     }
                 };
@@ -411,8 +412,8 @@ pub fn get_project_version<R: ResolveRead>(
 
             match candidates.len() {
                 0 => match version {
-                    Some(v) => bail!(CliError::MissingProjectVersion(iri.as_ref().to_string(), v)),
-                    None => bail!(CliError::MissingProject(iri.as_ref().to_string())),
+                    Some(v) => bail!(CliError::MissingProjectVersion(resolve.to_string(), v)),
+                    None => bail!(CliError::MissingProject(resolve.to_string())),
                 },
                 1 => {
                     // Can't move out values with match
@@ -427,13 +428,14 @@ pub fn get_project_version<R: ResolveRead>(
                 }
             }
         }
-        ResolutionOutcome::UnsupportedIRIType(e) => bail!(
-            "IRI scheme `{}` of `{}` is not supported: {e}",
-            iri.scheme(),
-            iri
-        ),
-        ResolutionOutcome::Unresolvable(e) => {
-            bail!("failed to resolve project `{iri}`: {e}")
+        ResolutionOutcome::UnsupportedUsageType { reason } => {
+            bail!("locator type of {resolve} is not supported: {reason}")
+        }
+        ResolutionOutcome::NotFound { reason } => {
+            bail!("usage {resolve} was not found: {reason}")
+        }
+        ResolutionOutcome::Unresolvable { reason } => {
+            bail!("usage {resolve} is not resolvable: {reason}")
         }
     }
 }

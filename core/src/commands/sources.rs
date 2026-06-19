@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, fmt::Debug};
+use std::fmt::Debug;
 
 #[cfg(feature = "filesystem")]
 use camino::Utf8PathBuf;
@@ -13,7 +13,7 @@ use crate::project::local_src::{LocalSrcError, LocalSrcProject, PathError};
 use crate::{
     env::ReadEnvironment,
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
-    project::{ProjectRead, memory::InMemoryProject},
+    project::ProjectRead,
     resolve::{
         ResolveRead,
         env::EnvResolver,
@@ -21,6 +21,7 @@ use crate::{
         priority::{PriorityProject, PriorityResolver},
     },
     solve::pubgrub::SolverError,
+    utils::ProvidedProjects,
 };
 
 #[derive(Error, Debug)]
@@ -103,31 +104,25 @@ pub fn do_sources_local_src_project_no_deps(
 /// Transitively resolve a list of usages (typically the usages of some project)
 /// in an environment and enumerate the resolved projects.
 ///
-/// `provided_iris` are assumed to have been satisfied (including their dependencies)
+/// `provided_usages` are assumed to have been satisfied (including their dependencies)
 /// but have to match.
 pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
 ) -> Result<
     Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
     SolverError<impl ResolveRead + Debug + use<Env>>,
 > {
-    let mut memory_projects = HashMap::default();
-
-    for (k, v) in provided_iris {
-        memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
-    }
-
     let wrapped_resolver = PriorityResolver::new(
         MemoryResolver {
             iri_predicate: AcceptAll {},
-            projects: memory_projects,
+            projects: provided_usages.to_owned(),
         },
         EnvResolver { env },
     );
 
-    let mut wrapped_result = crate::solve::pubgrub::solve(requested, wrapped_resolver)?;
+    let mut wrapped_result = crate::solve::pubgrub::solve(requested, None, wrapped_resolver)?;
 
     Ok(wrapped_result
         .drain()

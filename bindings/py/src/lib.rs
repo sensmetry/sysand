@@ -4,6 +4,7 @@
 use std::{collections::HashMap, iter, process::ExitCode, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
+use fluent_uri::Iri;
 use pyo3::{
     exceptions::{PyFileExistsError, PyFileNotFoundError, PyIOError, PyRuntimeError, PyValueError},
     prelude::*,
@@ -26,7 +27,7 @@ use sysand_core::{
     },
     exclude::do_exclude,
     include::do_include,
-    info::{InfoError, InfoProjectError, do_info, do_info_project},
+    info::{InfoProjectError, do_info, do_info_project},
     init::InitError,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
@@ -149,12 +150,11 @@ fn do_info_py_path(
 
 #[pyfunction(name = "do_info_py")]
 #[pyo3(
-    signature = (uri, relative_file_root, index_urls),
+    signature = (uri, index_urls),
 )]
 fn do_info_py(
     py: Python,
     uri: String,
-    relative_file_root: String,
     index_urls: Option<Vec<String>>,
 ) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     let _ = pyo3_log::try_init();
@@ -179,7 +179,6 @@ fn do_info_py(
             .map_err(|err| PyValueError::new_err(format_err(err)))?;
 
         let combined_resolver = standard_resolver(
-            Some(relative_file_root.into()),
             None,
             Some(client),
             index_url,
@@ -189,14 +188,11 @@ fn do_info_py(
         )
         .map_err(|err| PyValueError::new_err(format_err(err)))?;
 
+        let uri = Iri::parse(uri)
+            .map_err(|(e, input)| PyValueError::new_err(format!("invalid IRI `{input}`: {e}")))?;
         match do_info(&uri, &combined_resolver) {
             Ok(info_meta) => Ok(info_meta),
-            Err(
-                e @ (InfoError::NoSemanticVersionsFound(_)
-                | InfoError::NoResolve(..)
-                | InfoError::UnsupportedIri(..)
-                | InfoError::Resolution(_)),
-            ) => Err(PyRuntimeError::new_err(format_err(e))),
+            Err(e) => Err(PyRuntimeError::new_err(format_err(e))),
         }
     })
 }

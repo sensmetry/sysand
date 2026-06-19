@@ -289,6 +289,150 @@ pub enum Command {
     },
     /// Prints the root directory of the current project
     PrintRoot,
+    /// Experimental commands. Likely to change in incompatible ways or be
+    /// removed in the future.
+    #[clap(verbatim_doc_comment)]
+    Experimental {
+        #[command(subcommand)]
+        subcommand: ExpCommand,
+    },
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum ExpCommand {
+    /// Add a usage
+    Add {
+        #[command(subcommand)]
+        locator: ExpAddProjectLocatorArgs,
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
+    /// Remove a usage
+    Remove { publisher: String, name: String },
+    /// Clone a project
+    Clone {
+        #[command(subcommand)]
+        locator: ExpCloneLocatorArgs,
+        /// Path to clone the project into. If already exists, must
+        /// be an empty directory. Defaults to current directory
+        #[arg(long, short, default_value = None, verbatim_doc_comment)]
+        target: Option<Utf8PathBuf>,
+        /// Don't resolve or install dependencies
+        #[arg(long)]
+        no_deps: bool,
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
+    /// Create a local `sysand_env` directory for installing dependencies
+    Env {
+        #[command(subcommand)]
+        command: Option<ExpEnvCommand>,
+    },
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+#[group(id = "expadd", required = true, multiple = false)]
+pub enum ExpAddProjectLocatorArgs {
+    /// Add a project from HTTP(S) URL
+    Url {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project
+        name: String,
+        /// URL of the project. Can point to a KPAR or a project directory
+        url: Iri<String>,
+    },
+    // TODO: does it make sense to allow kpar or src?
+    /// Add a project from a local path
+    #[clap(verbatim_doc_comment)]
+    Path {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project
+        name: String,
+        /// Path to the project. Can be relative or absolute, and can point
+        /// to either a KPAR or a project directory
+        #[clap(verbatim_doc_comment)]
+        path: Utf8PathBuf,
+    },
+}
+
+// TODO: don't require publisher/name
+#[derive(clap::Subcommand, Debug, Clone)]
+#[group(id = "expadd", required = true, multiple = false)]
+pub enum ExpCloneLocatorArgs {
+    /// Clone a project from HTTP(S) URL
+    Resource {
+        /// Identifier of the project.
+        resource: Iri<String>,
+        /// Version constraints for the project
+        version_constraint: Option<VersionReq>,
+    },
+    // TODO: does it make sense to allow kpar or src?
+    /// Clone a project from a local path
+    #[clap(verbatim_doc_comment)]
+    Path {
+        /// Publisher of the project
+        publisher: String,
+        /// Name of the project
+        name: String,
+        /// Path to the project. Can be relative or absolute, and can point
+        /// to either a KPAR or a project directory
+        #[clap(verbatim_doc_comment)]
+        path: Utf8PathBuf,
+    },
+}
+
+// TODO: we have to format the path properly, so this must be fallible
+// impl From<ExpCloneLocatorArgs> for InterchangeProjectUsage {
+//     fn from(value: ExpCloneLocatorArgs) -> Self {
+//         match value {
+//             ExpCloneLocatorArgs::Resource {
+//                 resource,
+//                 version_constraint,
+//             } => InterchangeProjectUsage::Resource {
+//                 resource,
+//                 version_constraint,
+//             },
+//             ExpCloneLocatorArgs::Path {
+//                 publisher,
+//                 name,
+//                 path,
+//             } => InterchangeProjectUsage::Directory {
+//                 dir: path.into(),
+//                 publisher,
+//                 name,
+//             },
+//         }
+//     }
+// }
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum ExpEnvCommand {
+    /// Install project in `sysand_env`
+    Install {
+        /// IRI identifying the project to be installed
+        iri: Iri<String>,
+        /// Version to be installed. Defaults to the latest
+        /// version according to SemVer 2.0, ignoring pre-releases
+        #[clap(verbatim_doc_comment)]
+        version: Option<String>,
+        /// Path to interchange project
+        #[arg(long, default_value = None)]
+        path: Option<Utf8PathBuf>,
+
+        #[command(flatten)]
+        install_opts: InstallOptions,
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
+    /// Uninstall project in `sysand_env`
+    Uninstall {
+        /// IRI identifying the project to be uninstalled
+        iri: Iri<String>,
+        /// Version to be uninstalled
+        version: Option<String>,
+    },
 }
 
 #[derive(clap::Args, Debug, Clone)]

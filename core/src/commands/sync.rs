@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, num::NonZeroU64};
+use std::num::NonZeroU64;
 
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
@@ -9,27 +9,26 @@ use typed_path::Utf8UnixPathBuf;
 use crate::{
     commands::env::do_env_install_project,
     env::{ProjectChecksumResult, ReadEnvironment, WriteEnvironment, utils::ErrorBound},
-    iri_normalize::canonicalize_iri_tolerant,
     lock::{Lock, Source},
-    project::{ProjectChecksum, ProjectRead, memory::InMemoryProject},
-    utils::format_err,
+    project::{ProjectChecksum, ProjectRead},
+    utils::{ProvidedProjects, format_err},
 };
 
 #[derive(Error, Debug)]
 pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
     #[error(
-        "incorrect checksum for project with IRI `{iri}` in lockfile:\n\
+        "incorrect checksum for project with `{id}` in lockfile:\n\
         expected `{expected}`, but the actual is\n\
         `{actual}`"
     )]
     BadChecksum {
-        iri: String,
+        id: String,
         expected: ProjectChecksum,
         actual: ProjectChecksum,
     },
     #[error("project with IRI `{0}` is missing `.project.json` or `.meta.json`")]
     BadProject(String),
-    #[error("project with IRI(s) {0:?} has no known sources in lockfile")]
+    #[error("project with identifiers {0:?} has no known sources in lockfile")]
     MissingSource(Box<[String]>),
     #[error("no IRI given for project with src_path = `{0}` in lockfile")]
     MissingIriSrcPath(Box<str>),
@@ -69,10 +68,10 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
     GitDownload(Box<str>, GitError),
     #[error("invalid remote source URL `{0}`:\n{1}")]
     InvalidRemoteSource(Box<str>, UrlParseError),
-    #[error("no supported sources for project with IRI `{0}`")]
+    #[error("no supported sources for project {0}")]
     UnsupportedSources(String),
-    #[error("failed to install project `{uri}`:\n{cause}")]
-    InstallFail { uri: Box<str>, cause: String },
+    #[error("failed to install project `{id}`:\n{cause}")]
+    InstallFail { id: String, cause: String },
     #[error(
         "tried to install a non-provided version {version} of `{iri}`, which is\n\
         an IRI marked as being provided by your tooling; provided versions are:\n\
@@ -116,7 +115,7 @@ pub fn do_sync<
     remote_kpar_storage: Option<CreateRemoteKParStorage>,
     index_kpar_storage: Option<CreateIndexKParStorage>,
     remote_git_storage: Option<CreateRemoteGitStorage>,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
 ) -> Result<(), SyncError<UrlParseError, GitError>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
@@ -146,13 +145,9 @@ where
         // TODO: We need a proper way to treat multiple IRIs here
         let main_uri = project.identifiers.first();
 
-        for iri in &project.identifiers {
-            let excluded_versions = if let Ok(parsed_iri) = fluent_uri::Iri::parse(iri.clone()) {
-                // TODO: maybe canonicalize on lock read, or don't canonicalize at all?
-                provided_iris.get(canonicalize_iri_tolerant(parsed_iri.borrow()).as_str())
-            } else {
-                provided_iris.get(iri.as_str())
-            };
+        // TODO: maybe canonicalize on lock read, or don't canonicalize at all?
+        for id in &project.identifiers {
+            let excluded_versions = provided_usages.get(id.as_str());
 
             if let Some(versions) = excluded_versions {
                 let mut provided_versions = vec![];
@@ -161,7 +156,7 @@ where
                     // Provided projects must have complete metadata
                     let version = project_version.version().unwrap().unwrap();
                     if project.version == version {
-                        log::debug!("`{iri}` is marked as provided, skipping installation");
+                        log::debug!("`{id}` is marked as provided, skipping installation");
                         continue 'main_loop;
                     }
 
@@ -169,7 +164,7 @@ where
                 }
 
                 return Err(SyncError::InvalidProvidedVersion {
-                    iri: iri.as_str().into(),
+                    iri: id.as_str().into(),
                     version: project.version.as_str().into(),
                     provided_versions,
                 });
@@ -340,7 +335,7 @@ where
                     log::debug!("trying to install `{uri}` from remote_git: {remote_git}");
                     do_env_install_project(uri, &project.version, &storage, None, env, true, true)
                         .map_err(|e| SyncError::InstallFail {
-                            uri: uri.as_str().into(),
+                            id: uri.to_owned(),
                             cause: format_err(e),
                         })?;
                 }
@@ -350,11 +345,10 @@ where
             }
         }
         if no_supported {
-            return Err(SyncError::UnsupportedSources(
-                main_uri
-                    .cloned()
-                    .unwrap_or_else(|| "project without IRI".to_string()),
-            ));
+            return Err(SyncError::UnsupportedSources(match main_uri {
+                Some(id) => id.to_string(),
+                None => "project without an identifier".to_string(),
+            }));
         }
         updated = true;
     }
@@ -371,20 +365,20 @@ fn try_install<
     G: ErrorBound,
     S: AsRef<str>,
 >(
-    uri: S,
+    id: S,
     version: &str,
     expected_checksum: &ProjectChecksum,
     storage: P,
     env: &mut E,
 ) -> Result<(), SyncError<U, G>> {
-    let uri = uri.as_ref();
+    let id = id.as_ref();
     let actual_checksum = storage
         .checksum_canonical_variant()
         .map_err(|e| SyncError::ProjectRead(format_err(e)))?;
     if expected_checksum == &actual_checksum {
         // TODO: Need to decide how to handle existing installations and possible flags to modify behavior
         do_env_install_project(
-            uri,
+            id,
             version,
             &storage,
             Some(actual_checksum),
@@ -393,12 +387,12 @@ fn try_install<
             true,
         )
         .map_err(|e| SyncError::InstallFail {
-            uri: uri.into(),
+            id: id.to_owned(),
             cause: format_err(e),
         })?;
     } else {
         return Err(SyncError::BadChecksum {
-            iri: uri.into(),
+            id: id.to_owned(),
             expected: expected_checksum.to_owned(),
             actual: actual_checksum,
         });

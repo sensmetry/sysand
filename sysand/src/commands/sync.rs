@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, num::NonZeroU64, sync::Arc};
+use std::{num::NonZeroU64, sync::Arc};
 
 use anyhow::Result;
 use camino::Utf8Path;
@@ -17,12 +17,12 @@ use sysand_core::{
         gix_git_download::{GixDownloadedError, GixDownloadedProject},
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
-        memory::InMemoryProject,
         reqwest_kpar_download::{
             ReqwestIndexKparDownloadedProject, ReqwestRemoteKparDownloadedProject,
         },
         reqwest_src::ReqwestSrcProjectAsync,
     },
+    utils::ProvidedProjects,
     workspace::Workspace,
 };
 
@@ -32,7 +32,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     project_root: P,
     env: &mut LocalDirectoryEnvironment,
     client: reqwest_middleware::ClientWithMiddleware,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ws: Option<&Workspace>,
@@ -121,7 +121,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                 GixDownloadedProject::new(remote_git)
             },
         ),
-        provided_iris,
+        provided_usages,
     )?;
 
     env.merge_lock(lock, ws);

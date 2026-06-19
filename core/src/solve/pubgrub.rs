@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use fluent_uri::Iri;
+use camino::Utf8PathBuf;
 use pubgrub::{
     DefaultStringReporter, DependencyConstraints, DependencyProvider, Reporter, VersionSet,
 };
@@ -15,15 +15,20 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{model::InterchangeProjectUsage, project::ProjectRead, resolve::ResolveRead};
+use crate::{
+    model::InterchangeProjectUsage,
+    project::{ProjectRead, utils::Identifier},
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
+    utils::format_err,
+};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum DependencyIdentifier {
     /// Dependencies that are to be resolved.
-    Requested(Vec<InterchangeProjectUsage>),
+    Requested(Vec<ResolutionInfo>),
     /// Found dependencies. Note that this does not mean that the
-    /// required version was found, just that the IRI was resolved.
-    Remote(fluent_uri::Iri<String>),
+    /// required version was found, just that the usage was resolved.
+    Remote(ResolutionInfo),
 }
 
 impl Display for DependencyIdentifier {
@@ -174,30 +179,23 @@ impl VersionSet for DiscreteHashSet {
     }
 }
 
-type CandidateMap<ProjectStorage> =
-    HashMap<fluent_uri::Iri<String>, Vec<Candidate<ProjectStorage>>>;
+type CandidateMap<ProjectStorage> = HashMap<Identifier, Vec<Candidate<ProjectStorage>>>;
 
 /// One resolved alternative for a given IRI: the summary the solver scores
-/// against and the `ProjectStorage` we hand back at extraction time. Keeping
-/// the pair in a named record prevents the two Vecs from drifting apart —
-/// every `CandidateSummary` retained in the cache has its paired `project`
-/// right next to it, so "index i" has one meaning instead of two.
+/// against and the `ProjectStorage` we hand back at extraction time.
 #[derive(Clone, Debug)]
 struct Candidate<ProjectStorage> {
     summary: CandidateSummary,
     project: ProjectStorage,
 }
 
-/// The fields of a candidate project that the solver actually consults —
-/// `version` (for range matching) and `usage` (for recursive dependency
-/// discovery). Populated via `ProjectRead::version` + `ProjectRead::usage`,
-/// which leaf backends like `IndexEntryProject` answer from prefetched
-/// metadata so the solver never triggers a kpar download just to score a
-/// candidate.
+/// The fields of a candidate project that the solver needs:
+/// - `version` (for range matching)
+/// - `usage` (for recursive dependency discovery)
 #[derive(Clone, Debug)]
 struct CandidateSummary {
     version: semver::Version,
-    usage: Vec<InterchangeProjectUsage>,
+    usage: Vec<ResolutionInfo>,
 }
 
 pub struct ProjectSolver<R: ResolveRead> {
@@ -210,10 +208,10 @@ pub struct ProjectSolver<R: ResolveRead> {
 /// Returned Vec will have `len >= 1`
 fn resolve_candidates<R: ResolveRead>(
     resolver: &R,
-    uri: &fluent_uri::Iri<String>,
+    resolve: &ResolutionInfo,
     cache: &mut CandidateMap<R::ProjectStorage>,
 ) -> Result<Vec<CandidateSummary>, InternalSolverError<R>> {
-    let entry = cache.entry(uri.clone());
+    let entry = cache.entry(resolve.id());
 
     match entry {
         Entry::Occupied(occupied_entry) => Ok(occupied_entry
@@ -225,23 +223,30 @@ fn resolve_candidates<R: ResolveRead>(
             let mut found = vec![];
 
             match resolver
-                .resolve_read(uri)
+                .resolve_read(resolve)
                 .map_err(InternalSolverError::Resolution)?
             {
-                crate::resolve::ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    return Err(InternalSolverError::UnsupportedIriType(format!(
-                        "unsupported IRI type of `{uri}`: {msg}"
-                    )));
+                ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    return Err(InternalSolverError::UnsupportedUsageType {
+                        usage: resolve.to_owned(),
+                        reason,
+                    });
                 }
-                crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
-                    return Err(InternalSolverError::NotFound(uri.as_str().into(), msg));
+                ResolutionOutcome::Unresolvable { reason } => {
+                    return Err(InternalSolverError::Unresolvable {
+                        usage: resolve.to_owned(),
+                        reason,
+                    });
                 }
-                crate::resolve::ResolutionOutcome::Resolved(alternatives) => {
+                ResolutionOutcome::Resolved(alternatives) => {
                     for alternative in alternatives {
                         let project = match alternative {
                             Ok(project) => project,
                             Err(e) => {
-                                log::debug!("candidate project for `{uri}` is error: {e}");
+                                log::debug!(
+                                    "candidate project for {resolve} is error: {}",
+                                    format_err(e)
+                                );
                                 continue;
                             }
                         };
@@ -251,50 +256,61 @@ fn resolve_candidates<R: ResolveRead>(
                                 Ok(version) => version,
                                 Err(e) => {
                                     log::debug!(
-                                        "candidate project for `{uri}` has invalid version `{version}`: {e}"
+                                        "candidate project for {resolve} has invalid version `{version}`: {}",
+                                        format_err(e)
                                     );
                                     continue;
                                 }
                             },
                             Ok(None) => {
                                 log::debug!(
-                                    "candidate project for `{uri}` did not expose a version"
+                                    "candidate project for {resolve} did not expose a version"
                                 );
                                 continue;
                             }
                             Err(e) => {
                                 log::debug!(
-                                    "candidate project for `{uri}` failed to get version: {e}"
+                                    "candidate project for {resolve} failed to get version: {}",
+                                    format_err(e)
                                 );
                                 continue;
                             }
                         };
 
                         let usage = match project.usage() {
-                            Ok(Some(usage)) => {
+                            Ok(Some(usages)) => {
                                 let validated: Result<Vec<InterchangeProjectUsage>, _> =
-                                    usage.into_iter().map(|usage| usage.validate()).collect();
+                                    usages.into_iter().map(|usage| usage.validate()).collect();
                                 match validated {
                                     Ok(usage) => usage,
                                     Err(e) => {
                                         log::debug!(
-                                            "candidate project for `{uri}` has invalid usage: {e}"
+                                            "candidate project for {resolve} has invalid usage: {}",
+                                            format_err(e)
                                         );
                                         continue;
                                     }
                                 }
                             }
                             Ok(None) => {
-                                log::debug!("candidate project for `{uri}` did not expose usages");
+                                log::debug!(
+                                    "candidate project for {resolve} did not expose usages"
+                                );
                                 continue;
                             }
                             Err(e) => {
                                 log::debug!(
-                                    "candidate project for `{uri}` failed to get usages: {e}"
+                                    "candidate project for {resolve} failed to get usages: {}",
+                                    format_err(e)
                                 );
                                 continue;
                             }
                         };
+                        let relative_root = project.project_root().map(|p| p.to_path_buf());
+                        let usage = usage
+                            .into_iter()
+                            .map(|u| ResolutionInfo::new(u, relative_root.to_owned()))
+                            .collect();
 
                         found.push(Candidate {
                             summary: CandidateSummary { version, usage },
@@ -302,8 +318,11 @@ fn resolve_candidates<R: ResolveRead>(
                         });
                     }
                     if found.is_empty() {
-                        return Err(InternalSolverError::NoValidCandidates(uri.as_str().into()));
+                        return Err(InternalSolverError::NoValidCandidates(resolve.to_owned()));
                     }
+                }
+                ResolutionOutcome::NotFound { reason } => {
+                    return Err(InternalSolverError::NotFound(resolve.to_owned(), reason));
                 }
             }
 
@@ -318,7 +337,7 @@ fn resolve_candidates<R: ResolveRead>(
 
 fn compute_deps<R: ResolveRead + fmt::Debug>(
     resolver: &R,
-    usages: &Vec<InterchangeProjectUsage>,
+    usages: &[ResolutionInfo],
     cache: &mut CandidateMap<R::ProjectStorage>,
 ) -> Result<
     pubgrub::Dependencies<DependencyIdentifier, DiscreteHashSet, String>,
@@ -327,7 +346,15 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
     let mut deps: Vec<(DependencyIdentifier, DiscreteHashSet)> = Vec::new();
 
     for usage in usages {
-        match usage {
+        let candidates = resolve_candidates(resolver, usage, cache)?;
+        // TODO: reenable this when it's fixed to give better error messages
+        // https://github.com/pubgrub-rs/pubgrub/pull/216
+        // match resolve_candidates(resolver, &usage.resource, cache) {
+        //     Ok(_) => (),
+        //     Err(err) => return Ok(pubgrub::Dependencies::Unavailable(format_err(err))),
+        // };
+
+        match &usage.usage() {
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint,
@@ -336,10 +363,7 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                     let mut valid_candidates = HashSet::new();
 
                     let mut found_versions = Vec::new();
-                    for (i, candidate_info) in resolve_candidates(resolver, resource, cache)?
-                        .iter()
-                        .enumerate()
-                    {
+                    for (i, candidate_info) in candidates.iter().enumerate() {
                         found_versions.push(candidate_info.version.clone());
                         if constraint.matches(&candidate_info.version) {
                             valid_candidates.insert(i);
@@ -361,24 +385,27 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                     }
 
                     deps.push((
-                        DependencyIdentifier::Remote(resource.clone()),
+                        DependencyIdentifier::Remote(usage.to_owned()),
                         DiscreteHashSet::Finite(valid_candidates),
                     ));
                 } else {
-                    // Check that the project can be found
-                    resolve_candidates(resolver, resource, cache)?;
-                    // TODO: reenable this when it's fixed to give better error messages
-                    // https://github.com/pubgrub-rs/pubgrub/pull/216
-                    // match resolve_candidates(resolver, &usage.resource, cache) {
-                    //     Ok(_) => (),
-                    //     Err(err) => return Ok(pubgrub::Dependencies::Unavailable(format_err(err))),
-                    // };
-
                     deps.push((
-                        DependencyIdentifier::Remote(resource.clone()),
+                        DependencyIdentifier::Remote(usage.to_owned()),
                         DiscreteHashSet::empty().complement(),
                     ));
                 }
+            }
+            InterchangeProjectUsage::Directory {
+                dir: _,
+                publisher: _,
+                name: _,
+            } => {
+                // TODO: verify publisher and name match expected
+                assert_eq!(candidates.len(), 1);
+                deps.push((
+                    DependencyIdentifier::Remote(usage.to_owned()),
+                    DiscreteHashSet::empty().complement(),
+                ));
             }
         }
     }
@@ -454,25 +481,42 @@ impl<R: ResolveRead + fmt::Debug + 'static> std::error::Error for SolverError<R>
 pub enum InternalSolverError<R: ResolveRead> {
     #[error("resolution error: {0}")]
     Resolution(R::Error),
-    // #[error("invalid project requested")]
-    // InvalidProject,
     /// Project not found by current resolver
     /// Value is the formatted error message
-    #[error("project with IRI `{0}` not found: {1}")]
-    NotFound(Box<str>, String),
+    #[error("project {0} not found: {1}")]
+    NotFound(ResolutionInfo, String),
     /// Project candidates were found, but none of them were
     /// valid.
     /// Value is the formatted error message
-    #[error("no valid candidates found for project `{0}`")]
-    NoValidCandidates(Box<str>),
+    #[error("no valid candidates found for project {0}")]
+    NoValidCandidates(ResolutionInfo),
+    // #[error("project at `{absolute_path}` exists, but instead of the expected\n\
+    //     publisher `{expected_publisher}` and name `{expected_name}`,\n\
+    //     it has a publisher {} and name `{name}`", if let Some(p)=publisher {format!("`{p}`")} else {String::new()})]
+    // DifferentProject {
+    //     absolute_path: Utf8PathBuf,
+    //     expected_publisher: String,
+    //     expected_name: String,
+    //     publisher: Option<String>,
+    //     name: String,
+    // },
     /// Project not found by current resolver
     /// Value is the formatted error message
-    #[error("IRI is of type not supported by this resolver: {0}")]
-    UnsupportedIriType(String),
+    #[error("usage {usage} is of type not supported by this resolver: {reason}")]
+    UnsupportedUsageType {
+        usage: ResolutionInfo,
+        reason: String,
+    },
     /// Project is found, but the requested version is not
     /// Value is the formatted error message
     #[error("requested version unavailable: {0}")]
     VersionNotAvailable(String),
+    /// Resolution failed due to an invalid usage that is in principle supported
+    #[error("usage {usage} is not resolvable: {reason}")]
+    Unresolvable {
+        usage: ResolutionInfo,
+        reason: String,
+    },
 }
 
 impl<R: ResolveRead> ProjectSolver<R> {
@@ -520,7 +564,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
         match range {
             DiscreteHashSet::Finite(hash_set) => {
                 let res = hash_set.iter().min().cloned();
-                log::debug!("choosing version for request ({:?})", res);
+                log::debug!("choosing version for request ({res:?})");
                 Ok(res)
             }
             DiscreteHashSet::CoFinite(hash_set) => {
@@ -529,10 +573,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                         log::debug!("unknown version for request");
                         Ok(None)
                     }
-                    DependencyIdentifier::Remote(iri) => {
+                    DependencyIdentifier::Remote(usage) => {
                         let candidate_versions = resolve_candidates(
                             &self.resolver,
-                            iri,
+                            usage,
                             &mut self.resolved_candidates.borrow_mut(),
                         )?;
                         let mut versions_indexes: Vec<(usize, semver::Version)> =
@@ -549,15 +593,13 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                         for (i, v) in versions_indexes.iter() {
                             if !hash_set.contains(i) {
                                 found = Some(*i);
-                                log::debug!("chose version for `{}`: {}", iri.as_str(), v);
+                                log::debug!("chose version for {usage}: {v}");
                                 break;
                             }
                         }
                         if found.is_none() {
                             log::debug!(
-                                "no allowed versions for `{}`, considered: {:?}",
-                                iri.as_str(),
-                                versions_indexes
+                                "no allowed versions for {usage}, considered: {versions_indexes:?}",
                             );
                         }
 
@@ -607,30 +649,35 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
     }
 }
 
-type Solution<ProjectStorage> = HashMap<Iri<String>, ProjectStorage>;
+type Solution<ProjectStorage> = HashMap<Identifier, ProjectStorage>;
 
 pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
+    base_path: Option<Utf8PathBuf>,
     resolver: R,
 ) -> Result<Solution<R::ProjectStorage>, SolverError<R>> {
     let solver = ProjectSolver::new(resolver);
 
+    let requested = requested
+        .into_iter()
+        .map(|u| ResolutionInfo::new(u, base_path.clone()))
+        .collect();
     let package = DependencyIdentifier::Requested(requested);
 
     let version: usize = 0;
 
     let solution = pubgrub::resolve(&solver, package, version)?;
 
-    let mut map = solver.resolved_candidates.replace(HashMap::default());
+    let mut map = solver.resolved_candidates.take();
 
-    let mut result: HashMap<fluent_uri::Iri<String>, <R as ResolveRead>::ProjectStorage, _> =
-        HashMap::default();
+    let mut result = HashMap::default();
 
     for (k, idx) in solution {
-        if let DependencyIdentifier::Remote(uri) = k {
-            let mut extracted = map.remove(&uri).expect("internal solver error");
+        if let DependencyIdentifier::Remote(usage) = k {
+            let id = usage.id();
+            let mut extracted = map.remove(&id).expect("internal solver error");
 
-            result.insert(uri, extracted.swap_remove(idx).project);
+            result.insert(id, extracted.swap_remove(idx).project);
         }
     }
 

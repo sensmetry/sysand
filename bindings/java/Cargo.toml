@@ -24,6 +24,7 @@ kpar-ppmd = ["sysand-core/kpar-ppmd"]
 [dependencies]
 sysand-core = { path = "../../core", features = ["std", "filesystem", "networking"] }
 camino.workspace = true
+fluent-uri.workspace = true
 jni = "0.21.1"
 reqwest-middleware = { version = "0.5.1" }
 indexmap = { version = "2.13.0", default-features = false, features = ["serde"] }

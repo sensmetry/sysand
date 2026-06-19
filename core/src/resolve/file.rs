@@ -14,22 +14,20 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
         self, ProjectRead,
         local_kpar::{KparInnerPath, LocalKParError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ProjectDeserializationError, RelativizePathError, wrapfs},
     },
-    resolve::{ResolutionOutcome, ResolveRead},
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::scheme::SCHEME_FILE,
 };
 
 /// Resolver for resolving `file://` URIs.
 #[derive(Debug)]
 pub struct FileResolver {
-    /// Relative URIs are resolved with respect to this root.
-    pub relative_path_root: Option<Utf8PathBuf>,
     /// This field enables sandboxing the resolved path. If field is not `None`,
     /// the resolved path must be inside at least one of these directories.
     pub sandbox_roots: Option<Vec<Utf8PathBuf>>,
@@ -77,31 +75,17 @@ fn try_file_uri_to_path(
 }
 
 impl FileResolver {
-    fn resolve_platform_path(
+    fn check_sandbox(
         &self,
         path: Utf8PathBuf,
     ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
-        // Try to resolve relative paths
-        let project_path = if path.is_relative() {
-            if let Some(root_part) = &self.relative_path_root {
-                root_part.join(&path)
-            } else {
-                return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                    "cannot resolve relative file without a specified root directory: {}",
-                    path
-                )));
-            }
-        } else {
-            path
-        };
-
         // Use canonicalised paths to check that the tentative project path is within the "jail"
         if let Some(sandboxed_roots) = &self.sandbox_roots {
             let mut found = false;
             let mut sandbox_roots_canonical = Vec::new();
             for sandbox_root in sandboxed_roots {
                 let sandbox_root_canonical = wrapfs::canonicalize(sandbox_root)?;
-                let project_path_canonical = wrapfs::canonicalize(&project_path)?;
+                let project_path_canonical = wrapfs::canonicalize(&path)?;
 
                 if project_path_canonical.starts_with(&sandbox_root_canonical) {
                     found = true;
@@ -110,27 +94,15 @@ impl FileResolver {
                 sandbox_roots_canonical.push(sandbox_root_canonical.to_string());
             }
             if !found {
-                return Ok(ResolutionOutcome::Unresolvable(format!(
-                    "refusing to resolve path `{}`, is not inside in any of the allowed directories\n{}",
-                    project_path,
-                    sandbox_roots_canonical.join("; "),
-                )));
+                return Ok(ResolutionOutcome::Unresolvable {
+                    reason: format!(
+                        "refusing to resolve path `{path}`, is not inside in any of the allowed directories\n{}",
+                        sandbox_roots_canonical.join("; "),
+                    ),
+                });
             }
         }
-
-        Ok(ResolutionOutcome::Resolved(project_path))
-    }
-
-    fn resolve_general(
-        &self,
-        uri: &fluent_uri::Iri<String>,
-    ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
-        match try_file_uri_to_path(uri)? {
-            Some(path) => self.resolve_platform_path(path),
-            None => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "`{uri}` is not a file URL",
-            ))),
-        }
+        Ok(ResolutionOutcome::Resolved(path))
     }
 }
 
@@ -318,23 +290,62 @@ impl ResolveRead for FileResolver {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        Ok(match self.resolve_general(uri)? {
-            ResolutionOutcome::Resolved(path) => ResolutionOutcome::Resolved(vec![
-                Ok(FileResolverProject::LocalSrcProject(LocalSrcProject {
-                    nominal_path: None,
-                    project_path: path.clone(),
-                    expected_checksum: None,
-                })),
-                Ok(FileResolverProject::LocalKParProject(
-                    LocalKParProject::new(path, KparInnerPath::Guess, None, None),
-                )),
-            ]),
-            ResolutionOutcome::UnsupportedIRIType(msg) => {
-                ResolutionOutcome::UnsupportedIRIType(msg)
+        match resolve.usage() {
+            InterchangeProjectUsage::Resource {
+                resource: url,
+                // TODO: check that the project version satisfies this
+                version_constraint: _,
+            } => match try_file_uri_to_path(url)? {
+                Some(path) => {
+                    let res = self.check_sandbox(path)?;
+                    Ok(res.map(|path| {
+                        vec![
+                            Ok(FileResolverProject::LocalSrcProject(LocalSrcProject {
+                                nominal_path: None,
+                                project_path: path.clone(),
+                                expected_checksum: None,
+                            })),
+                            Ok(FileResolverProject::LocalKParProject(
+                                LocalKParProject::new(path, KparInnerPath::Guess, None, None),
+                            )),
+                        ]
+                    }))
+                }
+                None => Ok(ResolutionOutcome::UnsupportedUsageType {
+                    reason: String::from("resource is not a file URL"),
+                }),
+            },
+            // TODO: we must check somewhere that publisher/name match actual
+            InterchangeProjectUsage::Directory {
+                publisher: _,
+                name: _,
+                dir,
+            } => {
+                // TODO: should absolute paths be supported here? Cargo does.
+                // if path.is_absolute() {
+                // self.resolve_platform_path(path.into())
+                // } else
+                if let Some(base) = resolve.base_path() {
+                    let abs_path = base.join(dir.as_str());
+                    let res = self.check_sandbox(abs_path)?;
+                    Ok(res.map(|path| {
+                        vec![Ok(FileResolverProject::LocalSrcProject(LocalSrcProject {
+                            nominal_path: None,
+                            project_path: path.clone(),
+                            expected_checksum: None,
+                        }))]
+                    }))
+                } else {
+                    // TODO: return Err?
+                    Ok(ResolutionOutcome::Unresolvable {
+                        reason: String::from(
+                            "cannot resolve relative path usage without a base path",
+                        ),
+                    })
+                }
             }
-            ResolutionOutcome::Unresolvable(msg) => ResolutionOutcome::Unresolvable(msg),
-        })
+        }
     }
 }

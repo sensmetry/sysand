@@ -10,9 +10,9 @@ use indexmap::IndexMap;
 use crate::{
     info::{InfoError, do_info},
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::memory::InMemoryProject,
+    project::{memory::InMemoryProject, utils::Identifier},
     resolve::{
-        ResolveRead,
+        ResolutionInfo, ResolutionOutcome, ResolveRead,
         combined::{CombinedResolver, NO_RESOLVER},
         memory::{AcceptAll, MemoryResolver},
     },
@@ -55,7 +55,7 @@ fn single_project_any_resolver<S: AsRef<str>>(
     uri: S,
     project: InMemoryProject,
 ) -> Option<MemoryResolver<AcceptAll, InMemoryProject>> {
-    let uri = Iri::parse(uri.as_ref().to_string()).unwrap();
+    let uri = Identifier::from_iri_unchecked_str(uri.as_ref());
 
     let mut projects = HashMap::new();
 
@@ -71,7 +71,7 @@ fn multiple_projects_any_resolver<S: AsRef<str>>(
     uri: S,
     projects: Vec<InMemoryProject>,
 ) -> Option<MemoryResolver<AcceptAll, InMemoryProject>> {
-    let uri = Iri::parse(uri.as_ref().to_string()).unwrap();
+    let uri = Identifier::from_iri_unchecked_str(uri.as_ref());
     let mut projects_map = HashMap::new();
     projects_map.insert(uri, projects);
     Some(MemoryResolver {
@@ -102,84 +102,88 @@ fn multiple_projects_any_resolver<S: AsRef<str>>(
 //     }
 // }
 
+fn iri(iri: &str) -> Iri<String> {
+    Iri::parse(iri).unwrap().into()
+}
+
 #[test]
 fn prefer_file_resolver_when_successful() {
-    let example_uri = "http://example.com";
+    let example_uri = iri("http://example.com");
 
     let project_a = minimal_project("a", "1.2.3");
     let project_b = minimal_project("b", "3.2.1");
 
     let resolver = CombinedResolver {
-        file_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-        remote_resolver: single_project_any_resolver(example_uri, project_b.clone()),
-        local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
-        index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
+        file_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        remote_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
+        local_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
     };
 
-    let (info, _) = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(&example_uri, &resolver).unwrap();
 
     assert_eq!(info.name, "a");
 }
 
 #[test]
 fn prefer_file_resolver_even_when_unresolved() {
-    let example_uri = "http://example.com";
+    let example_uri = iri("http://example.com");
 
     let project_a = minimal_project("a", "1.2.3");
 
     let resolver = CombinedResolver {
         file_resolver: empty_any_resolver(),
-        remote_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-        local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-        index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
+        remote_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        local_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
     };
 
-    let xs = do_info(example_uri, &resolver);
-
+    let xs = do_info(&example_uri, &resolver);
+    dbg!(&xs);
     assert!(xs.is_err())
 }
 
 #[test]
 fn skip_file_resolver_if_unsupported_iri() {
-    let example_uri = "http://example.com";
+    let example_uri = iri("http://example.com");
 
     //let project_a = minimal_project("a", "1.2.3");
     let project_b = minimal_project("b", "3.2.1");
 
     let resolver = CombinedResolver {
         file_resolver: NO_RESOLVER,
-        remote_resolver: single_project_any_resolver(example_uri, project_b.clone()),
-        local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
-        index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
+        remote_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
+        local_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
     };
 
-    let (info, _) = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(&example_uri, &resolver).unwrap();
 
     assert_eq!(info.name, "b");
 }
 
 #[test]
 fn prefer_remote_over_index_if_valid_cached() {
-    let example_uri = "http://example.com";
+    let example_uri = iri("http://example.com");
 
     let project_a = minimal_project("a", "1.2.3");
     let project_b = minimal_project("b", "3.2.1");
 
     let resolver = CombinedResolver {
         file_resolver: NO_RESOLVER,
-        remote_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-        local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-        index_resolver: single_project_any_resolver(example_uri, project_b.clone()),
+        remote_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        local_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
     };
 
-    let (info, _) = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(&example_uri, &resolver).unwrap();
 
     assert_eq!(info.name, "a");
 }
 
 #[test]
 fn prefer_remote_over_index_if_valid_uncached() {
-    let example_uri = "http://example.com";
+    let example_uri = iri("http://example.com");
 
     let project_a = minimal_project("a", "1.2.3");
     let project_b = minimal_project("b", "3.2.1");
@@ -187,19 +191,19 @@ fn prefer_remote_over_index_if_valid_uncached() {
 
     let resolver = CombinedResolver {
         file_resolver: NO_RESOLVER,
-        remote_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-        local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
-        index_resolver: single_project_any_resolver(example_uri, project_c.clone()),
+        remote_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        local_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_c.clone()),
     };
 
-    let (info, _) = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(&example_uri, &resolver).unwrap();
 
     assert_eq!(info.name, "b");
 }
 
 #[test]
 fn skip_remote_if_unsupported_uncached() {
-    let example_uri = "http://example.com";
+    let example_uri = iri("http://example.com");
 
     let project_a = minimal_project("a", "1.2.3");
     let project_b = minimal_project("b", "3.2.1");
@@ -207,53 +211,61 @@ fn skip_remote_if_unsupported_uncached() {
     let resolver = CombinedResolver {
         file_resolver: NO_RESOLVER,
         remote_resolver: NO_RESOLVER,
-        local_resolver: single_project_any_resolver(example_uri, project_b.clone()),
-        index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
+        local_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
     };
 
-    let (info, _) = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(&example_uri, &resolver).unwrap();
 
     assert_eq!(info.name, "b");
 }
 
 #[test]
 fn skip_remote_if_unsupported_cached() {
-    let example_uri = "http://example.com";
+    let example_uri = iri("http://example.com");
 
     let project_a = minimal_project("a", "1.2.3");
 
     let resolver = CombinedResolver {
         file_resolver: NO_RESOLVER,
         remote_resolver: NO_RESOLVER,
-        local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-        index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
+        local_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
     };
 
-    let (info, _) = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(&example_uri, &resolver).unwrap();
 
     assert_eq!(info.name, "a");
 }
 
 #[test]
 fn skip_remote_if_unresolved_cached() {
-    let example_uri = "http://example.com";
+    let example_uri = iri("http://example.com");
 
     let project_a = minimal_project("a", "1.2.3");
 
     let resolver = CombinedResolver {
         file_resolver: NO_RESOLVER,
         remote_resolver: empty_any_resolver(),
-        local_resolver: single_project_any_resolver(example_uri, project_a.clone()),
-        index_resolver: single_project_any_resolver(example_uri, project_a.clone()),
+        local_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
     };
 
-    let (info, _) = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(&example_uri, &resolver).unwrap();
 
     assert_eq!(info.name, "a");
 }
 
+fn resolve<R: ResolveRead>(
+    resolver: &R,
+    iri: &str,
+) -> Result<ResolutionOutcome<R::ResolvedStorages>, R::Error> {
+    let resolve = ResolutionInfo::iri(Iri::parse(iri).unwrap().into());
+    resolver.resolve_read(&resolve)
+}
+
 #[test]
-fn unsupported_iri_test() {
+fn unsupported_iri() {
     let example_uri = "http://example.com";
 
     let resolver = CombinedResolver {
@@ -263,15 +275,15 @@ fn unsupported_iri_test() {
         index_resolver: NO_RESOLVER,
     };
 
-    let Ok(crate::resolve::ResolutionOutcome::UnsupportedIRIType(_)) =
-        resolver.resolve_read_raw(example_uri)
+    let Ok(crate::resolve::ResolutionOutcome::UnsupportedUsageType { .. }) =
+        resolve(&resolver, example_uri)
     else {
         panic!()
     };
 }
 
 #[test]
-fn unresolved_iri_test() {
+fn unresolved_iri() {
     let example_uri = "http://example.com";
 
     let resolver = CombinedResolver {
@@ -281,23 +293,22 @@ fn unresolved_iri_test() {
         index_resolver: empty_any_resolver(),
     };
 
-    let Ok(crate::resolve::ResolutionOutcome::Unresolvable(_)) =
-        resolver.resolve_read_raw(example_uri)
+    let Ok(crate::resolve::ResolutionOutcome::NotFound { .. }) = resolve(&resolver, example_uri)
     else {
         panic!()
     };
 }
 
 #[test]
-fn skip_non_semantic_versions_test() {
-    let example_uri = "http://example.com";
+fn skip_non_semantic_versions() {
+    let example_uri = iri("http://example.com");
 
     let project_a = minimal_project("a", "1.2.3");
     let project_b = minimal_project("b", "3.2.1.H");
 
     let resolver = CombinedResolver {
         file_resolver: multiple_projects_any_resolver(
-            example_uri,
+            &example_uri,
             vec![project_a.clone(), project_b.clone()],
         ),
         remote_resolver: empty_any_resolver(),
@@ -305,21 +316,21 @@ fn skip_non_semantic_versions_test() {
         index_resolver: empty_any_resolver(),
     };
 
-    let (info, _) = do_info(example_uri, &resolver).unwrap();
+    let (info, _) = do_info(&example_uri, &resolver).unwrap();
 
     assert_eq!(info.name, "a");
 }
 
 #[test]
-fn no_semantic_versions_error_test() {
-    let example_uri = "http://example.com";
+fn no_semantic_versions_error() {
+    let example_uri = iri("http://example.com");
 
     let project_a = minimal_project("a", "1.23");
     let project_b = minimal_project("b", "3.2.1.H");
 
     let resolver = CombinedResolver {
         file_resolver: multiple_projects_any_resolver(
-            example_uri,
+            &example_uri,
             vec![project_a.clone(), project_b.clone()],
         ),
         remote_resolver: empty_any_resolver(),
@@ -327,7 +338,7 @@ fn no_semantic_versions_error_test() {
         index_resolver: empty_any_resolver(),
     };
 
-    let info_meta = do_info(example_uri, &resolver);
+    let info_meta = do_info(&example_uri, &resolver);
 
     assert_matches!(info_meta, Err(InfoError::NoSemanticVersionsFound(_)));
 }

@@ -36,7 +36,7 @@ pub fn command_remove(
 
     let removed = "Removed";
     let header = sysand_core::style::get_style_config().header;
-    if let [usage] = usages.as_slice() {
+    for usage in usages {
         match usage {
             InterchangeProjectUsageRaw::Resource {
                 resource,
@@ -51,22 +51,12 @@ pub fn command_remove(
                     log::info!("{header}{removed:>12}{header:#} `{resource}`");
                 }
             },
-        }
-    } else {
-        log::info!("{header}{removed:>12}{header:#}:");
-        for usage in usages {
-            match usage {
-                InterchangeProjectUsageRaw::Resource {
-                    resource,
-                    version_constraint,
-                } => match version_constraint {
-                    Some(vc) => {
-                        log::info!("{:>13} `{resource}` with version constraints `{vc}`", ' ');
-                    }
-                    None => {
-                        log::info!("{:>13} `{resource}`", ' ');
-                    }
-                },
+            InterchangeProjectUsageRaw::Directory {
+                dir,
+                publisher,
+                name,
+            } => {
+                log::info!("{header}{removed:>12}{header:#} `{publisher}/{name}` (path `{dir}`)");
             }
         }
     }

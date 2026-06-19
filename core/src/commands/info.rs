@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use fluent_uri::Iri;
 use semver::Version;
 use thiserror::Error;
 
@@ -8,7 +9,7 @@ use crate::{
     env::utils::ErrorBound,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::ProjectRead,
-    resolve::{ResolutionOutcome, ResolveRead},
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::format_err,
 };
 
@@ -42,19 +43,32 @@ pub fn do_info_project<P: ProjectRead>(
 pub enum InfoError<Error: ErrorBound> {
     #[error("none of the following found versions are valid semantic versions {}", .0.join(", "))]
     NoSemanticVersionsFound(Vec<String>),
-    #[error("failed to resolve IRI `{0}`: {1}")]
-    NoResolve(Box<str>, String),
-    #[error("IRI `{0}` is not supported: {1}")]
-    UnsupportedIri(Box<str>, String),
+    #[error("failed to resolve {usage}: {reason}")]
+    NoResolve {
+        usage: ResolutionInfo,
+        reason: String,
+    },
+    #[error("{usage} was not found: {reason}")]
+    NotFound {
+        usage: ResolutionInfo,
+        reason: String,
+    },
+    #[error("{usage} is not supported: {reason}")]
+    UnsupportedUsage {
+        usage: ResolutionInfo,
+        reason: String,
+    },
     #[error("failure during resolution")]
     Resolution(#[from] Error),
 }
 
-pub fn do_info<S: AsRef<str>, R: ResolveRead>(
-    uri: S,
+pub fn do_info<R: ResolveRead>(
+    uri: &Iri<String>,
     resolver: &R,
 ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), InfoError<R::Error>> {
-    let outcome = resolver.resolve_read_raw(uri.as_ref())?;
+    // TODO: support other usage types
+    let resolve = ResolutionInfo::iri(uri.to_owned());
+    let outcome = resolver.resolve_read(&resolve)?;
 
     match outcome {
         ResolutionOutcome::Resolved(resolved) => {
@@ -110,9 +124,17 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
                 None => Err(InfoError::NoSemanticVersionsFound(non_semantic_versions)),
             }
         }
-        ResolutionOutcome::UnsupportedIRIType(e) => {
-            Err(InfoError::UnsupportedIri(uri.as_ref().into(), e))
-        }
-        ResolutionOutcome::Unresolvable(e) => Err(InfoError::NoResolve(uri.as_ref().into(), e)),
+        ResolutionOutcome::UnsupportedUsageType { reason } => Err(InfoError::UnsupportedUsage {
+            usage: resolve,
+            reason,
+        }),
+        ResolutionOutcome::Unresolvable { reason } => Err(InfoError::NoResolve {
+            usage: resolve,
+            reason,
+        }),
+        ResolutionOutcome::NotFound { reason } => Err(InfoError::NotFound {
+            usage: resolve,
+            reason,
+        }),
     }
 }

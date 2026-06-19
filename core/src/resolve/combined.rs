@@ -12,14 +12,16 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectRead, cached::CachedProject},
-    resolve::{ResolutionOutcome, ResolveRead, null::NullResolver},
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, null::NullResolver},
     utils::format_err,
 };
 
 /// Implements "standard" resolution logic given a set of individual resolvers.
 /// Use sysand::resolve::null::NullResolver to skip any of the steps.
 /// The logic is as follows:
-/// 1. Do not resolve any further if file_resolver is successful, otherwise go to step 2.
+/// 1. Do not resolve any further if file_resolver is successful, or did not find the project
+///    (but does not reject it either, so it is a path, and it would not make sense trying
+///    to resolve it via any other resolvers), otherwise go to step 2.
 /// 2. If remote_resolver produces any results, discard any that do not point to a valid
 ///    project (i.e. do not produce both a info and meta). If at least one project is found
 ///    proceed to step 4. (skipping 3.)
@@ -233,7 +235,7 @@ impl<
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let mut at_least_one_supports = false;
 
@@ -242,23 +244,27 @@ impl<
         // TODO: autodetect git (and possibly other VCSs), and use appropriate (e.g. git) resolver for them.
         if let Some(file_resolver) = &self.file_resolver {
             match file_resolver
-                .resolve_read(uri)
+                .resolve_read(resolve)
                 .map_err(CombinedResolverError::File)?
             {
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("file resolver rejected IRI `{uri}`: {msg}");
-                } // Just continue
                 ResolutionOutcome::Resolved(r) => {
-                    //at_least_one_supports = true;
                     return Ok(ResolutionOutcome::Resolved(CombinedIterator {
                         state: CombinedIteratorState::ResolvedFile(r.into_iter()),
                         locals: IndexMap::new(),
                     }));
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
-                    return Ok(ResolutionOutcome::Unresolvable(format!(
-                        "failed to resolve as file: {msg}"
-                    )));
+                ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    log::debug!("file resolver does not support usage type of {resolve}: {reason}");
+                }
+                ResolutionOutcome::NotFound { reason } => {
+                    return Ok(ResolutionOutcome::NotFound {
+                        reason: format!("file resolver did not find the project: {reason}"),
+                    });
+                }
+                ResolutionOutcome::Unresolvable { reason } => {
+                    // Even though usage got rejected, it is still considered by this resolver
+                    at_least_one_supports = true;
+                    log::debug!("file resolver rejected {resolve}: {reason}")
                 }
             }
         }
@@ -268,7 +274,7 @@ impl<
 
         if let Some(local_resolver) = &self.local_resolver {
             match local_resolver
-                .resolve_read(uri)
+                .resolve_read(resolve)
                 .map_err(CombinedResolverError::Local)?
             {
                 ResolutionOutcome::Resolved(projects) => {
@@ -277,7 +283,7 @@ impl<
                         match res {
                             Err(err) => {
                                 log::debug!(
-                                    "local resolver rejected project with IRI `{uri}`: {}",
+                                    "local resolver rejected project {resolve}: {}",
                                     format_err(err)
                                 );
                             }
@@ -287,12 +293,12 @@ impl<
                                 }
                                 Ok(None) => {
                                     log::debug!(
-                                        "local resolver rejected project with IRI `{uri}`: no `.project.json` or `.meta.json`",
+                                        "local resolver rejected project {resolve}: no `.project.json` or `.meta.json`",
                                     );
                                 }
                                 Err(err) => {
                                     log::debug!(
-                                        "local resolver rejected project with IRI `{uri}`: {}",
+                                        "local resolver rejected project {resolve}: {}",
                                         format_err(err)
                                     );
                                 }
@@ -300,12 +306,18 @@ impl<
                         }
                     }
                 }
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("local resolver rejected IRI `{uri}`: {msg}");
+                ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    log::debug!(
+                        "local resolver does not support usage type of {resolve}: {reason}"
+                    );
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
+                ResolutionOutcome::NotFound { reason } => {
                     at_least_one_supports = true;
-                    log::debug!("local resolver unable to resolve IRI `{uri}`: {msg}");
+                    log::debug!("local resolver did not find {resolve}: {reason}");
+                }
+                ResolutionOutcome::Unresolvable { reason } => {
+                    at_least_one_supports = true;
+                    log::debug!("local resolver rejected {resolve}: {reason}")
                 }
             };
         }
@@ -316,15 +328,15 @@ impl<
         if let Some(remote_resolver) = &self.remote_resolver {
             // Skip over remote resolution if unresolvable or if only invalid projects are produced.
             match remote_resolver
-                .resolve_read(uri)
+                .resolve_read(resolve)
                 .map_err(CombinedResolverError::Remote)?
             {
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("remote resolver rejected IRI `{uri}`: {msg}");
+                ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    log::debug!("remote resolver rejected {resolve}: {reason}");
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
+                ResolutionOutcome::NotFound { reason } => {
                     at_least_one_supports = true;
-                    log::debug!("remote resolver unable to resolve IRI `{uri}`: {msg}");
+                    log::debug!("remote resolver unable to resolve {resolve}: {reason}");
                 }
                 ResolutionOutcome::Resolved(remote_projects) => {
                     at_least_one_supports = true;
@@ -335,7 +347,7 @@ impl<
                         match remote_projects.peek() {
                             Some(Err(err)) => {
                                 log::debug!(
-                                    "remote resolver skipping project for IRI `{uri}` due to: {}",
+                                    "remote resolver skipping project for {resolve} due to: {}",
                                     format_err(err)
                                 );
                                 remote_projects.next();
@@ -358,13 +370,13 @@ impl<
                                     }
                                     Ok(_) => {
                                         log::debug!(
-                                            "remote resolver skipping project for IRI `{uri}` due to missing info/meta"
+                                            "remote resolver skipping project for {resolve} due to missing info/meta"
                                         );
                                         remote_projects.next();
                                     }
                                     Err(err) => {
                                         log::debug!(
-                                            "remote resolver skipping project for IRI `{uri}`: {}",
+                                            "remote resolver skipping project for {resolve}: {}",
                                             format_err(err)
                                         );
                                         remote_projects.next();
@@ -373,12 +385,16 @@ impl<
                             }
                             None => {
                                 log::debug!(
-                                    "remote resolver unable to find valid project for IRI `{uri}`"
+                                    "remote resolver unable to find valid project for {resolve}"
                                 );
                                 break;
                             }
                         }
                     }
+                }
+                ResolutionOutcome::Unresolvable { reason } => {
+                    at_least_one_supports = true;
+                    log::debug!("remote resolver rejected {resolve}: {reason}")
                 }
             }
         }
@@ -386,7 +402,7 @@ impl<
         // Finally try the sysand index if neither file/remote gave anything useful
         if let Some(index_resolver) = &self.index_resolver {
             match index_resolver
-                .resolve_read(uri)
+                .resolve_read(resolve)
                 .map_err(CombinedResolverError::Index)?
             {
                 ResolutionOutcome::Resolved(x) => {
@@ -395,25 +411,29 @@ impl<
                         locals,
                     }));
                 }
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("index resolver rejected IRI `{uri}` due to: {msg}");
-                }
-                ResolutionOutcome::Unresolvable(msg) => {
+                ResolutionOutcome::Unresolvable { reason } => {
                     at_least_one_supports = true;
-                    log::debug!("index resolver unable to resolve IRI `{uri}`: {msg}");
+                    log::debug!("index resolver unable to resolve {resolve}: {reason}");
+                }
+                ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    log::debug!("index resolver rejected {resolve}: {reason}");
+                }
+                ResolutionOutcome::NotFound { reason } => {
+                    at_least_one_supports = true;
+                    log::debug!("index resolver unable to resolve {resolve}: {reason}");
                 }
             };
         }
 
         // As a last resort, use only locally cached projects, if any were found
         if !at_least_one_supports {
-            Ok(ResolutionOutcome::UnsupportedIRIType(
-                "no resolver accepted the IRI".to_owned(),
-            ))
+            Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: String::from("no resolver supports the project type"),
+            })
         } else if locals.is_empty() {
-            Ok(ResolutionOutcome::Unresolvable(
-                "no resolver was able to resolve the IRI".to_owned(),
-            ))
+            Ok(ResolutionOutcome::NotFound {
+                reason: String::from("no resolver was able to resolve the project"),
+            })
         } else {
             Ok(ResolutionOutcome::Resolved(CombinedIterator {
                 state: CombinedIteratorState::Done,
