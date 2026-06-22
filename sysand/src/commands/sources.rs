@@ -91,22 +91,22 @@ pub fn command_sources_project(
     let current_project = ctx
         .current_project
         .ok_or(CliError::MissingProjectCurrentDir)?;
+    // TODO: Better bail early?
+    let Some(info) = current_project.get_info()? else {
+        bail!("project is missing project information")
+    };
+    let info = info.validate()?;
 
     for src_path in do_sources_local_src_project_no_deps(&current_project, true)? {
         println!("{}", src_path);
     }
 
     if include_deps {
-        // TODO: Better bail early?
-        let Some(info) = current_project.get_info()? else {
-            bail!("project is missing project information")
-        };
-
         let deps = match ctx.env {
-            Some(env) => find_project_dependencies(info.validate()?.usage, env, provided_iris)?,
+            Some(env) => find_project_dependencies(info.usage, env, provided_iris)?,
             None => {
                 let env = NullEnvironment::new();
-                find_project_dependencies(info.validate()?.usage, env, provided_iris)?
+                find_project_dependencies(info.usage, env, provided_iris)?
             }
         };
 

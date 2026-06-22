@@ -27,8 +27,11 @@ use crate::{
 pub enum SourcesError<ProjectError> {
     #[error(transparent)]
     Project(ProjectError),
-    #[error(transparent)]
-    Validation(#[from] InterchangeProjectValidationError),
+    #[error("project's `.{name}.json` is invalid")]
+    Validation {
+        name: &'static str,
+        source: InterchangeProjectValidationError,
+    },
 }
 
 /// Enumerates source files in a project (as Unix-paths relative to the project root).
@@ -43,7 +46,11 @@ pub fn do_sources_project_no_deps<Pr: ProjectRead>(
     };
 
     Ok(meta
-        .validate()?
+        .validate()
+        .map_err(|e| SourcesError::Validation {
+            name: "meta",
+            source: e,
+        })?
         .source_paths(include_index)
         .into_iter()
         .collect())
@@ -54,8 +61,11 @@ pub fn do_sources_project_no_deps<Pr: ProjectRead>(
 pub enum LocalSourcesError {
     #[error(transparent)]
     Project(LocalSrcError),
-    #[error(transparent)]
-    Validation(#[from] InterchangeProjectValidationError),
+    #[error("project's `.{name}.json` is invalid")]
+    Validation {
+        name: &'static str,
+        source: InterchangeProjectValidationError,
+    },
     #[error(transparent)]
     Path(#[from] PathError),
 }
@@ -65,7 +75,9 @@ impl From<SourcesError<LocalSrcError>> for LocalSourcesError {
     fn from(value: SourcesError<LocalSrcError>) -> Self {
         match value {
             SourcesError::Project(error) => LocalSourcesError::Project(error),
-            SourcesError::Validation(error) => LocalSourcesError::Validation(error),
+            SourcesError::Validation { name, source } => {
+                LocalSourcesError::Validation { name, source }
+            }
         }
     }
 }

@@ -191,7 +191,7 @@ impl Lock {
         self.validate_lock_version()?;
         self.check_name_collision()?;
         self.validate_usages()?;
-        self.validate_digest_format()?;
+        self.validate_sources()?;
         Ok(())
     }
 
@@ -257,8 +257,6 @@ impl Lock {
             for iri in &project.identifiers {
                 iri_versions.insert(iri.clone());
             }
-        }
-        for project in &self.projects {
             for usage in &project.usages {
                 if !iri_versions.contains(usage.inner()) {
                     return Err(ValidationError::UnsatisfiedUsage {
@@ -271,7 +269,7 @@ impl Lock {
         Ok(())
     }
 
-    fn validate_digest_format(&self) -> Result<(), ValidationError> {
+    fn validate_sources(&self) -> Result<(), ValidationError> {
         for project in &self.projects {
             for source in &project.sources {
                 let (c, kind) = match source {

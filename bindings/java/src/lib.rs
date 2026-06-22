@@ -416,7 +416,7 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
                 format!("IO error: {}", error),
             );
         }
-        KParBuildError::Validation(error) => {
+        KParBuildError::Validation { .. } => {
             env.throw_exception(
                 ExceptionKind::SysandException,
                 format!("Validation error: {}", error),

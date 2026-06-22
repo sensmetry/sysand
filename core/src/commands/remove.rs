@@ -32,7 +32,7 @@ pub fn do_remove_guess<P: ProjectMut>(
         Ok(None) => resource,
         Err(source) => {
             return Err(RemoveError::Validation(
-                InterchangeProjectValidationError::MalformedSysandPurl {
+                InterchangeProjectValidationError::MalformedUsageSysandPurl {
                     iri: resource,
                     source,
                 },

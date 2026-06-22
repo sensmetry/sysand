@@ -133,8 +133,11 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     WorkspaceRead(#[from] WorkspaceReadError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error(transparent)]
-    Validation(#[from] InterchangeProjectValidationError),
+    #[error("project's `.{name}.json` is invalid")]
+    Validation {
+        name: &'static str,
+        source: InterchangeProjectValidationError,
+    },
     #[error("{0}")]
     Extract(String),
     #[error(
@@ -269,7 +272,10 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         },
         Err(e) => return Err(KParBuildError::ProjectRead(e)),
     };
-    meta.validate()?;
+    meta.validate().map_err(|e| KParBuildError::Validation {
+        name: "meta",
+        source: e,
+    })?;
 
     match semver::Version::parse(&info.version) {
         Ok(_) => (),

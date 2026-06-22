@@ -231,7 +231,7 @@ fn do_build_py(
         .map_err(|err| match err {
             KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
             KParBuildError::Io(_) => PyIOError::new_err(err.to_string()),
-            KParBuildError::Validation(_) => PyValueError::new_err(err.to_string()),
+            KParBuildError::Validation { .. } => PyValueError::new_err(err.to_string()),
             KParBuildError::Extract(_) => PyValueError::new_err(err.to_string()),
             KParBuildError::UnknownFormat(_) => PyValueError::new_err(err.to_string()),
             KParBuildError::MissingInfo => PyValueError::new_err(err.to_string()),

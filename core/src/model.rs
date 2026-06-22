@@ -44,6 +44,7 @@ pub type InterchangeProjectUsage =
     InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>;
 
 impl InterchangeProjectUsageRaw {
+    /// Caller is responsible for identifying the project when reporting the error
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
         match self {
             InterchangeProjectUsageG::Resource {
@@ -57,24 +58,26 @@ impl InterchangeProjectUsageRaw {
                 // error (with a suggested normalized form) instead of a downstream
                 // "not found" — see `crate::purl::parse_sysand_purl`.
                 crate::purl::parse_sysand_purl(resource).map_err(|e| {
-                    InterchangeProjectValidationError::MalformedSysandPurl {
+                    InterchangeProjectValidationError::MalformedUsageSysandPurl {
                         iri: resource.clone(),
                         source: e,
                     }
                 })?;
 
                 Ok(InterchangeProjectUsage::Resource {
-                    resource: fluent_uri::Iri::parse(resource.clone())
-                        .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
+                    resource: fluent_uri::Iri::parse(resource.clone()).map_err(|(e, val)| {
+                        InterchangeProjectValidationError::InvalidUsageResource(val, e)
+                    })?,
 
                     version_constraint: version_constraint
                         .as_ref()
                         .map(|c| {
                             semver::VersionReq::parse(c).map_err(|e| {
-                                InterchangeProjectValidationError::SemVerConstraintParse(
-                                    c.to_owned(),
-                                    e,
-                                )
+                                InterchangeProjectValidationError::InvalidUsageVersionConstraint {
+                                    resource: resource.to_owned(),
+                                    constraint: c.to_owned(),
+                                    source: e,
+                                }
                             })
                         })
                         .transpose()?,
@@ -114,13 +117,6 @@ impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>>
     }
 }
 
-impl TryFrom<InterchangeProjectUsageRaw> for InterchangeProjectUsage {
-    type Error = InterchangeProjectValidationError;
-
-    fn try_from(value: InterchangeProjectUsageRaw) -> Result<InterchangeProjectUsage, Self::Error> {
-        value.validate()
-    }
-}
 impl<Iri: Display, VersionReq: Display> Display for InterchangeProjectUsageG<Iri, VersionReq> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -211,12 +207,6 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
             usage: vec![],
         }
     }
-    // pub fn push_usage(&mut self, resource: Iri, version_requirement: Option<VersionReq>) {
-    //     self.usage.push(InterchangeProjectUsageG {
-    //         resource: resource,
-    //         version_constraint: version_requirement,
-    //     });
-    // }
 
     /// Remove and return all occurrences of `resource` in project usages.
     /// Note that sysand will never add multiple usages of the same resource
@@ -236,10 +226,11 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
 }
 
 impl InterchangeProjectInfoRaw {
+    /// Caller is responsible for identifying the project when reporting the error
     pub fn validate(&self) -> Result<InterchangeProjectInfo, InterchangeProjectValidationError> {
         let mut usage = vec![];
         for a_usage in self.usage.iter() {
-            usage.push(a_usage.to_owned().try_into()?);
+            usage.push(a_usage.to_owned().validate()?);
         }
 
         Ok(InterchangeProjectInfo {
@@ -247,7 +238,10 @@ impl InterchangeProjectInfoRaw {
             publisher: self.publisher.clone(),
             description: self.description.clone(),
             version: semver::Version::parse(&self.version).map_err(|e| {
-                InterchangeProjectValidationError::SemVerParse(self.version.as_str().into(), e)
+                InterchangeProjectValidationError::InvalidProjectVersion(
+                    self.version.as_str().into(),
+                    e,
+                )
             })?,
             license: self.license.clone(),
             maintainer: self.maintainer.clone(),
@@ -256,19 +250,11 @@ impl InterchangeProjectInfoRaw {
                 .clone()
                 .map(fluent_uri::Iri::parse)
                 .transpose()
-                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
+                .map_err(|(e, val)| InterchangeProjectValidationError::InvalidWebsite(val, e))?,
 
             topic: self.topic.clone(),
             usage,
         })
-    }
-}
-
-impl TryFrom<InterchangeProjectInfoRaw> for InterchangeProjectInfo {
-    type Error = InterchangeProjectValidationError;
-
-    fn try_from(value: InterchangeProjectInfoRaw) -> Result<Self, Self::Error> {
-        value.validate()
     }
 }
 
@@ -514,14 +500,25 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
 
 #[derive(Error, Debug)]
 pub enum InterchangeProjectValidationError {
-    #[error("failed to parse `{0}` as IRI: {1}")]
-    IriParse(String, fluent_uri::ParseError),
-    #[error("failed to parse `{0}` as a Semantic Version: {1}")]
-    SemVerParse(Box<str>, semver::Error),
-    #[error("failed to parse `{0}` as a Semantic Version constraint: {1}")]
-    SemVerConstraintParse(String, semver::Error),
+    #[error("invalid website (`website` field in `.project.json`) `{0}`")]
+    InvalidWebsite(String, #[source] fluent_uri::ParseError),
+    #[error("invalid usage resource `{0}`")]
+    InvalidUsageResource(String, #[source] fluent_uri::ParseError),
+    #[error("invalid metamodel (`metamodel` field in `.meta.json`) `{0}`")]
+    InvalidMetamodel(String, #[source] fluent_uri::ParseError),
+    #[error("project has an invalid Semantic Version `{0}`")]
+    InvalidProjectVersion(Box<str>, #[source] semver::Error),
+    #[error(
+        "failed to parse version constraint `{constraint}` of usage\n\
+        `{resource}` as a Semantic Version constraint"
+    )]
+    InvalidUsageVersionConstraint {
+        resource: String,
+        constraint: String,
+        source: semver::Error,
+    },
     #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
-    DatetimeParse(Box<str>, chrono::ParseError),
+    InvalidCreatedTime(Box<str>, chrono::ParseError),
     #[error("file `{0}` is present in symbol index, but absent in file checksums")]
     MissingFileInChecksum(Box<str>),
     #[error(
@@ -530,11 +527,11 @@ pub enum InterchangeProjectValidationError {
         BLAKE2b-256, BLAKE2b-384, BLAKE2b-512, BLAKE3\n\
         MD2, MD4, MD5, MD6, ADLER32"
     )]
-    ChecksumAlg(Box<str>),
+    InvalidChecksumAlg(Box<str>),
     #[error(
         "invalid hex checksum length for {algorithm}: expected {expected} char(s), got {got} char(s)"
     )]
-    ChecksumLen {
+    IncorrectChecksumLen {
         algorithm: KerMlChecksumAlg,
         expected: u8,
         got: usize,
@@ -542,7 +539,7 @@ pub enum InterchangeProjectValidationError {
     #[error("checksum `{cksum}`\ncontains invalid symbols (only `A-Fa-f0-9` are allowed)")]
     NonHexChecksumChars { cksum: Box<str> },
     #[error("malformed `pkg:sysand` IRI `{iri}`: {source}")]
-    MalformedSysandPurl {
+    MalformedUsageSysandPurl {
         iri: String,
         #[source]
         source: crate::purl::SysandPurlError,
@@ -563,6 +560,7 @@ impl Default for InterchangeProjectMetadataRaw {
 }
 
 impl InterchangeProjectMetadataRaw {
+    /// Caller is responsible for identifying the project when reporting the error
     pub fn validate(
         &self,
     ) -> Result<InterchangeProjectMetadata, InterchangeProjectValidationError> {
@@ -582,12 +580,14 @@ impl InterchangeProjectMetadataRaw {
                 let k = Utf8UnixPath::new(k).to_path_buf();
                 let algorithm: KerMlChecksumAlg =
                     v.algorithm.as_str().try_into().map_err(|_| {
-                        InterchangeProjectValidationError::ChecksumAlg(v.algorithm.as_str().into())
+                        InterchangeProjectValidationError::InvalidChecksumAlg(
+                            v.algorithm.as_str().into(),
+                        )
                     })?;
                 let value = {
                     if let Some(expected_len) = algorithm.expected_hex_len() {
                         if v.value.len() != expected_len as usize {
-                            return Err(InterchangeProjectValidationError::ChecksumLen {
+                            return Err(InterchangeProjectValidationError::IncorrectChecksumLen {
                                 algorithm,
                                 expected: expected_len,
                                 got: v.value.len(),
@@ -618,7 +618,7 @@ impl InterchangeProjectMetadataRaw {
             // TODO: this is not strictly correct, as RFC3339 only partially overlaps with ISO8601
             created: chrono::DateTime::parse_from_rfc3339(&self.created)
                 .map_err(|e| {
-                    InterchangeProjectValidationError::DatetimeParse(
+                    InterchangeProjectValidationError::InvalidCreatedTime(
                         self.created.as_str().into(),
                         e,
                     )
@@ -634,7 +634,7 @@ impl InterchangeProjectMetadataRaw {
                     fluent_uri::Iri::parse(m)
                 })
                 .transpose()
-                .map_err(|(e, val)| InterchangeProjectValidationError::IriParse(val, e))?,
+                .map_err(|(e, val)| InterchangeProjectValidationError::InvalidMetamodel(val, e))?,
             includes_derived: self.includes_derived,
             includes_implied: self.includes_implied,
             checksum,
@@ -708,16 +708,6 @@ impl InterchangeProjectMetadataRaw {
             .extract_if(.., |_, v| v == remove_path)
             .map(|x| x.0)
             .collect()
-    }
-}
-
-impl TryFrom<InterchangeProjectMetadataRaw> for InterchangeProjectMetadata {
-    type Error = InterchangeProjectValidationError;
-
-    fn try_from(
-        value: InterchangeProjectMetadataRaw,
-    ) -> Result<InterchangeProjectMetadata, Self::Error> {
-        value.validate()
     }
 }
 
