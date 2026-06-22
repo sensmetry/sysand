@@ -7,6 +7,7 @@ use std::{fmt::Display, num::NonZeroU64, slice, str::FromStr};
 use toml_edit::DocumentMut;
 use typed_path::Utf8UnixPathBuf;
 
+use crate::utils::format_err;
 use crate::{
     lock::{
         CURRENT_LOCK_VERSION, LOCKFILE_PREFIX, Lock, Project, Source, Usage, ValidationError,
@@ -36,7 +37,7 @@ fn check_unsupported_lock_version() {
     };
     assert_eq!(s, version);
     assert_eq!(
-        err.to_string(),
+        format_err(err),
         "lockfile version `X` is not supported; regenerate it with a lock operation"
     );
 }
@@ -61,7 +62,7 @@ sources = [{{ registry = "https://example.org" }}]
     };
     assert_eq!(s, "0.3");
     assert_eq!(
-        err.to_string(),
+        format_err(err),
         "lockfile version `0.3` is not supported; regenerate it with a lock operation"
     );
 }
@@ -608,12 +609,12 @@ fn validate_unsupported_lock_version() {
     .validate() else {
         panic!()
     };
-    let ValidationError::UnsupportedVersion(ref s) = err else {
+    let ValidationError::UnsupportedVersion(s) = &err else {
         panic!()
     };
     assert_eq!(s, version);
     assert_eq!(
-        err.to_string(),
+        format_err(err),
         "lockfile version `X` is not supported; regenerate it with a lock operation"
     );
 }

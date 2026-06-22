@@ -257,6 +257,8 @@ impl Lock {
             for iri in &project.identifiers {
                 iri_versions.insert(iri.clone());
             }
+        }
+        for project in &self.projects {
             for usage in &project.usages {
                 if !iri_versions.contains(usage.inner()) {
                     return Err(ValidationError::UnsatisfiedUsage {

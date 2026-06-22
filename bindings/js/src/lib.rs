@@ -4,7 +4,7 @@
 use wasm_bindgen::prelude::*;
 
 #[cfg(feature = "browser")]
-use sysand_core::commands::init::do_init;
+use sysand_core::{commands::init::do_init, utils::format_err};
 
 pub mod env;
 pub mod io;
@@ -27,7 +27,7 @@ pub fn ensure_debug_hook() {
 #[wasm_bindgen(js_name = clear_local_storage)]
 pub fn clear_local_storage(prefix: &str) -> Result<(), JsValue> {
     let local_storage = local_storage_utils::get_local_browser_storage(prefix)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        .map_err(|e| JsValue::from_str(&format_err(e)))?;
     local_storage.local_storage.clear()
 }
 
@@ -50,12 +50,12 @@ pub fn do_init_js_local_storage(
         license,
         &mut io::local_storage::ProjectLocalBrowserStorage {
             vfs: local_storage_utils::get_local_browser_storage(prefix)
-                .map_err(|e| JsValue::from_str(&e.to_string()))?,
+                .map_err(|e| JsValue::from_str(&format_err(e)))?,
             root_path: Utf8UnixPath::new(root_path).to_path_buf(),
             expected_checksum: None,
         },
     )
-    .map_err(|e| JsValue::from_str(&e.to_string()))
+    .map_err(|e| JsValue::from_str(&format_err(e)))
 }
 
 #[cfg(feature = "browser")]
@@ -66,7 +66,7 @@ pub fn do_env_js_local_storage(prefix: &str, root_path: &str) -> Result<(), JsVa
     use typed_path::Utf8UnixPath;
 
     empty_environment_local_storage(prefix, Utf8UnixPath::new(root_path).join(DEFAULT_ENV_NAME))
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        .map_err(|e| JsValue::from_str(&format_err(e)))?;
 
     Ok(())
 }

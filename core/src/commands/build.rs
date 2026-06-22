@@ -20,7 +20,7 @@ use crate::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
     },
-    utils::{license_file_stems, sha256_lowercase_hex},
+    utils::{format_err, license_file_stems, sha256_lowercase_hex},
     workspace::{Workspace, WorkspaceReadError},
 };
 
@@ -186,7 +186,7 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
         match value {
             IncludeError::Project(error) => Self::ProjectRead(error),
             IncludeError::Io(error) => error.into(),
-            IncludeError::Extract(..) => Self::Extract(value.to_string()),
+            IncludeError::Extract(..) => Self::Extract(format_err(value)),
             IncludeError::UnknownFormat(error) => Self::UnknownFormat(error),
         }
     }

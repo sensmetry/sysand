@@ -22,6 +22,7 @@ use sysand_core::{
         utils::wrapfs,
     },
     resolve::{net_utils::create_reqwest_client, standard::standard_resolver},
+    utils::format_err,
     workspace::Workspace,
 };
 
@@ -82,37 +83,36 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
         commands::init::do_init_local_file(name, publisher, version, license, path.into());
     match command_result {
         Ok(_) => {}
-        Err(error) => match error {
-            InitError::SemVerParse(..) => {
-                env.throw_exception(ExceptionKind::InvalidSemanticVersion, error.to_string())
+        Err(error) => {
+            let e = format_err(&error);
+            match error {
+                InitError::SemVerParse(..) => {
+                    env.throw_exception(ExceptionKind::InvalidSemanticVersion, e)
+                }
+                InitError::SPDXLicenseParse(..) => {
+                    env.throw_exception(ExceptionKind::InvalidSPDXLicense, e)
+                }
+                InitError::Project(suberror) => match suberror {
+                    LocalSrcError::AlreadyExists(_) => {
+                        env.throw_exception(ExceptionKind::ProjectAlreadyExists, e)
+                    }
+                    LocalSrcError::Deserialize(_) => {
+                        env.throw_exception(ExceptionKind::InvalidValue, e)
+                    }
+                    LocalSrcError::Io(_) => env.throw_exception(ExceptionKind::IOError, e),
+                    LocalSrcError::Path(_) => env.throw_exception(ExceptionKind::PathError, e),
+                    LocalSrcError::Serialize(_) => {
+                        env.throw_exception(ExceptionKind::SerializationError, e)
+                    }
+                    LocalSrcError::ImpossibleRelativePath(_) => {
+                        env.throw_exception(ExceptionKind::PathError, e)
+                    }
+                    LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
+                        env.throw_exception(ExceptionKind::SysandException, e)
+                    }
+                },
             }
-            InitError::SPDXLicenseParse(..) => {
-                env.throw_exception(ExceptionKind::InvalidSPDXLicense, error.to_string())
-            }
-            InitError::Project(suberror) => match suberror {
-                LocalSrcError::AlreadyExists(msg) => {
-                    env.throw_exception(ExceptionKind::ProjectAlreadyExists, msg)
-                }
-                LocalSrcError::Deserialize(subsuberror) => {
-                    env.throw_exception(ExceptionKind::InvalidValue, subsuberror.to_string())
-                }
-                LocalSrcError::Io(subsuberror) => {
-                    env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
-                }
-                LocalSrcError::Path(subsuberror) => {
-                    env.throw_exception(ExceptionKind::PathError, subsuberror.to_string())
-                }
-                LocalSrcError::Serialize(subsuberror) => {
-                    env.throw_exception(ExceptionKind::SerializationError, subsuberror.to_string())
-                }
-                LocalSrcError::ImpossibleRelativePath(_) => {
-                    env.throw_exception(ExceptionKind::PathError, suberror.to_string())
-                }
-                LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
-                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
-                }
-            },
-        },
+        }
     }
 }
 
@@ -142,44 +142,39 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
     let command_result = commands::env::do_env_local_dir(path);
     match command_result {
         Ok(_) => {}
-        Err(error) => match error {
-            commands::env::EnvError::AlreadyExists(path) => env.throw_exception(
-                ExceptionKind::PathError,
-                format!("Path already exists: {}", path),
-            ),
-            commands::env::EnvError::Write(suberror) => match suberror {
-                LocalWriteError::Io(subsuberror) => {
-                    env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
-                }
-                LocalWriteError::Deserialize(subsuberror) => {
-                    env.throw_exception(ExceptionKind::InvalidValue, subsuberror.to_string())
-                }
-                LocalWriteError::Path(subsuberror) => {
-                    env.throw_exception(ExceptionKind::PathError, subsuberror.to_string())
-                }
-                LocalWriteError::AlreadyExists(msg) => {
-                    env.throw_exception(ExceptionKind::IOError, msg)
-                }
-                LocalWriteError::Serialize(subsuberror) => {
-                    env.throw_exception(ExceptionKind::SerializationError, subsuberror.to_string())
-                }
-                LocalWriteError::TryMove(subsuberror) => {
-                    env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
-                }
-                LocalWriteError::LocalRead(subsuberror) => {
-                    env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
-                }
-                LocalWriteError::ImpossibleRelativePath(_) => {
-                    env.throw_exception(ExceptionKind::PathError, suberror.to_string())
-                }
-                LocalWriteError::AddProject(subsuberror) => {
-                    env.throw_exception(ExceptionKind::IOError, subsuberror.to_string())
-                }
-                LocalWriteError::MissingMeta | LocalWriteError::MissingInfoMeta => {
-                    env.throw_exception(ExceptionKind::SysandException, suberror.to_string())
-                }
-            },
-        },
+        Err(error) => {
+            let e = format_err(&error);
+            match error {
+                commands::env::EnvError::AlreadyExists(path) => env.throw_exception(
+                    ExceptionKind::PathError,
+                    format!("Path already exists: {path}"),
+                ),
+                commands::env::EnvError::Write(suberror) => match suberror {
+                    LocalWriteError::Io(_) => env.throw_exception(ExceptionKind::IOError, e),
+                    LocalWriteError::Deserialize(_) => {
+                        env.throw_exception(ExceptionKind::InvalidValue, e)
+                    }
+                    LocalWriteError::Path(_) => env.throw_exception(ExceptionKind::PathError, e),
+                    LocalWriteError::AlreadyExists(_) => {
+                        env.throw_exception(ExceptionKind::IOError, e)
+                    }
+                    LocalWriteError::Serialize(_) => {
+                        env.throw_exception(ExceptionKind::SerializationError, e)
+                    }
+                    LocalWriteError::TryMove(_) => env.throw_exception(ExceptionKind::IOError, e),
+                    LocalWriteError::LocalRead(_) => env.throw_exception(ExceptionKind::IOError, e),
+                    LocalWriteError::ImpossibleRelativePath(_) => {
+                        env.throw_exception(ExceptionKind::PathError, e)
+                    }
+                    LocalWriteError::AddProject(_) => {
+                        env.throw_exception(ExceptionKind::IOError, e)
+                    }
+                    LocalWriteError::MissingMeta | LocalWriteError::MissingInfoMeta => {
+                        env.throw_exception(ExceptionKind::SysandException, e)
+                    }
+                },
+            }
+        }
     }
 }
 
@@ -202,7 +197,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_infoPath<'local>(
     match command_result {
         Ok(info_metadata) => info_metadata.to_jobject(&mut env).unwrap_or_default(),
         Err(e) => {
-            env.throw_exception(ExceptionKind::SysandException, e.to_string());
+            env.throw_exception(ExceptionKind::SysandException, format_err(e));
             JObject::default()
         }
     }
@@ -222,7 +217,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     let client = match create_reqwest_client() {
         Ok(c) => c,
         Err(e) => {
-            env.throw_exception(ExceptionKind::SysandException, e.to_string());
+            env.throw_exception(ExceptionKind::SysandException, format_err(e));
             return JObject::default();
         }
     };
@@ -279,7 +274,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
         Err(error) => {
             env.throw_exception(
                 ExceptionKind::ResolutionError,
-                format!("Failed to discover index endpoints: {error}"),
+                format!("Failed to discover index endpoints: {}", format_err(error)),
             );
             return JObject::default();
         }
@@ -293,7 +288,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
             | InfoError::UnsupportedIri(..)
             | InfoError::Resolution(_)),
         ) => {
-            env.throw_exception(ExceptionKind::ResolutionError, e.to_string());
+            env.throw_exception(ExceptionKind::ResolutionError, format_err(e));
             return JObject::default();
         }
     };
@@ -313,7 +308,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_workspaceProjectPaths<'l
     let workspace = match Workspace::new(workspace_path.into()) {
         Ok(w) => w,
         Err(e) => {
-            env.throw_exception(ExceptionKind::InvalidWorkspace, e.to_string());
+            env.throw_exception(ExceptionKind::InvalidWorkspace, format_err(e));
             return JObjectArray::default();
         }
     };
@@ -353,7 +348,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectIndex<'local>(
     };
     let _ = project
         .set_index(rust_index)
-        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, e.to_string()));
+        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
 }
 
 #[unsafe(no_mangle)]
@@ -376,7 +371,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectInfo<'local>(
     };
     let _ = project
         .put_info(&info_raw, true)
-        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, e.to_string()));
+        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
 }
 
 #[unsafe(no_mangle)]
@@ -399,39 +394,37 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectMetadata<'loca
     };
     let _ = project
         .put_meta(&metadata_raw, true)
-        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, e.to_string()));
+        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
 }
 
 fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>) {
+    let e = format_err(&error);
     match error {
-        KParBuildError::ProjectRead(error) => {
+        KParBuildError::ProjectRead(_) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
-                format!("Project read error: {}", error),
+                format!("Project read error: {e}"),
             );
         }
-        KParBuildError::Io(error) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("IO error: {}", error),
-            );
+        KParBuildError::Io(_) => {
+            env.throw_exception(ExceptionKind::SysandException, format!("IO error: {e}"));
         }
         KParBuildError::Validation { .. } => {
             env.throw_exception(
                 ExceptionKind::SysandException,
-                format!("Validation error: {}", error),
+                format!("Validation error: {e}"),
             );
         }
-        KParBuildError::Extract(error) => {
+        KParBuildError::Extract(_) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
-                format!("Extract error: {}", error),
+                format!("Extract error: {e}"),
             );
         }
-        KParBuildError::UnknownFormat(error) => {
+        KParBuildError::UnknownFormat(_) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
-                format!("Unknown format error: {}", error),
+                format!("Unknown format error: {e}"),
             );
         }
         KParBuildError::MissingInfo => {
@@ -449,32 +442,32 @@ fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>
                 "Missing project information and metadata",
             );
         }
-        KParBuildError::Zip(error) => {
+        KParBuildError::Zip(_) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
-                format!("Zip write error: {}", error),
+                format!("Zip write error: {e}"),
             );
         }
-        KParBuildError::Serialize(msg, error) => {
+        KParBuildError::Serialize(..) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
-                format!("Project serialization error: {}: {}", msg, error),
+                format!("Project serialization error: {e}"),
             );
         }
-        KParBuildError::WorkspaceRead(error) => {
+        KParBuildError::WorkspaceRead(_) => {
             env.throw_exception(
                 ExceptionKind::SysandException,
-                format!("Workspace read error: {}", error),
+                format!("Workspace read error: {e}"),
             );
         }
         KParBuildError::PathUsage(_) => {
-            env.throw_exception(ExceptionKind::SysandException, error.to_string());
+            env.throw_exception(ExceptionKind::SysandException, e);
         }
         KParBuildError::WorkspaceMetamodelConflict { .. } => {
-            env.throw_exception(ExceptionKind::SysandException, error.to_string());
+            env.throw_exception(ExceptionKind::SysandException, e);
         }
         KParBuildError::MissingIndexSymbol(_, _) => {
-            env.throw_exception(ExceptionKind::InvalidValue, error.to_string())
+            env.throw_exception(ExceptionKind::InvalidValue, e)
         }
     }
 }
@@ -486,7 +479,7 @@ fn compression_from_java_string(
     match KparCompressionMethod::try_from(compression) {
         Ok(compression) => Some(compression),
         Err(err) => {
-            env.throw_exception(ExceptionKind::SysandException, err.to_string());
+            env.throw_exception(ExceptionKind::SysandException, format_err(err));
             None
         }
     }
@@ -550,7 +543,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
     let workspace = match Workspace::new(workspace_path.into()) {
         Ok(w) => w,
         Err(e) => {
-            env.throw_exception(ExceptionKind::InvalidWorkspace, e.to_string());
+            env.throw_exception(ExceptionKind::InvalidWorkspace, format_err(e));
             return;
         }
     };
@@ -562,8 +555,8 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
     };
     match wrapfs::create_dir_all(&output_path) {
         Ok(_) => {}
-        Err(error) => {
-            env.throw_exception(ExceptionKind::IOError, error.to_string());
+        Err(e) => {
+            env.throw_exception(ExceptionKind::IOError, format_err(e));
             return;
         }
     }

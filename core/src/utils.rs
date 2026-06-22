@@ -25,7 +25,11 @@ pub(crate) mod scheme {
     pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 }
 
-pub(crate) fn format_sources(mut error: &dyn Error) -> String {
+/// Format an error, together with a chain of its `source()`.
+/// Should be used in all cases where an error is turned into
+/// a string and `source()` is not checked
+pub fn format_err(error: impl Error) -> String {
+    let mut error: &dyn Error = &error;
     let mut message = error.to_string();
     while let Some(source) = error.source() {
         writeln!(&mut message, "  caused by: {source}").unwrap();

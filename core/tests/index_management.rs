@@ -10,8 +10,9 @@ use camino_tempfile::tempdir;
 use serde_json::{Value, json};
 use zip::write::SimpleFileOptions;
 
-use sysand_core::index::{
-    RemoveTarget, do_index_add, do_index_init, do_index_remove, do_index_yank,
+use sysand_core::{
+    index::{RemoveTarget, do_index_add, do_index_init, do_index_remove, do_index_yank},
+    utils::format_err,
 };
 
 #[test]
@@ -285,8 +286,8 @@ fn read_json(path: Utf8PathBuf) -> Value {
     serde_json::from_str::<Value>(&str).unwrap()
 }
 
-fn assert_error_contains<E: std::fmt::Display>(err: E, expected: &str) {
-    let err = err.to_string();
+fn assert_error_contains<E: std::error::Error>(err: E, expected: &str) {
+    let err = format_err(err);
     assert!(
         err.contains(expected),
         "expected error to contain `{expected}`, got `{err}`"

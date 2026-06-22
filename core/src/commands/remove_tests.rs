@@ -5,6 +5,7 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     project::memory::InMemoryProject,
     remove::do_remove_guess,
+    utils::format_err,
 };
 
 fn project_with_usage(resource: &str) -> InMemoryProject {
@@ -75,7 +76,7 @@ fn remove_rejects_non_normalized_sysand_shorthand() {
 
     let err = do_remove_guess(&mut project, "Acme Labs/My.Project".to_owned()).unwrap_err();
 
-    let err = err.to_string();
+    let err = format_err(err);
     assert!(err.contains("`Acme Labs/My.Project`"), "{err}");
     assert!(err.contains("`pkg:sysand/acme-labs/my.project`"), "{err}");
     assert_eq!(project.info.unwrap().usage.len(), 1);

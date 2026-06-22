@@ -9,7 +9,7 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::ProjectRead,
     resolve::{ResolutionOutcome, ResolveRead},
-    utils::format_sources,
+    utils::format_err,
 };
 
 #[derive(Error, Debug)]
@@ -93,8 +93,7 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
                             }
                     }
                     Err(err) => {
-                        log::warn!("ignoring a project because: {err}");
-                        log::info!("{}", format_sources(&err));
+                        log::warn!("ignoring a project because: {}", format_err(err));
                     }
                 };
             }

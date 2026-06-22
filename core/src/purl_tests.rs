@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+use crate::utils::format_err;
+
 use super::*;
 use std::assert_matches;
 
@@ -161,14 +163,12 @@ fn parse_sysand_purl_rejects_non_normalized_with_suggestion() {
 #[test]
 fn parse_sysand_purl_error_messages_include_input_purl() {
     let err = parse_sysand_purl("pkg:sysand/ab/proj0").unwrap_err();
-    assert!(err.to_string().contains("`pkg:sysand/ab/proj0`"), "{err}");
+    let e = format_err(err);
+    assert!(e.contains("`pkg:sysand/ab/proj0`"), "{e}");
 
     let err = parse_sysand_purl("pkg:sysand/Acme Labs/My.Project").unwrap_err();
-    assert!(
-        err.to_string()
-            .contains("`pkg:sysand/Acme Labs/My.Project`"),
-        "{err}"
-    );
+    let e = format_err(err);
+    assert!(e.contains("`pkg:sysand/Acme Labs/My.Project`"), "{e}");
 }
 
 #[test]

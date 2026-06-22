@@ -415,6 +415,7 @@ pub enum PublishError {
     #[error("missing license in project info; it is required for publishing")]
     MissingLicense,
 
+    // Print `ParseError` directly, since its formatting demands a newline before
     #[error(
         "license `{license}` cannot be used for publishing; it must\n\
         be a valid SPDX license expression, but failed to parse:\n{err}"

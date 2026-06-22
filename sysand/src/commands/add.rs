@@ -22,6 +22,7 @@ use sysand_core::{
         utils::{relativize_path, wrapfs},
     },
     resolve::{ResolutionOutcome, ResolveRead, standard::standard_resolver},
+    utils::format_err,
 };
 
 use crate::{
@@ -104,7 +105,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
                             break;
                         }
                         Err(err) => {
-                            log::debug!("skipping candidate project: {err}");
+                            log::debug!("skipping candidate project: {}", format_err(err));
                         }
                     }
                 }

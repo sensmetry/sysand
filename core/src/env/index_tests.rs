@@ -246,7 +246,7 @@ fn mock_json_get_count(
 // }
 
 mod uris {
-    use crate::{index::iri::ParseIriError, utils::format_sources};
+    use crate::{index::iri::ParseIriError, utils::format_err};
     use std::assert_matches;
 
     use super::*;
@@ -348,12 +348,11 @@ mod uris {
         let err = resolved_endpoints(&env)
             .kpar_url(purl("Acme Labs/My.Project"), "1.0.0")
             .expect_err("non-normalized pkg:sysand must be rejected");
-        let err_msg = err.to_string();
-        let sources_msg = format_sources(&err);
+        let err_msg = format_err(&err);
         let proper_purl = &purl("acme-labs/my.project");
         assert!(
-            err_msg.contains(proper_purl) || sources_msg.contains(proper_purl),
-            "error message `{err_msg}` or sources message `{sources_msg}` must surface the suggested normalized IRI"
+            err_msg.contains(proper_purl),
+            "error message `{err_msg}` must surface the suggested normalized IRI"
         );
         Ok(())
     }
