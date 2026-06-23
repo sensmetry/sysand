@@ -191,7 +191,7 @@ impl Lock {
         self.validate_lock_version()?;
         self.check_name_collision()?;
         self.validate_usages()?;
-        self.validate_digest_format()?;
+        self.validate_sources()?;
         Ok(())
     }
 
@@ -271,7 +271,7 @@ impl Lock {
         Ok(())
     }
 
-    fn validate_digest_format(&self) -> Result<(), ValidationError> {
+    fn validate_sources(&self) -> Result<(), ValidationError> {
         for project in &self.projects {
             for source in &project.sources {
                 let (c, kind) = match source {

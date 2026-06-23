@@ -20,7 +20,7 @@ use crate::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
     },
-    utils::{license_file_stems, sha256_lowercase_hex},
+    utils::{format_err, license_file_stems, sha256_lowercase_hex},
     workspace::{Workspace, WorkspaceReadError},
 };
 
@@ -133,8 +133,11 @@ pub enum KParBuildError<ProjectReadError: ErrorBound> {
     WorkspaceRead(#[from] WorkspaceReadError),
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
-    #[error(transparent)]
-    Validation(#[from] InterchangeProjectValidationError),
+    #[error("project's `.{name}.json` is invalid")]
+    Validation {
+        name: &'static str,
+        source: InterchangeProjectValidationError,
+    },
     #[error("{0}")]
     Extract(String),
     #[error(
@@ -183,7 +186,7 @@ impl<ProjectReadError: ErrorBound> From<IncludeError<ProjectReadError>>
         match value {
             IncludeError::Project(error) => Self::ProjectRead(error),
             IncludeError::Io(error) => error.into(),
-            IncludeError::Extract(..) => Self::Extract(value.to_string()),
+            IncludeError::Extract(..) => Self::Extract(format_err(value)),
             IncludeError::UnknownFormat(error) => Self::UnknownFormat(error),
         }
     }
@@ -269,7 +272,10 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         },
         Err(e) => return Err(KParBuildError::ProjectRead(e)),
     };
-    meta.validate()?;
+    meta.validate().map_err(|e| KParBuildError::Validation {
+        name: "meta",
+        source: e,
+    })?;
 
     match semver::Version::parse(&info.version) {
         Ok(_) => (),

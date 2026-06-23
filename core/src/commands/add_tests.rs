@@ -5,6 +5,7 @@ use crate::{
     add::{do_add_guess, expand_sysand_purl_shorthand},
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
     project::memory::InMemoryProject,
+    utils::format_err,
 };
 use std::assert_matches;
 
@@ -91,7 +92,7 @@ fn add_rejects_non_normalized_sysand_shorthand() {
 
     let err = do_add_guess(&mut project, "Acme Labs/My.Project".to_owned(), None).unwrap_err();
 
-    let err = err.to_string();
+    let err = format_err(err);
     assert!(err.contains("`Acme Labs/My.Project`"), "{err}");
     assert!(err.contains("`pkg:sysand/acme-labs/my.project`"), "{err}");
     assert!(project.info.unwrap().usage.is_empty());

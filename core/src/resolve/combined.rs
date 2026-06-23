@@ -13,6 +13,7 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{ProjectRead, cached::CachedProject},
     resolve::{ResolutionOutcome, ResolveRead, null::NullResolver},
+    utils::format_err,
 };
 
 /// Implements "standard" resolution logic given a set of individual resolvers.
@@ -154,7 +155,7 @@ impl<
                             .and_then(|checksum| self.locals.shift_remove(&checksum)),
                         Err(err) => {
                             log::debug!(
-                                "remote-project checksum_canonical_hex failed; skipping local-cache match: {err}"
+                                "remote-project checksum_canonical_hex failed; skipping local-cache match: {}", format_err(err)
                             );
                             None
                         }
@@ -181,7 +182,7 @@ impl<
                             .and_then(|checksum| self.locals.shift_remove(&checksum)),
                         Err(err) => {
                             log::debug!(
-                                "index-project checksum_canonical_hex failed; skipping local-cache match: {err}"
+                                "index-project checksum_canonical_hex failed; skipping local-cache match: {}", format_err(err)
                             );
                             None
                         }
@@ -276,7 +277,8 @@ impl<
                         match res {
                             Err(err) => {
                                 log::debug!(
-                                    "local resolver rejected project with IRI `{uri}`: {err}",
+                                    "local resolver rejected project with IRI `{uri}`: {}",
+                                    format_err(err)
                                 );
                             }
                             Ok(project) => match project.checksum_canonical_hex() {
@@ -290,7 +292,8 @@ impl<
                                 }
                                 Err(err) => {
                                     log::debug!(
-                                        "local resolver rejected project with IRI `{uri}`: {err}",
+                                        "local resolver rejected project with IRI `{uri}`: {}",
+                                        format_err(err)
                                     );
                                 }
                             },
@@ -332,7 +335,8 @@ impl<
                         match remote_projects.peek() {
                             Some(Err(err)) => {
                                 log::debug!(
-                                    "remote resolver skipping project for IRI `{uri}` due to: {err}"
+                                    "remote resolver skipping project for IRI `{uri}` due to: {}",
+                                    format_err(err)
                                 );
                                 remote_projects.next();
                             }
@@ -360,7 +364,8 @@ impl<
                                     }
                                     Err(err) => {
                                         log::debug!(
-                                            "remote resolver skipping project for IRI `{uri}`: {err}"
+                                            "remote resolver skipping project for IRI `{uri}`: {}",
+                                            format_err(err)
                                         );
                                         remote_projects.next();
                                     }

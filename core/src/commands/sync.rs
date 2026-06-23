@@ -12,6 +12,7 @@ use crate::{
     iri_normalize::canonicalize_iri_tolerant,
     lock::{Lock, Source},
     project::{ProjectChecksum, ProjectRead, memory::InMemoryProject},
+    utils::format_err,
 };
 
 #[derive(Error, Debug)]
@@ -187,7 +188,7 @@ where
                 if let Some(checksum) = source.to_checksum()
                     && env
                         .has_version_verified(iri, &project.version, &checksum)
-                        .map_err(|e| SyncError::ProjectRead(e.to_string()))?
+                        .map_err(|e| SyncError::ProjectRead(format_err(e)))?
                         == ProjectChecksumResult::Match
                 {
                     log::debug!("`{iri}` found in .sysand");
@@ -340,7 +341,7 @@ where
                     do_env_install_project(uri, &project.version, &storage, None, env, true, true)
                         .map_err(|e| SyncError::InstallFail {
                             uri: uri.as_str().into(),
-                            cause: e.to_string(),
+                            cause: format_err(e),
                         })?;
                 }
             }
@@ -379,7 +380,7 @@ fn try_install<
     let uri = uri.as_ref();
     let actual_checksum = storage
         .checksum_canonical_variant()
-        .map_err(|e| SyncError::ProjectRead(e.to_string()))?;
+        .map_err(|e| SyncError::ProjectRead(format_err(e)))?;
     if expected_checksum == &actual_checksum {
         // TODO: Need to decide how to handle existing installations and possible flags to modify behavior
         do_env_install_project(
@@ -393,7 +394,7 @@ fn try_install<
         )
         .map_err(|e| SyncError::InstallFail {
             uri: uri.into(),
-            cause: e.to_string(),
+            cause: format_err(e),
         })?;
     } else {
         return Err(SyncError::BadChecksum {

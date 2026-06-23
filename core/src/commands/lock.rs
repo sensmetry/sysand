@@ -96,8 +96,11 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
         /// `canonical digest`.
         field: IncompleteField,
     },
-    #[error(transparent)]
-    Validation(InterchangeProjectValidationError),
+    #[error("project `{identifier}` has invalid metadata")]
+    InvalidUsage {
+        identifier: String,
+        source: InterchangeProjectValidationError,
+    },
     #[error(transparent)]
     Solver(SolverError<R>),
     #[error(transparent)]
@@ -117,6 +120,9 @@ pub struct LockOutcome<PD: Debug> {
 ///
 /// Typically `PI` will be a single `EditableProject` wrapping some local workspace project.
 /// See `do_lock_local_editable`.
+///
+/// `projects` contains `(identifiers, project)` pairs. If `identifiers` is `Some()`,
+/// it must not be an empty list
 ///
 /// `resolver` is used to interpret the usage IRIs.
 ///
@@ -156,6 +162,16 @@ pub fn do_lock_projects<
                     field: IncompleteField::Info,
                 })
             })?;
+        let validated_info = info.validate().map_err(|e| LockError::InvalidUsage {
+            identifier: {
+                if let Some(ids) = &identifiers {
+                    ids[0].as_str().to_owned()
+                } else {
+                    info.name.clone()
+                }
+            },
+            source: e,
+        })?;
         let named_project_label = format!("`{}` {}", info.name, info.version);
         let meta = project
             .get_meta()
@@ -191,11 +207,7 @@ pub fn do_lock_projects<
                 .collect(),
         });
 
-        let usages: Result<Vec<InterchangeProjectUsage>, InterchangeProjectValidationError> =
-            info.usage.iter().map(|p| p.validate()).collect();
-        let usages = usages.map_err(LockError::Validation)?;
-
-        all_deps.extend(usages);
+        all_deps.extend(validated_info.usage);
     }
 
     let lock_outcome = do_lock_extend(lock, all_deps, resolver, provided_iris, ctx)?;

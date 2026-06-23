@@ -40,6 +40,7 @@ use sysand_core::{
     sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
     stdlib::known_std_libs,
     symbols::Language,
+    utils::format_err,
 };
 use typed_path::Utf8UnixPathBuf;
 
@@ -67,21 +68,22 @@ fn do_init_py_local_file(
     let _ = pyo3_log::try_init();
 
     do_init_local_file(name, publisher, version, license, Utf8PathBuf::from(path)).map_err(
-        |err| match err {
-            InitError::SemVerParse(..) => PyValueError::new_err(err.to_string()),
-            InitError::SPDXLicenseParse(..) => PyValueError::new_err(err.to_string()),
-            InitError::Project(err) => match err {
-                LocalSrcError::AlreadyExists(msg) => PyFileExistsError::new_err(msg),
-                LocalSrcError::Deserialize(error) => PyValueError::new_err(error.to_string()),
-                LocalSrcError::Io(error) => PyIOError::new_err(error.to_string()),
-                LocalSrcError::Path(error) => PyIOError::new_err(error.to_string()),
-                LocalSrcError::Serialize(error) => PyValueError::new_err(error.to_string()),
-                LocalSrcError::ImpossibleRelativePath(error) => {
-                    PyValueError::new_err(error.to_string())
-                }
-                LocalSrcError::MissingMeta => PyFileNotFoundError::new_err(err.to_string()),
-                LocalSrcError::MissingInfoMeta => PyFileNotFoundError::new_err(err.to_string()),
-            },
+        |err| {
+            let e = format_err(&err);
+            match err {
+                InitError::SemVerParse(..) => PyValueError::new_err(e),
+                InitError::SPDXLicenseParse(..) => PyValueError::new_err(e),
+                InitError::Project(err) => match err {
+                    LocalSrcError::AlreadyExists(_) => PyFileExistsError::new_err(e),
+                    LocalSrcError::Deserialize(_) => PyValueError::new_err(e),
+                    LocalSrcError::Io(_) => PyIOError::new_err(e),
+                    LocalSrcError::Path(_) => PyIOError::new_err(e),
+                    LocalSrcError::Serialize(_) => PyValueError::new_err(e),
+                    LocalSrcError::ImpossibleRelativePath(_) => PyValueError::new_err(e),
+                    LocalSrcError::MissingMeta => PyFileNotFoundError::new_err(e),
+                    LocalSrcError::MissingInfoMeta => PyFileNotFoundError::new_err(e),
+                },
+            }
         },
     )?;
 
@@ -95,24 +97,25 @@ fn do_init_py_local_file(
 fn do_env_py_local_dir(path: String) -> PyResult<()> {
     let _ = pyo3_log::try_init();
 
-    do_env_local_dir(Utf8Path::new(&path)).map_err(|err| match err {
-        EnvError::AlreadyExists(path_buf) => PyFileExistsError::new_err(path_buf.into_string()),
-        EnvError::Write(werr) => match werr {
-            LocalWriteError::Io(error) => PyIOError::new_err(error.to_string()),
-            LocalWriteError::Deserialize(error) => PyValueError::new_err(error.to_string()),
-            LocalWriteError::Path(error) => PyValueError::new_err(error.to_string()),
-            LocalWriteError::AlreadyExists(error) => PyFileExistsError::new_err(error.to_string()),
-            LocalWriteError::Serialize(error) => PyValueError::new_err(error.to_string()),
-            LocalWriteError::TryMove(error) => PyIOError::new_err(error.to_string()),
-            LocalWriteError::LocalRead(error) => PyIOError::new_err(error.to_string()),
-            LocalWriteError::ImpossibleRelativePath(error) => {
-                PyValueError::new_err(error.to_string())
-            }
-            LocalWriteError::AddProject(error) => PyIOError::new_err(error.to_string()),
-            LocalWriteError::MissingMeta | LocalWriteError::MissingInfoMeta => {
-                PyFileNotFoundError::new_err(werr.to_string())
-            }
-        },
+    do_env_local_dir(Utf8Path::new(&path)).map_err(|err| {
+        let e = format_err(&err);
+        match err {
+            EnvError::AlreadyExists(_) => PyFileExistsError::new_err(e),
+            EnvError::Write(werr) => match werr {
+                LocalWriteError::Io(_) => PyIOError::new_err(e),
+                LocalWriteError::Deserialize(_) => PyValueError::new_err(e),
+                LocalWriteError::Path(_) => PyValueError::new_err(e),
+                LocalWriteError::AlreadyExists(_) => PyFileExistsError::new_err(e),
+                LocalWriteError::Serialize(_) => PyValueError::new_err(e),
+                LocalWriteError::TryMove(_) => PyIOError::new_err(e),
+                LocalWriteError::LocalRead(_) => PyIOError::new_err(e),
+                LocalWriteError::ImpossibleRelativePath(_) => PyValueError::new_err(e),
+                LocalWriteError::AddProject(_) => PyIOError::new_err(e),
+                LocalWriteError::MissingMeta | LocalWriteError::MissingInfoMeta => {
+                    PyFileNotFoundError::new_err(e)
+                }
+            },
+        }
     })?;
 
     Ok(())
@@ -140,7 +143,7 @@ fn do_info_py_path(
             | InfoProjectError::MissingInfo
             | InfoProjectError::MissingMeta
             | InfoProjectError::InvalidProject(..)),
-        ) => Err(PyRuntimeError::new_err(e.to_string())),
+        ) => Err(PyRuntimeError::new_err(format_err(e))),
     }
 }
 
@@ -157,7 +160,7 @@ fn do_info_py(
     let _ = pyo3_log::try_init();
 
     py.detach(|| {
-        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
         let runtime = Arc::new(
             tokio::runtime::Builder::new_current_thread()
@@ -173,7 +176,7 @@ fn do_info_py(
                     .collect()
             })
             .transpose()
-            .map_err(|err| PyValueError::new_err(err.to_string()))?;
+            .map_err(|err| PyValueError::new_err(format_err(err)))?;
 
         let combined_resolver = standard_resolver(
             Some(relative_file_root.into()),
@@ -184,7 +187,7 @@ fn do_info_py(
             // FIXME: Add Python support for authentication
             Arc::new(Unauthenticated {}),
         )
-        .map_err(|err| PyValueError::new_err(err.to_string()))?;
+        .map_err(|err| PyValueError::new_err(format_err(err)))?;
 
         match do_info(&uri, &combined_resolver) {
             Ok(info_meta) => Ok(info_meta),
@@ -193,7 +196,7 @@ fn do_info_py(
                 | InfoError::NoResolve(..)
                 | InfoError::UnsupportedIri(..)
                 | InfoError::Resolution(_)),
-            ) => Err(PyRuntimeError::new_err(e.to_string())),
+            ) => Err(PyRuntimeError::new_err(format_err(e))),
         }
     })
 }
@@ -221,30 +224,31 @@ fn do_build_py(
     let compression = match compression {
         Some(compression) => match KparCompressionMethod::try_from(compression) {
             Ok(compression) => compression,
-            Err(err) => return Err(PyValueError::new_err(err.to_string())),
+            Err(err) => return Err(PyValueError::new_err(format_err(err))),
         },
         None => KparCompressionMethod::default(),
     };
 
     do_build_kpar(&project, &output_path, compression, true, true)
         .map(|_| ())
-        .map_err(|err| match err {
-            KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::Io(_) => PyIOError::new_err(err.to_string()),
-            KParBuildError::Validation(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::Extract(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::UnknownFormat(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::MissingInfo => PyValueError::new_err(err.to_string()),
-            KParBuildError::MissingMeta => PyValueError::new_err(err.to_string()),
-            KParBuildError::MissingInfoMeta => PyValueError::new_err(err.to_string()),
-            KParBuildError::Zip(_) => PyIOError::new_err(err.to_string()),
-            KParBuildError::Serialize(..) => PyValueError::new_err(err.to_string()),
-            KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(err.to_string()),
-            KParBuildError::PathUsage(_) => PyValueError::new_err(err.to_string()),
-            KParBuildError::WorkspaceMetamodelConflict { .. } => {
-                PyValueError::new_err(err.to_string())
+        .map_err(|err| {
+            let e = format_err(&err);
+            match err {
+                KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(e),
+                KParBuildError::Io(_) => PyIOError::new_err(e),
+                KParBuildError::Validation { .. } => PyValueError::new_err(e),
+                KParBuildError::Extract(_) => PyValueError::new_err(e),
+                KParBuildError::UnknownFormat(_) => PyValueError::new_err(e),
+                KParBuildError::MissingInfo => PyValueError::new_err(e),
+                KParBuildError::MissingMeta => PyValueError::new_err(e),
+                KParBuildError::MissingInfoMeta => PyValueError::new_err(e),
+                KParBuildError::Zip(_) => PyIOError::new_err(e),
+                KParBuildError::Serialize(..) => PyValueError::new_err(e),
+                KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(e),
+                KParBuildError::PathUsage(_) => PyValueError::new_err(e),
+                KParBuildError::WorkspaceMetamodelConflict { .. } => PyValueError::new_err(e),
+                KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(e),
             }
-            KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(err.to_string()),
         })
 }
 
@@ -269,7 +273,7 @@ pub fn do_sources_env_py(
 
     let version = match version {
         Some(version) => Some(
-            VersionReq::parse(&version).map_err(|err| PyValueError::new_err(err.to_string()))?,
+            VersionReq::parse(&version).map_err(|err| PyValueError::new_err(format_err(err)))?,
         ),
         None => None,
     };
@@ -278,10 +282,11 @@ pub fn do_sources_env_py(
 
     let env = LocalDirectoryEnvironment::read(env_path).map_err(env_read_to_pyerr)?;
 
-    fn local_read_to_pyerr(e: LocalReadError) -> PyErr {
-        match e {
-            LocalReadError::Io(error) => PyIOError::new_err(error.to_string()),
-            LocalReadError::ProjectNotFound(_) => PyValueError::new_err(e.to_string()),
+    fn local_read_to_pyerr(err: LocalReadError) -> PyErr {
+        let e = format_err(&err);
+        match err {
+            LocalReadError::Io(_) => PyIOError::new_err(e),
+            LocalReadError::ProjectNotFound(_) => PyValueError::new_err(e),
         }
     }
 
@@ -296,7 +301,7 @@ pub fn do_sources_env_py(
             if let Some(candidate) = projects.next() {
                 if let Some(v) = candidate
                     .version()
-                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+                    .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
                     .and_then(|x| Version::parse(&x).ok())
                     && vr.matches(&v)
                 {
@@ -324,7 +329,7 @@ pub fn do_sources_env_py(
     };
 
     for src_path in do_sources_local_src_project_no_deps(&project, true)
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
     {
         result.push(src_path.into_string());
     }
@@ -332,7 +337,7 @@ pub fn do_sources_env_py(
     if include_deps {
         let Some(info) = project
             .get_info()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
         else {
             return Err(PyRuntimeError::new_err(
                 "project is missing project information",
@@ -341,15 +346,15 @@ pub fn do_sources_env_py(
 
         for dep in find_project_dependencies(
             info.validate()
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+                .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
                 .usage,
             env,
             &provided_iris,
         )
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
         {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+                .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
             {
                 result.push(src_path.into_string());
             }
@@ -380,7 +385,7 @@ pub fn do_sources_project_py(
     };
 
     for src_path in do_sources_local_src_project_no_deps(&current_project, true)
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
     {
         result.push(src_path.into_string());
     }
@@ -389,7 +394,7 @@ pub fn do_sources_project_py(
         // TODO: Better bail early?
         let Some(info) = current_project
             .get_info()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
         else {
             return Err(PyRuntimeError::new_err(
                 "project is missing project information",
@@ -412,15 +417,15 @@ pub fn do_sources_project_py(
 
         for dep in find_project_dependencies(
             info.validate()
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+                .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
                 .usage,
             env,
             &provided_iris,
         )
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
         {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+                .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
             {
                 result.push(src_path.into_string());
             }
@@ -446,7 +451,7 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
     // TODO: do dependency resolution and locking?
     match do_add_guess(&mut project, iri, version) {
         Ok(_added) => Ok(()),
-        Err(e) => Err(PyRuntimeError::new_err(e.to_string())),
+        Err(e) => Err(PyRuntimeError::new_err(format_err(e))),
     }
 }
 
@@ -463,7 +468,7 @@ fn do_remove_py(path: String, iri: String) -> PyResult<()> {
         expected_checksum: None,
     };
 
-    do_remove_guess(&mut project, iri).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+    do_remove_guess(&mut project, iri).map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
     Ok(())
 }
@@ -508,7 +513,7 @@ fn do_include_py(
         index_symbols,
         force_format,
     )
-    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    .map_err(|e| PyRuntimeError::new_err(format_err(e)))
 }
 
 /// `src_path` must be relative to project root and use Unix separators.
@@ -527,7 +532,7 @@ fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
     };
     // TODO: print the whole error chain
     do_exclude(&mut project, iter::once(Utf8UnixPathBuf::from(src_path)))
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
     Ok(())
 }
@@ -544,13 +549,13 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
     let mut env = LocalDirectoryEnvironment::read(env_path).map_err(env_read_to_pyerr)?;
 
     let metadata =
-        wrapfs::metadata(&location).map_err(|e| PyErr::new::<PyIOError, _>(e.to_string()))?;
+        wrapfs::metadata(&location).map_err(|e| PyErr::new::<PyIOError, _>(format_err(e)))?;
     if metadata.is_file() {
         let project = LocalKParProject::new(&location, KparInnerPath::Guess, None, None);
 
         let Some(version) = project
             .version()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
         else {
             return Err(PyRuntimeError::new_err(format!(
                 "project at `{}` lacks project information",
@@ -560,11 +565,11 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
 
         let checksum = project
             .checksum_canonical_variant()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
         env.put_project(iri, version, Some(checksum), |to| {
             clone_project(&project, to, true).map(|_| ())
         })
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
     } else if metadata.is_dir() {
         let project = LocalSrcProject {
             nominal_path: None,
@@ -574,7 +579,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
 
         let Some(version) = project
             .version()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
         else {
             return Err(PyRuntimeError::new_err(format!(
                 "project at {} lacks project information",
@@ -583,16 +588,15 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
         };
         let checksum = project
             .checksum_canonical_variant()
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
         env.put_project(iri, version, Some(checksum), |to| {
             clone_project(&project, to, true).map(|_| ())
         })
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
     } else {
         return Err(PyRuntimeError::new_err(format!(
-            "unable to find project at `{}`",
-            location
+            "unable to find project at `{location}`"
         )));
     }
 
@@ -622,5 +626,8 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 fn env_read_to_pyerr(err: EnvMetadataError) -> PyErr {
-    PyIOError::new_err(format!("failed to read environment metadata: {err}"))
+    PyIOError::new_err(format!(
+        "failed to read environment metadata: {}",
+        format_err(err)
+    ))
 }

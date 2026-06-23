@@ -55,12 +55,10 @@ pub fn clean_dir<P: AsRef<Utf8Path>>(path: P) {
 pub enum TryMoveError {
     #[error("recovered from failure: {0}")]
     RecoveredIO(Box<FsIoError>),
-    #[error(
-        "failed and may have left the directory in inconsistent state:\n{err}\nwhich was caused by:\n{cause}"
-    )]
+    #[error("failed and may have left the directory in inconsistent state:\n{err}")]
     CatastrophicIO {
         err: Box<FsIoError>,
-        cause: Box<FsIoError>,
+        source: Box<FsIoError>,
     },
 }
 
@@ -143,7 +141,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
             if src_path.exists()
                 && let Err(err) = move_fs_item(src_path, path)
             {
-                return Err(TryMoveError::CatastrophicIO { err, cause });
+                return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
 
@@ -171,7 +169,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
             if trg_path.exists()
                 && let Err(err) = move_fs_item(trg_path, path)
             {
-                return Err(TryMoveError::CatastrophicIO { err, cause });
+                return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
 
@@ -181,7 +179,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
             if src_path.exists()
                 && let Err(err) = move_fs_item(src_path, path)
             {
-                return Err(TryMoveError::CatastrophicIO { err, cause });
+                return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
 
@@ -208,7 +206,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
             if path.exists()
                 && let Err(err) = move_fs_item(path, src_path)
             {
-                return Err(TryMoveError::CatastrophicIO { err, cause });
+                return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
 
@@ -218,7 +216,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
             if trg_path.exists()
                 && let Err(err) = move_fs_item(trg_path, path)
             {
-                return Err(TryMoveError::CatastrophicIO { err, cause });
+                return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
 
@@ -228,7 +226,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
             if src_path.exists()
                 && let Err(err) = move_fs_item(src_path, path)
             {
-                return Err(TryMoveError::CatastrophicIO { err, cause });
+                return Err(TryMoveError::CatastrophicIO { err, source: cause });
             }
         }
 

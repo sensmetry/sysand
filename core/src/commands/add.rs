@@ -58,7 +58,7 @@ pub fn do_add_guess<P: ProjectMut>(
             Ok(None) => resource,
             Err(source) => {
                 return Err(AddError::Validation(
-                    InterchangeProjectValidationError::MalformedSysandPurl {
+                    InterchangeProjectValidationError::MalformedUsageSysandPurl {
                         iri: resource,
                         source,
                     },

@@ -371,7 +371,7 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                     // https://github.com/pubgrub-rs/pubgrub/pull/216
                     // match resolve_candidates(resolver, &usage.resource, cache) {
                     //     Ok(_) => (),
-                    //     Err(err) => return Ok(pubgrub::Dependencies::Unavailable(err.to_string())),
+                    //     Err(err) => return Ok(pubgrub::Dependencies::Unavailable(format_err(err))),
                     // };
 
                     deps.push((
