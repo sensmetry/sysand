@@ -254,7 +254,6 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     provided_iris: HashMap<String, Vec<sysand_core::project::memory::InMemoryProject>>,
     ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
-    // FIXME: use path relative to workspace root.
     let resolver = create_resolver(
         resolution_opts,
         config,
@@ -265,6 +264,7 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         runtime.clone(),
         auth_policy.clone(),
     )?;
+    // FIXME: use project path relative to and under the workspace root.
     let LockOutcome { lock, .. } = do_lock_local_editable(
         ".",
         &project_root,

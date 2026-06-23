@@ -301,7 +301,7 @@ fn validate_discovery_root_rejects_query_and_fragment() {
 // --- prepare_publish_payload error cases ---
 
 mod prepare_publish {
-    use crate::utils::sha256_lowercase_hex;
+    use crate::utils::{RelativeUnixPathError, sha256_lowercase_hex};
     use std::assert_matches;
 
     use super::super::prepare_publish_payload;
@@ -383,8 +383,6 @@ mod prepare_publish {
         (base_project(), meta)
     }
 
-    // ── KparRead ────────────────────────────────────────────────────────────
-
     #[test]
     fn kpar_read_rejects_non_zip_file() {
         let tmp = NamedUtf8TempFile::new().unwrap();
@@ -401,8 +399,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::KparRead(..));
     }
 
-    // ── ProjectNotAtRoot ─────────────────────────────────────────────────────
-
     #[test]
     fn project_not_at_root() {
         // .project.json is inside a subdirectory; publish requires root placement.
@@ -412,16 +408,12 @@ mod prepare_publish {
         assert_matches!(err, PublishError::ProjectNotAtRoot { .. });
     }
 
-    // ── MissingMeta ──────────────────────────────────────────────────────────
-
     #[test]
     fn missing_meta() {
         let (_tmp, path) = write_zip(&[(".project.json", base_project().as_slice(), deflate())]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::MissingMeta);
     }
-
-    // ── InfoMetaValidation ───────────────────────────────────────────────────
 
     #[test]
     fn info_meta_validation_project_bad_semver() {
@@ -452,8 +444,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::InfoMetaValidation { name: "meta", .. });
     }
 
-    // ── MissingPublisher ─────────────────────────────────────────────────────
-
     #[test]
     fn missing_publisher() {
         let no_pub = br#"{"name":"test-pkg","version":"1.0.0","license":"MIT"}"#;
@@ -464,8 +454,6 @@ mod prepare_publish {
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::MissingPublisher);
     }
-
-    // ── InvalidPublisher ─────────────────────────────────────────────────────
 
     #[test]
     fn invalid_publisher() {
@@ -478,8 +466,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::InvalidPublisher(..));
     }
 
-    // ── InvalidName ──────────────────────────────────────────────────────────
-
     #[test]
     fn invalid_name() {
         let bad = project_json("test-pub", "bad__name", "1.0.0", "MIT");
@@ -490,8 +476,6 @@ mod prepare_publish {
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::InvalidName(..));
     }
-
-    // ── VersionBuildMetadata ─────────────────────────────────────────────────
 
     #[test]
     fn version_build_metadata() {
@@ -504,8 +488,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::VersionBuildMetadata { .. });
     }
 
-    // ── MissingLicense ───────────────────────────────────────────────────────
-
     #[test]
     fn missing_license() {
         let no_lic = br#"{"name":"test-pkg","publisher":"test-pub","version":"1.0.0"}"#;
@@ -516,8 +498,6 @@ mod prepare_publish {
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::MissingLicense);
     }
-
-    // ── InvalidLicense ───────────────────────────────────────────────────────
 
     #[test]
     fn invalid_license() {
@@ -530,8 +510,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::InvalidLicense { .. });
     }
 
-    // ── MissingMetamodel ─────────────────────────────────────────────────────
-
     #[test]
     fn missing_metamodel() {
         let no_meta = br#"{"index":{},"created":"2025-01-01T00:00:00Z"}"#;
@@ -542,8 +520,6 @@ mod prepare_publish {
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::MissingMetamodel);
     }
-
-    // ── Archive-loop errors (ExecInArchive, UnsupportedCompression, Encrypted)
 
     // Each test below uses valid .project.json + .meta.json and appends one
     // "bad" file entry; the archive loop fires before any checksum check.
@@ -570,11 +546,7 @@ mod prepare_publish {
             ("test.sysml", b"package Test;", stored()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert_matches!(
-            err,
-            PublishError::UnsupportedCompression { .. },
-            "got: {err}"
-        );
+        assert_matches!(err, PublishError::UnsupportedCompression { .. });
     }
 
     #[test]
@@ -617,8 +589,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::Encrypted { .. });
     }
 
-    // ── DisallowedPath ───────────────────────────────────────────────────────
-
     #[test]
     fn disallowed_path_current_dir_prefix() {
         let (proj, meta) = pre_loop_entries();
@@ -628,10 +598,11 @@ mod prepare_publish {
             ("./test.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert_matches!(err, PublishError::RelativePathComponents { .. });
+        assert_matches!(
+            err,
+            PublishError::InvalidPathInArchive(RelativeUnixPathError::ContainsCurrent { .. })
+        );
     }
-
-    // ── MissingLicenseFile ───────────────────────────────────────────────────
 
     #[test]
     fn missing_license_file() {
@@ -645,8 +616,6 @@ mod prepare_publish {
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::MissingLicenseFile { .. });
     }
-
-    // ── MissingChecksum ──────────────────────────────────────────────────────
 
     #[test]
     fn missing_checksum() {
@@ -662,8 +631,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::MissingChecksum);
     }
 
-    // ── EmptyChecksum ────────────────────────────────────────────────────────
-
     #[test]
     fn empty_checksum() {
         // checksum is present but empty.
@@ -677,8 +644,6 @@ mod prepare_publish {
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::EmptyChecksum);
     }
-
-    // ── IncorrectFileFormat ──────────────────────────────────────────────────
 
     #[test]
     fn incorrect_file_format() {
@@ -698,8 +663,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::IncorrectFileFormat { .. });
     }
 
-    // ── UnsupportedFileChecksumType ──────────────────────────────────────────
-
     #[test]
     fn unsupported_file_checksum_type() {
         // SHA1 is a valid algorithm but not SHA256.
@@ -715,8 +678,6 @@ mod prepare_publish {
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::UnsupportedFileChecksumType { .. });
     }
-
-    // ── MissingFile ──────────────────────────────────────────────────────────
 
     #[test]
     fn missing_file() {
@@ -735,8 +696,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::MissingFile { .. });
     }
 
-    // ── IncorrectFileChecksum ────────────────────────────────────────────────
-
     #[test]
     fn incorrect_file_checksum() {
         let wrong_cksum = "f".repeat(64); // valid hex length but wrong value
@@ -752,8 +711,6 @@ mod prepare_publish {
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(err, PublishError::IncorrectFileChecksum { .. });
     }
-
-    // ── NonexistentSymbolExported ────────────────────────────────────────────
 
     #[test]
     fn nonexistent_symbol_exported() {
@@ -774,8 +731,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::NonexistentSymbolExported { .. });
     }
 
-    // ── IndexFail ────────────────────────────────────────────────────────────
-
     #[test]
     fn index_fail() {
         // Garbage content in a .sysml file causes extract_symbols to fail.
@@ -794,8 +749,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::IndexFail { .. });
     }
 
-    // ── UnexpectedFile ───────────────────────────────────────────────────────
-
     #[test]
     fn unexpected_file() {
         // A file that is neither in checksum nor a recognised ancillary file.
@@ -812,8 +765,6 @@ mod prepare_publish {
         assert_matches!(err, PublishError::UnexpectedFile { .. });
     }
 
-    // ── Backslash ────────────────────────────────────────────────────────────
-
     #[test]
     fn backslash_in_path() {
         let (proj, meta) = pre_loop_entries();
@@ -823,10 +774,11 @@ mod prepare_publish {
             ("subdir\\file.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert_matches!(err, PublishError::Backslash { .. }, "got: {err}");
+        assert_matches!(
+            err,
+            PublishError::InvalidPathInArchive(RelativeUnixPathError::ContainsBackslash { .. }),
+        );
     }
-
-    // ── AbsolutePath ─────────────────────────────────────────────────────────
 
     #[test]
     fn absolute_path() {
@@ -837,10 +789,11 @@ mod prepare_publish {
             ("/absolute/file.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert_matches!(err, PublishError::AbsolutePath { .. }, "got: {err}");
+        assert_matches!(
+            err,
+            PublishError::InvalidPathInArchive(RelativeUnixPathError::Absolute { .. }),
+        );
     }
-
-    // ── DoubleSlash ───────────────────────────────────────────────────────────
 
     #[test]
     fn double_slash_in_path() {
@@ -851,10 +804,11 @@ mod prepare_publish {
             ("foo//bar.sysml", b"package Test;", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert_matches!(err, PublishError::DoubleSlash { .. }, "got: {err}");
+        assert_matches!(
+            err,
+            PublishError::InvalidPathInArchive(RelativeUnixPathError::ContainsDoubleSlash { .. }),
+        );
     }
-
-    // ── RelativePathComponents with .. ────────────────────────────────────────
 
     #[test]
     fn relative_path_parent_dir() {
@@ -867,12 +821,9 @@ mod prepare_publish {
         let err = prepare_publish_payload(&path).expect_err("expected Err");
         assert_matches!(
             err,
-            PublishError::RelativePathComponents { .. },
-            "got: {err}"
+            PublishError::InvalidPathInArchive(RelativeUnixPathError::ContainsParent { .. })
         );
     }
-
-    // ── CompressedDirEntry ────────────────────────────────────────────────────
 
     #[test]
     fn compressed_dir_entry() {
@@ -884,10 +835,8 @@ mod prepare_publish {
             ("subdir/", b"", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert_matches!(err, PublishError::CompressedDirEntry { .. }, "got: {err}");
+        assert_matches!(err, PublishError::CompressedDirEntry { .. });
     }
-
-    // ── Directory entry with Stored compression is accepted ───────────────────
 
     #[test]
     fn dir_entry_with_stored_passes_archive_loop() {
@@ -901,14 +850,8 @@ mod prepare_publish {
             ("LICENSES/MIT.txt", b"MIT License", deflate()),
         ]);
         let err = prepare_publish_payload(&path).expect_err("expected Err");
-        assert_matches!(
-            err,
-            PublishError::MissingChecksum,
-            "expected MissingChecksum (past archive loop), got: {err}"
-        );
+        assert_matches!(err, PublishError::MissingChecksum);
     }
-
-    // ── CHANGELOG.md is accepted ──────────────────────────────────────────────
 
     #[test]
     fn changelog_md_accepted() {
@@ -929,8 +872,6 @@ mod prepare_publish {
             .expect("CHANGELOG.md must not be rejected as UnexpectedFile");
     }
 
-    // ── README.md is accepted ─────────────────────────────────────────────────
-
     #[test]
     fn readme_md_accepted() {
         let content = b"package Test;";
@@ -944,8 +885,6 @@ mod prepare_publish {
         ]);
         prepare_publish_payload(&path).expect("README.md must not be rejected as UnexpectedFile");
     }
-
-    // ── Happy path ────────────────────────────────────────────────────────────
 
     #[test]
     fn valid_kpar_succeeds() {

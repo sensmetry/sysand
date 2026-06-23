@@ -8,7 +8,7 @@ use mockito::{Mock, Server, ServerGuard};
 use predicates::{prelude::*, str::contains};
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
-    config::OverrideSource,
+    config::{self, ConfigProject, OverrideSource},
     env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
     lock::{Lock, Source},
     model::{InterchangeProjectInfoRaw, InterchangeProjectUsageRaw},
@@ -72,17 +72,17 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
 
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let cfg = toml::to_string(&sysand_core::config::Config {
+    let cfg = toml::to_string(&config::Config {
         indexes: vec![],
-        projects: vec![sysand_core::config::ConfigProject {
+        projects: vec![ConfigProject {
             identifiers: vec!["urn:kpar:local_dep".to_string()],
             sources: vec![OverrideSource::LocalSrc {
-                src_path: cwd.join("local_dep").as_str().into(),
+                src_path: "local_dep".into(),
             }],
         }],
     })?;
 
-    let cfg_path = cwd.join(sysand_core::config::local_fs::CONFIG_FILE);
+    let cfg_path = cwd.join(config::local_fs::CONFIG_FILE);
     std::fs::write(&cfg_path, cfg)?;
 
     let out = run_sysand_in(&cwd, ["lock"], Some(cfg_path.as_str()))?;
@@ -122,7 +122,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
         "Adding usage: IRI `https://www.omg.org/spec/KerML/20250201/Function-Library.kpar`",
     ));
 
-    let cfg = toml::to_string(&sysand_core::config::Config {
+    let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![sysand_core::config::ConfigProject {
             identifiers: vec!["urn:kpar:local_dep".to_string()],
@@ -132,7 +132,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
         }],
     })?;
 
-    let cfg_path = cwd.join(sysand_core::config::local_fs::CONFIG_FILE);
+    let cfg_path = cwd.join(config::local_fs::CONFIG_FILE);
     std::fs::write(&cfg_path, cfg)?;
 
     let out = run_sysand_in(&cwd, ["lock"], Some(cfg_path.as_str()))?;

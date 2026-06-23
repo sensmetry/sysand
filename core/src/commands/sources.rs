@@ -34,7 +34,7 @@ pub enum SourcesError<ProjectError> {
     },
 }
 
-/// Enumerates source files in a project (as Unix-paths relative to the project root).
+/// Enumerates source files in a project (as relative Unix-paths under the project root).
 /// Combine with `find_project_dependencies` or `enumerate_projects_lock` to get source files
 /// of project usages (dependencies).
 pub fn do_sources_project_no_deps<Pr: ProjectRead>(

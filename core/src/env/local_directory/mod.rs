@@ -41,7 +41,8 @@ pub mod utils;
 
 use utils::{TryMoveError, try_move_files};
 
-// TODO: avoid cloning, maybe use `Arc`?
+// TODO: validate IRIs and paths
+// TODO: avoid cloning this struct, maybe use `Arc`?
 /// `.sysand` metadata. Metadata changes have to be written to `env.toml` explicitly
 #[derive(Debug, Clone)]
 pub struct LocalDirectoryEnvironment {
@@ -225,7 +226,8 @@ impl LocalDirectoryEnvironment {
         p.path.starts_with(PROJECT_PATH_PREFIX)
     }
 
-    /// Determine a path for a new project/version. Path will be relative to `self.root_path()`
+    /// Determine a path for a new project/version. Path will be relative to and under
+    /// `self.root_path()`
     fn compute_project_path(&self, iri: Iri<&str>, version: impl AsRef<str>) -> Utf8UnixPathBuf {
         let mut path_iter = IriVersionFilename::new(iri, version);
         let mut candidate = path_iter.next_candidate();

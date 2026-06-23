@@ -31,7 +31,8 @@ use super::{
 
 /// Project stored in a local directory as an extracted KPAR archive.
 /// Source file paths with (unix) segments `segment1/.../segmentN` are
-/// re-interpreted as filesystem-native paths relative to `project_path`.
+/// re-interpreted as filesystem-native paths resolved relative to
+/// and under `project_path`.
 #[derive(Clone, Debug)]
 pub struct LocalSrcProject {
     /// Path used in `Source::LocalSrc` returned by `.sources()`.

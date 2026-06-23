@@ -280,8 +280,8 @@ The local environment looks like this:
 - `name`. Taken from `.project.json`
 - `version`. Taken from `.project.json`
 - `path`. Relative path of the project's directory. For non-`editable`
-  projects, this is currently `lib/package_ID_version`, and is relative to
-  `.sysand`. For `editable` projects, path is relative to the
+  projects, this is currently `lib/package_ID_version` under `.sysand`.
+  For `editable` projects, path is resolved relative to the
   workspace/project root; these projects are only listed in `env.toml`, but
   are not otherwise managed by it.
 - `identifiers`. Identifiers of the project, the first one being considered
