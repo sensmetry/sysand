@@ -721,9 +721,19 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         }
-        cli::Command::Publish { path, index } => {
-            command_publish(path, index, &ctx, auth_policy, client, runtime)
-        }
+        cli::Command::Publish {
+            path,
+            index,
+            trusted_publishing,
+        } => command_publish(
+            path,
+            index,
+            trusted_publishing,
+            &ctx,
+            auth_policy,
+            client,
+            runtime,
+        ),
         Command::Sources { sources_opts } => {
             let cli::SourcesOptions {
                 no_deps,

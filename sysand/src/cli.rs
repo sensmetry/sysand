@@ -210,6 +210,19 @@ pub enum Command {
         /// to the API root (e.g. https://sysand.com/api)
         #[arg(long, value_name = "URL", verbatim_doc_comment)]
         index: Url,
+
+        /// How to use CI trusted publishing for acquiring publish credentials
+        #[arg(
+            long,
+            value_enum,
+            value_name = "MODE",
+            num_args = 0..=1,
+            require_equals = true,
+            default_value = "auto",
+            default_missing_value = "auto",
+            verbatim_doc_comment
+        )]
+        trusted_publishing: TrustedPublishingMode,
     },
     /// Create or update lockfile
     Lock {
@@ -385,6 +398,21 @@ impl From<KparCompressionMethodCli> for KparCompressionMethod {
             KparCompressionMethodCli::Ppmd => KparCompressionMethod::Ppmd,
         }
     }
+}
+
+#[derive(clap::ValueEnum, Default, Copy, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "lowercase")]
+pub enum TrustedPublishingMode {
+    /// Automatically use trusted publishing when a supported CI environment is detected
+    #[default]
+    Auto,
+    /// Disable trusted publishing and require explicitly configured publish credentials
+    #[value(alias = "false")]
+    Never,
+    /// Force GitHub Actions trusted publishing
+    Github,
+    /// Force GitLab CI trusted publishing
+    Gitlab,
 }
 
 // This is implemented mainly so that if KparCompressionMethod gets a new member

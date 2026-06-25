@@ -42,3 +42,47 @@ The sysand index API is in use today — `sysand publish` posts to
 `v1/upload` under the resolved `api_root` — but has not yet been written
 up as a standalone spec.
 This document will be populated as the API surface is formalized.
+
+## Trusted Publishing Token Exchange
+
+An index server that supports CI trusted publishing exposes:
+
+```text
+POST v1/oidc/token
+```
+
+under the resolved `api_root`. The endpoint accepts a short-lived OIDC
+token issued by a supported CI provider and returns a short-lived
+Sysand index bearer token scoped for publishing.
+
+Request body:
+
+```json
+{ "token": "<provider-oidc-token>" }
+```
+
+Successful response body:
+
+```json
+{ "token": "<sysand-index-bearer-token>" }
+```
+
+Clients use the returned bearer token for subsequent publish API calls,
+including `POST v1/upload`. The provider OIDC token and returned bearer
+token are secrets and clients MUST NOT log them.
+
+Non-2xx responses indicate that the exchange failed. Servers SHOULD use
+401 or 403 when the provider token is invalid, expired, has the wrong
+audience, or is not authorized to publish the target project.
+
+Initially supported CI providers:
+
+- GitHub Actions on github.com. The client requests an OIDC token from
+  the GitHub runner OIDC endpoint with audience `sysand`.
+- GitLab CI on gitlab.com. The job must expose an ID token with audience
+  `sysand`, for example through `id_tokens`.
+
+The client discovers `api_root` before attempting trusted publishing.
+Therefore trusted publishing does not help with an auth-gated
+`sysand-index-config.json`; such discovery still requires separately
+configured credentials.

@@ -108,6 +108,34 @@ fn mock_index_config_api_at_api(server: &mut Server) -> mockito::Mock {
         .create()
 }
 
+fn mock_oidc_exchange(
+    server: &mut Server,
+    provider_token: &str,
+    index_token: &str,
+) -> mockito::Mock {
+    server
+        .mock("POST", "/api/v1/oidc/token")
+        .match_header("content-type", "application/json")
+        .match_body(Matcher::JsonString(format!(
+            r#"{{"token":"{provider_token}"}}"#
+        )))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(format!(r#"{{"token":"{index_token}"}}"#))
+        .expect(1)
+        .create()
+}
+
+fn mock_publish_with_bearer(server: &mut Server, token: &str) -> mockito::Mock {
+    server
+        .mock("POST", "/api/v1/upload")
+        .match_header("authorization", format!("Bearer {token}").as_str())
+        .with_status(201)
+        .with_body("created")
+        .expect(1)
+        .create()
+}
+
 #[test]
 fn publish_without_path_from_workspace_root_reports_explicit_error() -> TestResult {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -225,6 +253,370 @@ fn publish_requires_index_even_with_config_default() -> TestResult {
             "required arguments were not provided",
         ))
         .stderr(predicate::str::contains("--index <URL>"));
+
+    Ok(())
+}
+
+#[test]
+fn publish_auto_uses_gitlab_trusted_publishing() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-auto-gitlab")?;
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let exchange_mock = mock_oidc_exchange(&mut server, "gitlab-oidc-token", "index-token");
+    let publish_mock = mock_publish_with_bearer(&mut server, "index-token");
+
+    let mut env = IndexMap::new();
+    env.insert(
+        "GITLAB_OIDC_TOKEN".to_string(),
+        "gitlab-oidc-token".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?;
+
+    out.assert().success();
+    publish_mock.assert();
+    exchange_mock.assert();
+    config_mock.assert();
+
+    Ok(())
+}
+
+#[test]
+fn publish_bare_trusted_publishing_flag_defaults_to_auto() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-bare-trusted-flag")?;
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let exchange_mock = mock_oidc_exchange(&mut server, "gitlab-oidc-token", "index-token");
+    let publish_mock = mock_publish_with_bearer(&mut server, "index-token");
+
+    let mut env = IndexMap::new();
+    env.insert(
+        "GITLAB_OIDC_TOKEN".to_string(),
+        "gitlab-oidc-token".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        [
+            "publish",
+            "--trusted-publishing",
+            "--index",
+            server.url().as_str(),
+        ],
+        None,
+        &env,
+    )?;
+
+    out.assert().success();
+    publish_mock.assert();
+    exchange_mock.assert();
+    config_mock.assert();
+
+    Ok(())
+}
+
+#[test]
+fn publish_forced_github_trusted_publishing() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-forced-github")?;
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let exchange_mock = mock_oidc_exchange(&mut server, "github-oidc-token", "index-token");
+    let publish_mock = mock_publish_with_bearer(&mut server, "index-token");
+
+    let mut github_server = Server::new();
+    let github_mock = github_server
+        .mock("GET", "/oidc")
+        .match_header("authorization", "bearer github-request-token")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("existing".to_string(), "1".to_string()),
+            Matcher::UrlEncoded("audience".to_string(), "sysand".to_string()),
+        ]))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"value":"github-oidc-token"}"#)
+        .expect(1)
+        .create();
+
+    let mut env = IndexMap::new();
+    env.insert(
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN".to_string(),
+        "github-request-token".to_string(),
+    );
+    env.insert(
+        "ACTIONS_ID_TOKEN_REQUEST_URL".to_string(),
+        format!("{}/oidc?existing=1", github_server.url()),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        [
+            "publish",
+            "--trusted-publishing=github",
+            "--index",
+            server.url().as_str(),
+        ],
+        None,
+        &env,
+    )?;
+
+    out.assert().success();
+    publish_mock.assert();
+    exchange_mock.assert();
+    config_mock.assert();
+    github_mock.assert();
+
+    Ok(())
+}
+
+#[test]
+fn publish_github_trusted_publishing_oidc_failure_errors() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-github-oidc-failure")?;
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let exchange_mock = server.mock("POST", "/api/v1/oidc/token").expect(0).create();
+    let publish_mock = server.mock("POST", "/api/v1/upload").expect(0).create();
+
+    let mut github_server = Server::new();
+    let github_mock = github_server
+        .mock("GET", "/oidc")
+        .match_header("authorization", "bearer github-request-token")
+        .match_query(Matcher::UrlEncoded(
+            "audience".to_string(),
+            "sysand".to_string(),
+        ))
+        .with_status(500)
+        .with_body("runner error")
+        .expect(1)
+        .create();
+
+    let mut env = IndexMap::new();
+    env.insert(
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN".to_string(),
+        "github-request-token".to_string(),
+    );
+    env.insert(
+        "ACTIONS_ID_TOKEN_REQUEST_URL".to_string(),
+        format!("{}/oidc", github_server.url()),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        [
+            "publish",
+            "--trusted-publishing=github",
+            "--index",
+            server.url().as_str(),
+        ],
+        None,
+        &env,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("trusted publishing"))
+        .stderr(predicate::str::contains("github"))
+        .stderr(predicate::str::contains("HTTP status 500"));
+    publish_mock.assert();
+    exchange_mock.assert();
+    config_mock.assert();
+    github_mock.assert();
+
+    Ok(())
+}
+
+#[test]
+fn publish_space_separated_trusted_publishing_value_is_not_a_mode() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-trusted-space-value")?;
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "publish",
+            "--trusted-publishing",
+            "never",
+            "--index",
+            "http://localhost:1",
+        ],
+        None,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("KPAR file not found at `never`"));
+
+    Ok(())
+}
+
+#[test]
+fn publish_trusted_publishing_never_preserves_no_bearer_error() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-trusted-never")?;
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let publish_mock = server.mock("POST", "/api/v1/upload").expect(0).create();
+    let exchange_mock = server.mock("POST", "/api/v1/oidc/token").expect(0).create();
+
+    let mut env = IndexMap::new();
+    env.insert(
+        "GITLAB_OIDC_TOKEN".to_string(),
+        "gitlab-oidc-token".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        [
+            "publish",
+            "--trusted-publishing=never",
+            "--index",
+            server.url().as_str(),
+        ],
+        None,
+        &env,
+    )?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "no bearer token credentials configured for publish URL",
+    ));
+    publish_mock.assert();
+    exchange_mock.assert();
+    config_mock.assert();
+
+    Ok(())
+}
+
+#[test]
+fn publish_explicit_bearer_wins_over_auto_trusted_publishing() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-bearer-wins")?;
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let publish_mock = mock_publish_with_bearer(&mut server, "test-token");
+    let exchange_mock = server.mock("POST", "/api/v1/oidc/token").expect(0).create();
+
+    let mut env = bearer_env_for_url(server.url().as_str());
+    env.insert(
+        "GITLAB_OIDC_TOKEN".to_string(),
+        "gitlab-oidc-token".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?;
+
+    out.assert().success();
+    publish_mock.assert();
+    exchange_mock.assert();
+    config_mock.assert();
+
+    Ok(())
+}
+
+#[test]
+fn publish_malformed_explicit_credentials_abort_before_trusted_publishing() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-malformed-explicit-creds")?;
+    let mut env = IndexMap::new();
+    env.insert(
+        "SYSAND_CRED_TEST_BEARER_TOKEN".to_string(),
+        "test-token".to_string(),
+    );
+    env.insert(
+        "GITLAB_OIDC_TOKEN".to_string(),
+        "gitlab-oidc-token".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", "http://localhost:1"],
+        None,
+        &env,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "please specify URL pattern SYSAND_CRED_TEST for credential",
+        ))
+        .stderr(predicate::str::contains("HTTP request").not());
+
+    Ok(())
+}
+
+#[test]
+fn publish_trusted_publishing_exchange_non_success_errors() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-exchange-error")?;
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let exchange_mock = server
+        .mock("POST", "/api/v1/oidc/token")
+        .with_status(403)
+        .with_body("forbidden")
+        .expect(1)
+        .create();
+    let publish_mock = server.mock("POST", "/api/v1/upload").expect(0).create();
+
+    let mut env = IndexMap::new();
+    env.insert(
+        "GITLAB_OIDC_TOKEN".to_string(),
+        "gitlab-oidc-token".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("trusted publishing"))
+        .stderr(predicate::str::contains("HTTP status 403"));
+    publish_mock.assert();
+    exchange_mock.assert();
+    config_mock.assert();
+
+    Ok(())
+}
+
+#[test]
+fn publish_trusted_publishing_exchange_malformed_response_errors() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-exchange-malformed")?;
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let exchange_mock = server
+        .mock("POST", "/api/v1/oidc/token")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"not_token":"index-token"}"#)
+        .expect(1)
+        .create();
+    let publish_mock = server.mock("POST", "/api/v1/upload").expect(0).create();
+
+    let mut env = IndexMap::new();
+    env.insert(
+        "GITLAB_OIDC_TOKEN".to_string(),
+        "gitlab-oidc-token".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("trusted publishing"))
+        .stderr(predicate::str::contains("malformed response"));
+    publish_mock.assert();
+    exchange_mock.assert();
+    config_mock.assert();
 
     Ok(())
 }
