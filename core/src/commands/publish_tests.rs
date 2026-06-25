@@ -2,12 +2,56 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::{
-    AllowedMetamodelKind, EndpointKind, PublishError, build_upload_url, check_metamodel,
-    check_usage, error_body_to_string, map_publish_response, validate_endpoint_url_shape,
+    AllowedMetamodelKind, EndpointKind, PublishError, TrustedPublishingEnvironment,
+    TrustedPublishingMode, build_upload_url, check_metamodel, check_usage, error_body_to_string,
+    map_publish_response, resolve_publish_bearer, validate_endpoint_url_shape,
 };
-use crate::model::InterchangeProjectUsageRaw;
+use crate::{
+    auth::{ForceBearerAuth, GlobMap, GlobMapBuilder},
+    model::InterchangeProjectUsageRaw,
+    resolve::net_utils::create_reqwest_client,
+};
+use mockito::Matcher;
 use std::assert_matches;
+use std::sync::Arc;
 use url::Url;
+
+fn runtime() -> Arc<tokio::runtime::Runtime> {
+    Arc::new(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .unwrap(),
+    )
+}
+
+fn empty_bearer_map() -> GlobMap<ForceBearerAuth> {
+    GlobMapBuilder::new().build().unwrap()
+}
+
+fn bearer_map(entries: &[(&str, &str)]) -> GlobMap<ForceBearerAuth> {
+    let mut builder = GlobMapBuilder::new();
+    for (pattern, token) in entries {
+        builder.add(*pattern, ForceBearerAuth::new(*token));
+    }
+    builder.build().unwrap()
+}
+
+fn gitlab_env(token: &str) -> TrustedPublishingEnvironment {
+    TrustedPublishingEnvironment {
+        gitlab_oidc_token: Some(token.to_owned()),
+        ..TrustedPublishingEnvironment::default()
+    }
+}
+
+fn github_env(token: &str, url: &str) -> TrustedPublishingEnvironment {
+    TrustedPublishingEnvironment {
+        github_request_token: Some(token.to_owned()),
+        github_request_url: Some(url.to_owned()),
+        ..TrustedPublishingEnvironment::default()
+    }
+}
 
 #[test]
 fn build_upload_url_appends_endpoint_path() {
@@ -38,6 +82,297 @@ fn build_upload_url_appends_endpoint_path() {
             .as_str(),
         "https://example.org/api/v1/upload"
     );
+}
+
+// --- trusted publishing bearer resolution ---
+
+#[test]
+fn resolve_publish_bearer_explicit_bearer_wins_before_forced_env_validation() {
+    let api_root = Url::parse("https://example.org/api/").unwrap();
+    let map = bearer_map(&[("https://example.org/api/**", "explicit-token")]);
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Github,
+        &TrustedPublishingEnvironment::default(),
+        &client,
+        &runtime,
+    )
+    .expect("explicit bearer should be selected before forced provider env validation");
+}
+
+#[test]
+fn resolve_publish_bearer_ambiguous_bearer_wins_before_trusted_publishing() {
+    let api_root = Url::parse("https://example.org/api/").unwrap();
+    let map = bearer_map(&[
+        ("https://example.org/**", "broad-token"),
+        ("https://example.org/api/**", "specific-token"),
+    ]);
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    let err = resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Auto,
+        &gitlab_env("gitlab-oidc-token"),
+        &client,
+        &runtime,
+    )
+    .unwrap_err();
+
+    assert_matches!(
+        err,
+        PublishError::AmbiguousPublishBearer { candidates: 2, .. }
+    );
+}
+
+#[test]
+fn resolve_publish_bearer_empty_env_values_count_as_unset() {
+    let api_root = Url::parse("https://example.org/api/").unwrap();
+    let map = empty_bearer_map();
+    let env = TrustedPublishingEnvironment {
+        github_request_token: Some(String::new()),
+        github_request_url: Some(String::new()),
+        gitlab_oidc_token: Some(String::new()),
+    };
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    let err = resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Auto,
+        &env,
+        &client,
+        &runtime,
+    )
+    .unwrap_err();
+
+    assert_matches!(err, PublishError::NoPublishBearer { .. });
+}
+
+#[test]
+fn resolve_publish_bearer_auto_rejects_multiple_complete_providers() {
+    let api_root = Url::parse("https://example.org/api/").unwrap();
+    let map = empty_bearer_map();
+    let env = TrustedPublishingEnvironment {
+        github_request_token: Some("github-request-token".to_owned()),
+        github_request_url: Some("https://github.example/oidc".to_owned()),
+        gitlab_oidc_token: Some("gitlab-oidc-token".to_owned()),
+    };
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    let err = resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Auto,
+        &env,
+        &client,
+        &runtime,
+    )
+    .unwrap_err();
+
+    assert_matches!(err, PublishError::MultipleTrustedPublishingProviders);
+}
+
+#[test]
+fn resolve_publish_bearer_forced_github_requires_complete_env() {
+    let api_root = Url::parse("https://example.org/api/").unwrap();
+    let map = empty_bearer_map();
+    let env = TrustedPublishingEnvironment {
+        github_request_token: Some("github-request-token".to_owned()),
+        ..TrustedPublishingEnvironment::default()
+    };
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    let err = resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Github,
+        &env,
+        &client,
+        &runtime,
+    )
+    .unwrap_err();
+
+    assert_matches!(
+        err,
+        PublishError::MissingTrustedPublishingEnvironment { provider, .. }
+            if provider == super::TrustedPublishingProvider::Github
+    );
+}
+
+#[test]
+fn resolve_publish_bearer_invalid_github_url_makes_no_exchange_request() {
+    let mut server = mockito::Server::new();
+    let exchange_mock = server.mock("POST", "/api/v1/oidc/token").expect(0).create();
+    let api_root = Url::parse(&format!("{}/api/", server.url())).unwrap();
+    let map = empty_bearer_map();
+    let env = github_env("github-request-token", "not a url");
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    let err = resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Github,
+        &env,
+        &client,
+        &runtime,
+    )
+    .unwrap_err();
+
+    assert_matches!(err, PublishError::InvalidGithubOidcRequestUrl { .. });
+    exchange_mock.assert();
+}
+
+#[test]
+fn resolve_publish_bearer_github_preserves_existing_oidc_query_params() {
+    let mut index_server = mockito::Server::new();
+    let exchange_mock = index_server
+        .mock("POST", "/api/v1/oidc/token")
+        .match_header("content-type", "application/json")
+        .match_body(Matcher::JsonString(
+            r#"{"token":"github-oidc-token"}"#.to_owned(),
+        ))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"token":"index-token"}"#)
+        .expect(1)
+        .create();
+    let api_root = Url::parse(&format!("{}/api/", index_server.url())).unwrap();
+
+    let mut github_server = mockito::Server::new();
+    let github_mock = github_server
+        .mock("GET", "/oidc")
+        .match_header("authorization", "bearer github-request-token")
+        .match_query(Matcher::AllOf(vec![
+            Matcher::UrlEncoded("existing".to_owned(), "1".to_owned()),
+            Matcher::UrlEncoded("audience".to_owned(), "sysand".to_owned()),
+        ]))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"value":"github-oidc-token"}"#)
+        .expect(1)
+        .create();
+
+    let map = empty_bearer_map();
+    let env = github_env(
+        "github-request-token",
+        &format!("{}/oidc?existing=1", github_server.url()),
+    );
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Github,
+        &env,
+        &client,
+        &runtime,
+    )
+    .expect("GitHub trusted publishing should resolve a bearer token");
+
+    github_mock.assert();
+    exchange_mock.assert();
+}
+
+#[test]
+fn resolve_publish_bearer_gitlab_exchange_success() {
+    let mut server = mockito::Server::new();
+    let exchange_mock = server
+        .mock("POST", "/api/v1/oidc/token")
+        .match_header("content-type", "application/json")
+        .match_body(Matcher::JsonString(
+            r#"{"token":"gitlab-oidc-token"}"#.to_owned(),
+        ))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"token":"index-token"}"#)
+        .expect(1)
+        .create();
+    let api_root = Url::parse(&format!("{}/api/", server.url())).unwrap();
+    let map = empty_bearer_map();
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Gitlab,
+        &gitlab_env("gitlab-oidc-token"),
+        &client,
+        &runtime,
+    )
+    .expect("GitLab trusted publishing should resolve a bearer token");
+
+    exchange_mock.assert();
+}
+
+#[test]
+fn resolve_publish_bearer_exchange_non_success_errors() {
+    let mut server = mockito::Server::new();
+    let exchange_mock = server
+        .mock("POST", "/api/v1/oidc/token")
+        .with_status(403)
+        .expect(1)
+        .create();
+    let api_root = Url::parse(&format!("{}/api/", server.url())).unwrap();
+    let map = empty_bearer_map();
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    let err = resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Gitlab,
+        &gitlab_env("gitlab-oidc-token"),
+        &client,
+        &runtime,
+    )
+    .unwrap_err();
+
+    assert_matches!(
+        err,
+        PublishError::TrustedPublishingExchangeHttpStatus { status: 403, .. }
+    );
+    exchange_mock.assert();
+}
+
+#[test]
+fn resolve_publish_bearer_exchange_malformed_response_errors() {
+    let mut server = mockito::Server::new();
+    let exchange_mock = server
+        .mock("POST", "/api/v1/oidc/token")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"not_token":"index-token"}"#)
+        .expect(1)
+        .create();
+    let api_root = Url::parse(&format!("{}/api/", server.url())).unwrap();
+    let map = empty_bearer_map();
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    let err = resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Gitlab,
+        &gitlab_env("gitlab-oidc-token"),
+        &client,
+        &runtime,
+    )
+    .unwrap_err();
+
+    assert_matches!(err, PublishError::MissingJsonField { field: "token", .. });
+    exchange_mock.assert();
 }
 
 #[test]

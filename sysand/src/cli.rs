@@ -415,6 +415,17 @@ pub enum TrustedPublishingMode {
     Gitlab,
 }
 
+impl From<TrustedPublishingMode> for sysand_core::commands::publish::TrustedPublishingMode {
+    fn from(value: TrustedPublishingMode) -> Self {
+        match value {
+            TrustedPublishingMode::Auto => Self::Auto,
+            TrustedPublishingMode::Never => Self::Never,
+            TrustedPublishingMode::Github => Self::Github,
+            TrustedPublishingMode::Gitlab => Self::Gitlab,
+        }
+    }
+}
+
 // This is implemented mainly so that if KparCompressionMethod gets a new member
 // and KparCompressionMethodCli isn't updated it would give a compilation error
 impl From<KparCompressionMethod> for KparCompressionMethodCli {
