@@ -64,16 +64,32 @@ Request body:
 Successful response body:
 
 ```json
-{ "token": "<sysand-index-bearer-token>" }
+{
+  "token": "<sysand-index-bearer-token>",
+  "expires_at": "<iso-8601-expiration>"
+}
 ```
 
 Clients use the returned bearer token for subsequent publish API calls,
-including `POST v1/upload`. The provider OIDC token and returned bearer
-token are secrets and clients MUST NOT log them.
+including `POST v1/upload`. The returned token is short lived, scoped to
+the matched project, and consumed by the upload request. The provider
+OIDC token and returned bearer token are secrets and clients MUST NOT log
+them.
+
+Error response body:
+
+```json
+{ "error": "<message>" }
+```
 
 Non-2xx responses indicate that the exchange failed. Servers SHOULD use
-401 or 403 when the provider token is invalid, expired, has the wrong
-audience, or is not authorized to publish the target project.
+400 when the request body is malformed or lacks a string `token` field,
+403 when the provider token is invalid, expired, has the wrong audience,
+comes from an unsupported issuer, lacks required CI claims, or does not
+match any configured trusted publisher, and 429 when the unauthenticated
+exchange endpoint is rate limited. Error messages are intended for
+humans; clients SHOULD surface the HTTP status and message but MUST NOT
+depend on exact message text for control flow.
 
 Initially supported CI providers:
 
