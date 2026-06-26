@@ -287,8 +287,29 @@ fn publish_auto_uses_gitlab_trusted_publishing() -> TestResult {
 }
 
 #[test]
-fn publish_bare_trusted_publishing_flag_defaults_to_auto() -> TestResult {
-    let (_temp_dir, cwd) = setup_built_project("publish-bare-trusted-flag")?;
+fn publish_trusted_publishing_requires_explicit_mode() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-trusted-space-value")?;
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "publish",
+            "--trusted-publishing",
+            "--index",
+            "http://localhost:1",
+        ],
+        None,
+    )?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "a value is required for '--trusted-publishing <MODE>'",
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn publish_trusted_publishing_always_uses_gitlab_trusted_publishing() -> TestResult {
+    let (_temp_dir, cwd) = setup_built_project("publish-trusted-always-gitlab")?;
     let mut server = Server::new();
     let config_mock = mock_index_config_api_at_api(&mut server);
     let exchange_mock = mock_oidc_exchange(&mut server, "gitlab-oidc-token", "index-token");
@@ -305,6 +326,7 @@ fn publish_bare_trusted_publishing_flag_defaults_to_auto() -> TestResult {
         [
             "publish",
             "--trusted-publishing",
+            "always",
             "--index",
             server.url().as_str(),
         ],
@@ -316,28 +338,6 @@ fn publish_bare_trusted_publishing_flag_defaults_to_auto() -> TestResult {
     publish_mock.assert();
     exchange_mock.assert();
     config_mock.assert();
-
-    Ok(())
-}
-
-#[test]
-fn publish_space_separated_trusted_publishing_value_is_not_a_mode() -> TestResult {
-    let (_temp_dir, cwd) = setup_built_project("publish-trusted-space-value")?;
-    let out = run_sysand_in(
-        &cwd,
-        [
-            "publish",
-            "--trusted-publishing",
-            "never",
-            "--index",
-            "http://localhost:1",
-        ],
-        None,
-    )?;
-
-    out.assert()
-        .failure()
-        .stderr(predicate::str::contains("KPAR file not found at `never`"));
 
     Ok(())
 }

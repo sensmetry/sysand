@@ -51,19 +51,15 @@ const UPLOAD_ENDPOINT_PATH: &str = "v1/upload";
 const TRUSTED_PUBLISHING_EXCHANGE_PATH: &str = "v1/oidc/token";
 const TRUSTED_PUBLISHING_AUDIENCE: &str = "sysand";
 
-/// How publish should use CI trusted publishing to acquire a bearer
-/// token when no explicit publish bearer credential matches.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// How publish should use CI trusted publishing to acquire a bearer token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrustedPublishingMode {
-    /// Detect a supported CI provider from the supplied environment.
-    #[default]
+    /// Use trusted publishing in supported CI environments.
     Auto,
+    /// Require trusted publishing.
+    Always,
     /// Do not use trusted publishing.
     Never,
-    /// Require GitHub Actions trusted publishing.
-    Github,
-    /// Require GitLab CI trusted publishing.
-    Gitlab,
 }
 
 /// Values from the CI environment that trusted publishing can use.
@@ -71,23 +67,111 @@ pub enum TrustedPublishingMode {
 /// Non-CLI callers can construct this directly instead of relying on process
 /// environment variables. The CLI uses [`TrustedPublishingEnvironment::from_env`]
 /// as a convenience adapter.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrustedPublishingEnvironment {
-    pub github_request_token: Option<String>,
-    pub github_request_url: Option<String>,
-    pub gitlab_oidc_token: Option<String>,
+    github_request_token: Option<String>,
+    github_request_url: Option<String>,
+    gitlab_oidc_token: Option<String>,
 }
 
 impl TrustedPublishingEnvironment {
+    /// Build a trusted-publishing environment, treating empty values as unset.
+    pub fn new(
+        github_request_token: Option<String>,
+        github_request_url: Option<String>,
+        gitlab_oidc_token: Option<String>,
+    ) -> Self {
+        Self {
+            github_request_token: non_empty(github_request_token),
+            github_request_url: non_empty(github_request_url),
+            gitlab_oidc_token: non_empty(gitlab_oidc_token),
+        }
+    }
+
     /// Capture the trusted-publishing environment variables used by GitHub
     /// Actions and GitLab CI.
     pub fn from_env() -> Self {
-        Self {
-            github_request_token: env_var_nonempty("ACTIONS_ID_TOKEN_REQUEST_TOKEN"),
-            github_request_url: env_var_nonempty("ACTIONS_ID_TOKEN_REQUEST_URL"),
-            gitlab_oidc_token: env_var_nonempty("GITLAB_OIDC_TOKEN"),
+        Self::new(
+            env::var("ACTIONS_ID_TOKEN_REQUEST_TOKEN").ok(),
+            env::var("ACTIONS_ID_TOKEN_REQUEST_URL").ok(),
+            env::var("GITLAB_OIDC_TOKEN").ok(),
+        )
+    }
+
+    /// Whether GitHub Actions exposes the OIDC request contract.
+    fn github_env_detected(&self) -> bool {
+        self.github_request_token.is_some() && self.github_request_url.is_some()
+    }
+
+    /// Whether GitLab CI has injected the configured ID token into the expected
+    /// job variable.
+    fn gitlab_env_detected(&self) -> bool {
+        self.gitlab_oidc_token.is_some()
+    }
+
+    /// Validate that GitHub trusted publishing has all runner-provided variables
+    /// needed to request the GitHub OIDC token.
+    fn ensure_github_env(&self) -> Result<(), PublishError> {
+        let missing: Vec<&'static str> = [
+            ("ACTIONS_ID_TOKEN_REQUEST_TOKEN", &self.github_request_token),
+            ("ACTIONS_ID_TOKEN_REQUEST_URL", &self.github_request_url),
+        ]
+        .into_iter()
+        .filter_map(|(name, value)| value.is_none().then_some(name))
+        .collect();
+
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(PublishError::MissingTrustedPublishingEnvironment {
+                provider: TrustedPublishingProvider::Github,
+                variables: missing.into_boxed_slice(),
+            })
         }
     }
+
+    fn trusted_publishing_provider(
+        &self,
+    ) -> Result<Option<SelectedTrustedPublishingProvider<'_>>, PublishError> {
+        match (self.github_env_detected(), self.gitlab_env_detected()) {
+            (true, true) => Err(PublishError::MultipleTrustedPublishingProviders),
+            (true, false) => Ok(Some(SelectedTrustedPublishingProvider::Github {
+                request_token: self
+                    .github_request_token
+                    .as_deref()
+                    .expect("selected GitHub trusted publishing provider has request token"),
+                request_url: self
+                    .github_request_url
+                    .as_deref()
+                    .expect("selected GitHub trusted publishing provider has request URL"),
+            })),
+            (false, true) => Ok(Some(SelectedTrustedPublishingProvider::Gitlab {
+                oidc_token: self
+                    .gitlab_oidc_token
+                    .as_deref()
+                    .expect("selected GitLab trusted publishing provider has OIDC token"),
+            })),
+            (false, false) => Ok(None),
+        }
+    }
+
+    fn require_trusted_publishing_provider(
+        &self,
+    ) -> Result<SelectedTrustedPublishingProvider<'_>, PublishError> {
+        if let Some(provider) = self.trusted_publishing_provider()? {
+            return Ok(provider);
+        }
+
+        if self.github_request_token.is_some() || self.github_request_url.is_some() {
+            self.ensure_github_env()?;
+        }
+
+        Err(PublishError::TrustedPublishingUnavailable)
+    }
+}
+
+fn non_empty(value: Option<String>) -> Option<String> {
+    value.filter(|value| !value.is_empty())
 }
 
 /// Trusted publishing providers whose CI environments publish can recognize
@@ -105,6 +189,17 @@ impl TrustedPublishingProvider {
             TrustedPublishingProvider::Gitlab => "gitlab",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SelectedTrustedPublishingProvider<'a> {
+    Github {
+        request_token: &'a str,
+        request_url: &'a str,
+    },
+    Gitlab {
+        oidc_token: &'a str,
+    },
 }
 
 pub fn do_publish(
@@ -243,10 +338,10 @@ pub fn build_upload_url(api_root: &Url) -> Result<Url, PublishError> {
 
 /// Resolve the bearer token used for publishing.
 ///
-/// Explicit publish bearer credentials take priority. If no explicit bearer
-/// matches, trusted publishing may acquire a short-lived index token according
-/// to `mode` and `env`. `api_root` is the resolved API root from index
-/// discovery; the upload URL used for credential matching is derived from it.
+/// In `auto` mode, publish uses trusted publishing in supported CI
+/// environments and uses configured bearer credentials elsewhere. In `always`
+/// mode, publish requires trusted publishing and ignores configured bearer
+/// credentials. In `never` mode, publish uses configured bearer credentials.
 pub fn resolve_publish_bearer(
     bearer_map: &GlobMap<ForceBearerAuth>,
     api_root: &Url,
@@ -256,163 +351,66 @@ pub fn resolve_publish_bearer(
     runtime: &Arc<tokio::runtime::Runtime>,
 ) -> Result<ForceBearerAuth, PublishError> {
     let upload_url = build_upload_url(api_root)?;
+    match mode {
+        TrustedPublishingMode::Auto => {
+            if let Some(provider) = env.trusted_publishing_provider()? {
+                return acquire_trusted_publishing_bearer(provider, api_root, client, runtime);
+            }
+            resolve_publish_bearer_from_config(bearer_map, &upload_url)
+        }
+        TrustedPublishingMode::Always => {
+            let provider = env.require_trusted_publishing_provider()?;
+            acquire_trusted_publishing_bearer(provider, api_root, client, runtime)
+        }
+        TrustedPublishingMode::Never => resolve_publish_bearer_from_config(bearer_map, &upload_url),
+    }
+}
+
+fn resolve_publish_bearer_from_config(
+    bearer_map: &GlobMap<ForceBearerAuth>,
+    upload_url: &Url,
+) -> Result<ForceBearerAuth, PublishError> {
     match bearer_map.lookup(upload_url.as_str()) {
         GlobMapResult::Found(_, token) => Ok(token.clone()),
         GlobMapResult::Ambiguous(candidates) => Err(PublishError::AmbiguousPublishBearer {
             upload_url: upload_url.as_str().into(),
             candidates: candidates.len(),
         }),
-        GlobMapResult::NotFound => {
-            match acquire_trusted_publishing_bearer(mode, env, api_root, client, runtime)? {
-                Some(token) => Ok(token),
-                None => Err(PublishError::NoPublishBearer {
-                    upload_url: upload_url.as_str().into(),
-                }),
-            }
-        }
+        GlobMapResult::NotFound => Err(PublishError::NoPublishBearer {
+            upload_url: upload_url.as_str().into(),
+        }),
     }
 }
 
-/// Resolve a publish bearer token from trusted publishing, returning `None`
-/// when the selected mode intentionally leaves publish credential selection to
-/// explicit bearer credentials.
 fn acquire_trusted_publishing_bearer(
-    mode: TrustedPublishingMode,
-    env: &TrustedPublishingEnvironment,
+    provider: SelectedTrustedPublishingProvider<'_>,
     api_root: &Url,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
-) -> Result<Option<ForceBearerAuth>, PublishError> {
-    let Some(provider) = select_trusted_publishing_provider(mode, env)? else {
-        return Ok(None);
-    };
-
+) -> Result<ForceBearerAuth, PublishError> {
     log::debug!("trusted publishing: using {provider:?}");
     let provider_token = match provider {
-        TrustedPublishingProvider::Github => acquire_github_oidc_token(env, client, runtime)?,
-        TrustedPublishingProvider::Gitlab => gitlab_oidc_token_from_env(env)?,
+        SelectedTrustedPublishingProvider::Github {
+            request_token,
+            request_url,
+        } => acquire_github_oidc_token(request_token, request_url, client, runtime)?,
+        SelectedTrustedPublishingProvider::Gitlab { oidc_token } => oidc_token.to_owned(),
     };
     let index_token =
         exchange_oidc_token_for_index_token(api_root, &provider_token, client, runtime)?;
 
-    Ok(Some(ForceBearerAuth::new(index_token)))
-}
-
-/// Convert trusted-publishing mode and environment into one concrete provider.
-/// In `auto` mode incomplete environments are ignored, but two complete
-/// provider environments are rejected to avoid guessing which identity to use.
-fn select_trusted_publishing_provider(
-    mode: TrustedPublishingMode,
-    env: &TrustedPublishingEnvironment,
-) -> Result<Option<TrustedPublishingProvider>, PublishError> {
-    match mode {
-        TrustedPublishingMode::Never => Ok(None),
-        TrustedPublishingMode::Github => {
-            ensure_github_env(env)?;
-            Ok(Some(TrustedPublishingProvider::Github))
-        }
-        TrustedPublishingMode::Gitlab => {
-            ensure_gitlab_env(env)?;
-            Ok(Some(TrustedPublishingProvider::Gitlab))
-        }
-        TrustedPublishingMode::Auto => {
-            let github = github_env_complete(env);
-            let gitlab = gitlab_env_complete(env);
-            match (github, gitlab) {
-                (true, true) => Err(PublishError::MultipleTrustedPublishingProviders),
-                (true, false) => Ok(Some(TrustedPublishingProvider::Github)),
-                (false, true) => Ok(Some(TrustedPublishingProvider::Gitlab)),
-                (false, false) => Ok(None),
-            }
-        }
-    }
-}
-
-/// Whether the GitHub Actions environment exposes the complete OIDC request
-/// contract needed to mint a provider token.
-fn github_env_complete(env: &TrustedPublishingEnvironment) -> bool {
-    option_string_nonempty(&env.github_request_token).is_some()
-        && option_string_nonempty(&env.github_request_url).is_some()
-}
-
-/// Whether GitLab CI has injected the configured ID token into the expected
-/// job variable.
-fn gitlab_env_complete(env: &TrustedPublishingEnvironment) -> bool {
-    option_string_nonempty(&env.gitlab_oidc_token).is_some()
-}
-
-/// Validate that forced GitHub trusted publishing has all runner-provided
-/// variables needed to request the GitHub OIDC token.
-fn ensure_github_env(env: &TrustedPublishingEnvironment) -> Result<(), PublishError> {
-    let missing: Vec<&'static str> = [
-        (
-            "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
-            option_string_nonempty(&env.github_request_token),
-        ),
-        (
-            "ACTIONS_ID_TOKEN_REQUEST_URL",
-            option_string_nonempty(&env.github_request_url),
-        ),
-    ]
-    .into_iter()
-    .filter_map(|(name, value)| value.is_none().then_some(name))
-    .collect();
-
-    if missing.is_empty() {
-        Ok(())
-    } else {
-        Err(PublishError::MissingTrustedPublishingEnvironment {
-            provider: TrustedPublishingProvider::Github,
-            variables: missing.into_boxed_slice(),
-        })
-    }
-}
-
-/// Validate that forced GitLab trusted publishing has the configured ID token
-/// available in the job environment.
-fn ensure_gitlab_env(env: &TrustedPublishingEnvironment) -> Result<(), PublishError> {
-    if gitlab_env_complete(env) {
-        Ok(())
-    } else {
-        Err(PublishError::MissingTrustedPublishingEnvironment {
-            provider: TrustedPublishingProvider::Gitlab,
-            variables: Box::new(["GITLAB_OIDC_TOKEN"]),
-        })
-    }
-}
-
-/// Read an environment variable while treating an empty string the same as an
-/// unset variable.
-fn env_var_nonempty(name: &str) -> Option<String> {
-    env::var(name).ok().filter(|value| !value.is_empty())
-}
-
-/// Borrow an optional string only when it contains a non-empty value.
-fn option_string_nonempty(value: &Option<String>) -> Option<&str> {
-    value.as_deref().filter(|value| !value.is_empty())
-}
-
-/// Read the GitLab CI OIDC token that GitLab injects when the job declares an
-/// `id_tokens` entry for `GITLAB_OIDC_TOKEN`.
-fn gitlab_oidc_token_from_env(env: &TrustedPublishingEnvironment) -> Result<String, PublishError> {
-    option_string_nonempty(&env.gitlab_oidc_token)
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| PublishError::MissingTrustedPublishingEnvironment {
-            provider: TrustedPublishingProvider::Gitlab,
-            variables: Box::new(["GITLAB_OIDC_TOKEN"]),
-        })
+    Ok(ForceBearerAuth::new(index_token))
 }
 
 /// Ask the GitHub Actions runner OIDC endpoint for a token with the `sysand`
 /// audience and return the JSON `value` field from the response.
 fn acquire_github_oidc_token(
-    env: &TrustedPublishingEnvironment,
+    request_token: &str,
+    request_url: &str,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
 ) -> Result<String, PublishError> {
-    ensure_github_env(env)?;
-    let request_token = option_string_nonempty(&env.github_request_token).unwrap();
-    let mut request_url = Url::parse(option_string_nonempty(&env.github_request_url).unwrap())
+    let mut request_url = Url::parse(request_url)
         .map_err(|source| PublishError::InvalidGithubOidcRequestUrl { source })?;
     request_url
         .query_pairs_mut()
@@ -746,14 +744,14 @@ pub enum PublishError {
     InvalidApiRoot { url: Box<str>, reason: String },
 
     #[error(
-        "no bearer token credentials configured for publish URL `{upload_url}`; \
-         set SYSAND_CRED_<X> and SYSAND_CRED_<X>_BEARER_TOKEN with a matching URL pattern"
+        "no bearer token credentials configured for publish URL `{upload_url}`;\n\
+         set `SYSAND_CRED_<X>` and `SYSAND_CRED_<X>_BEARER_TOKEN` with a matching URL pattern"
     )]
     NoPublishBearer { upload_url: Box<str> },
 
     #[error(
-        "multiple bearer token credentials configured for publish URL `{upload_url}`; \
-         refine SYSAND_CRED_<X> URL patterns so exactly one bearer token matches ({candidates} candidates found)"
+        "multiple bearer token credentials configured for publish URL `{upload_url}`;\n\
+         refine `SYSAND_CRED_<X>` URL patterns so exactly one bearer token matches ({candidates} candidates found)"
     )]
     AmbiguousPublishBearer {
         upload_url: Box<str>,
@@ -761,10 +759,20 @@ pub enum PublishError {
     },
 
     #[error(
-        "trusted publishing provider `{}` requires environment variable{} {}",
+        "trusted publishing requires a supported CI environment;\n\
+         configure GitHub Actions OIDC or GitLab CI `GITLAB_OIDC_TOKEN`, or use `--trusted-publishing never`"
+    )]
+    TrustedPublishingUnavailable,
+
+    #[error(
+        "trusted publishing provider `{}` requires environment variable{}\n{}",
         provider.name(),
         if variables.len() == 1 { "" } else { "s" },
-        variables.join(", ")
+        variables
+            .iter()
+            .map(|variable| format!("`{variable}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
     )]
     MissingTrustedPublishingEnvironment {
         provider: TrustedPublishingProvider,
@@ -772,17 +780,15 @@ pub enum PublishError {
     },
 
     #[error(
-        "multiple trusted publishing CI environments detected; specify \
-         --trusted-publishing=github or --trusted-publishing=gitlab"
+        "multiple trusted publishing CI environments detected;\n\
+         unset either the GitHub Actions OIDC variables or `GITLAB_OIDC_TOKEN`"
     )]
     MultipleTrustedPublishingProviders,
 
-    #[error(
-        "trusted publishing provider `github` has invalid ACTIONS_ID_TOKEN_REQUEST_URL: {source}"
-    )]
+    #[error("trusted publishing provider `github` has invalid `ACTIONS_ID_TOKEN_REQUEST_URL`")]
     InvalidGithubOidcRequestUrl { source: url::ParseError },
 
-    #[error("trusted publishing HTTP request failed during {context}: {source:#?}")]
+    #[error("trusted publishing HTTP request failed during {context}")]
     TrustedPublishingHttp {
         context: &'static str,
         source: reqwest_middleware::Error,
@@ -800,13 +806,13 @@ pub enum PublishError {
     #[error("trusted publishing token exchange at `{url}` failed: HTTP status {status}")]
     TrustedPublishingExchangeHttpStatus { url: Box<str>, status: u16 },
 
-    #[error("failed to read {context}: {source:#?}")]
+    #[error("failed to read {context}")]
     TrustedPublishingResponseBody {
         context: &'static str,
         source: reqwest::Error,
     },
 
-    #[error("trusted publishing {context} returned malformed response: {source}")]
+    #[error("trusted publishing {context} returned malformed response")]
     MalformedJsonResponse {
         context: &'static str,
         source: serde_json::Error,

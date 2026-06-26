@@ -39,18 +39,11 @@ fn bearer_map(entries: &[(&str, &str)]) -> GlobMap<ForceBearerAuth> {
 }
 
 fn gitlab_env(token: &str) -> TrustedPublishingEnvironment {
-    TrustedPublishingEnvironment {
-        gitlab_oidc_token: Some(token.to_owned()),
-        ..TrustedPublishingEnvironment::default()
-    }
+    TrustedPublishingEnvironment::new(None, None, Some(token.to_owned()))
 }
 
 fn github_env(token: &str, url: &str) -> TrustedPublishingEnvironment {
-    TrustedPublishingEnvironment {
-        github_request_token: Some(token.to_owned()),
-        github_request_url: Some(url.to_owned()),
-        ..TrustedPublishingEnvironment::default()
-    }
+    TrustedPublishingEnvironment::new(Some(token.to_owned()), Some(url.to_owned()), None)
 }
 
 #[test]
@@ -84,10 +77,8 @@ fn build_upload_url_appends_endpoint_path() {
     );
 }
 
-// --- trusted publishing bearer resolution ---
-
 #[test]
-fn resolve_publish_bearer_explicit_bearer_wins_before_forced_env_validation() {
+fn resolve_publish_bearer_auto_uses_bearer_when_trusted_publishing_unavailable() {
     let api_root = Url::parse("https://example.org/api/").unwrap();
     let map = bearer_map(&[("https://example.org/api/**", "explicit-token")]);
     let client = create_reqwest_client().unwrap();
@@ -96,16 +87,16 @@ fn resolve_publish_bearer_explicit_bearer_wins_before_forced_env_validation() {
     resolve_publish_bearer(
         &map,
         &api_root,
-        TrustedPublishingMode::Github,
-        &TrustedPublishingEnvironment::default(),
+        TrustedPublishingMode::Auto,
+        &TrustedPublishingEnvironment::new(None, None, None),
         &client,
         &runtime,
     )
-    .expect("explicit bearer should be selected before forced provider env validation");
+    .expect("explicit bearer should be selected when trusted publishing is unavailable");
 }
 
 #[test]
-fn resolve_publish_bearer_ambiguous_bearer_wins_before_trusted_publishing() {
+fn resolve_publish_bearer_never_rejects_ambiguous_bearer_without_trusted_publishing() {
     let api_root = Url::parse("https://example.org/api/").unwrap();
     let map = bearer_map(&[
         ("https://example.org/**", "broad-token"),
@@ -117,7 +108,7 @@ fn resolve_publish_bearer_ambiguous_bearer_wins_before_trusted_publishing() {
     let err = resolve_publish_bearer(
         &map,
         &api_root,
-        TrustedPublishingMode::Auto,
+        TrustedPublishingMode::Never,
         &gitlab_env("gitlab-oidc-token"),
         &client,
         &runtime,
@@ -131,14 +122,14 @@ fn resolve_publish_bearer_ambiguous_bearer_wins_before_trusted_publishing() {
 }
 
 #[test]
-fn resolve_publish_bearer_empty_env_values_count_as_unset() {
+fn trusted_publishing_environment_treats_empty_values_as_unset() {
     let api_root = Url::parse("https://example.org/api/").unwrap();
     let map = empty_bearer_map();
-    let env = TrustedPublishingEnvironment {
-        github_request_token: Some(String::new()),
-        github_request_url: Some(String::new()),
-        gitlab_oidc_token: Some(String::new()),
-    };
+    let env = TrustedPublishingEnvironment::new(
+        Some(String::new()),
+        Some(String::new()),
+        Some(String::new()),
+    );
     let client = create_reqwest_client().unwrap();
     let runtime = runtime();
 
@@ -156,14 +147,14 @@ fn resolve_publish_bearer_empty_env_values_count_as_unset() {
 }
 
 #[test]
-fn resolve_publish_bearer_auto_rejects_multiple_complete_providers() {
+fn resolve_publish_bearer_auto_rejects_multiple_supported_providers() {
     let api_root = Url::parse("https://example.org/api/").unwrap();
     let map = empty_bearer_map();
-    let env = TrustedPublishingEnvironment {
-        github_request_token: Some("github-request-token".to_owned()),
-        github_request_url: Some("https://github.example/oidc".to_owned()),
-        gitlab_oidc_token: Some("gitlab-oidc-token".to_owned()),
-    };
+    let env = TrustedPublishingEnvironment::new(
+        Some("github-request-token".to_owned()),
+        Some("https://github.example/oidc".to_owned()),
+        Some("gitlab-oidc-token".to_owned()),
+    );
     let client = create_reqwest_client().unwrap();
     let runtime = runtime();
 
@@ -181,20 +172,18 @@ fn resolve_publish_bearer_auto_rejects_multiple_complete_providers() {
 }
 
 #[test]
-fn resolve_publish_bearer_forced_github_requires_complete_env() {
+fn resolve_publish_bearer_always_reports_partial_github_env() {
     let api_root = Url::parse("https://example.org/api/").unwrap();
     let map = empty_bearer_map();
-    let env = TrustedPublishingEnvironment {
-        github_request_token: Some("github-request-token".to_owned()),
-        ..TrustedPublishingEnvironment::default()
-    };
+    let env =
+        TrustedPublishingEnvironment::new(Some("github-request-token".to_owned()), None, None);
     let client = create_reqwest_client().unwrap();
     let runtime = runtime();
 
     let err = resolve_publish_bearer(
         &map,
         &api_root,
-        TrustedPublishingMode::Github,
+        TrustedPublishingMode::Always,
         &env,
         &client,
         &runtime,
@@ -206,6 +195,26 @@ fn resolve_publish_bearer_forced_github_requires_complete_env() {
         PublishError::MissingTrustedPublishingEnvironment { provider, .. }
             if provider == super::TrustedPublishingProvider::Github
     );
+}
+
+#[test]
+fn resolve_publish_bearer_always_requires_supported_env() {
+    let api_root = Url::parse("https://example.org/api/").unwrap();
+    let map = bearer_map(&[("https://example.org/api/**", "explicit-token")]);
+    let client = create_reqwest_client().unwrap();
+    let runtime = runtime();
+
+    let err = resolve_publish_bearer(
+        &map,
+        &api_root,
+        TrustedPublishingMode::Always,
+        &TrustedPublishingEnvironment::new(None, None, None),
+        &client,
+        &runtime,
+    )
+    .unwrap_err();
+
+    assert_matches!(err, PublishError::TrustedPublishingUnavailable);
 }
 
 #[test]
@@ -221,7 +230,7 @@ fn resolve_publish_bearer_invalid_github_url_makes_no_exchange_request() {
     let err = resolve_publish_bearer(
         &map,
         &api_root,
-        TrustedPublishingMode::Github,
+        TrustedPublishingMode::Always,
         &env,
         &client,
         &runtime,
@@ -273,7 +282,7 @@ fn resolve_publish_bearer_github_preserves_existing_oidc_query_params() {
     resolve_publish_bearer(
         &map,
         &api_root,
-        TrustedPublishingMode::Github,
+        TrustedPublishingMode::Auto,
         &env,
         &client,
         &runtime,
@@ -306,7 +315,7 @@ fn resolve_publish_bearer_gitlab_exchange_success() {
     resolve_publish_bearer(
         &map,
         &api_root,
-        TrustedPublishingMode::Gitlab,
+        TrustedPublishingMode::Auto,
         &gitlab_env("gitlab-oidc-token"),
         &client,
         &runtime,
@@ -332,7 +341,7 @@ fn resolve_publish_bearer_exchange_non_success_errors() {
     let err = resolve_publish_bearer(
         &map,
         &api_root,
-        TrustedPublishingMode::Gitlab,
+        TrustedPublishingMode::Auto,
         &gitlab_env("gitlab-oidc-token"),
         &client,
         &runtime,
@@ -364,7 +373,7 @@ fn resolve_publish_bearer_exchange_malformed_response_errors() {
     let err = resolve_publish_bearer(
         &map,
         &api_root,
-        TrustedPublishingMode::Gitlab,
+        TrustedPublishingMode::Auto,
         &gitlab_env("gitlab-oidc-token"),
         &client,
         &runtime,

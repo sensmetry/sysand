@@ -216,10 +216,7 @@ pub enum Command {
             long,
             value_enum,
             value_name = "MODE",
-            num_args = 0..=1,
-            require_equals = true,
             default_value = "auto",
-            default_missing_value = "auto",
             verbatim_doc_comment
         )]
         trusted_publishing: TrustedPublishingMode,
@@ -400,28 +397,24 @@ impl From<KparCompressionMethodCli> for KparCompressionMethod {
     }
 }
 
-#[derive(clap::ValueEnum, Default, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(clap::ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
 #[clap(rename_all = "lowercase")]
 pub enum TrustedPublishingMode {
-    /// Automatically use trusted publishing when a supported CI environment is detected
-    #[default]
+    /// Use trusted publishing in supported CI environments
     Auto,
+    /// Require trusted publishing and fail outside supported CI environments
+    Always,
     /// Disable trusted publishing and require explicitly configured publish credentials
     #[value(alias = "false")]
     Never,
-    /// Force GitHub Actions trusted publishing
-    Github,
-    /// Force GitLab CI trusted publishing
-    Gitlab,
 }
 
 impl From<TrustedPublishingMode> for sysand_core::commands::publish::TrustedPublishingMode {
     fn from(value: TrustedPublishingMode) -> Self {
         match value {
             TrustedPublishingMode::Auto => Self::Auto,
+            TrustedPublishingMode::Always => Self::Always,
             TrustedPublishingMode::Never => Self::Never,
-            TrustedPublishingMode::Github => Self::Github,
-            TrustedPublishingMode::Gitlab => Self::Gitlab,
         }
     }
 }

@@ -9,8 +9,8 @@ use sysand_core::{
     auth::StandardHTTPAuthentication,
     build::default_kpar_path,
     commands::publish::{
-        EndpointKind, TrustedPublishingEnvironment, build_upload_url, do_publish,
-        prepare_publish_payload, resolve_publish_bearer, validate_endpoint_url_shape,
+        EndpointKind, TrustedPublishingEnvironment, do_publish, prepare_publish_payload,
+        resolve_publish_bearer, validate_endpoint_url_shape,
     },
     context::ProjectContext,
     env::discovery::{ResolvedEndpoints, fetch_index_config},
@@ -53,9 +53,6 @@ pub fn command_publish(
     // are intentionally dropped at this step.
     let bearer_map = Arc::unwrap_or_clone(auth_policy).try_into_publish_bearer_auth_map()?;
     let ResolvedEndpoints { api_root, .. } = endpoints;
-    // Keep this validation near discovery so invalid api_root shape still
-    // surfaces before any trusted-publishing token exchange.
-    build_upload_url(&api_root)?;
     let trusted_publishing_env = TrustedPublishingEnvironment::from_env();
     let bearer = resolve_publish_bearer(
         &bearer_map,
