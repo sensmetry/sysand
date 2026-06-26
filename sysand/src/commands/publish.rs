@@ -6,11 +6,11 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
 use sysand_core::{
-    auth::{GlobMapResult, StandardHTTPAuthentication},
+    auth::StandardHTTPAuthentication,
     build::default_kpar_path,
     commands::publish::{
-        EndpointKind, build_upload_url, do_publish, prepare_publish_payload,
-        validate_endpoint_url_shape,
+        EndpointKind, TrustedPublishingEnvironment, do_publish, prepare_publish_payload,
+        resolve_publish_bearer, validate_endpoint_url_shape,
     },
     context::ProjectContext,
     env::discovery::{ResolvedEndpoints, fetch_index_config},
@@ -18,11 +18,12 @@ use sysand_core::{
 };
 use url::Url;
 
-use crate::CliError;
+use crate::{CliError, cli::TrustedPublishingMode};
 
 pub fn command_publish(
     path: Option<Utf8PathBuf>,
     index: Url,
+    trusted_publishing: TrustedPublishingMode,
     ctx: &ProjectContext,
     auth_policy: Arc<StandardHTTPAuthentication>,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -52,29 +53,15 @@ pub fn command_publish(
     // are intentionally dropped at this step.
     let bearer_map = Arc::unwrap_or_clone(auth_policy).try_into_publish_bearer_auth_map()?;
     let ResolvedEndpoints { api_root, .. } = endpoints;
-    let upload_url = build_upload_url(&api_root)?;
-    let bearer = match bearer_map.lookup(upload_url.as_str()) {
-        GlobMapResult::Found(_, token) => token.clone(),
-        GlobMapResult::Ambiguous(candidates) => {
-            // Publish must resolve to exactly one bearer token. Unlike the
-            // general fetch/auth flow, do not probe multiple credentials here:
-            // we do not want to retry uploads or accidentally send unrelated
-            // publish credentials to the endpoint. A future refinement could
-            // prefer the most specific glob match, which would support
-            // separate read and publish credentials under the same host.
-            bail!(
-                "multiple bearer token credentials configured for publish URL `{upload_url}`; \
-                 refine SYSAND_CRED_<X> URL patterns so exactly one bearer token matches ({} candidates found)",
-                candidates.len()
-            );
-        }
-        GlobMapResult::NotFound => {
-            bail!(
-                "no bearer token credentials configured for publish URL `{upload_url}`; \
-                 set SYSAND_CRED_<X> and SYSAND_CRED_<X>_BEARER_TOKEN with a matching URL pattern"
-            );
-        }
-    };
+    let trusted_publishing_env = TrustedPublishingEnvironment::from_env();
+    let bearer = resolve_publish_bearer(
+        &bearer_map,
+        &api_root,
+        trusted_publishing.into(),
+        &trusted_publishing_env,
+        &client,
+        &runtime,
+    )?;
 
     let response = do_publish(prepared, index, api_root, bearer, client, runtime)?;
 

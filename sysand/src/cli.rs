@@ -210,6 +210,16 @@ pub enum Command {
         /// to the API root (e.g. https://sysand.com/api)
         #[arg(long, value_name = "URL", verbatim_doc_comment)]
         index: Url,
+
+        /// How to use CI trusted publishing for acquiring publish credentials
+        #[arg(
+            long,
+            value_enum,
+            value_name = "MODE",
+            default_value = "auto",
+            verbatim_doc_comment
+        )]
+        trusted_publishing: TrustedPublishingMode,
     },
     /// Create or update lockfile
     Lock {
@@ -383,6 +393,28 @@ impl From<KparCompressionMethodCli> for KparCompressionMethod {
             KparCompressionMethodCli::Xz => KparCompressionMethod::Xz,
             #[cfg(feature = "kpar-ppmd")]
             KparCompressionMethodCli::Ppmd => KparCompressionMethod::Ppmd,
+        }
+    }
+}
+
+#[derive(clap::ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
+#[clap(rename_all = "lowercase")]
+pub enum TrustedPublishingMode {
+    /// Use trusted publishing in supported CI environments
+    Auto,
+    /// Require trusted publishing and fail outside supported CI environments
+    Always,
+    /// Disable trusted publishing and require explicitly configured publish credentials
+    #[value(alias = "false")]
+    Never,
+}
+
+impl From<TrustedPublishingMode> for sysand_core::commands::publish::TrustedPublishingMode {
+    fn from(value: TrustedPublishingMode) -> Self {
+        match value {
+            TrustedPublishingMode::Auto => Self::Auto,
+            TrustedPublishingMode::Always => Self::Always,
+            TrustedPublishingMode::Never => Self::Never,
         }
     }
 }
