@@ -16,9 +16,9 @@ on:
 
 permissions:
   contents: read
-  id-token: write # for cosign and actions/attest-build-provenance
-  attestations: write # for actions/attest-build-provenance
-  artifact-metadata: write # for actions/attest-build-provenance
+  id-token: write # for cosign and actions/attest
+  attestations: write # for actions/attest
+  artifact-metadata: write # for actions/attest
   packages: write
 
 jobs:
@@ -169,14 +169,14 @@ jobs:
           cosign sign --yes "$IMAGE@$ALPINE_IMAGE_DIGEST"
 
       - name: Generate image provenance attestation
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build-image.outputs.digest }}
           push-to-registry: true
 
       - name: Generate alpine image provenance attestation
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build-alpine-image.outputs.digest }}
