@@ -16,6 +16,9 @@ on:
 
 permissions:
   contents: read
+  id-token: write # for cosign and actions/attest-build-provenance
+  attestations: write # for actions/attest-build-provenance
+  artifact-metadata: write # for actions/attest-build-provenance
   packages: write
 
 jobs:
@@ -124,23 +127,57 @@ jobs:
           password: ${{ github.token }}
 
       - name: Build and push image
+        id: build-image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: mode=max
+          sbom: true
           tags: ${{ join(fromJson(steps.tags.outputs.tags)) }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
       - name: Build and push alpine image
+        id: build-alpine-image
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
           file: Dockerfile.alpine
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: mode=max
+          sbom: true
           tags: ${{ join(fromJson(steps.tags-alpine.outputs.tags)) }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.1
+
+      - name: Sign images
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          IMAGE_DIGEST: ${{ steps.build-image.outputs.digest }}
+          ALPINE_IMAGE_DIGEST: ${{ steps.build-alpine-image.outputs.digest }}
+        run: |
+          cosign sign --yes "$IMAGE@$IMAGE_DIGEST"
+          cosign sign --yes "$IMAGE@$ALPINE_IMAGE_DIGEST"
+
+      - name: Generate image provenance attestation
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build-image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate alpine image provenance attestation
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build-alpine-image.outputs.digest }}
+          push-to-registry: true
