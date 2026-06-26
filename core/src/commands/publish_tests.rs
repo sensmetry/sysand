@@ -96,7 +96,7 @@ fn resolve_publish_bearer_auto_uses_bearer_when_trusted_publishing_unavailable()
 }
 
 #[test]
-fn resolve_publish_bearer_never_rejects_ambiguous_bearer_without_trusted_publishing() {
+fn resolve_publish_bearer_never_rejects_ambiguous_bearer() {
     let api_root = Url::parse("https://example.org/api/").unwrap();
     let map = bearer_map(&[
         ("https://example.org/**", "broad-token"),
