@@ -523,7 +523,7 @@ pub struct PublishResponse {
 #[derive(Error, Debug)]
 pub enum PublishError {
     #[error(
-        "archive contains a file with executable permisions `{path}`;
+        "archive contains a file with executable permissions `{path}`;
         archive containing executable files cannot be published for security reasons"
     )]
     ExecInArchive { path: Box<str> },

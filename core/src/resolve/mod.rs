@@ -109,7 +109,7 @@ impl std::hash::Hash for ResolutionInfo {
     }
 }
 
-// This is for use in pubgrub only; for other usees it likely
+// This is for use in pubgrub only; for other uses it likely
 // does not match expectations
 impl PartialEq for ResolutionInfo {
     fn eq(&self, other: &Self) -> bool {

@@ -217,7 +217,7 @@ pub fn parse_relative_unix_path(
         path
     };
 
-    // Manually split into componenets, `Utf8UnixPath::components()` does
+    // Manually split into components, `Utf8UnixPath::components()` does
     // some normalization, which is undesirable here
     for c in stripped.split('/') {
         if c.is_empty() {
