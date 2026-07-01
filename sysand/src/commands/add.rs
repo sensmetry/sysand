@@ -28,7 +28,7 @@ use sysand_core::{
 
 use crate::{
     CliError, DEFAULT_INDEX_URL,
-    cli::{ExpAddProjectLocatorArgs, ProjectSourceOptions, ResolutionOptions},
+    cli::{ProjectSourceOptions, ResolutionOptions},
     commands::{lock::create_resolver, sync::command_sync},
 };
 
@@ -247,10 +247,14 @@ pub fn command_add<Policy: HTTPAuthentication>(
     }
 }
 
+pub enum ExpAddArgs {
+    Dir { dir: Utf8PathBuf },
+}
+
 // TODO: Collect common arguments
 #[allow(clippy::too_many_arguments)]
 pub fn exp_command_add<Policy: HTTPAuthentication>(
-    add: ExpAddProjectLocatorArgs,
+    add: ExpAddArgs,
     no_lock: bool,
     no_sync: bool,
     resolution_opts: ResolutionOptions,
@@ -266,7 +270,7 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
     match add {
-        ExpAddProjectLocatorArgs::Dir { dir } => {
+        ExpAddArgs::Dir { dir } => {
             let abs_path = wrapfs::canonicalize(dir)?;
             let relative = relativize_path(&abs_path, &ctx.current_directory)?;
             let project = LocalSrcProject {

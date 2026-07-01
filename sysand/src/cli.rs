@@ -302,7 +302,7 @@ pub enum Command {
 pub enum ExpCommand {
     /// Add a usage
     Add {
-        #[command(subcommand)]
+        #[clap(flatten)]
         locator: ExpAddProjectLocatorArgs,
 
         /// Do not automatically resolve dependencies (and generate lockfile)
@@ -318,16 +318,13 @@ pub enum ExpCommand {
     Remove { publisher: String, name: String },
 }
 
-#[derive(clap::Subcommand, Debug, Clone)]
-pub enum ExpAddProjectLocatorArgs {
+#[derive(clap::Args, Debug, Clone)]
+pub struct ExpAddProjectLocatorArgs {
     /// Add a project from a local directory path
-    #[clap(verbatim_doc_comment)]
-    Dir {
-        /// Path to the project. Can be relative or absolute, and point
-        /// to a project directory
-        #[clap(verbatim_doc_comment)]
-        dir: Utf8PathBuf,
-    },
+    /// Path to the project. Can be relative or absolute, and point
+    /// to a project directory
+    #[arg(long, verbatim_doc_comment)]
+    pub dir: Utf8PathBuf,
 }
 
 #[derive(clap::Args, Debug, Clone)]

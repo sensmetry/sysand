@@ -49,7 +49,7 @@ use url::Url;
 use crate::{
     cli::{Args, Command, ExpCommand, InfoCommand},
     commands::{
-        add::{command_add, exp_command_add},
+        add::{ExpAddArgs, command_add, exp_command_add},
         build::{command_build_for_project, command_build_for_workspace},
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
@@ -774,17 +774,20 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 resolution_opts,
                 no_lock,
                 no_sync,
-            } => exp_command_add(
-                locator,
-                no_lock,
-                no_sync,
-                resolution_opts,
-                config,
-                ctx,
-                client,
-                runtime,
-                auth_policy,
-            ),
+            } => {
+                let add = ExpAddArgs::Dir { dir: locator.dir };
+                exp_command_add(
+                    add,
+                    no_lock,
+                    no_sync,
+                    resolution_opts,
+                    config,
+                    ctx,
+                    client,
+                    runtime,
+                    auth_policy,
+                )
+            }
             ExpCommand::Remove { publisher, name } => exp_command_remove(publisher, name, ctx),
         },
     }
