@@ -16,10 +16,11 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     context::ProjectContext,
-    model::InterchangeProjectUsageRaw,
+    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
     project::{
         ProjectRead,
-        utils::{relativize_path, wrapfs},
+        local_src::LocalSrcProject,
+        utils::{Identifier, relativize_path, wrapfs},
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, standard::standard_resolver},
     utils::{ProvidedProjects, format_err},
@@ -27,7 +28,7 @@ use sysand_core::{
 
 use crate::{
     CliError, DEFAULT_INDEX_URL,
-    cli::{ProjectSourceOptions, ResolutionOptions},
+    cli::{ExpAddProjectLocatorArgs, ProjectSourceOptions, ResolutionOptions},
     commands::{lock::create_resolver, sync::command_sync},
 };
 
@@ -243,6 +244,101 @@ pub fn command_add<Policy: HTTPAuthentication>(
     } else {
         do_add(&mut current_project, &usage_raw)?;
         Ok(())
+    }
+}
+
+// TODO: Collect common arguments
+#[allow(clippy::too_many_arguments)]
+pub fn exp_command_add<Policy: HTTPAuthentication>(
+    add: ExpAddProjectLocatorArgs,
+    no_lock: bool,
+    no_sync: bool,
+    resolution_opts: ResolutionOptions,
+    config: Config,
+    ctx: ProjectContext,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+) -> Result<()> {
+    let mut current_project = ctx
+        .current_project
+        .clone()
+        .ok_or(CliError::MissingProjectCurrentDir)?;
+
+    match add {
+        ExpAddProjectLocatorArgs::Dir { dir } => {
+            let abs_path = wrapfs::canonicalize(dir)?;
+            let relative = relativize_path(&abs_path, &ctx.current_directory)?;
+            let project = LocalSrcProject {
+                nominal_path: None,
+                project_path: abs_path,
+                expected_checksum: None,
+            };
+            let info = project
+                .get_info()?
+                .ok_or_else(|| CliError::MissingProject(project.project_path.to_string()))?;
+            let publisher = info.publisher.ok_or_else(|| {
+                CliError::MissingPublisherForUsage(project.project_path.to_string())
+            })?;
+            let identifier = Identifier::from_pub_name(&publisher, &info.name);
+            let usage = InterchangeProjectUsage::Directory {
+                dir: relative,
+                publisher,
+                name: info.name,
+            };
+
+            let provided_iris = if !resolution_opts.include_std {
+                let sysml_std = crate::known_std_libs();
+                if sysml_std.contains_key(&identifier) {
+                    crate::logger::warn_std(&identifier);
+                    return Ok(());
+                }
+                sysml_std
+            } else {
+                HashMap::default()
+            };
+
+            if !no_lock {
+                let info_path = current_project.info_path();
+                let info_backup = wrapfs::read_to_string(&info_path)?;
+                let added = do_add(&mut current_project, &usage.into())?;
+                if !added {
+                    return Ok(());
+                }
+
+                let alias_iris = if let Some(w) = &ctx.current_workspace {
+                    w.projects()
+                        .iter()
+                        .find(|p| Path::new(&p.path) == current_project.root_path())
+                        .map(|p| p.iris.to_owned())
+                } else {
+                    None
+                };
+
+                match resolve_deps(
+                    no_sync,
+                    resolution_opts,
+                    &config,
+                    client,
+                    runtime,
+                    auth_policy,
+                    current_project.root_path(),
+                    alias_iris,
+                    provided_iris,
+                    ctx,
+                ) {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        // Restore old info
+                        wrapfs::write(&info_path, info_backup)?;
+                        Err(e)
+                    }
+                }
+            } else {
+                do_add(&mut current_project, &usage.into())?;
+                Ok(())
+            }
+        }
     }
 }
 

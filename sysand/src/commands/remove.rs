@@ -9,11 +9,12 @@ use sysand_core::{
     config::local_fs::{CONFIG_FILE, remove_project_source_from_config},
     context::ProjectContext,
     model::InterchangeProjectUsageRaw,
-    remove::do_remove,
+    remove::{do_remove, exp_do_remove},
 };
 
 use crate::CliError;
 
+// TODO: update lockfile if present
 pub fn command_remove(
     iri: Iri<String>,
     ctx: ProjectContext,
@@ -33,6 +34,49 @@ pub fn command_remove(
     }
 
     let usages = do_remove(&mut current_project, iri.into_string())?;
+
+    let removed = "Removed";
+    let header = sysand_core::style::get_style_config().header;
+    for usage in usages {
+        match usage {
+            InterchangeProjectUsageRaw::Resource {
+                resource,
+                version_constraint,
+            } => match version_constraint {
+                Some(vc) => {
+                    log::info!(
+                        "{header}{removed:>12}{header:#} `{resource}` with version constraints `{vc}`"
+                    );
+                }
+                None => {
+                    log::info!("{header}{removed:>12}{header:#} `{resource}`");
+                }
+            },
+            InterchangeProjectUsageRaw::Directory {
+                dir,
+                publisher,
+                name,
+            } => {
+                log::info!("{header}{removed:>12}{header:#} `{publisher}/{name}` (path `{dir}`)");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn exp_command_remove(
+    publisher: impl AsRef<str>,
+    name: impl AsRef<str>,
+    ctx: ProjectContext,
+) -> Result<()> {
+    let publisher = publisher.as_ref();
+    let name = name.as_ref();
+    let mut current_project = ctx
+        .current_project
+        .ok_or(CliError::MissingProjectCurrentDir)?;
+
+    let usages = exp_do_remove(&mut current_project, publisher, name)?;
 
     let removed = "Removed";
     let header = sysand_core::style::get_style_config().header;

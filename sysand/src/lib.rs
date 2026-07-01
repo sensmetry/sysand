@@ -49,7 +49,7 @@ use url::Url;
 use crate::{
     cli::{Args, Command, ExpCommand, InfoCommand},
     commands::{
-        add::command_add,
+        add::{command_add, exp_command_add},
         build::{command_build_for_project, command_build_for_workspace},
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
@@ -63,7 +63,7 @@ use crate::{
         lock::command_lock,
         print_root::command_print_root,
         publish::command_publish,
-        remove::command_remove,
+        remove::{command_remove, exp_command_remove},
         sources::{command_sources_env, command_sources_project},
         sync::command_sync,
     },
@@ -772,8 +772,20 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             ExpCommand::Add {
                 locator,
                 resolution_opts,
-            } => todo!(),
-            ExpCommand::Remove { publisher, name } => todo!(),
+                no_lock,
+                no_sync,
+            } => exp_command_add(
+                locator,
+                no_lock,
+                no_sync,
+                resolution_opts,
+                config,
+                ctx,
+                client,
+                runtime,
+                auth_policy,
+            ),
+            ExpCommand::Remove { publisher, name } => exp_command_remove(publisher, name, ctx),
         },
     }
 }

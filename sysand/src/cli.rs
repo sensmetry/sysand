@@ -304,6 +304,13 @@ pub enum ExpCommand {
     Add {
         #[command(subcommand)]
         locator: ExpAddProjectLocatorArgs,
+
+        /// Do not automatically resolve dependencies (and generate lockfile)
+        #[arg(long, default_value_t = false)]
+        no_lock: bool,
+        /// Do not automatically install dependencies
+        #[arg(long, default_value_t = false)]
+        no_sync: bool,
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
     },
@@ -312,7 +319,6 @@ pub enum ExpCommand {
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
-#[group(id = "expadd", required = true, multiple = false)]
 pub enum ExpAddProjectLocatorArgs {
     /// Add a project from a local directory path
     #[clap(verbatim_doc_comment)]
@@ -323,56 +329,6 @@ pub enum ExpAddProjectLocatorArgs {
         dir: Utf8PathBuf,
     },
 }
-
-// TODO: don't require publisher/name
-#[derive(clap::Subcommand, Debug, Clone)]
-#[group(id = "expadd", required = true, multiple = false)]
-pub enum ExpCloneLocatorArgs {
-    /// Clone a project from HTTP(S) URL
-    Resource {
-        /// Identifier of the project.
-        resource: Iri<String>,
-        /// Version constraints for the project
-        version_constraint: Option<VersionReq>,
-    },
-    // TODO: does it make sense to allow kpar or src?
-    /// Clone a project from a local path
-    #[clap(verbatim_doc_comment)]
-    Path {
-        /// Publisher of the project
-        publisher: String,
-        /// Name of the project
-        name: String,
-        /// Path to the project. Can be relative or absolute, and can point
-        /// to either a KPAR or a project directory
-        #[clap(verbatim_doc_comment)]
-        path: Utf8PathBuf,
-    },
-}
-
-// TODO: we have to format the path properly, so this must be fallible
-// impl From<ExpCloneLocatorArgs> for InterchangeProjectUsage {
-//     fn from(value: ExpCloneLocatorArgs) -> Self {
-//         match value {
-//             ExpCloneLocatorArgs::Resource {
-//                 resource,
-//                 version_constraint,
-//             } => InterchangeProjectUsage::Resource {
-//                 resource,
-//                 version_constraint,
-//             },
-//             ExpCloneLocatorArgs::Path {
-//                 publisher,
-//                 name,
-//                 path,
-//             } => InterchangeProjectUsage::Directory {
-//                 dir: path.into(),
-//                 publisher,
-//                 name,
-//             },
-//         }
-//     }
-// }
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]

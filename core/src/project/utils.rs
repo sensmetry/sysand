@@ -539,6 +539,10 @@ impl Borrow<String> for Identifier {
 }
 
 impl Identifier {
+    pub fn from_pub_name(publisher: &str, name: &str) -> Identifier {
+        Self(make_identifier_iri(publisher, name))
+    }
+
     pub fn from_interchange_usage(usage: &InterchangeProjectUsage) -> Identifier {
         let (publisher, name) = match usage {
             InterchangeProjectUsage::Resource { resource, .. } => {
@@ -591,7 +595,7 @@ impl Identifier {
 }
 
 // TODO: use newtype for identifier IRI
-pub fn make_identifier_iri(publisher: impl AsRef<str>, name: impl AsRef<str>) -> String {
+fn make_identifier_iri(publisher: impl AsRef<str>, name: impl AsRef<str>) -> String {
     let publisher = publisher.as_ref();
     let name = name.as_ref();
     debug_assert!(!publisher.is_empty());

@@ -285,7 +285,7 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone, Path>
             .collect()
     }
 
-    pub fn pop_usage_exp(
+    pub fn exp_pop_usage(
         &mut self,
         publisher: &str,
         name: &str,
