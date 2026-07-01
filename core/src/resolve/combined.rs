@@ -431,6 +431,8 @@ impl<
                 reason: String::from("no resolver supports the project type"),
             })
         } else if locals.is_empty() {
+            // TODO: this is not alywas correct. Project resolution can fail in various
+            // ways by different resolvers. How to represent it here?
             Ok(ResolutionOutcome::NotFound {
                 reason: String::from("no resolver was able to resolve the project"),
             })

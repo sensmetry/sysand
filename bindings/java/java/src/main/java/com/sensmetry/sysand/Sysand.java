@@ -116,29 +116,13 @@ public class Sysand {
      * Get the project information and metadata at the given URI.
      *
      * @param uri              The URI of the project.
-     * @param relativeFileRoot The path which should be used as the root for
-     *                         relative file URIs.
-     * @return The project information and metadata.
-     */
-    public static com.sensmetry.sysand.model.InterchangeProject info(
-            java.net.URI uri,
-            java.nio.file.Path relativeFileRoot)
-            throws com.sensmetry.sysand.exceptions.SysandException {
-        return info(uri, null);
-    }
-
-    /**
-     * Get the project information and metadata at the given URI. Uses the current
-     * directory as the relative file root.
-     *
-     * @param uri The URI of the project.
      * @return The project information and metadata.
      */
     public static com.sensmetry.sysand.model.InterchangeProject info(java.net.URI uri)
             throws com.sensmetry.sysand.exceptions.SysandException {
-        java.nio.file.Path relativeFileRoot = java.nio.file.Paths.get(".");
         return info(uri, null);
     }
+
 
     /**
      * Get absolute paths of all projects in a workspace.

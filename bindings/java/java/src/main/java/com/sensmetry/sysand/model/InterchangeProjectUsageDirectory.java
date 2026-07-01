@@ -10,8 +10,9 @@ public class InterchangeProjectUsageDirectory implements InterchangeProjectUsage
     private String name;
 
     public InterchangeProjectUsageDirectory(String directory, String publisher, String name) {
-        this.resource = resource;
-        this.versionConstraint = versionConstraint;
+        this.directory = directory;
+        this.publisher = publisher;
+        this.name = name;
     }
 
     public String getDirectory() {

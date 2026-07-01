@@ -333,19 +333,9 @@ pub enum ExpCommand {
 #[derive(clap::Subcommand, Debug, Clone)]
 #[group(id = "expadd", required = true, multiple = false)]
 pub enum ExpAddProjectLocatorArgs {
-    /// Add a project from HTTP(S) URL
-    Url {
-        /// Publisher of the project
-        publisher: String,
-        /// Name of the project
-        name: String,
-        /// URL of the project. Can point to a KPAR or a project directory
-        url: Iri<String>,
-    },
-    // TODO: does it make sense to allow kpar or src?
-    /// Add a project from a local path
+    /// Add a project from a local dir path
     #[clap(verbatim_doc_comment)]
-    Path {
+    Dir {
         /// Publisher of the project
         publisher: String,
         /// Name of the project

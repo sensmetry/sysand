@@ -854,6 +854,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
             "info",
             "--iri",
             "urn:kpar:other",
+            "-v",
             "--default-index",
             &server.url(),
         ],
@@ -861,7 +862,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "failed to resolve IRI `urn:kpar:other`: no resolver was able to resolve the IRI",
+        "IRI `urn:kpar:other` was not found: no resolver was able to resolve the project",
     ));
     config_mock.assert();
     missing_versions_mock.assert();
@@ -1020,7 +1021,7 @@ fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "failed to resolve IRI `urn:kpar:other`: no resolver was able to resolve the IRI",
+        "IRI `urn:kpar:other` was not found: no resolver was able to resolve the project",
     ));
     config_mock.assert();
     config_mock_alt.assert();
@@ -1224,7 +1225,7 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "failed to resolve IRI `urn:kpar:other`",
+        "IRI `urn:kpar:other` was not found: no resolver was able to resolve the project",
     ));
     config_mock.assert();
     config_mock_alt.assert();

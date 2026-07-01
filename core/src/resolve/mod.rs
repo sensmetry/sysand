@@ -208,18 +208,13 @@ impl Display for ResolutionInfo {
                 if let Some(bp) = &self.base_path {
                     let abs_path = bp.join(dir.as_str());
                     let abs_path = wrapfs::absolute(&abs_path).unwrap_or(abs_path);
-                    writeln!(f, "`{publisher}/{name}` from `{abs_path}`",)?;
+                    writeln!(f, "`{publisher}/{name}` from `{abs_path}`")?;
                 } else {
-                    writeln!(f, "`{publisher}/{name}` from `{dir}` (full path unknown)",)?;
+                    writeln!(f, "`{publisher}/{name}` from `{dir}` (full path unknown)")?;
                 }
             }
         }
-        write!(f, "{}", self.usage)?;
-        if let Some(path) = &self.base_path {
-            write!(f, ", base path `{path}`")
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 }
 
