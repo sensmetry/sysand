@@ -18,24 +18,23 @@ use crate::project::{memory::InMemoryProject, utils::Identifier};
 pub type ProvidedProjects = HashMap<Identifier, Vec<InMemoryProject>>;
 pub type ProvidedIdentifiers = HashSet<Identifier>;
 
+#[cfg(feature = "filesystem")]
 pub(crate) mod scheme {
-    #[cfg(any(feature = "filesystem", feature = "networking"))]
     use fluent_uri::component::Scheme;
-    #[cfg(feature = "filesystem")]
     pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_SSH: &Scheme = Scheme::new_or_panic("ssh");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_GIT_SSH: &Scheme = Scheme::new_or_panic("git+ssh");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_GIT_FILE: &Scheme = Scheme::new_or_panic("git+file");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_GIT_HTTP: &Scheme = Scheme::new_or_panic("git+http");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_GIT_HTTPS: &Scheme = Scheme::new_or_panic("git+https");
-    #[cfg(any(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_HTTP: &Scheme = Scheme::new_or_panic("http");
-    #[cfg(any(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 }
 
