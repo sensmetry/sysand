@@ -224,10 +224,8 @@ fn exp_add_already_present_is_ignored() -> Result<(), Box<dyn std::error::Error>
 
 #[test]
 fn exp_remove() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "exp_remove"],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        run_sysand(["init", "--version", "1.2.3", "--name", "exp_remove"], None)?;
     out.assert().success();
 
     let dep_dir = cwd.join("dep");
@@ -248,11 +246,7 @@ fn exp_remove() -> Result<(), Box<dyn std::error::Error>> {
     .assert()
     .success();
 
-    let out = run_sysand_in(
-        &cwd,
-        ["experimental", "remove", "untitled", "my-dep"],
-        None,
-    )?;
+    let out = run_sysand_in(&cwd, ["experimental", "remove", "untitled", "my-dep"], None)?;
 
     out.assert()
         .success()
