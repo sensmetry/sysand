@@ -62,6 +62,7 @@ pub enum InfoError<Error: ErrorBound> {
     Resolution(#[from] Error),
 }
 
+#[expect(clippy::result_large_err)]
 pub fn do_info<R: ResolveRead>(
     uri: &Iri<String>,
     resolver: &R,

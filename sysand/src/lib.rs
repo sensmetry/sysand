@@ -47,7 +47,7 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, Command, InfoCommand},
+    cli::{Args, Command, ExpCommand, InfoCommand},
     commands::{
         add::command_add,
         build::{command_build_for_project, command_build_for_workspace},
@@ -768,7 +768,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             runtime,
             auth_policy,
         ),
-        Command::Experimental { subcommand } => todo!(),
+        Command::Experimental { subcommand } => match subcommand {
+            ExpCommand::Add {
+                locator,
+                resolution_opts,
+            } => todo!(),
+            ExpCommand::Remove { publisher, name } => todo!(),
+        },
     }
 }
 

@@ -206,6 +206,7 @@ pub struct ProjectSolver<R: ResolveRead> {
 }
 
 /// Returned Vec will have `len >= 1`
+#[expect(clippy::result_large_err)]
 fn resolve_candidates<R: ResolveRead>(
     resolver: &R,
     resolve: &ResolutionInfo,
@@ -335,6 +336,7 @@ fn resolve_candidates<R: ResolveRead>(
     }
 }
 
+#[expect(clippy::result_large_err)]
 fn compute_deps<R: ResolveRead + fmt::Debug>(
     resolver: &R,
     usages: &[ResolutionInfo],

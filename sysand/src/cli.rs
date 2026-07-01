@@ -309,41 +309,18 @@ pub enum ExpCommand {
     },
     /// Remove a usage
     Remove { publisher: String, name: String },
-    /// Clone a project
-    Clone {
-        #[command(subcommand)]
-        locator: ExpCloneLocatorArgs,
-        /// Path to clone the project into. If already exists, must
-        /// be an empty directory. Defaults to current directory
-        #[arg(long, short, default_value = None, verbatim_doc_comment)]
-        target: Option<Utf8PathBuf>,
-        /// Don't resolve or install dependencies
-        #[arg(long)]
-        no_deps: bool,
-        #[command(flatten)]
-        resolution_opts: ResolutionOptions,
-    },
-    /// Create a local `sysand_env` directory for installing dependencies
-    Env {
-        #[command(subcommand)]
-        command: Option<ExpEnvCommand>,
-    },
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]
 #[group(id = "expadd", required = true, multiple = false)]
 pub enum ExpAddProjectLocatorArgs {
-    /// Add a project from a local dir path
+    /// Add a project from a local directory path
     #[clap(verbatim_doc_comment)]
     Dir {
-        /// Publisher of the project
-        publisher: String,
-        /// Name of the project
-        name: String,
-        /// Path to the project. Can be relative or absolute, and can point
-        /// to either a KPAR or a project directory
+        /// Path to the project. Can be relative or absolute, and point
+        /// to a project directory
         #[clap(verbatim_doc_comment)]
-        path: Utf8PathBuf,
+        dir: Utf8PathBuf,
     },
 }
 
@@ -396,34 +373,6 @@ pub enum ExpCloneLocatorArgs {
 //         }
 //     }
 // }
-
-#[derive(clap::Subcommand, Debug, Clone)]
-pub enum ExpEnvCommand {
-    /// Install project in `sysand_env`
-    Install {
-        /// IRI identifying the project to be installed
-        iri: Iri<String>,
-        /// Version to be installed. Defaults to the latest
-        /// version according to SemVer 2.0, ignoring pre-releases
-        #[clap(verbatim_doc_comment)]
-        version: Option<String>,
-        /// Path to interchange project
-        #[arg(long, default_value = None)]
-        path: Option<Utf8PathBuf>,
-
-        #[command(flatten)]
-        install_opts: InstallOptions,
-        #[command(flatten)]
-        resolution_opts: ResolutionOptions,
-    },
-    /// Uninstall project in `sysand_env`
-    Uninstall {
-        /// IRI identifying the project to be uninstalled
-        iri: Iri<String>,
-        /// Version to be uninstalled
-        version: Option<String>,
-    },
-}
 
 #[derive(clap::Args, Debug, Clone)]
 #[group(required = true, multiple = false)]
