@@ -32,9 +32,7 @@ pub(crate) mod scheme {
     pub const SCHEME_GIT_HTTP: &Scheme = Scheme::new_or_panic("git+http");
     #[cfg(feature = "networking")]
     pub const SCHEME_GIT_HTTPS: &Scheme = Scheme::new_or_panic("git+https");
-    #[cfg(feature = "networking")]
     pub const SCHEME_HTTP: &Scheme = Scheme::new_or_panic("http");
-    #[cfg(feature = "networking")]
     pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 }
 
