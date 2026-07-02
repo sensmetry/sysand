@@ -23,6 +23,7 @@ use sysand_core::{
         utils::wrapfs,
     },
     resolve::{
+        ResolutionInfo,
         file::FileResolverProject,
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
@@ -79,7 +80,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     } = resolution_opts;
 
     // TODO: should probably first check that current project exists
-    let provided_iris = if !include_std {
+    let provided_usages = if !include_std {
         let sysml_std = crate::known_std_libs();
         if sysml_std.contains_key(iri.as_ref()) {
             crate::logger::warn_std(iri.as_ref());
@@ -104,22 +105,17 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         auth_policy.clone(),
     )?;
 
-    let mut memory_projects = HashMap::default();
-    for (k, v) in &provided_iris {
-        memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
-    }
     let override_resolver = PriorityResolver::new(
         MemoryResolver::from(overrides),
         MemoryResolver {
             iri_predicate: AcceptAll {},
-            projects: memory_projects,
+            projects: provided_usages.clone(),
         },
     );
     // TODO: Move out the runtime
     let resolver = PriorityResolver::new(
         override_resolver,
         standard_resolver(
-            None,
             None,
             Some(client.clone()),
             index_urls,
@@ -131,10 +127,12 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     // TODO: don't use different root project resolution
     //       mechanisms depending on no_deps
     if no_deps {
+        let id = iri.to_string();
+        let resolve = ResolutionInfo::iri(iri);
         let (version, storage) =
-            crate::commands::clone::get_project_version(&iri, version, &resolver)?;
+            crate::commands::clone::get_project_version(&resolve, version, &resolver)?;
         sysand_core::commands::env::do_env_install_project(
-            &iri,
+            id,
             &version.to_string(),
             &storage,
             Some(storage.checksum_canonical_variant()?),
@@ -156,17 +154,18 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             Lock::default(),
             usages,
             resolver,
-            &provided_iris,
+            &provided_usages,
             &ctx,
         )?;
         // Find if we added any std lib dependencies. This relies on `Lock::default()`
         // and `do_lock_extend()` to not read the existing lockfile, i.e. `lock` contains
         // only `iri` and `iri`'s dependencies.
-        if !provided_iris.is_empty()
-            && lock
-                .projects
-                .iter()
-                .any(|x| x.identifiers.iter().any(|y| provided_iris.contains_key(y)))
+        if !provided_usages.is_empty()
+            && lock.projects.iter().any(|x| {
+                x.identifiers
+                    .iter()
+                    .any(|y| provided_usages.contains_key(y.as_str()))
+            })
         {
             crate::logger::warn_std_deps();
         }
@@ -175,7 +174,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             project_root,
             &mut ctx.env.unwrap(),
             client,
-            &provided_iris,
+            &provided_usages,
             runtime,
             auth_policy,
             ctx.current_workspace.as_ref(),
@@ -241,7 +240,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         bail!("path `{path}` is neither a directory nor a file");
     };
 
-    let provided_iris = if !include_std {
+    let provided_usages = if !include_std {
         let sysml_std = crate::known_std_libs();
         if sysml_std.contains_key(iri.as_ref()) {
             crate::logger::warn_std(&iri);
@@ -289,22 +288,17 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             auth_policy.clone(),
         )?;
 
-        let mut memory_projects = HashMap::default();
-        for (k, v) in provided_iris.iter() {
-            memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
-        }
         let override_resolver = PriorityResolver::new(
             MemoryResolver::from(overrides),
             MemoryResolver {
                 iri_predicate: AcceptAll {},
-                projects: memory_projects,
+                projects: provided_usages.clone(),
             },
         );
         // TODO: Move out the runtime
         let resolver = PriorityResolver::new(
             override_resolver,
             standard_resolver(
-                Some(path),
                 None,
                 Some(client.clone()),
                 index_urls,
@@ -318,7 +312,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         } = sysand_core::commands::lock::do_lock_projects(
             [(Some(vec![iri]), &project)],
             resolver,
-            &provided_iris,
+            &provided_usages,
             &ctx,
         )?;
         // FIXME: part of hack above, the project is already installed
@@ -330,7 +324,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             project_root,
             &mut ctx.env.unwrap(),
             client,
-            &provided_iris,
+            &provided_usages,
             runtime,
             auth_policy,
             ctx.current_workspace.as_ref(),

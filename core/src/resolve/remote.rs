@@ -9,7 +9,7 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     project::{CanonicalizationError, ProjectRead},
-    resolve::{ResolveRead, null::NullResolver},
+    resolve::{ResolutionInfo, ResolveRead, null::NullResolver},
 };
 
 use super::ResolutionOutcome;
@@ -282,20 +282,24 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> ResolveRead
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let resolved_http = if let Some(http_resolver) = &self.http_resolver {
             match http_resolver
-                .resolve_read(uri)
+                .resolve_read(resolve)
                 .map_err(RemoteResolverError::HTTPResolver)?
             {
                 ResolutionOutcome::Resolved(resolved) => Some(resolved.into_iter()),
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("HTTP resolver rejected IRI: {msg}");
+                ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    log::debug!("HTTP resolver rejected usage {resolve}: {reason}");
                     None
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
-                    log::debug!("HTTP resolver failed to resolve IRI: {msg}");
+                ResolutionOutcome::NotFound { reason } => {
+                    log::debug!("HTTP resolver did not find usage {resolve}: {reason}");
+                    None
+                }
+                ResolutionOutcome::Unresolvable { reason } => {
+                    log::debug!("HTTP resolver refused to resolve usage {resolve}: {reason}");
                     None
                 }
             }
@@ -305,16 +309,20 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> ResolveRead
 
         let resolved_git = if let Some(git_resolver) = &self.git_resolver {
             match git_resolver
-                .resolve_read(uri)
+                .resolve_read(resolve)
                 .map_err(RemoteResolverError::GitResolver)?
             {
                 ResolutionOutcome::Resolved(resolved) => Some(resolved.into_iter()),
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    log::debug!("git resolver rejected IRI: {msg}");
+                ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    log::debug!("git resolver rejected usage {resolve}: {reason}");
                     None
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
-                    log::debug!("git resolver failed to resolve IRI: {msg}");
+                ResolutionOutcome::NotFound { reason } => {
+                    log::debug!("git resolver did not find usage {resolve}: {reason}");
+                    None
+                }
+                ResolutionOutcome::Unresolvable { reason } => {
+                    log::debug!("git resolver refused to resolve usage {resolve}: {reason}");
                     None
                 }
             }

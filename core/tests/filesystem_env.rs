@@ -11,6 +11,7 @@ mod filesystem_tests {
 
     use camino::Utf8Path;
     use camino_tempfile::tempdir;
+    use fluent_uri::Iri;
     use indexmap::IndexMap;
     use sysand_core::{
         commands::env::do_env_local_dir,
@@ -252,6 +253,7 @@ version = \"0.1\"
     fn env_manual_install() -> Result<(), Box<dyn Error>> {
         let cwd = tempdir()?;
         let mut directory_environment = do_env_local_dir(cwd.path().join(DEFAULT_ENV_NAME))?;
+        let iri = Iri::parse("urn:sysand_test:1").unwrap().to_owned();
 
         let info = InterchangeProjectInfoRaw {
             name: "env_manual_install".to_string(),
@@ -287,11 +289,11 @@ version = \"0.1\"
         source_project.write_source(source_path, &mut Cursor::new(source_code), true)?;
         let checksum = source_project.checksum_canonical_variant()?;
 
-        directory_environment.put_project("urn:sysand_test:1", "1.2.3", Some(checksum), |p| {
+        directory_environment.put_project(iri.as_str(), "1.2.3", Some(checksum), |p| {
             clone_project(&source_project, p, true).map(|_| ())
         })?;
 
-        let target_project = directory_environment.get_project("urn:sysand_test:1", "1.2.3")?;
+        let target_project = directory_environment.get_project(iri.as_str(), "1.2.3")?;
         let (read_info, read_meta) = target_project.get_project()?;
 
         assert_eq!(read_info, Some(info.clone()));
@@ -307,17 +309,17 @@ version = \"0.1\"
 
         assert_eq!(
             directory_environment
-                .versions("urn:sysand_test:1")?
+                .versions(iri.as_str())?
                 .into_iter()
                 .collect::<Result<Vec<String>, _>>()?,
-            vec!["1.2.3"]
+            &["1.2.3"]
         );
         assert_eq!(
             directory_environment
                 .uris()?
                 .into_iter()
                 .collect::<Result<Vec<String>, _>>()?,
-            vec!["urn:sysand_test:1"]
+            vec![iri.as_str()]
         );
 
         assert_eq!(ls_dir(cwd.path()), vec![".sysand"]);
@@ -331,7 +333,7 @@ version = \"0.1\"
             env: directory_environment,
         };
 
-        let resolved_project = do_info("urn:sysand_test:1", &resolver)?;
+        let resolved_project = do_info(&iri, &resolver)?;
 
         assert_eq!(resolved_project, (info, meta));
 

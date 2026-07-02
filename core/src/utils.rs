@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{error::Error, fmt::Write as _};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    fmt::Write as _,
+};
 
 use digest::{array::Array, typenum};
 use indexmap::IndexSet;
@@ -9,19 +13,24 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8WindowsPath};
 
+use crate::project::{memory::InMemoryProject, utils::Identifier};
+
+pub type ProvidedProjects = HashMap<Identifier, Vec<InMemoryProject>>;
+pub type ProvidedIdentifiers = HashSet<Identifier>;
+
+#[cfg(feature = "filesystem")]
 pub(crate) mod scheme {
     use fluent_uri::component::Scheme;
-    #[cfg(feature = "filesystem")]
     pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_SSH: &Scheme = Scheme::new_or_panic("ssh");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_GIT_SSH: &Scheme = Scheme::new_or_panic("git+ssh");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_GIT_FILE: &Scheme = Scheme::new_or_panic("git+file");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_GIT_HTTP: &Scheme = Scheme::new_or_panic("git+http");
-    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    #[cfg(feature = "networking")]
     pub const SCHEME_GIT_HTTPS: &Scheme = Scheme::new_or_panic("git+https");
     pub const SCHEME_HTTP: &Scheme = Scheme::new_or_panic("http");
     pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
@@ -205,7 +214,7 @@ pub fn parse_relative_unix_path(
         path
     };
 
-    // Manually split into componenets, `Utf8UnixPath::components()` does
+    // Manually split into components, `Utf8UnixPath::components()` does
     // some normalization, which is undesirable here
     for c in stripped.split('/') {
         if c.is_empty() {

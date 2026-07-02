@@ -14,7 +14,7 @@ use crate::{
     lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{CanonicalizationError, ProjectRead},
-    resolve::ResolveRead,
+    resolve::{ResolutionInfo, ResolveRead},
 };
 
 use super::ResolutionOutcome;
@@ -240,11 +240,11 @@ impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<H
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         match self
             .higher
-            .resolve_read(uri)
+            .resolve_read(resolve)
             .map_err(PriorityError::Higher)?
         {
             ResolutionOutcome::Resolved(resolved) => {
@@ -252,17 +252,20 @@ impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<H
                     PriorityIterator::HigherIterator(resolved.into_iter()),
                 ));
             }
-            ResolutionOutcome::UnsupportedIRIType(msg) => {
-                log::debug!("higher priority resolver rejected IRI: {msg}")
+            ResolutionOutcome::UnsupportedUsageType { reason } => {
+                log::debug!("higher priority resolver rejected usage {resolve}: {reason}")
             }
-            ResolutionOutcome::Unresolvable(msg) => {
-                log::debug!("higher priority resolver failed to resolve IRI: {msg}")
+            ResolutionOutcome::NotFound { reason } => {
+                log::debug!("higher priority resolver did not find usage {resolve}: {reason}")
+            }
+            ResolutionOutcome::Unresolvable { reason } => {
+                log::debug!("cannot resolve usage {resolve}: {reason}")
             }
         };
 
         Ok(self
             .lower
-            .resolve_read(uri)
+            .resolve_read(resolve)
             .map_err(PriorityError::Lower)?
             .map(|resolved| PriorityIterator::LowerIterator(resolved.into_iter())))
     }

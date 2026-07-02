@@ -38,7 +38,7 @@ use sysand_core::{
         any::{AnyProject, OverrideProject},
         local_src::LocalSrcProject,
         reference::ProjectReference,
-        utils::wrapfs,
+        utils::{Identifier, wrapfs},
     },
     resolve::net_utils::create_reqwest_client,
     stdlib::known_std_libs,
@@ -47,9 +47,9 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, Command, InfoCommand},
+    cli::{Args, Command, ExpCommand, InfoCommand},
     commands::{
-        add::command_add,
+        add::{ExpAddArgs, command_add, exp_command_add},
         build::{command_build_for_project, command_build_for_workspace},
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
@@ -63,7 +63,7 @@ use crate::{
         lock::command_lock,
         print_root::command_print_root,
         publish::command_publish,
-        remove::command_remove,
+        remove::{command_remove, exp_command_remove},
         sources::{command_sources_env, command_sources_project},
         sync::command_sync,
     },
@@ -488,7 +488,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     default_index,
                 )?)
             };
-            let excluded_iris: HashSet<_> = if !include_std {
+            let excluded_usages: HashSet<_> = if !include_std {
                 // Only print std warning when command is to print all info
                 // or just usages.
                 // These are the only cases where stdlib usages affect output
@@ -584,7 +584,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                     numbered,
                                 )
                             }
-                            None => command_info_path(current_project.root_path(), &excluded_iris),
+                            None => {
+                                command_info_path(current_project.root_path(), &excluded_usages)
+                            }
                         }
                     } else {
                         bail!(
@@ -597,7 +599,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     !no_normalise,
                     client,
                     index_urls,
-                    &excluded_iris,
+                    &excluded_usages,
                     overrides,
                     runtime,
                     auth_policy,
@@ -618,7 +620,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         ctx,
                     )
                 }
-                (Location::Path(path), None) => command_info_path(&path, &excluded_iris),
+                (Location::Path(path), None) => command_info_path(&path, &excluded_usages),
                 (Location::Path(path), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
 
@@ -721,7 +723,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         }
-        cli::Command::Publish {
+        Command::Publish {
             path,
             index,
             trusted_publishing,
@@ -766,6 +768,28 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             runtime,
             auth_policy,
         ),
+        Command::Experimental { subcommand } => match subcommand {
+            ExpCommand::Add {
+                locator,
+                resolution_opts,
+                no_lock,
+                no_sync,
+            } => {
+                let add = ExpAddArgs::Dir { dir: locator.dir };
+                exp_command_add(
+                    add,
+                    no_lock,
+                    no_sync,
+                    resolution_opts,
+                    config,
+                    ctx,
+                    client,
+                    runtime,
+                    auth_policy,
+                )
+            }
+            ExpCommand::Remove { publisher, name } => exp_command_remove(publisher, name, ctx),
+        },
     }
 }
 
@@ -818,7 +842,7 @@ fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
     }
 }
 
-pub type Overrides<Policy> = Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>;
+pub type Overrides<Policy> = Vec<(Identifier, Vec<OverrideProject<Policy>>)>;
 
 pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     config: &Config,
@@ -840,7 +864,10 @@ pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     runtime.clone(),
                 )?));
             }
-            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+            overrides.push((
+                Identifier::from_iri(&Iri::parse(identifier.as_str())?),
+                projects,
+            ));
         }
     }
     Ok(overrides)

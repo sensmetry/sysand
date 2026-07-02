@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::collections::HashMap;
-
 use crate::CliError;
 
 use anstream::println;
@@ -11,8 +9,9 @@ use semver::VersionReq;
 use sysand_core::{
     context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
-    project::{ProjectRead, memory::InMemoryProject},
+    project::ProjectRead,
     sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
+    utils::ProvidedProjects,
 };
 
 use sysand_core::env::ReadEnvironment;
@@ -22,7 +21,7 @@ pub fn command_sources_env<S: AsRef<str>>(
     version: Option<VersionReq>,
     include_deps: bool,
     env: Option<LocalDirectoryEnvironment>,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
     include_std: bool,
 ) -> Result<()> {
     let Some(env) = env else {
@@ -73,7 +72,7 @@ pub fn command_sources_env<S: AsRef<str>>(
         if !include_std {
             crate::logger::warn_std_deps();
         }
-        for dep in find_project_dependencies(info.validate()?.usage, env, provided_iris)? {
+        for dep in find_project_dependencies(info.validate()?.usage, env, provided_usages)? {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
                 println!("{}", src_path);
             }
@@ -86,7 +85,7 @@ pub fn command_sources_env<S: AsRef<str>>(
 pub fn command_sources_project(
     include_deps: bool,
     ctx: ProjectContext,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_iris: &ProvidedProjects,
 ) -> Result<()> {
     let current_project = ctx
         .current_project

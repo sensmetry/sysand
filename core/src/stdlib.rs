@@ -3,7 +3,10 @@
 
 use std::collections::HashMap;
 
-use crate::project::memory::InMemoryProject;
+use crate::{
+    project::{memory::InMemoryProject, utils::Identifier},
+    utils::ProvidedProjects,
+};
 
 const QUANTITIES_AND_UNITS_LIBRARY_INFO_20250201: &str =
     include_str!("stdlib_assets/20250201/quantities-and-units-library.project.json");
@@ -51,14 +54,16 @@ const SEMANTIC_LIBRARY_META_20250201: &str =
 // embed the .project.json and .meta.json files separately
 // TODO: use std::cell::Lazy (or similar), since this does not need
 // to be recreated on each call
-pub fn known_std_libs() -> HashMap<String, Vec<InMemoryProject>> {
+pub fn known_std_libs() -> ProvidedProjects {
     fn entries(
         xs: impl IntoIterator<Item = (&'static str, &'static str, &'static str)>,
-    ) -> HashMap<String, Vec<InMemoryProject>> {
+    ) -> ProvidedProjects {
         let mut result = HashMap::default();
 
         for (iri, info, meta) in xs {
-            let projects = result.entry(iri.to_string()).or_insert_with(Vec::new);
+            let projects = result
+                .entry(Identifier::from_iri_unchecked_str(iri))
+                .or_insert_with(Vec::new);
             projects.push(InMemoryProject::from_info_meta(
                 serde_json::from_str(info).unwrap(),
                 serde_json::from_str(meta).unwrap(),

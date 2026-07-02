@@ -30,7 +30,7 @@ pub const KERML_METAMODEL_PREFIX: &str = "https://www.omg.org/spec/KerML/";
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Hash, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(untagged)]
-pub enum InterchangeProjectUsageG<Iri, VersionReq> {
+pub enum InterchangeProjectUsageG<Iri, VersionReq, Path> {
     // `rename_all` does not apply to enum variant fields if applied on
     // the whole enum
     #[serde(rename_all = "camelCase")]
@@ -39,11 +39,17 @@ pub enum InterchangeProjectUsageG<Iri, VersionReq> {
         #[serde(skip_serializing_if = "Option::is_none")]
         version_constraint: Option<VersionReq>, // TODO: We should have a fallback for invalid semvers
     },
+    /// Path to project directory
+    Directory {
+        dir: Path,
+        publisher: String,
+        name: String,
+    },
 }
 
-pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String>;
+pub type InterchangeProjectUsageRaw = InterchangeProjectUsageG<String, String, String>;
 pub type InterchangeProjectUsage =
-    InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>;
+    InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq, Utf8UnixPathBuf>;
 
 impl InterchangeProjectUsageRaw {
     /// Caller is responsible for identifying the project when reporting the error
@@ -85,6 +91,22 @@ impl InterchangeProjectUsageRaw {
                         .transpose()?,
                 })
             }
+            InterchangeProjectUsageG::Directory {
+                dir: path,
+                publisher,
+                name,
+            } => match parse_relative_unix_path(path, RelativePathKind::Directory) {
+                Ok(p) => Ok(InterchangeProjectUsageG::Directory {
+                    dir: p.to_owned(),
+                    publisher: publisher.clone(),
+                    name: name.clone(),
+                }),
+                Err(e) => Err(InterchangeProjectValidationError::InvalidUsagePath {
+                    publisher: publisher.clone(),
+                    name: name.clone(),
+                    source: e,
+                }),
+            },
         }
     }
 }
@@ -92,21 +114,36 @@ impl InterchangeProjectUsageRaw {
 impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
     fn from(value: InterchangeProjectUsage) -> InterchangeProjectUsageRaw {
         match value {
-            InterchangeProjectUsageG::Resource {
+            InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint,
             } => InterchangeProjectUsageRaw::Resource {
                 resource: resource.into_string(),
                 version_constraint: version_constraint.map(|x| x.to_string()),
             },
+            InterchangeProjectUsage::Directory {
+                dir,
+                publisher,
+                name,
+            } => InterchangeProjectUsageRaw::Directory {
+                dir: dir.into_string(),
+                publisher,
+                name,
+            },
         }
     }
 }
 
-impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>>
-    for InterchangeProjectUsageG<String, semver::VersionReq>
+impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq, Utf8UnixPathBuf>>
+    for InterchangeProjectUsageG<String, semver::VersionReq, Utf8UnixPathBuf>
 {
-    fn from(value: InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>) -> Self {
+    fn from(
+        value: InterchangeProjectUsageG<
+            fluent_uri::Iri<String>,
+            semver::VersionReq,
+            Utf8UnixPathBuf,
+        >,
+    ) -> Self {
         match value {
             InterchangeProjectUsageG::Resource {
                 resource,
@@ -115,11 +152,22 @@ impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq>>
                 resource: resource.into_string(),
                 version_constraint,
             },
+            InterchangeProjectUsage::Directory {
+                dir,
+                publisher,
+                name,
+            } => InterchangeProjectUsageG::Directory {
+                dir,
+                publisher,
+                name,
+            },
         }
     }
 }
 
-impl<Iri: Display, VersionReq: Display> Display for InterchangeProjectUsageG<Iri, VersionReq> {
+impl<Iri: Display, VersionReq: Display, Path: Display> Display
+    for InterchangeProjectUsageG<Iri, VersionReq, Path>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InterchangeProjectUsageG::Resource {
@@ -131,6 +179,13 @@ impl<Iri: Display, VersionReq: Display> Display for InterchangeProjectUsageG<Iri
                     write!(f, " ({vc})")?;
                 }
             }
+            InterchangeProjectUsageG::Directory {
+                dir,
+                publisher,
+                name,
+            } => {
+                writeln!(f, "`{publisher}/{name}` from `{dir}`")?;
+            }
         }
         Ok(())
     }
@@ -139,7 +194,7 @@ impl<Iri: Display, VersionReq: Display> Display for InterchangeProjectUsageG<Iri
 #[derive(Eq, Clone, PartialEq, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 #[serde(rename_all = "camelCase")]
-pub struct InterchangeProjectInfoG<Iri, Version, VersionReq> {
+pub struct InterchangeProjectInfoG<Iri, Version, VersionReq, Path> {
     pub name: String,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -166,12 +221,16 @@ pub struct InterchangeProjectInfoG<Iri, Version, VersionReq> {
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
-    pub usage: Vec<InterchangeProjectUsageG<Iri, VersionReq>>,
+    pub usage: Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>>,
 }
 
-pub type InterchangeProjectInfoRaw = InterchangeProjectInfoG<String, String, String>;
-pub type InterchangeProjectInfo =
-    InterchangeProjectInfoG<fluent_uri::Iri<String>, semver::Version, semver::VersionReq>;
+pub type InterchangeProjectInfoRaw = InterchangeProjectInfoG<String, String, String, String>;
+pub type InterchangeProjectInfo = InterchangeProjectInfoG<
+    fluent_uri::Iri<String>,
+    semver::Version,
+    semver::VersionReq,
+    Utf8UnixPathBuf,
+>;
 
 impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     fn from(value: InterchangeProjectInfo) -> Self {
@@ -193,8 +252,8 @@ impl From<InterchangeProjectInfo> for InterchangeProjectInfoRaw {
     }
 }
 
-impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
-    InterchangeProjectInfoG<Iri, Version, VersionReq>
+impl<Iri: PartialEq + Clone, Version, VersionReq: Clone, Path>
+    InterchangeProjectInfoG<Iri, Version, VersionReq, Path>
 {
     pub fn minimal(name: String, version: Version) -> Self {
         InterchangeProjectInfoG {
@@ -214,15 +273,32 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone>
     /// Note that sysand will never add multiple usages of the same resource
     /// to the project, but it does tolerate such usages.
     // TODO: the spec does not say anything about this and should be clarified
-    pub fn pop_usage(&mut self, resource: &Iri) -> Vec<InterchangeProjectUsageG<Iri, VersionReq>> {
+    pub fn pop_usage(
+        &mut self,
+        resource: &Iri,
+    ) -> Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>> {
         self.usage
-            .extract_if(
-                ..,
-                |InterchangeProjectUsageG::Resource {
-                     resource: this_resource,
-                     ..
-                 }| this_resource == resource,
-            )
+            .extract_if(.., |u| match u {
+                InterchangeProjectUsageG::Resource { resource: r, .. } => r == resource,
+                _ => false,
+            })
+            .collect()
+    }
+
+    pub fn exp_pop_usage(
+        &mut self,
+        publisher: &str,
+        name: &str,
+    ) -> Vec<InterchangeProjectUsageG<Iri, VersionReq, Path>> {
+        self.usage
+            .extract_if(.., |u| match u {
+                InterchangeProjectUsageG::Resource { .. } => false,
+                InterchangeProjectUsageG::Directory {
+                    dir: _,
+                    publisher: p,
+                    name: n,
+                } => p == publisher && n == name,
+            })
             .collect()
     }
 }
@@ -523,6 +599,12 @@ pub enum InterchangeProjectValidationError {
     InvalidPathInIndex(#[source] RelativeUnixPathError),
     #[error("source file checksum (`checksum` field in `.meta.json`) references an invalid path")]
     InvalidPathInChecksum(#[source] RelativeUnixPathError),
+    #[error("path usage for `{publisher}`/`{name}` references an invalid path")]
+    InvalidUsagePath {
+        publisher: String,
+        name: String,
+        source: RelativeUnixPathError,
+    },
     #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
     InvalidCreatedTime(Box<str>, chrono::ParseError),
     #[error(

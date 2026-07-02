@@ -205,6 +205,8 @@ pub trait ProjectRead {
     // Optional and helpers
 
     /// Returns the local filesystem root path of this project, if available.
+    /// It is used, among other things, to resolve relative path usages. Such
+    /// usages will fail resolution if `None` is returned here
     fn project_root(&self) -> Option<&Utf8Path> {
         None
     }
@@ -215,6 +217,10 @@ pub trait ProjectRead {
 
     fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
         Ok(self.get_project()?.1)
+    }
+
+    fn publisher(&self) -> Result<Option<Option<String>>, Self::Error> {
+        Ok(self.get_info()?.map(|info| info.publisher))
     }
 
     fn name(&self) -> Result<Option<String>, Self::Error> {

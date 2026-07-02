@@ -25,12 +25,11 @@ use crate::{
     },
     iri_normalize::IriVersionFilename,
     lock::{Lock, Source},
-    model::InterchangeProjectUsageRaw,
     project::{
         local_src::{LocalSrcError, LocalSrcProject, PathError},
         utils::{
-            FsIoError, ProjectDeserializationError, ProjectSerializationError, RelativizePathError,
-            wrapfs,
+            FsIoError, Identifier, ProjectDeserializationError, ProjectSerializationError,
+            RelativizePathError, wrapfs,
         },
     },
     workspace::Workspace,
@@ -120,7 +119,7 @@ impl LocalDirectoryEnvironment {
                 let usages = project
                     .usages
                     .iter()
-                    .map(|usage| usage.inner().clone())
+                    .map(|usage| usage.to_string())
                     .collect();
 
                 let workspace_member = ws
@@ -132,7 +131,7 @@ impl LocalDirectoryEnvironment {
                     name: project.name.to_owned(),
                     version: project.version.to_owned(),
                     path: editable.as_str().into(),
-                    identifiers: project.identifiers.to_owned(),
+                    identifiers: project.identifiers.iter().map(|i| i.to_string()).collect(),
                     usages,
                     editable: true,
                     workspace: workspace_member,
@@ -295,9 +294,7 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
             .metadata
             .projects
             .iter()
-            .flat_map(|p| p.identifiers.iter())
-            .cloned()
-            .map(Ok)
+            .flat_map(|p| p.identifiers.iter().map(|i| Ok(i.to_string())))
             .collect())
     }
 
@@ -469,9 +466,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             existing.usages = info
                 .usage
                 .into_iter()
-                .map(|u| match u {
-                    InterchangeProjectUsageRaw::Resource { resource, .. } => resource,
-                })
+                .map(|u| Identifier::from_interchange_usage_unchecked(&u).into_string())
                 .collect();
             existing.checksum = checksum.map(Into::into);
 

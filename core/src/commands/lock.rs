@@ -20,12 +20,14 @@ use crate::project::{editable::EditableProject, local_src::LocalSrcProject, util
 use crate::{
     context::ProjectContext,
     lock::{Lock, Project, Usage, hash_str},
-    model::{
-        InterchangeProjectUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
+    model::{InterchangeProjectUsage, InterchangeProjectValidationError},
+    project::{
+        CanonicalizationError, ProjectRead,
+        utils::{FsIoError, Identifier},
     },
-    project::{CanonicalizationError, ProjectRead, memory::InMemoryProject, utils::FsIoError},
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
+    utils::ProvidedProjects,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,7 +99,7 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
         field: IncompleteField,
     },
     #[error("project `{identifier}` has invalid metadata")]
-    InvalidUsage {
+    InvalidProject {
         identifier: String,
         source: InterchangeProjectValidationError,
     },
@@ -112,7 +114,7 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
 #[derive(Debug)]
 pub struct LockOutcome<PD: Debug> {
     pub lock: Lock,
-    pub dependencies: Vec<(fluent_uri::Iri<String>, PD)>,
+    pub dependencies: Vec<(Identifier, PD)>,
 }
 
 /// Generates a lockfile by solving for a (compatible) set of interchange projects
@@ -137,7 +139,7 @@ pub fn do_lock_projects<
 >(
     projects: I,
     resolver: R,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
     let mut lock = Lock::default();
@@ -162,7 +164,7 @@ pub fn do_lock_projects<
                     field: IncompleteField::Info,
                 })
             })?;
-        let validated_info = info.validate().map_err(|e| LockError::InvalidUsage {
+        let validated_info = info.validate().map_err(|e| LockError::InvalidProject {
             identifier: {
                 if let Some(ids) = &identifiers {
                     ids[0].as_str().to_owned()
@@ -193,24 +195,16 @@ pub fn do_lock_projects<
             version: info.version,
             exports: meta.index.into_keys().collect(),
             identifiers: identifiers
-                .map(|ids| ids.into_iter().map(|id| id.into_string()).collect())
+                .map(|ids| ids.into_iter().map(Into::into).collect())
                 .unwrap_or_default(),
             sources,
-            usages: info
-                .usage
-                .iter()
-                .map(|u| match u {
-                    InterchangeProjectUsageRaw::Resource { resource, .. } => {
-                        Usage::from(resource.to_owned())
-                    }
-                })
-                .collect(),
+            usages: validated_info.usage.iter().map(Usage::from).collect(),
         });
 
         all_deps.extend(validated_info.usage);
     }
 
-    let lock_outcome = do_lock_extend(lock, all_deps, resolver, provided_iris, ctx)?;
+    let lock_outcome = do_lock_extend(lock, all_deps, resolver, provided_usages, ctx)?;
 
     Ok(lock_outcome)
 }
@@ -233,22 +227,23 @@ pub fn do_lock_extend<
     mut lock: Lock,
     usages: I,
     resolver: R,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     let inputs: Vec<_> = usages.into_iter().collect();
     let mut dependencies = vec![];
-    let solution = solve(inputs, resolver).map_err(LockError::Solver)?;
+    let base_path = ctx.project_root();
+    let solution = solve(inputs, base_path, resolver).map_err(LockError::Solver)?;
     let mut lock_projects = HashSet::new();
     let mut lock_symbols = HashMap::new();
     for (i, p) in lock.projects.iter().enumerate() {
-        if let Some(iri) = p.identifiers.first() {
+        if let Some(id) = p.identifiers.first() {
             // FIXME: better deduplication. What to consider? Previously this was
             // done based on canonical checksum, but such rigor is not necessary,
             // since if symbols of any two projects overlap the lock will fail anyway.
             // Current way may produce a lockfile that does not satisfy all version
             // constraints.
-            lock_projects.insert(iri.clone());
+            lock_projects.insert(id.clone());
         }
         for s in p.exports.iter() {
             if let Some(conflict_idx) = lock_symbols.insert(hash_str(s), i) {
@@ -264,25 +259,28 @@ pub fn do_lock_extend<
         }
     }
 
-    for (iri, project) in solution {
-        let iri_str = iri.as_str().to_owned();
+    for (identifier, project) in solution {
         // TODO: use get_info, that can be more efficient
         let info = project
             .get_info()
             .map_err(LockError::DependencyProject)?
             .ok_or_else(|| LockError::IncompleteProject {
-                project_label: iri_str.clone(),
+                project_label: identifier.to_string(),
                 field: IncompleteField::Info,
             })?;
+        let validated_info = info.validate().map_err(|e| LockError::InvalidProject {
+            identifier: identifier.to_string(),
+            source: e,
+        })?;
         let meta = project
             .get_meta()
             .map_err(LockError::DependencyProject)?
             .ok_or_else(|| LockError::IncompleteProject {
-                project_label: iri_str.clone(),
+                project_label: identifier.to_string(),
                 field: IncompleteField::Meta,
             })?;
 
-        let sources = if !provided_iris.contains_key(iri.as_str()) {
+        let sources = if !provided_usages.contains_key(&identifier) {
             let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;
             debug_assert!(!sources.is_empty());
             sources
@@ -295,19 +293,14 @@ pub fn do_lock_extend<
             publisher: info.publisher,
             version: info.version.to_string(),
             exports: meta.index.into_keys().collect(),
-            identifiers: vec![iri.to_string()],
+            identifiers: vec![identifier.to_string()],
             sources,
-            usages: info
-                .usage
-                .into_iter()
-                .map(|u| match u {
-                    InterchangeProjectUsageRaw::Resource { resource, .. } => Usage::from(resource),
-                })
-                .collect(),
+            // TODO: into_iter
+            usages: validated_info.usage.iter().map(Usage::from).collect(),
         };
-        if lock_projects.contains(iri.as_str()) {
+        if lock_projects.contains(identifier.as_str()) {
             log::debug!(
-                "not adding project `{iri}` ({}) to lock, as lock already contains it",
+                "not adding project `{identifier}` ({}) to lock, as lock already contains it",
                 lock_project.version
             );
         } else {
@@ -343,7 +336,7 @@ pub fn do_lock_extend<
             lock.projects.push(lock_project);
         }
 
-        dependencies.push((iri, project));
+        dependencies.push((identifier, project));
     }
 
     Ok(LockOutcome { lock, dependencies })
@@ -363,7 +356,7 @@ pub fn do_lock_local_editable<
     path: P,
     project_root: PR,
     identifiers: Option<Vec<Iri<String>>>,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
     resolver: R,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
@@ -377,7 +370,7 @@ pub fn do_lock_local_editable<
         },
     );
 
-    do_lock_projects([(identifiers, &project)], resolver, provided_iris, ctx)
+    do_lock_projects([(identifiers, &project)], resolver, provided_usages, ctx)
 }
 
 #[cfg(test)]

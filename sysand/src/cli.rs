@@ -289,6 +289,42 @@ pub enum Command {
     },
     /// Prints the root directory of the current project
     PrintRoot,
+    /// Experimental commands. Likely to change in incompatible ways or be
+    /// removed in the future.
+    #[clap(verbatim_doc_comment)]
+    Experimental {
+        #[command(subcommand)]
+        subcommand: ExpCommand,
+    },
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum ExpCommand {
+    /// Add a usage
+    Add {
+        #[clap(flatten)]
+        locator: ExpAddProjectLocatorArgs,
+
+        /// Do not automatically resolve dependencies (and generate lockfile)
+        #[arg(long, default_value_t = false)]
+        no_lock: bool,
+        /// Do not automatically install dependencies
+        #[arg(long, default_value_t = false)]
+        no_sync: bool,
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
+    /// Remove a usage
+    Remove { publisher: String, name: String },
+}
+
+#[derive(clap::Args, Debug, Clone)]
+pub struct ExpAddProjectLocatorArgs {
+    /// Add a project from a local directory path
+    /// Path to the project. Can be relative or absolute, and point
+    /// to a project directory
+    #[arg(long, verbatim_doc_comment)]
+    pub dir: Utf8PathBuf,
 }
 
 #[derive(clap::Args, Debug, Clone)]

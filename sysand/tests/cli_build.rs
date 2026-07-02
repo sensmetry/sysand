@@ -228,7 +228,7 @@ fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .failure()
         .stderr(predicate::str::contains("project includes a path usage"));
-    assert!(!cwd1.join("test_build.kpar").exists());
+    assert!(!cwd1.join("test_build.kpar").is_file());
 
     let out = run_sysand_in(
         &cwd1,

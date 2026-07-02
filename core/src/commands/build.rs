@@ -297,10 +297,10 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 }
             });
 
-    if let Some(resource) = info.usage.iter().find_map(|x| {
-        // Case-insensitively match `file:` scheme
+    if let Some(path_usage) = info.usage.iter().find_map(|x| {
         match x {
             InterchangeProjectUsageRaw::Resource { resource, .. } => {
+                // Case-insensitively match `file:` scheme
                 if let Some(scheme) = resource.get(..5)
                     && scheme.eq_ignore_ascii_case("file:")
                 {
@@ -309,15 +309,20 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                     None
                 }
             }
+            InterchangeProjectUsageRaw::Directory {
+                dir,
+                publisher: _,
+                name: _,
+            } => Some(dir),
         }
     }) {
         if allow_path_usage {
             log::warn!(
-                "project includes a path usage `{resource}`,\n\
+                "project includes a path usage `{path_usage}`,\n\
                 which is unlikely to be available on other computers at the same path"
             );
         } else {
-            return Err(KParBuildError::PathUsage(resource.clone()));
+            return Err(KParBuildError::PathUsage(path_usage.clone()));
         }
     }
 

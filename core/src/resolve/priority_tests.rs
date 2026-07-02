@@ -8,9 +8,9 @@ use indexmap::IndexMap;
 
 use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{ProjectRead as _, memory::InMemoryProject},
+    project::{ProjectRead as _, memory::InMemoryProject, utils::Identifier},
     resolve::{
-        ResolutionOutcome, ResolveRead,
+        ResolutionInfo, ResolutionOutcome, ResolveRead,
         memory::{AcceptAll, MemoryResolver},
     },
 };
@@ -48,20 +48,22 @@ fn mock_project<S: AsRef<str>, T: AsRef<str>, V: AsRef<str>>(
     )
 }
 
-fn mock_resolver<I: IntoIterator<Item = (Iri<String>, InMemoryProject)>>(
+fn mock_iri_resolver<I: IntoIterator<Item = (Iri<String>, InMemoryProject)>>(
     projects: I,
 ) -> MemoryResolver<AcceptAll, InMemoryProject> {
     MemoryResolver {
         iri_predicate: AcceptAll {},
-        projects: HashMap::from_iter(projects.into_iter().map(|(k, v)| (k, vec![v]))),
+        projects: HashMap::from_iter(
+            projects
+                .into_iter()
+                .map(|(k, v)| (Identifier::from_iri_owned(k), vec![v])),
+        ),
     }
 }
 
-fn expect_to_resolve<R: ResolveRead, S: AsRef<str>>(
-    resolver: &R,
-    uri: S,
-) -> Vec<R::ProjectStorage> {
-    let resolved = resolver.resolve_read_raw(uri).unwrap();
+fn expect_to_resolve_iri<R: ResolveRead>(resolver: &R, uri: &str) -> Vec<R::ProjectStorage> {
+    let uri = ResolutionInfo::iri(Iri::parse(uri).unwrap().into());
+    let resolved = resolver.resolve_read(&uri).unwrap();
 
     let foo_projects: Result<Vec<_>, _> =
         if let ResolutionOutcome::Resolved(foo_projects) = resolved {
@@ -75,29 +77,29 @@ fn expect_to_resolve<R: ResolveRead, S: AsRef<str>>(
 
 #[test]
 fn resolution_priority() -> Result<(), Box<dyn std::error::Error>> {
-    let higher = mock_resolver([
+    let higher = mock_iri_resolver([
         mock_project("urn:kpar:foo", "foo", "1.2.3"),
         mock_project("urn:kpar:bar", "bar", "1.2.3"),
     ]);
 
-    let lower = mock_resolver([
+    let lower = mock_iri_resolver([
         mock_project("urn:kpar:bar", "bar", "3.2.1"),
         mock_project("urn:kpar:baz", "baz", "3.2.1"),
     ]);
 
     let resolver = super::PriorityResolver::new(higher, lower);
 
-    let foos = expect_to_resolve(&resolver, "urn:kpar:foo");
+    let foos = expect_to_resolve_iri(&resolver, "urn:kpar:foo");
 
     assert_eq!(foos.len(), 1);
     assert_eq!(foos[0].version().unwrap(), Some("1.2.3".to_string()));
 
-    let bars = expect_to_resolve(&resolver, "urn:kpar:bar");
+    let bars = expect_to_resolve_iri(&resolver, "urn:kpar:bar");
 
     assert_eq!(bars.len(), 1);
     assert_eq!(bars[0].version().unwrap(), Some("1.2.3".to_string()));
 
-    let bazs = expect_to_resolve(&resolver, "urn:kpar:baz");
+    let bazs = expect_to_resolve_iri(&resolver, "urn:kpar:baz");
 
     assert_eq!(bazs.len(), 1);
     assert_eq!(bazs[0].version().unwrap(), Some("3.2.1".to_string()));

@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use camino::Utf8PathBuf;
+use fluent_uri::Iri;
 use jni::{
     JNIEnv,
     errors::Error,
@@ -14,7 +15,6 @@ use sysand_core::{
     build::{KParBuildError, KparCompressionMethod},
     commands,
     env::{DEFAULT_ENV_NAME, local_directory::LocalWriteError},
-    info::InfoError,
     init::InitError,
     project::{
         ProjectMut,
@@ -208,7 +208,6 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     uri: JString<'local>,
-    relative_file_root: JString<'local>,
     index_url: JString<'local>,
 ) -> JObject<'local> {
     let Some(uri) = env.get_str(&uri, "uri") else {
@@ -239,10 +238,6 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
         Arc::new(r)
     };
 
-    let Some(relative_file_root) = env.get_str(&relative_file_root, "relativeFileRoot") else {
-        return JObject::default();
-    };
-
     let index_base_url = if index_url.is_null() {
         None
     } else {
@@ -262,7 +257,6 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
     };
 
     let combined_resolver = match standard_resolver(
-        Some(Utf8PathBuf::from(relative_file_root)),
         None,
         Some(client),
         index_base_url.map(|x| vec![x]),
@@ -280,14 +274,19 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
         }
     };
 
+    let uri = match Iri::parse(uri) {
+        Ok(u) => u,
+        Err((error, input)) => {
+            env.throw_exception(
+                ExceptionKind::ResolutionError,
+                format!("Provided IRI `{input}` is invalid: {error}"),
+            );
+            return JObject::default();
+        }
+    };
     let info_meta = match commands::info::do_info(&uri, &combined_resolver) {
         Ok(info_meta) => info_meta,
-        Err(
-            e @ (InfoError::NoSemanticVersionsFound(_)
-            | InfoError::NoResolve(..)
-            | InfoError::UnsupportedIri(..)
-            | InfoError::Resolution(_)),
-        ) => {
+        Err(e) => {
             env.throw_exception(ExceptionKind::ResolutionError, format_err(e));
             return JObject::default();
         }

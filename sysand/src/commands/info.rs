@@ -16,15 +16,18 @@ use sysand_core::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsageRaw,
     },
-    project::{ProjectMut, ProjectRead, any::OverrideProject, local_kpar::KparInnerPath},
+    project::{
+        ProjectMut, ProjectRead, any::OverrideProject, local_kpar::KparInnerPath, utils::Identifier,
+    },
     resolve::{
         file::FileResolverProject, memory::MemoryResolver, priority::PriorityResolver,
         standard::standard_resolver,
     },
     style,
+    utils::ProvidedIdentifiers,
 };
 
-use anstream::{print, println};
+use anstream::println;
 use anyhow::{Result, bail};
 use fluent_uri::Iri;
 use std::{collections::HashSet, sync::Arc};
@@ -37,7 +40,7 @@ use url::Url;
 
 pub fn pprint_interchange_project(
     info: &InterchangeProjectInfoRaw,
-    excluded_iris: &HashSet<String>,
+    excluded_iris: &ProvidedIdentifiers,
 ) {
     let header = style::get_style_config().header;
     println!("{header}Name:{header:#} {}", info.name);
@@ -63,15 +66,10 @@ pub fn pprint_interchange_project(
     if !info.topic.is_empty() {
         println!("{header}Topics:{header:#} {}", info.topic.join(", "));
     }
-
+    dbg!(excluded_iris);
     if info.usage.is_empty() {
         println!("No usages.");
     } else {
-        let has_ignored_usages = info.usage.iter().any(|u| match u {
-            InterchangeProjectUsageRaw::Resource { resource, .. } => {
-                excluded_iris.contains(resource)
-            }
-        });
         let usages_to_print: Vec<_> = info
             .usage
             .iter()
@@ -79,26 +77,16 @@ pub fn pprint_interchange_project(
                 InterchangeProjectUsageRaw::Resource { resource, .. } => {
                     !excluded_iris.contains(resource)
                 }
+                InterchangeProjectUsageRaw::Directory { .. } => false,
             })
             .collect();
+        let has_ignored_usages = info.usage.len() > usages_to_print.len();
         if has_ignored_usages && usages_to_print.is_empty() {
             println!("All usages are ignored");
         } else {
             println!("{header}Usages:{header:#}");
             for usage in usages_to_print.iter() {
-                match usage {
-                    InterchangeProjectUsageRaw::Resource {
-                        resource,
-                        version_constraint,
-                    } => {
-                        print!("    {resource}");
-                        if let Some(v) = version_constraint {
-                            println!(" ({v})");
-                        } else {
-                            println!();
-                        }
-                    }
-                }
+                println!("    {usage}");
             }
             if has_ignored_usages {
                 println!("Some usages are ignored");
@@ -130,7 +118,7 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverPro
 
 pub fn command_info_path<P: AsRef<Utf8Path>>(
     path: P,
-    excluded_iris: &HashSet<String>,
+    excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
     let project = interpret_project_path(&path)?;
     match do_info_project(&project) {
@@ -152,8 +140,8 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
     _normalise: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
-    excluded_iris: &HashSet<String>,
-    overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
+    excluded_iris: &ProvidedIdentifiers,
+    overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ctx: ProjectContext,
@@ -166,14 +154,7 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
 
     let combined_resolver = PriorityResolver::new(
         MemoryResolver::from(overrides),
-        standard_resolver(
-            Some(ctx.current_directory),
-            ctx.env,
-            Some(client),
-            index_urls,
-            runtime,
-            auth_policy,
-        )?,
+        standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
     );
 
     let (info, _) = do_info(&uri, &combined_resolver)?;
@@ -229,7 +210,7 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     numbered: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<Url>>,
-    overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
+    overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ctx: ProjectContext,
@@ -238,14 +219,7 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
         InfoCommandVerb::Get(get_verb) => {
             let combined_resolver = PriorityResolver::new(
                 MemoryResolver::from(overrides),
-                standard_resolver(
-                    Some(ctx.current_directory),
-                    ctx.env,
-                    Some(client),
-                    index_urls,
-                    runtime,
-                    auth_policy,
-                )?,
+                standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
             );
 
             match get_verb {
@@ -356,23 +330,7 @@ fn apply_get_info(
         GetInfoVerb::GetWebsite => print_output(info.website.map(|x| vec![x]), numbered),
         GetInfoVerb::GetTopic => print_output(Some(info.topic), numbered),
         GetInfoVerb::GetUsage => print_output(
-            Some(
-                info.usage
-                    .into_iter()
-                    .map(|usage| match usage {
-                        InterchangeProjectUsageRaw::Resource {
-                            resource,
-                            version_constraint,
-                        } => {
-                            if let Some(version_constraint) = version_constraint {
-                                format!("{resource} ({version_constraint})")
-                            } else {
-                                resource.clone()
-                            }
-                        }
-                    })
-                    .collect(),
-            ),
+            Some(info.usage.iter().map(ToString::to_string).collect()),
             numbered,
         ),
     }

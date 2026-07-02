@@ -380,7 +380,7 @@ fn one_usage_to_toml() {
             version: "0.5.1".to_string(),
             exports: vec![],
             identifiers: vec![],
-            usages: vec![Usage::from("urn:kpar:usage".to_string())],
+            usages: vec![Usage::from_str_unchecked("urn:kpar:usage")],
             sources: vec![],
         }],
         r#"
@@ -404,9 +404,9 @@ fn many_usage_to_toml() {
             exports: vec![],
             identifiers: vec![],
             usages: vec![
-                Usage::from("urn:kpar:first".to_string()),
-                Usage::from("urn:kpar:second".to_string()),
-                Usage::from("urn:kpar:third".to_string()),
+                Usage::from_str_unchecked("urn:kpar:first"),
+                Usage::from_str_unchecked("urn:kpar:second"),
+                Usage::from_str_unchecked("urn:kpar:third"),
             ],
             sources: vec![],
         }],
@@ -537,7 +537,7 @@ fn validate_single_usage() {
                 "0.0.1",
                 &[],
                 &[],
-                &[Usage::from(iri.to_string())],
+                &[Usage::from_str_unchecked(iri)],
             ),
             make_project("b", None, "0.0.1", &[], &[iri], &[]),
         ],
@@ -559,7 +559,10 @@ fn validate_multiple_usage() {
                 "0.0.1",
                 &[],
                 &[],
-                &[Usage::from(iri1.to_string()), Usage::from(iri2.to_string())],
+                &[
+                    Usage::from_str_unchecked(iri1),
+                    Usage::from_str_unchecked(iri2),
+                ],
             ),
             make_project("b", None, "0.0.1", &[], &[iri1], &[]),
             make_project("c", None, "0.0.1", &[], &[iri2], &[]),
@@ -582,7 +585,7 @@ fn validate_chained_usages() {
                 "0.0.1",
                 &[],
                 &[],
-                &[Usage::from(iri1.to_string())],
+                &[Usage::from_str_unchecked(iri1)],
             ),
             make_project(
                 "b",
@@ -590,7 +593,7 @@ fn validate_chained_usages() {
                 "0.0.1",
                 &[],
                 &[iri1],
-                &[Usage::from(iri2.to_string())],
+                &[Usage::from_str_unchecked(iri2)],
             ),
             make_project("c", None, "0.0.1", &[], &[iri2], &[]),
         ],
@@ -632,7 +635,7 @@ fn validate_single_name_collision() {
                 "0.0.1",
                 &[name],
                 &[],
-                &[Usage::from(iri.to_string())],
+                &[Usage::from_str_unchecked(iri)],
             ),
             make_project("b", None, "0.0.1", &[name], &[iri], &[]),
         ],
@@ -662,7 +665,7 @@ fn validate_multiple_name_collision() {
                 "0.0.1",
                 &[name1, name2, name3],
                 &[],
-                &[Usage::from(iri.to_string())],
+                &[Usage::from_str_unchecked(iri)],
             ),
             make_project("b", None, "0.0.1", &[name2, name3, name4], &[iri], &[]),
         ],
@@ -677,7 +680,7 @@ fn validate_multiple_name_collision() {
 
 #[test]
 fn validate_unsatisfied_usage() {
-    let usage_in = Usage::from("urn:kpar:test".to_string());
+    let usage_in = Usage::from_str_unchecked("urn:kpar:test");
     let Err(err) = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![make_project(
@@ -850,8 +853,8 @@ fn sort_identifiers() {
 
 #[test]
 fn sort_sources() {
-    let usage1 = Usage::from("urn:kpar:a".to_string());
-    let usage2 = Usage::from("urn:kpar:b".to_string());
+    let usage1 = Usage::from_str_unchecked("urn:kpar:a");
+    let usage2 = Usage::from_str_unchecked("urn:kpar:b");
     let project1 = make_project(
         "a",
         None,
@@ -872,8 +875,8 @@ fn sort_sources() {
 
 #[test]
 fn sort_sources_with_constraints() {
-    let usage1 = Usage::from("urn:kpar:a".to_string());
-    let usage2 = Usage::from("urn:kpar:a".to_string());
+    let usage1 = Usage::from_str_unchecked("urn:kpar:a");
+    let usage2 = Usage::from_str_unchecked("urn:kpar:a");
     let project1 = make_project(
         "a",
         None,

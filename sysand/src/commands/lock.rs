@@ -19,6 +19,7 @@ use sysand_core::{
         standard::{StandardResolver, standard_resolver},
     },
     stdlib::known_std_libs,
+    utils::ProvidedProjects,
 };
 use typed_path::Utf8UnixPath;
 
@@ -90,7 +91,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     config: &Config,
     project_root: R,
     ctx: &ProjectContext,
-    provided_iris: HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: ProvidedProjects,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
@@ -130,24 +131,16 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         auth_policy.clone(),
     )?;
 
-    // TODO: add fn next to known_std_libs() to get this structure directly
-    // it is created in most? all? places where `known_std_libs()` is used
-    let mut memory_projects = HashMap::default();
-    for (k, v) in provided_iris {
-        memory_projects.insert(fluent_uri::Iri::parse(k).unwrap(), v);
-    }
-
     let override_resolver = PriorityResolver::new(
         MemoryResolver::from(overrides),
         MemoryResolver {
             iri_predicate: AcceptAll {},
-            projects: memory_projects,
+            projects: provided_usages,
         },
     );
     let wrapped_resolver = PriorityResolver::new(
         override_resolver,
         standard_resolver(
-            None,
             // TODO: borrow?
             ctx.env.to_owned(),
             Some(client),

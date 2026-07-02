@@ -16,13 +16,14 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     context::ProjectContext,
-    model::InterchangeProjectUsageRaw,
+    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
     project::{
         ProjectRead,
-        utils::{relativize_path, wrapfs},
+        local_src::LocalSrcProject,
+        utils::{Identifier, relativize_path, wrapfs},
     },
-    resolve::{ResolutionOutcome, ResolveRead, standard::standard_resolver},
-    utils::format_err,
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, standard::standard_resolver},
+    utils::{ProvidedProjects, format_err},
 };
 
 use crate::{
@@ -86,7 +87,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
             Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
         };
         let std_resolver = standard_resolver(
-            None,
             // TODO: why not use env here?
             None,
             Some(client.clone()),
@@ -94,7 +94,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
             runtime.clone(),
             auth_policy.clone(),
         )?;
-        let outcome = std_resolver.resolve_read(&url)?;
+        let resolve = ResolutionInfo::iri(url);
+        let outcome = std_resolver.resolve_read(&resolve)?;
         let mut source = None;
         match outcome {
             ResolutionOutcome::Resolved(alternatives) => {
@@ -110,13 +111,18 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     }
                 }
             }
-            ResolutionOutcome::UnsupportedIRIType(e) => bail!("unsupported URL `{url}`:\n{e}"),
-            ResolutionOutcome::Unresolvable(e) => {
-                bail!("failed to resolve URL `{url}`:\n{e}")
+            ResolutionOutcome::UnsupportedUsageType { reason } => {
+                bail!("unsupported project locator {resolve}: {reason}")
+            }
+            ResolutionOutcome::NotFound { reason } => {
+                bail!("project not found at {resolve}: {reason}")
+            }
+            ResolutionOutcome::Unresolvable { reason } => {
+                bail!("{resolve} is not resovable: {reason}")
             }
         }
         if source.is_none() {
-            bail!("unable to find project at URL `{url}`")
+            bail!("unable to find project {resolve}")
         }
         source
     } else if let Some(editable) = source_opts.as_editable {
@@ -241,6 +247,105 @@ pub fn command_add<Policy: HTTPAuthentication>(
     }
 }
 
+pub enum ExpAddArgs {
+    Dir { dir: Utf8PathBuf },
+}
+
+// TODO: Collect common arguments
+#[allow(clippy::too_many_arguments)]
+pub fn exp_command_add<Policy: HTTPAuthentication>(
+    add: ExpAddArgs,
+    no_lock: bool,
+    no_sync: bool,
+    resolution_opts: ResolutionOptions,
+    config: Config,
+    ctx: ProjectContext,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+) -> Result<()> {
+    let mut current_project = ctx
+        .current_project
+        .clone()
+        .ok_or(CliError::MissingProjectCurrentDir)?;
+
+    match add {
+        ExpAddArgs::Dir { dir } => {
+            let abs_path = wrapfs::canonicalize(dir)?;
+            let relative = relativize_path(&abs_path, &ctx.current_directory)?;
+            let project = LocalSrcProject {
+                nominal_path: None,
+                project_path: abs_path,
+                expected_checksum: None,
+            };
+            let info = project
+                .get_info()?
+                .ok_or_else(|| CliError::MissingProject(project.project_path.to_string()))?;
+            let publisher = info.publisher.ok_or_else(|| {
+                CliError::MissingPublisherForUsage(project.project_path.to_string())
+            })?;
+            let identifier = Identifier::from_pub_name(&publisher, &info.name);
+            let usage = InterchangeProjectUsage::Directory {
+                dir: relative,
+                publisher,
+                name: info.name,
+            };
+
+            let provided_iris = if !resolution_opts.include_std {
+                let sysml_std = crate::known_std_libs();
+                if sysml_std.contains_key(&identifier) {
+                    crate::logger::warn_std(&identifier);
+                    return Ok(());
+                }
+                sysml_std
+            } else {
+                HashMap::default()
+            };
+
+            if !no_lock {
+                let info_path = current_project.info_path();
+                let info_backup = wrapfs::read_to_string(&info_path)?;
+                let added = do_add(&mut current_project, &usage.into())?;
+                if !added {
+                    return Ok(());
+                }
+
+                let alias_iris = if let Some(w) = &ctx.current_workspace {
+                    w.projects()
+                        .iter()
+                        .find(|p| Path::new(&p.path) == current_project.root_path())
+                        .map(|p| p.iris.to_owned())
+                } else {
+                    None
+                };
+
+                match resolve_deps(
+                    no_sync,
+                    resolution_opts,
+                    &config,
+                    client,
+                    runtime,
+                    auth_policy,
+                    current_project.root_path(),
+                    alias_iris,
+                    provided_iris,
+                    ctx,
+                ) {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        // Restore old info
+                        wrapfs::write(&info_path, info_backup)?;
+                        Err(e)
+                    }
+                }
+            } else {
+                do_add(&mut current_project, &usage.into())?;
+                Ok(())
+            }
+        }
+    }
+}
+
 #[expect(clippy::too_many_arguments)]
 fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     no_sync: bool,
@@ -251,7 +356,7 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     project_root: P,
     project_identifiers: Option<Vec<Iri<String>>>,
-    provided_iris: HashMap<String, Vec<sysand_core::project::memory::InMemoryProject>>,
+    provided_iris: ProvidedProjects,
     ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
     let resolver = create_resolver(

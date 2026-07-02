@@ -24,4 +24,9 @@ pub enum CliError {
     MissingProjectVersion(String, String),
     #[error("unable to find interchange project in current directory")]
     MissingProjectCurrentDir,
+    #[error(
+        "project `{0}` does not have a publisher,\n\
+        which is required to add it as a path usage"
+    )]
+    MissingPublisherForUsage(String),
 }

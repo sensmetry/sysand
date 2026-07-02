@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 
-use fluent_uri::Iri;
 use indexmap::IndexMap;
 
 use crate::{
@@ -12,7 +11,7 @@ use crate::{
         InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage,
         InterchangeProjectUsageRaw,
     },
-    project::{ProjectRead, memory::InMemoryProject},
+    project::{ProjectRead, memory::InMemoryProject, utils::Identifier},
     resolve::env::EnvResolver,
 };
 
@@ -77,7 +76,7 @@ fn simple_resolver_environment(
 fn trivial_resolution() -> Result<(), Box<dyn std::error::Error>> {
     let resolver = simple_resolver_environment(&[]);
 
-    let solution = super::solve(vec![], resolver)?;
+    let solution = super::solve(vec![], None, resolver)?;
 
     assert!(solution.is_empty());
 
@@ -97,13 +96,16 @@ fn version_selection() -> Result<(), Box<dyn std::error::Error>> {
             resource: fluent_uri::Iri::parse("urn:kpar:version_selection")?.into(),
             version_constraint: Some(semver::VersionReq::parse(">=2.0.0")?),
         }],
+        None,
         resolver,
     )?;
 
     assert_eq!(solution.len(), 1);
 
     let install = solution
-        .get(Iri::parse("urn:kpar:version_selection")?.into())
+        .get(&Identifier::from_iri_unchecked_str(
+            "urn:kpar:version_selection",
+        ))
         .unwrap();
 
     assert_eq!(install.version()?.unwrap(), "2.0.1");
@@ -160,23 +162,30 @@ fn diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
                 version_constraint: None,
             },
         ],
+        None,
         resolver,
     )?;
 
     assert_eq!(solution.len(), 3);
 
     let install_a = solution
-        .get(Iri::parse("urn:kpar:diamond_selection_a")?.into())
+        .get(&Identifier::from_iri_unchecked_str(
+            "urn:kpar:diamond_selection_a",
+        ))
         .unwrap();
     assert_eq!(install_a.version()?.unwrap(), "1.0.1");
 
     let install_b = solution
-        .get(Iri::parse("urn:kpar:diamond_selection_b")?.into())
+        .get(&Identifier::from_iri_unchecked_str(
+            "urn:kpar:diamond_selection_b",
+        ))
         .unwrap();
     assert_eq!(install_b.version()?.unwrap(), "1.0.2");
 
     let install_c = solution
-        .get(Iri::parse("urn:kpar:diamond_selection_c")?.into())
+        .get(&Identifier::from_iri_unchecked_str(
+            "urn:kpar:diamond_selection_c",
+        ))
         .unwrap();
     assert_eq!(install_c.version()?.unwrap(), "2.0.3");
 
