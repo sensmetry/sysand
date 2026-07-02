@@ -41,6 +41,7 @@ use sysand_core::{
         utils::wrapfs,
     },
     resolve::net_utils::create_reqwest_client,
+    sources::Dependencies,
     stdlib::known_std_libs,
     workspace::Workspace,
 };
@@ -351,19 +352,13 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 iri,
                 version,
                 sources_opts,
-            }) => {
-                let cli::SourcesOptions {
-                    no_deps,
-                    include_std,
-                } = sources_opts;
-                let provided_iris = if !include_std {
-                    known_std_libs()
-                } else {
-                    HashMap::default()
-                };
-
-                command_sources_env(iri, version, !no_deps, ctx.env, &provided_iris, include_std)
-            }
+            }) => command_sources_env(
+                iri,
+                version,
+                sources_opts.no_own(),
+                sources_opts.dependencies(),
+                ctx.env,
+            ),
         },
         Command::Index { command } => {
             let root =
@@ -735,18 +730,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             runtime,
         ),
         Command::Sources { sources_opts } => {
-            let cli::SourcesOptions {
-                no_deps,
-                include_std,
-            } = sources_opts;
-            let provided_iris = if !include_std {
+            let dependencies = sources_opts.dependencies();
+            if dependencies == Dependencies::Deps {
                 crate::logger::warn_std_omit();
-                known_std_libs()
-            } else {
-                HashMap::default()
-            };
-
-            command_sources_project(!no_deps, ctx, &provided_iris)
+            }
+            command_sources_project(sources_opts.no_own(), dependencies, ctx)
         }
         Command::Clone {
             locator,

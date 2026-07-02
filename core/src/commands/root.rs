@@ -3,9 +3,13 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::{discover::discover_project, project::utils::FsIoError};
+use crate::{
+    discover::discover_project,
+    project::utils::{FsIoError, wrapfs},
+};
 
 pub fn do_root<P: AsRef<Utf8Path>>(path: P) -> Result<Option<Utf8PathBuf>, Box<FsIoError>> {
-    let root = discover_project(path)?.map(|e| e.root_path().to_owned());
-    Ok(root)
+    discover_project(path)?
+        .map(|e| wrapfs::canonicalize(e.root_path()))
+        .transpose()
 }

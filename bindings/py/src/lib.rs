@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, iter, process::ExitCode, sync::Arc};
+use std::{iter, process::ExitCode, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use pyo3::{
@@ -28,7 +28,7 @@ use sysand_core::{
     include::do_include,
     info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
         ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
@@ -37,8 +37,8 @@ use sysand_core::{
     },
     remove::do_remove_guess,
     resolve::{net_utils::create_reqwest_client, standard::standard_resolver},
-    sources::{do_sources_local_src_project_no_deps, find_project_dependencies},
-    stdlib::known_std_libs,
+    root::do_root,
+    sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
     symbols::Language,
     utils::format_err,
 };
@@ -201,6 +201,17 @@ fn do_info_py(
     })
 }
 
+#[pyfunction(name = "do_root_py")]
+#[pyo3(
+    signature = (path),
+)]
+fn do_root_py(path: String) -> PyResult<Option<String>> {
+    let _ = pyo3_log::try_init();
+
+    let root = do_root(Utf8PathBuf::from(path)).map_err(|e| PyIOError::new_err(format_err(e)))?;
+    Ok(root.map(Utf8PathBuf::into_string))
+}
+
 #[pyfunction(name = "do_build_py")]
 #[pyo3(
     signature = (output_path, project_path, compression),
@@ -252,24 +263,41 @@ fn do_build_py(
         })
 }
 
+/// Collects the source files of the dependencies of `usages` selected by
+/// `dependencies` (resolved in `env`).
+fn collect_dependency_sources(
+    env: LocalDirectoryEnvironment,
+    usages: Vec<InterchangeProjectUsage>,
+    dependencies: Dependencies,
+) -> PyResult<Vec<String>> {
+    let mut result = vec![];
+    for dep in resolve_dependencies(usages, env, dependencies)
+        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
+    {
+        for src_path in do_sources_local_src_project_no_deps(&dep, true)
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
+        {
+            result.push(src_path.into_string());
+        }
+    }
+    Ok(result)
+}
+
 #[pyfunction(name = "do_sources_env_py")]
 #[pyo3(
-    signature = (env_path, iri, version, include_deps, include_std),
+    signature = (env_path, iri, version, no_own, dependencies),
 )]
 pub fn do_sources_env_py(
     env_path: String,
     iri: String,
     version: Option<String>,
-    include_deps: bool,
-    include_std: bool,
+    no_own: bool,
+    dependencies: String,
 ) -> PyResult<Vec<String>> {
     let _ = pyo3_log::try_init();
 
-    let provided_iris = if !include_std {
-        known_std_libs()
-    } else {
-        HashMap::default()
-    };
+    let dependencies = Dependencies::try_from(dependencies.as_str())
+        .map_err(|e| PyValueError::new_err(format_err(e)))?;
 
     let version = match version {
         Some(version) => Some(
@@ -280,7 +308,7 @@ pub fn do_sources_env_py(
 
     let mut result = vec![];
 
-    let env = LocalDirectoryEnvironment::read(env_path).map_err(env_read_to_pyerr)?;
+    let env = LocalDirectoryEnvironment::read(&env_path).map_err(env_read_to_pyerr)?;
 
     fn local_read_to_pyerr(err: LocalReadError) -> PyErr {
         let e = format_err(&err);
@@ -328,13 +356,15 @@ pub fn do_sources_env_py(
         }
     };
 
-    for src_path in do_sources_local_src_project_no_deps(&project, true)
-        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-    {
-        result.push(src_path.into_string());
+    if !no_own {
+        for src_path in do_sources_local_src_project_no_deps(&project, true)
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
+        {
+            result.push(src_path.into_string());
+        }
     }
 
-    if include_deps {
+    if dependencies != Dependencies::None {
         let Some(info) = project
             .get_info()
             .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
@@ -344,21 +374,12 @@ pub fn do_sources_env_py(
             ));
         };
 
-        for dep in find_project_dependencies(
-            info.validate()
-                .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-                .usage,
-            env,
-            &provided_iris,
-        )
-        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-        {
-            for src_path in do_sources_local_src_project_no_deps(&dep, true)
-                .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-            {
-                result.push(src_path.into_string());
-            }
-        }
+        let usages = info
+            .validate()
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
+            .usage;
+
+        result.extend(collect_dependency_sources(env, usages, dependencies)?);
     }
 
     Ok(result)
@@ -366,15 +387,18 @@ pub fn do_sources_env_py(
 
 #[pyfunction(name = "do_sources_project_py")]
 #[pyo3(
-    signature = (path, include_deps, env_path, include_std),
+    signature = (path, no_own, dependencies, env_path),
 )]
 pub fn do_sources_project_py(
     path: String,
-    include_deps: bool,
+    no_own: bool,
+    dependencies: String,
     env_path: Option<String>,
-    include_std: bool,
 ) -> PyResult<Vec<String>> {
     let _ = pyo3_log::try_init();
+
+    let dependencies = Dependencies::try_from(dependencies.as_str())
+        .map_err(|e| PyValueError::new_err(format_err(e)))?;
 
     let mut result = vec![];
 
@@ -384,13 +408,15 @@ pub fn do_sources_project_py(
         expected_checksum: None,
     };
 
-    for src_path in do_sources_local_src_project_no_deps(&current_project, true)
-        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-    {
-        result.push(src_path.into_string());
+    if !no_own {
+        for src_path in do_sources_local_src_project_no_deps(&current_project, true)
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
+        {
+            result.push(src_path.into_string());
+        }
     }
 
-    if include_deps {
+    if dependencies != Dependencies::None {
         // TODO: Better bail early?
         let Some(info) = current_project
             .get_info()
@@ -407,29 +433,14 @@ pub fn do_sources_project_py(
             ));
         };
 
-        let provided_iris = if !include_std {
-            known_std_libs()
-        } else {
-            HashMap::default()
-        };
+        let env = LocalDirectoryEnvironment::read(&env_path).map_err(env_read_to_pyerr)?;
 
-        let env = LocalDirectoryEnvironment::read(env_path).map_err(env_read_to_pyerr)?;
+        let usages = info
+            .validate()
+            .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
+            .usage;
 
-        for dep in find_project_dependencies(
-            info.validate()
-                .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-                .usage,
-            env,
-            &provided_iris,
-        )
-        .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-        {
-            for src_path in do_sources_local_src_project_no_deps(&dep, true)
-                .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-            {
-                result.push(src_path.into_string());
-            }
-        }
+        result.extend(collect_dependency_sources(env, usages, dependencies)?);
     }
 
     Ok(result)
@@ -610,6 +621,7 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_env_py_local_dir, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py_path, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py, m)?)?;
+    m.add_function(wrap_pyfunction!(do_root_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_build_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_sources_env_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_sources_project_py, m)?)?;

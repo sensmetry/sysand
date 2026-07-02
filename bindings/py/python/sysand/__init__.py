@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
+# SPDX-FileCopyrightText: © 2025-2026 Sysand contributors <opensource@sensmetry.com>
 
 from ._model import (
     InterchangeProjectUsage,
     InterchangeProjectInfo,
     InterchangeProjectChecksum,
     InterchangeProjectMetadata,
+    Dependencies,
     CompressionMethod,
 )
 
@@ -41,11 +42,16 @@ from ._sources import (
 
 from ._build import build
 
+from ._root import (
+    root,
+)
+
 __all__ = [
     "InterchangeProjectUsage",
     "InterchangeProjectInfo",
     "InterchangeProjectChecksum",
     "InterchangeProjectMetadata",
+    "Dependencies",
     "CompressionMethod",
     ## Add
     "add",
@@ -66,4 +72,6 @@ __all__ = [
     "exclude",
     ## Sources
     "sources",
+    ## Root
+    "root",
 ]

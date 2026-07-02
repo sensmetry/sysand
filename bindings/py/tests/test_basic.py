@@ -211,69 +211,152 @@ def compare_sources(
 
 
 def test_end_to_end_install_sources() -> None:
-    with tempfile.TemporaryDirectory() as tmp_main:
-        with tempfile.TemporaryDirectory() as tmp_dep:
-            tmp_main = Path(tmp_main).resolve()
-            tmp_dep = Path(tmp_dep).resolve()
-            sysand.init("test_end_to_end_install_sources", "a", "1.2.3", tmp_main)
-            sysand.init("test_end_to_end_install_sources_dep", "a", "1.2.3", tmp_dep)
+    # A standard library is identified by its hard-coded IRI; the version must
+    # match the embedded standard library metadata so that every `Dependencies`
+    # mode resolves the same usage.
+    std_iri = "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar"
+    std_version = "1.0.0"
 
-            with open(Path(tmp_main) / "src.sysml", "w") as f:
-                f.write("package Src;")
+    with (
+        tempfile.TemporaryDirectory() as tmp_main,
+        tempfile.TemporaryDirectory() as tmp_dep,
+        tempfile.TemporaryDirectory() as tmp_std,
+    ):
+        tmp_main = Path(tmp_main).resolve()
+        tmp_dep = Path(tmp_dep).resolve()
+        tmp_std = Path(tmp_std).resolve()
+        sysand.init("test_end_to_end_install_sources", "a", "1.2.3", tmp_main)
+        sysand.init("test_end_to_end_install_sources_dep", "a", "1.2.3", tmp_dep)
+        sysand.init("Kernel Function Library", "a", std_version, tmp_std)
 
-            sysand.include(tmp_main, "src.sysml")
+        with open(Path(tmp_main) / "src.sysml", "w") as f:
+            f.write("package Src;")
 
-            with open(Path(tmp_dep) / "src_dep.sysml", "w") as f:
-                f.write("package SrcDep;")
+        sysand.include(tmp_main, "src.sysml")
 
-            sysand.include(tmp_dep, "src_dep.sysml")
+        with open(Path(tmp_dep) / "src_dep.sysml", "w") as f:
+            f.write("package SrcDep;")
 
-            env_path = Path(tmp_main) / sysand.env.DEFAULT_ENV_NAME
+        sysand.include(tmp_dep, "src_dep.sysml")
 
-            sysand.env.env(env_path)
+        with open(Path(tmp_std) / "src_std.sysml", "w") as f:
+            f.write("package SrcStd;")
 
-            sysand.env.install_path(
-                env_path, "urn:kpar:test_end_to_end_install_sources_dep", tmp_dep
-            )
+        sysand.include(tmp_std, "src_std.sysml")
 
-            sysand.add(
-                tmp_main, "urn:kpar:test_end_to_end_install_sources_dep", "1.2.3"
-            )
+        env_path = Path(tmp_main) / sysand.env.DEFAULT_ENV_NAME
 
-            compare_sources(
-                sysand.sources(tmp_main, include_deps=False),
-                [str(Path(tmp_main) / "src.sysml")],
-            )
-            compare_sources(
-                sysand.sources(tmp_dep, include_deps=False),
-                [str(Path(tmp_dep) / "src_dep.sysml")],
-            )
-            compare_sources(
-                sysand.sources(tmp_main, include_deps=True, env_path=env_path),
-                [
-                    str(Path(tmp_main) / "src.sysml"),
-                    str(
-                        env_path
-                        / "lib"
-                        / "kpar.test_end_to_end_install_sources_dep_1.2.3"
-                        / "src_dep.sysml"
-                    ),
-                ],
-            )
+        sysand.env.env(env_path)
 
-            sysand.exclude(tmp_main, "src.sysml")
+        sysand.env.install_path(
+            env_path, "urn:kpar:test_end_to_end_install_sources_dep", tmp_dep
+        )
+        sysand.env.install_path(env_path, std_iri, tmp_std)
 
-            compare_sources(
-                sysand.sources(tmp_main, include_deps=True, env_path=env_path),
-                [
-                    str(
-                        env_path
-                        / "lib"
-                        / "kpar.test_end_to_end_install_sources_dep_1.2.3"
-                        / "src_dep.sysml"
-                    ),
-                ],
-            )
+        sysand.add(tmp_main, "urn:kpar:test_end_to_end_install_sources_dep", "1.2.3")
+        sysand.add(tmp_main, std_iri, std_version)
+
+        dep_src = (
+            env_path
+            / "lib"
+            / "kpar.test_end_to_end_install_sources_dep_1.2.3"
+            / "src_dep.sysml"
+        )
+
+        [std_src] = (env_path / "lib").glob("*/src_std.sysml")
+
+        # By default only the project's own sources are listed.
+        compare_sources(
+            sysand.sources(tmp_main),
+            [str(Path(tmp_main) / "src.sysml")],
+        )
+        compare_sources(
+            sysand.sources(tmp_dep),
+            [str(Path(tmp_dep) / "src_dep.sysml")],
+        )
+        # Own sources together with dependency sources, excluding std libs.
+        compare_sources(
+            sysand.sources(
+                tmp_main, dependencies=sysand.Dependencies.DEPS, env_path=env_path
+            ),
+            [str(Path(tmp_main) / "src.sysml"), str(dep_src)],
+        )
+        # Only dependency sources.
+        compare_sources(
+            sysand.sources(
+                tmp_main,
+                no_own=True,
+                dependencies=sysand.Dependencies.DEPS,
+                env_path=env_path,
+            ),
+            [str(dep_src)],
+        )
+        # no_own without dependencies yields nothing.
+        compare_sources(sysand.sources(tmp_main, no_own=True), [])
+
+        # DEPS_STD includes both the dependency and the std lib.
+        compare_sources(
+            sorted(
+                sysand.sources(
+                    tmp_main,
+                    no_own=True,
+                    dependencies=sysand.Dependencies.DEPS_STD,
+                    env_path=env_path,
+                ),
+                key=lambda p: Path(p).name,
+            ),
+            sorted([str(dep_src), str(std_src)], key=lambda p: Path(p).name),
+        )
+        # STD includes only the std lib.
+        compare_sources(
+            sysand.sources(
+                tmp_main,
+                no_own=True,
+                dependencies=sysand.Dependencies.STD,
+                env_path=env_path,
+            ),
+            [str(std_src)],
+        )
+
+        sysand.exclude(tmp_main, "src.sysml")
+
+        compare_sources(
+            sysand.sources(
+                tmp_main, dependencies=sysand.Dependencies.DEPS, env_path=env_path
+            ),
+            [str(dep_src)],
+        )
+        compare_sources(
+            sysand.sources(
+                tmp_main,
+                no_own=True,
+                dependencies=sysand.Dependencies.DEPS,
+                env_path=env_path,
+            ),
+            [str(dep_src)],
+        )
+
+
+def test_root() -> None:
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        tmpdirname = Path(tmpdirname).resolve()
+        sysand.init("test_root", "a", "1.2.3", tmpdirname)
+
+        subdir = tmpdirname / "sub" / "nested"
+        subdir.mkdir(parents=True)
+
+        root_from_top = sysand.root(tmpdirname)
+        root_from_sub = sysand.root(subdir)
+
+        assert root_from_top is not None
+        assert root_from_sub is not None
+        assert os.path.samefile(root_from_top, tmpdirname)
+        assert os.path.samefile(root_from_sub, tmpdirname)
+
+
+def test_root_not_in_project() -> None:
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        assert sysand.root(tmpdirname) is None
 
 
 @pytest.mark.parametrize(
