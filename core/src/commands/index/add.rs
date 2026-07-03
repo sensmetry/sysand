@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use super::{
     INDEX_FILE_NAME, INFO_FILE_NAME, JsonFileError, KPAR_FILE_NAME, META_FILE_NAME,
-    VERSIONS_FILE_NAME, open_json_file, overwrite_file, to_json_string,
+    VERSIONS_FILE_NAME, open_json_file, overwrite_file,
 };
 
 use crate::{
@@ -26,6 +26,7 @@ use crate::{
         utils::{FsIoError, wrapfs},
     },
     purl::{is_valid_unnormalized_name, is_valid_unnormalized_publisher, normalize_field},
+    utils::to_pretty_json_string,
 };
 
 #[derive(Error, Debug)]
@@ -265,8 +266,8 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         [_, _, ..] => return Err(IndexAddError::DuplicateProject { iri: iri.into() }),
     };
 
-    let info_str = to_json_string(&info);
-    let meta_str = to_json_string(&meta);
+    let info_str = to_pretty_json_string(&info);
+    let meta_str = to_pretty_json_string(&meta);
 
     wrapfs::create_dir_all(&project_path)?;
 
@@ -337,8 +338,8 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         },
     );
 
-    let versions_str = to_json_string(&versions_value);
-    let index_str = to_json_string(&index_value);
+    let versions_str = to_pretty_json_string(&versions_value);
+    let index_str = to_pretty_json_string(&index_value);
 
     let adding = "Adding";
     let header = crate::style::get_style_config().header;

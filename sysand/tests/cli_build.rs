@@ -118,6 +118,45 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `.project.json` and `.meta.json` are pretty-printed (multi-line, indented)
+/// inside the built kpar, not minified onto a single line.
+#[test]
+fn project_build_pretty_prints_project_and_meta_json() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "test_pretty"],
+        None,
+    )?;
+
+    std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
+
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["include", "--no-index-symbols", "test.sysml"], None)?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?;
+    out.assert().success();
+
+    for archive_path in [".project.json", ".meta.json"] {
+        let content = read_kpar_file(&cwd.join("test_build.kpar"), archive_path);
+
+        assert!(
+            content.lines().count() > 1,
+            "{archive_path} should be pretty-printed across multiple lines, got: {content}"
+        );
+
+        let value: serde_json::Value = serde_json::from_str(&content)?;
+        let mut expected = serde_json::to_string_pretty(&value)?;
+        expected.push('\n');
+        assert_eq!(
+            content, expected,
+            "{archive_path} should use standard pretty-printed formatting"
+        );
+    }
+
+    Ok(())
+}
+
 #[test]
 fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
@@ -1190,7 +1229,7 @@ fn project_build_without_license() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn assert_kpar_file(kpar_path: &camino::Utf8Path, archive_path: &str, expected: &str) {
+fn read_kpar_file(kpar_path: &camino::Utf8Path, archive_path: &str) -> String {
     let file = std::fs::File::open(kpar_path).unwrap();
     let mut archive = zip::ZipArchive::new(file).unwrap();
     let mut entry = archive
@@ -1198,6 +1237,11 @@ fn assert_kpar_file(kpar_path: &camino::Utf8Path, archive_path: &str, expected: 
         .unwrap_or_else(|_| panic!("expected {archive_path} in {kpar_path}"));
     let mut content = String::new();
     entry.read_to_string(&mut content).unwrap();
+    content
+}
+
+fn assert_kpar_file(kpar_path: &camino::Utf8Path, archive_path: &str, expected: &str) {
+    let content = read_kpar_file(kpar_path, archive_path);
     assert_eq!(content, expected, "{archive_path} mismatch in {kpar_path}");
 }
 
