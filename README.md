@@ -1,11 +1,5 @@
 # Sysand: a package manager for SysML v2 and KerML
 
-> [!important]
-> This is an early preview release, intended for early adopters
-> to test, integrate, and give feedback. While we hope to keep the tool in a
-> usable state, interfaces are subject to change and usability will likely not
-> yet be representative of a stable release.
-
 This repository contains Sysand, a [package
 manager](https://en.wikipedia.org/wiki/Package_manager) for SysML v2 and KerML
 similar to package managers for programming languages such as Pip for Python,
@@ -18,10 +12,18 @@ Sysand can be used as a standalone tool through its command line interface (CLI)
 or be integrated into other tools through one of its APIs (currently, Python and
 Java are supported).
 
+An official Sysand index is available at [sysand.com], where the Sysand client
+can publish and resolve packages. [Private indexes] are also supported and can
+be managed using the `sysand index` command.
+
+[sysand.com]: https://sysand.com
+[private indexes]: https://docs.sysand.com/client/how-to/host-project-index/
+
 ## Documentation
 
-Sysand client usage documentation is provided in
-[Sysand Client Documentation](https://docs.sysand.com/client/).
+Sysand client usage documentation is provided in [Sysand Client Documentation].
+
+[sysand client documentation]: https://docs.sysand.com/client/
 
 ## Installation
 
