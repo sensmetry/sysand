@@ -20,7 +20,7 @@ use crate::{
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ZipArchiveError, wrapfs},
     },
-    utils::{format_err, license_file_stems, sha256_lowercase_hex},
+    utils::{format_err, license_file_stems, sha256_lowercase_hex, to_pretty_json_string},
     workspace::{Workspace, WorkspaceReadError},
 };
 
@@ -450,9 +450,8 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     // top level, exactly one file named .project.json and exactly one file
     // named .meta.json.”
 
-    let info_content =
-        serde_json::to_string(&info).expect("BUG: failed to serialize .project.json");
-    let meta_content = serde_json::to_string(&meta).expect("BUG: failed to serialize .meta.json");
+    let info_content = to_pretty_json_string(&info);
+    let meta_content = to_pretty_json_string(&meta);
 
     zip.start_file(".project.json", options)
         .map_err(|e| ZipArchiveError::Write(Utf8Path::new(".project.json").into(), e))?;

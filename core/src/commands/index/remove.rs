@@ -6,10 +6,7 @@ use std::fs::File;
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
-use super::{
-    INDEX_FILE_NAME, JsonFileError, VERSIONS_FILE_NAME, open_json_file, overwrite_file,
-    to_json_string,
-};
+use super::{INDEX_FILE_NAME, JsonFileError, VERSIONS_FILE_NAME, open_json_file, overwrite_file};
 
 use crate::{
     index::{
@@ -17,6 +14,7 @@ use crate::{
         model::{IndexJson, ProjectStatus, VersionEntry, VersionStatus, VersionsJson},
     },
     project::utils::{FsIoError, wrapfs},
+    utils::to_pretty_json_string,
 };
 
 #[derive(Debug, Error)]
@@ -83,7 +81,7 @@ pub fn do_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
     } else {
         project_entry.status = ProjectStatus::Removed;
     }
-    let index_str = to_json_string(&index_value);
+    let index_str = to_pretty_json_string(&index_value);
     let project_path = index_root.join(parsed_iri.get_path());
 
     let versions_path = project_path.join(VERSIONS_FILE_NAME);
@@ -168,7 +166,7 @@ fn remove_versions<F: FnMut(&VersionEntry) -> bool>(
             let version_path = project_path.join(&version_entry.version);
             version_entry.status = VersionStatus::Removed;
 
-            let versions_str = to_json_string(&versions_value);
+            let versions_str = to_pretty_json_string(&versions_value);
             overwrite_file(versions_file, versions_path, &versions_str)?;
             wrapfs::remove_dir_all(version_path)?;
         }

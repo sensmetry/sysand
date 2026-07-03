@@ -5,6 +5,7 @@ use std::{error::Error, fmt::Write as _};
 
 use digest::{array::Array, typenum};
 use indexmap::IndexSet;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8WindowsPath};
@@ -230,4 +231,12 @@ pub fn parse_relative_unix_path(
     }
 
     Ok(Utf8UnixPath::new(path))
+}
+
+pub fn to_pretty_json_string<T: Serialize>(value: &T) -> String {
+    // If this fails, it's a bug
+    let mut serialized = serde_json::to_string_pretty(value).unwrap();
+    // Text files should have a trailing newline
+    serialized.push('\n');
+    serialized
 }

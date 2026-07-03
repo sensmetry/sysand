@@ -75,11 +75,6 @@ pub(crate) fn open_json_file<T: Default + Serialize + DeserializeOwned>(
     Ok((file, value))
 }
 
-pub(crate) fn to_json_string<T: Serialize>(value: &T) -> String {
-    // If this fails, it's a bug
-    serde_json::to_string_pretty(value).unwrap()
-}
-
 pub(crate) fn overwrite_file(
     file: &mut File,
     path: &Utf8Path,

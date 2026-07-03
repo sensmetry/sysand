@@ -9,11 +9,12 @@ use std::{
 use camino::Utf8Path;
 use thiserror::Error;
 
-use super::{INDEX_FILE_NAME, to_json_string};
+use super::INDEX_FILE_NAME;
 
 use crate::{
     index::model::IndexJson,
     project::utils::{FsIoError, wrapfs},
+    utils::to_pretty_json_string,
 };
 
 #[derive(Error, Debug)]
@@ -29,7 +30,7 @@ pub fn do_index_init<R: AsRef<Utf8Path>>(index_root: R) -> Result<(), IndexInitE
     let header = crate::style::get_style_config().header;
     log::info!("{header}{creating:>12}{header:#} index");
     let index = IndexJson { projects: vec![] };
-    let index_str = to_json_string(&index);
+    let index_str = to_pretty_json_string(&index);
     wrapfs::create_dir_all(index_root.as_ref())?;
     let index_path = index_root.as_ref().join(INDEX_FILE_NAME);
     let mut file = fs::File::create_new(&index_path).map_err(|e| match e.kind() {

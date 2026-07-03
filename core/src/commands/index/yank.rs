@@ -4,10 +4,7 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
-use super::{
-    INDEX_FILE_NAME, JsonFileError, VERSIONS_FILE_NAME, open_json_file, overwrite_file,
-    to_json_string,
-};
+use super::{INDEX_FILE_NAME, JsonFileError, VERSIONS_FILE_NAME, open_json_file, overwrite_file};
 
 use crate::{
     index::{
@@ -15,6 +12,7 @@ use crate::{
         model::{IndexJson, VersionStatus, VersionsJson},
     },
     project::utils::{FsIoError, wrapfs},
+    utils::to_pretty_json_string,
 };
 
 #[derive(Debug, Error)]
@@ -100,7 +98,7 @@ pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
             match version_entry.status {
                 VersionStatus::Available => {
                     version_entry.status = VersionStatus::Yanked;
-                    let versions_str = to_json_string(&versions_value);
+                    let versions_str = to_pretty_json_string(&versions_value);
                     overwrite_file(&mut versions_file, &versions_path, &versions_str)?;
                 }
                 VersionStatus::Yanked => {
