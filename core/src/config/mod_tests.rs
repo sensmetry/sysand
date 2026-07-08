@@ -4,6 +4,7 @@
 use url::Url;
 
 use crate::config::{Config, ConfigProject, Index, OverrideSource};
+use crate::index_location::IndexLocation;
 
 #[test]
 fn default_config() {
@@ -64,9 +65,9 @@ fn index_urls_without_default() {
     assert_eq!(
         index_urls,
         vec![
-            Url::parse("http://www.extra-index.com").unwrap(),
-            Url::parse("http://www.index.com").unwrap(),
-            Url::parse("http://www.default.com").unwrap(),
+            IndexLocation::Root(Url::parse("http://www.extra-index.com").unwrap()),
+            IndexLocation::Root(Url::parse("http://www.index.com").unwrap()),
+            IndexLocation::Root(Url::parse("http://www.default.com").unwrap()),
         ]
     );
 }
@@ -98,9 +99,9 @@ fn index_urls_with_default() {
     assert_eq!(
         index_urls,
         vec![
-            Url::parse("http://www.extra-index.com").unwrap(),
-            Url::parse("http://www.index.com").unwrap(),
-            Url::parse("http://www.config-default.com").unwrap(),
+            IndexLocation::Root(Url::parse("http://www.extra-index.com").unwrap()),
+            IndexLocation::Root(Url::parse("http://www.index.com").unwrap()),
+            IndexLocation::Root(Url::parse("http://www.config-default.com").unwrap()),
         ]
     );
 }
@@ -132,9 +133,61 @@ fn index_urls_with_override() {
     assert_eq!(
         index_urls,
         vec![
-            Url::parse("http://www.extra-index.com").unwrap(),
-            Url::parse("http://www.index.com").unwrap(),
-            Url::parse("http://www.new-default.com").unwrap(),
+            IndexLocation::Root(Url::parse("http://www.extra-index.com").unwrap()),
+            IndexLocation::Root(Url::parse("http://www.index.com").unwrap()),
+            IndexLocation::Root(Url::parse("http://www.new-default.com").unwrap()),
         ]
     );
+}
+
+#[test]
+fn index_urls_accepts_templates_everywhere() {
+    // URL templates are valid wherever an index URL can be configured:
+    // `--index` values, `sysand.toml` `[[index]]` entries, and default
+    // overrides all funnel through the same parser.
+    let config = Config {
+        indexes: vec![Index {
+            url: "https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main"
+                .to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let index = vec!["https://example.org/raw/{path_raw}?ref=main".to_string()];
+    let default_urls = vec![];
+    let default_override_urls = vec!["https://other.example/files/{path}/x".to_string()];
+
+    let index_urls = config
+        .index_urls(index, default_urls, default_override_urls)
+        .unwrap();
+
+    assert_eq!(
+        index_urls
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        vec![
+            "https://example.org/raw/{path_raw}?ref=main",
+            "https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main",
+            "https://other.example/files/{path}/x",
+        ]
+    );
+    assert!(
+        index_urls
+            .iter()
+            .all(|l| matches!(l, IndexLocation::Template(_)))
+    );
+}
+
+#[test]
+fn index_urls_rejects_bad_template() {
+    let config = Config::default();
+    let err = config
+        .index_urls(
+            vec!["https://example.org/files/{file}/raw".to_string()],
+            vec![],
+            vec![],
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("unknown placeholder `{file}`"));
 }

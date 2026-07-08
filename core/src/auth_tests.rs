@@ -59,3 +59,44 @@ fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn globmap_matches_template_expanded_urls() -> Result<(), Box<dyn std::error::Error>> {
+    // The credential glob a user configures for a templated index
+    // (`SYSAND_CRED_X=https://gitlab.com/api/v4/projects/123/**`) must
+    // match the expanded request URLs, where the file path sits mid-URL
+    // percent-encoded and a query string follows.
+    // This glob only fits the *expanded* request URL: it matches on the
+    // percent-encoded file path (`admin%2F...`), which does not exist in
+    // the raw template (where the placeholder still reads `{path}`).
+    let mut builder = GlobMapBuilder::new();
+    builder.add(
+        "https://gitlab.com/api/v4/projects/123/repository/files/admin%2F*/raw?ref=main",
+        1,
+    );
+    let mut globmap = builder.build()?;
+
+    let template = crate::index_location::IndexLocation::parse(
+        "https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main",
+    )?;
+    let expanded = template.resolve("admin/proj0/versions.json".split('/'));
+    assert_eq!(
+        expanded.as_str(),
+        "https://gitlab.com/api/v4/projects/123/repository/files/\
+         admin%2Fproj0%2Fversions.json/raw?ref=main"
+    );
+
+    // The raw template does not match the glob...
+    assert!(matches!(
+        globmap.lookup_mut(&template.to_string()),
+        GlobMapResultMut::NotFound
+    ));
+    // ...but the expanded request URL does.
+    if let GlobMapResultMut::Found(_, val) = globmap.lookup_mut(expanded.as_str()) {
+        assert_eq!(*val, 1);
+    } else {
+        panic!("expected credential glob to match expanded template URL");
+    }
+
+    Ok(())
+}

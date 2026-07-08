@@ -452,6 +452,9 @@ fn publish_explicit_path_outside_project_dir() -> TestResult {
 
 #[test]
 fn publish_invalid_index_url_errors_early() -> TestResult {
+    // `IndexLocation` enforces the HTTP(S) invariant when the `--index`
+    // argument is parsed, so a bad scheme is rejected before any network
+    // work.
     let (_temp_dir, cwd) = setup_built_project_at("invalid-index", "artifact.kpar")?;
     let out = run_sysand_in(
         &cwd,
@@ -461,7 +464,9 @@ fn publish_invalid_index_url_errors_early() -> TestResult {
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("invalid index URL"))
+        .stderr(predicate::str::contains(
+            "only `http` and `https` are supported",
+        ))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     Ok(())
@@ -469,30 +474,33 @@ fn publish_invalid_index_url_errors_early() -> TestResult {
 
 #[test]
 fn publish_rejects_upload_endpoint_index_url() -> TestResult {
-    // If the user pastes the full upload URL as the `--index` value, the
-    // pre-discovery shape check rejects it before discovery or upload.
-    // The error message points the user back at the API root.
+    // If the user pastes the full upload URL as the `--index` value,
+    // discovery treats it as a flat root and the resolved `api_root` shape
+    // check rejects it before any upload. The error points back at the API
+    // root.
     let (_temp_dir, cwd) = setup_built_project_at("upload-endpoint-index", "artifact.kpar")?;
     let mut server = Server::new();
+    // Discovery runs against the pasted root; it 404s (no config), so the
+    // root itself becomes the `api_root`, which is then rejected.
     let config_mock = server
-        .mock("GET", "/sysand-index-config.json")
+        .mock("GET", "/v1/upload/sysand-index-config.json")
         .with_status(404)
-        .expect(0)
+        .expect(1)
         .create();
     let publish_mock = server.mock("POST", "/v1/upload").expect(0).create();
     let endpoint_url = format!("{}/v1/upload", server.url());
 
-    let env = bearer_env_for_url(server.url().as_str());
-    let out = run_sysand_in_with(
+    // No bearer credentials needed: `api_root` shape validation rejects the
+    // `v1/upload` endpoint before credential resolution.
+    let out = run_sysand_in(
         &cwd,
         ["publish", "artifact.kpar", "--index", endpoint_url.as_str()],
         None,
-        &env,
     )?;
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("invalid index URL"))
+        .stderr(predicate::str::contains("invalid api_root URL"))
         .stderr(predicate::str::contains("not the `v1/upload` endpoint"))
         .stderr(predicate::str::contains("HTTP request failed").not());
     publish_mock.assert();
@@ -829,4 +837,49 @@ fn publish_500_json_error_body_extracts_error_message() -> TestResult {
         Some("application/json"),
         &["server error (500)", "Invalid token"],
     )
+}
+
+#[test]
+fn publish_to_templated_index_without_api_root_reports_explicit_error() -> TestResult {
+    // An index reached through a `{path}` URL template is file-serving
+    // only; unless its discovery document sets `api_root`, publish must
+    // fail with an actionable message before any upload is attempted.
+    let (_temp_dir, cwd) = setup_built_project("test-publish")?;
+
+    let mut server = Server::new();
+    let config_mock = server
+        .mock("GET", "/files/sysand-index-config.json/raw")
+        .match_query(Matcher::UrlEncoded("ref".into(), "main".into()))
+        .with_status(404)
+        .expect(1)
+        .create();
+
+    let index = format!("{}/files/{{path}}/raw?ref=main", server.url());
+    let out = run_sysand_in(&cwd, ["publish", "--index", index.as_str()], None)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "does not advertise a publish endpoint",
+        ))
+        .stderr(predicate::str::contains("index administrator"));
+
+    config_mock.assert();
+    Ok(())
+}
+
+#[test]
+fn publish_index_with_unknown_placeholder_reports_parse_error() -> TestResult {
+    // Template validation happens at argument parse time, before any
+    // network or kpar work.
+    let (_temp_dir, cwd) = init_project("test-publish")?;
+    let out = run_sysand_in(
+        &cwd,
+        ["publish", "--index", "https://example.org/files/{file}/raw"],
+        None,
+    )?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown placeholder `{file}`"));
+
+    Ok(())
 }

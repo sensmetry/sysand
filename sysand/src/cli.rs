@@ -14,10 +14,10 @@ use semver::VersionReq;
 use sysand_core::{
     add::expand_sysand_purl_shorthand,
     build::KparCompressionMethod,
+    index_location::IndexLocation,
     model::{KERML_METAMODEL_PREFIX, SYSML_METAMODEL_PREFIX},
     sources::Dependencies,
 };
-use url::Url;
 
 use crate::env_vars;
 
@@ -209,8 +209,11 @@ pub enum Command {
         /// Configured index URL to publish to (e.g. https://sysand.com)
         /// May point to a path containing sysand-index-config.json, or directly
         /// to the API root (e.g. https://sysand.com/api)
+        /// URL templates (see --index under resolution options) are accepted,
+        /// but publishing then requires the index's sysand-index-config.json
+        /// to set `api_root`
         #[arg(long, value_name = "URL", verbatim_doc_comment)]
-        index: Url,
+        index: IndexLocation,
 
         /// How to use CI trusted publishing for acquiring publish credentials
         #[arg(
@@ -1527,6 +1530,12 @@ pub struct InstallOptions {
 pub struct ResolutionOptions {
     /// Comma-delimited list of index URLs to use when resolving
     /// project(s) and/or their dependencies, in addition to the default indexes.
+    /// An index URL may be a URL template with a `{path}` or `{path_raw}`
+    /// placeholder. `{path}` is replaced by the percent-encoded relative index
+    /// path (`/` becomes `%2F`), e.g. for the GitLab repository files API:
+    /// `https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main`
+    /// `{path_raw}` keeps `/` literal, for hosts that accept ordinary path
+    /// segments but need a suffix or query string after the path.
     #[arg(
         long,
         num_args = 0..,
@@ -1539,7 +1548,7 @@ pub struct ResolutionOptions {
     pub index: Vec<String>,
     /// Comma-delimited list of URLs to use as default index
     /// URLs. Default indexes are tried after other indexes
-    /// (default `https://sysand.com`)
+    /// (default `https://sysand.com`). Accepts URL templates like --index.
     #[arg(
         long,
         num_args = 0..,

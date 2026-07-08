@@ -61,21 +61,26 @@ fields:
 }
 ```
 
-- `index_root` — base URL of the sysand index (where `index.json` lives).
-  When absent, defaults to the discovery root.
+- `index_root` — base URL of the sysand index (where `index.json` lives),
+  or a URL template ([§3.1](#31-url-templates)). When absent, defaults to
+  the discovery root.
 - `api_root` — base URL of the sysand index API (where `v1/upload` and
-  other endpoints live). When absent, defaults to the discovery root.
+  other endpoints live); never a template. When absent, defaults to the
+  discovery root if that is a plain URL; an index whose discovery root is
+  a template and whose discovery document does not set `api_root` has no
+  API endpoints ([§3.1](#31-url-templates)).
 
 `index_root` and `api_root`, when present, MUST be absolute `http` or
 `https` URLs ([RFC 3986 §4.3][rfc3986-43]: scheme + hier-part, no
-relative references) and MUST NOT contain URL userinfo (`username` or
-`password`). Clients MUST reject a discovery document that supplies a
-relative URL or userinfo for either field rather than attempting to
-resolve it against the discovery root or the final URL of the
-discovery-document fetch — relative URLs are excluded to avoid ambiguity
-around the resolution base after redirects, and userinfo is excluded so
-credentials are not logged, persisted, or propagated through generated
-source URLs.
+relative references) — or, for `index_root` only, a URL template
+([§3.1](#31-url-templates)) — and MUST NOT contain URL userinfo
+(`username` or `password`). Clients MUST reject a discovery document that
+supplies a relative URL or userinfo for either field rather than
+attempting to resolve it against the discovery root or the final URL of
+the discovery-document fetch — relative URLs are excluded to avoid
+ambiguity around the resolution base after redirects, and userinfo is
+excluded so credentials are not logged, persisted, or propagated through
+generated source URLs.
 
 If the discovery document is absent (HTTP 404) the client proceeds as
 though it were present with no fields set: `index_root` and `api_root`
@@ -84,6 +89,61 @@ both default to the discovery root. Any other non-success response (e.g.
 
 Clients MUST follow HTTP redirects on the discovery fetch. Unknown fields
 in the document are silently ignored (see [§14]).
+
+### 3.1. URL templates
+
+An index location — the user-configured index URL, or the `index_root`
+field of the discovery document — MAY be a **URL template** instead of a
+base URL. A URL template contains exactly one placeholder that the client
+substitutes with the relative index path (the path that would otherwise
+be joined onto a base URL, e.g.
+`some-publisher/some-project/1.0.0/project.kpar`):
+
+- `{path}` — the relative path is percent-encoded as a single unit:
+  every byte outside RFC 3986 _unreserved_ is encoded, **including `/` as
+  `%2F`**. This matches file-access APIs that take the whole file path as
+  one URL segment, such as the GitLab repository files API:
+
+  ```text
+  https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main
+  ```
+
+- `{path_raw}` — `/` separators stay literal and each path segment is
+  percent-encoded individually. For APIs that take the file path as
+  ordinary URL path segments but require a suffix or query string after
+  it, e.g. Gitea's raw-file API:
+
+  ```text
+  https://gitea.example.org/api/v1/repos/org/repo/raw/{path_raw}?ref=main
+  ```
+
+The placeholder syntax is a deliberately restricted subset of
+[RFC 6570][rfc6570] URI Templates: `{path}` behaves like RFC 6570 simple
+string expansion of a single value and `{path_raw}` like reserved
+expansion (`{+path}`), but only these two fixed names are accepted so
+that typos fail at parse time instead of producing wrong URLs. Fixed
+custom markers in a package-index template follow the precedent of
+crates.io's `config.json` `dl` field (`{crate}`, `{version}`).
+
+A string is recognized as a template by the presence of `{` or `}` —
+characters outside the URI character set ([RFC 3986 §2][rfc3986-2]), so
+no conformant URL is misclassified. (Implementations that previously
+tolerated literal braces in a plain index URL now treat such strings as
+template-syntax errors.)
+Templates MUST expand to absolute `http(s)` URLs, MUST NOT contain URL
+userinfo or a fragment, and MUST contain exactly one placeholder, in the
+path or query. Any other `{...}` token is an error. When the configured
+index URL is a template, the discovery document itself is fetched by
+expanding the template with the relative path
+`sysand-index-config.json`, and — absent an
+`index_root` field — all index files are fetched through the same
+template. `api_root` MUST NOT be a template (uploads are not file
+fetches); an index reached through a template whose discovery document
+does not set `api_root` has no API endpoints and is read-only.
+
+Note that append semantics at the end of a URL do not need a template: a
+plain base URL already covers that case. Templates exist for URL
+structures where the path sits mid-URL or a query string follows.
 
 ## 4. Layout
 
@@ -444,7 +504,9 @@ only supported path for creating and mutating an index tree.
 [§14]: #14-forward-compatibility
 [§15]: #15-sysand-index-cli-preview
 [rfc2119]: https://www.rfc-editor.org/rfc/rfc2119.html
+[rfc3986-2]: https://www.rfc-editor.org/rfc/rfc3986.html#section-2
 [rfc3986-43]: https://www.rfc-editor.org/rfc/rfc3986.html#section-4.3
+[rfc6570]: https://www.rfc-editor.org/rfc/rfc6570.html
 [rfc3986-reg-name]: https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.2
 [rfc9110-423]: https://datatracker.ietf.org/doc/html/rfc9110#section-4.2.3
 [purl]: https://packageurl.org/

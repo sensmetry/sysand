@@ -12,6 +12,7 @@ use camino::Utf8Path;
 use sysand_core::{
     auth::HTTPAuthentication,
     context::ProjectContext,
+    index_location::IndexLocation,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsageRaw,
@@ -33,7 +34,6 @@ use sysand_core::{
     project::utils::wrapfs,
     project::{local_kpar::LocalKParProject, local_src::LocalSrcProject},
 };
-use url::Url;
 
 pub fn pprint_interchange_project(
     info: &InterchangeProjectInfoRaw,
@@ -151,7 +151,7 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     _normalise: bool,
     client: reqwest_middleware::ClientWithMiddleware,
-    index_urls: Option<Vec<Url>>,
+    index_urls: Option<Vec<IndexLocation>>,
     excluded_iris: &HashSet<String>,
     overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
@@ -228,7 +228,7 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     verb: InfoCommandVerb,
     numbered: bool,
     client: reqwest_middleware::ClientWithMiddleware,
-    index_urls: Option<Vec<Url>>,
+    index_urls: Option<Vec<IndexLocation>>,
     overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
