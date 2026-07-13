@@ -49,7 +49,7 @@ SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-engine</artifactId>
-      <version>6.1.0</version>
+      <version>6.1.1</version>
       <scope>test</scope>
     </dependency>
 
