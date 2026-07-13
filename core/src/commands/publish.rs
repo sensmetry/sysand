@@ -21,6 +21,7 @@ use crate::{
     auth::{ForceBearerAuth, GlobMap, GlobMapResult, HTTPAuthentication},
     env::discovery::{HttpBaseUrlShapeError, validate_http_base_url_shape},
     include::{IncludeError, extract_symbols},
+    index_location::IndexLocation,
     model::{
         InterchangeProjectUsageRaw, InterchangeProjectValidationError, KERML_METAMODEL_PREFIX,
         KerMlChecksumAlg, SYSML_METAMODEL_PREFIX,
@@ -204,7 +205,7 @@ enum SelectedTrustedPublishingProvider<'a> {
 
 pub fn do_publish(
     prepared: PublishPreparation,
-    discovery_root: Url,
+    discovery_root: IndexLocation,
     api_root: Url,
     auth: ForceBearerAuth,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -215,7 +216,7 @@ pub fn do_publish(
     // `api_root`. `discovery_root` is the user-facing URL (what was
     // passed as `--index`) and is kept only so log messages match what
     // the user configured — the actual upload targets `api_root`.
-    let upload_url = build_upload_url(&api_root)?;
+    let upload_url = build_upload_url(&api_root);
     let PublishPreparation {
         norm_publisher: publisher,
         norm_name: name,
@@ -270,30 +271,15 @@ pub fn do_publish(
     map_publish_response(status, &body_bytes, &upload_url_for_log, &response_url)
 }
 
-/// Which root is being validated — selects the error variant so the
-/// message names the spec concept the URL came from.
-#[derive(Debug, Clone, Copy)]
-pub enum EndpointKind {
-    /// User-supplied URL (`--index`).
-    DiscoveryRoot,
-    /// Resolved URL coming back from the discovery document.
-    ApiRoot,
-}
-
-/// Validate the shape of an index-server endpoint URL before the network
-/// step. Applies to both the user-supplied discovery root (pre-discovery)
-/// and the resolved `api_root` that comes back from discovery.
-pub fn validate_endpoint_url_shape(url: &Url, kind: EndpointKind) -> Result<(), PublishError> {
+/// Validate the shape of the resolved `api_root` that comes back from
+/// discovery before the upload step. The user-supplied discovery root is an
+/// [`IndexLocation`], which already enforces the HTTP(S)/no-userinfo
+/// invariant when parsed.
+pub fn validate_api_root_url_shape(url: &Url) -> Result<(), PublishError> {
     let err = |reason: String| -> PublishError {
-        match kind {
-            EndpointKind::DiscoveryRoot => PublishError::InvalidDiscoveryRoot {
-                url: url.as_str().into(),
-                reason,
-            },
-            EndpointKind::ApiRoot => PublishError::InvalidApiRoot {
-                url: url.as_str().into(),
-                reason,
-            },
+        PublishError::InvalidApiRoot {
+            url: url.as_str().into(),
+            reason,
         }
     };
     validate_http_base_url_shape(url).map_err(|e| {
@@ -323,17 +309,14 @@ pub fn validate_endpoint_url_shape(url: &Url, kind: EndpointKind) -> Result<(), 
 }
 
 /// Build the `POST` URL for the publish endpoint from a resolved
-/// `api_root`. The caller is responsible for having resolved the API
-/// root via `sysand-index-config.json`; this function appends the
-/// publish endpoint path to `api_root` as given and does not prepend
-/// any `/api/` segment — that belongs to the API root itself.
-pub fn build_upload_url(api_root: &Url) -> Result<Url, PublishError> {
-    // The `v1/upload` suffix rejection is part of shape validation.
-    validate_endpoint_url_shape(api_root, EndpointKind::ApiRoot)?;
-
-    Ok(crate::env::discovery::with_trailing_slash(api_root.clone())
-        .join(UPLOAD_ENDPOINT_PATH)
-        .unwrap())
+/// `api_root`. Precondition: `api_root` has already been checked with
+/// [`validate_api_root_url_shape`] (done once per publish) and normalized
+/// to end with `/` — both hold for a resolved API root from discovery — so
+/// it is an HTTP(S) base and the endpoint path appends rather than replaces
+/// its last segment. Does not prepend any `/api/` segment; that belongs to
+/// the API root itself.
+pub fn build_upload_url(api_root: &Url) -> Url {
+    api_root.join(UPLOAD_ENDPOINT_PATH).unwrap()
 }
 
 /// Resolve the bearer token used for publishing.
@@ -350,7 +333,7 @@ pub fn resolve_publish_bearer(
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
 ) -> Result<ForceBearerAuth, PublishError> {
-    let upload_url = build_upload_url(api_root)?;
+    let upload_url = build_upload_url(api_root);
     match mode {
         TrustedPublishingMode::Auto => {
             if let Some(provider) = env.trusted_publishing_provider()? {
@@ -454,9 +437,9 @@ fn exchange_oidc_token_for_index_token(
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
 ) -> Result<String, PublishError> {
-    let exchange_url = crate::env::discovery::with_trailing_slash(api_root.clone())
-        .join(TRUSTED_PUBLISHING_EXCHANGE_PATH)
-        .unwrap();
+    // `api_root` is a resolved API root from discovery, already normalized
+    // to end with `/`, so the exchange path appends rather than replaces.
+    let exchange_url = api_root.join(TRUSTED_PUBLISHING_EXCHANGE_PATH).unwrap();
     let body = serde_json::json!({ "token": oidc_token }).to_string();
 
     let response = runtime
@@ -736,9 +719,6 @@ pub enum PublishError {
         license: Box<str>,
         err: spdx::error::ParseError,
     },
-
-    #[error("invalid index URL `{url}` for publish: {reason}")]
-    InvalidDiscoveryRoot { url: Box<str>, reason: String },
 
     #[error("invalid api_root URL `{url}` for publish: {reason}")]
     InvalidApiRoot { url: Box<str>, reason: String },

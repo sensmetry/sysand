@@ -17,6 +17,7 @@ use crate::{
     auth::HTTPAuthentication,
     env::index::{HttpFetchError, IndexEnvironmentError, MissingPolicy, fetch_json},
     index::iri::parse_iri,
+    index_location::{IndexLocation, IndexLocationError, with_trailing_slash},
 };
 
 const INDEX_PATH: &str = "index.json";
@@ -29,52 +30,42 @@ const META_JSON_FILE: &str = ".meta.json";
 /// discovery step.
 #[derive(Debug, Clone)]
 pub struct ResolvedEndpoints {
-    /// Base URL of the sysand index (where `index.json` lives).
-    pub index_root: url::Url,
-    /// Base URL of the sysand index API (where `v1/upload` lives).
-    pub api_root: url::Url,
+    /// Location of the sysand index (where `index.json` lives): a plain
+    /// base URL or a `{path}` URL template.
+    pub index_root: IndexLocation,
+    /// Base URL of the sysand index API (where `v1/upload` lives). `None`
+    /// when the discovery root is a URL template and the discovery
+    /// document does not supply an `api_root` — such an index is
+    /// read-only from this client's point of view.
+    pub api_root: Option<url::Url>,
 }
 
 impl ResolvedEndpoints {
-    /// Build a `ResolvedEndpoints` that routes both index and API traffic
-    /// at the discovery root itself. Used when the discovery document is
-    /// absent (HTTP 404) or present with neither field set.
-    pub fn flat(discovery_root: url::Url) -> Self {
+    /// Build a `ResolvedEndpoints` that routes index traffic (and, for a
+    /// plain-URL discovery root, API traffic) at the discovery root
+    /// itself. Used when the discovery document is absent (HTTP 404).
+    pub fn flat(discovery_root: IndexLocation) -> Self {
+        let api_root = discovery_root.as_root().cloned();
         Self {
-            index_root: discovery_root.clone(),
-            api_root: discovery_root,
+            index_root: discovery_root,
+            api_root,
         }
     }
 
-    // TODO: url joins will not fail for HTTP URLs, therefore, unwrap
-    fn url_join(url: &url::Url, join: &str) -> Result<url::Url, IndexEnvironmentError> {
-        url.join(join)
-            .map_err(|e| IndexEnvironmentError::JoinURL(url.as_str().into(), join.into(), e))
+    fn resolve<'a>(&self, segments: impl IntoIterator<Item = &'a str>) -> url::Url {
+        self.index_root.resolve(segments)
     }
 
-    pub(crate) fn index_url(&self) -> Result<url::Url, IndexEnvironmentError> {
-        Self::url_join(&self.index_root, INDEX_PATH)
+    pub(crate) fn index_url(&self) -> url::Url {
+        self.resolve([INDEX_PATH])
     }
 
-    pub(crate) fn project_url<S: AsRef<str>>(
-        &self,
-        iri: S,
-    ) -> Result<url::Url, IndexEnvironmentError> {
-        let parsed_iri = parse_iri(iri.as_ref())?;
-        let path = parsed_iri.get_path();
-        Self::url_join(&self.index_root, &format!("{path}/"))
-    }
-
-    /// Per-version directory URL ending with a trailing slash, so that
-    /// `Url::join` treats it as a directory when composing leaf URLs
-    /// (`project.kpar`, `.project.json`, `.meta.json`).
-    pub(crate) fn version_dir_url<S: AsRef<str>, T: AsRef<str>>(
-        &self,
-        iri: S,
-        version: T,
-    ) -> Result<url::Url, IndexEnvironmentError> {
-        let base = self.project_url(iri)?;
-        Self::url_join(&base, &format!("{}/", version.as_ref()))
+    /// The project directory's two path segments for `iri`
+    /// (`[<publisher>, <name>]` or `[_iri, <sha256hex>]`). Returned as
+    /// separate segments so each is encoded independently, avoiding a
+    /// join-then-split round-trip.
+    fn project_rel_segments<S: AsRef<str>>(iri: S) -> Result<[String; 2], IndexEnvironmentError> {
+        Ok(parse_iri(iri.as_ref())?.get_path_segments())
     }
 
     pub(crate) fn kpar_url<S: AsRef<str>, T: AsRef<str>>(
@@ -82,7 +73,13 @@ impl ResolvedEndpoints {
         iri: S,
         version: T,
     ) -> Result<url::Url, IndexEnvironmentError> {
-        Self::url_join(&self.version_dir_url(iri, version)?, KPAR_FILE)
+        let project = Self::project_rel_segments(iri)?;
+        Ok(self.resolve(
+            project
+                .iter()
+                .map(String::as_str)
+                .chain([version.as_ref(), KPAR_FILE]),
+        ))
     }
 
     pub(crate) fn project_json_url<S: AsRef<str>, T: AsRef<str>>(
@@ -90,7 +87,13 @@ impl ResolvedEndpoints {
         iri: S,
         version: T,
     ) -> Result<url::Url, IndexEnvironmentError> {
-        Self::url_join(&self.version_dir_url(iri, version)?, PROJECT_JSON_FILE)
+        let project = Self::project_rel_segments(iri)?;
+        Ok(self.resolve(
+            project
+                .iter()
+                .map(String::as_str)
+                .chain([version.as_ref(), PROJECT_JSON_FILE]),
+        ))
     }
 
     pub(crate) fn meta_json_url<S: AsRef<str>, T: AsRef<str>>(
@@ -98,15 +101,21 @@ impl ResolvedEndpoints {
         iri: S,
         version: T,
     ) -> Result<url::Url, IndexEnvironmentError> {
-        Self::url_join(&self.version_dir_url(iri, version)?, META_JSON_FILE)
+        let project = Self::project_rel_segments(iri)?;
+        Ok(self.resolve(
+            project
+                .iter()
+                .map(String::as_str)
+                .chain([version.as_ref(), META_JSON_FILE]),
+        ))
     }
 
     pub(crate) fn versions_url<S: AsRef<str>>(
         &self,
         iri: S,
     ) -> Result<url::Url, IndexEnvironmentError> {
-        let base = self.project_url(iri)?;
-        Self::url_join(&base, VERSIONS_PATH)
+        let project = Self::project_rel_segments(iri)?;
+        Ok(self.resolve(project.iter().map(String::as_str).chain([VERSIONS_PATH])))
     }
 }
 
@@ -126,7 +135,7 @@ pub enum DiscoveryError {
     #[error(transparent)]
     Fetch(#[from] HttpFetchError),
     #[error(
-        "discovery document at `{url}` supplied a relative URL `{value}` for `{field}`; \
+        "discovery document at `{url}` supplied a relative URL `{value}` for `{field}`;\n\
          absolute HTTP(S) URLs are required"
     )]
     RelativeUrl {
@@ -135,17 +144,17 @@ pub enum DiscoveryError {
         value: String,
     },
     #[error(
-        "discovery document at `{url}` supplied an invalid URL `{value}` for `{field}`: {source}"
+        "discovery document at `{url}` supplied an invalid URL `{value}` for `{field}`:\n\
+         {source}"
     )]
     InvalidUrl {
         url: Box<str>,
         field: &'static str,
         value: String,
-        #[source]
         source: url::ParseError,
     },
     #[error(
-        "discovery document at `{url}` supplied a non-HTTP(S) URL `{value}` for `{field}`; \
+        "discovery document at `{url}` supplied a non-HTTP(S) URL `{value}` for `{field}`;\n\
          only `http` and `https` are supported"
     )]
     UnsupportedScheme {
@@ -154,13 +163,19 @@ pub enum DiscoveryError {
         value: String,
     },
     #[error(
-        "discovery document at `{url}` supplied URL userinfo in `{value}` for `{field}`; \
+        "discovery document at `{url}` supplied URL userinfo in `{value}` for `{field}`;\n\
          username and password are not allowed"
     )]
     Userinfo {
         url: Box<str>,
         field: &'static str,
         value: String,
+    },
+    #[error("discovery document at `{url}` supplied an invalid `{field}`")]
+    InvalidLocation {
+        url: Box<str>,
+        field: &'static str,
+        source: IndexLocationError,
     },
 }
 
@@ -207,33 +222,39 @@ fn discovery_shape_error(
 pub async fn fetch_index_config<P: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
     auth: &P,
-    discovery_root: &url::Url,
+    discovery_root: &IndexLocation,
 ) -> Result<ResolvedEndpoints, DiscoveryError> {
-    validate_http_base_url_shape(discovery_root).map_err(|error| {
-        discovery_shape_error(discovery_root, "<discovery_root>", discovery_root, error)
-    })?;
+    // `IndexLocation` enforces its own invariants at construction — a
+    // plain root is already an absolute HTTP(S) URL, without userinfo, and
+    // with a trailing slash so relative-path resolution treats it as a
+    // directory — so no normalization is needed here.
+    let discovery_location = discovery_root.clone();
 
-    // Normalize the discovery root so `join` treats it as a directory.
-    let directory_root = with_trailing_slash(discovery_root.clone());
-    // Build the URL through `join` so that trailing slashes on the
-    // discovery root behave consistently (RFC 3986 §5.3 path resolution).
-    let config_url = directory_root
-        .join("sysand-index-config.json")
-        .expect("joining a fixed relative path onto an HTTP(S) base URL succeeds");
+    let config_url = discovery_location.resolve(["sysand-index-config.json"]);
 
     let parsed: Option<IndexConfigRaw> =
         fetch_json(client, auth, &config_url, MissingPolicy::AllowNotFound).await?;
 
     let Some(raw) = parsed else {
-        return Ok(ResolvedEndpoints::flat(directory_root));
+        let endpoints = ResolvedEndpoints::flat(discovery_location);
+        log_resolved(&endpoints);
+        return Ok(endpoints);
     };
 
-    let parse_field = |field: &'static str, value: Option<String>, default: &url::Url| {
-        let Some(s) = value else {
-            return Ok(default.clone());
-        };
+    // Parse a supplied field value as a plain base URL.
+    // `url::Url::parse` on a relative input (e.g. `"/index/"`) returns
+    // `Err(RelativeUrlWithoutBase)` — map that specifically to
+    // `RelativeUrl` so the error is actionable.
+    let parse_base_url = |field: &'static str, s: String| -> Result<url::Url, DiscoveryError> {
         let parsed = match url::Url::parse(&s) {
             Ok(parsed) => parsed,
+            Err(url::ParseError::RelativeUrlWithoutBase) => {
+                return Err(DiscoveryError::RelativeUrl {
+                    url: config_url.as_str().into(),
+                    field,
+                    value: s,
+                });
+            }
             Err(source) => {
                 return Err(DiscoveryError::InvalidUrl {
                     url: config_url.as_str().into(),
@@ -248,48 +269,47 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
         Ok(with_trailing_slash(parsed))
     };
 
-    // `url::Url::parse` on a relative input (e.g. `"/index/"`) returns
-    // `Err(RelativeUrlWithoutBase)` — map that specifically to
-    // `RelativeUrl` so the error is actionable.
-    let parse_or_relative =
-        |field: &'static str, value: Option<String>, default: &url::Url| match parse_field(
-            field, value, default,
-        ) {
-            Err(DiscoveryError::InvalidUrl {
-                url,
-                field,
-                value,
-                source: url::ParseError::RelativeUrlWithoutBase,
-            }) => Err(DiscoveryError::RelativeUrl { url, field, value }),
-            other => other,
-        };
+    // `index_root` may itself be a URL template; `api_root` may not
+    // (uploads are not file fetches, so templating it is meaningless).
+    // Both roots enforce their validity invariants through
+    // `IndexLocation::parse`, so a plain and a templated `index_root` are
+    // validated in the same place.
+    let index_root = match raw.index_root {
+        None => discovery_location.clone(),
+        Some(s) => IndexLocation::parse(&s).map_err(|source| DiscoveryError::InvalidLocation {
+            url: config_url.as_str().into(),
+            field: "index_root",
+            source,
+        })?,
+    };
 
-    let index_root = parse_or_relative("index_root", raw.index_root, &directory_root)?;
-    let api_root = parse_or_relative("api_root", raw.api_root, &directory_root)?;
+    let api_root = match (raw.api_root, discovery_location) {
+        (Some(s), _) => Some(parse_base_url("api_root", s)?),
+        (None, IndexLocation::Root(directory_root)) => Some(directory_root),
+        (None, IndexLocation::Template(_)) => None,
+    };
 
-    Ok(ResolvedEndpoints {
+    let endpoints = ResolvedEndpoints {
         index_root,
         api_root,
-    })
+    };
+    log_resolved(&endpoints);
+    Ok(endpoints)
 }
 
-/// Return `url` with a guaranteed trailing slash on its path so that
-/// `Url::join` treats it as a directory. Operates via `path_segments_mut`
-/// rather than touching the serialized path string, so percent-encoded
-/// segments survive the round-trip unchanged.
-///
-/// Callers must pass an HTTP(S) URL. Such URLs can be a base, so the
-/// `path_segments_mut` call should not fail after endpoint-shape
-/// validation.
-pub(crate) fn with_trailing_slash(mut url: url::Url) -> url::Url {
-    {
-        let mut segments = url
-            .path_segments_mut()
-            .expect("caller passes a URL that can be a base");
-        segments.pop_if_empty();
-        segments.push("");
+/// Discovery decides where every later index fetch goes, so record the
+/// outcome for debugging.
+fn log_resolved(endpoints: &ResolvedEndpoints) {
+    match &endpoints.api_root {
+        Some(api_root) => log::debug!(
+            "resolved index endpoints: index_root `{}`, api_root `{api_root}`",
+            endpoints.index_root
+        ),
+        None => log::debug!(
+            "resolved index endpoints: index_root `{}`, no api_root (read-only index)",
+            endpoints.index_root
+        ),
     }
-    url
 }
 
 #[cfg(test)]

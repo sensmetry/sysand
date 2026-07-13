@@ -26,6 +26,7 @@ use sysand_core::{
     },
     exclude::do_exclude,
     include::do_include,
+    index_location::IndexLocation,
     info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
@@ -172,7 +173,7 @@ fn do_info_py(
             .map(|url_strs| {
                 url_strs
                     .iter()
-                    .map(|url_str| url::Url::parse(url_str))
+                    .map(|url_str| IndexLocation::parse(url_str))
                     .collect()
             })
             .transpose()

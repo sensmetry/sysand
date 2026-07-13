@@ -61,16 +61,22 @@ pub(crate) enum ParsedIri {
 }
 
 impl ParsedIri {
-    pub(crate) fn get_path(&self) -> String {
+    /// The two path segments identifying the project directory:
+    /// `[publisher, name]` for a sysand PURL, or `[_iri, <sha256hex>]` for
+    /// any other IRI. Kept as separate segments (rather than a joined
+    /// path) so callers can encode each independently.
+    pub(crate) fn get_path_segments(&self) -> [String; 2] {
         match self {
-            ParsedIri::Sysand { publisher, name } => format!("{publisher}/{name}"),
-            ParsedIri::Other { normalized_iri } => {
-                format!(
-                    "{IRI_HASH_SEGMENT}/{}",
-                    sha256_lowercase_hex(normalized_iri)
-                )
-            }
+            ParsedIri::Sysand { publisher, name } => [publisher.clone(), name.clone()],
+            ParsedIri::Other { normalized_iri } => [
+                IRI_HASH_SEGMENT.to_owned(),
+                sha256_lowercase_hex(normalized_iri),
+            ],
         }
+    }
+
+    pub(crate) fn get_path(&self) -> String {
+        self.get_path_segments().join("/")
     }
 
     pub(crate) fn get_iri(&self) -> String {

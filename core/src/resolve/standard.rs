@@ -12,6 +12,7 @@ use crate::{
         discovery::DiscoveryError, index::IndexEnvironmentAsync,
         local_directory::LocalDirectoryEnvironment,
     },
+    index_location::IndexLocation,
     resolve::{
         AsSyncResolveTokio, ResolveRead, ResolveReadAsync,
         combined::CombinedResolver,
@@ -91,7 +92,7 @@ pub fn standard_local_resolver(local_env: LocalDirectoryEnvironment) -> LocalEnv
 
 pub fn standard_index_resolver<Policy: HTTPAuthentication>(
     client: ClientWithMiddleware,
-    urls: Vec<url::Url>,
+    urls: Vec<IndexLocation>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<AsSyncResolveTokio<RemoteIndexResolver<Policy>>, DiscoveryError> {
@@ -118,7 +119,7 @@ pub fn standard_resolver<Policy: HTTPAuthentication>(
     cwd: Option<Utf8PathBuf>,
     local_env: Option<LocalDirectoryEnvironment>,
     client: Option<ClientWithMiddleware>,
-    index_urls: Option<Vec<url::Url>>,
+    index_urls: Option<Vec<IndexLocation>>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<StandardResolver<Policy>, DiscoveryError> {

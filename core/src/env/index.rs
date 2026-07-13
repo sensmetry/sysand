@@ -39,6 +39,7 @@ use crate::{
         iri::ParseIriError,
         model::{IndexJson, ProjectStatus, VersionStatus, VersionsJson},
     },
+    index_location::IndexLocation,
     model::InterchangeProjectUsageRaw,
     project::index_entry::{IndexEntryProject, IndexEntryProjectError},
     resolve::net_utils::json_get_request,
@@ -69,7 +70,7 @@ pub struct IndexEnvironmentAsync<Policy> {
     /// User-configured discovery root. When present, `endpoints` is
     /// populated lazily from `<discovery_root>/sysand-index-config.json`
     /// on first actual index access.
-    discovery_root: Option<url::Url>,
+    discovery_root: Option<IndexLocation>,
     /// Resolved `(index_root, api_root)` pair. Test callers may seed this
     /// at construction; production index resolvers leave it empty until
     /// the index is actually queried.
@@ -122,7 +123,7 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
     pub fn from_discovery_root(
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
-        discovery_root: url::Url,
+        discovery_root: IndexLocation,
     ) -> Self {
         Self {
             client,
@@ -189,8 +190,6 @@ pub(crate) struct AdvertisedVersion {
 
 #[derive(Error, Debug)]
 pub enum IndexEnvironmentError {
-    #[error("failed to extend URL `{0}` with path `{1}`: {2}")]
-    JoinURL(Box<str>, String, url::ParseError),
     #[error(transparent)]
     Discovery(#[from] DiscoveryError),
     #[error(transparent)]
@@ -359,7 +358,7 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
         // Propagate a 404 as a hard error for list-all operations:
         // empty-but-live indices serve `{"projects": []}` with 200 OK, so
         // 404 really means "this URL is not a sysand index".
-        let url = self.endpoints().await?.index_url()?;
+        let url = self.endpoints().await?.index_url();
 
         match fetch_json(
             &self.client,

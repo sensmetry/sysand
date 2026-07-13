@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::{
-    AllowedMetamodelKind, EndpointKind, PublishError, TrustedPublishingEnvironment,
-    TrustedPublishingMode, build_upload_url, check_metamodel, check_usage, error_body_to_string,
-    map_publish_response, resolve_publish_bearer, validate_endpoint_url_shape,
+    AllowedMetamodelKind, PublishError, TrustedPublishingEnvironment, TrustedPublishingMode,
+    build_upload_url, check_metamodel, check_usage, error_body_to_string, map_publish_response,
+    resolve_publish_bearer, validate_api_root_url_shape,
 };
 use crate::{
     auth::{ForceBearerAuth, GlobMap, GlobMapBuilder},
@@ -48,31 +48,22 @@ fn github_env(token: &str, url: &str) -> TrustedPublishingEnvironment {
 
 #[test]
 fn build_upload_url_appends_endpoint_path() {
-    // `build_upload_url` takes the resolved `api_root`, not the
-    // discovery root. Well-known discovery has already chosen
-    // `api_root` — this helper just composes `v1/upload` onto it.
+    // `build_upload_url` takes the resolved `api_root` (already normalized
+    // by discovery to end with `/`), not the discovery root. Well-known
+    // discovery has already chosen `api_root` — this helper just composes
+    // `v1/upload` onto it.
     assert_eq!(
-        build_upload_url(&Url::parse("https://example.org").unwrap())
-            .unwrap()
-            .as_str(),
+        build_upload_url(&Url::parse("https://example.org").unwrap()).as_str(),
         "https://example.org/v1/upload"
     );
     assert_eq!(
-        build_upload_url(&Url::parse("https://example.org/").unwrap())
-            .unwrap()
-            .as_str(),
+        build_upload_url(&Url::parse("https://example.org/").unwrap()).as_str(),
         "https://example.org/v1/upload"
     );
+    // A resolved `api_root` with a sub-path already carries its trailing
+    // slash, so the endpoint appends rather than replacing `api`.
     assert_eq!(
-        build_upload_url(&Url::parse("https://example.org/api").unwrap())
-            .unwrap()
-            .as_str(),
-        "https://example.org/api/v1/upload"
-    );
-    assert_eq!(
-        build_upload_url(&Url::parse("https://example.org/api/").unwrap())
-            .unwrap()
-            .as_str(),
+        build_upload_url(&Url::parse("https://example.org/api/").unwrap()).as_str(),
         "https://example.org/api/v1/upload"
     );
 }
@@ -387,57 +378,9 @@ fn resolve_publish_bearer_exchange_malformed_response_errors() {
 #[test]
 fn build_upload_url_preserves_percent_encoded_segments() {
     assert_eq!(
-        build_upload_url(&Url::parse("https://example.org/my%20api/").unwrap())
-            .unwrap()
-            .as_str(),
+        build_upload_url(&Url::parse("https://example.org/my%20api/").unwrap()).as_str(),
         "https://example.org/my%20api/v1/upload"
     );
-}
-
-#[test]
-fn build_upload_url_rejects_upload_endpoint_path() {
-    // If the caller hands us an `api_root` that already ends in the
-    // upload path, they've pasted the full upload URL in the wrong
-    // place. Catch it before we compose `v1/upload/v1/upload`.
-    for url in [
-        "https://example.org/v1/upload",
-        "https://example.org/v1/upload/",
-        "https://example.org/api/v1/upload",
-        "https://example.org/api/v1/upload/",
-    ] {
-        let err = build_upload_url(&Url::parse(url).unwrap()).unwrap_err();
-        assert_matches!(err, PublishError::InvalidApiRoot { .. });
-    }
-}
-
-#[test]
-fn build_upload_url_rejects_query_and_fragment() {
-    let err =
-        build_upload_url(&Url::parse("https://example.org/index?x=1#frag").unwrap()).unwrap_err();
-    assert_matches!(err, PublishError::InvalidApiRoot { .. });
-}
-
-#[test]
-fn build_upload_url_rejects_non_http_scheme() {
-    let err = build_upload_url(&Url::parse("ftp://example.org").unwrap()).unwrap_err();
-    assert_matches!(err, PublishError::InvalidApiRoot { .. });
-}
-
-#[test]
-fn build_upload_url_rejects_non_hierarchical_url() {
-    let err = build_upload_url(&Url::parse("mailto:test@example.org").unwrap()).unwrap_err();
-    assert_matches!(err, PublishError::InvalidApiRoot { .. });
-}
-
-#[test]
-fn build_upload_url_rejects_userinfo() {
-    for raw in [
-        "https://user@example.org/api/",
-        "https://user:password@example.org/api/",
-    ] {
-        let err = build_upload_url(&Url::parse(raw).unwrap()).unwrap_err();
-        assert_matches!(err, PublishError::InvalidApiRoot { .. });
-    }
 }
 
 #[test]
@@ -619,27 +562,59 @@ fn map_publish_response_201_is_ok_new_project() {
     assert_eq!(resp.status, 201);
 }
 
-// --- validate_endpoint_url_shape with DiscoveryRoot ---
+// --- validate_api_root_url_shape ---
 
 #[test]
-fn validate_discovery_root_rejects_non_http_scheme() {
+fn validate_api_root_rejects_non_http_scheme() {
     let url = Url::parse("ftp://example.org").unwrap();
-    let err = validate_endpoint_url_shape(&url, EndpointKind::DiscoveryRoot).unwrap_err();
-    assert_matches!(err, PublishError::InvalidDiscoveryRoot { .. });
+    let err = validate_api_root_url_shape(&url).unwrap_err();
+    assert_matches!(err, PublishError::InvalidApiRoot { .. });
 }
 
 #[test]
-fn validate_discovery_root_rejects_upload_endpoint_path() {
-    let url = Url::parse("https://example.org/v1/upload").unwrap();
-    let err = validate_endpoint_url_shape(&url, EndpointKind::DiscoveryRoot).unwrap_err();
-    assert_matches!(err, PublishError::InvalidDiscoveryRoot { .. });
+fn validate_api_root_rejects_upload_endpoint_path() {
+    // An `api_root` that already ends in the upload path means the full
+    // upload URL was pasted in the wrong place; catch it before we would
+    // compose `v1/upload/v1/upload`.
+    for url in [
+        "https://example.org/v1/upload",
+        "https://example.org/v1/upload/",
+        "https://example.org/api/v1/upload",
+        "https://example.org/api/v1/upload/",
+    ] {
+        let err = validate_api_root_url_shape(&Url::parse(url).unwrap()).unwrap_err();
+        assert_matches!(err, PublishError::InvalidApiRoot { .. });
+    }
 }
 
 #[test]
-fn validate_discovery_root_rejects_query_and_fragment() {
-    let url = Url::parse("https://example.org/index?x=1").unwrap();
-    let err = validate_endpoint_url_shape(&url, EndpointKind::DiscoveryRoot).unwrap_err();
-    assert_matches!(err, PublishError::InvalidDiscoveryRoot { .. });
+fn validate_api_root_rejects_query_and_fragment() {
+    for url in [
+        "https://example.org/index?x=1",
+        "https://example.org/index#frag",
+        "https://example.org/index?x=1#frag",
+    ] {
+        let err = validate_api_root_url_shape(&Url::parse(url).unwrap()).unwrap_err();
+        assert_matches!(err, PublishError::InvalidApiRoot { .. });
+    }
+}
+
+#[test]
+fn validate_api_root_rejects_non_hierarchical_url() {
+    let err =
+        validate_api_root_url_shape(&Url::parse("mailto:test@example.org").unwrap()).unwrap_err();
+    assert_matches!(err, PublishError::InvalidApiRoot { .. });
+}
+
+#[test]
+fn validate_api_root_rejects_userinfo() {
+    for raw in [
+        "https://user@example.org/api/",
+        "https://user:password@example.org/api/",
+    ] {
+        let err = validate_api_root_url_shape(&Url::parse(raw).unwrap()).unwrap_err();
+        assert_matches!(err, PublishError::InvalidApiRoot { .. });
+    }
 }
 
 // --- prepare_publish_payload error cases ---

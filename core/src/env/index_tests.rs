@@ -36,6 +36,7 @@ use crate::{
     auth::Unauthenticated,
     context::ProjectContext,
     env::{ReadEnvironment, ReadEnvironmentAsync, discovery::ResolvedEndpoints},
+    index_location::{IndexLocation, with_trailing_slash},
     lock::Source,
     project::{
         ProjectRead, index_entry::IndexEntryProjectError,
@@ -118,26 +119,12 @@ fn index_env_async(
     // Tests that specifically cover discovery construct their own env
     // via `index_env_sync_discovery`, which goes through the real
     // `fetch_index_config` against a mock server.
-    let endpoints = ResolvedEndpoints::flat(with_trailing_slash(base));
+    let endpoints = ResolvedEndpoints::flat(IndexLocation::Root(with_trailing_slash(base)));
     Ok(super::IndexEnvironmentAsync::new(
         create_reqwest_client()?,
         Arc::new(Unauthenticated {}),
         endpoints,
     ))
-}
-
-/// Helper: return `url` with a guaranteed trailing slash on its path.
-/// Kept here (rather than pulled from `super::discovery::with_trailing_slash`
-/// which is private) so test-side URL construction matches what the
-/// discovery module produces.
-fn with_trailing_slash(mut url: url::Url) -> url::Url {
-    if url.path().is_empty() {
-        url.set_path("/");
-    } else if !url.path().ends_with('/') {
-        let new_path = format!("{}/", url.path());
-        url.set_path(&new_path);
-    }
-    url
 }
 
 /// Shorthand: resolve the endpoints on a test env. Tests that don't
@@ -158,12 +145,13 @@ fn index_env_sync_discovery(
     crate::env::AsSyncEnvironmentTokio<super::IndexEnvironmentAsync<Unauthenticated>>,
     Box<dyn std::error::Error>,
 > {
-    let base = url::Url::parse(&server.url())?;
     let runtime = make_runtime()?;
     let client = create_reqwest_client()?;
     let auth = Arc::new(Unauthenticated {});
     let endpoints = runtime.block_on(crate::env::discovery::fetch_index_config(
-        &client, &*auth, &base,
+        &client,
+        &*auth,
+        &IndexLocation::parse(&server.url())?,
     ))?;
     let env = super::IndexEnvironmentAsync::new(client, auth, endpoints);
     Ok(env.to_tokio_sync(runtime))
@@ -257,7 +245,7 @@ mod uris {
         let endpoints = resolved_endpoints(&env);
 
         assert_eq!(
-            endpoints.index_url()?.to_string(),
+            endpoints.index_url().to_string(),
             "https://www.example.com/index/index.json"
         );
 
@@ -363,7 +351,7 @@ mod uris {
         let endpoints = resolved_endpoints(&env);
 
         assert_eq!(
-            endpoints.index_url()?.to_string(),
+            endpoints.index_url().to_string(),
             "https://www.example.com/index/index.json"
         );
         assert_eq!(
@@ -2325,6 +2313,39 @@ mod discovery {
     }
 
     #[test]
+    fn discovery_normalizes_api_root_trailing_slash() -> Result<(), Box<dyn std::error::Error>> {
+        // A discovery document may supply `api_root` without a trailing
+        // slash. Discovery is the single place that normalizes it, so the
+        // resolved `api_root` always ends with `/` — later `Url::join` of
+        // the upload path then appends rather than replacing the last
+        // segment.
+        let mut server = mockito::Server::new();
+        let config_body = format!(r#"{{"api_root":"{}/api"}}"#, server.url());
+        let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", config_body);
+
+        let runtime = make_runtime()?;
+        let client = create_reqwest_client()?;
+        let auth = Arc::new(Unauthenticated {});
+        let endpoints = runtime.block_on(crate::env::discovery::fetch_index_config(
+            &client,
+            &*auth,
+            &IndexLocation::parse(&server.url())?,
+        ))?;
+
+        let api_root = endpoints
+            .api_root
+            .expect("a plain discovery root yields an api_root");
+        assert!(
+            api_root.as_str().ends_with("/api/"),
+            "api_root should be normalized with a trailing slash, got `{api_root}`"
+        );
+
+        config_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
     fn discovery_rejects_relative_index_root() -> Result<(), Box<dyn std::error::Error>> {
         // Relative `index_root` -> `RelativeUrl` error. Discovery is
         // resolved at env construction, so the rejection surfaces from
@@ -2472,6 +2493,164 @@ mod discovery {
         redirect_mock.assert();
         target_mock.assert();
         versions_mock.assert();
+
+        Ok(())
+    }
+
+    /// Like `index_env_sync_discovery`, but with an arbitrary discovery
+    /// location (e.g. a URL template) instead of the mock server's root.
+    fn index_env_sync_discovery_at(
+        discovery_root: IndexLocation,
+    ) -> Result<
+        crate::env::AsSyncEnvironmentTokio<
+            crate::env::index::IndexEnvironmentAsync<Unauthenticated>,
+        >,
+        Box<dyn std::error::Error>,
+    > {
+        let runtime = make_runtime()?;
+        let client = create_reqwest_client()?;
+        let auth = Arc::new(Unauthenticated {});
+        let endpoints = runtime.block_on(crate::env::discovery::fetch_index_config(
+            &client,
+            &*auth,
+            &discovery_root,
+        ))?;
+        let env = crate::env::index::IndexEnvironmentAsync::new(client, auth, endpoints);
+        Ok(env.to_tokio_sync(runtime))
+    }
+
+    #[test]
+    fn discovery_templated_root_serves_gitlab_files_api_shape()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // A `{path}` template as the discovery root: the discovery
+        // document and versions.json are fetched mid-URL with `/`
+        // percent-encoded as `%2F` and the query string preserved — the
+        // GitLab repository files API shape.
+        let mut server = mockito::Server::new();
+        let files = "/api/v4/projects/123/repository/files";
+
+        let config_mock = server
+            .mock(
+                "GET",
+                format!("{files}/sysand-index-config.json/raw").as_str(),
+            )
+            .match_query(mockito::Matcher::UrlEncoded("ref".into(), "main".into()))
+            .with_status(404)
+            .expect(1)
+            .create();
+
+        let versions_mock = server
+            .mock(
+                "GET",
+                format!("{files}/admin%2Fproj0%2Fversions.json/raw").as_str(),
+            )
+            .match_query(mockito::Matcher::UrlEncoded("ref".into(), "main".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(versions_json_body([("1.0.0", "[]")]))
+            .expect(1)
+            .create();
+
+        let template = format!("{}{files}/{{path}}/raw?ref=main", server.url());
+        let env = index_env_sync_discovery_at(IndexLocation::parse(&template)?)?;
+
+        let versions: Vec<_> = env
+            .versions(purl("admin/proj0"))?
+            .collect::<Result<_, _>>()?;
+        assert_eq!(versions, vec!["1.0.0"]);
+
+        config_mock.assert();
+        versions_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn discovery_templated_root_raw_placeholder_keeps_slashes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // `{path_raw}` keeps `/` literal, so a suffix (and query) after
+        // the path still works.
+        let mut server = mockito::Server::new();
+
+        let config_mock = server
+            .mock("GET", "/raw/sysand-index-config.json")
+            .match_query(mockito::Matcher::UrlEncoded("ref".into(), "main".into()))
+            .with_status(404)
+            .expect(1)
+            .create();
+
+        let versions_mock = server
+            .mock("GET", "/raw/admin/proj0/versions.json")
+            .match_query(mockito::Matcher::UrlEncoded("ref".into(), "main".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(versions_json_body([("1.0.0", "[]")]))
+            .expect(1)
+            .create();
+
+        let template = format!("{}/raw/{{path_raw}}?ref=main", server.url());
+        let env = index_env_sync_discovery_at(IndexLocation::parse(&template)?)?;
+
+        let versions: Vec<_> = env
+            .versions(purl("admin/proj0"))?
+            .collect::<Result<_, _>>()?;
+        assert_eq!(versions, vec!["1.0.0"]);
+
+        config_mock.assert();
+        versions_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn discovery_config_remaps_index_root_to_template() -> Result<(), Box<dyn std::error::Error>> {
+        // A plain discovery root whose discovery document redirects
+        // index reads through a URL template (issue #438's original
+        // ask).
+        let mut server = mockito::Server::new();
+
+        let config_body = format!(r#"{{"index_root":"{}/files/{{path}}/raw"}}"#, server.url());
+        let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", config_body);
+
+        let remap_mock = mock_json_get(
+            &mut server,
+            "/files/admin%2Fproj0%2Fversions.json/raw",
+            versions_json_body([("1.0.0", "[]")]),
+        );
+
+        let env = index_env_sync_discovery(&server)?;
+
+        let versions: Vec<_> = env
+            .versions(purl("admin/proj0"))?
+            .collect::<Result<_, _>>()?;
+        assert_eq!(versions, vec!["1.0.0"]);
+
+        config_mock.assert();
+        remap_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn discovery_rejects_invalid_template_index_root() -> Result<(), Box<dyn std::error::Error>> {
+        // An `index_root` template with an unknown placeholder is a
+        // discovery error, not a silent literal URL.
+        let mut server = mockito::Server::new();
+
+        let config_mock = mock_json_get(
+            &mut server,
+            "/sysand-index-config.json",
+            r#"{"index_root":"https://example.org/files/{file}/raw"}"#,
+        );
+
+        let err = index_env_sync_discovery(&server).expect_err("bad template must reject");
+        let text = format!("{err:?}");
+        assert!(
+            text.contains("index_root") && text.contains("{file}"),
+            "expected unknown-placeholder error on index_root, got: {text}"
+        );
+
+        config_mock.assert();
 
         Ok(())
     }

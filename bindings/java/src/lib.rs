@@ -249,8 +249,8 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
         let Some(index_url) = env.get_str(&index_url, "indexUrl") else {
             return JObject::default();
         };
-        match url::Url::parse(&index_url) {
-            Ok(url) => Some(url),
+        match sysand_core::index_location::IndexLocation::parse(&index_url) {
+            Ok(location) => Some(location),
             Err(error) => {
                 env.throw_stdlib_exception(
                     StdlibExceptionKind::UnsupportedOperationException,

@@ -4,8 +4,8 @@
 use serde::{Deserialize, Serialize};
 use toml_edit::{InlineTable, Value};
 use typed_path::Utf8UnixPathBuf;
-use url::Url;
 
+use crate::index_location::{IndexLocation, IndexLocationError};
 use crate::project::utils::{deserialize_unix_path, serialize_unix_path};
 
 #[cfg(feature = "filesystem")]
@@ -122,7 +122,7 @@ impl Config {
         index_urls: Vec<String>,
         default_urls: Vec<String>,
         default_override_urls: Vec<String>,
-    ) -> Result<Vec<Url>, url::ParseError> {
+    ) -> Result<Vec<IndexLocation>, IndexLocationError> {
         if default_override_urls.is_empty() {
             self.index_urls_no_default_override(index_urls, default_urls)
         } else {
@@ -134,7 +134,7 @@ impl Config {
         &self,
         index_urls: Vec<String>,
         default_urls: Vec<String>,
-    ) -> Result<Vec<Url>, url::ParseError> {
+    ) -> Result<Vec<IndexLocation>, IndexLocationError> {
         let mut indexes = self.indexes.clone();
 
         indexes.sort_by_key(|i| i.default.unwrap_or(false));
@@ -151,7 +151,7 @@ impl Config {
             .map(|url| url.as_str())
             .chain(indexes.iter().map(|i| i.url.as_str()))
             .chain(end.iter().map(|url| url.as_str()))
-            .map(Url::parse)
+            .map(IndexLocation::parse)
             .collect()
     }
 
@@ -159,7 +159,7 @@ impl Config {
         &self,
         index_urls: Vec<String>,
         default_urls: Vec<String>,
-    ) -> Result<Vec<Url>, url::ParseError> {
+    ) -> Result<Vec<IndexLocation>, IndexLocationError> {
         index_urls
             .iter()
             .map(|url| url.as_str())
@@ -170,7 +170,7 @@ impl Config {
                     .map(|i| i.url.as_str()),
             )
             .chain(default_urls.iter().map(|url| url.as_str()))
-            .map(Url::parse)
+            .map(IndexLocation::parse)
             .collect()
     }
 }
