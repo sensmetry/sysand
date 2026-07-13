@@ -35,7 +35,7 @@ jobs:
       gate: ${{ steps.decisions.outputs.gate }}
       lint_and_format: ${{ steps.decisions.outputs.lint_and_format }}
     steps:
-      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         if: github.event_name == 'pull_request'
         id: filter
         with:
@@ -70,7 +70,7 @@ jobs:
         with:
           key: ubuntu-24.04
 
-      - uses: taiki-e/install-action@9bcaee1dcae34154180f412e2fa69355a7cda9f6 # v2.82.6
+      - uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: cargo-hack
 
