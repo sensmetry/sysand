@@ -322,6 +322,8 @@ fn resolve_publish_bearer_exchange_non_success_errors() {
     let exchange_mock = server
         .mock("POST", "/api/v1/oidc/token")
         .with_status(403)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"error": "No matching trusted publisher found"}"#)
         .expect(1)
         .create();
     let api_root = Url::parse(&format!("{}/api/", server.url())).unwrap();
@@ -340,8 +342,15 @@ fn resolve_publish_bearer_exchange_non_success_errors() {
     .unwrap_err();
 
     assert_matches!(
-        err,
-        PublishError::TrustedPublishingExchangeHttpStatus { status: 403, .. }
+        &err,
+        PublishError::TrustedPublishingExchangeHttpStatus { status: 403, detail, .. }
+            if detail.as_ref() == "No matching trusted publisher found"
+    );
+    // The server-provided reason is surfaced in the error's Display output.
+    assert!(
+        err.to_string()
+            .contains("No matching trusted publisher found"),
+        "error message should include the server reason: {err}"
     );
     exchange_mock.assert();
 }
@@ -526,38 +535,20 @@ fn check_usage_rejects_unknown_std_lib() {
 
 #[test]
 fn map_publish_response_400_maps_to_bad_request() {
-    let err = map_publish_response(
-        400,
-        b"bad field",
-        "http://example.org/v1/upload",
-        "http://example.org/v1/upload",
-    )
-    .unwrap_err();
+    let err = map_publish_response(400, b"bad field").unwrap_err();
     assert_matches!(err, PublishError::BadRequest(_));
 }
 
 #[test]
 fn map_publish_response_200_is_ok_not_new_project() {
-    let resp = map_publish_response(
-        200,
-        b"ok",
-        "http://example.org/v1/upload",
-        "http://example.org/v1/upload",
-    )
-    .unwrap();
+    let resp = map_publish_response(200, b"ok").unwrap();
     assert!(!resp.is_new_project);
     assert_eq!(resp.status, 200);
 }
 
 #[test]
 fn map_publish_response_201_is_ok_new_project() {
-    let resp = map_publish_response(
-        201,
-        b"created",
-        "http://example.org/v1/upload",
-        "http://example.org/v1/upload",
-    )
-    .unwrap();
+    let resp = map_publish_response(201, b"created").unwrap();
     assert!(resp.is_new_project);
     assert_eq!(resp.status, 201);
 }

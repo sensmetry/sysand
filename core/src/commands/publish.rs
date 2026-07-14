@@ -268,7 +268,7 @@ pub fn do_publish(
         status
     );
 
-    map_publish_response(status, &body_bytes, &upload_url_for_log, &response_url)
+    map_publish_response(status, &body_bytes)
 }
 
 /// Validate the shape of the resolved `api_root` that comes back from
@@ -467,6 +467,7 @@ fn exchange_oidc_token_for_index_token(
         return Err(PublishError::TrustedPublishingExchangeHttpStatus {
             url: exchange_url.as_str().into(),
             status: status.as_u16(),
+            detail: error_body_to_string(&body).into(),
         });
     }
 
@@ -783,8 +784,12 @@ pub enum PublishError {
         status: u16,
     },
 
-    #[error("trusted publishing token exchange at `{url}` failed: HTTP status {status}")]
-    TrustedPublishingExchangeHttpStatus { url: Box<str>, status: u16 },
+    #[error("trusted publishing token exchange at `{url}` failed: HTTP status {status}: {detail}")]
+    TrustedPublishingExchangeHttpStatus {
+        url: Box<str>,
+        status: u16,
+        detail: Box<str>,
+    },
 
     #[error("failed to read {context}")]
     TrustedPublishingResponseBody {
@@ -1196,12 +1201,7 @@ fn check_metamodel(metamodel: &str) -> Result<AllowedMetamodelKind, PublishError
 }
 
 /// Maps an HTTP status and body to a `PublishResponse` or `PublishError`.
-fn map_publish_response(
-    status: u16,
-    body_bytes: &[u8],
-    upload_url_for_log: &str,
-    response_url: &str,
-) -> Result<PublishResponse, PublishError> {
+fn map_publish_response(status: u16, body_bytes: &[u8]) -> Result<PublishResponse, PublishError> {
     match status {
         200 => Ok(PublishResponse {
             status,
@@ -1217,18 +1217,10 @@ fn map_publish_response(
         401 | 403 => Err(PublishError::AuthError(error_body_to_string(body_bytes))),
         404 => Err(PublishError::NotFound(error_body_to_string(body_bytes))),
         409 => Err(PublishError::Conflict(error_body_to_string(body_bytes))),
-        _ => {
-            log::warn!(
-                "publish failed: request URL `{}`, final URL `{}`, status {}",
-                upload_url_for_log,
-                response_url,
-                status
-            );
-            Err(PublishError::ServerError {
-                status,
-                body: error_body_to_string(body_bytes),
-            })
-        }
+        _ => Err(PublishError::ServerError {
+            status,
+            body: error_body_to_string(body_bytes),
+        }),
     }
 }
 
