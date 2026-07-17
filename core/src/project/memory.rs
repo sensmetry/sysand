@@ -174,4 +174,8 @@ impl ProjectRead for InMemoryProject {
             .ok_or(InMemoryError::MissingInfoMeta)?;
         Ok(ProjectChecksum::Project(checksum))
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        None
+    }
 }

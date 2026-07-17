@@ -229,6 +229,13 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
                 .map_err(PriorityError::Lower),
         }
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        match self {
+            PriorityProject::HigherProject(project) => project.project_root(),
+            PriorityProject::LowerProject(project) => project.project_root(),
+        }
+    }
 }
 
 impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<Higher, Lower> {

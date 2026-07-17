@@ -84,6 +84,10 @@ impl ProjectRead for NullProject {
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         match self.nothing {}
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        None
+    }
 }
 
 impl ProjectReadAsync for NullProject {
@@ -119,5 +123,9 @@ impl ProjectReadAsync for NullProject {
 
     async fn checksum_canonical_variant_async(&self) -> Result<ProjectChecksum, Self::Error> {
         match self.nothing {}
+    }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        None
     }
 }

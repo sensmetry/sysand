@@ -400,6 +400,10 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloade
             Err(e) => Err(e),
         }
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        None
+    }
 }
 
 impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
@@ -611,6 +615,10 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestIndexKparDownloaded
             Ok(_) => Ok(ProjectChecksum::Kpar(self.expected_kpar_sha256.clone())),
             Err(e) => Err(e),
         }
+    }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        None
     }
 }
 

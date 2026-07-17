@@ -141,6 +141,14 @@ where
                 .map_err(GenericProjectError::Variant3),
         }
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        match self {
+            GenericProject::Variant1(project) => project.project_root(),
+            GenericProject::Variant2(project) => project.project_root(),
+            GenericProject::Variant3(project) => project.project_root(),
+        }
+    }
 }
 
 impl<A, B> ProjectMut for GenericProject<A, B>

@@ -195,6 +195,13 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
                 .map_err(RemoteProjectError::GitRead),
         }
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        match self {
+            RemoteProject::HTTPProject(project) => project.project_root(),
+            RemoteProject::GitProject(project) => project.project_root(),
+        }
+    }
 }
 
 pub struct ResolvedRemote<HTTPResolver: ResolveRead, GitResolver: ResolveRead> {

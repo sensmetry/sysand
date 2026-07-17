@@ -205,9 +205,7 @@ pub trait ProjectRead {
     // Optional and helpers
 
     /// Returns the local filesystem root path of this project, if available.
-    fn project_root(&self) -> Option<&Utf8Path> {
-        None
-    }
+    fn project_root(&self) -> Option<&Utf8Path>;
 
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         Ok(self.get_project()?.0)
@@ -397,6 +395,10 @@ impl<T: ProjectRead> ProjectRead for &T {
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         (*self).checksum_canonical_variant()
     }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        (*self).project_root()
+    }
 }
 
 impl<T: ProjectRead> ProjectRead for &mut T {
@@ -476,6 +478,10 @@ impl<T: ProjectRead> ProjectRead for &mut T {
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         (**self).checksum_canonical_variant()
+    }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        (**self).project_root()
     }
 }
 
@@ -650,6 +656,9 @@ pub trait ProjectReadAsync {
         &self,
     ) -> impl Future<Output = Result<ProjectChecksum, Self::Error>>;
 
+    // Async doesn't make sense for this
+    fn project_root(&self) -> Option<&Utf8Path>;
+
     /// Treat this `ProjectReadAsync` as a `ProjectRead` using the provided tokio runtime.
     fn to_tokio_sync(self, runtime: Arc<tokio::runtime::Runtime>) -> AsSyncProjectTokio<Self>
     where
@@ -760,6 +769,10 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &T {
     ) -> impl Future<Output = Result<ProjectChecksum, Self::Error>> {
         (**self).checksum_canonical_variant_async()
     }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        (**self).project_root()
+    }
 }
 
 impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
@@ -859,6 +872,10 @@ impl<T: ProjectReadAsync> ProjectReadAsync for &mut T {
         &self,
     ) -> impl Future<Output = Result<ProjectChecksum, Self::Error>> {
         (**self).checksum_canonical_variant_async()
+    }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        (**self).project_root()
     }
 }
 
@@ -1039,6 +1056,10 @@ where
     async fn checksum_canonical_variant_async(&self) -> Result<ProjectChecksum, Self::Error> {
         self.inner.checksum_canonical_variant()
     }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        self.inner.project_root()
+    }
 }
 
 /// Wrapper intended to wrap a `ProjectReadAsync`, indicating that it be treated as
@@ -1129,6 +1150,10 @@ impl<T: ProjectReadAsync> ProjectRead for AsSyncProjectTokio<T> {
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         self.runtime
             .block_on(self.inner.checksum_canonical_variant_async())
+    }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        self.inner.project_root()
     }
 }
 

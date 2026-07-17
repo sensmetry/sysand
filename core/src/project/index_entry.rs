@@ -198,6 +198,10 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
             self.advertised.kpar_digest.as_hex().to_string(),
         ))
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        None
+    }
 }
 
 #[cfg(test)]

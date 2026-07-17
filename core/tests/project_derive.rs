@@ -243,6 +243,10 @@ impl ProjectRead for FixedDigestProject {
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         Ok(ProjectChecksum::Project(self.digest.clone()))
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        None
+    }
 }
 
 #[derive(ProjectRead)]

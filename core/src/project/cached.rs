@@ -92,4 +92,8 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
         self.local.checksum_canonical_variant()
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        self.remote.project_root()
+    }
 }

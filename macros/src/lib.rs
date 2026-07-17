@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{Data, DataEnum, DeriveInput, parse_macro_input};
 
@@ -94,7 +95,28 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         enum_ident.span(),
     );
 
-    let variant_parts: Result<Vec<_>, _> = variants
+    #[derive(Clone)]
+    struct VariantParts {
+        variant_list_part: TokenStream2,
+        error_variants_part: TokenStream2,
+        error_args_part: TokenStream2,
+        source_reader_variants_part: TokenStream2,
+        variants_read_part: TokenStream2,
+        source_reader_match_part: TokenStream2,
+        source_reader_args_part: TokenStream2,
+        get_project_match_part: TokenStream2,
+        read_source_match_part: TokenStream2,
+        sources_match_part: TokenStream2,
+        project_root_match_part: TokenStream2,
+        get_info_match_part: TokenStream2,
+        get_meta_match_part: TokenStream2,
+        version_match_part: TokenStream2,
+        usage_match_part: TokenStream2,
+        checksum_canonical_hex_match_part: TokenStream2,
+        checksum_canonical_variant_match_part: TokenStream2,
+    }
+
+    let variant_parts: Result<Vec<VariantParts>, _> = variants
         .iter()
         .map(|variant| {
             let variant_ident = variant.ident.clone();
@@ -113,93 +135,78 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                     ));
                 }
             };
-            Ok((
-                // variant_list
-                quote! {
+            Ok(VariantParts {
+                variant_list_part: quote! {
                     #variant_ident
                 },
-                // error_variants
-                quote! {
+                error_variants_part: quote! {
                     #[error(transparent)]
                     #variant_ident(#variant_ident)
                 },
-                // error_args
-                quote! {
+                error_args_part: quote! {
                     <#variant_type as ProjectRead>::Error
                 },
-                // source_reader_variants
-                quote! {
+                source_reader_variants_part: quote! {
                     #variant_ident(#variant_ident)
                 },
-                // variants_read
-                quote! {
+                variants_read_part: quote! {
                     #variant_ident: ::std::io::Read
                 },
-                // source_reader_match
-                quote! {
+                source_reader_match_part: quote! {
                     #source_reader_ident::#variant_ident(reader) => reader.read(buf)
                 },
-                // source_reader_args
-                quote! {
+                source_reader_args_part: quote! {
                     <#variant_type as ProjectRead>::SourceReader<'a>
                 },
-                // get_project_match
-                quote! {
+                get_project_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .get_project()
                         .map_err(#error_ident::#variant_ident)
                 },
-                // read_source_match
-                quote! {
+                read_source_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .read_source(path)
                         .map(#source_reader_ident::#variant_ident)
                         .map_err(#error_ident::#variant_ident)
                 },
-                // sources_match
-                quote! {
+                sources_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project.sources(ctx)
                         .map_err(#error_ident::#variant_ident)
                 },
-                // get_info_match
-                quote! {
+                project_root_match_part: quote! {
+                    #enum_ident::#variant_ident(project) => project.project_root()
+                },
+                get_info_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .get_info()
                         .map_err(#error_ident::#variant_ident)
                 },
-                // get_meta_match
-                quote! {
+                get_meta_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .get_meta()
                         .map_err(#error_ident::#variant_ident)
                 },
-                // version_match
-                quote! {
+                version_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .version()
                         .map_err(#error_ident::#variant_ident)
                 },
-                // usage_match
-                quote! {
+                usage_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .usage()
                         .map_err(#error_ident::#variant_ident)
                 },
-                // checksum_canonical_hex_match — forward so that any leaf
-                // override (e.g. a remote-index project with a prefetched
-                // digest) isn't bypassed by the trait default.
-                quote! {
+                checksum_canonical_hex_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .checksum_canonical_hex()
                         .map_err(|e| e.map_project_read(#error_ident::#variant_ident))
                 },
-                // checksum_canonical_variant match
-                quote! {
+                checksum_canonical_variant_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .checksum_canonical_variant()
                         .map_err(#error_ident::#variant_ident)
                 },
-            ))
+            })
         })
         .collect();
 
@@ -218,6 +225,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
     let mut variants_read = vec![];
     let mut source_reader_match = vec![];
     let mut source_reader_args = vec![];
+    let mut project_root_match = vec![];
     let mut get_project_match = vec![];
     let mut read_source_match = vec![];
     let mut sources_match = vec![];
@@ -228,7 +236,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
     let mut checksum_canonical_hex_match = vec![];
     let mut checksum_canonical_variant_match = vec![];
 
-    for (
+    for VariantParts {
         variant_list_part,
         error_variants_part,
         error_args_part,
@@ -239,13 +247,14 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         get_project_match_part,
         read_source_match_part,
         sources_match_part,
+        project_root_match_part,
         get_info_match_part,
         get_meta_match_part,
         version_match_part,
         usage_match_part,
         checksum_canonical_hex_match_part,
         checksum_canonical_variant_match_part,
-    ) in variant_parts.iter().cloned()
+    } in variant_parts.iter().cloned()
     {
         variant_list.push(variant_list_part);
         error_variants.push(error_variants_part);
@@ -254,6 +263,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         variants_read.push(variants_read_part);
         source_reader_match.push(source_reader_match_part);
         source_reader_args.push(source_reader_args_part);
+        project_root_match.push(project_root_match_part);
         get_project_match.push(get_project_match_part);
         read_source_match.push(read_source_match_part);
         sources_match.push(sources_match_part);
@@ -330,6 +340,12 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             fn sources(&self, ctx: &ProjectContext) -> ::std::result::Result<::std::vec::Vec<Source>, Self::Error> {
                 match self {
                     #( #sources_match ),*
+                }
+            }
+
+            fn project_root(&self) -> ::std::option::Option<&::camino::Utf8Path> {
+                match self {
+                    #( #project_root_match ),*
                 }
             }
 

@@ -86,4 +86,8 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
         self.inner.checksum_canonical_variant()
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        self.inner.project_root()
+    }
 }
