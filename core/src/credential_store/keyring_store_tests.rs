@@ -58,6 +58,9 @@ fn record(key: &str, secret: &str) -> CredentialRecord {
         scheme: CredentialScheme::Bearer,
         secret: secret.to_string(),
         expires_at: None,
+        subject: None,
+        token_name: None,
+        token_prefix: None,
         extra: serde_json::Map::new(),
     }
 }

@@ -403,15 +403,126 @@ fn auth_login_covers_a_disjoint_api_root_from_discovery() -> TestResult {
         .create();
     let root = format!("{}/", server.url());
 
+    // `--validation false`: the advertised api_root is a foreign host
+    // this test must not probe.
     let (_t, _c, out) = run_sysand_stdin(
-        ["auth", "login", "--token-stdin", &server.url()],
+        [
+            "auth",
+            "login",
+            "--token-stdin",
+            "--validation",
+            "false",
+            &server.url(),
+        ],
         &env,
         b"tok\n",
     )?;
     out.assert()
         .success()
         .stdout(predicate::str::contains(format!("{root}**")))
-        .stdout(predicate::str::contains("https://api.example.com/base/**"));
+        .stdout(predicate::str::contains("https://api.example.com/base/**"))
+        .stderr(predicate::str::contains(STORED_MESSAGE));
+    Ok(())
+}
+
+#[test]
+fn auth_login_refuses_a_credential_every_exercised_surface_rejected() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    let env = seam_env(&store_path);
+
+    let mut server = mockito::Server::new();
+    let _config = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(404)
+        .create();
+    // Unauth baseline 401, forced bearer retry 401: rejected everywhere
+    // it was exercised, so the login must refuse and store nothing.
+    let _index = server
+        .mock("GET", "/index.json")
+        .with_status(401)
+        .expect(2)
+        .create();
+
+    let (_t, _c, out) = run_sysand_stdin(
+        ["auth", "login", "--token-stdin", &server.url()],
+        &env,
+        b"bad-tok\n",
+    )?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("rejected"))
+        .stderr(predicate::str::contains("nothing was stored"));
+    assert!(
+        !store_path.exists(),
+        "a refused login must not write the store"
+    );
+    Ok(())
+}
+
+#[test]
+fn auth_login_validates_the_read_surface_of_a_private_index() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    let env = seam_env(&store_path);
+
+    let mut server = mockito::Server::new();
+    let _config = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(404)
+        .create();
+    let _unauth = server
+        .mock("GET", "/index.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(401)
+        .create();
+    let _forced = server
+        .mock("GET", "/index.json")
+        .match_header("authorization", "Bearer sekrit-tok")
+        .with_status(200)
+        .create();
+
+    let (_t, _c, out) = run_sysand_stdin(
+        ["auth", "login", "--token-stdin", &server.url()],
+        &env,
+        b"sekrit-tok\n",
+    )?;
+    out.assert()
+        .success()
+        // Scoped claim: validated on the read surface only.
+        .stderr(predicate::str::contains("validated (read)"));
+    let blob = fs::read_to_string(&store_path)?;
+    assert!(
+        blob.contains(r#""secret":"sekrit-tok""#),
+        "blob was: {blob}"
+    );
+    Ok(())
+}
+
+#[test]
+fn auth_status_shows_identity_learned_by_a_validating_login() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    let env = seam_env(&store_path);
+
+    // A blob as a validating login writes it (identity from whoami).
+    fs::write(
+        &store_path,
+        r#"{"version":1,"credentials":[{
+            "key":"https://example.com/",
+            "globs":["https://example.com/**"],
+            "scheme":"bearer",
+            "secret":"sekrit-status-tok",
+            "expires_at":"2999-09-01T00:00:00Z",
+            "subject":{"type":"user","name":"alice"},
+            "token_name":"laptop",
+            "token_prefix":"sysand_u_1a2b3c4d"}]}"#,
+    )?;
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("subject: user alice"))
+        .stdout(predicate::str::contains("token prefix: sysand_u_1a2b3c4d"))
+        .stdout(predicate::str::contains("expires in"))
+        .stdout(predicate::str::contains("sekrit-status-tok").not());
     Ok(())
 }
 

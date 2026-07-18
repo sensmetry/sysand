@@ -219,10 +219,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 AuthCommand::Login {
                     index_url,
                     token_stdin,
+                    validation,
                     default_index,
                 } => command_auth_login(
                     index_url,
                     token_stdin,
+                    validation,
                     &default_index,
                     &config,
                     &client,

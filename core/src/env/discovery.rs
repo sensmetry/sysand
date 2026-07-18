@@ -39,6 +39,14 @@ pub struct ResolvedEndpoints {
     /// does not advertise `api_root` is read-only from this client's
     /// point of view.
     pub api_root: Option<url::Url>,
+    /// Whether the discovery document explicitly supplied `api_root`, as
+    /// opposed to the runtime default (a plain discovery root doubling as
+    /// `api_root`, including the absent-document [`ResolvedEndpoints::flat`]
+    /// case). When true, `api_root` is always `Some`. Consumed by
+    /// credential validation (design/credential-storage.md section 5): only
+    /// an advertised API surface is probed, so a static plain-URL index is
+    /// never phantom-probed for an API it does not have.
+    pub api_root_advertised: bool,
 }
 
 impl ResolvedEndpoints {
@@ -50,6 +58,7 @@ impl ResolvedEndpoints {
         Self {
             index_root: discovery_root,
             api_root: None,
+            api_root_advertised: false,
         }
     }
 
@@ -287,6 +296,7 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
     // The API surface exists only when the discovery document advertises
     // `api_root`; a plain discovery root is not an implicit API (see the
     // `ResolvedEndpoints::api_root` field doc).
+    let api_root_advertised = raw.api_root.is_some();
     let api_root = match raw.api_root {
         Some(s) => Some(parse_base_url("api_root", s)?),
         None => None,
@@ -295,6 +305,7 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
     let endpoints = ResolvedEndpoints {
         index_root,
         api_root,
+        api_root_advertised,
     };
     log_resolved(&endpoints);
     Ok(endpoints)

@@ -84,11 +84,14 @@ impl Error for ReqwestClientBuildError {}
 /// Relies on `reqwest`'s default redirect behaviour (up to 10
 /// automatic redirects); index clients MUST follow HTTP redirects
 /// on the index URL discovery fetch and on every index resource.
+/// The sysand HTTP user agent (sysand-core's version, pre-existing
+/// behavior; shared with the validation probe client in
+/// `crate::commands::auth`).
+pub(crate) const USER_AGENT: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
+
 pub fn create_reqwest_client()
 -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
-    const UA: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
-
-    let client = reqwest::Client::builder().user_agent(UA).build()?;
+    let client = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
 
     Ok(reqwest_middleware::ClientBuilder::new(client).build())
 }

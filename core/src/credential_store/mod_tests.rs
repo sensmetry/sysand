@@ -5,7 +5,8 @@ use chrono::{TimeZone, Utc};
 
 use super::{
     BLOB_VERSION, CredentialBlob, CredentialRecord, CredentialScheme, CredentialStore,
-    CredentialStoreError, InMemoryCredentialStore, normalize_index_key, parse_blob, serialize_blob,
+    CredentialStoreError, CredentialSubject, InMemoryCredentialStore, normalize_index_key,
+    parse_blob, serialize_blob,
 };
 
 fn record(key: &str, secret: &str) -> CredentialRecord {
@@ -15,6 +16,9 @@ fn record(key: &str, secret: &str) -> CredentialRecord {
         scheme: CredentialScheme::Bearer,
         secret: secret.to_string(),
         expires_at: None,
+        subject: None,
+        token_name: None,
+        token_prefix: None,
         extra: serde_json::Map::new(),
     }
 }
@@ -67,6 +71,46 @@ fn parse_tolerates_unknown_fields_and_round_trips_them() {
     let rewritten = serialize_blob(&blob).unwrap();
     assert!(rewritten.contains("future_top_level"));
     assert!(rewritten.contains("future_record_field"));
+}
+
+#[test]
+fn parse_accepts_a_blob_written_before_the_identity_fields() {
+    // A blob written before `subject` / `token_name` / `token_prefix`
+    // existed (still version 1) must parse, with the new fields absent.
+    let raw = r#"{
+        "version": 1,
+        "credentials": [{
+            "key": "https://example.com/",
+            "globs": ["https://example.com/**"],
+            "scheme": "bearer",
+            "secret": "tok",
+            "expires_at": "2026-09-01T00:00:00Z"
+        }]
+    }"#;
+    let blob = parse_blob(raw).unwrap();
+    let record = &blob.credentials[0];
+    assert_eq!(record.secret, "tok");
+    assert_eq!(record.subject, None);
+    assert_eq!(record.token_name, None);
+    assert_eq!(record.token_prefix, None);
+    assert!(record.expires_at.is_some());
+    assert!(record.extra.is_empty());
+}
+
+#[test]
+fn identity_fields_round_trip() {
+    let mut with_identity = record("https://example.com/idx/", "tok");
+    with_identity.subject = Some(CredentialSubject {
+        kind: "user".to_string(),
+        name: "alice".to_string(),
+    });
+    with_identity.token_name = Some("laptop".to_string());
+    with_identity.token_prefix = Some("sysand_u_1a2b3c4d".to_string());
+    let blob = CredentialBlob::new(vec![with_identity]);
+    let raw = serialize_blob(&blob).unwrap();
+    // `kind` serializes under the protocol's `type` key.
+    assert!(raw.contains(r#""subject":{"type":"user","name":"alice"}"#));
+    assert_eq!(parse_blob(&raw).unwrap(), blob);
 }
 
 #[test]

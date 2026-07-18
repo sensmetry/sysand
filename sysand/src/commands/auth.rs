@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 use sysand_core::{
     commands::auth::{
         AuthCommandError, AuthLoginNotice, AuthLoginOutcome, AuthStatus, EnvCredentialEntry,
-        StoredCredentialsStatus, do_auth_login, do_auth_logout, do_auth_status,
+        ProbeSurface, StoredCredentialsStatus, do_auth_login, do_auth_logout, do_auth_status,
         validated_index_key,
     },
     config::Config,
@@ -55,9 +55,18 @@ pub fn resolve_default_index(default_index_override: &[String], config: &Config)
     }
 }
 
+/// Human name of a probe surface for warnings.
+fn surface_name(surface: ProbeSurface) -> &'static str {
+    match surface {
+        ProbeSurface::Read => "index read surface (`index.json`)",
+        ProbeSurface::Api => "index API (`v1/whoami`)",
+    }
+}
+
 pub fn command_auth_login(
     index_url: Option<String>,
     token_stdin: bool,
+    validation: Option<bool>,
     default_index: &[String],
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
@@ -79,27 +88,80 @@ pub fn command_auth_login(
     let secret = read_token(&key, token_stdin)?;
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
-    let outcome = do_auth_login(&mut store, &key, secret, client, runtime, |notice| {
-        match notice {
-            // Printed before the store write happens.
-            AuthLoginNotice::ReplacingExisting { key } => {
-                println!("replacing existing credential for `{key}`");
+    let index_key = key.clone();
+    let outcome = do_auth_login(
+        &mut store,
+        &key,
+        secret,
+        validation,
+        client,
+        runtime,
+        |notice| {
+            match notice {
+                // Printed before the store write happens.
+                AuthLoginNotice::ReplacingExisting { key } => {
+                    println!("replacing existing credential for `{key}`");
+                }
+                AuthLoginNotice::DiscoveryUnreachable { error } => log::warn!(
+                    "could not read the index configuration ({error}); \
+                     scoping the credential to the URL-derived pattern"
+                ),
+                AuthLoginNotice::TemplateIndexRootSkipped { template } => log::warn!(
+                    "discovery advertises a templated index_root (`{template}`) that \
+                     cannot be covered safely; no pattern was derived for it"
+                ),
+                AuthLoginNotice::ProbeRedirected { surface, target } => log::warn!(
+                    "the {} probe was redirected to `{target}`; probes do not follow \
+                     redirects, so the credential was not validated against that surface",
+                    surface_name(surface)
+                ),
+                AuthLoginNotice::ProbeUnreachable { surface, error } => log::warn!(
+                    "could not probe the {} ({error}); the credential was not \
+                     validated against it",
+                    surface_name(surface)
+                ),
+                AuthLoginNotice::SurfaceRejected {
+                    surface,
+                    basic_challenge,
+                } => {
+                    log::warn!(
+                        "the {} rejected the credential; it was stored anyway because \
+                         another surface accepted it",
+                        surface_name(surface)
+                    );
+                    if basic_challenge {
+                        let stem = cred_env_var_stem(&index_key);
+                        log::warn!(
+                            "this index uses username/password (HTTP basic) authentication; \
+                             configure `SYSAND_CRED_{stem}_BASIC_USER` / \
+                             `SYSAND_CRED_{stem}_BASIC_PASS` environment variables instead"
+                        );
+                    }
+                }
             }
-            AuthLoginNotice::DiscoveryUnreachable { error } => log::warn!(
-                "could not read the index configuration ({error}); \
-                 scoping the credential to the URL-derived pattern"
-            ),
-            AuthLoginNotice::TemplateIndexRootSkipped { template } => log::warn!(
-                "discovery advertises a templated index_root (`{template}`) that \
-                 cannot be covered safely; no pattern was derived for it"
-            ),
-        }
-    });
+        },
+    );
     match outcome {
-        Ok(AuthLoginOutcome::Stored { key, globs }) => {
+        Ok(AuthLoginOutcome::Stored {
+            key,
+            globs,
+            validated,
+        }) => {
             let header = sysand_core::style::get_style_config().header;
+            // The claim is always scoped to the surfaces that accepted
+            // the credential; never a bare "validated"
+            // (design/credential-storage.md section 5).
+            let claim = if validated.is_empty() {
+                "stored, not validated".to_string()
+            } else {
+                let surfaces: Vec<String> = validated
+                    .iter()
+                    .map(std::string::ToString::to_string)
+                    .collect();
+                format!("validated ({})", surfaces.join(", "))
+            };
             log::info!(
-                "{header}{:>12}{header:#} credential for `{key}` (stored, not validated)",
+                "{header}{:>12}{header:#} credential for `{key}` ({claim})",
                 "Stored"
             );
             println!("The credential covers: {}", globs.join(", "));
@@ -286,9 +348,23 @@ fn render_auth_status(status: &AuthStatus) {
             for entry in stored {
                 println!("stored  {}", entry.key);
                 println!("        patterns: {}", entry.globs.join(", "));
+                if let Some(subject) = &entry.subject {
+                    println!("        subject: {} {}", subject.kind, subject.name);
+                }
+                if let Some(prefix) = &entry.token_prefix {
+                    println!("        token prefix: {prefix}");
+                }
                 if let Some(expires_at) = &entry.expires_at {
-                    let expired = if entry.expired { " (expired)" } else { "" };
-                    println!("        expires: {expires_at}{expired}");
+                    let qualifier = if entry.expired {
+                        " (expired)".to_string()
+                    } else {
+                        match entry.expires_in_days {
+                            Some(1) => " (expires in 1 day)".to_string(),
+                            Some(days) => format!(" (expires in {days} days)"),
+                            None => String::new(),
+                        }
+                    };
+                    println!("        expires: {expires_at}{qualifier}");
                 }
                 if !entry.shadowed_by.is_empty() {
                     println!("        shadowed by: {}", entry.shadowed_by.join(", "));

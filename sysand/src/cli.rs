@@ -1447,7 +1447,8 @@ pub enum AuthCommand {
     Status,
     /// Store a bearer token for an index. The token is read from a hidden
     /// prompt, or from standard input with `--token-stdin`, never from a
-    /// command-line argument. It is stored without validation
+    /// command-line argument. By default the token is validated against
+    /// the index before it is stored (see --validation)
     #[clap(verbatim_doc_comment)]
     Login {
         /// Index URL to log in to (e.g. https://sysand.com).
@@ -1458,6 +1459,13 @@ pub enum AuthCommand {
         /// newline) instead of prompting
         #[arg(long, verbatim_doc_comment)]
         token_stdin: bool,
+        /// Probe the index with the token before storing it (default
+        /// true): the token is stored unless every surface that
+        /// exercised it rejected it. `--validation false` stores
+        /// without probing (for offline use, or when a probe would
+        /// falsely refuse)
+        #[arg(long, value_name = "true|false", verbatim_doc_comment)]
+        validation: Option<bool>,
         /// Comma-delimited list of URLs to use as default index URLs.
         /// This command targets a single index, so more than one
         /// default index requires an explicit index URL instead

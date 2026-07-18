@@ -74,9 +74,25 @@ pub enum CredentialScheme {
     Bearer,
 }
 
+/// Identity of the principal a credential authenticates as, learned from
+/// `v1/whoami` by a validating login (design/credential-storage.md
+/// sections 5, 6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CredentialSubject {
+    /// The principal type: `user`, `project`, or `oidc`. Kept as a plain
+    /// string so a future server-side type survives a round-trip.
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// The principal name: the username for a user token, the project id
+    /// for a project token, the publisher identity for an OIDC token.
+    pub name: String,
+}
+
 /// One stored login: a normalized index-URL key, the URL glob patterns the
-/// credential applies to, the scheme, the secret, and the expiry when a
-/// validating login learned it.
+/// credential applies to, the scheme, the secret, plus the identity and
+/// expiry fields a validating login learned from `v1/whoami` (absent for
+/// non-validated logins and read-only indexes; blob version stays 1, older
+/// blobs without them still parse).
 ///
 /// Unknown fields written by a newer sysand are preserved in `extra` so a
 /// read-modify-write by an older binary does not drop them.
@@ -88,6 +104,16 @@ pub struct CredentialRecord {
     pub secret: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<Utc>>,
+    /// Who the credential authenticates as, from `v1/whoami`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<CredentialSubject>,
+    /// The user-given token label, from `v1/whoami`. May be absent even
+    /// after validation (trusted-publishing tokens have no label).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_name: Option<String>,
+    /// The token's non-secret display prefix, from `v1/whoami`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_prefix: Option<String>,
     #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }

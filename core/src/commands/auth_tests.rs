@@ -19,6 +19,9 @@ fn record(key: &str, secret: &str) -> CredentialRecord {
         scheme: CredentialScheme::Bearer,
         secret: secret.to_string(),
         expires_at: None,
+        subject: None,
+        token_name: None,
+        token_prefix: None,
         extra: serde_json::Map::new(),
     }
 }
@@ -254,12 +257,13 @@ mod login {
         )
     }
 
-    /// Run `do_auth_login` against a real client/runtime, collecting the
-    /// notices in order.
-    fn run_login<S: CredentialStore>(
+    /// Run `do_auth_login` with the given `validation` argument against a
+    /// real client/runtime, collecting the notices in order.
+    fn run_login_with<S: CredentialStore>(
         store: &mut S,
         index_url: &str,
         secret: &str,
+        validation: Option<bool>,
     ) -> (
         Result<AuthLoginOutcome, AuthCommandError>,
         Vec<AuthLoginNotice>,
@@ -270,11 +274,26 @@ mod login {
             store,
             index_url,
             secret.to_string(),
+            validation,
             &client,
             make_runtime(),
             |notice| notices.push(notice),
         );
         (outcome, notices)
+    }
+
+    /// Run `do_auth_login` with validation disabled: these tests cover
+    /// glob derivation and store behavior, which `--validation false`
+    /// preserves exactly, without needing probe mocks.
+    fn run_login<S: CredentialStore>(
+        store: &mut S,
+        index_url: &str,
+        secret: &str,
+    ) -> (
+        Result<AuthLoginOutcome, AuthCommandError>,
+        Vec<AuthLoginNotice>,
+    ) {
+        run_login_with(store, index_url, secret, Some(false))
     }
 
     /// Compile globs exactly the way runtime matching does
@@ -293,8 +312,19 @@ mod login {
     }
 
     fn stored(outcome: Result<AuthLoginOutcome, AuthCommandError>) -> (String, Vec<String>) {
+        let (key, globs, _) = stored_validated(outcome);
+        (key, globs)
+    }
+
+    fn stored_validated(
+        outcome: Result<AuthLoginOutcome, AuthCommandError>,
+    ) -> (String, Vec<String>, Vec<super::super::ProbeSurface>) {
         match outcome.unwrap() {
-            AuthLoginOutcome::Stored { key, globs } => (key, globs),
+            AuthLoginOutcome::Stored {
+                key,
+                globs,
+                validated,
+            } => (key, globs, validated),
             other => panic!("expected Stored, got {other:?}"),
         }
     }
@@ -572,5 +602,450 @@ mod login {
         let err = do_auth_logout(&mut store, "https://files.example.com/{path}").unwrap_err();
 
         assert!(matches!(err, AuthCommandError::TemplateIndexUrl { .. }));
+    }
+
+    // Validation probes (design/credential-storage.md section 5).
+    //
+    // All tests follow the existing pattern: a sync `mockito::Server`
+    // created before any `runtime.block_on` (never `#[tokio::test]`, which
+    // would nest runtimes).
+
+    use super::super::ProbeSurface;
+
+    const WHOAMI_BODY: &str = r#"{"subject":{"type":"user","name":"alice"},
+        "token":{"name":"laptop","prefix":"sysand_u_1a2b3c4d",
+                 "expires_at":"2026-09-01T00:00:00Z"}}"#;
+
+    fn no_discovery_mock(server: &mut mockito::Server) -> mockito::Mock {
+        server
+            .mock("GET", "/sysand-index-config.json")
+            .with_status(404)
+            .create()
+    }
+
+    /// Mock a private `index.json`: 401 without credentials,
+    /// `forced_status` with exactly the expected bearer token.
+    fn private_index_json(
+        server: &mut mockito::Server,
+        token: &str,
+        forced_status: usize,
+    ) -> (mockito::Mock, mockito::Mock) {
+        let unauth = server
+            .mock("GET", "/index.json")
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(401)
+            .create();
+        let forced = server
+            .mock("GET", "/index.json")
+            .match_header("authorization", format!("Bearer {token}").as_str())
+            .with_status(forced_status)
+            .create();
+        (unauth, forced)
+    }
+
+    #[test]
+    fn validated_login_on_public_index_without_api_stores_not_validated() {
+        // S1: public read, no API. Nothing exercises the credential, and
+        // the flat/defaulted api_root must never be phantom-probed.
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert!(validated.is_empty(), "nothing was exercised: {validated:?}");
+        assert!(notices.is_empty(), "unexpected notices: {notices:?}");
+        whoami.assert();
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
+    }
+
+    #[test]
+    fn validated_login_does_not_probe_a_defaulted_api_root() {
+        // A discovery document without `api_root` defaults the API to the
+        // discovery root at runtime, but that default is not an
+        // advertisement: no whoami probe.
+        let mut server = mockito::Server::new();
+        let _config = config_mock(&mut server, "{}".to_string());
+        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert!(validated.is_empty());
+        whoami.assert();
+    }
+
+    #[test]
+    fn validated_login_on_private_read_index_validates_read() {
+        // S2: private static index. The read baseline 401s, the forced
+        // retry succeeds: validated (read).
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let (unauth, forced) = private_index_json(&mut server, "tok", 200);
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert_eq!(validated, vec![ProbeSurface::Read]);
+        assert!(notices.is_empty(), "unexpected notices: {notices:?}");
+        unauth.assert();
+        forced.assert();
+        let record = &store.list().unwrap()[0];
+        assert_eq!(record.secret, "tok");
+        assert_eq!(record.subject, None);
+        assert_eq!(record.expires_at, None);
+    }
+
+    #[test]
+    fn validated_login_probes_read_when_discovery_is_private() {
+        // A fully private index rejects even the discovery fetch; the
+        // read probe falls back to the URL-derived `index.json` so the
+        // credential still gets exercised.
+        let mut server = mockito::Server::new();
+        let _config = server
+            .mock("GET", "/sysand-index-config.json")
+            .with_status(401)
+            .create();
+        let (_unauth, _forced) = private_index_json(&mut server, "tok", 200);
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert_eq!(validated, vec![ProbeSurface::Read]);
+        assert!(
+            notices
+                .iter()
+                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { .. }))
+        );
+    }
+
+    #[test]
+    fn validated_login_refuses_when_the_only_exercised_surface_rejects() {
+        // The refusal rule: read rejected, nothing else exercised. An
+        // existing login for the same key must survive untouched, and no
+        // replacement may be announced.
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _config = no_discovery_mock(&mut server);
+        let _index = server
+            .mock("GET", "/index.json")
+            .with_status(401)
+            .expect(2)
+            .create();
+        let mut store = store_with(&[record(&root, "old-tok")]);
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "bad-tok", None);
+
+        let err = outcome.unwrap_err();
+        assert!(matches!(
+            &err,
+            AuthCommandError::ValidationRejected {
+                index,
+                rejected,
+                basic_challenge: false,
+            } if index == &root && rejected == &vec![ProbeSurface::Read]
+        ));
+        assert!(err.to_string().contains("nothing was stored"));
+        assert!(
+            !notices
+                .iter()
+                .any(|n| matches!(n, AuthLoginNotice::ReplacingExisting { .. })),
+            "a refused login must not announce a replacement: {notices:?}"
+        );
+        assert_eq!(store.list().unwrap()[0].secret, "old-tok");
+    }
+
+    #[test]
+    fn validated_login_validates_an_advertised_api_and_persists_identity() {
+        // S3: public read, advertised API. whoami 200 validates (api) and
+        // its identity fields are persisted on the record.
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
+        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let whoami = server
+            .mock("GET", "/api/v1/whoami")
+            .match_header("authorization", "Bearer tok")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(WHOAMI_BODY)
+            .expect(1)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert_eq!(validated, vec![ProbeSurface::Api]);
+        assert!(notices.is_empty(), "unexpected notices: {notices:?}");
+        whoami.assert();
+        let record = &store.list().unwrap()[0];
+        assert_eq!(
+            record.subject,
+            Some(crate::credential_store::CredentialSubject {
+                kind: "user".to_string(),
+                name: "alice".to_string(),
+            })
+        );
+        assert_eq!(record.token_name.as_deref(), Some("laptop"));
+        assert_eq!(record.token_prefix.as_deref(), Some("sysand_u_1a2b3c4d"));
+        assert_eq!(
+            record.expires_at,
+            Some(Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap())
+        );
+    }
+
+    #[test]
+    fn validated_login_refuses_when_whoami_rejects_on_a_public_index() {
+        // Public read never tests the token, so whoami is the only real
+        // test; a 401 there refuses, keeping the publish flow protected.
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
+        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _whoami = server
+            .mock("GET", "/api/v1/whoami")
+            .with_status(401)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        assert!(matches!(
+            outcome.unwrap_err(),
+            AuthCommandError::ValidationRejected { rejected, .. }
+                if rejected == vec![ProbeSurface::Api]
+        ));
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn validated_login_stores_with_a_warning_when_read_accepts_and_api_rejects() {
+        // Private index, read works, API rejects: store with an
+        // "API access failed" warning (the token still reads).
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
+        let (_unauth, _forced) = private_index_json(&mut server, "tok", 200);
+        let _whoami = server
+            .mock("GET", "/api/v1/whoami")
+            .with_status(401)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert_eq!(validated, vec![ProbeSurface::Read]);
+        assert!(
+            notices.iter().any(|n| matches!(
+                n,
+                AuthLoginNotice::SurfaceRejected {
+                    surface: ProbeSurface::Api,
+                    basic_challenge: false,
+                }
+            )),
+            "expected an api rejection notice, got {notices:?}"
+        );
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
+    }
+
+    #[test]
+    fn validated_login_validates_both_surfaces() {
+        // S4: private read accepts and whoami accepts: validated
+        // (read, api), in probe order.
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
+        let (_unauth, _forced) = private_index_json(&mut server, "tok", 200);
+        let _whoami = server
+            .mock("GET", "/api/v1/whoami")
+            .with_status(200)
+            .with_body(WHOAMI_BODY)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert_eq!(validated, vec![ProbeSurface::Read, ProbeSurface::Api]);
+        assert!(store.list().unwrap()[0].subject.is_some());
+    }
+
+    #[test]
+    fn validated_login_stores_not_validated_when_probes_are_unreachable() {
+        // 5xx is not a verdict: the surface was not tested, and with
+        // nothing else exercised the login stores as not validated.
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let _index = server.mock("GET", "/index.json").with_status(500).create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert!(validated.is_empty());
+        assert!(
+            notices.iter().any(|n| matches!(
+                n,
+                AuthLoginNotice::ProbeUnreachable {
+                    surface: ProbeSurface::Read,
+                    ..
+                }
+            )),
+            "expected an unreachable notice, got {notices:?}"
+        );
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
+    }
+
+    #[test]
+    fn validated_login_treats_a_redirected_probe_as_not_tested() {
+        // Probes never follow redirects; the verdict would come from a
+        // different URL than the surface nominally probed.
+        let target = "https://elsewhere.example/idx/index.json";
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let _index = server
+            .mock("GET", "/index.json")
+            .with_status(302)
+            .with_header("location", target)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert!(validated.is_empty());
+        assert!(
+            notices.iter().any(|n| matches!(
+                n,
+                AuthLoginNotice::ProbeRedirected {
+                    surface: ProbeSurface::Read,
+                    target: t,
+                } if t == target
+            )),
+            "expected a redirect notice naming `{target}`, got {notices:?}"
+        );
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
+    }
+
+    #[test]
+    fn validated_login_refusal_names_basic_authentication() {
+        // A basic-auth index must not dead-end: the refusal routes the
+        // user to the `SYSAND_CRED_*` basic credentials.
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let _index = server
+            .mock("GET", "/index.json")
+            .with_status(401)
+            .with_header("www-authenticate", r#"Basic realm="idx""#)
+            .expect(2)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let err = outcome.unwrap_err();
+        assert!(matches!(
+            &err,
+            AuthCommandError::ValidationRejected {
+                basic_challenge: true,
+                ..
+            }
+        ));
+        let message = err.to_string();
+        assert!(message.contains("username/password"), "was: {message}");
+        assert!(
+            message.contains("SYSAND_CRED_<X>_BASIC_USER"),
+            "was: {message}"
+        );
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn validated_login_ignores_a_bearer_challenge_mentioning_basic() {
+        // Scheme detection must not be a substring check: a `Bearer`
+        // challenge whose realm mentions Basic is not a basic challenge.
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let _index = server
+            .mock("GET", "/index.json")
+            .with_status(401)
+            .with_header("www-authenticate", r#"Bearer realm="Basic migration""#)
+            .expect(2)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        assert!(matches!(
+            outcome.unwrap_err(),
+            AuthCommandError::ValidationRejected {
+                basic_challenge: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn validated_login_accepts_whoami_with_an_unparseable_body() {
+        // The 200 status is the acceptance verdict; a body this client
+        // cannot parse only loses the identity fields.
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
+        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _whoami = server
+            .mock("GET", "/api/v1/whoami")
+            .with_status(200)
+            .with_body("not json")
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert_eq!(validated, vec![ProbeSurface::Api]);
+        let record = &store.list().unwrap()[0];
+        assert_eq!(record.subject, None);
+        assert_eq!(record.token_name, None);
+        assert_eq!(record.token_prefix, None);
+        assert_eq!(record.expires_at, None);
+    }
+
+    #[test]
+    fn login_without_validation_sends_no_probe_requests() {
+        // `--validation false` preserves the pre-validation behavior
+        // exactly: discovery is still fetched for glob scoping, but no
+        // probe request is ever made.
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let config = server
+            .mock("GET", "/sysand-index-config.json")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(format!(r#"{{"api_root": "{root}api/"}}"#))
+            .expect(1)
+            .create();
+        let index = server.mock("GET", "/index.json").expect(0).create();
+        let whoami = server.mock("GET", "/api/v1/whoami").expect(0).create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", Some(false));
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert!(validated.is_empty());
+        assert!(notices.is_empty(), "unexpected notices: {notices:?}");
+        config.assert();
+        index.assert();
+        whoami.assert();
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
     }
 }
