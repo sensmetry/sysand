@@ -1445,6 +1445,31 @@ pub enum AuthCommand {
     /// secrets
     #[clap(verbatim_doc_comment)]
     Status,
+    /// Store a bearer token for an index. The token is read from a hidden
+    /// prompt, or from standard input with `--token-stdin`, never from a
+    /// command-line argument. It is stored without validation
+    #[clap(verbatim_doc_comment)]
+    Login {
+        /// Index URL to log in to (e.g. https://sysand.com).
+        /// Defaults to the default index
+        #[clap(verbatim_doc_comment)]
+        index_url: Option<String>,
+        /// Read the token from standard input (trimming one trailing
+        /// newline) instead of prompting
+        #[arg(long, verbatim_doc_comment)]
+        token_stdin: bool,
+        /// Comma-delimited list of URLs to use as default index URLs.
+        /// This command targets a single index, so more than one
+        /// default index requires an explicit index URL instead
+        #[arg(
+            long,
+            num_args = 0..,
+            env = env_vars::SYSAND_DEFAULT_INDEX,
+            value_delimiter = ',',
+            verbatim_doc_comment
+        )]
+        default_index: Vec<String>,
+    },
     /// Remove a stored index login
     Logout {
         /// Index URL to log out from (e.g. https://sysand.com).

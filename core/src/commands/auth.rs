@@ -2,21 +2,30 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! `sysand auth` command orchestration (design/credential-storage.md
-//! sections 4, 9, 14): `do_auth_logout` and `do_auth_status`, generic over
-//! [`CredentialStore`].
+//! sections 4, 8, 9, 14): `do_auth_login`, `do_auth_logout`, and
+//! `do_auth_status`, generic over [`CredentialStore`].
 //!
-//! Library calls never prompt and never print; they return data for the
-//! host (CLI or bindings) to render. Environment credentials are passed in
-//! as [`EnvCredentialEntry`] values: this module does not read the process
-//! environment.
+//! Library calls never prompt and never print; the login secret arrives as
+//! a parameter and progress is reported through [`AuthLoginNotice`] values
+//! for the host (CLI or bindings) to render. Environment credentials are
+//! passed in as [`EnvCredentialEntry`] values: this module does not read
+//! the process environment.
+
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use globset::GlobBuilder;
 use thiserror::Error;
 use url::Url;
 
-use crate::credential_store::{
-    CredentialRecord, CredentialStore, CredentialStoreError, normalize_index_key,
+use crate::{
+    auth::Unauthenticated,
+    credential_store::{
+        CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
+        normalize_index_key,
+    },
+    env::discovery::{ResolvedEndpoints, fetch_index_config},
+    index_location::{IndexLocation, is_template_syntax},
 };
 
 /// Errors from the `sysand auth` commands.
@@ -31,6 +40,15 @@ pub enum AuthCommandError {
     /// The target could not be parsed or normalized as an index URL.
     #[error("invalid index URL for credential storage: {0}")]
     InvalidIndexUrl(String),
+    /// The target is a URL-template index location, which `sysand auth`
+    /// does not support in v1 (a template does not normalize to a stable
+    /// index key). `SYSAND_CRED_*` environment variables remain the
+    /// authentication path for templated indexes.
+    #[error(
+        "`{url}`: URL-template index locations are not supported by `sysand auth`;\n\
+         use `SYSAND_CRED_*` environment variables to authenticate a templated index"
+    )]
+    TemplateIndexUrl { url: String },
     /// The credential store failed.
     #[error(transparent)]
     Store(#[from] CredentialStoreError),
@@ -93,9 +111,20 @@ pub struct AuthStatus {
     pub env: Vec<EnvCredentialEntry>,
 }
 
-/// Validate that `index_url` is an absolute HTTP(S) URL and normalize it
-/// to its credential store key form.
-fn index_key_for(index_url: &str) -> Result<String, AuthCommandError> {
+/// Validate that `index_url` is an absolute, non-template HTTP(S) URL and
+/// normalize it to its credential store key form.
+///
+/// Public so the CLI can validate the target before reading a secret (a
+/// `file://` or template target must fail before any prompt).
+pub fn validated_index_key(index_url: &str) -> Result<String, AuthCommandError> {
+    // Reject template syntax before `Url::parse`: the `url` crate would
+    // percent-encode the braces and normalization would then silently
+    // produce a mangled `%7Bpath%7D` key.
+    if is_template_syntax(index_url) {
+        return Err(AuthCommandError::TemplateIndexUrl {
+            url: index_url.to_string(),
+        });
+    }
     // Check the scheme before normalizing so a non-HTTP(S) location gets
     // the dedicated message instead of a generic normalization error.
     let url = Url::parse(index_url)
@@ -114,6 +143,200 @@ fn index_key_for(index_url: &str) -> Result<String, AuthCommandError> {
     })
 }
 
+/// Progress notice emitted by [`do_auth_login`] while it works, so the
+/// host can render it at the right moment (in particular, a replacement is
+/// reported strictly before the store write happens).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthLoginNotice {
+    /// A stored credential for the same key exists and is about to be
+    /// overwritten.
+    ReplacingExisting { key: String },
+    /// The discovery document could not be read (network failure, or an
+    /// HTTP error such as 401 on a private index); the credential is
+    /// scoped to the URL-derived pattern only.
+    DiscoveryUnreachable { error: String },
+    /// Discovery resolved a templated `index_root` whose literal prefix
+    /// cannot be anchored at a safe URL boundary (at least
+    /// `scheme://authority/`), so no glob was derived for it. Deriving one
+    /// anyway could produce a pattern matching other hosts.
+    TemplateIndexRootSkipped { template: String },
+}
+
+/// Outcome of [`do_auth_login`].
+///
+/// An absent keyring backend is an outcome rather than an error because
+/// the host still needs the derived globs: the CLI prints the exact
+/// `SYSAND_CRED_*` lines to set instead (design/credential-storage.md
+/// section 9).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthLoginOutcome {
+    /// The credential was persisted.
+    Stored { key: String, globs: Vec<String> },
+    /// No usable OS keyring backend on this host; nothing was persisted
+    /// and the secret was discarded.
+    BackendUnavailable {
+        key: String,
+        globs: Vec<String>,
+        reason: String,
+    },
+}
+
+/// Derive the escaped URL glob patterns a login for `key` covers
+/// (design/credential-storage.md section 8).
+///
+/// The primary glob anchors on the normalized user-supplied discovery URL
+/// (`globset::escape(<root ending in />)` + `**`), so the discovery fetch
+/// itself is authenticated on later runs. The resolved `index_root` and
+/// `api_root` add further globs only when not already covered by an
+/// earlier root (Case B, disjoint host or path); a root that is itself a
+/// prefix of an earlier one is also skipped, keeping the set minimal. A
+/// templated `index_root` anchors on its literal prefix cut back to the
+/// last `/` boundary: under `literal_separator(true)` a `**` crosses `/`
+/// only as a full path component, so a mid-segment anchor would not match.
+///
+/// Both derivation and runtime matching serialize URLs via
+/// `url::Url::as_str()`, so IDN/percent-encoding agree on both sides.
+fn derive_credential_globs(
+    key: &str,
+    endpoints: Option<&ResolvedEndpoints>,
+    notify: &mut impl FnMut(AuthLoginNotice),
+) -> Vec<String> {
+    // Roots already covered, each ending in `/`. A candidate root is
+    // covered when one of these is its string prefix: the corresponding
+    // `<escaped root>**` glob then matches every URL under the candidate
+    // (`**` after `/` crosses separators).
+    let mut roots: Vec<String> = vec![key.to_string()];
+
+    let push_if_uncovered = |roots: &mut Vec<String>, candidate: &str| {
+        if !roots
+            .iter()
+            .any(|root| candidate.starts_with(root.as_str()))
+        {
+            // Keep the set minimal in the other direction too: a candidate
+            // that is a prefix of an existing root subsumes it.
+            roots.retain(|root| !root.starts_with(candidate));
+            roots.push(candidate.to_string());
+        }
+    };
+
+    if let Some(endpoints) = endpoints {
+        match &endpoints.index_root {
+            IndexLocation::Root(url) => push_if_uncovered(&mut roots, url.as_str()),
+            IndexLocation::Template(template) => match template_anchor_root(template.prefix()) {
+                Some(anchor) => push_if_uncovered(&mut roots, anchor.as_str()),
+                None => notify(AuthLoginNotice::TemplateIndexRootSkipped {
+                    template: template.to_string(),
+                }),
+            },
+        }
+        if let Some(api_root) = &endpoints.api_root {
+            push_if_uncovered(&mut roots, api_root.as_str());
+        }
+    }
+
+    roots
+        .into_iter()
+        .map(|root| format!("{}**", globset::escape(&root)))
+        .collect()
+}
+
+/// Anchor a templated `index_root`'s literal prefix at a safe URL
+/// boundary: the prefix cut back to its last `/`, reparsed as a URL so the
+/// anchor uses the same serialization runtime request URLs will (host
+/// case, default port). Returns `None` when no anchor at least as deep as
+/// `scheme://authority/` exists (for example a placeholder directly in the
+/// query of a path-less URL, whose last `/` is the one in `://`).
+fn template_anchor_root(prefix: &str) -> Option<Url> {
+    let cut = prefix.rfind('/')?;
+    let candidate = &prefix[..=cut];
+    let url = Url::parse(candidate).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || url.host().is_none() {
+        return None;
+    }
+    Some(url)
+}
+
+/// Store a bearer credential for `index_url` (design/credential-storage.md
+/// sections 4, 8, 9). The secret arrives as a parameter: a library call
+/// never prompts.
+///
+/// Discovery is fetched best-effort with the unauthenticated policy (no
+/// credential exists for the index yet) to resolve `index_root` and
+/// `api_root` for glob scoping; when it cannot be read the credential
+/// falls back to the URL-derived glob with a
+/// [`AuthLoginNotice::DiscoveryUnreachable`] notice. Overwriting an
+/// existing record for the same key is reported through
+/// [`AuthLoginNotice::ReplacingExisting`] before the write happens.
+///
+/// No validation probe runs here yet: the `--validation` flow
+/// (design/credential-storage.md section 5) slots in between glob
+/// derivation and the store write.
+pub fn do_auth_login<S: CredentialStore>(
+    store: &mut S,
+    index_url: &str,
+    secret: String,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    mut notify: impl FnMut(AuthLoginNotice),
+) -> Result<AuthLoginOutcome, AuthCommandError> {
+    let key = validated_index_key(index_url)?;
+    let location = IndexLocation::parse(&key)
+        .map_err(|err| AuthCommandError::InvalidIndexUrl(format!("`{key}`: {err}")))?;
+
+    let endpoints =
+        match runtime.block_on(fetch_index_config(client, &Unauthenticated {}, &location)) {
+            Ok(endpoints) => Some(endpoints),
+            Err(err) => {
+                notify(AuthLoginNotice::DiscoveryUnreachable {
+                    error: err.to_string(),
+                });
+                None
+            }
+        };
+    let globs = derive_credential_globs(&key, endpoints.as_ref(), &mut notify);
+
+    // Detect an existing login before writing, so the host can announce
+    // the replacement first. `list` and `upsert` are separately locked, so
+    // this is best-effort under cross-process races.
+    let records = match store.list() {
+        Ok(records) => records,
+        Err(CredentialStoreError::BackendAbsent { source }) => {
+            return Ok(AuthLoginOutcome::BackendUnavailable {
+                key,
+                globs,
+                reason: source.to_string(),
+            });
+        }
+        Err(err) => return Err(err.into()),
+    };
+    if records.iter().any(|record| record.key == key) {
+        notify(AuthLoginNotice::ReplacingExisting { key: key.clone() });
+    }
+
+    // Validation probes (design/credential-storage.md section 5) will run
+    // here, between glob derivation and the store write.
+
+    let record = CredentialRecord {
+        key: key.clone(),
+        globs: globs.clone(),
+        scheme: CredentialScheme::Bearer,
+        secret,
+        expires_at: None,
+        extra: serde_json::Map::new(),
+    };
+    match store.upsert(record) {
+        Ok(()) => Ok(AuthLoginOutcome::Stored { key, globs }),
+        Err(CredentialStoreError::BackendAbsent { source }) => {
+            Ok(AuthLoginOutcome::BackendUnavailable {
+                key,
+                globs,
+                reason: source.to_string(),
+            })
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
 /// Remove the stored login for `index_url`.
 ///
 /// Returns the normalized index key the record was stored under. Removing
@@ -123,7 +346,7 @@ pub fn do_auth_logout<S: CredentialStore>(
     store: &mut S,
     index_url: &str,
 ) -> Result<String, AuthCommandError> {
-    let key = index_key_for(index_url)?;
+    let key = validated_index_key(index_url)?;
     if store.remove(&key)? {
         Ok(key)
     } else {

@@ -226,6 +226,15 @@ impl IndexUrlTemplate {
         out
     }
 
+    /// The literal template text before the placeholder. Support for
+    /// credential glob derivation (`commands::auth`), not general API: the
+    /// prefix is raw text, not a valid URL on its own. Gated like its only
+    /// consumer so feature subsets stay dead-code-free.
+    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    pub(crate) fn prefix(&self) -> &str {
+        &self.prefix
+    }
+
     /// Substitute the relative index path `segments` (each percent-encoded
     /// according to the placeholder spelling) into the template. Infallible:
     /// the template was validated at construction and the segments encode to
@@ -430,7 +439,7 @@ fn validate_url_shape(reported: &str, url: &url::Url) -> Result<(), IndexLocatio
 }
 
 /// Whether `s` uses index URL template syntax (contains a brace).
-fn is_template_syntax(s: &str) -> bool {
+pub(crate) fn is_template_syntax(s: &str) -> bool {
     s.contains(['{', '}'])
 }
 

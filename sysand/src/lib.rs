@@ -29,7 +29,6 @@ use sysand_core::{
         local_fs::{get_config, load_configs},
     },
     context::ProjectContext,
-    credential_store::keyring_store::KeyringCredentialStore,
     discover::{discover_project, discover_workspace},
     env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
     index::RemoveTarget,
@@ -52,7 +51,7 @@ use crate::{
     cli::{Args, AuthCommand, Command, ExpCommand},
     commands::{
         add::{ExpAddArgs, command_add, exp_command_add},
-        auth::{command_auth_logout, command_auth_status},
+        auth::{command_auth_login, command_auth_logout, command_auth_status},
         build::{command_build_for_project, command_build_for_workspace},
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
@@ -77,10 +76,11 @@ pub const DEFAULT_INDEX_URL: &str = "https://sysand.com";
 /// The CLI's composed authentication policy: eager `SYSAND_CRED_*`
 /// credentials first, then lazily read stored logins from the OS keyring
 /// (design/credential-storage.md, section 9).
-pub type CliAuthPolicy = StandardLazyHTTPAuthentication<KeyringCredentialStore>;
+pub type CliAuthPolicy = StandardLazyHTTPAuthentication<credential_store::CliCredentialStore>;
 
 pub mod cli;
 pub mod commands;
+pub mod credential_store;
 pub mod env_vars;
 pub mod logger;
 pub mod style;
@@ -193,24 +193,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     config.merge(auto_config);
 
-    // The `auth` commands manage credentials rather than use them: they
-    // must work even when `SYSAND_CRED_*` variables are malformed (the
-    // eager env-policy build below fails hard on those, and `auth status`
-    // exists to diagnose them) and they need no HTTP client or runtime,
-    // so they dispatch before that machinery is built.
-    let command = match args.command {
-        Command::Auth { command } => {
-            return match command {
-                AuthCommand::Status => command_auth_status(),
-                AuthCommand::Logout {
-                    index_url,
-                    default_index,
-                } => command_auth_logout(index_url, &default_index, &config),
-            };
-        }
-        command => command,
-    };
-
     let client = create_reqwest_client()?;
 
     let runtime = Arc::new(
@@ -222,6 +204,38 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     );
 
     let _runtime_keep_alive = runtime.clone();
+
+    // The `auth` commands manage credentials rather than use them: they
+    // must work even when `SYSAND_CRED_*` variables are malformed (the
+    // eager env-policy build below fails hard on those, and `auth status`
+    // exists to diagnose them), so they dispatch before that policy is
+    // built. `login` still gets the shared client and runtime: its
+    // discovery fetch is deliberately unauthenticated (no credential
+    // exists for the index yet).
+    let command = match args.command {
+        Command::Auth { command } => {
+            return match command {
+                AuthCommand::Status => command_auth_status(),
+                AuthCommand::Login {
+                    index_url,
+                    token_stdin,
+                    default_index,
+                } => command_auth_login(
+                    index_url,
+                    token_stdin,
+                    &default_index,
+                    &config,
+                    &client,
+                    runtime,
+                ),
+                AuthCommand::Logout {
+                    index_url,
+                    default_index,
+                } => command_auth_logout(index_url, &default_index, &config),
+            };
+        }
+        command => command,
+    };
 
     // FIXME: This is a temporary implementation to provide credentials until
     //        https://github.com/sensmetry/sysand/pull/157
@@ -309,7 +323,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     // Compose the eager env policy with the lazily read OS keyring store.
     // Opening the store only resolves a lock file path; no keychain access
     // happens until a request actually needs a stored credential.
-    let auth_policy = Arc::new(match KeyringCredentialStore::open_default() {
+    let auth_policy = Arc::new(match credential_store::open_cli_credential_store() {
         Ok(store) => CliAuthPolicy::new(env_auth_policy, store),
         Err(err) => {
             log::warn!(

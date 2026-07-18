@@ -233,3 +233,344 @@ fn status_surfaces_a_denied_backend_as_an_error() {
         AuthCommandError::Store(CredentialStoreError::BackendDenied { .. })
     ));
 }
+
+// do_auth_login
+
+mod login {
+    use std::sync::Arc;
+
+    use globset::{GlobBuilder, GlobSetBuilder};
+
+    use super::super::{AuthLoginNotice, AuthLoginOutcome, do_auth_login};
+    use super::*;
+    use crate::{index_location::IndexLocation, resolve::net_utils::create_reqwest_client};
+
+    fn make_runtime() -> Arc<tokio::runtime::Runtime> {
+        Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+        )
+    }
+
+    /// Run `do_auth_login` against a real client/runtime, collecting the
+    /// notices in order.
+    fn run_login<S: CredentialStore>(
+        store: &mut S,
+        index_url: &str,
+        secret: &str,
+    ) -> (
+        Result<AuthLoginOutcome, AuthCommandError>,
+        Vec<AuthLoginNotice>,
+    ) {
+        let client = create_reqwest_client().unwrap();
+        let mut notices = Vec::new();
+        let outcome = do_auth_login(
+            store,
+            index_url,
+            secret.to_string(),
+            &client,
+            make_runtime(),
+            |notice| notices.push(notice),
+        );
+        (outcome, notices)
+    }
+
+    /// Compile globs exactly the way runtime matching does
+    /// (`GlobMapBuilder`: `literal_separator(true)`).
+    fn matcher(globs: &[String]) -> globset::GlobSet {
+        let mut builder = GlobSetBuilder::new();
+        for glob in globs {
+            builder.add(
+                GlobBuilder::new(glob)
+                    .literal_separator(true)
+                    .build()
+                    .unwrap_or_else(|err| panic!("glob `{glob}` must compile: {err}")),
+            );
+        }
+        builder.build().unwrap()
+    }
+
+    fn stored(outcome: Result<AuthLoginOutcome, AuthCommandError>) -> (String, Vec<String>) {
+        match outcome.unwrap() {
+            AuthLoginOutcome::Stored { key, globs } => (key, globs),
+            other => panic!("expected Stored, got {other:?}"),
+        }
+    }
+
+    /// The section 8 coverage guarantee: the discovery-document URL, the
+    /// `index.json` URL, and the upload URL each match the derived set.
+    fn assert_surface_coverage(
+        globs: &[String],
+        discovery_root: &str,
+        index_root: &str,
+        api_root: &str,
+    ) {
+        let set = matcher(globs);
+        for url in [
+            format!("{discovery_root}sysand-index-config.json"),
+            format!("{index_root}index.json"),
+            format!("{api_root}v1/upload"),
+        ] {
+            assert!(set.is_match(&url), "`{url}` must match globs {globs:?}");
+        }
+    }
+
+    fn config_mock(server: &mut mockito::Server, body: String) -> mockito::Mock {
+        server
+            .mock("GET", "/sysand-index-config.json")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create()
+    }
+
+    #[test]
+    fn login_without_discovery_document_derives_a_single_glob() {
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _mock = server
+            .mock("GET", "/sysand-index-config.json")
+            .with_status(404)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+
+        let (key, globs) = stored(outcome);
+        assert_eq!(key, root);
+        assert_eq!(globs, vec![format!("{}**", globset::escape(&root))]);
+        assert!(notices.is_empty(), "unexpected notices: {notices:?}");
+        // Flat topology: every surface lives under the discovery root.
+        assert_surface_coverage(&globs, &root, &root, &root);
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
+    }
+
+    #[test]
+    fn login_with_nested_api_root_keeps_one_glob() {
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let api_root = format!("{root}api/");
+        let _mock = config_mock(&mut server, format!(r#"{{"api_root": "{api_root}"}}"#));
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login(&mut store, &root, "tok");
+
+        let (_, globs) = stored(outcome);
+        assert_eq!(globs.len(), 1, "Case A must not add a glob: {globs:?}");
+        assert!(notices.is_empty());
+        assert_surface_coverage(&globs, &root, &root, &api_root);
+    }
+
+    #[test]
+    fn login_with_disjoint_api_root_adds_a_second_glob() {
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let api_root = "https://api.example.com/base/";
+        let _mock = config_mock(&mut server, format!(r#"{{"api_root": "{api_root}"}}"#));
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login(&mut store, &root, "tok");
+
+        let (_, globs) = stored(outcome);
+        assert_eq!(
+            globs,
+            vec![
+                format!("{}**", globset::escape(&root)),
+                format!("{}**", globset::escape(api_root)),
+            ]
+        );
+        assert_surface_coverage(&globs, &root, &root, api_root);
+        // Non-overlapping: the api glob stays host-scoped.
+        assert!(!matcher(&globs[1..]).is_match(format!("{root}index.json")));
+    }
+
+    #[test]
+    fn login_with_divergent_index_and_api_roots_adds_three_globs() {
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let index_root = "https://files.example.com/idx/";
+        let api_root = "https://api.example.com/";
+        let _mock = config_mock(
+            &mut server,
+            format!(r#"{{"index_root": "{index_root}", "api_root": "{api_root}"}}"#),
+        );
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login(&mut store, &root, "tok");
+
+        let (_, globs) = stored(outcome);
+        assert_eq!(globs.len(), 3, "Case B twice over: {globs:?}");
+        assert_surface_coverage(&globs, &root, index_root, api_root);
+    }
+
+    #[test]
+    fn login_with_templated_index_root_anchors_before_the_placeholder() {
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let template = "https://files.example.com/repo/{path}/raw?ref=main";
+        let api_root = "https://api.example.com/";
+        let _mock = config_mock(
+            &mut server,
+            format!(r#"{{"index_root": "{template}", "api_root": "{api_root}"}}"#),
+        );
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login(&mut store, &root, "tok");
+
+        let (_, globs) = stored(outcome);
+        assert!(notices.is_empty(), "unexpected notices: {notices:?}");
+        assert_eq!(
+            globs[1],
+            format!("{}**", globset::escape("https://files.example.com/repo/"))
+        );
+        // The templated index.json URL (placeholder expansion) matches.
+        let index_json = IndexLocation::parse(template).unwrap().resolve([
+            "some-publisher",
+            "some.name",
+            "index.json",
+        ]);
+        assert!(matcher(&globs).is_match(index_json.as_str()));
+        assert_surface_coverage(&globs, &root, "https://files.example.com/repo/", api_root);
+    }
+
+    #[test]
+    fn login_skips_an_unanchorable_template_index_root() {
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        // Placeholder directly in the query of a path-less URL: the only
+        // `/` in the literal prefix is the one in `://`, so anchoring
+        // would produce a glob matching every https URL.
+        let template = "https://files.example.com?f={path}";
+        let _mock = config_mock(&mut server, format!(r#"{{"index_root": "{template}"}}"#));
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login(&mut store, &root, "tok");
+
+        let (_, globs) = stored(outcome);
+        assert!(
+            notices
+                .iter()
+                .any(|n| matches!(n, AuthLoginNotice::TemplateIndexRootSkipped { .. })),
+            "expected a skip notice, got {notices:?}"
+        );
+        assert!(
+            !matcher(&globs).is_match("https://attacker.example/x"),
+            "no derived glob may cover other hosts: {globs:?}"
+        );
+    }
+
+    #[test]
+    fn login_with_unauthorized_discovery_falls_back_with_a_notice() {
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _mock = server
+            .mock("GET", "/sysand-index-config.json")
+            .with_status(401)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login(&mut store, &root, "tok");
+
+        let (_, globs) = stored(outcome);
+        assert_eq!(globs, vec![format!("{}**", globset::escape(&root))]);
+        assert!(
+            notices.iter().any(|n| matches!(
+                n,
+                AuthLoginNotice::DiscoveryUnreachable { error } if error.contains("401")
+            )),
+            "expected a 401 discovery notice, got {notices:?}"
+        );
+    }
+
+    #[test]
+    fn login_with_unreachable_ipv6_literal_derives_an_escaped_glob() {
+        // Port 1 answers nothing, so discovery is unreachable and the
+        // URL-derived fallback glob is used. The IPv6 literal would read
+        // as a globset character class without escaping.
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login(&mut store, "https://[::1]:1", "tok");
+
+        let (key, globs) = stored(outcome);
+        assert_eq!(key, "https://[::1]:1/");
+        assert!(
+            notices
+                .iter()
+                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { .. }))
+        );
+        let set = matcher(&globs);
+        assert!(set.is_match("https://[::1]:1/index.json"));
+        assert!(set.is_match("https://[::1]:1/sysand-index-config.json"));
+        assert!(!set.is_match("https://[x1]:1/index.json"));
+    }
+
+    #[test]
+    fn login_over_an_existing_key_notifies_replacement_and_overwrites() {
+        let mut store = InMemoryCredentialStore::new();
+        let (first, first_notices) = run_login(&mut store, "http://127.0.0.1:1", "old-tok");
+        stored(first);
+        assert!(
+            !first_notices
+                .iter()
+                .any(|n| matches!(n, AuthLoginNotice::ReplacingExisting { .. }))
+        );
+
+        let (second, second_notices) = run_login(&mut store, "http://127.0.0.1:1/", "new-tok");
+
+        stored(second);
+        assert!(second_notices.iter().any(|n| matches!(
+            n,
+            AuthLoginNotice::ReplacingExisting { key } if key == "http://127.0.0.1:1/"
+        )));
+        let records = store.list().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].secret, "new-tok");
+    }
+
+    #[test]
+    fn login_reports_an_absent_backend_with_the_derived_globs() {
+        let mut store = FailingStore(|| CredentialStoreError::BackendAbsent {
+            source: "no secret service".into(),
+        });
+
+        let (outcome, _) = run_login(&mut store, "http://127.0.0.1:1", "tok");
+
+        match outcome.unwrap() {
+            AuthLoginOutcome::BackendUnavailable { key, globs, reason } => {
+                assert_eq!(key, "http://127.0.0.1:1/");
+                assert_eq!(globs, vec![format!("{}**", globset::escape(&key))]);
+                assert_eq!(reason, "no secret service");
+            }
+            other => panic!("expected BackendUnavailable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn login_rejects_a_template_target() {
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login(
+            &mut store,
+            "https://files.example.com/repo/{path}/raw",
+            "tok",
+        );
+
+        assert!(matches!(
+            outcome.unwrap_err(),
+            AuthCommandError::TemplateIndexUrl { .. }
+        ));
+        assert!(notices.is_empty());
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn logout_rejects_a_template_target() {
+        let mut store = InMemoryCredentialStore::new();
+
+        let err = do_auth_logout(&mut store, "https://files.example.com/{path}").unwrap_err();
+
+        assert!(matches!(err, AuthCommandError::TemplateIndexUrl { .. }));
+    }
+}
