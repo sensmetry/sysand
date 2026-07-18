@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 pub mod add;
+#[cfg(all(feature = "filesystem", feature = "networking"))]
+pub mod auth;
 #[cfg(feature = "filesystem")]
 pub mod build;
 pub mod env;

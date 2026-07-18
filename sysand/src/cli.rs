@@ -225,6 +225,11 @@ pub enum Command {
         )]
         trusted_publishing: TrustedPublishingMode,
     },
+    /// Manage stored credentials for package indexes
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommand,
+    },
     /// Create or update lockfile
     Lock {
         #[command(flatten)]
@@ -1431,6 +1436,33 @@ impl InfoCommand {
             } => *numbered,
         }
     }
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum AuthCommand {
+    /// Show the credentials sysand will authenticate with: stored index
+    /// logins and `SYSAND_CRED_*` environment credentials. Never shows
+    /// secrets
+    #[clap(verbatim_doc_comment)]
+    Status,
+    /// Remove a stored index login
+    Logout {
+        /// Index URL to log out from (e.g. https://sysand.com).
+        /// Defaults to the default index
+        #[clap(verbatim_doc_comment)]
+        index_url: Option<String>,
+        /// Comma-delimited list of URLs to use as default index URLs.
+        /// This command targets a single index, so more than one
+        /// default index requires an explicit index URL instead
+        #[arg(
+            long,
+            num_args = 0..,
+            env = env_vars::SYSAND_DEFAULT_INDEX,
+            value_delimiter = ',',
+            verbatim_doc_comment
+        )]
+        default_index: Vec<String>,
+    },
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]

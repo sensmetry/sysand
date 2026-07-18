@@ -49,9 +49,10 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, Command, ExpCommand},
+    cli::{Args, AuthCommand, Command, ExpCommand},
     commands::{
         add::{ExpAddArgs, command_add, exp_command_add},
+        auth::{command_auth_logout, command_auth_status},
         build::{command_build_for_project, command_build_for_workspace},
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
@@ -192,6 +193,24 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     config.merge(auto_config);
 
+    // The `auth` commands manage credentials rather than use them: they
+    // must work even when `SYSAND_CRED_*` variables are malformed (the
+    // eager env-policy build below fails hard on those, and `auth status`
+    // exists to diagnose them) and they need no HTTP client or runtime,
+    // so they dispatch before that machinery is built.
+    let command = match args.command {
+        Command::Auth { command } => {
+            return match command {
+                AuthCommand::Status => command_auth_status(),
+                AuthCommand::Logout {
+                    index_url,
+                    default_index,
+                } => command_auth_logout(index_url, &default_index, &config),
+            };
+        }
+        command => command,
+    };
+
     let client = create_reqwest_client()?;
 
     let runtime = Arc::new(
@@ -301,7 +320,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         }
     });
 
-    match args.command {
+    match command {
         Command::Init {
             path,
             name,
@@ -475,6 +494,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 auth_policy,
                 ctx.current_workspace.as_ref(),
             )
+        }
+        Command::Auth { .. } => {
+            unreachable!("`auth` is dispatched before the auth policy is built")
         }
         Command::PrintRoot => command_print_root(ctx.current_directory),
         Command::Info {
