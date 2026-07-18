@@ -3,9 +3,13 @@
 
 //! This module includes utilities for creating and using authentication policies for requests.
 
+use std::sync::Arc;
+
 use globset::{GlobBuilder, GlobSetBuilder};
 use reqwest::{Response, header};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
+
+use crate::credential_store::{CredentialScheme, CredentialStore, CredentialStoreError};
 
 pub trait HTTPAuthentication: std::fmt::Debug + 'static {
     /// Tries to execute a request with some authentication policy. The request might be retried
@@ -438,8 +442,9 @@ impl StandardHTTPAuthentication {
 
         // `GlobMap` stores keys and values in parallel vectors. This clones the bearer
         // tokens into the publish-only map; an earlier version consumed `self` to move
-        // them without cloning, but the upcoming lazy keyring auth layer is not `Clone`,
-        // so extraction must work by reference (see design/credential-storage.md,
+        // them without cloning, but the lazy credential auth layer
+        // (`CredentialStoreAuthentication`) holding this policy is not `Clone`, so
+        // extraction must work by reference (see design/credential-storage.md,
         // section 9, which accepts the secret clones as the cost of that layer).
         for (key, sequence_auth) in self.restricted.keys.iter().zip(&self.restricted.values) {
             if let StandardInnerAuthentication::BearerAuth(inner) = &sequence_auth.lower {
@@ -495,6 +500,276 @@ impl StandardHTTPAuthenticationBuilder {
                 lower: StandardInnerAuthentication::BearerAuth(ForceBearerAuth::new(token)),
             },
         );
+    }
+}
+
+/// Authentication layer that consults a persistent [`CredentialStore`] on
+/// demand (design/credential-storage.md, section 9).
+///
+/// `inner` (the eager `SYSAND_CRED_*` env policy) runs first. Only when it
+/// ends in a 4xx is the credential store read, at most once per process
+/// (cached), and then:
+///
+/// - with no stored record matching the request URL, the inner response is
+///   returned untouched, so a routine 404 on the resolve path costs no
+///   extra request. This is why this is not a stock
+///   [`SequenceAuthentication`]: its lower arm cannot see the higher arm's
+///   response and would re-issue an identical request on every ordinary
+///   404, permanently doubling round-trips for logged-in users;
+/// - with a matching record, a *forced* authenticated retry is sent.
+///   v1 stores bearer credentials only ([`CredentialScheme`]), so the
+///   retry is always [`ForceBearerAuth`].
+///
+/// Escalation triggers on *any* 4xx (not just 401/403) because some hosts
+/// (GitLab) answer 404 on missing or under-scoped auth. Requests that
+/// succeed unauthenticated, and non-4xx failures, never touch the store.
+///
+/// The store lookup uses the initial request URL. As with
+/// [`RestrictAuthentication`], a same-host redirect target is not
+/// re-checked against the stored globs (reqwest forwards the header there)
+/// and a cross-host redirect strips it.
+pub struct CredentialStoreAuthentication<Inner, S> {
+    inner: Inner,
+    /// `None` when no store is available (for example, opening the default
+    /// OS keyring store failed); behaves as an always-empty store.
+    store: Option<Arc<S>>,
+    /// Stored bearer credentials, read lazily. A `tokio` `OnceCell` (not a
+    /// sync `OnceLock`) so concurrent first requests (the resolve path
+    /// fans out with `join_all`) share a single read: at most one keychain
+    /// touch per process.
+    cache: tokio::sync::OnceCell<GlobMap<ForceBearerAuth>>,
+}
+
+/// Standard composed policy: eager `SYSAND_CRED_*` credentials first, then
+/// lazily read stored credentials from `S`.
+pub type StandardLazyHTTPAuthentication<S> =
+    CredentialStoreAuthentication<StandardHTTPAuthentication, S>;
+
+impl<Inner, S> std::fmt::Debug for CredentialStoreAuthentication<Inner, S>
+where
+    Inner: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Deliberately redacts the cache: unlike the (pre-existing) derived
+        // `Debug` on the env layer, stored-login secrets never appear in
+        // debug output of this layer.
+        f.debug_struct("CredentialStoreAuthentication")
+            .field("inner", &self.inner)
+            .field("has_store", &self.store.is_some())
+            .field("cache_read", &self.cache.get().is_some())
+            .finish()
+    }
+}
+
+impl<Inner, S> CredentialStoreAuthentication<Inner, S>
+where
+    S: CredentialStore + Send + Sync + 'static,
+{
+    pub fn new(inner: Inner, store: S) -> Self {
+        CredentialStoreAuthentication {
+            inner,
+            store: Some(Arc::new(store)),
+            cache: tokio::sync::OnceCell::new(),
+        }
+    }
+
+    /// A policy with no credential store: only `inner` ever answers.
+    /// For hosts where opening the store failed.
+    pub fn without_store(inner: Inner) -> Self {
+        CredentialStoreAuthentication {
+            inner,
+            store: None,
+            cache: tokio::sync::OnceCell::new(),
+        }
+    }
+
+    /// The eager env-credential policy this layer wraps. Publish extracts
+    /// its bearer map from here without touching the store.
+    pub fn env_policy(&self) -> &Inner {
+        &self.inner
+    }
+
+    /// The stored bearer credentials, read and cached on first use.
+    pub async fn stored_bearer_map(&self) -> &GlobMap<ForceBearerAuth> {
+        self.cache
+            .get_or_init(|| async {
+                let Some(store) = self.store.clone() else {
+                    return GlobMap::default();
+                };
+                // The keyring crate is synchronous: a locked Linux Secret
+                // Service can block on an unlock prompt and the store's
+                // cross-process lock has a bounded (seconds-long) wait, so
+                // the read runs on the blocking pool instead of stalling
+                // sibling futures on the async worker. The blob is tiny
+                // and this runs at most once per process.
+                match tokio::task::spawn_blocking(move || read_stored_bearer_map(&*store)).await {
+                    Ok(map) => map,
+                    Err(err) => {
+                        log::warn!(
+                            "credential store read failed: {err}; \
+                             continuing without stored credentials"
+                        );
+                        GlobMap::default()
+                    }
+                }
+            })
+            .await
+    }
+
+    /// Synchronous variant of [`Self::stored_bearer_map`] for callers
+    /// outside the async runtime (publish's credential selection). Shares
+    /// the same once-per-process cache.
+    pub fn stored_bearer_map_blocking(&self) -> &GlobMap<ForceBearerAuth> {
+        if let Some(map) = self.cache.get() {
+            return map;
+        }
+        let map = match &self.store {
+            None => GlobMap::default(),
+            Some(store) => read_stored_bearer_map(store.as_ref()),
+        };
+        // `set` fails only if a concurrent initialization won; either way
+        // the cell holds a value now.
+        let _ = self.cache.set(map);
+        self.cache.get().expect("cache was just initialized")
+    }
+}
+
+/// Read all stored records and build the URL-glob to bearer map.
+///
+/// Store errors degrade to "no stored credentials" for this process (the
+/// result is cached, so at most one keychain touch and one warning): an
+/// absent backend is the normal no-keyring case and only logged at debug
+/// level, while a locked/denied backend is warned about with the unlock
+/// and `SYSAND_CRED_*` remediations. Degrading (rather than aborting the
+/// whole operation) matches design/credential-storage.md section 9: the
+/// request itself may still succeed via env credentials or anonymously,
+/// and hard failure is reserved for the `auth` commands.
+fn read_stored_bearer_map<S: CredentialStore + ?Sized>(store: &S) -> GlobMap<ForceBearerAuth> {
+    let records = match store.list() {
+        Ok(records) => records,
+        Err(CredentialStoreError::BackendAbsent { source }) => {
+            log::debug!(
+                "no OS keyring backend ({source}); \
+                 using `SYSAND_CRED_*` credentials only"
+            );
+            return GlobMap::default();
+        }
+        Err(err) => {
+            log::warn!(
+                "could not read stored credentials: {err}; \
+                 unlock your OS keyring, or provide credentials via \
+                 `SYSAND_CRED_*` environment variables; \
+                 continuing without stored credentials"
+            );
+            return GlobMap::default();
+        }
+    };
+
+    let mut builder = GlobMapBuilder::new();
+    for record in records {
+        // Exhaustive on purpose: adding a scheme must revisit this map.
+        match record.scheme {
+            CredentialScheme::Bearer => {}
+        }
+        let auth = ForceBearerAuth::new(&record.secret);
+        for glob in &record.globs {
+            // Validate each glob individually so one invalid pattern skips
+            // only itself, not every stored login.
+            if let Err(err) = GlobBuilder::new(glob).literal_separator(true).build() {
+                log::warn!(
+                    "ignoring invalid stored credential URL pattern `{glob}` for `{}`: {err}",
+                    record.key
+                );
+                continue;
+            }
+            builder.add(glob, auth.clone());
+        }
+    }
+    match builder.build() {
+        Ok(map) => map,
+        Err(err) => {
+            log::warn!(
+                "could not build stored credential URL patterns: {err}; \
+                 continuing without stored credentials"
+            );
+            GlobMap::default()
+        }
+    }
+}
+
+impl<Inner, S> HTTPAuthentication for CredentialStoreAuthentication<Inner, S>
+where
+    Inner: HTTPAuthentication,
+    S: CredentialStore + Send + Sync + 'static,
+{
+    async fn request_with_authentication<F>(
+        &self,
+        request: RequestBuilder,
+        renew_request: &F,
+    ) -> Result<Response, reqwest_middleware::Error>
+    where
+        F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
+    {
+        let (client, current_request_result) = request.build_split();
+        let current_request = current_request_result?;
+        let url = current_request.url().clone();
+
+        let initial_response = self
+            .inner
+            .request_with_authentication(
+                RequestBuilder::from_parts(client.clone(), current_request),
+                renew_request,
+            )
+            .await?;
+
+        if !initial_response.status().is_client_error() {
+            return Ok(initial_response);
+        }
+
+        let stored = self.stored_bearer_map().await;
+        let candidates = match stored.lookup(url.as_str()) {
+            GlobMapResult::NotFound => return Ok(initial_response),
+            GlobMapResult::Found(_, auth) => vec![auth],
+            GlobMapResult::Ambiguous(items) => items.into_iter().map(|(_, auth)| auth).collect(),
+        };
+
+        // One stored login covers several (normally non-overlapping) URL
+        // patterns with the same token, so several patterns matching is a
+        // real ambiguity only between *distinct* tokens.
+        let mut deduped: Vec<&ForceBearerAuth> = Vec::new();
+        for auth in candidates {
+            if !deduped.iter().any(|seen| seen.0 == auth.0) {
+                deduped.push(auth);
+            }
+        }
+
+        let mut deduped = deduped.into_iter();
+        let first_auth = deduped.next().expect("lookup produced no candidates");
+        if deduped.len() == 0 {
+            log::debug!("stored credential matches `{url}`; retrying with forced bearer auth");
+            return first_auth
+                .request_with_authentication(renew_request(&client), renew_request)
+                .await;
+        }
+
+        // Genuinely ambiguous: reads try all matches, in order, until one
+        // yields a non-4xx response (design/credential-storage.md, section
+        // 8), mirroring `RestrictAuthentication`. If every candidate
+        // fails, the first retry response is returned.
+        log::warn!("URL {url} matches multiple stored credentials; trying each in order");
+        let first_response = first_auth
+            .request_with_authentication(renew_request(&client), renew_request)
+            .await?;
+        if !first_response.status().is_client_error() {
+            return Ok(first_response);
+        }
+        for auth in deduped {
+            let response = auth.with_authentication(&client, renew_request).await?;
+            if !response.status().is_client_error() {
+                return Ok(response);
+            }
+        }
+        Ok(first_response)
     }
 }
 

@@ -6,11 +6,10 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
 use sysand_core::{
-    auth::StandardHTTPAuthentication,
     build::default_kpar_path,
     commands::publish::{
-        PublishBearerSources, TrustedPublishingEnvironment, do_publish, prepare_publish_payload,
-        resolve_publish_bearer, validate_api_root_url_shape,
+        TrustedPublishingEnvironment, do_publish, prepare_publish_payload, resolve_publish_bearer,
+        validate_api_root_url_shape,
     },
     context::ProjectContext,
     env::discovery::{ResolvedEndpoints, fetch_index_config},
@@ -18,14 +17,14 @@ use sysand_core::{
     project::utils::wrapfs,
 };
 
-use crate::{CliError, cli::TrustedPublishingMode};
+use crate::{CliAuthPolicy, CliError, cli::TrustedPublishingMode};
 
 pub fn command_publish(
     path: Option<Utf8PathBuf>,
     index: IndexLocation,
     trusted_publishing: TrustedPublishingMode,
     ctx: &ProjectContext,
-    auth_policy: Arc<StandardHTTPAuthentication>,
+    auth_policy: Arc<CliAuthPolicy>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
@@ -68,11 +67,14 @@ pub fn command_publish(
     // Only now, after discovery has had access to the full policy, do we
     // extract the publish-specific bearer-credential map (by reference,
     // cloning the tokens). Upload is bearer-only; basic-auth entries are
-    // intentionally dropped at this step.
-    let bearer_sources = PublishBearerSources::from_env(auth_policy.publish_bearer_auth_map()?);
+    // intentionally dropped at this step. Stored logins are handed over as
+    // a lazy provider so the credential store is read (once, cached on the
+    // policy) only when no env bearer matches the upload URL.
+    let env_bearers = auth_policy.env_policy().publish_bearer_auth_map()?;
     let trusted_publishing_env = TrustedPublishingEnvironment::from_env();
     let bearer = resolve_publish_bearer(
-        &bearer_sources,
+        &env_bearers,
+        || auth_policy.stored_bearer_map_blocking().clone(),
         &api_root,
         trusted_publishing.into(),
         &trusted_publishing_env,

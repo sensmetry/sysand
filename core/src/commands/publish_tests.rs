@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::{
-    AllowedMetamodelKind, PublishBearerSource, PublishBearerSources, PublishError,
-    TrustedPublishingEnvironment, TrustedPublishingMode, build_upload_url, check_metamodel,
-    check_usage, error_body_to_string, map_publish_response, resolve_publish_bearer,
-    resolve_publish_bearer_from_config, validate_api_root_url_shape,
+    AllowedMetamodelKind, PublishBearerSource, PublishError, TrustedPublishingEnvironment,
+    TrustedPublishingMode, build_upload_url, check_metamodel, check_usage, error_body_to_string,
+    map_publish_response, resolve_publish_bearer, resolve_publish_bearer_from_config,
+    validate_api_root_url_shape,
 };
 use crate::{
     auth::{ForceBearerAuth, GlobMap, GlobMapBuilder},
@@ -35,16 +35,18 @@ fn glob_map(entries: &[(&str, &str)]) -> GlobMap<ForceBearerAuth> {
     builder.build().unwrap()
 }
 
-fn empty_sources() -> PublishBearerSources {
-    PublishBearerSources::from_env(GlobMap::default())
+fn empty_sources() -> GlobMap<ForceBearerAuth> {
+    GlobMap::default()
 }
 
-fn env_sources(entries: &[(&str, &str)]) -> PublishBearerSources {
-    PublishBearerSources::from_env(glob_map(entries))
+fn env_sources(entries: &[(&str, &str)]) -> GlobMap<ForceBearerAuth> {
+    glob_map(entries)
 }
 
-fn sources(env: &[(&str, &str)], keyring: &[(&str, &str)]) -> PublishBearerSources {
-    PublishBearerSources::new(glob_map(env), glob_map(keyring))
+/// A stored-credential provider for paths that must never consult the
+/// store (env matched, or the flow errors before configured credentials).
+fn stored_unreached() -> GlobMap<ForceBearerAuth> {
+    panic!("stored credentials must not be read on this path");
 }
 
 fn gitlab_env(token: &str) -> TrustedPublishingEnvironment {
@@ -86,6 +88,7 @@ fn resolve_publish_bearer_auto_uses_bearer_when_trusted_publishing_unavailable()
 
     resolve_publish_bearer(
         &map,
+        stored_unreached,
         &api_root,
         TrustedPublishingMode::Auto,
         &TrustedPublishingEnvironment::new(None, None, None),
@@ -107,6 +110,7 @@ fn resolve_publish_bearer_never_rejects_ambiguous_bearer() {
 
     let err = resolve_publish_bearer(
         &map,
+        stored_unreached,
         &api_root,
         TrustedPublishingMode::Never,
         &gitlab_env("gitlab-oidc-token"),
@@ -126,14 +130,13 @@ fn resolve_publish_bearer_never_rejects_ambiguous_bearer() {
 }
 
 #[test]
-fn publish_bearer_env_match_wins_over_keyring_match() {
+fn publish_bearer_env_match_wins_without_reading_stored_credentials() {
+    // With an env match the stored-credential provider must not run at
+    // all (never read the keyring when env already works, section 7).
     let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
-    let map = sources(
-        &[("https://example.org/api/**", "env-token")],
-        &[("https://example.org/api/**", "keyring-token")],
-    );
+    let env = env_sources(&[("https://example.org/api/**", "env-token")]);
 
-    let token = resolve_publish_bearer_from_config(&map, &upload_url).unwrap();
+    let token = resolve_publish_bearer_from_config(&env, stored_unreached, &upload_url).unwrap();
 
     assert_eq!(token, ForceBearerAuth::new("env-token"));
 }
@@ -141,12 +144,14 @@ fn publish_bearer_env_match_wins_over_keyring_match() {
 #[test]
 fn publish_bearer_falls_through_to_keyring_when_env_has_no_match() {
     let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
-    let map = sources(
-        &[("https://other.example.com/**", "env-token")],
-        &[("https://example.org/api/**", "keyring-token")],
-    );
+    let env = env_sources(&[("https://other.example.com/**", "env-token")]);
 
-    let token = resolve_publish_bearer_from_config(&map, &upload_url).unwrap();
+    let token = resolve_publish_bearer_from_config(
+        &env,
+        || glob_map(&[("https://example.org/api/**", "keyring-token")]),
+        &upload_url,
+    )
+    .unwrap();
 
     assert_eq!(token, ForceBearerAuth::new("keyring-token"));
 }
@@ -154,17 +159,15 @@ fn publish_bearer_falls_through_to_keyring_when_env_has_no_match() {
 #[test]
 fn publish_bearer_env_ambiguity_errors_without_keyring_fallback() {
     // An ambiguous env match must error, not fall back to a unique keyring
-    // match (design/credential-storage.md, section 8).
+    // match (design/credential-storage.md, section 8), and must not read
+    // the stored credentials at all.
     let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
-    let map = sources(
-        &[
-            ("https://example.org/**", "broad-env-token"),
-            ("https://example.org/api/**", "specific-env-token"),
-        ],
-        &[("https://example.org/api/**", "keyring-token")],
-    );
+    let env = env_sources(&[
+        ("https://example.org/**", "broad-env-token"),
+        ("https://example.org/api/**", "specific-env-token"),
+    ]);
 
-    let err = resolve_publish_bearer_from_config(&map, &upload_url).unwrap_err();
+    let err = resolve_publish_bearer_from_config(&env, stored_unreached, &upload_url).unwrap_err();
 
     assert_matches!(
         err,
@@ -180,15 +183,18 @@ fn publish_bearer_env_ambiguity_errors_without_keyring_fallback() {
 #[test]
 fn publish_bearer_keyring_ambiguity_errors() {
     let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
-    let map = sources(
-        &[],
-        &[
-            ("https://example.org/**", "broad-keyring-token"),
-            ("https://example.org/api/**", "specific-keyring-token"),
-        ],
-    );
 
-    let err = resolve_publish_bearer_from_config(&map, &upload_url).unwrap_err();
+    let err = resolve_publish_bearer_from_config(
+        &empty_sources(),
+        || {
+            glob_map(&[
+                ("https://example.org/**", "broad-keyring-token"),
+                ("https://example.org/api/**", "specific-keyring-token"),
+            ])
+        },
+        &upload_url,
+    )
+    .unwrap_err();
 
     assert_matches!(
         err,
@@ -204,12 +210,14 @@ fn publish_bearer_keyring_ambiguity_errors() {
 #[test]
 fn publish_bearer_no_match_in_any_source_errors() {
     let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
-    let map = sources(
-        &[("https://other.example.com/**", "env-token")],
-        &[("https://another.example.com/**", "keyring-token")],
-    );
+    let env = env_sources(&[("https://other.example.com/**", "env-token")]);
 
-    let err = resolve_publish_bearer_from_config(&map, &upload_url).unwrap_err();
+    let err = resolve_publish_bearer_from_config(
+        &env,
+        || glob_map(&[("https://another.example.com/**", "keyring-token")]),
+        &upload_url,
+    )
+    .unwrap_err();
 
     assert_matches!(err, PublishError::NoPublishBearer { .. });
     // The hint must stay truthful about what exists today: `SYSAND_CRED_*`
@@ -236,6 +244,7 @@ fn trusted_publishing_environment_treats_empty_values_as_unset() {
 
     let err = resolve_publish_bearer(
         &map,
+        GlobMap::default,
         &api_root,
         TrustedPublishingMode::Auto,
         &env,
@@ -261,6 +270,7 @@ fn resolve_publish_bearer_auto_rejects_multiple_supported_providers() {
 
     let err = resolve_publish_bearer(
         &map,
+        stored_unreached,
         &api_root,
         TrustedPublishingMode::Auto,
         &env,
@@ -283,6 +293,7 @@ fn resolve_publish_bearer_always_reports_partial_github_env() {
 
     let err = resolve_publish_bearer(
         &map,
+        stored_unreached,
         &api_root,
         TrustedPublishingMode::Always,
         &env,
@@ -307,6 +318,7 @@ fn resolve_publish_bearer_always_requires_supported_env() {
 
     let err = resolve_publish_bearer(
         &map,
+        stored_unreached,
         &api_root,
         TrustedPublishingMode::Always,
         &TrustedPublishingEnvironment::new(None, None, None),
@@ -330,6 +342,7 @@ fn resolve_publish_bearer_invalid_github_url_makes_no_exchange_request() {
 
     let err = resolve_publish_bearer(
         &map,
+        stored_unreached,
         &api_root,
         TrustedPublishingMode::Always,
         &env,
@@ -382,6 +395,7 @@ fn resolve_publish_bearer_github_preserves_existing_oidc_query_params() {
 
     resolve_publish_bearer(
         &map,
+        stored_unreached,
         &api_root,
         TrustedPublishingMode::Auto,
         &env,
@@ -415,6 +429,7 @@ fn resolve_publish_bearer_gitlab_exchange_success() {
 
     resolve_publish_bearer(
         &map,
+        stored_unreached,
         &api_root,
         TrustedPublishingMode::Auto,
         &gitlab_env("gitlab-oidc-token"),
@@ -443,6 +458,7 @@ fn resolve_publish_bearer_exchange_non_success_errors() {
 
     let err = resolve_publish_bearer(
         &map,
+        stored_unreached,
         &api_root,
         TrustedPublishingMode::Auto,
         &gitlab_env("gitlab-oidc-token"),
@@ -482,6 +498,7 @@ fn resolve_publish_bearer_exchange_malformed_response_errors() {
 
     let err = resolve_publish_bearer(
         &map,
+        stored_unreached,
         &api_root,
         TrustedPublishingMode::Auto,
         &gitlab_env("gitlab-oidc-token"),

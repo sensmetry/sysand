@@ -1,7 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use crate::auth::{GlobMapBuilder, GlobMapResultMut};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+use crate::auth::{
+    CredentialStoreAuthentication, GlobMapBuilder, GlobMapResultMut, HTTPAuthentication,
+    StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
+};
+use crate::credential_store::{
+    CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
+    InMemoryCredentialStore,
+};
+use crate::resolve::net_utils::create_reqwest_client;
 
 #[test]
 fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
@@ -129,4 +142,532 @@ fn publish_bearer_auth_map_keeps_bearer_drops_basic() -> Result<(), Box<dyn std:
     ));
 
     Ok(())
+}
+
+// Tests for the lazy credential store layer
+// (`CredentialStoreAuthentication`).
+
+/// Counts `list` calls so tests can assert when (and how often) the
+/// credential store is actually read.
+#[derive(Debug)]
+struct CountingStore {
+    inner: InMemoryCredentialStore,
+    lists: Arc<AtomicUsize>,
+}
+
+impl CountingStore {
+    fn with_records(records: Vec<CredentialRecord>) -> (Self, Arc<AtomicUsize>) {
+        let mut inner = InMemoryCredentialStore::new();
+        for record in records {
+            inner.upsert(record).unwrap();
+        }
+        let lists = Arc::new(AtomicUsize::new(0));
+        (
+            CountingStore {
+                inner,
+                lists: lists.clone(),
+            },
+            lists,
+        )
+    }
+}
+
+impl CredentialStore for CountingStore {
+    fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
+        self.lists.fetch_add(1, Ordering::SeqCst);
+        self.inner.list()
+    }
+
+    fn upsert(&mut self, record: CredentialRecord) -> Result<(), CredentialStoreError> {
+        self.inner.upsert(record)
+    }
+
+    fn remove(&mut self, key: &str) -> Result<bool, CredentialStoreError> {
+        self.inner.remove(key)
+    }
+}
+
+/// A store whose reads always fail, for the degrade-to-no-credentials
+/// paths. `absent` selects `BackendAbsent` (quiet) over `BackendDenied`
+/// (warned about); the request-level behavior must be identical.
+#[derive(Debug)]
+struct FailingStore {
+    absent: bool,
+    lists: Arc<AtomicUsize>,
+}
+
+impl FailingStore {
+    fn new(absent: bool) -> (Self, Arc<AtomicUsize>) {
+        let lists = Arc::new(AtomicUsize::new(0));
+        (
+            FailingStore {
+                absent,
+                lists: lists.clone(),
+            },
+            lists,
+        )
+    }
+
+    fn error(&self) -> CredentialStoreError {
+        if self.absent {
+            CredentialStoreError::BackendAbsent {
+                source: "no keyring backend".into(),
+            }
+        } else {
+            CredentialStoreError::BackendDenied {
+                source: "keyring is locked".into(),
+            }
+        }
+    }
+}
+
+impl CredentialStore for FailingStore {
+    fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
+        self.lists.fetch_add(1, Ordering::SeqCst);
+        Err(self.error())
+    }
+
+    fn upsert(&mut self, _record: CredentialRecord) -> Result<(), CredentialStoreError> {
+        Err(self.error())
+    }
+
+    fn remove(&mut self, _key: &str) -> Result<bool, CredentialStoreError> {
+        Err(self.error())
+    }
+}
+
+fn bearer_record(globs: &[String], secret: &str) -> CredentialRecord {
+    CredentialRecord {
+        key: "https://example.com/".to_string(),
+        globs: globs.to_vec(),
+        scheme: CredentialScheme::Bearer,
+        secret: secret.to_string(),
+        expires_at: None,
+        extra: serde_json::Map::new(),
+    }
+}
+
+fn empty_env_policy() -> StandardHTTPAuthentication {
+    StandardHTTPAuthenticationBuilder::new().build().unwrap()
+}
+
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .unwrap()
+}
+
+/// Drive one GET for `url` through `policy`, like the resolve path does.
+fn get<P: HTTPAuthentication>(
+    runtime: &tokio::runtime::Runtime,
+    policy: &P,
+    url: &str,
+) -> reqwest::Response {
+    let client = create_reqwest_client().unwrap();
+    let url = url.to_string();
+    let renew = move |c: &reqwest_middleware::ClientWithMiddleware| c.get(&url);
+    runtime
+        .block_on(policy.with_authentication(&client, &renew))
+        .unwrap()
+}
+
+#[test]
+fn lazy_layer_never_reads_store_on_unauthenticated_success() {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("GET", "/pkg/versions.json")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+        &[format!("{}/**", server.url())],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(lists.load(Ordering::SeqCst), 0);
+    mock.assert();
+}
+
+#[test]
+fn lazy_layer_never_reads_store_on_server_error() {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("GET", "/pkg/versions.json")
+        .with_status(500)
+        .expect(1)
+        .create();
+
+    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+        &[format!("{}/**", server.url())],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 500);
+    assert_eq!(lists.load(Ordering::SeqCst), 0);
+    mock.assert();
+}
+
+#[test]
+fn lazy_layer_reads_store_once_and_returns_original_response_on_no_match() {
+    let mut server = mockito::Server::new();
+    // Routine 404s on the resolve path: the store is read exactly once
+    // across requests, and with no matching record each original response
+    // comes back untouched with no extra request (expect(2) with two
+    // `get`s asserts no retries happen).
+    let mock = server
+        .mock("GET", "/pkg/versions.json")
+        .with_status(404)
+        .expect(2)
+        .create();
+
+    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+        &["https://other.example.com/**".to_string()],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+    let url = format!("{}/pkg/versions.json", server.url());
+
+    let first = get(&runtime, &policy, &url);
+    let second = get(&runtime, &policy, &url);
+
+    assert_eq!(first.status().as_u16(), 404);
+    assert_eq!(second.status().as_u16(), 404);
+    assert_eq!(lists.load(Ordering::SeqCst), 1);
+    mock.assert();
+}
+
+#[test]
+fn lazy_layer_matching_record_forces_authenticated_retry() {
+    let mut server = mockito::Server::new();
+    let unauth_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(401)
+        .expect(1)
+        .create();
+    let bearer_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer stored-token")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+        &[format!("{}/**", server.url())],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(lists.load(Ordering::SeqCst), 1);
+    unauth_mock.assert();
+    bearer_mock.assert();
+}
+
+#[test]
+fn lazy_layer_env_credential_wins_without_store_read() {
+    let mut server = mockito::Server::new();
+    let unauth_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(401)
+        .expect(1)
+        .create();
+    let env_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer env-token")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let mut env_builder = StandardHTTPAuthenticationBuilder::new();
+    env_builder.add_bearer_auth(format!("{}/**", server.url()), "env-token");
+    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+        &[format!("{}/**", server.url())],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(env_builder.build().unwrap(), store);
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(lists.load(Ordering::SeqCst), 0);
+    unauth_mock.assert();
+    env_mock.assert();
+}
+
+#[test]
+fn lazy_layer_failed_env_credential_escalates_to_store() {
+    let mut server = mockito::Server::new();
+    let unauth_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(401)
+        .expect(1)
+        .create();
+    let env_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer stale-env-token")
+        .with_status(401)
+        .expect(1)
+        .create();
+    let stored_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer stored-token")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let mut env_builder = StandardHTTPAuthenticationBuilder::new();
+    env_builder.add_bearer_auth(format!("{}/**", server.url()), "stale-env-token");
+    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+        &[format!("{}/**", server.url())],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(env_builder.build().unwrap(), store);
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 200);
+    assert_eq!(lists.load(Ordering::SeqCst), 1);
+    unauth_mock.assert();
+    env_mock.assert();
+    stored_mock.assert();
+}
+
+#[test]
+fn lazy_layer_overlapping_globs_of_one_record_retry_once() {
+    let mut server = mockito::Server::new();
+    let unauth_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(401)
+        .expect(1)
+        .create();
+    // One login covering the URL with two patterns is not an ambiguity:
+    // exactly one forced retry with its token.
+    let bearer_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer stored-token")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let (store, _lists) = CountingStore::with_records(vec![bearer_record(
+        &[
+            format!("{}/**", server.url()),
+            format!("{}/pkg/*", server.url()),
+        ],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 200);
+    unauth_mock.assert();
+    bearer_mock.assert();
+}
+
+#[test]
+fn lazy_layer_ambiguous_distinct_records_try_all_in_order() {
+    let mut server = mockito::Server::new();
+    let unauth_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(401)
+        .expect(1)
+        .create();
+    let rejected_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer broad-token")
+        .with_status(401)
+        .expect(1)
+        .create();
+    let accepted_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer narrow-token")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let mut broad = bearer_record(&[format!("{}/**", server.url())], "broad-token");
+    broad.key = "https://example.com/broad/".to_string();
+    let mut narrow = bearer_record(&[format!("{}/pkg/*", server.url())], "narrow-token");
+    narrow.key = "https://example.com/narrow/".to_string();
+    let (store, _lists) = CountingStore::with_records(vec![broad, narrow]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 200);
+    unauth_mock.assert();
+    rejected_mock.assert();
+    accepted_mock.assert();
+}
+
+#[test]
+fn lazy_layer_invalid_stored_glob_skips_only_that_pattern() {
+    let mut server = mockito::Server::new();
+    let unauth_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(401)
+        .expect(1)
+        .create();
+    let bearer_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer stored-token")
+        .with_status(200)
+        .expect(1)
+        .create();
+
+    let (store, _lists) = CountingStore::with_records(vec![bearer_record(
+        &["[invalid".to_string(), format!("{}/**", server.url())],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 200);
+    unauth_mock.assert();
+    bearer_mock.assert();
+}
+
+#[test]
+fn lazy_layer_store_errors_degrade_to_no_credentials() {
+    for absent in [true, false] {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("GET", "/pkg/versions.json")
+            .with_status(404)
+            .expect(2)
+            .create();
+
+        let (store, lists) = FailingStore::new(absent);
+        let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+        let runtime = runtime();
+        let url = format!("{}/pkg/versions.json", server.url());
+
+        // Both error kinds behave as "no stored credentials" for the
+        // request, and the failed read is cached like a successful one.
+        let first = get(&runtime, &policy, &url);
+        let second = get(&runtime, &policy, &url);
+
+        assert_eq!(first.status().as_u16(), 404, "absent = {absent}");
+        assert_eq!(second.status().as_u16(), 404, "absent = {absent}");
+        assert_eq!(lists.load(Ordering::SeqCst), 1, "absent = {absent}");
+        mock.assert();
+    }
+}
+
+#[test]
+fn lazy_layer_without_store_returns_original_response() {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("GET", "/pkg/versions.json")
+        .with_status(404)
+        .expect(1)
+        .create();
+
+    let policy: CredentialStoreAuthentication<_, InMemoryCredentialStore> =
+        CredentialStoreAuthentication::without_store(empty_env_policy());
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 404);
+    mock.assert();
+}
+
+#[test]
+fn stored_bearer_map_blocking_shares_the_request_path_cache() {
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("GET", "/pkg/versions.json")
+        .with_status(404)
+        .expect(1)
+        .create();
+
+    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+        &["https://other.example.com/**".to_string()],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+
+    // Publish-style synchronous read first...
+    let map = policy.stored_bearer_map_blocking();
+    assert!(matches!(
+        map.lookup("https://other.example.com/upload"),
+        crate::auth::GlobMapResult::Found(_, _)
+    ));
+    // ...then a request-path escalation reuses the same cache.
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 404);
+    assert_eq!(lists.load(Ordering::SeqCst), 1);
+    mock.assert();
 }

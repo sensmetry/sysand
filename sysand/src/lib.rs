@@ -22,13 +22,14 @@ use fluent_uri::Iri;
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
 use sysand_core::{
-    auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder},
+    auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder, StandardLazyHTTPAuthentication},
     commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{
         Config,
         local_fs::{get_config, load_configs},
     },
     context::ProjectContext,
+    credential_store::keyring_store::KeyringCredentialStore,
     discover::{discover_project, discover_workspace},
     env::{DEFAULT_ENV_NAME, local_directory::LocalDirectoryEnvironment},
     index::RemoveTarget,
@@ -71,6 +72,11 @@ use crate::{
 };
 
 pub const DEFAULT_INDEX_URL: &str = "https://sysand.com";
+
+/// The CLI's composed authentication policy: eager `SYSAND_CRED_*`
+/// credentials first, then lazily read stored logins from the OS keyring
+/// (design/credential-storage.md, section 9).
+pub type CliAuthPolicy = StandardLazyHTTPAuthentication<KeyringCredentialStore>;
 
 pub mod cli;
 pub mod commands;
@@ -280,7 +286,20 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
     }
-    let auth_policy = Arc::new(auths_builder.build()?);
+    let env_auth_policy = auths_builder.build()?;
+    // Compose the eager env policy with the lazily read OS keyring store.
+    // Opening the store only resolves a lock file path; no keychain access
+    // happens until a request actually needs a stored credential.
+    let auth_policy = Arc::new(match KeyringCredentialStore::open_default() {
+        Ok(store) => CliAuthPolicy::new(env_auth_policy, store),
+        Err(err) => {
+            log::warn!(
+                "credential store unavailable: {err}; \
+                 continuing with `SYSAND_CRED_*` credentials only"
+            );
+            CliAuthPolicy::without_store(env_auth_policy)
+        }
+    });
 
     match args.command {
         Command::Init {

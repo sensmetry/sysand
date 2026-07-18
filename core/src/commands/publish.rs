@@ -317,8 +317,8 @@ pub fn build_upload_url(api_root: &Url) -> Url {
 pub enum PublishBearerSource {
     /// `SYSAND_CRED_*` environment variables.
     Env,
-    /// Stored logins (keyring). Not populated yet; `sysand auth login` will
-    /// fill this source in a later phase.
+    /// Stored logins (the credential store), read lazily and only when no
+    /// env bearer matches the upload URL.
     Keyring,
 }
 
@@ -342,40 +342,22 @@ impl PublishBearerSource {
     }
 }
 
-/// Publish bearer credentials grouped by source, in precedence order:
-/// env before keyring, so a CI `SYSAND_CRED_*` variable overrides an
-/// interactive login. The keyring map is currently always empty; a later
-/// phase populates it from stored logins (design/credential-storage.md,
-/// section 7).
-#[derive(Debug, Clone)]
-pub struct PublishBearerSources {
-    env: GlobMap<ForceBearerAuth>,
-    keyring: GlobMap<ForceBearerAuth>,
-}
-
-impl PublishBearerSources {
-    /// Bearer credentials from `SYSAND_CRED_*` only, with no stored logins.
-    pub fn from_env(env: GlobMap<ForceBearerAuth>) -> Self {
-        Self::new(env, GlobMap::default())
-    }
-
-    // Crate-private on purpose: the keyring side must stay lazily read (one
-    // keychain access, only when env has no match), so the eager two-map
-    // shape is not a public commitment. The task that populates the keyring
-    // source owns reshaping this constructor.
-    pub(crate) fn new(env: GlobMap<ForceBearerAuth>, keyring: GlobMap<ForceBearerAuth>) -> Self {
-        Self { env, keyring }
-    }
-}
-
 /// Resolve the bearer token used for publishing.
 ///
 /// In `auto` mode, publish uses trusted publishing in supported CI
 /// environments and uses configured bearer credentials elsewhere. In `always`
 /// mode, publish requires trusted publishing and ignores configured bearer
 /// credentials. In `never` mode, publish uses configured bearer credentials.
+///
+/// Configured credentials come from two sources in precedence order: the
+/// eager `env_bearers` map (`SYSAND_CRED_*`) and `stored_bearers`, a lazy
+/// provider for stored logins that is invoked only when no env bearer
+/// matches the upload URL, so a publish resolved from env (or via trusted
+/// publishing) never touches the credential store
+/// (design/credential-storage.md, section 7).
 pub fn resolve_publish_bearer(
-    bearer_sources: &PublishBearerSources,
+    env_bearers: &GlobMap<ForceBearerAuth>,
+    stored_bearers: impl FnOnce() -> GlobMap<ForceBearerAuth>,
     api_root: &Url,
     mode: TrustedPublishingMode,
     env: &TrustedPublishingEnvironment,
@@ -388,46 +370,57 @@ pub fn resolve_publish_bearer(
             if let Some(provider) = env.trusted_publishing_provider()? {
                 return acquire_trusted_publishing_bearer(provider, api_root, client, runtime);
             }
-            resolve_publish_bearer_from_config(bearer_sources, &upload_url)
+            resolve_publish_bearer_from_config(env_bearers, stored_bearers, &upload_url)
         }
         TrustedPublishingMode::Always => {
             let provider = env.require_trusted_publishing_provider()?;
             acquire_trusted_publishing_bearer(provider, api_root, client, runtime)
         }
         TrustedPublishingMode::Never => {
-            resolve_publish_bearer_from_config(bearer_sources, &upload_url)
+            resolve_publish_bearer_from_config(env_bearers, stored_bearers, &upload_url)
         }
     }
 }
 
 /// Select the configured bearer for `upload_url` with source precedence:
 /// a single env match wins outright; an ambiguous env match errors without
-/// consulting the keyring; only when env has no match at all is the keyring
-/// source tried, under the same single-match rule.
+/// consulting the keyring; only when env has no match at all is the
+/// `stored_bearers` provider invoked and its map tried, under the same
+/// single-match rule.
 fn resolve_publish_bearer_from_config(
-    bearer_sources: &PublishBearerSources,
+    env_bearers: &GlobMap<ForceBearerAuth>,
+    stored_bearers: impl FnOnce() -> GlobMap<ForceBearerAuth>,
     upload_url: &Url,
 ) -> Result<ForceBearerAuth, PublishError> {
-    let sources = [
-        (PublishBearerSource::Env, &bearer_sources.env),
-        (PublishBearerSource::Keyring, &bearer_sources.keyring),
-    ];
-    for (source, map) in sources {
-        match map.lookup(upload_url.as_str()) {
-            GlobMapResult::Found(_, token) => return Ok(token.clone()),
-            GlobMapResult::Ambiguous(candidates) => {
-                return Err(PublishError::AmbiguousPublishBearer {
-                    upload_url: upload_url.as_str().into(),
-                    bearer_source: source,
-                    candidates: candidates.len(),
-                });
-            }
-            GlobMapResult::NotFound => {}
-        }
+    if let Some(token) = lookup_publish_bearer(env_bearers, PublishBearerSource::Env, upload_url)? {
+        return Ok(token);
+    }
+    let stored = stored_bearers();
+    if let Some(token) = lookup_publish_bearer(&stored, PublishBearerSource::Keyring, upload_url)? {
+        return Ok(token);
     }
     Err(PublishError::NoPublishBearer {
         upload_url: upload_url.as_str().into(),
     })
+}
+
+/// Look `upload_url` up in one source's bearer map: a unique match wins, an
+/// ambiguous match errors naming the source, and no match returns `None` so
+/// the caller can fall through to the next source.
+fn lookup_publish_bearer(
+    map: &GlobMap<ForceBearerAuth>,
+    source: PublishBearerSource,
+    upload_url: &Url,
+) -> Result<Option<ForceBearerAuth>, PublishError> {
+    match map.lookup(upload_url.as_str()) {
+        GlobMapResult::Found(_, token) => Ok(Some(token.clone())),
+        GlobMapResult::Ambiguous(candidates) => Err(PublishError::AmbiguousPublishBearer {
+            upload_url: upload_url.as_str().into(),
+            bearer_source: source,
+            candidates: candidates.len(),
+        }),
+        GlobMapResult::NotFound => Ok(None),
+    }
 }
 
 fn acquire_trusted_publishing_bearer(
