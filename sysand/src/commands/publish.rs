@@ -65,11 +65,11 @@ pub fn command_publish(
     // Validate the resolved `api_root` shape once here; both credential
     // resolution and the upload build the upload URL from it afterwards.
     validate_api_root_url_shape(&api_root)?;
-    // Only now — after discovery has had access to the full policy —
-    // do we consume the Arc to extract the publish-specific
-    // bearer-credential map. Upload is bearer-only; basic-auth entries
-    // are intentionally dropped at this step.
-    let bearer_map = Arc::unwrap_or_clone(auth_policy).try_into_publish_bearer_auth_map()?;
+    // Only now, after discovery has had access to the full policy, do we
+    // extract the publish-specific bearer-credential map (by reference,
+    // cloning the tokens). Upload is bearer-only; basic-auth entries are
+    // intentionally dropped at this step.
+    let bearer_map = auth_policy.publish_bearer_auth_map()?;
     let trusted_publishing_env = TrustedPublishingEnvironment::from_env();
     let bearer = resolve_publish_bearer(
         &bearer_map,

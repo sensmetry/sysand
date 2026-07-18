@@ -100,3 +100,33 @@ fn globmap_matches_template_expanded_urls() -> Result<(), Box<dyn std::error::Er
 
     Ok(())
 }
+
+#[test]
+fn publish_bearer_auth_map_keeps_bearer_drops_basic() -> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = crate::auth::StandardHTTPAuthenticationBuilder::new();
+    builder.add_basic_auth("https://basic.example.com/*", "user", "password");
+    builder.add_bearer_auth("https://bearer.example.com/*", "tok");
+    let policy = builder.build()?;
+
+    // By-ref extraction: the policy stays usable afterwards.
+    let bearer_map = policy.publish_bearer_auth_map()?;
+
+    if let crate::auth::GlobMapResult::Found(_, auth) =
+        bearer_map.lookup("https://bearer.example.com/upload")
+    {
+        assert_eq!(&*auth.0, "tok");
+    } else {
+        panic!("expected bearer entry to be extracted");
+    }
+
+    assert!(matches!(
+        bearer_map.lookup("https://basic.example.com/upload"),
+        crate::auth::GlobMapResult::NotFound
+    ));
+    assert!(matches!(
+        bearer_map.lookup("https://other.example.com/upload"),
+        crate::auth::GlobMapResult::NotFound
+    ));
+
+    Ok(())
+}

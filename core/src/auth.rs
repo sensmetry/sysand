@@ -420,16 +420,17 @@ impl StandardHTTPAuthentication {
     /// Extracts the bearer tokens from the configured credential set into a URL-glob map
     /// suitable for driving publish-time credential selection. Basic-auth entries are
     /// dropped, since publish only supports bearer authentication.
-    pub fn try_into_publish_bearer_auth_map(
-        self,
-    ) -> Result<GlobMap<ForceBearerAuth>, globset::Error> {
+    pub fn publish_bearer_auth_map(&self) -> Result<GlobMap<ForceBearerAuth>, globset::Error> {
         let mut partial = GlobMapBuilder::new();
 
-        // `GlobMap` stores keys and values in parallel vectors; consume `self` so we
-        // can move bearer tokens into a publish-only map without cloning secrets.
-        for (key, sequence_auth) in self.restricted.keys.into_iter().zip(self.restricted.values) {
-            if let StandardInnerAuthentication::BearerAuth(inner) = sequence_auth.lower {
-                partial.add(key, inner);
+        // `GlobMap` stores keys and values in parallel vectors. This clones the bearer
+        // tokens into the publish-only map; an earlier version consumed `self` to move
+        // them without cloning, but the upcoming lazy keyring auth layer is not `Clone`,
+        // so extraction must work by reference (see design/credential-storage.md,
+        // section 9, which accepts the secret clones as the cost of that layer).
+        for (key, sequence_auth) in self.restricted.keys.iter().zip(&self.restricted.values) {
+            if let StandardInnerAuthentication::BearerAuth(inner) = &sequence_auth.lower {
+                partial.add(key, inner.clone());
             }
         }
 
