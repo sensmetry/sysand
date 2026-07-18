@@ -9,8 +9,8 @@ use sysand_core::{
     auth::StandardHTTPAuthentication,
     build::default_kpar_path,
     commands::publish::{
-        TrustedPublishingEnvironment, do_publish, prepare_publish_payload, resolve_publish_bearer,
-        validate_api_root_url_shape,
+        PublishBearerSources, TrustedPublishingEnvironment, do_publish, prepare_publish_payload,
+        resolve_publish_bearer, validate_api_root_url_shape,
     },
     context::ProjectContext,
     env::discovery::{ResolvedEndpoints, fetch_index_config},
@@ -69,10 +69,10 @@ pub fn command_publish(
     // extract the publish-specific bearer-credential map (by reference,
     // cloning the tokens). Upload is bearer-only; basic-auth entries are
     // intentionally dropped at this step.
-    let bearer_map = auth_policy.publish_bearer_auth_map()?;
+    let bearer_sources = PublishBearerSources::from_env(auth_policy.publish_bearer_auth_map()?);
     let trusted_publishing_env = TrustedPublishingEnvironment::from_env();
     let bearer = resolve_publish_bearer(
-        &bearer_map,
+        &bearer_sources,
         &api_root,
         trusted_publishing.into(),
         &trusted_publishing_env,

@@ -97,6 +97,7 @@ impl HTTPAuthentication for ForceHTTPBasicAuth {
 
 /// Authentication policy that *always* includes a bearer token
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct ForceBearerAuth(Box<str>);
 
 impl ForceBearerAuth {
@@ -185,6 +186,18 @@ pub struct GlobMap<T> {
     keys: Vec<String>,
     values: Vec<T>,
     globset: globset::GlobSet,
+}
+
+impl<T> Default for GlobMap<T> {
+    /// An empty map: every lookup is `NotFound`. Unlike `GlobMapBuilder::build`,
+    /// constructing the empty map cannot fail.
+    fn default() -> Self {
+        GlobMap {
+            keys: vec![],
+            values: vec![],
+            globset: globset::GlobSet::empty(),
+        }
+    }
 }
 
 impl<T> Default for GlobMapBuilder<T> {

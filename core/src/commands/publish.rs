@@ -309,6 +309,65 @@ pub fn build_upload_url(api_root: &Url) -> Url {
     api_root.join(UPLOAD_ENDPOINT_PATH).unwrap()
 }
 
+/// Where a configured publish bearer credential came from. Selection tries
+/// sources in precedence order (env before keyring), and ambiguity errors
+/// name the source so the remediation can be accurate
+/// (see design/credential-storage.md, sections 7 and 8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PublishBearerSource {
+    /// `SYSAND_CRED_*` environment variables.
+    Env,
+    /// Stored logins (keyring). Not populated yet; `sysand auth login` will
+    /// fill this source in a later phase.
+    Keyring,
+}
+
+impl PublishBearerSource {
+    fn name(self) -> &'static str {
+        match self {
+            PublishBearerSource::Env => "`SYSAND_CRED_*` environment variables",
+            PublishBearerSource::Keyring => "stored logins",
+        }
+    }
+
+    fn ambiguity_hint(self) -> &'static str {
+        match self {
+            PublishBearerSource::Env => {
+                "refine `SYSAND_CRED_<X>` URL patterns so exactly one bearer token matches"
+            }
+            PublishBearerSource::Keyring => {
+                "remove or narrow overlapping stored credentials so exactly one bearer token matches"
+            }
+        }
+    }
+}
+
+/// Publish bearer credentials grouped by source, in precedence order:
+/// env before keyring, so a CI `SYSAND_CRED_*` variable overrides an
+/// interactive login. The keyring map is currently always empty; a later
+/// phase populates it from stored logins (design/credential-storage.md,
+/// section 7).
+#[derive(Debug, Clone)]
+pub struct PublishBearerSources {
+    env: GlobMap<ForceBearerAuth>,
+    keyring: GlobMap<ForceBearerAuth>,
+}
+
+impl PublishBearerSources {
+    /// Bearer credentials from `SYSAND_CRED_*` only, with no stored logins.
+    pub fn from_env(env: GlobMap<ForceBearerAuth>) -> Self {
+        Self::new(env, GlobMap::default())
+    }
+
+    // Crate-private on purpose: the keyring side must stay lazily read (one
+    // keychain access, only when env has no match), so the eager two-map
+    // shape is not a public commitment. The task that populates the keyring
+    // source owns reshaping this constructor.
+    pub(crate) fn new(env: GlobMap<ForceBearerAuth>, keyring: GlobMap<ForceBearerAuth>) -> Self {
+        Self { env, keyring }
+    }
+}
+
 /// Resolve the bearer token used for publishing.
 ///
 /// In `auto` mode, publish uses trusted publishing in supported CI
@@ -316,7 +375,7 @@ pub fn build_upload_url(api_root: &Url) -> Url {
 /// mode, publish requires trusted publishing and ignores configured bearer
 /// credentials. In `never` mode, publish uses configured bearer credentials.
 pub fn resolve_publish_bearer(
-    bearer_map: &GlobMap<ForceBearerAuth>,
+    bearer_sources: &PublishBearerSources,
     api_root: &Url,
     mode: TrustedPublishingMode,
     env: &TrustedPublishingEnvironment,
@@ -329,30 +388,46 @@ pub fn resolve_publish_bearer(
             if let Some(provider) = env.trusted_publishing_provider()? {
                 return acquire_trusted_publishing_bearer(provider, api_root, client, runtime);
             }
-            resolve_publish_bearer_from_config(bearer_map, &upload_url)
+            resolve_publish_bearer_from_config(bearer_sources, &upload_url)
         }
         TrustedPublishingMode::Always => {
             let provider = env.require_trusted_publishing_provider()?;
             acquire_trusted_publishing_bearer(provider, api_root, client, runtime)
         }
-        TrustedPublishingMode::Never => resolve_publish_bearer_from_config(bearer_map, &upload_url),
+        TrustedPublishingMode::Never => {
+            resolve_publish_bearer_from_config(bearer_sources, &upload_url)
+        }
     }
 }
 
+/// Select the configured bearer for `upload_url` with source precedence:
+/// a single env match wins outright; an ambiguous env match errors without
+/// consulting the keyring; only when env has no match at all is the keyring
+/// source tried, under the same single-match rule.
 fn resolve_publish_bearer_from_config(
-    bearer_map: &GlobMap<ForceBearerAuth>,
+    bearer_sources: &PublishBearerSources,
     upload_url: &Url,
 ) -> Result<ForceBearerAuth, PublishError> {
-    match bearer_map.lookup(upload_url.as_str()) {
-        GlobMapResult::Found(_, token) => Ok(token.clone()),
-        GlobMapResult::Ambiguous(candidates) => Err(PublishError::AmbiguousPublishBearer {
-            upload_url: upload_url.as_str().into(),
-            candidates: candidates.len(),
-        }),
-        GlobMapResult::NotFound => Err(PublishError::NoPublishBearer {
-            upload_url: upload_url.as_str().into(),
-        }),
+    let sources = [
+        (PublishBearerSource::Env, &bearer_sources.env),
+        (PublishBearerSource::Keyring, &bearer_sources.keyring),
+    ];
+    for (source, map) in sources {
+        match map.lookup(upload_url.as_str()) {
+            GlobMapResult::Found(_, token) => return Ok(token.clone()),
+            GlobMapResult::Ambiguous(candidates) => {
+                return Err(PublishError::AmbiguousPublishBearer {
+                    upload_url: upload_url.as_str().into(),
+                    bearer_source: source,
+                    candidates: candidates.len(),
+                });
+            }
+            GlobMapResult::NotFound => {}
+        }
     }
+    Err(PublishError::NoPublishBearer {
+        upload_url: upload_url.as_str().into(),
+    })
 }
 
 fn acquire_trusted_publishing_bearer(
@@ -727,11 +802,16 @@ pub enum PublishError {
     NoPublishBearer { upload_url: Box<str> },
 
     #[error(
-        "multiple bearer token credentials configured for publish URL `{upload_url}`;\n\
-         refine `SYSAND_CRED_<X>` URL patterns so exactly one bearer token matches ({candidates} candidates found)"
+        "multiple bearer token credentials from {} configured for publish URL `{upload_url}`;\n\
+         {} ({candidates} candidates found)",
+        bearer_source.name(),
+        bearer_source.ambiguity_hint()
     )]
+    // The field is `bearer_source`, not `source`, because thiserror gives a
+    // field named `source` error-chaining semantics.
     AmbiguousPublishBearer {
         upload_url: Box<str>,
+        bearer_source: PublishBearerSource,
         candidates: usize,
     },
 

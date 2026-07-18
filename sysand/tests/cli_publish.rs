@@ -724,7 +724,7 @@ fn publish_rejects_ambiguous_bearer_credentials() -> TestResult {
     out.assert()
         .failure()
         .stderr(predicate::str::contains(
-            "multiple bearer token credentials configured for publish URL",
+            "multiple bearer token credentials from `SYSAND_CRED_*` environment variables configured for publish URL",
         ))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
