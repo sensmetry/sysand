@@ -1444,19 +1444,7 @@ pub enum AuthCommand {
     /// logins and `SYSAND_CRED_*` environment credentials, marking the
     /// entries that apply to the default index. Never shows secrets
     #[clap(verbatim_doc_comment)]
-    Status {
-        /// Comma-delimited list of URLs to use as default index URLs.
-        /// Only used for the `(default index)` marker; more than one
-        /// distinct default index leaves all entries unmarked
-        #[arg(
-            long,
-            num_args = 0..,
-            env = env_vars::SYSAND_DEFAULT_INDEX,
-            value_delimiter = ',',
-            verbatim_doc_comment
-        )]
-        default_index: Vec<String>,
-    },
+    Status,
     /// Store a bearer token for an index. The token is read from a hidden
     /// prompt, or from standard input with `--token-stdin`, never from a
     /// command-line argument. The token is validated against the index
@@ -1474,17 +1462,6 @@ pub enum AuthCommand {
         /// newline) instead of prompting
         #[arg(long, verbatim_doc_comment)]
         token_stdin: bool,
-        /// Comma-delimited list of URLs to use as default index URLs.
-        /// This command targets a single index, so more than one
-        /// default index requires an explicit index URL instead
-        #[arg(
-            long,
-            num_args = 0..,
-            env = env_vars::SYSAND_DEFAULT_INDEX,
-            value_delimiter = ',',
-            verbatim_doc_comment
-        )]
-        default_index: Vec<String>,
     },
     /// Show who the index API identifies you as: sends one authenticated
     /// request to the index API (`v1/whoami`) with the credential sysand
@@ -1498,17 +1475,6 @@ pub enum AuthCommand {
         /// configuration. Defaults to the default index
         #[clap(verbatim_doc_comment)]
         index_url: Option<String>,
-        /// Comma-delimited list of URLs to use as default index URLs.
-        /// This command targets a single index, so more than one
-        /// default index requires an explicit index URL instead
-        #[arg(
-            long,
-            num_args = 0..,
-            env = env_vars::SYSAND_DEFAULT_INDEX,
-            value_delimiter = ',',
-            verbatim_doc_comment
-        )]
-        default_index: Vec<String>,
     },
     /// Remove a stored index login
     Logout {
@@ -1517,17 +1483,6 @@ pub enum AuthCommand {
         /// accepted. Defaults to the default index
         #[clap(verbatim_doc_comment)]
         index_url: Option<String>,
-        /// Comma-delimited list of URLs to use as default index URLs.
-        /// This command targets a single index, so more than one
-        /// default index requires an explicit index URL instead
-        #[arg(
-            long,
-            num_args = 0..,
-            env = env_vars::SYSAND_DEFAULT_INDEX,
-            value_delimiter = ',',
-            verbatim_doc_comment
-        )]
-        default_index: Vec<String>,
     },
 }
 

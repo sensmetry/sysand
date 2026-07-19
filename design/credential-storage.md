@@ -104,7 +104,8 @@ Under a `sysand auth` namespace:
   not given, `login` fails fast ("no terminal for prompt; pass the token
   with `--token-stdin`") instead of hanging or reading a pipe as a secret.
 - **Default index.** `sysand auth login` with no URL resolves the target
-  from the default-index chain: `--default-index` / `SYSAND_DEFAULT_INDEX`,
+  from the default-index chain: the `SYSAND_DEFAULT_INDEX` environment
+  variable (comma-delimited),
   then a `default = true` index in configuration, else the built-in
   `DEFAULT_INDEX_URL` (`https://sysand.com`). Note `sysand publish` has no
   such default (its `--index` is required), so this chain is defined here,
@@ -112,7 +113,7 @@ Under a `sysand auth` namespace:
   `login` errors and asks for an explicit URL. `login` always **echoes the
   resolved index** before prompting (and on the `--token-stdin` path), so a
   project-configured default cannot be targeted silently. `auth status`
-  reuses the same chain (including a `--default-index` override), but only
+  reuses the same chain, but only
   to mark the entries that apply to the default index, and **never
   hard-errors over it**: an ambiguous chain prints a note and marks
   nothing, and a default that is not a valid HTTP(S) index key (for

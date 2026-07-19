@@ -216,29 +216,15 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let command = match args.command {
         Command::Auth { command } => {
             return match command {
-                AuthCommand::Status { default_index } => {
-                    command_auth_status(&default_index, &config)
-                }
+                AuthCommand::Status => command_auth_status(&config),
                 AuthCommand::Login {
                     index_url,
                     token_stdin,
-                    default_index,
-                } => command_auth_login(
-                    index_url,
-                    token_stdin,
-                    &default_index,
-                    &config,
-                    &client,
-                    runtime,
-                ),
-                AuthCommand::Whoami {
-                    index_url,
-                    default_index,
-                } => command_auth_whoami(index_url, &default_index, &config, &client, &runtime),
-                AuthCommand::Logout {
-                    index_url,
-                    default_index,
-                } => command_auth_logout(index_url, &default_index, &config),
+                } => command_auth_login(index_url, token_stdin, &config, &client, runtime),
+                AuthCommand::Whoami { index_url } => {
+                    command_auth_whoami(index_url, &config, &client, &runtime)
+                }
+                AuthCommand::Logout { index_url } => command_auth_logout(index_url, &config),
             };
         }
         command => command,

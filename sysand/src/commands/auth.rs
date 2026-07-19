@@ -29,12 +29,20 @@ const KEYRING_LOCKED_HINT: &str = "unlock your OS keyring and retry, or provide 
 
 /// Resolve the single index a bare `sysand auth login` / `auth logout`
 /// targets (design/credential-storage.md section 4): the
-/// `--default-index` / `SYSAND_DEFAULT_INDEX` override when given, else a
-/// `default = true` index from configuration, else the built-in
-/// [`DEFAULT_INDEX_URL`]. If the consulted stage yields more than one
-/// distinct URL, the target is ambiguous and an explicit URL is required.
-pub fn resolve_default_index(default_index_override: &[String], config: &Config) -> Result<String> {
-    let mut candidates: Vec<&str> = if default_index_override.is_empty() {
+/// `SYSAND_DEFAULT_INDEX` environment override (comma-delimited) when
+/// set, else a `default = true` index from configuration, else the
+/// built-in [`DEFAULT_INDEX_URL`]. If the consulted stage yields more
+/// than one distinct URL, the target is ambiguous and an explicit URL is
+/// required. Read from the environment here rather than a per-subcommand
+/// `--default-index` flag: a flag would only duplicate the positional
+/// index argument.
+pub fn resolve_default_index(config: &Config) -> Result<String> {
+    let env_override = std::env::var(crate::env_vars::SYSAND_DEFAULT_INDEX).ok();
+    let env_candidates: Vec<&str> = env_override
+        .as_deref()
+        .map(|raw| raw.split(',').filter(|url| !url.is_empty()).collect())
+        .unwrap_or_default();
+    let mut candidates: Vec<&str> = if env_candidates.is_empty() {
         config
             .indexes
             .iter()
@@ -42,7 +50,7 @@ pub fn resolve_default_index(default_index_override: &[String], config: &Config)
             .map(|index| index.url.as_str())
             .collect()
     } else {
-        default_index_override.iter().map(String::as_str).collect()
+        env_candidates
     };
     // Exact duplicates of one URL are still a single target.
     let mut seen = std::collections::HashSet::new();
@@ -69,14 +77,13 @@ fn surface_name(surface: ProbeSurface) -> &'static str {
 pub fn command_auth_login(
     index_url: Option<String>,
     token_stdin: bool,
-    default_index: &[String],
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
     let target = match index_url {
         Some(url) => url,
-        None => resolve_default_index(default_index, config)?,
+        None => resolve_default_index(config)?,
     };
     // Validate and normalize before any secret entry, so a `file://` or
     // unanchorable-template target fails without prompting.
@@ -248,14 +255,10 @@ fn cred_env_var_stem(key: &str) -> String {
         .collect()
 }
 
-pub fn command_auth_logout(
-    index_url: Option<String>,
-    default_index: &[String],
-    config: &Config,
-) -> Result<()> {
+pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result<()> {
     let target = match index_url {
         Some(url) => url,
-        None => resolve_default_index(default_index, config)?,
+        None => resolve_default_index(config)?,
     };
     // Echo the resolved index (normalized to the stored-key form when
     // possible) so a configured default cannot be targeted silently.
@@ -288,13 +291,13 @@ pub fn command_auth_logout(
     }
 }
 
-pub fn command_auth_status(default_index: &[String], config: &Config) -> Result<()> {
+pub fn command_auth_status(config: &Config) -> Result<()> {
     // Resolve the default index only to mark the entries that apply to
     // it. Status is a diagnostic view, so resolution is lenient: an
     // ambiguous chain gets a note instead of the hard error bare
     // `login`/`logout` raise, and a default that is not a valid HTTP(S)
     // index key (for example `file://`) simply marks nothing.
-    let default_key = match resolve_default_index(default_index, config) {
+    let default_key = match resolve_default_index(config) {
         Ok(url) => validated_index_key(&url).ok(),
         // `resolve_default_index` errors only on an ambiguous chain
         // (more than one distinct default index).
@@ -564,14 +567,13 @@ fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
 
 pub fn command_auth_whoami(
     index_url: Option<String>,
-    default_index: &[String],
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &tokio::runtime::Runtime,
 ) -> Result<()> {
     let target = match index_url {
         Some(url) => url,
-        None => resolve_default_index(default_index, config)?,
+        None => resolve_default_index(config)?,
     };
     // Validate before any store or network access, and echo the resolved
     // index so a configured default cannot be targeted silently. Printed,
