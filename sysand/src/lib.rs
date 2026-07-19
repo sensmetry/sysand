@@ -209,9 +209,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     // must work even when `SYSAND_CRED_*` variables are malformed (the
     // eager env-policy build below fails hard on those, and `auth status`
     // exists to diagnose them), so they dispatch before that policy is
-    // built. `login` still gets the shared client and runtime: its
-    // discovery fetch is deliberately unauthenticated (no credential
-    // exists for the index yet).
+    // built. `login` still gets the shared client and runtime: core
+    // handles its discovery fetch itself (an unauthenticated baseline
+    // with a forced-bearer retry carrying the just-entered secret), so
+    // no ambient auth policy is needed.
     let command = match args.command {
         Command::Auth { command } => {
             return match command {
@@ -221,15 +222,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 AuthCommand::Login {
                     index_url,
                     token_stdin,
-                    no_validation,
                     default_index,
                 } => command_auth_login(
                     index_url,
                     token_stdin,
-                    // Core keeps `Option<bool>` (None = validate) so the
-                    // bindings can expose a clean optional keyword; the
-                    // CLI flag follows the house `--no-<thing>` style.
-                    if no_validation { Some(false) } else { None },
                     &default_index,
                     &config,
                     &client,

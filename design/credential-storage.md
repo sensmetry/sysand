@@ -140,29 +140,28 @@ duplicate entries.
 
 ## 5. Validation
 
-Validation is on by default; the CLI flag to disable it is
-`--no-validation`, a presence flag following the repo's `--no-<thing>`
-convention (`--no-lock`, `--no-deps`, ...). The flag spelling and the
-library parameter are independent: core's `do_auth_login` takes
-`validation: Option<bool>` (`None` = the default, validate), the CLI maps
-`--no-validation` to `Some(false)`, and the language bindings expose the
-parameter as a clean optional keyword (`validation: Optional[bool] =
-None`). Both the house-style flag and the bindings ergonomics are kept.
+Login has exactly one behavior, with no opt-out flag or parameter:
+discovery is fetched for glob scoping (with the authenticated retry
+described below), every surface the index supports is probed, and the
+refusal rule decides. A static index has only the read surface; a
+dynamic index adds the API.
 
-- Default (validate): probe every surface the index supports and store
-  unless the credential is rejected everywhere it was actually tested (see
-  the refusal rule below). A static index has only the read surface; a
-  dynamic index adds the API.
-- `--no-validation`: store without any credential probe. Discovery is
-  still fetched best-effort for glob scoping (§8); if unreachable, fall back
-  to the URL-derived glob with a warning. Use it offline, or when a probe
-  would false-refuse.
+There is deliberately no `--no-validation` escape (and core's
+`do_auth_login` takes no validation parameter, so the bindings expose no
+knob either). Offline or unreachable-index logins already degrade
+gracefully through the refusal rule: nothing exercises the credential,
+so the login stores as "stored, not validated" with warnings, and no
+secret is transmitted (an unreachable discovery baseline gets no forced
+retry, and unreachable probes produce no verdict). False refusals are
+engineered out rather than opted out of: 429 and redirects are never
+verdicts, and acceptance by any exercised surface wins. For the residual
+case where an index genuinely misbehaves, `SYSAND_CRED_*` environment
+credentials remain the escape hatch.
 
-Validation is a boolean, not per-surface levels: since `v1/whoami` checks
-only that a token is _accepted_ by the API (identity, not capability, §6),
-validating everything almost never wrongly refuses a valid token, so a
-"read-only" level would add a choice without payoff. The flag could later
-give way to a levelled one without disrupting this default.
+Validation is not levelled per surface either: since `v1/whoami` checks
+only that a token is _accepted_ by the API (identity, not capability,
+§6), validating everything almost never wrongly refuses a valid token,
+so a "read-only" level would add a choice without payoff.
 
 **Probe mechanism.** Validation cannot reuse the runtime unauth-first
 policy, which returns only the final response and cannot report whether a
@@ -180,10 +179,31 @@ advertised an `api_root`** (not the runtime plain-URL default, §3), probe
 for an API it does not have. Advertised-vs-defaulted needs a flag on the
 resolved endpoints (for example `api_root_advertised: bool`), true only in
 the explicit-field arm of discovery parsing, false in both defaulting arms
-and the no-document path. If the discovery fetch itself fails or is
-rejected, the read probe falls back to the URL-derived `index.json`
-location, so a private index whose discovery 401s still gets its read leg
-exercised. **Probes do not follow redirects**: a redirect
+and the no-document path.
+
+**Login's discovery fetch is itself unauth-baseline-then-forced** (only
+the backend-absent path of §9 stays strictly unauthenticated, since its
+secret is discarded). The
+baseline is unauthenticated; any 4xx answer triggers one forced-bearer
+retry with the in-hand secret. The retry must fire on 404 too: a private
+GitLab answers 404, not 401, when auth is missing, and the credentialed
+answer is what distinguishes a hidden discovery document from an absent
+one. This means an index with no discovery document sees one extra
+credentialed request at login; it goes to the same user-supplied trust
+anchor (§8) the probes already hit. Forced-retry outcomes: a 200 with a
+valid document is used exactly like a public discovery success (globs,
+`api_root_advertised`, the whoami gate); a 404 is the authoritative "no
+document" answer and reconstructs the flat topology with no warning; and
+everything else (other 4xx, 429, a redirect, since the retry goes through
+the no-redirect probe client unlike the redirect-following baseline, 5xx,
+or a network failure) is not a verdict and falls back to the URL-derived
+glob with a warning. In every fallback case the read probe falls back to
+the URL-derived `index.json` location, so a fully private index still
+gets its read leg exercised. The forced discovery fetch never counts
+toward the validated claim: the `index.json` probe is the sole read
+verdict (one verdict per surface), and claim strings stay `read`/`api`.
+
+**Probes do not follow redirects**: a redirect
 would mean the verdict comes from a different URL than the surface nominally
 probed (and a cross-host redirect strips the header, misreading "rejected"),
 so a redirected probe counts as "not tested" with a warning naming the
@@ -363,8 +383,8 @@ logout` removes) may fall back to the default index.
 expires_at-if-known}`, plus optional whoami-derived identity fields
   `subject`, `token_name`, `token_prefix` persisted by a validating login,
   plus `validated`: the surfaces that exercised and accepted the credential
-  at login, serialized compactly as `["read","api"]` strings and absent for
-  `--no-validation` or nothing-exercised logins) inside the single keyring
+  at login, serialized compactly as `["read","api"]` strings and absent
+  for nothing-exercised logins) inside the single keyring
   blob (§9), so `logout` removes it and `status` shows one login covering
   N patterns.
 - **Discovery changes over time (globs are a login-time boundary).** Reads
@@ -611,7 +631,7 @@ Each phase is independently shippable.
    default-index resolution + echo; non-interactive fail-fast; discovery
    fetch; escaped glob derivation (discovery/index root + divergent
    `api_root`; templated targets anchored at their literal prefix);
-   validation with `--no-validation` opt-out, unauth-baseline-then-forced
+   always-on validation, unauth-baseline-then-forced discovery and
    probes (no-redirect), the refusal rule, and the basic-auth routing
    message; `expires_at` persistence; source-named auth-failure messages
    (§7); the query-only `whoami` command; gutter-aligned styled output
@@ -650,7 +670,7 @@ not here. Follow that repo's `docs/README.md` (sentence case, no em-dash,
 trailing-slash links). Pages to touch:
 
 - **Reference, rewrite** `docs/source/client/reference/authentication.md`:
-  the `sysand auth` model, single-keyring storage, `--no-validation`,
+  the `sysand auth` model, single-keyring storage, always-on validation,
   precedence (`SYSAND_CRED_*` > keyring), read/API surfaces, the trust
   model. Keep the `SYSAND_CRED_*` reference, it remains the CI / no-keyring
   path (and the only basic-auth path in v1).
@@ -721,9 +741,8 @@ capabilities behind cargo features (`filesystem`, `networking`).
   same gate as publish): `do_auth_login` / `do_auth_logout` /
   `do_auth_status` orchestration (discovery fetch, glob derivation,
   validation probes, refusal rule), generic over the store trait.
-  **A library call must never prompt**: the secret arrives as a parameter,
-  and `validation: Option<bool>` is a plain argument, which is exactly what
-  gives the bindings their clean optional keyword (§5).
+  **A library call must never prompt**: the secret arrives as a
+  parameter, and there is no validation knob to plumb (§5).
 - **sysand CLI:** the clap surface, hidden prompt, TTY detection,
   `--token-stdin`, default-index resolution, and user-facing messages; it
   constructs the keyring store and the composed policy and passes them into

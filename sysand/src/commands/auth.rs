@@ -69,7 +69,6 @@ fn surface_name(surface: ProbeSurface) -> &'static str {
 pub fn command_auth_login(
     index_url: Option<String>,
     token_stdin: bool,
-    validation: Option<bool>,
     default_index: &[String],
     config: &Config,
     client: &reqwest_middleware::ClientWithMiddleware,
@@ -93,67 +92,59 @@ pub fn command_auth_login(
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
     let index_key = key.clone();
-    let outcome = do_auth_login(
-        &mut store,
-        &key,
-        secret,
-        validation,
-        client,
-        runtime,
-        |notice| {
-            match notice {
-                // Printed before the store write happens.
-                AuthLoginNotice::ReplacingExisting { key } => {
-                    let header = sysand_core::style::get_style_config().header;
-                    println!(
-                        "{header}{:>12}{header:#} existing credential for `{key}`",
-                        "Replacing"
-                    );
-                }
-                AuthLoginNotice::DiscoveryUnreachable { error } => log::warn!(
-                    "could not read the index configuration ({error}); \
+    let outcome = do_auth_login(&mut store, &key, secret, client, runtime, |notice| {
+        match notice {
+            // Printed before the store write happens.
+            AuthLoginNotice::ReplacingExisting { key } => {
+                let header = sysand_core::style::get_style_config().header;
+                println!(
+                    "{header}{:>12}{header:#} existing credential for `{key}`",
+                    "Replacing"
+                );
+            }
+            AuthLoginNotice::DiscoveryUnreachable { error } => log::warn!(
+                "could not read the index configuration ({error}); \
                      scoping the credential to the URL-derived pattern"
-                ),
-                AuthLoginNotice::TemplateIndexRootSkipped { template } => log::warn!(
-                    "discovery advertises a templated index_root (`{template}`) that \
+            ),
+            AuthLoginNotice::TemplateIndexRootSkipped { template } => log::warn!(
+                "discovery advertises a templated index_root (`{template}`) that \
                      cannot be covered safely; no pattern was derived for it"
-                ),
-                AuthLoginNotice::ProbeRedirected { surface, target } => log::warn!(
-                    "the {} probe was redirected to `{target}`; probes do not follow \
+            ),
+            AuthLoginNotice::ProbeRedirected { surface, target } => log::warn!(
+                "the {} probe was redirected to `{target}`; probes do not follow \
                      redirects, so the credential was not validated against that surface",
-                    surface_name(surface)
-                ),
-                AuthLoginNotice::ProbeUnreachable { surface, error } => log::warn!(
-                    "could not probe the {} ({error}); the credential was not \
+                surface_name(surface)
+            ),
+            AuthLoginNotice::ProbeUnreachable { surface, error } => log::warn!(
+                "could not probe the {} ({error}); the credential was not \
                      validated against it",
-                    surface_name(surface)
-                ),
-                AuthLoginNotice::ProbeRateLimited { surface } => log::warn!(
-                    "the {} probe was rate limited (HTTP 429); the credential was \
+                surface_name(surface)
+            ),
+            AuthLoginNotice::ProbeRateLimited { surface } => log::warn!(
+                "the {} probe was rate limited (HTTP 429); the credential was \
                      not validated against it",
-                    surface_name(surface)
-                ),
-                AuthLoginNotice::SurfaceRejected {
-                    surface,
-                    basic_challenge,
-                } => {
-                    log::warn!(
-                        "the {} rejected the credential; it was stored anyway because \
+                surface_name(surface)
+            ),
+            AuthLoginNotice::SurfaceRejected {
+                surface,
+                basic_challenge,
+            } => {
+                log::warn!(
+                    "the {} rejected the credential; it was stored anyway because \
                          another surface accepted it",
-                        surface_name(surface)
-                    );
-                    if basic_challenge {
-                        let stem = cred_env_var_stem(&index_key);
-                        log::warn!(
-                            "this index uses username/password (HTTP basic) authentication; \
+                    surface_name(surface)
+                );
+                if basic_challenge {
+                    let stem = cred_env_var_stem(&index_key);
+                    log::warn!(
+                        "this index uses username/password (HTTP basic) authentication; \
                              configure `SYSAND_CRED_{stem}_BASIC_USER` / \
                              `SYSAND_CRED_{stem}_BASIC_PASS` environment variables instead"
-                        );
-                    }
+                    );
                 }
             }
-        },
-    );
+        }
+    });
     match outcome {
         Ok(AuthLoginOutcome::Stored {
             key,

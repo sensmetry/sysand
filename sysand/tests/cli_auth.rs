@@ -407,39 +407,44 @@ fn auth_login_covers_a_disjoint_api_root_from_discovery() -> TestResult {
     let env = seam_env(&store_path);
 
     let mut server = mockito::Server::new();
+    // A second server stands in for the disjoint API host, so the
+    // advertised-api whoami probe has somewhere real to go.
+    let mut api_server = mockito::Server::new();
+    let api_root = format!("{}/base/", api_server.url());
     let _mock = server
         .mock("GET", "/sysand-index-config.json")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"api_root": "https://api.example.com/base/"}"#)
+        .with_body(format!(r#"{{"api_root": "{api_root}"}}"#))
+        .create();
+    let _index = server.mock("GET", "/index.json").with_status(200).create();
+    let _whoami = api_server
+        .mock("GET", "/base/v1/whoami")
+        .match_header("authorization", "Bearer tok")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(WHOAMI_BODY)
         .create();
     let root = format!("{}/", server.url());
 
-    // `--no-validation`: the advertised api_root is a foreign host
-    // this test must not probe.
     let (_t, _c, out) = run_sysand_stdin(
-        [
-            "auth",
-            "login",
-            "--token-stdin",
-            "--no-validation",
-            &server.url(),
-        ],
+        ["auth", "login", "--token-stdin", &server.url()],
         &env,
         b"tok\n",
     )?;
     out.assert()
         .success()
         .stdout(predicate::str::contains(format!("{root}**")))
-        .stdout(predicate::str::contains("https://api.example.com/base/**"))
-        .stderr(predicate::str::contains(STORED_MESSAGE));
+        .stdout(predicate::str::contains(format!("{api_root}**")))
+        // Public read never exercised the token; the advertised API did.
+        .stderr(predicate::str::contains("validated (api)"));
 
-    // A `--no-validation` login stores no claim: status warns.
+    // The scoped claim is persisted and rendered by status.
     let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
     out.assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "      Stored {root}  not validated"
+            "      Stored {root}  validated (api)"
         )));
     Ok(())
 }

@@ -29,7 +29,11 @@ use crate::{
         CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
         CredentialSubject, normalize_index_key,
     },
-    env::discovery::{ResolvedEndpoints, fetch_index_config},
+    env::discovery::{
+        DiscoveryError, INDEX_CONFIG_PATH, IndexConfigRaw, ResolvedEndpoints, fetch_index_config,
+        fetch_index_config_strict, resolve_index_config,
+    },
+    env::index::HttpFetchError,
     index_location::{IndexLocation, IndexLocationError, is_template_syntax},
 };
 
@@ -197,8 +201,8 @@ pub struct StoredCredentialStatus {
     /// learned it.
     pub token_prefix: Option<String>,
     /// The surfaces that exercised and accepted the credential at login
-    /// (`"read"`, `"api"`, in probe order). Empty means the credential
-    /// was stored without validation.
+    /// (`"read"`, `"api"`, in probe order). Empty means nothing
+    /// exercised the credential ("stored, not validated").
     pub validated: Vec<String>,
     /// Labels of `SYSAND_CRED_*` entries that may shadow this login.
     ///
@@ -324,9 +328,10 @@ pub enum AuthLoginNotice {
     /// A stored credential for the same key exists and is about to be
     /// overwritten.
     ReplacingExisting { key: String },
-    /// The discovery document could not be read (network failure, or an
-    /// HTTP error such as 401 on a private index); the credential is
-    /// scoped to the URL-derived pattern only.
+    /// The discovery document could not be read: a network failure, or an
+    /// HTTP error that survived login's authenticated retry (see
+    /// [`fetch_login_endpoints`]). The credential is scoped to the
+    /// URL-derived pattern only.
     DiscoveryUnreachable { error: String },
     /// Discovery resolved a templated `index_root` whose literal prefix
     /// cannot be anchored at a safe URL boundary (at least
@@ -377,7 +382,7 @@ pub enum AuthLoginOutcome {
         globs: Vec<String>,
         /// The surfaces that exercised and accepted the credential, in
         /// probe order (read before api). Empty means "stored, not
-        /// validated": either `validation` was disabled or nothing
+        /// validated": nothing
         /// exercised the credential. Hosts must scope the claim to these
         /// surfaces and never print a bare "validated"
         /// (design/credential-storage.md section 5).
@@ -743,6 +748,122 @@ fn probe_api_surface(
     }
 }
 
+/// Fetch discovery for a login (design/credential-storage.md sections 5,
+/// 8): an unauthenticated baseline, then, on any 4xx answer, one
+/// forced-bearer retry carrying the in-hand secret, mirroring the probe
+/// mechanism. The forced retry is what distinguishes a hidden discovery
+/// document from an absent one: a fully private index answers 401 (or, in
+/// GitLab's style, 404) to the unauthenticated fetch whether or not a
+/// document exists, and only the credentialed answer settles it, letting
+/// such an index advertise its `api_root` for glob scoping and the whoami
+/// probe.
+///
+/// Discovery here is about knowing the topology, not validating the
+/// credential, and its outcome never refuses a login. `None` means "no
+/// usable document"; the caller falls back to the URL-derived glob after
+/// a [`AuthLoginNotice::DiscoveryUnreachable`] notice.
+fn fetch_login_endpoints(
+    client: &reqwest_middleware::ClientWithMiddleware,
+    location: &IndexLocation,
+    secret: &str,
+    runtime: &tokio::runtime::Runtime,
+    notify: &mut impl FnMut(AuthLoginNotice),
+) -> Option<ResolvedEndpoints> {
+    // The baseline goes through the regular middleware client (following
+    // redirects, exactly like every other discovery fetch); the strict
+    // variant surfaces an absent document as its 404 status so the retry
+    // decision below can see it.
+    match runtime.block_on(fetch_index_config_strict(
+        client,
+        &Unauthenticated {},
+        location,
+    )) {
+        Ok(endpoints) => Some(endpoints),
+        Err(DiscoveryError::Fetch(HttpFetchError::BadHttpStatus { status, .. }))
+            if status.is_client_error() =>
+        {
+            forced_discovery_fetch(location, secret, runtime, notify)
+        }
+        // Network failures, 5xx, and a present-but-invalid document are
+        // not "possibly hidden from me" signals: no secret is sent.
+        Err(err) => {
+            notify(AuthLoginNotice::DiscoveryUnreachable {
+                error: err.to_string(),
+            });
+            None
+        }
+    }
+}
+
+/// The forced leg of [`fetch_login_endpoints`]: one GET of the discovery
+/// document with a forced bearer, through the no-redirect probe client. A
+/// 200 with a valid document is used exactly like a public discovery
+/// success; a 404 is the authoritative "no document" answer to the
+/// credential and reconstructs the flat topology, like a public 404 (no
+/// notice: this is the normal discovery-less case, not a failure).
+/// Everything else (other 4xx, 429, redirect, 5xx, network failure) falls
+/// back to `None` with a notice; the validation probes still deliver the
+/// credential verdict.
+fn forced_discovery_fetch(
+    location: &IndexLocation,
+    secret: &str,
+    runtime: &tokio::runtime::Runtime,
+    notify: &mut impl FnMut(AuthLoginNotice),
+) -> Option<ResolvedEndpoints> {
+    let config_url = location.resolve([INDEX_CONFIG_PATH]);
+    let mut unreachable = |error: String| {
+        notify(AuthLoginNotice::DiscoveryUnreachable { error });
+        None
+    };
+    let client = match probe_client() {
+        Ok(client) => client,
+        Err(err) => {
+            return unreachable(format!("could not build the probe HTTP client: {err}"));
+        }
+    };
+    let response = match probe_get(runtime, &client, &config_url, Some(secret)) {
+        Ok(response) => response,
+        Err(error) => {
+            return unreachable(format!("HTTP request to `{config_url}` failed: {error}"));
+        }
+    };
+    let status = response.status();
+    if status == reqwest::StatusCode::OK {
+        let raw = runtime
+            .block_on(response.bytes())
+            .map_err(|err| format!("failed to read HTTP response body from `{config_url}`: {err}"))
+            .and_then(|body| {
+                serde_json::from_slice::<IndexConfigRaw>(&body)
+                    .map_err(|err| format!("failed to parse JSON from `{config_url}`: {err}"))
+            });
+        match raw {
+            Ok(raw) => match resolve_index_config(raw, &config_url, location.clone()) {
+                Ok(endpoints) => Some(endpoints),
+                Err(err) => unreachable(err.to_string()),
+            },
+            Err(error) => unreachable(error),
+        }
+    } else if status == reqwest::StatusCode::NOT_FOUND {
+        Some(ResolvedEndpoints::flat(location.clone()))
+    } else if status.is_redirection() {
+        // The probe client never follows redirects (unlike the baseline's
+        // middleware client), so a redirect-fronted discovery document
+        // gains this notice instead of a forced answer.
+        unreachable(format!(
+            "the authenticated retry for `{config_url}` was redirected to `{}`",
+            redirect_target(&response)
+        ))
+    } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        unreachable(format!(
+            "the authenticated retry for `{config_url}` was rate limited (HTTP 429)"
+        ))
+    } else {
+        unreachable(format!(
+            "the authenticated retry for `{config_url}` returned status {status}"
+        ))
+    }
+}
+
 /// Run the validation probes (design/credential-storage.md section 5):
 /// discovery-first (the already-fetched discovery result is reused; when
 /// it was unreachable the read surface falls back to the URL-derived
@@ -799,35 +920,35 @@ fn run_validation_probes(
 /// sections 4, 5, 8, 9). The secret arrives as a parameter: a library call
 /// never prompts.
 ///
-/// Discovery is fetched best-effort with the unauthenticated policy (no
-/// credential exists for the index yet) to resolve `index_root` and
-/// `api_root` for glob scoping; when it cannot be read the credential
-/// falls back to the URL-derived glob with a
-/// [`AuthLoginNotice::DiscoveryUnreachable`] notice. Overwriting an
+/// Discovery is fetched best-effort to resolve `index_root` and
+/// `api_root` for glob scoping: an unauthenticated baseline, retried once
+/// with the in-hand secret as a forced bearer when the baseline answers
+/// any 4xx, so a fully private index can still advertise its topology
+/// ([`fetch_login_endpoints`]); only the backend-absent path stays
+/// strictly unauthenticated, since its secret is discarded. When no usable
+/// document results, the credential falls back to the URL-derived glob
+/// with a [`AuthLoginNotice::DiscoveryUnreachable`] notice. Overwriting an
 /// existing record for the same key is reported through
 /// [`AuthLoginNotice::ReplacingExisting`] before the write happens (and
 /// only once validation has decided the write will happen: a refused
 /// login never announces a replacement).
 ///
-/// `validation`: `None` means the default, `true`; the CLI's
-/// `--no-validation` flag maps to `Some(false)`, and language bindings can
-/// expose this as an optional keyword. When enabled, the section 5 probes
-/// run between glob
-/// derivation and the store write, and the refusal rule applies: the
-/// credential is stored if any exercised surface accepted it, refused
+/// Validation always runs (there is no opt-out; design section 5): the
+/// probes run between glob derivation and the store write, and the
+/// refusal rule applies. The credential is stored if any exercised
+/// surface accepted it, refused
 /// ([`AuthCommandError::ValidationRejected`]) when at least one exercised
 /// surface rejected it and none accepted, and stored as "not validated"
-/// when nothing exercised it. `Some(false)` skips every probe and stores
-/// directly. An absent keyring backend returns
-/// [`AuthLoginOutcome::BackendUnavailable`] before any probe runs (no
-/// network is spent on a credential that cannot be stored), so the
-/// `SYSAND_CRED_*` guidance a no-keyring host prints always describes an
-/// unvalidated credential.
+/// when nothing exercised it (which is how an offline or unreachable
+/// index degrades: warnings, no verdict, no refusal). An absent keyring
+/// backend returns [`AuthLoginOutcome::BackendUnavailable`] before any
+/// probe runs (no network is spent on a credential that cannot be
+/// stored), so the `SYSAND_CRED_*` guidance a no-keyring host prints
+/// always describes an unvalidated credential.
 pub fn do_auth_login<S: CredentialStore>(
     store: &mut S,
     index_url: &str,
     secret: String,
-    validation: Option<bool>,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     mut notify: impl FnMut(AuthLoginNotice),
@@ -849,25 +970,31 @@ pub fn do_auth_login<S: CredentialStore>(
         },
     };
 
-    let endpoints =
-        match runtime.block_on(fetch_index_config(client, &Unauthenticated {}, &location)) {
-            Ok(endpoints) => Some(endpoints),
-            Err(err) => {
-                notify(AuthLoginNotice::DiscoveryUnreachable {
-                    error: err.to_string(),
-                });
-                None
-            }
-        };
-    let globs = derive_credential_globs(&primary_root, endpoints.as_ref(), &mut notify);
-
-    // Detect an existing login before writing, so the host can announce
-    // the replacement before the write. `list` and `upsert` are
-    // separately locked, so this is best-effort under cross-process
-    // races.
+    // Read the store before any network so an absent keyring backend is
+    // detected before the secret could be spent on a credentialed request
+    // (the BackendUnavailable outcome discards the secret, so its
+    // best-effort discovery for the `SYSAND_CRED_*` guidance globs stays
+    // strictly unauthenticated). This also detects an existing login
+    // before writing, so the host can announce the replacement before the
+    // write; `list` and `upsert` are separately locked, so that part is
+    // best-effort under cross-process races.
     let records = match store.list() {
         Ok(records) => records,
         Err(CredentialStoreError::BackendAbsent { source }) => {
+            let endpoints = match runtime.block_on(fetch_index_config(
+                client,
+                &Unauthenticated {},
+                &location,
+            )) {
+                Ok(endpoints) => Some(endpoints),
+                Err(err) => {
+                    notify(AuthLoginNotice::DiscoveryUnreachable {
+                        error: err.to_string(),
+                    });
+                    None
+                }
+            };
+            let globs = derive_credential_globs(&primary_root, endpoints.as_ref(), &mut notify);
             return Ok(AuthLoginOutcome::BackendUnavailable {
                 key,
                 globs,
@@ -878,38 +1005,37 @@ pub fn do_auth_login<S: CredentialStore>(
     };
     let replacing = records.iter().any(|record| record.key == key);
 
+    let endpoints = fetch_login_endpoints(client, &location, &secret, &runtime, &mut notify);
+    let globs = derive_credential_globs(&primary_root, endpoints.as_ref(), &mut notify);
+
     // Validation probes (design/credential-storage.md section 5), between
     // glob derivation and the store write.
-    let mut validated: Vec<ProbeSurface> = Vec::new();
-    let mut identity: Option<WhoamiIdentity> = None;
-    if validation.unwrap_or(true) {
-        let outcome = run_validation_probes(
-            endpoints.as_ref(),
-            &location,
-            &secret,
-            &runtime,
-            &mut notify,
-        );
-        // The refusal rule: refuse only when at least one exercised
-        // surface rejected the credential and none accepted it.
-        if outcome.accepted.is_empty() && !outcome.rejected.is_empty() {
-            return Err(AuthCommandError::ValidationRejected {
-                index: key,
-                rejected: outcome.rejected,
-                basic_challenge: outcome.basic_challenge,
-            });
-        }
-        // Stored anyway (some surface accepted): warn about each surface
-        // that rejected.
-        for surface in &outcome.rejected {
-            notify(AuthLoginNotice::SurfaceRejected {
-                surface: *surface,
-                basic_challenge: outcome.basic_challenge && *surface == ProbeSurface::Read,
-            });
-        }
-        validated = outcome.accepted;
-        identity = outcome.identity;
+    let outcome = run_validation_probes(
+        endpoints.as_ref(),
+        &location,
+        &secret,
+        &runtime,
+        &mut notify,
+    );
+    // The refusal rule: refuse only when at least one exercised
+    // surface rejected the credential and none accepted it.
+    if outcome.accepted.is_empty() && !outcome.rejected.is_empty() {
+        return Err(AuthCommandError::ValidationRejected {
+            index: key,
+            rejected: outcome.rejected,
+            basic_challenge: outcome.basic_challenge,
+        });
     }
+    // Stored anyway (some surface accepted): warn about each surface
+    // that rejected.
+    for surface in &outcome.rejected {
+        notify(AuthLoginNotice::SurfaceRejected {
+            surface: *surface,
+            basic_challenge: outcome.basic_challenge && *surface == ProbeSurface::Read,
+        });
+    }
+    let validated = outcome.accepted;
+    let identity = outcome.identity;
 
     if replacing {
         notify(AuthLoginNotice::ReplacingExisting { key: key.clone() });

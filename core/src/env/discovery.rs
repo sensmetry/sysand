@@ -20,6 +20,12 @@ use crate::{
     index_location::{IndexLocation, IndexLocationError, with_trailing_slash},
 };
 
+/// Path of the discovery document under the discovery root. Shared with
+/// login's authenticated discovery retry
+/// (`crate::commands::auth`), which fetches the same URL with a forced
+/// bearer.
+pub(crate) const INDEX_CONFIG_PATH: &str = "sysand-index-config.json";
+
 const INDEX_PATH: &str = "index.json";
 const VERSIONS_PATH: &str = "versions.json";
 const KPAR_FILE: &str = "project.kpar";
@@ -129,8 +135,11 @@ impl ResolvedEndpoints {
     }
 }
 
+/// Wire shape of the discovery document. `pub(crate)` so login's
+/// authenticated discovery retry can parse the forced response body and
+/// interpret it through [`resolve_index_config`].
 #[derive(Debug, Deserialize)]
-struct IndexConfigRaw {
+pub(crate) struct IndexConfigRaw {
     #[serde(default)]
     index_root: Option<String>,
     #[serde(default)]
@@ -234,16 +243,39 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
     auth: &P,
     discovery_root: &IndexLocation,
 ) -> Result<ResolvedEndpoints, DiscoveryError> {
+    fetch_index_config_with(client, auth, discovery_root, MissingPolicy::AllowNotFound).await
+}
+
+/// [`fetch_index_config`], except an absent document (HTTP 404) surfaces
+/// as [`HttpFetchError::BadHttpStatus`] instead of folding into the flat
+/// topology. "Strict" is about observability, not requirement: login's
+/// discovery fetch must see the unauthenticated 404 to decide on its
+/// authenticated retry (a private GitLab answers 404, not 401, when auth
+/// is missing), and then reconstructs the flat topology itself when the
+/// retry confirms the document is genuinely absent.
+pub(crate) async fn fetch_index_config_strict<P: HTTPAuthentication>(
+    client: &reqwest_middleware::ClientWithMiddleware,
+    auth: &P,
+    discovery_root: &IndexLocation,
+) -> Result<ResolvedEndpoints, DiscoveryError> {
+    fetch_index_config_with(client, auth, discovery_root, MissingPolicy::RequirePresent).await
+}
+
+async fn fetch_index_config_with<P: HTTPAuthentication>(
+    client: &reqwest_middleware::ClientWithMiddleware,
+    auth: &P,
+    discovery_root: &IndexLocation,
+    missing: MissingPolicy,
+) -> Result<ResolvedEndpoints, DiscoveryError> {
     // `IndexLocation` enforces its own invariants at construction — a
     // plain root is already an absolute HTTP(S) URL, without userinfo, and
     // with a trailing slash so relative-path resolution treats it as a
     // directory — so no normalization is needed here.
     let discovery_location = discovery_root.clone();
 
-    let config_url = discovery_location.resolve(["sysand-index-config.json"]);
+    let config_url = discovery_location.resolve([INDEX_CONFIG_PATH]);
 
-    let parsed: Option<IndexConfigRaw> =
-        fetch_json(client, auth, &config_url, MissingPolicy::AllowNotFound).await?;
+    let parsed: Option<IndexConfigRaw> = fetch_json(client, auth, &config_url, missing).await?;
 
     let Some(raw) = parsed else {
         let endpoints = ResolvedEndpoints::flat(discovery_location);
@@ -251,6 +283,18 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
         return Ok(endpoints);
     };
 
+    resolve_index_config(raw, &config_url, discovery_location)
+}
+
+/// Interpret a parsed discovery document fetched from `config_url` into
+/// the resolved endpoints, validating the URL shapes it supplies.
+/// `pub(crate)` so login's authenticated discovery retry can interpret a
+/// forced-fetch response through exactly the same rules.
+pub(crate) fn resolve_index_config(
+    raw: IndexConfigRaw,
+    config_url: &url::Url,
+    discovery_location: IndexLocation,
+) -> Result<ResolvedEndpoints, DiscoveryError> {
     // Parse a supplied field value as a plain base URL.
     // `url::Url::parse` on a relative input (e.g. `"/index/"`) returns
     // `Err(RelativeUrlWithoutBase)` — map that specifically to
@@ -275,7 +319,7 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
             }
         };
         validate_http_base_url_shape(&parsed)
-            .map_err(|error| discovery_shape_error(&config_url, field, &parsed, error))?;
+            .map_err(|error| discovery_shape_error(config_url, field, &parsed, error))?;
         Ok(with_trailing_slash(parsed))
     };
 

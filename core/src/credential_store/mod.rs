@@ -117,7 +117,7 @@ pub struct CredentialRecord {
     pub token_prefix: Option<String>,
     /// The index surfaces that exercised and accepted the credential at
     /// login, in probe order (`"read"`, `"api"`). Empty means "not
-    /// validated": either `--no-validation` or nothing exercised the
+    /// validated": nothing exercised the
     /// credential. Plain strings, not an enum, so a surface name written
     /// by a newer sysand parses instead of failing the whole blob closed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
