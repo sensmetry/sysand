@@ -85,7 +85,8 @@ pub fn command_auth_login(
     // prompt and the stdin path, so a project-configured default cannot
     // be targeted silently (design/credential-storage.md section 4).
     // Printed, not logged: `--quiet` must not hide it.
-    println!("Logging in to index `{key}`");
+    let header = sysand_core::style::get_style_config().header;
+    println!("{header}{:>12}{header:#} to index `{key}`", "Logging in");
 
     let secret = read_token(&key, token_stdin)?;
 
@@ -102,7 +103,11 @@ pub fn command_auth_login(
             match notice {
                 // Printed before the store write happens.
                 AuthLoginNotice::ReplacingExisting { key } => {
-                    println!("replacing existing credential for `{key}`");
+                    let header = sysand_core::style::get_style_config().header;
+                    println!(
+                        "{header}{:>12}{header:#} existing credential for `{key}`",
+                        "Replacing"
+                    );
                 }
                 AuthLoginNotice::DiscoveryUnreachable { error } => log::warn!(
                     "could not read the index configuration ({error}); \
@@ -154,7 +159,6 @@ pub fn command_auth_login(
             globs,
             validated,
         }) => {
-            let header = sysand_core::style::get_style_config().header;
             // The claim is always scoped to the surfaces that accepted
             // the credential; never a bare "validated"
             // (design/credential-storage.md section 5).
@@ -171,7 +175,7 @@ pub fn command_auth_login(
                 "{header}{:>12}{header:#} credential for `{key}` ({claim})",
                 "Stored"
             );
-            println!("The credential covers: {}", globs.join(", "));
+            println!("{header}{:>12}{header:#} {}", "Covers", globs.join(", "));
             Ok(())
         }
         Ok(AuthLoginOutcome::BackendUnavailable { key, globs, reason }) => {
@@ -180,7 +184,7 @@ pub fn command_auth_login(
             // set instead. The secret is never echoed: stdout on such
             // hosts typically lands in captured CI job logs.
             println!(
-                "no OS keyring backend is available ({reason}), so the credential \
+                "No OS keyring backend is available ({reason}), so the credential \
                  was not stored."
             );
             println!(
@@ -265,12 +269,15 @@ pub fn command_auth_logout(
     // possible) so a configured default cannot be targeted silently.
     // Printed, not logged: `--quiet` must not hide it.
     let echo = validated_index_key(&target).unwrap_or_else(|_| target.clone());
-    println!("Logging out from index `{echo}`");
+    let header = sysand_core::style::get_style_config().header;
+    println!(
+        "{header}{:>12}{header:#} from index `{echo}`",
+        "Logging out"
+    );
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
     match do_auth_logout(&mut store, &target) {
         Ok(key) => {
-            let header = sysand_core::style::get_style_config().header;
             log::info!(
                 "{header}{:>12}{header:#} stored credential for `{key}`",
                 "Removed"
@@ -341,6 +348,12 @@ fn collect_env_credential_entries() -> Vec<EnvCredentialEntry> {
 /// highlighted as a warning.
 const EXPIRES_SOON_DAYS: i64 = 7;
 
+/// Render an expiry timestamp for display, without chrono's sub-second
+/// noise (`11:39:28.149443` reads as `11:39:28`).
+fn format_expiry_timestamp(expires_at: &chrono::DateTime<chrono::Utc>) -> String {
+    expires_at.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+}
+
 /// The ` (expired)` / ` (expires in N days)` qualifier for an expiry
 /// timestamp, styled through the house tokens (red for expired, yellow
 /// when expiry is close). Empty when nothing is known.
@@ -363,9 +376,15 @@ fn expiry_qualifier(expired: bool, expires_in_days: Option<i64>) -> String {
     }
 }
 
-/// Render the unified status view: stored entries tagged `stored` (key in
+/// Render the unified status view: stored entries tagged `Stored` (key in
 /// the exact form `sysand auth logout <key>` accepts), env entries tagged
-/// `env`. Never any secret.
+/// `Env`. Never any secret.
+///
+/// The tags sit right-aligned in the CLI's 12-column gutter; the sublines
+/// of an entry keep their `label: value` form (unlike `auth whoami`, which
+/// puts each field's label in the gutter: here the fields are subordinate
+/// to a tagged entry, and the hierarchy would be lost) and are indented to
+/// the gutter like other multi-line log messages.
 ///
 /// Styling reuses the house tokens (`sysand_core::style`) and goes through
 /// `anstream::println`, which strips it on non-terminal stdout and under
@@ -389,23 +408,26 @@ fn render_auth_status(status: &AuthStatus) {
         }
         StoredCredentialsStatus::Available(stored) => {
             for entry in stored {
-                println!("{tag}stored{tag:#}  {name}{}{name:#}", entry.key);
-                println!("        patterns: {}", entry.globs.join(", "));
+                println!("{tag}{:>12}{tag:#} {name}{}{name:#}", "Stored", entry.key);
+                println!("{:>12} patterns: {}", ' ', entry.globs.join(", "));
                 if let Some(subject) = &entry.subject {
-                    println!("        subject: {} {}", subject.kind, subject.name);
+                    println!("{:>12} subject: {} {}", ' ', subject.kind, subject.name);
                 }
                 if let Some(prefix) = &entry.token_prefix {
-                    println!("        token prefix: {prefix}");
+                    println!("{:>12} token prefix: {prefix}", ' ');
                 }
                 if let Some(expires_at) = &entry.expires_at {
                     println!(
-                        "        expires: {expires_at}{}",
+                        "{:>12} expires: {}{}",
+                        ' ',
+                        format_expiry_timestamp(expires_at),
                         expiry_qualifier(entry.expired, entry.expires_in_days)
                     );
                 }
                 if !entry.shadowed_by.is_empty() {
                     println!(
-                        "        {warn}shadowed by:{warn:#} {}",
+                        "{:>12} {warn}shadowed by:{warn:#} {}",
+                        ' ',
                         entry.shadowed_by.join(", ")
                     );
                 }
@@ -417,8 +439,8 @@ fn render_auth_status(status: &AuthStatus) {
     } else {
         for entry in &status.env {
             println!(
-                "{tag}env{tag:#}     {name}{}{name:#}  {}",
-                entry.label, entry.pattern
+                "{tag}{:>12}{tag:#} {name}{}{name:#}  {}",
+                "Env", entry.label, entry.pattern
             );
         }
     }
@@ -487,7 +509,11 @@ pub fn command_auth_whoami(
     // index so a configured default cannot be targeted silently. Printed,
     // not logged: `--quiet` must not hide it.
     let key = validated_index_key(&target)?;
-    println!("Checking identity on index `{key}`");
+    let header = sysand_core::style::get_style_config().header;
+    println!(
+        "{header}{:>12}{header:#} identity on index `{key}`",
+        "Checking"
+    );
 
     let env_policy = lenient_env_auth_policy()?;
     let env_bearers = env_policy
@@ -522,13 +548,19 @@ pub fn command_auth_whoami(
     // from (design/credential-storage.md section 7).
     match &outcome.source {
         WhoamiCredentialSource::Env { label: Some(label) } => {
-            println!("using credential from `SYSAND_CRED_{label}`");
+            println!(
+                "{header}{:>12}{header:#} credential from `SYSAND_CRED_{label}`",
+                "Using"
+            );
         }
         WhoamiCredentialSource::Env { label: None } => {
-            println!("using a `SYSAND_CRED_*` environment credential");
+            println!(
+                "{header}{:>12}{header:#} a `SYSAND_CRED_*` environment credential",
+                "Using"
+            );
         }
         WhoamiCredentialSource::Stored { key } => {
-            println!("using stored login for `{key}`");
+            println!("{header}{:>12}{header:#} stored login for `{key}`", "Using");
         }
     }
 
@@ -536,21 +568,22 @@ pub fn command_auth_whoami(
         WhoamiVerdict::Identified { identity } => {
             match identity {
                 Some(identity) => {
-                    let header = sysand_core::style::get_style_config().header;
                     println!(
-                        "{header}subject:{header:#} {} {}",
-                        identity.subject.kind, identity.subject.name
+                        "{header}{:>12}{header:#} {} {}",
+                        "Subject", identity.subject.kind, identity.subject.name
                     );
                     if let Some(token_name) = &identity.token_name {
-                        println!("{header}token name:{header:#} {token_name}");
+                        println!("{header}{:>12}{header:#} {token_name}", "Token name");
                     }
                     if let Some(prefix) = &identity.token_prefix {
-                        println!("{header}token prefix:{header:#} {prefix}");
+                        println!("{header}{:>12}{header:#} {prefix}", "Token prefix");
                     }
                     if let Some(expires_at) = identity.expires_at {
                         let now = chrono::Utc::now();
                         println!(
-                            "{header}expires:{header:#} {expires_at}{}",
+                            "{header}{:>12}{header:#} {}{}",
+                            "Expires",
+                            format_expiry_timestamp(&expires_at),
                             expiry_qualifier(expires_at < now, Some((expires_at - now).num_days()))
                         );
                     }

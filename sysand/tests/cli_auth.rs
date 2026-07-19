@@ -204,14 +204,16 @@ fn auth_status_lists_env_credentials_and_never_secrets() -> TestResult {
     let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &env)?;
     out.assert()
         .success()
+        // The leading spaces are the 12-column gutter, part of plain
+        // piped output (as in all alignment predicates in this file).
         .stdout(predicate::str::contains(
-            "env     SYSAND_CRED_TEST  https://example.com/**",
+            "         Env SYSAND_CRED_TEST  https://example.com/**",
         ))
         .stdout(predicate::str::contains(
-            "env     SYSAND_CRED_BSC  https://basic.example/**",
+            "         Env SYSAND_CRED_BSC  https://basic.example/**",
         ))
         .stdout(predicate::str::contains(
-            "env     SYSAND_CRED_LONELY  https://lonely.example/**",
+            "         Env SYSAND_CRED_LONELY  https://lonely.example/**",
         ))
         .stdout(predicate::str::contains("super-secret-token").not())
         .stdout(predicate::str::contains("secret-user-name").not())
@@ -287,9 +289,9 @@ fn auth_login_token_stdin_stores_and_status_lists_the_entry() -> TestResult {
     out.assert()
         .success()
         .stdout(predicate::str::contains(
-            "Logging in to index `http://127.0.0.1:1/`",
+            "  Logging in to index `http://127.0.0.1:1/`",
         ))
-        .stdout(predicate::str::contains("http://127.0.0.1:1/**"))
+        .stdout(predicate::str::contains("Covers http://127.0.0.1:1/**"))
         // The styled confirmation is log output (stderr).
         .stderr(predicate::str::contains(STORED_MESSAGE));
 
@@ -305,8 +307,10 @@ fn auth_login_token_stdin_stores_and_status_lists_the_entry() -> TestResult {
     let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
     out.assert()
         .success()
-        .stdout(predicate::str::contains("stored  http://127.0.0.1:1/"))
-        .stdout(predicate::str::contains("patterns: http://127.0.0.1:1/**"));
+        .stdout(predicate::str::contains("      Stored http://127.0.0.1:1/"))
+        .stdout(predicate::str::contains(
+            "             patterns: http://127.0.0.1:1/**",
+        ));
     Ok(())
 }
 
@@ -349,7 +353,7 @@ fn auth_login_twice_reports_the_replacement_and_overwrites() -> TestResult {
     )?;
     out.assert()
         .success()
-        .stdout(predicate::str::contains("replacing existing credential").not());
+        .stdout(predicate::str::contains("Replacing existing credential").not());
 
     let (_t, _c, out) = run_sysand_stdin(
         // A different spelling of the same index normalizes to one key.
@@ -358,7 +362,7 @@ fn auth_login_twice_reports_the_replacement_and_overwrites() -> TestResult {
         b"new-tok\n",
     )?;
     out.assert().success().stdout(predicate::str::contains(
-        "replacing existing credential for `http://127.0.0.1:1/`",
+        "   Replacing existing credential for `http://127.0.0.1:1/`",
     ));
 
     let blob = fs::read_to_string(&store_path)?;
@@ -542,14 +546,14 @@ fn auth_login_status_logout_round_trip_a_template_target() -> TestResult {
     let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
     out.assert()
         .success()
-        .stdout(predicate::str::contains(format!("stored  {template}")))
+        .stdout(predicate::str::contains(format!("      Stored {template}")))
         .stdout(predicate::str::contains(&anchor_glob));
 
     let (_t, _c, out) = run_sysand_with(["auth", "logout", &template], None, &env)?;
     out.assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "Logging out from index `{template}`"
+            " Logging out from index `{template}`"
         )));
 
     let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
@@ -759,16 +763,16 @@ fn auth_whoami_with_a_stored_login_renders_the_identity() -> TestResult {
     out.assert()
         .success()
         .stdout(predicate::str::contains(format!(
-            "Checking identity on index `{}/`",
+            "    Checking identity on index `{}/`",
             server.url()
         )))
         .stdout(predicate::str::contains(format!(
-            "using stored login for `{}/`",
+            "       Using stored login for `{}/`",
             server.url()
         )))
-        .stdout(predicate::str::contains("subject: user alice"))
-        .stdout(predicate::str::contains("token name: laptop"))
-        .stdout(predicate::str::contains("token prefix: sysand_u_1a2b3c4d"))
+        .stdout(predicate::str::contains("     Subject user alice"))
+        .stdout(predicate::str::contains("  Token name laptop"))
+        .stdout(predicate::str::contains("Token prefix sysand_u_1a2b3c4d"))
         .stdout(predicate::str::contains("expires in"))
         .stdout(predicate::str::contains("sekrit-whoami-tok").not());
     Ok(())
@@ -789,7 +793,7 @@ fn auth_whoami_reports_a_rejected_credential_with_the_source() -> TestResult {
     let (_t, _c, out) = run_sysand_with(["auth", "whoami", &server.url()], None, &env)?;
     out.assert()
         .failure()
-        .stdout(predicate::str::contains("using stored login for"))
+        .stdout(predicate::str::contains("Using stored login for"))
         .stderr(predicate::str::contains("rejected the credential"))
         .stderr(predicate::str::contains("sysand auth login"));
     Ok(())
@@ -824,9 +828,9 @@ fn auth_whoami_env_credential_wins_over_a_stored_login() -> TestResult {
     out.assert()
         .success()
         .stdout(predicate::str::contains(
-            "using credential from `SYSAND_CRED_WTEST`",
+            "Using credential from `SYSAND_CRED_WTEST`",
         ))
-        .stdout(predicate::str::contains("subject: user alice"));
+        .stdout(predicate::str::contains("Subject user alice"));
     Ok(())
 }
 

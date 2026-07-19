@@ -522,7 +522,8 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   at login, absent for static/read-only or non-validated logins) lets
   `auth status` show "expires in N days / expired".
 - **`auth status` output:** one unified view of **everything sysand will
-  authenticate with**, both sources, each entry tagged `stored` or `env`.
+  authenticate with**, both sources, each entry tagged `Stored` or `Env`
+  (right-aligned in the CLI's 12-column status gutter).
   Per stored entry: the key printed in the exact form
   `sysand auth logout <key>` accepts, covered globs, `subject` and token
   `prefix` (from whoami, if a validating login ran), `expires_at` if
@@ -530,7 +531,7 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   Env entries list the variable label and pattern. No `scheme` column in v1
   (always bearer for stored; env entries may be basic).
 - **Re-login:** `auth login` over an existing entry for the same key
-  overwrites it, printing "replacing existing credential for `<index>`"
+  overwrites it, printing "Replacing existing credential for `<index>`"
   before the write; the previous stored token is discarded locally (not
   revoked server-side).
 
