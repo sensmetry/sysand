@@ -1441,10 +1441,22 @@ impl InfoCommand {
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum AuthCommand {
     /// Show the credentials sysand will authenticate with: stored index
-    /// logins and `SYSAND_CRED_*` environment credentials. Never shows
-    /// secrets
+    /// logins and `SYSAND_CRED_*` environment credentials, marking the
+    /// entries that apply to the default index. Never shows secrets
     #[clap(verbatim_doc_comment)]
-    Status,
+    Status {
+        /// Comma-delimited list of URLs to use as default index URLs.
+        /// Only used for the `(default index)` marker; more than one
+        /// distinct default index leaves all entries unmarked
+        #[arg(
+            long,
+            num_args = 0..,
+            env = env_vars::SYSAND_DEFAULT_INDEX,
+            value_delimiter = ',',
+            verbatim_doc_comment
+        )]
+        default_index: Vec<String>,
+    },
     /// Store a bearer token for an index. The token is read from a hidden
     /// prompt, or from standard input with `--token-stdin`, never from a
     /// command-line argument. By default the token is validated against

@@ -39,6 +39,7 @@ fn env_entry(label: &str, pattern: &str) -> EnvCredentialEntry {
     EnvCredentialEntry {
         label: label.to_string(),
         pattern: pattern.to_string(),
+        applies_to_default: false,
     }
 }
 
@@ -121,7 +122,7 @@ fn status_lists_stored_records_and_env_entries() {
     let store = store_with(&[expiring, record("https://other.example/", "tok-2")]);
     let env = vec![env_entry("SYSAND_CRED_CI", "https://ci.example/**")];
 
-    let status = do_auth_status(&store, env.clone()).unwrap();
+    let status = do_auth_status(&store, env.clone(), None).unwrap();
 
     assert_eq!(status.env, env);
     let StoredCredentialsStatus::Available(stored) = status.stored else {
@@ -154,11 +155,13 @@ fn status_marks_expiry_against_the_given_clock() {
         vec![record.clone()],
         vec![],
         Utc.with_ymd_and_hms(2026, 8, 31, 0, 0, 0).unwrap(),
+        None,
     );
     let after = assemble_auth_status(
         vec![record],
         vec![],
         Utc.with_ymd_and_hms(2026, 9, 2, 0, 0, 0).unwrap(),
+        None,
     );
 
     let StoredCredentialsStatus::Available(before) = before.stored else {
@@ -184,13 +187,80 @@ fn status_reports_env_entries_shadowing_a_stored_key() {
         env_entry("SYSAND_CRED_BROKEN", "https://example.com/[invalid"),
     ];
 
-    let status = assemble_auth_status(records, env, Utc::now());
+    let status = assemble_auth_status(records, env, Utc::now(), None);
 
     let StoredCredentialsStatus::Available(stored) = status.stored else {
         panic!("expected stored credentials");
     };
     assert_eq!(stored[0].shadowed_by, vec!["SYSAND_CRED_TEAM".to_string()]);
     assert!(stored[1].shadowed_by.is_empty());
+}
+
+#[test]
+fn status_marks_entries_applying_to_the_default_index() {
+    let mut by_key = record("https://sysand.com/", "tok-1");
+    // One invalid glob must not break marking (or status); key equality
+    // still applies.
+    by_key.globs = vec!["https://sysand.com/[invalid".to_string()];
+    let mut by_glob = record("https://other.example/", "tok-2");
+    // Keyed elsewhere, but a disjoint glob (the `api_root` shape) covers
+    // the default index root.
+    by_glob.globs = vec![
+        "https://other.example/**".to_string(),
+        "https://sysand.com/**".to_string(),
+    ];
+    let records = vec![
+        by_key,
+        by_glob,
+        record("https://unrelated.example/", "tok-3"),
+    ];
+    let env = vec![
+        env_entry("SYSAND_CRED_HIT", "https://sysand.com/**"),
+        env_entry("SYSAND_CRED_MISS", "https://elsewhere.example/**"),
+    ];
+
+    let status = assemble_auth_status(records, env, Utc::now(), Some("https://sysand.com/"));
+
+    let StoredCredentialsStatus::Available(stored) = status.stored else {
+        panic!("expected stored credentials");
+    };
+    assert!(stored[0].applies_to_default, "marked by key equality");
+    assert!(stored[1].applies_to_default, "marked by glob cover");
+    assert!(!stored[2].applies_to_default);
+    assert!(status.env[0].applies_to_default);
+    assert!(!status.env[1].applies_to_default);
+}
+
+#[test]
+fn status_marks_entries_for_a_template_default_index() {
+    // Equality uses the template key form; glob matching uses the
+    // template's literal-prefix anchor (`https://git.example/repo/files/`).
+    let template_key = "https://git.example/repo/files/{path}/raw?ref=index";
+    let mut template_entry = record(template_key, "tok-1");
+    template_entry.globs = vec!["https://git.example/repo/files/**".to_string()];
+    let mut host_entry = record("https://git.example/", "tok-2");
+    host_entry.globs = vec!["https://git.example/**".to_string()];
+    let env = vec![env_entry("SYSAND_CRED_GIT", "https://git.example/**")];
+
+    let status = assemble_auth_status(
+        vec![template_entry, host_entry],
+        env,
+        Utc::now(),
+        Some(template_key),
+    );
+
+    let StoredCredentialsStatus::Available(stored) = status.stored else {
+        panic!("expected stored credentials");
+    };
+    assert!(
+        stored[0].applies_to_default,
+        "marked by template key equality"
+    );
+    assert!(
+        stored[1].applies_to_default,
+        "glob covers the template anchor"
+    );
+    assert!(status.env[0].applies_to_default);
 }
 
 /// A store whose reads fail with a configurable error, for the error
@@ -218,7 +288,7 @@ fn status_degrades_to_env_only_when_the_backend_is_absent() {
     });
     let env = vec![env_entry("SYSAND_CRED_CI", "https://ci.example/**")];
 
-    let status = do_auth_status(&store, env.clone()).unwrap();
+    let status = do_auth_status(&store, env.clone(), None).unwrap();
 
     assert_eq!(status.env, env);
     assert!(matches!(
@@ -233,7 +303,7 @@ fn status_surfaces_a_denied_backend_as_an_error() {
         source: "collection is locked".into(),
     });
 
-    let err = do_auth_status(&store, vec![]).unwrap_err();
+    let err = do_auth_status(&store, vec![], None).unwrap_err();
 
     assert!(matches!(
         err,
@@ -693,7 +763,7 @@ mod login {
                 .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { .. }))
         );
         // `status` reports the key in the exact form `logout` accepts.
-        let status = do_auth_status(&store, vec![]).unwrap();
+        let status = do_auth_status(&store, vec![], None).unwrap();
         let StoredCredentialsStatus::Available(stored) = status.stored else {
             panic!("expected stored credentials");
         };

@@ -15,8 +15,8 @@ use sysand_core::{
     commands::auth::{
         AuthCommandError, AuthLoginNotice, AuthLoginOutcome, AuthStatus, EnvCredentialEntry,
         ProbeSurface, StoredCredentialStatus, StoredCredentialsStatus, WhoamiCredentialSource,
-        WhoamiVerdict, do_auth_login, do_auth_logout, do_auth_status, do_auth_whoami,
-        validated_index_key,
+        WhoamiVerdict, assemble_auth_status, do_auth_login, do_auth_logout, do_auth_status,
+        do_auth_whoami, validated_index_key,
     },
     config::Config,
     credential_store::CredentialStoreError,
@@ -297,10 +297,28 @@ pub fn command_auth_logout(
     }
 }
 
-pub fn command_auth_status() -> Result<()> {
+pub fn command_auth_status(default_index: &[String], config: &Config) -> Result<()> {
+    // Resolve the default index only to mark the entries that apply to
+    // it. Status is a diagnostic view, so resolution is lenient: an
+    // ambiguous chain gets a note instead of the hard error bare
+    // `login`/`logout` raise, and a default that is not a valid HTTP(S)
+    // index key (for example `file://`) simply marks nothing.
+    let default_key = match resolve_default_index(default_index, config) {
+        Ok(url) => validated_index_key(&url).ok(),
+        // `resolve_default_index` errors only on an ambiguous chain
+        // (more than one distinct default index).
+        Err(_) => {
+            let note = sysand_core::style::get_style_config().note;
+            println!(
+                "{note}note:{note:#} more than one default index is configured; no entry \
+                 is marked as the default index"
+            );
+            None
+        }
+    };
     let env = collect_env_credential_entries();
     let status = match open_cli_credential_store() {
-        Ok(store) => match do_auth_status(&store, env) {
+        Ok(store) => match do_auth_status(&store, env, default_key.as_deref()) {
             Ok(status) => status,
             Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
                 return Err(err).context(KEYRING_LOCKED_HINT);
@@ -308,13 +326,16 @@ pub fn command_auth_status() -> Result<()> {
             Err(err) => return Err(err.into()),
         },
         // Could not even open the store (no per-user lock path): degrade
-        // to the env-only view like an absent backend.
-        Err(err) => AuthStatus {
-            stored: StoredCredentialsStatus::BackendUnavailable {
+        // to the env-only view like an absent backend. Assembly still
+        // runs so env entries keep their default-index marking.
+        Err(err) => {
+            let mut status =
+                assemble_auth_status(Vec::new(), env, chrono::Utc::now(), default_key.as_deref());
+            status.stored = StoredCredentialsStatus::BackendUnavailable {
                 reason: err.to_string(),
-            },
-            env: collect_env_credential_entries(),
-        },
+            };
+            status
+        }
     };
     render_auth_status(&status);
     Ok(())
@@ -339,6 +360,8 @@ fn collect_env_credential_entries() -> Vec<EnvCredentialEntry> {
         .map(|(key, value)| EnvCredentialEntry {
             label: key,
             pattern: value,
+            // Set by status assembly when a default index is known.
+            applies_to_default: false,
         })
         .collect();
     entries.sort_by(|a, b| a.label.cmp(&b.label));
@@ -406,6 +429,11 @@ fn validation_claim(validated: &[String]) -> String {
 /// validation claim after the key, mirroring the `Env` lines' two-space
 /// label/pattern separation.
 ///
+/// Entries that apply to the default index (which is what bare commands
+/// use) carry a dim `(default index)` annotation at the end of their
+/// header line, two spaces after the validation claim (stored) or the
+/// pattern (env).
+///
 /// A source with nothing to show is simply omitted; only when neither
 /// source has anything does a single combined negative print. The
 /// backend-unavailable note is information, not a negative, and always
@@ -421,6 +449,13 @@ fn render_auth_status(status: &AuthStatus) {
     let name = style.literal;
     let warn = style.warn;
     let dim = style.dim;
+    let default_marker = |applies: bool| {
+        if applies {
+            format!("  {dim}(default index){dim:#}")
+        } else {
+            String::new()
+        }
+    };
     let none: Vec<StoredCredentialStatus> = Vec::new();
     let stored = match &status.stored {
         StoredCredentialsStatus::BackendUnavailable { reason } => {
@@ -438,10 +473,11 @@ fn render_auth_status(status: &AuthStatus) {
             println!();
         }
         println!(
-            "{tag}{:>12}{tag:#} {name}{}{name:#}  {}",
+            "{tag}{:>12}{tag:#} {name}{}{name:#}  {}{}",
             "Stored",
             entry.key,
-            validation_claim(&entry.validated)
+            validation_claim(&entry.validated),
+            default_marker(entry.applies_to_default)
         );
         println!(
             "{:>12} {dim}patterns:{dim:#} {}",
@@ -475,8 +511,11 @@ fn render_auth_status(status: &AuthStatus) {
     }
     for entry in &status.env {
         println!(
-            "{tag}{:>12}{tag:#} {name}{}{name:#}  {}",
-            "Env", entry.label, entry.pattern
+            "{tag}{:>12}{tag:#} {name}{}{name:#}  {}{}",
+            "Env",
+            entry.label,
+            entry.pattern,
+            default_marker(entry.applies_to_default)
         );
     }
     if stored.is_empty() && status.env.is_empty() {

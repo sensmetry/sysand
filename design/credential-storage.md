@@ -79,7 +79,7 @@ Under a `sysand auth` namespace:
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sysand auth login [index-url]`  | validated, index-keyed bearer credential (see §5); no URL = the default index                                                                                                         |
 | `sysand auth logout [index-url]` | remove an index login; no URL = the default index (symmetric with `login`)                                                                                                            |
-| `sysand auth status`             | list stored credentials (never secrets), backend, and `SYSAND_CRED_*` shadowing                                                                                                       |
+| `sysand auth status`             | list stored credentials (never secrets), backend, and `SYSAND_CRED_*` shadowing; marks the entries that apply to the default index                                                    |
 | `sysand auth whoami [index-url]` | query-only live identity via `v1/whoami` (advertised `api_root` required), with runtime credential selection (env over stored, §7); names the source used; no URL = the default index |
 
 - **Bearer only in v1.** The token is entered via a hidden prompt
@@ -111,7 +111,12 @@ Under a `sysand auth` namespace:
   not borrowed. If the chain yields **more than one** default index, bare
   `login` errors and asks for an explicit URL. `login` always **echoes the
   resolved index** before prompting (and on the `--token-stdin` path), so a
-  project-configured default cannot be targeted silently.
+  project-configured default cannot be targeted silently. `auth status`
+  reuses the same chain (including a `--default-index` override), but only
+  to mark the entries that apply to the default index, and **never
+  hard-errors over it**: an ambiguous chain prints a note and marks
+  nothing, and a default that is not a valid HTTP(S) index key (for
+  example `file://`) silently marks nothing.
 - **HTTP(S) only.** `auth login` against a non-HTTP(S) location (for
   example a local file path, which index resolution accepts elsewhere)
   errors with "not an HTTP(S) index; nothing to authenticate to".
@@ -534,6 +539,16 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   absent, the security-relevant case), covered globs, `subject` and token
   `prefix` (from whoami, if a validating login ran), `expires_at` if
   stored, and whether a `SYSAND_CRED_*` var shadows it, never the secret.
+  Entries of both sources that **apply to the default index** (which is
+  what bare commands actually use) carry a dim `(default index)`
+  annotation at the end of their header line: a stored entry on
+  normalized-key equality with the default's key or when one of its globs
+  matches the default index root URL (for a template default, its
+  literal-prefix anchor; the match shares `shadowed by`'s root-URL
+  approximation), an env entry when its pattern matches that root.
+  Patterns compile leniently here, like shadow detection: one bad pattern
+  never breaks status. Default-index resolution for the marker never
+  errors (section 4).
   Multiple stored entries are separated by one blank line. The sublabels
   (`patterns:`, `subject:`, `token prefix:`, `expires:`) render dim so the
   values carry the visual weight; `shadowed by:` stays warn-styled. Env

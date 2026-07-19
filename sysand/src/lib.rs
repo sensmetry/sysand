@@ -215,7 +215,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let command = match args.command {
         Command::Auth { command } => {
             return match command {
-                AuthCommand::Status => command_auth_status(),
+                AuthCommand::Status { default_index } => {
+                    command_auth_status(&default_index, &config)
+                }
                 AuthCommand::Login {
                     index_url,
                     token_stdin,

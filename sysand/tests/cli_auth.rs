@@ -704,6 +704,165 @@ fn auth_status_with_both_sources_lists_both_without_negatives() -> TestResult {
     Ok(())
 }
 
+// `(default index)` marker
+
+const MARKER: &str = "(default index)";
+
+/// A seam blob with one stored entry for `https://one.example/`.
+fn one_example_blob() -> &'static str {
+    r#"{"version":1,"credentials":[{
+        "key":"https://one.example/",
+        "globs":["https://one.example/**"],
+        "scheme":"bearer",
+        "secret":"tok-one",
+        "validated":["read"]}]}"#
+}
+
+#[test]
+fn auth_status_marks_the_entry_for_a_configured_default_index() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(&store_path, one_example_blob())?;
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    let config_path = cwd.join("sysand.toml");
+    fs::write(
+        &config_path,
+        "[[index]]\nurl = \"https://one.example\"\ndefault = true\n",
+    )?;
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["auth", "status"],
+        Some(config_path.as_str()),
+        &seam_env(&store_path),
+    )?;
+    out.assert().success().stdout(predicate::str::contains(
+        "      Stored https://one.example/  validated (read)  (default index)",
+    ));
+    Ok(())
+}
+
+#[test]
+fn auth_status_marks_the_entry_for_an_env_default_index() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(&store_path, one_example_blob())?;
+    let mut env = seam_env(&store_path);
+    env.insert(
+        "SYSAND_DEFAULT_INDEX".to_string(),
+        "https://one.example".to_string(),
+    );
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert().success().stdout(predicate::str::contains(
+        "      Stored https://one.example/  validated (read)  (default index)",
+    ));
+    Ok(())
+}
+
+#[test]
+fn auth_status_marks_the_entry_for_the_built_in_default_index() -> TestResult {
+    // No override, no configured default: the chain falls through to the
+    // built-in `https://sysand.com`, whose normalized key must match.
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(
+        &store_path,
+        r#"{"version":1,"credentials":[{
+            "key":"https://sysand.com/",
+            "globs":["https://sysand.com/**"],
+            "scheme":"bearer",
+            "secret":"tok"}]}"#,
+    )?;
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &seam_env(&store_path))?;
+    out.assert().success().stdout(predicate::str::contains(
+        "      Stored https://sysand.com/  not validated  (default index)",
+    ));
+    Ok(())
+}
+
+#[test]
+fn auth_status_marks_a_stored_entry_whose_glob_covers_the_default_index() -> TestResult {
+    // Keyed elsewhere, but a disjoint glob (the `api_root` shape) covers
+    // the built-in default index root: marked without key equality.
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(
+        &store_path,
+        r#"{"version":1,"credentials":[{
+            "key":"https://other.example/",
+            "globs":["https://other.example/**","https://sysand.com/**"],
+            "scheme":"bearer",
+            "secret":"tok"}]}"#,
+    )?;
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &seam_env(&store_path))?;
+    out.assert().success().stdout(predicate::str::contains(
+        "      Stored https://other.example/  not validated  (default index)",
+    ));
+    Ok(())
+}
+
+#[test]
+fn auth_status_marks_an_env_entry_whose_pattern_covers_the_default_index() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    let mut env = seam_env(&store_path);
+    env.insert(
+        "SYSAND_CRED_HIT".to_string(),
+        "https://sysand.com/**".to_string(),
+    );
+    env.insert(
+        "SYSAND_CRED_MISS".to_string(),
+        "https://elsewhere.example/**".to_string(),
+    );
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "         Env SYSAND_CRED_HIT  https://sysand.com/**  (default index)",
+        ))
+        .stdout(predicate::str::contains(
+            "         Env SYSAND_CRED_MISS  https://elsewhere.example/**\n",
+        ));
+    Ok(())
+}
+
+#[test]
+fn auth_status_with_an_ambiguous_default_chain_notes_and_marks_nothing() -> TestResult {
+    // Bare `login`/`logout` would error here; status is diagnostic and
+    // must still succeed, with a note instead of a marker.
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(&store_path, one_example_blob())?;
+    let mut env = seam_env(&store_path);
+    env.insert(
+        "SYSAND_DEFAULT_INDEX".to_string(),
+        "https://one.example,https://two.example".to_string(),
+    );
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "note: more than one default index is configured; no entry is marked as \
+             the default index",
+        ))
+        .stdout(predicate::str::contains(MARKER).not());
+    Ok(())
+}
+
+#[test]
+fn auth_status_without_a_matching_entry_shows_no_marker() -> TestResult {
+    // A stored entry that neither is nor covers the built-in default:
+    // output is unchanged, no marker, no note.
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(&store_path, one_example_blob())?;
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &seam_env(&store_path))?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(MARKER).not())
+        .stdout(predicate::str::contains("note:").not());
+    Ok(())
+}
+
 #[test]
 fn auth_login_fails_fast_when_stdin_is_not_a_terminal() -> TestResult {
     let (_store_dir, store_path) = seam_store()?;

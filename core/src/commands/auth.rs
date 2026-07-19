@@ -149,6 +149,11 @@ pub struct EnvCredentialEntry {
     pub label: String,
     /// The URL glob pattern the variable holds.
     pub pattern: String,
+    /// Whether this entry applies to the default index passed to
+    /// [`assemble_auth_status`]: its pattern matches the default index
+    /// root URL. Callers construct entries with `false`; status assembly
+    /// sets it.
+    pub applies_to_default: bool,
 }
 
 /// A credential-probing surface of an index (design/credential-storage.md
@@ -206,6 +211,13 @@ pub struct StoredCredentialStatus {
     /// text, which no request URL contains, so shadow detection is extra
     /// approximate for templates.
     pub shadowed_by: Vec<String>,
+    /// Whether this entry applies to the default index passed to
+    /// [`assemble_auth_status`]: its key equals the default's normalized
+    /// key, or one of its globs matches the default index root URL (an
+    /// entry can cover the default without being keyed by it, for example
+    /// via a disjoint `api_root` glob). Shares the root-URL approximation
+    /// documented on `shadowed_by`.
+    pub applies_to_default: bool,
 }
 
 /// The stored side of `auth status`.
@@ -1239,14 +1251,59 @@ pub fn do_auth_whoami<S: CredentialStore, P: HTTPAuthentication>(
     })
 }
 
+/// The URL-glob match target of a validated index key: the key itself for
+/// a plain URL (it is normalized and ends in `/`), the literal-prefix
+/// anchor for a template key. `None` when the key does not parse or the
+/// template has no safe anchor.
+fn index_key_glob_root(key: &str) -> Option<String> {
+    match IndexLocation::parse(key).ok()? {
+        IndexLocation::Root(url) => Some(url.as_str().to_string()),
+        IndexLocation::Template(template) => {
+            template_anchor_root(template.prefix()).map(|(_, anchor)| anchor.as_str().to_string())
+        }
+    }
+}
+
+/// Whether `pattern` matches `target`, compiled the same way runtime
+/// matching does (`literal_separator(true)`). Lenient: an invalid pattern
+/// matches nothing instead of erroring, because `auth status` must stay
+/// usable to diagnose exactly such patterns.
+fn lenient_glob_matches(pattern: &str, target: &str) -> bool {
+    GlobBuilder::new(pattern)
+        .literal_separator(true)
+        .build()
+        .map(|glob| glob.compile_matcher().is_match(target))
+        .unwrap_or(false)
+}
+
 /// Assemble the `auth status` view from stored records and environment
 /// entries, against the given clock. Exposed for deterministic tests;
 /// [`do_auth_status`] is the store-reading entry point.
+///
+/// `default_key` is the normalized key (see [`validated_index_key`]) of
+/// the default index, when the caller could resolve one; entries that
+/// apply to it are marked (`applies_to_default`), answering "which
+/// credential will bare commands use". A stored entry applies on key
+/// equality or when one of its globs matches the default index root URL
+/// (for a template default, its literal-prefix anchor); an env entry
+/// applies when its pattern matches that root. Purely diagnostic: `None`
+/// simply marks nothing.
 pub fn assemble_auth_status(
     records: Vec<CredentialRecord>,
     env: Vec<EnvCredentialEntry>,
     now: DateTime<Utc>,
+    default_key: Option<&str>,
 ) -> AuthStatus {
+    let default_glob_root = default_key.and_then(index_key_glob_root);
+    let default_applies = |globs: &[String]| {
+        default_glob_root
+            .as_deref()
+            .is_some_and(|root| globs.iter().any(|glob| lenient_glob_matches(glob, root)))
+    };
+    let mut env = env;
+    for entry in &mut env {
+        entry.applies_to_default = default_applies(std::slice::from_ref(&entry.pattern));
+    }
     // Compile each env pattern the same way runtime matching does
     // (`GlobMapBuilder`, `literal_separator(true)`). An invalid pattern
     // cannot shadow anything and is skipped.
@@ -1272,6 +1329,8 @@ pub fn assemble_auth_status(
             StoredCredentialStatus {
                 expired: record.expires_at.is_some_and(|expiry| expiry < now),
                 expires_in_days: record.expires_at.map(|expiry| (expiry - now).num_days()),
+                applies_to_default: default_key == Some(record.key.as_str())
+                    || default_applies(&record.globs),
                 key: record.key,
                 globs: record.globs,
                 expires_at: record.expires_at,
@@ -1298,9 +1357,10 @@ pub fn assemble_auth_status(
 pub fn do_auth_status<S: CredentialStore>(
     store: &S,
     env: Vec<EnvCredentialEntry>,
+    default_key: Option<&str>,
 ) -> Result<AuthStatus, AuthCommandError> {
     match store.list() {
-        Ok(records) => Ok(assemble_auth_status(records, env, Utc::now())),
+        Ok(records) => Ok(assemble_auth_status(records, env, Utc::now(), default_key)),
         Err(CredentialStoreError::BackendAbsent { source }) => Ok(AuthStatus {
             stored: StoredCredentialsStatus::BackendUnavailable {
                 reason: source.to_string(),

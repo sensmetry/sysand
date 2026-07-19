@@ -88,6 +88,10 @@ pub fn sysand_cmd_in_with<'a, I: IntoIterator<Item = &'a str>>(
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("sysand"));
 
     cmd.env("NO_COLOR", "1");
+    // A developer's ambient default-index override must not leak into
+    // tests (it would inject markers or ambiguity notes into asserted
+    // output); tests that need it set it explicitly via `env`.
+    cmd.env_remove("SYSAND_DEFAULT_INDEX");
     cmd.envs(env);
 
     cmd.args(args);
