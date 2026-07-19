@@ -25,10 +25,6 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 const NOT_HTTP_MESSAGE: &str = "not an HTTP(S) index; nothing to authenticate to";
 const AMBIGUOUS_MESSAGE: &str = "pass an explicit index URL";
 
-fn no_env() -> IndexMap<String, String> {
-    IndexMap::new()
-}
-
 fn default_index_env(value: &str) -> IndexMap<String, String> {
     let mut env = IndexMap::new();
     env.insert("SYSAND_DEFAULT_INDEX".to_string(), value.to_string());
@@ -163,17 +159,23 @@ fn bare_auth_logout_with_two_configured_defaults_asks_for_an_explicit_url() -> T
 }
 
 #[test]
-fn auth_status_succeeds_without_any_credentials() -> TestResult {
-    let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &no_env())?;
-    out.assert().success().stdout(predicate::str::contains(
-        "No `SYSAND_CRED_*` environment credentials.",
+fn auth_status_with_nothing_configured_prints_a_single_line() -> TestResult {
+    // The seam store file does not exist: no stored logins, no env
+    // credentials. The two per-source negatives collapse into exactly
+    // one combined line.
+    let (_store_dir, store_path) = seam_store()?;
+    let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &seam_env(&store_path))?;
+    out.assert().success().stdout(predicate::eq(
+        "No credentials configured (no stored logins, no `SYSAND_CRED_*` variables).\n",
     ));
     Ok(())
 }
 
 #[test]
 fn auth_status_lists_env_credentials_and_never_secrets() -> TestResult {
-    let mut env = IndexMap::new();
+    // Seam store file does not exist: env credentials only.
+    let (_store_dir, store_path) = seam_store()?;
+    let mut env = seam_env(&store_path);
     env.insert(
         "SYSAND_CRED_TEST".to_string(),
         "https://example.com/**".to_string(),
@@ -217,7 +219,11 @@ fn auth_status_lists_env_credentials_and_never_secrets() -> TestResult {
         ))
         .stdout(predicate::str::contains("super-secret-token").not())
         .stdout(predicate::str::contains("secret-user-name").not())
-        .stdout(predicate::str::contains("secret-pass-word").not());
+        .stdout(predicate::str::contains("secret-pass-word").not())
+        // Env credentials exist, so the stored-side negative is omitted
+        // entirely (no "no stored logins" noise, no combined negative).
+        .stdout(predicate::str::contains("No credentials configured").not())
+        .stdout(predicate::str::contains("Stored").not());
     Ok(())
 }
 
@@ -310,7 +316,9 @@ fn auth_login_token_stdin_stores_and_status_lists_the_entry() -> TestResult {
         .stdout(predicate::str::contains("      Stored http://127.0.0.1:1/"))
         .stdout(predicate::str::contains(
             "             patterns: http://127.0.0.1:1/**",
-        ));
+        ))
+        // A stored login exists, so the env-side negative is omitted.
+        .stdout(predicate::str::contains("SYSAND_CRED").not());
     Ok(())
 }
 
@@ -389,7 +397,7 @@ fn auth_login_then_logout_removes_the_stored_entry() -> TestResult {
     let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
     out.assert()
         .success()
-        .stdout(predicate::str::contains("No stored index logins."));
+        .stdout(predicate::str::contains("No credentials configured"));
     Ok(())
 }
 
@@ -425,6 +433,14 @@ fn auth_login_covers_a_disjoint_api_root_from_discovery() -> TestResult {
         .stdout(predicate::str::contains(format!("{root}**")))
         .stdout(predicate::str::contains("https://api.example.com/base/**"))
         .stderr(predicate::str::contains(STORED_MESSAGE));
+
+    // A `--no-validation` login stores no claim: status warns.
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "      Stored {root}  not validated"
+        )));
     Ok(())
 }
 
@@ -497,6 +513,15 @@ fn auth_login_validates_the_read_surface_of_a_private_index() -> TestResult {
         blob.contains(r#""secret":"sekrit-tok""#),
         "blob was: {blob}"
     );
+
+    // The claim was persisted and status renders it per entry.
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "      Stored {}/  validated (read)",
+            server.url()
+        )));
     Ok(())
 }
 
@@ -559,7 +584,7 @@ fn auth_login_status_logout_round_trip_a_template_target() -> TestResult {
     let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
     out.assert()
         .success()
-        .stdout(predicate::str::contains("No stored index logins."));
+        .stdout(predicate::str::contains("No credentials configured"));
     Ok(())
 }
 
@@ -588,7 +613,94 @@ fn auth_status_shows_identity_learned_by_a_validating_login() -> TestResult {
         .stdout(predicate::str::contains("subject: user alice"))
         .stdout(predicate::str::contains("token prefix: sysand_u_1a2b3c4d"))
         .stdout(predicate::str::contains("expires in"))
+        // A pre-B12 blob has no `validated` field: shown as the
+        // security-relevant "not validated", never a silent default.
+        .stdout(predicate::str::contains("not validated"))
         .stdout(predicate::str::contains("sekrit-status-tok").not());
+    Ok(())
+}
+
+#[test]
+fn auth_status_renders_one_stored_entry_without_separators_or_negatives() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(
+        &store_path,
+        r#"{"version":1,"credentials":[{
+            "key":"https://one.example/",
+            "globs":["https://one.example/**"],
+            "scheme":"bearer",
+            "secret":"tok-one",
+            "validated":["read","api"]}]}"#,
+    )?;
+
+    // Exact plain output: no blank line around a single entry, and no
+    // negative for the empty env side.
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &seam_env(&store_path))?;
+    out.assert().success().stdout(predicate::eq(concat!(
+        "      Stored https://one.example/  validated (read, api)\n",
+        "             patterns: https://one.example/**\n",
+    )));
+    Ok(())
+}
+
+#[test]
+fn auth_status_separates_multiple_stored_entries_with_a_blank_line() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(
+        &store_path,
+        r#"{"version":1,"credentials":[{
+            "key":"https://a.example/",
+            "globs":["https://a.example/**"],
+            "scheme":"bearer",
+            "secret":"tok-a"
+        },{
+            "key":"https://b.example/",
+            "globs":["https://b.example/**"],
+            "scheme":"bearer",
+            "secret":"tok-b",
+            "validated":["read"]}]}"#,
+    )?;
+
+    // Exact plain output: one blank line between the entries, none after
+    // the last.
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &seam_env(&store_path))?;
+    out.assert().success().stdout(predicate::eq(concat!(
+        "      Stored https://a.example/  not validated\n",
+        "             patterns: https://a.example/**\n",
+        "\n",
+        "      Stored https://b.example/  validated (read)\n",
+        "             patterns: https://b.example/**\n",
+    )));
+    Ok(())
+}
+
+#[test]
+fn auth_status_with_both_sources_lists_both_without_negatives() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(
+        &store_path,
+        r#"{"version":1,"credentials":[{
+            "key":"https://one.example/",
+            "globs":["https://one.example/**"],
+            "scheme":"bearer",
+            "secret":"tok-one"}]}"#,
+    )?;
+    let mut env = seam_env(&store_path);
+    env.insert(
+        "SYSAND_CRED_CI".to_string(),
+        "https://ci.example/**".to_string(),
+    );
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "      Stored https://one.example/",
+        ))
+        .stdout(predicate::str::contains(
+            "         Env SYSAND_CRED_CI  https://ci.example/**",
+        ))
+        .stdout(predicate::str::contains("No credentials configured").not());
     Ok(())
 }
 

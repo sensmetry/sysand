@@ -356,9 +356,12 @@ logout` removes) may fall back to the default index.
   (their `api_root` is a disjoint plain URL).
 - Each login is one record (`{key, globs, scheme, secret,
 expires_at-if-known}`, plus optional whoami-derived identity fields
-  `subject`, `token_name`, `token_prefix` persisted by a validating login)
-  inside the single keyring blob (§9), so `logout` removes it and `status`
-  shows one login covering N patterns.
+  `subject`, `token_name`, `token_prefix` persisted by a validating login,
+  plus `validated`: the surfaces that exercised and accepted the credential
+  at login, serialized compactly as `["read","api"]` strings and absent for
+  `--no-validation` or nothing-exercised logins) inside the single keyring
+  blob (§9), so `logout` removes it and `status` shows one login covering
+  N patterns.
 - **Discovery changes over time (globs are a login-time boundary).** Reads
   and publish re-fetch discovery live each run, but the stored globs are the
   login-time snapshot and are **not** auto-updated from discovery. This is
@@ -409,8 +412,8 @@ supported; the full transport-security guidance lives in the docs (§13).
   keyring entry (for example `service = "sysand"`, `account =
 "credentials"`) holding a JSON blob: a list of records `{key, globs,
 scheme, secret, expires_at-if-known}` plus optional whoami-derived
-  identity fields (`subject`, `token_name`, `token_prefix`) written by a
-  validating login. Deliberate over a manifest file:
+  identity fields (`subject`, `token_name`, `token_prefix`) and the
+  `validated` surface list (§8), written by a validating login. Deliberate over a manifest file:
   the `keyring` crate cannot portably enumerate entries, and one blob is
   **atomic** (no metadata/secret drift), needs **no file**, and prompts the
   keychain at most once. `login` / `logout` read-modify-write the blob;
@@ -525,11 +528,23 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   authenticate with**, both sources, each entry tagged `Stored` or `Env`
   (right-aligned in the CLI's 12-column status gutter).
   Per stored entry: the key printed in the exact form
-  `sysand auth logout <key>` accepts, covered globs, `subject` and token
+  `sysand auth logout <key>` accepts, the login-time validation claim on
+  the key line (`validated (read)` / `validated (read, api)` from the
+  record's `validated` list, or a warn-styled `not validated` when it is
+  absent, the security-relevant case), covered globs, `subject` and token
   `prefix` (from whoami, if a validating login ran), `expires_at` if
   stored, and whether a `SYSAND_CRED_*` var shadows it, never the secret.
-  Env entries list the variable label and pattern. No `scheme` column in v1
-  (always bearer for stored; env entries may be basic).
+  Multiple stored entries are separated by one blank line. The sublabels
+  (`patterns:`, `subject:`, `token prefix:`, `expires:`) render dim so the
+  values carry the visual weight; `shadowed by:` stays warn-styled. Env
+  entries list the variable label and pattern. A source with nothing to
+  show is omitted rather than announced with a negative; only when neither
+  stored logins nor `SYSAND_CRED_*` variables exist does status print the
+  single line "No credentials configured (no stored logins, no
+  `SYSAND_CRED_*` variables)." The no-usable-keyring note still prints
+  whenever the backend is unusable (it is information, not a negative). No
+  `scheme` column in v1 (always bearer for stored; env entries may be
+  basic).
 - **Re-login:** `auth login` over an existing entry for the same key
   overwrites it, printing "Replacing existing credential for `<index>`"
   before the write; the previous stored token is discarded locally (not

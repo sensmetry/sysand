@@ -19,6 +19,7 @@ fn record(key: &str, secret: &str) -> CredentialRecord {
         subject: None,
         token_name: None,
         token_prefix: None,
+        validated: Vec::new(),
         extra: serde_json::Map::new(),
     }
 }
@@ -106,11 +107,42 @@ fn identity_fields_round_trip() {
     });
     with_identity.token_name = Some("laptop".to_string());
     with_identity.token_prefix = Some("sysand_u_1a2b3c4d".to_string());
+    with_identity.validated = vec!["read".to_string(), "api".to_string()];
     let blob = CredentialBlob::new(vec![with_identity]);
     let raw = serialize_blob(&blob).unwrap();
     // `kind` serializes under the protocol's `type` key.
     assert!(raw.contains(r#""subject":{"type":"user","name":"alice"}"#));
+    // The validation claim serializes compactly.
+    assert!(raw.contains(r#""validated":["read","api"]"#));
     assert_eq!(parse_blob(&raw).unwrap(), blob);
+}
+
+#[test]
+fn blob_omits_an_empty_validated_list() {
+    let blob = CredentialBlob::new(vec![record("https://example.com/", "tok")]);
+    let raw = serialize_blob(&blob).unwrap();
+    assert!(!raw.contains("validated"));
+}
+
+#[test]
+fn parse_accepts_a_blob_written_before_the_validated_field() {
+    // A blob written before `validated` existed (still version 1) must
+    // parse, and the absent claim reads as "not validated".
+    let raw = r#"{
+        "version": 1,
+        "credentials": [{
+            "key": "https://example.com/",
+            "globs": ["https://example.com/**"],
+            "scheme": "bearer",
+            "secret": "tok",
+            "subject": {"type": "user", "name": "alice"},
+            "token_prefix": "sysand_u_1a2b3c4d"
+        }]
+    }"#;
+    let blob = parse_blob(raw).unwrap();
+    let record = &blob.credentials[0];
+    assert!(record.validated.is_empty());
+    assert!(record.extra.is_empty());
 }
 
 #[test]

@@ -191,6 +191,10 @@ pub struct StoredCredentialStatus {
     /// The token's non-secret display prefix, when a validating login
     /// learned it.
     pub token_prefix: Option<String>,
+    /// The surfaces that exercised and accepted the credential at login
+    /// (`"read"`, `"api"`, in probe order). Empty means the credential
+    /// was stored without validation.
+    pub validated: Vec<String>,
     /// Labels of `SYSAND_CRED_*` entries that may shadow this login.
     ///
     /// Approximate: an env entry is listed when its pattern matches this
@@ -917,6 +921,12 @@ pub fn do_auth_login<S: CredentialStore>(
         subject,
         token_name,
         token_prefix,
+        // Persist the same scoped claim the host prints ("validated
+        // (read)" and so on), so `auth status` can show it later.
+        validated: validated
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
         extra: serde_json::Map::new(),
     };
     match store.upsert(record) {
@@ -1267,6 +1277,7 @@ pub fn assemble_auth_status(
                 expires_at: record.expires_at,
                 subject: record.subject,
                 token_prefix: record.token_prefix,
+                validated: record.validated,
                 shadowed_by,
             }
         })

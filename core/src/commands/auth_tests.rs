@@ -22,6 +22,7 @@ fn record(key: &str, secret: &str) -> CredentialRecord {
         subject: None,
         token_name: None,
         token_prefix: None,
+        validated: Vec::new(),
         extra: serde_json::Map::new(),
     }
 }
@@ -112,6 +113,7 @@ fn status_lists_stored_records_and_env_entries() {
     let mut expiring = record("https://example.com/idx/", "tok-1");
     let expiry = Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap();
     expiring.expires_at = Some(expiry);
+    expiring.validated = vec!["read".to_string()];
     expiring.globs = vec![
         "https://example.com/idx/**".to_string(),
         "https://api.example.com/**".to_string(),
@@ -135,9 +137,11 @@ fn status_lists_stored_records_and_env_entries() {
         ]
     );
     assert_eq!(stored[0].expires_at, Some(expiry));
+    assert_eq!(stored[0].validated, vec!["read".to_string()]);
     assert_eq!(stored[1].key, "https://other.example/");
     assert_eq!(stored[1].expires_at, None);
     assert!(!stored[1].expired);
+    assert!(stored[1].validated.is_empty());
 }
 
 #[test]
@@ -374,7 +378,10 @@ mod login {
         assert!(notices.is_empty(), "unexpected notices: {notices:?}");
         // Flat topology: every surface lives under the discovery root.
         assert_surface_coverage(&globs, &root, &root, &root);
-        assert_eq!(store.list().unwrap()[0].secret, "tok");
+        let record = &store.list().unwrap()[0];
+        assert_eq!(record.secret, "tok");
+        // Validation was disabled: the record carries no claim.
+        assert!(record.validated.is_empty());
     }
 
     #[test]
@@ -910,6 +917,8 @@ mod login {
         assert_eq!(record.secret, "tok");
         assert_eq!(record.subject, None);
         assert_eq!(record.expires_at, None);
+        // The scoped claim is persisted for `auth status`.
+        assert_eq!(record.validated, vec!["read".to_string()]);
     }
 
     #[test]
@@ -1086,7 +1095,12 @@ mod login {
 
         let (_, _, validated) = stored_validated(outcome);
         assert_eq!(validated, vec![ProbeSurface::Read, ProbeSurface::Api]);
-        assert!(store.list().unwrap()[0].subject.is_some());
+        let record = &store.list().unwrap()[0];
+        assert!(record.subject.is_some());
+        assert_eq!(
+            record.validated,
+            vec!["read".to_string(), "api".to_string()]
+        );
     }
 
     #[test]

@@ -14,8 +14,9 @@ use sysand_core::{
     auth::{GlobMapBuilder, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder},
     commands::auth::{
         AuthCommandError, AuthLoginNotice, AuthLoginOutcome, AuthStatus, EnvCredentialEntry,
-        ProbeSurface, StoredCredentialsStatus, WhoamiCredentialSource, WhoamiVerdict,
-        do_auth_login, do_auth_logout, do_auth_status, do_auth_whoami, validated_index_key,
+        ProbeSurface, StoredCredentialStatus, StoredCredentialsStatus, WhoamiCredentialSource,
+        WhoamiVerdict, do_auth_login, do_auth_logout, do_auth_status, do_auth_whoami,
+        validated_index_key,
     },
     config::Config,
     credential_store::CredentialStoreError,
@@ -376,6 +377,21 @@ fn expiry_qualifier(expired: bool, expires_in_days: Option<i64>) -> String {
     }
 }
 
+/// The per-entry validation claim: the same scoped wording `auth login`
+/// prints, from the surfaces a validating login recorded. Dim when
+/// validated (secondary detail); warn when not (the security-relevant
+/// case: nothing ever exercised this credential).
+fn validation_claim(validated: &[String]) -> String {
+    let style = sysand_core::style::get_style_config();
+    if validated.is_empty() {
+        let warn = style.warn;
+        format!("{warn}not validated{warn:#}")
+    } else {
+        let dim = style.dim;
+        format!("{dim}validated ({}){dim:#}", validated.join(", "))
+    }
+}
+
 /// Render the unified status view: stored entries tagged `Stored` (key in
 /// the exact form `sysand auth logout <key>` accepts), env entries tagged
 /// `Env`. Never any secret.
@@ -384,65 +400,87 @@ fn expiry_qualifier(expired: bool, expires_in_days: Option<i64>) -> String {
 /// of an entry keep their `label: value` form (unlike `auth whoami`, which
 /// puts each field's label in the gutter: here the fields are subordinate
 /// to a tagged entry, and the hierarchy would be lost) and are indented to
-/// the gutter like other multi-line log messages.
+/// the gutter like other multi-line log messages, with the sublabels
+/// dimmed so the values carry the visual weight. Multiple stored entries
+/// are separated by a blank line; each entry's header line carries its
+/// validation claim after the key, mirroring the `Env` lines' two-space
+/// label/pattern separation.
+///
+/// A source with nothing to show is simply omitted; only when neither
+/// source has anything does a single combined negative print. The
+/// backend-unavailable note is information, not a negative, and always
+/// prints when the keyring backend is unusable.
 ///
 /// Styling reuses the house tokens (`sysand_core::style`) and goes through
 /// `anstream::println`, which strips it on non-terminal stdout and under
 /// `NO_COLOR`, so piped output stays exactly the plain text the CLI tests
-/// assert on.
+/// assert on (the alignment spaces are content, the styling is not).
 fn render_auth_status(status: &AuthStatus) {
     let style = sysand_core::style::get_style_config();
     let tag = style.header;
     let name = style.literal;
     let warn = style.warn;
-    match &status.stored {
+    let dim = style.dim;
+    let none: Vec<StoredCredentialStatus> = Vec::new();
+    let stored = match &status.stored {
         StoredCredentialsStatus::BackendUnavailable { reason } => {
             let note = style.note;
             println!(
                 "{note}note:{note:#} no usable OS keyring backend ({reason}); showing \
                  `SYSAND_CRED_*` environment credentials only"
             );
+            &none
         }
-        StoredCredentialsStatus::Available(stored) if stored.is_empty() => {
-            println!("No stored index logins.");
+        StoredCredentialsStatus::Available(stored) => stored,
+    };
+    for (position, entry) in stored.iter().enumerate() {
+        if position > 0 {
+            println!();
         }
-        StoredCredentialsStatus::Available(stored) => {
-            for entry in stored {
-                println!("{tag}{:>12}{tag:#} {name}{}{name:#}", "Stored", entry.key);
-                println!("{:>12} patterns: {}", ' ', entry.globs.join(", "));
-                if let Some(subject) = &entry.subject {
-                    println!("{:>12} subject: {} {}", ' ', subject.kind, subject.name);
-                }
-                if let Some(prefix) = &entry.token_prefix {
-                    println!("{:>12} token prefix: {prefix}", ' ');
-                }
-                if let Some(expires_at) = &entry.expires_at {
-                    println!(
-                        "{:>12} expires: {}{}",
-                        ' ',
-                        format_expiry_timestamp(expires_at),
-                        expiry_qualifier(entry.expired, entry.expires_in_days)
-                    );
-                }
-                if !entry.shadowed_by.is_empty() {
-                    println!(
-                        "{:>12} {warn}shadowed by:{warn:#} {}",
-                        ' ',
-                        entry.shadowed_by.join(", ")
-                    );
-                }
-            }
-        }
-    }
-    if status.env.is_empty() {
-        println!("No `SYSAND_CRED_*` environment credentials.");
-    } else {
-        for entry in &status.env {
+        println!(
+            "{tag}{:>12}{tag:#} {name}{}{name:#}  {}",
+            "Stored",
+            entry.key,
+            validation_claim(&entry.validated)
+        );
+        println!(
+            "{:>12} {dim}patterns:{dim:#} {}",
+            ' ',
+            entry.globs.join(", ")
+        );
+        if let Some(subject) = &entry.subject {
             println!(
-                "{tag}{:>12}{tag:#} {name}{}{name:#}  {}",
-                "Env", entry.label, entry.pattern
+                "{:>12} {dim}subject:{dim:#} {} {}",
+                ' ', subject.kind, subject.name
             );
         }
+        if let Some(prefix) = &entry.token_prefix {
+            println!("{:>12} {dim}token prefix:{dim:#} {prefix}", ' ');
+        }
+        if let Some(expires_at) = &entry.expires_at {
+            println!(
+                "{:>12} {dim}expires:{dim:#} {}{}",
+                ' ',
+                format_expiry_timestamp(expires_at),
+                expiry_qualifier(entry.expired, entry.expires_in_days)
+            );
+        }
+        if !entry.shadowed_by.is_empty() {
+            println!(
+                "{:>12} {warn}shadowed by:{warn:#} {}",
+                ' ',
+                entry.shadowed_by.join(", ")
+            );
+        }
+    }
+    for entry in &status.env {
+        println!(
+            "{tag}{:>12}{tag:#} {name}{}{name:#}  {}",
+            "Env", entry.label, entry.pattern
+        );
+    }
+    if stored.is_empty() && status.env.is_empty() {
+        println!("No credentials configured (no stored logins, no `SYSAND_CRED_*` variables).");
     }
 }
 

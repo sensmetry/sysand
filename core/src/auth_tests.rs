@@ -267,6 +267,7 @@ fn bearer_record(globs: &[String], secret: &str) -> CredentialRecord {
         subject: None,
         token_name: None,
         token_prefix: None,
+        validated: Vec::new(),
         extra: serde_json::Map::new(),
     }
 }
