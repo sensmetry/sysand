@@ -49,6 +49,9 @@ repos:
         types_or: [rust, python, java, groovy, shell, xml, javascript]
 
   # Autoformat: rust
+  #
+  # rust hooks ignore rust-toolchain.toml; language_version is what pins
+  # them. Keep it in sync with rust-toolchain.toml.
   - repo: local
     hooks:
       - id: cargo-fmt
@@ -56,6 +59,7 @@ repos:
         entry: cargo fmt
         description: Formats all bin and lib files of the current workspace using rustfmt.
         language: rust
+        language_version: "1.96"
         types: [rust]
         args: ["--"]
 
@@ -64,6 +68,7 @@ repos:
         entry: cargo clippy
         description: Checks all packages in the workspace to catch common mistakes and improve your Rust code.
         language: rust
+        language_version: "1.96"
         types: [rust]
         args:
           - --workspace

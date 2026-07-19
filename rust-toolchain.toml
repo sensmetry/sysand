@@ -7,6 +7,9 @@
 #
 # - Check latest stable version: rustup check
 #
+# When bumping channel, also bump language_version for the rust hooks in
+# .pre-commit-config.yaml (prek does not read this file).
+#
 [toolchain]
 channel = "1.96"
 components = [ "rustfmt", "clippy" ]
