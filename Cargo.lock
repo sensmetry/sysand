@@ -3729,6 +3729,7 @@ dependencies = [
  "assert_cmd",
  "camino",
  "camino-tempfile",
+ "chrono",
  "clap",
  "env_logger",
  "fluent-uri",

@@ -8,18 +8,20 @@
 use std::io::{IsTerminal, Read};
 use std::sync::Arc;
 
+use anstream::println;
 use anyhow::{Context, Result, bail};
 use sysand_core::{
+    auth::{GlobMapBuilder, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder},
     commands::auth::{
         AuthCommandError, AuthLoginNotice, AuthLoginOutcome, AuthStatus, EnvCredentialEntry,
-        ProbeSurface, StoredCredentialsStatus, do_auth_login, do_auth_logout, do_auth_status,
-        validated_index_key,
+        ProbeSurface, StoredCredentialsStatus, WhoamiCredentialSource, WhoamiVerdict,
+        do_auth_login, do_auth_logout, do_auth_status, do_auth_whoami, validated_index_key,
     },
     config::Config,
     credential_store::CredentialStoreError,
 };
 
-use crate::{DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
+use crate::{CliAuthPolicy, DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
 
 const KEYRING_LOCKED_HINT: &str = "unlock your OS keyring and retry, or provide credentials via \
      `SYSAND_CRED_*` environment variables";
@@ -335,14 +337,50 @@ fn collect_env_credential_entries() -> Vec<EnvCredentialEntry> {
     entries
 }
 
+/// Days-to-expiry at or under which the `expires in N days` qualifier is
+/// highlighted as a warning.
+const EXPIRES_SOON_DAYS: i64 = 7;
+
+/// The ` (expired)` / ` (expires in N days)` qualifier for an expiry
+/// timestamp, styled through the house tokens (red for expired, yellow
+/// when expiry is close). Empty when nothing is known.
+fn expiry_qualifier(expired: bool, expires_in_days: Option<i64>) -> String {
+    let style = sysand_core::style::get_style_config();
+    if expired {
+        let error = style.error;
+        return format!(" {error}(expired){error:#}");
+    }
+    let text = match expires_in_days {
+        Some(1) => "(expires in 1 day)".to_string(),
+        Some(days) => format!("(expires in {days} days)"),
+        None => return String::new(),
+    };
+    if expires_in_days.is_some_and(|days| days <= EXPIRES_SOON_DAYS) {
+        let warn = style.warn;
+        format!(" {warn}{text}{warn:#}")
+    } else {
+        format!(" {text}")
+    }
+}
+
 /// Render the unified status view: stored entries tagged `stored` (key in
 /// the exact form `sysand auth logout <key>` accepts), env entries tagged
 /// `env`. Never any secret.
+///
+/// Styling reuses the house tokens (`sysand_core::style`) and goes through
+/// `anstream::println`, which strips it on non-terminal stdout and under
+/// `NO_COLOR`, so piped output stays exactly the plain text the CLI tests
+/// assert on.
 fn render_auth_status(status: &AuthStatus) {
+    let style = sysand_core::style::get_style_config();
+    let tag = style.header;
+    let name = style.literal;
+    let warn = style.warn;
     match &status.stored {
         StoredCredentialsStatus::BackendUnavailable { reason } => {
+            let note = style.note;
             println!(
-                "note: no usable OS keyring backend ({reason}); showing \
+                "{note}note:{note:#} no usable OS keyring backend ({reason}); showing \
                  `SYSAND_CRED_*` environment credentials only"
             );
         }
@@ -351,7 +389,7 @@ fn render_auth_status(status: &AuthStatus) {
         }
         StoredCredentialsStatus::Available(stored) => {
             for entry in stored {
-                println!("stored  {}", entry.key);
+                println!("{tag}stored{tag:#}  {name}{}{name:#}", entry.key);
                 println!("        patterns: {}", entry.globs.join(", "));
                 if let Some(subject) = &entry.subject {
                     println!("        subject: {} {}", subject.kind, subject.name);
@@ -360,19 +398,16 @@ fn render_auth_status(status: &AuthStatus) {
                     println!("        token prefix: {prefix}");
                 }
                 if let Some(expires_at) = &entry.expires_at {
-                    let qualifier = if entry.expired {
-                        " (expired)".to_string()
-                    } else {
-                        match entry.expires_in_days {
-                            Some(1) => " (expires in 1 day)".to_string(),
-                            Some(days) => format!(" (expires in {days} days)"),
-                            None => String::new(),
-                        }
-                    };
-                    println!("        expires: {expires_at}{qualifier}");
+                    println!(
+                        "        expires: {expires_at}{}",
+                        expiry_qualifier(entry.expired, entry.expires_in_days)
+                    );
                 }
                 if !entry.shadowed_by.is_empty() {
-                    println!("        shadowed by: {}", entry.shadowed_by.join(", "));
+                    println!(
+                        "        {warn}shadowed by:{warn:#} {}",
+                        entry.shadowed_by.join(", ")
+                    );
                 }
             }
         }
@@ -381,7 +416,172 @@ fn render_auth_status(status: &AuthStatus) {
         println!("No `SYSAND_CRED_*` environment credentials.");
     } else {
         for entry in &status.env {
-            println!("env     {}  {}", entry.label, entry.pattern);
+            println!(
+                "{tag}env{tag:#}     {name}{}{name:#}  {}",
+                entry.label, entry.pattern
+            );
         }
+    }
+}
+
+/// Build the read auth policy for `auth whoami`'s discovery fetch (and its
+/// env bearer map), tolerantly: unlike the eager policy build in
+/// `run_cli`, a malformed `SYSAND_CRED_*` group (an incomplete pair, an
+/// invalid glob pattern) is skipped with a debug log instead of failing
+/// the command, because the `auth` commands must stay usable to diagnose
+/// exactly those (same stance as `auth status`).
+fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
+    let mut patterns = std::collections::HashMap::new();
+    let mut users = std::collections::HashMap::new();
+    let mut passwords = std::collections::HashMap::new();
+    let mut tokens = std::collections::HashMap::new();
+    for (key, value) in std::env::vars() {
+        if let Some(rest) = key.strip_prefix("SYSAND_CRED_") {
+            if let Some(stem) = rest.strip_suffix("_BASIC_USER") {
+                users.insert(stem.to_owned(), value);
+            } else if let Some(stem) = rest.strip_suffix("_BASIC_PASS") {
+                passwords.insert(stem.to_owned(), value);
+            } else if let Some(stem) = rest.strip_suffix("_BEARER_TOKEN") {
+                tokens.insert(stem.to_owned(), value);
+            } else {
+                patterns.insert(rest.to_owned(), value);
+            }
+        }
+    }
+
+    let mut builder = StandardHTTPAuthenticationBuilder::new();
+    for (stem, pattern) in &patterns {
+        // Pre-compile each pattern individually: `build` below fails
+        // wholesale on one bad glob, and one bad group must not hide the
+        // other credentials.
+        let mut check: GlobMapBuilder<()> = GlobMapBuilder::new();
+        check.add(pattern, ());
+        if check.build().is_err() {
+            log::debug!("skipping SYSAND_CRED_{stem}: invalid URL glob pattern");
+            continue;
+        }
+        if let (Some(user), Some(password)) = (users.get(stem), passwords.get(stem)) {
+            builder.add_basic_auth(pattern, user, password);
+        }
+        if let Some(token) = tokens.get(stem) {
+            builder.add_bearer_auth_labeled(pattern, token, stem);
+        }
+    }
+    builder
+        .build()
+        .context("could not compile `SYSAND_CRED_*` URL patterns")
+}
+
+pub fn command_auth_whoami(
+    index_url: Option<String>,
+    default_index: &[String],
+    config: &Config,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    runtime: &tokio::runtime::Runtime,
+) -> Result<()> {
+    let target = match index_url {
+        Some(url) => url,
+        None => resolve_default_index(default_index, config)?,
+    };
+    // Validate before any store or network access, and echo the resolved
+    // index so a configured default cannot be targeted silently. Printed,
+    // not logged: `--quiet` must not hide it.
+    let key = validated_index_key(&target)?;
+    println!("Checking identity on index `{key}`");
+
+    let env_policy = lenient_env_auth_policy()?;
+    let env_bearers = env_policy
+        .publish_bearer_auth_map()
+        .context("could not compile `SYSAND_CRED_*` URL patterns")?;
+    // Two store handles on the same underlying store: one feeds the
+    // discovery policy (a private index may gate its discovery document,
+    // so unlike login the fetch runs with the regular read policy), the
+    // other is read for credential selection.
+    let discovery_store =
+        open_cli_credential_store().context("could not open the credential store")?;
+    let store = open_cli_credential_store().context("could not open the credential store")?;
+    let discovery_policy = CliAuthPolicy::new(env_policy, discovery_store);
+
+    let outcome = match do_auth_whoami(
+        &store,
+        &target,
+        &env_bearers,
+        &discovery_policy,
+        client,
+        runtime,
+    ) {
+        Ok(outcome) => outcome,
+        Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
+            return Err(err).context(KEYRING_LOCKED_HINT);
+        }
+        Err(err) => return Err(err.into()),
+    };
+
+    // Name the source: an env credential shadows a stored login, so the
+    // right remediation for a bad credential depends on where it came
+    // from (design/credential-storage.md section 7).
+    match &outcome.source {
+        WhoamiCredentialSource::Env { label: Some(label) } => {
+            println!("using credential from `SYSAND_CRED_{label}`");
+        }
+        WhoamiCredentialSource::Env { label: None } => {
+            println!("using a `SYSAND_CRED_*` environment credential");
+        }
+        WhoamiCredentialSource::Stored { key } => {
+            println!("using stored login for `{key}`");
+        }
+    }
+
+    match outcome.verdict {
+        WhoamiVerdict::Identified { identity } => {
+            match identity {
+                Some(identity) => {
+                    let header = sysand_core::style::get_style_config().header;
+                    println!(
+                        "{header}subject:{header:#} {} {}",
+                        identity.subject.kind, identity.subject.name
+                    );
+                    if let Some(token_name) = &identity.token_name {
+                        println!("{header}token name:{header:#} {token_name}");
+                    }
+                    if let Some(prefix) = &identity.token_prefix {
+                        println!("{header}token prefix:{header:#} {prefix}");
+                    }
+                    if let Some(expires_at) = identity.expires_at {
+                        let now = chrono::Utc::now();
+                        println!(
+                            "{header}expires:{header:#} {expires_at}{}",
+                            expiry_qualifier(expires_at < now, Some((expires_at - now).num_days()))
+                        );
+                    }
+                }
+                None => println!(
+                    "The credential was accepted, but the identity response \
+                     could not be parsed."
+                ),
+            }
+            Ok(())
+        }
+        WhoamiVerdict::Rejected => {
+            let remediation = match &outcome.source {
+                WhoamiCredentialSource::Env { label: Some(label) } => {
+                    format!("rotate or unset `SYSAND_CRED_{label}_BEARER_TOKEN`")
+                }
+                WhoamiCredentialSource::Env { label: None } => {
+                    "rotate or unset the matching `SYSAND_CRED_*` variables".to_string()
+                }
+                WhoamiCredentialSource::Stored { key } => {
+                    format!("re-run `sysand auth login {key}`")
+                }
+            };
+            bail!(
+                "the index API (`{}`) rejected the credential (HTTP 401); {remediation}",
+                outcome.whoami_url
+            );
+        }
+        WhoamiVerdict::Unreachable { detail } => bail!(
+            "could not reach the index API (`{}`): {detail}",
+            outcome.whoami_url
+        ),
     }
 }

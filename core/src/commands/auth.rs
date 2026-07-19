@@ -2,8 +2,9 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! `sysand auth` command orchestration (design/credential-storage.md
-//! sections 4, 8, 9, 14): `do_auth_login`, `do_auth_logout`, and
-//! `do_auth_status`, generic over [`CredentialStore`].
+//! sections 4, 8, 9, 14): `do_auth_login`, `do_auth_logout`,
+//! `do_auth_status`, and `do_auth_whoami`, generic over
+//! [`CredentialStore`].
 //!
 //! Library calls never prompt and never print; the login secret arrives as
 //! a parameter and progress is reported through [`AuthLoginNotice`] values
@@ -21,7 +22,9 @@ use url::Url;
 use serde::Deserialize;
 
 use crate::{
-    auth::Unauthenticated,
+    auth::{
+        EnvBearerAuth, GlobMap, GlobMapBuilder, GlobMapResult, HTTPAuthentication, Unauthenticated,
+    },
     credential_store::{
         CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
         CredentialSubject, normalize_index_key,
@@ -68,6 +71,43 @@ pub enum AuthCommandError {
         /// `SYSAND_CRED_*` basic credentials (section 5).
         basic_challenge: bool,
     },
+    /// `whoami` could not read the index configuration, so the API root
+    /// (and with it the `v1/whoami` URL) could not be resolved.
+    #[error(
+        "could not read the index configuration for `{index}` ({error}); cannot resolve its API"
+    )]
+    WhoamiDiscoveryFailed { index: String, error: String },
+    /// `whoami` targeted an index whose discovery configuration does not
+    /// explicitly advertise `api_root`: there is no API identity endpoint
+    /// to ask. The parenthetical matters: a private index can hide its
+    /// configuration from a client whose credentials do not cover it, which
+    /// resolves to the same unadvertised state.
+    #[error(
+        "index `{index}` does not advertise an API (`api_root`) in its\n\
+         discovery configuration, so there is no identity endpoint to ask\n\
+         (a private index may also hide its configuration from clients it\n\
+         cannot authenticate)"
+    )]
+    NoAdvertisedApi { index: String },
+    /// More than one credential from one source matches the `v1/whoami`
+    /// URL (after collapsing entries carrying the same token), so no
+    /// single identity question can be asked.
+    #[error(
+        "{candidates} credentials from {source_name} match `{url}`; \
+         refine the patterns so exactly one matches"
+    )]
+    AmbiguousWhoamiCredential {
+        url: String,
+        // Not `source`: thiserror reserves that name for error chaining.
+        source_name: &'static str,
+        candidates: usize,
+    },
+    /// No credential of either source matches the `v1/whoami` URL.
+    #[error(
+        "no credential matches `{url}`; run `sysand auth login {index}` to \
+         store one, or set `SYSAND_CRED_*` environment variables"
+    )]
+    NoWhoamiCredential { url: String, index: String },
     /// The credential store failed.
     #[error(transparent)]
     Store(#[from] CredentialStoreError),
@@ -415,13 +455,16 @@ fn template_anchor_root(prefix: &str) -> Option<(usize, Url)> {
     Some((cut, url))
 }
 
-/// Identity fields parsed from a successful `v1/whoami` probe, persisted
-/// on the stored record (design/credential-storage.md sections 5, 6, 9).
-struct WhoamiIdentity {
-    subject: CredentialSubject,
-    token_name: Option<String>,
-    token_prefix: Option<String>,
-    expires_at: Option<DateTime<Utc>>,
+/// Identity fields parsed from a successful `v1/whoami` response:
+/// persisted on the stored record by a validating login
+/// (design/credential-storage.md sections 5, 6, 9) and rendered live by
+/// `auth whoami`. Never contains the secret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WhoamiIdentity {
+    pub subject: CredentialSubject,
+    pub token_name: Option<String>,
+    pub token_prefix: Option<String>,
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 /// Wire shape of a `v1/whoami` 200 body (design/index-api-protocol.md,
@@ -908,6 +951,282 @@ pub fn do_auth_logout<S: CredentialStore>(
     } else {
         Err(AuthCommandError::NoStoredCredential { index: key })
     }
+}
+
+/// Where the credential `auth whoami` selected came from. Selection
+/// mirrors publish's source precedence (design/credential-storage.md
+/// section 7): environment credentials before stored logins.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WhoamiCredentialSource {
+    /// A `SYSAND_CRED_*` environment bearer; `label` is the
+    /// `SYSAND_CRED_<LABEL>` stem when known.
+    Env { label: Option<String> },
+    /// A stored login (`sysand auth login`) for the given index key.
+    Stored { key: String },
+}
+
+/// Verdict of the single `v1/whoami` request `auth whoami` sends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WhoamiVerdict {
+    /// HTTP 200: the index accepted the credential. `identity` is `None`
+    /// when the response body could not be parsed (the 200 remains the
+    /// verdict, only the details are lost).
+    Identified { identity: Option<WhoamiIdentity> },
+    /// HTTP 401: the index rejected the credential.
+    Rejected,
+    /// No verdict: a redirect, rate limiting, an unexpected status, or a
+    /// network error, described by `detail`.
+    Unreachable { detail: String },
+}
+
+/// What [`do_auth_whoami`] found: the normalized index key, the exact URL
+/// asked, which credential was sent (the host must name it: an env
+/// credential shadows a stored login, so "re-login" would be the wrong
+/// remediation for a rejected env credential), and the verdict.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthWhoamiOutcome {
+    pub key: String,
+    pub whoami_url: Url,
+    pub source: WhoamiCredentialSource,
+    pub verdict: WhoamiVerdict,
+}
+
+/// The single entry left after collapsing candidates that carry the same
+/// token (overlapping globs for one credential must not read as
+/// ambiguity), or `None` when genuinely distinct credentials collide.
+fn unique_by_token<'a, T>(
+    candidates: &[(String, &'a T)],
+    token: impl Fn(&T) -> &str,
+) -> Option<&'a T> {
+    let ((_, first), rest) = candidates.split_first()?;
+    rest.iter()
+        .all(|(_, candidate)| token(candidate) == token(first))
+        .then_some(*first)
+}
+
+/// Select the credential `auth whoami` sends, mirroring the runtime and
+/// publish precedence (design/credential-storage.md sections 7, 9): a
+/// `SYSAND_CRED_*` env bearer matching the whoami URL wins over a stored
+/// login; within a source exactly one credential may match (candidates
+/// carrying the same token collapse to one). Invalid stored glob patterns
+/// are skipped individually, like the runtime's lazy stored map: one bad
+/// pattern must not hide the other credentials.
+fn select_whoami_credential(
+    env_bearers: &GlobMap<EnvBearerAuth>,
+    records: &[CredentialRecord],
+    whoami_url: &Url,
+    index_key: &str,
+) -> Result<(WhoamiCredentialSource, String), AuthCommandError> {
+    match env_bearers.lookup(whoami_url.as_str()) {
+        GlobMapResult::Found(_, entry) => {
+            return Ok((
+                WhoamiCredentialSource::Env {
+                    label: entry.label.clone(),
+                },
+                entry.auth.token().to_string(),
+            ));
+        }
+        GlobMapResult::Ambiguous(candidates) => {
+            let Some(entry) =
+                unique_by_token(&candidates, |entry: &EnvBearerAuth| entry.auth.token())
+            else {
+                return Err(AuthCommandError::AmbiguousWhoamiCredential {
+                    url: whoami_url.as_str().to_string(),
+                    source_name: "`SYSAND_CRED_*` environment variables",
+                    candidates: candidates.len(),
+                });
+            };
+            return Ok((
+                WhoamiCredentialSource::Env {
+                    label: entry.label.clone(),
+                },
+                entry.auth.token().to_string(),
+            ));
+        }
+        GlobMapResult::NotFound => {}
+    }
+
+    let mut builder: GlobMapBuilder<&CredentialRecord> = GlobMapBuilder::new();
+    for record in records {
+        if record.scheme != CredentialScheme::Bearer {
+            continue;
+        }
+        for glob in &record.globs {
+            // Compile each pattern individually first, exactly as the map
+            // build will: `GlobMapBuilder::build` fails wholesale on one
+            // bad pattern.
+            if GlobBuilder::new(glob)
+                .literal_separator(true)
+                .build()
+                .is_ok()
+            {
+                builder.add(glob, record);
+            }
+        }
+    }
+    // Every added pattern was pre-compiled above, so the build cannot
+    // fail; degrade rather than panic if it somehow does.
+    let stored = builder.build().unwrap_or_default();
+
+    let entry = match stored.lookup(whoami_url.as_str()) {
+        GlobMapResult::Found(_, record) => Some(*record),
+        GlobMapResult::Ambiguous(candidates) => {
+            let unique = unique_by_token(&candidates, |record: &&CredentialRecord| {
+                record.secret.as_str()
+            });
+            match unique {
+                Some(record) => Some(*record),
+                None => {
+                    return Err(AuthCommandError::AmbiguousWhoamiCredential {
+                        url: whoami_url.as_str().to_string(),
+                        source_name: "stored logins",
+                        candidates: candidates.len(),
+                    });
+                }
+            }
+        }
+        GlobMapResult::NotFound => None,
+    };
+    match entry {
+        Some(record) => Ok((
+            WhoamiCredentialSource::Stored {
+                key: record.key.clone(),
+            },
+            record.secret.clone(),
+        )),
+        None => Err(AuthCommandError::NoWhoamiCredential {
+            url: whoami_url.as_str().to_string(),
+            index: index_key.to_string(),
+        }),
+    }
+}
+
+/// Query-only live identity check (design/credential-storage.md section
+/// 4): resolve the index API, select the credential the runtime would use
+/// (env over stored, [`select_whoami_credential`]), and send one
+/// forced-bearer GET to `api_root/v1/whoami` with the no-redirect probe
+/// client. Never prompts, never prints, and never writes the credential
+/// store: cached identity fields on a stored record are deliberately not
+/// refreshed.
+///
+/// `discovery_auth` is the policy for the discovery fetch: unlike login
+/// (which is unauthenticated because no credential exists yet), whoami
+/// runs when a credential does exist, and a private index may gate its
+/// discovery document, so the CLI passes its regular read policy here.
+///
+/// An absent keyring backend degrades to env-only selection; a locked or
+/// denied backend is a hard error the caller must surface, like the other
+/// auth commands.
+pub fn do_auth_whoami<S: CredentialStore, P: HTTPAuthentication>(
+    store: &S,
+    index_url: &str,
+    env_bearers: &GlobMap<EnvBearerAuth>,
+    discovery_auth: &P,
+    client: &reqwest_middleware::ClientWithMiddleware,
+    runtime: &tokio::runtime::Runtime,
+) -> Result<AuthWhoamiOutcome, AuthCommandError> {
+    let key = validated_index_key(index_url)?;
+    let location = IndexLocation::parse(&key)
+        .map_err(|err| AuthCommandError::InvalidIndexUrl(format!("`{key}`: {err}")))?;
+
+    let endpoints = runtime
+        .block_on(fetch_index_config(client, discovery_auth, &location))
+        .map_err(|err| AuthCommandError::WhoamiDiscoveryFailed {
+            index: key.clone(),
+            error: err.to_string(),
+        })?;
+    // Only an explicitly advertised API is asked (the same
+    // `api_root_advertised` gate as login's validation probes): a static
+    // index's plain-URL runtime default is not an identity endpoint.
+    if !endpoints.api_root_advertised {
+        return Err(AuthCommandError::NoAdvertisedApi { index: key });
+    }
+    let Some(api_root) = &endpoints.api_root else {
+        // `api_root_advertised` implies `api_root` is `Some`; keep a
+        // non-panicking path anyway.
+        return Err(AuthCommandError::NoAdvertisedApi { index: key });
+    };
+    // `api_root` always ends in `/` (discovery normalizes it), so the
+    // join appends rather than replacing the last segment.
+    let whoami_url =
+        api_root
+            .join("v1/whoami")
+            .map_err(|err| AuthCommandError::WhoamiDiscoveryFailed {
+                index: key.clone(),
+                error: format!("could not build the whoami URL: {err}"),
+            })?;
+
+    let records = match store.list() {
+        Ok(records) => records,
+        // No keyring backend: only env credentials can apply. A locked or
+        // denied backend propagates instead: "no credential, run login"
+        // would be the wrong remediation for an unlockable store.
+        Err(CredentialStoreError::BackendAbsent { .. }) => Vec::new(),
+        Err(err) => return Err(err.into()),
+    };
+    let (source, token) = select_whoami_credential(env_bearers, &records, &whoami_url, &key)?;
+
+    let verdict = match probe_client() {
+        Err(err) => WhoamiVerdict::Unreachable {
+            detail: format!("could not build the probe HTTP client: {err}"),
+        },
+        Ok(probe) => match probe_get(runtime, &probe, &whoami_url, Some(&token)) {
+            Err(error) => WhoamiVerdict::Unreachable { detail: error },
+            Ok(response) => {
+                let status = response.status();
+                if status == reqwest::StatusCode::OK {
+                    let parsed = runtime
+                        .block_on(response.bytes())
+                        .map_err(|err| err.to_string())
+                        .and_then(|body| {
+                            serde_json::from_slice::<WhoamiBody>(&body)
+                                .map_err(|err| err.to_string())
+                        });
+                    let identity = match parsed {
+                        Ok(body) => Some(WhoamiIdentity {
+                            subject: CredentialSubject {
+                                kind: body.subject.kind,
+                                name: body.subject.name,
+                            },
+                            token_name: body.token.name,
+                            token_prefix: body.token.prefix,
+                            expires_at: body.token.expires_at,
+                        }),
+                        // Lenient: the 200 is the verdict; an unparseable
+                        // body only loses the details.
+                        Err(err) => {
+                            log::debug!("whoami body was not read: {err}");
+                            None
+                        }
+                    };
+                    WhoamiVerdict::Identified { identity }
+                } else if status == reqwest::StatusCode::UNAUTHORIZED {
+                    WhoamiVerdict::Rejected
+                } else if status.is_redirection() {
+                    WhoamiVerdict::Unreachable {
+                        detail: format!(
+                            "redirected to `{}`; whoami does not follow redirects",
+                            redirect_target(&response)
+                        ),
+                    }
+                } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                    WhoamiVerdict::Unreachable {
+                        detail: "rate limited (HTTP 429)".to_string(),
+                    }
+                } else {
+                    WhoamiVerdict::Unreachable {
+                        detail: format!("unexpected status {status}"),
+                    }
+                }
+            }
+        },
+    };
+    Ok(AuthWhoamiOutcome {
+        key,
+        whoami_url,
+        source,
+        verdict,
+    })
 }
 
 /// Assemble the `auth status` view from stored records and environment

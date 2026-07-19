@@ -1479,6 +1479,30 @@ pub enum AuthCommand {
         )]
         default_index: Vec<String>,
     },
+    /// Show who the index API identifies you as: sends one authenticated
+    /// request to the index API (`v1/whoami`) with the credential sysand
+    /// would use (`SYSAND_CRED_*` environment credentials take precedence
+    /// over stored logins). Query-only: nothing is stored or refreshed
+    #[clap(verbatim_doc_comment)]
+    Whoami {
+        /// Index URL to query (e.g. https://sysand.com).
+        /// URL templates (see --index under resolution options) are
+        /// accepted; the index must advertise an API in its discovery
+        /// configuration. Defaults to the default index
+        #[clap(verbatim_doc_comment)]
+        index_url: Option<String>,
+        /// Comma-delimited list of URLs to use as default index URLs.
+        /// This command targets a single index, so more than one
+        /// default index requires an explicit index URL instead
+        #[arg(
+            long,
+            num_args = 0..,
+            env = env_vars::SYSAND_DEFAULT_INDEX,
+            value_delimiter = ',',
+            verbatim_doc_comment
+        )]
+        default_index: Vec<String>,
+    },
     /// Remove a stored index login
     Logout {
         /// Index URL to log out from (e.g. https://sysand.com).

@@ -75,11 +75,12 @@ The collapsed situation space:
 
 Under a `sysand auth` namespace:
 
-| Command                          | Role                                                                            |
-| -------------------------------- | ------------------------------------------------------------------------------- |
-| `sysand auth login [index-url]`  | validated, index-keyed bearer credential (see §5); no URL = the default index   |
-| `sysand auth logout [index-url]` | remove an index login; no URL = the default index (symmetric with `login`)      |
-| `sysand auth status`             | list stored credentials (never secrets), backend, and `SYSAND_CRED_*` shadowing |
+| Command                          | Role                                                                                                                                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sysand auth login [index-url]`  | validated, index-keyed bearer credential (see §5); no URL = the default index                                                                                                         |
+| `sysand auth logout [index-url]` | remove an index login; no URL = the default index (symmetric with `login`)                                                                                                            |
+| `sysand auth status`             | list stored credentials (never secrets), backend, and `SYSAND_CRED_*` shadowing                                                                                                       |
+| `sysand auth whoami [index-url]` | query-only live identity via `v1/whoami` (advertised `api_root` required), with runtime credential selection (env over stored, §7); names the source used; no URL = the default index |
 
 - **Bearer only in v1.** The token is entered via a hidden prompt
   ("Enter token for `<index>`:", neutral wording since the credential may be
@@ -308,6 +309,11 @@ two-leg flow and trusted publishing are otherwise unchanged.
   client clock could false-trip), publish stops before uploading the archive
   and points at `sysand auth login`. The server's `401` remains the real
   authority; the escape hatches are re-login or an env var.
+
+Target-defaulting principle: irreversible remote effects require an
+explicit target (`sysand publish --index` stays required), while
+reversible local effects (an `auth login` writing a record that `auth
+logout` removes) may fall back to the default index.
 
 ## 8. Glob scoping and conflict resolution
 

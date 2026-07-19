@@ -1381,3 +1381,162 @@ mod login {
         assert_eq!(store.list().unwrap()[0].secret, "tok");
     }
 }
+
+// select_whoami_credential (auth whoami)
+
+mod whoami {
+    use url::Url;
+
+    use super::super::{AuthCommandError, WhoamiCredentialSource, select_whoami_credential};
+    use super::record;
+    use crate::auth::{EnvBearerAuth, ForceBearerAuth, GlobMap, GlobMapBuilder};
+
+    const INDEX_KEY: &str = "https://example.com/";
+
+    fn whoami_url() -> Url {
+        Url::parse("https://example.com/api/v1/whoami").unwrap()
+    }
+
+    fn env_map(entries: &[(&str, &str, &str)]) -> GlobMap<EnvBearerAuth> {
+        let mut builder = GlobMapBuilder::new();
+        for (label, pattern, token) in entries {
+            builder.add(
+                pattern,
+                EnvBearerAuth {
+                    auth: ForceBearerAuth::new(token),
+                    label: Some((*label).to_string()),
+                },
+            );
+        }
+        builder.build().unwrap()
+    }
+
+    #[test]
+    fn env_credential_wins_over_a_stored_login() {
+        let env = env_map(&[("TEAM", "https://example.com/**", "env-tok")]);
+        let records = [record(INDEX_KEY, "stored-tok")];
+
+        let (source, token) =
+            select_whoami_credential(&env, &records, &whoami_url(), INDEX_KEY).unwrap();
+
+        assert_eq!(
+            source,
+            WhoamiCredentialSource::Env {
+                label: Some("TEAM".to_string())
+            }
+        );
+        assert_eq!(token, "env-tok");
+    }
+
+    #[test]
+    fn stored_login_is_selected_when_no_env_credential_matches() {
+        let env = env_map(&[("OTHER", "https://other.example/**", "env-tok")]);
+        let records = [record(INDEX_KEY, "stored-tok")];
+
+        let (source, token) =
+            select_whoami_credential(&env, &records, &whoami_url(), INDEX_KEY).unwrap();
+
+        assert_eq!(
+            source,
+            WhoamiCredentialSource::Stored {
+                key: INDEX_KEY.to_string()
+            }
+        );
+        assert_eq!(token, "stored-tok");
+    }
+
+    #[test]
+    fn distinct_ambiguous_env_credentials_are_refused() {
+        let env = env_map(&[
+            ("A", "https://example.com/**", "tok-a"),
+            ("B", "https://example.com/api/**", "tok-b"),
+        ]);
+
+        let err = select_whoami_credential(&env, &[], &whoami_url(), INDEX_KEY).unwrap_err();
+
+        assert!(
+            matches!(
+                &err,
+                AuthCommandError::AmbiguousWhoamiCredential { candidates: 2, .. }
+            ),
+            "unexpected error: {err}"
+        );
+        assert!(err.to_string().contains("SYSAND_CRED_"));
+    }
+
+    #[test]
+    fn overlapping_env_globs_with_one_token_collapse_to_one_credential() {
+        // Overlapping patterns carrying the same token are one credential,
+        // not an ambiguity (mirrors the runtime's token dedup).
+        let env = env_map(&[
+            ("A", "https://example.com/**", "same-tok"),
+            ("B", "https://example.com/api/**", "same-tok"),
+        ]);
+
+        let (source, token) =
+            select_whoami_credential(&env, &[], &whoami_url(), INDEX_KEY).unwrap();
+
+        assert_eq!(
+            source,
+            WhoamiCredentialSource::Env {
+                label: Some("A".to_string())
+            }
+        );
+        assert_eq!(token, "same-tok");
+    }
+
+    #[test]
+    fn distinct_ambiguous_stored_logins_are_refused() {
+        let env = env_map(&[]);
+        let mut narrower = record("https://example.com/api/", "tok-b");
+        narrower.globs = vec!["https://example.com/api/**".to_string()];
+        let records = [record(INDEX_KEY, "tok-a"), narrower];
+
+        let err = select_whoami_credential(&env, &records, &whoami_url(), INDEX_KEY).unwrap_err();
+
+        assert!(
+            matches!(
+                &err,
+                AuthCommandError::AmbiguousWhoamiCredential { candidates: 2, .. }
+            ),
+            "unexpected error: {err}"
+        );
+        assert!(err.to_string().contains("stored logins"));
+    }
+
+    #[test]
+    fn invalid_stored_glob_is_skipped_without_hiding_the_record() {
+        // One bad pattern must not hide the record's other patterns (nor
+        // the other records): each glob is compiled individually.
+        let env = env_map(&[]);
+        let mut broken = record(INDEX_KEY, "stored-tok");
+        broken.globs = vec!["[invalid".to_string(), "https://example.com/**".to_string()];
+
+        let (source, token) =
+            select_whoami_credential(&env, &[broken], &whoami_url(), INDEX_KEY).unwrap();
+
+        assert_eq!(
+            source,
+            WhoamiCredentialSource::Stored {
+                key: INDEX_KEY.to_string()
+            }
+        );
+        assert_eq!(token, "stored-tok");
+    }
+
+    #[test]
+    fn no_matching_credential_suggests_login_for_the_index() {
+        let env = env_map(&[("OTHER", "https://other.example/**", "tok")]);
+
+        let err = select_whoami_credential(&env, &[], &whoami_url(), INDEX_KEY).unwrap_err();
+
+        assert!(
+            matches!(&err, AuthCommandError::NoWhoamiCredential { .. }),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.to_string()
+                .contains("sysand auth login https://example.com/")
+        );
+    }
+}

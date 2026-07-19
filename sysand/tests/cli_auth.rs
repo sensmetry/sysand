@@ -698,3 +698,180 @@ fn auth_login_prompts_hidden_on_a_terminal() -> TestResult {
     // it may appear is the seam store file.
     Ok(())
 }
+
+// `sysand auth whoami`
+//
+// Query-only live identity check against `api_root/v1/whoami`. Discovery
+// and the whoami request go to a local mockito server; credentials come
+// from the seam store or `SYSAND_CRED_*` variables, never a real keyring.
+
+const WHOAMI_BODY: &str = r#"{
+    "subject": {"type": "user", "name": "alice"},
+    "token": {"name": "laptop", "prefix": "sysand_u_1a2b3c4d",
+              "expires_at": "2999-09-01T00:00:00Z"}}"#;
+
+/// Discovery answering with an advertised `api_root` under `/api/` on the
+/// same server.
+fn mock_api_discovery(server: &mut mockito::Server) -> mockito::Mock {
+    server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(format!(r#"{{"api_root": "{}/api/"}}"#, server.url()))
+        .create()
+}
+
+/// A seam store blob holding one stored login for the server root.
+fn seed_stored_login(
+    store_path: &camino::Utf8Path,
+    server_url: &str,
+    secret: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    fs::write(
+        store_path,
+        format!(
+            r#"{{"version":1,"credentials":[{{
+                "key":"{server_url}/",
+                "globs":["{server_url}/**"],
+                "scheme":"bearer",
+                "secret":"{secret}"}}]}}"#
+        ),
+    )?;
+    Ok(())
+}
+
+#[test]
+fn auth_whoami_with_a_stored_login_renders_the_identity() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    let env = seam_env(&store_path);
+    let mut server = mockito::Server::new();
+    let _config = mock_api_discovery(&mut server);
+    let _whoami = server
+        .mock("GET", "/api/v1/whoami")
+        .match_header("authorization", "Bearer sekrit-whoami-tok")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(WHOAMI_BODY)
+        .create();
+    seed_stored_login(&store_path, &server.url(), "sekrit-whoami-tok")?;
+
+    let (_t, _c, out) = run_sysand_with(["auth", "whoami", &server.url()], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "Checking identity on index `{}/`",
+            server.url()
+        )))
+        .stdout(predicate::str::contains(format!(
+            "using stored login for `{}/`",
+            server.url()
+        )))
+        .stdout(predicate::str::contains("subject: user alice"))
+        .stdout(predicate::str::contains("token name: laptop"))
+        .stdout(predicate::str::contains("token prefix: sysand_u_1a2b3c4d"))
+        .stdout(predicate::str::contains("expires in"))
+        .stdout(predicate::str::contains("sekrit-whoami-tok").not());
+    Ok(())
+}
+
+#[test]
+fn auth_whoami_reports_a_rejected_credential_with_the_source() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    let env = seam_env(&store_path);
+    let mut server = mockito::Server::new();
+    let _config = mock_api_discovery(&mut server);
+    let _whoami = server
+        .mock("GET", "/api/v1/whoami")
+        .with_status(401)
+        .create();
+    seed_stored_login(&store_path, &server.url(), "stale-tok")?;
+
+    let (_t, _c, out) = run_sysand_with(["auth", "whoami", &server.url()], None, &env)?;
+    out.assert()
+        .failure()
+        .stdout(predicate::str::contains("using stored login for"))
+        .stderr(predicate::str::contains("rejected the credential"))
+        .stderr(predicate::str::contains("sysand auth login"));
+    Ok(())
+}
+
+#[test]
+fn auth_whoami_env_credential_wins_over_a_stored_login() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    let mut server = mockito::Server::new();
+    let mut env = seam_env(&store_path);
+    env.insert(
+        "SYSAND_CRED_WTEST".to_string(),
+        format!("{}/**", server.url()),
+    );
+    env.insert(
+        "SYSAND_CRED_WTEST_BEARER_TOKEN".to_string(),
+        "env-tok".to_string(),
+    );
+    let _config = mock_api_discovery(&mut server);
+    // The mock only matches the env token: a stored-token request would
+    // 501, so success proves source precedence.
+    let _whoami = server
+        .mock("GET", "/api/v1/whoami")
+        .match_header("authorization", "Bearer env-tok")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(WHOAMI_BODY)
+        .create();
+    seed_stored_login(&store_path, &server.url(), "shadowed-stored-tok")?;
+
+    let (_t, _c, out) = run_sysand_with(["auth", "whoami", &server.url()], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "using credential from `SYSAND_CRED_WTEST`",
+        ))
+        .stdout(predicate::str::contains("subject: user alice"));
+    Ok(())
+}
+
+#[test]
+fn auth_whoami_without_a_matching_credential_suggests_login() -> TestResult {
+    // The seam store file does not exist: no stored logins.
+    let (_store_dir, store_path) = seam_store()?;
+    let env = seam_env(&store_path);
+    let mut server = mockito::Server::new();
+    let _config = mock_api_discovery(&mut server);
+
+    let (_t, _c, out) = run_sysand_with(["auth", "whoami", &server.url()], None, &env)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("no credential matches"))
+        .stderr(predicate::str::contains("sysand auth login"));
+    Ok(())
+}
+
+#[test]
+fn auth_whoami_errors_when_the_index_does_not_advertise_an_api() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    let env = seam_env(&store_path);
+    let mut server = mockito::Server::new();
+    // No discovery document: the plain-URL runtime default is not an
+    // advertised API, so there is nothing to ask.
+    let _config = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(404)
+        .create();
+    seed_stored_login(&store_path, &server.url(), "tok")?;
+
+    let (_t, _c, out) = run_sysand_with(["auth", "whoami", &server.url()], None, &env)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains("does not advertise an API"));
+    Ok(())
+}
+
+#[test]
+fn auth_whoami_rejects_a_non_http_index() -> TestResult {
+    // Fails during target validation, before any credential store access.
+    let (_temp_dir, _cwd, out) = run_sysand(["auth", "whoami", "file:///srv/index"], None)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(NOT_HTTP_MESSAGE));
+    Ok(())
+}

@@ -51,7 +51,7 @@ use crate::{
     cli::{Args, AuthCommand, Command, ExpCommand},
     commands::{
         add::{ExpAddArgs, command_add, exp_command_add},
-        auth::{command_auth_login, command_auth_logout, command_auth_status},
+        auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
         build::{command_build_for_project, command_build_for_workspace},
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
@@ -233,6 +233,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     &client,
                     runtime,
                 ),
+                AuthCommand::Whoami {
+                    index_url,
+                    default_index,
+                } => command_auth_whoami(index_url, &default_index, &config, &client, &runtime),
                 AuthCommand::Logout {
                     index_url,
                     default_index,

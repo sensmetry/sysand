@@ -112,6 +112,15 @@ impl ForceBearerAuth {
     pub fn new<S: AsRef<str>>(token: S) -> ForceBearerAuth {
         Self(token.as_ref().into())
     }
+
+    /// The raw token, for callers that send the credential outside a
+    /// policy chain (the `auth whoami` probe). Crate-private so the
+    /// secret never leaks into the public API; gated like
+    /// `commands::auth`, its only consumer.
+    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    pub(crate) fn token(&self) -> &str {
+        &self.0
+    }
 }
 
 impl HTTPAuthentication for ForceBearerAuth {
