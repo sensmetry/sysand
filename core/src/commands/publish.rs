@@ -17,8 +17,13 @@ use thiserror::Error;
 use url::Url;
 use zip::result::ZipError;
 
+use chrono::{DateTime, TimeDelta, Utc};
+
 use crate::{
-    auth::{ForceBearerAuth, GlobMap, GlobMapResult, HTTPAuthentication},
+    auth::{
+        EnvBearerAuth, ForceBearerAuth, GlobMap, GlobMapResult, HTTPAuthentication,
+        StoredBearerAuth,
+    },
     env::discovery::{HttpBaseUrlShapeError, validate_http_base_url_shape},
     include::{IncludeError, extract_symbols},
     index_location::IndexLocation,
@@ -207,10 +212,26 @@ pub fn do_publish(
     prepared: PublishPreparation,
     discovery_root: IndexLocation,
     api_root: Url,
-    auth: ForceBearerAuth,
+    bearer: SelectedPublishBearer,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<PublishResponse, PublishError> {
+    // Fail fast on a clearly expired stored login before uploading the
+    // archive (design/credential-storage.md section 7). The server's 401
+    // remains the authority: only an expiry past the skew margin stops
+    // here, and an env credential (no known expiry) always proceeds.
+    if let PublishBearerProvenance::Stored {
+        key,
+        expires_at: Some(expires_at),
+    } = &bearer.provenance
+        && stored_bearer_clearly_expired(*expires_at, Utc::now())
+    {
+        return Err(PublishError::StoredCredentialExpired {
+            key: key.clone(),
+            expires_at: *expires_at,
+        });
+    }
+
     let header = crate::style::get_style_config().header;
     // Caller is expected to have run discovery and passed the resolved
     // `api_root`. `discovery_root` is the user-facing URL (what was
@@ -253,8 +274,12 @@ pub fn do_publish(
         c.post(upload_url.clone()).multipart(form)
     };
 
-    let response =
-        runtime.block_on(async { auth.with_authentication(&client, &build_request).await })?;
+    let response = runtime.block_on(async {
+        bearer
+            .auth
+            .with_authentication(&client, &build_request)
+            .await
+    })?;
 
     let status = response.status().as_u16();
     let response_url = response.url().to_string();
@@ -268,7 +293,14 @@ pub fn do_publish(
         status
     );
 
-    map_publish_response(status, &body_bytes)
+    map_publish_response(status, &body_bytes, &bearer.provenance)
+}
+
+/// Whether a stored login's known expiry is clearly past: beyond a small
+/// skew margin, so a fast client clock cannot false-trip the pre-upload
+/// stop (design/credential-storage.md section 7).
+fn stored_bearer_clearly_expired(expires_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    now.signed_duration_since(expires_at) > TimeDelta::seconds(60)
 }
 
 /// Validate the shape of the resolved `api_root` that comes back from
@@ -322,6 +354,40 @@ pub enum PublishBearerSource {
     Keyring,
 }
 
+/// The bearer credential publish selected for the upload, with the
+/// provenance an auth failure must name (design/credential-storage.md
+/// section 7).
+#[derive(Clone)]
+pub struct SelectedPublishBearer {
+    pub auth: ForceBearerAuth,
+    pub provenance: PublishBearerProvenance,
+}
+
+impl std::fmt::Debug for SelectedPublishBearer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Redacts the token: only the non-secret provenance is shown.
+        f.debug_struct("SelectedPublishBearer")
+            .field("provenance", &self.provenance)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Where the selected publish bearer came from, carrying the non-secret
+/// fields the auth-failure messages and the pre-upload expiry check need.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PublishBearerProvenance {
+    /// A `SYSAND_CRED_*` environment credential; `label` is the
+    /// `SYSAND_CRED_<LABEL>` stem when known.
+    Env { label: Option<String> },
+    /// A stored login (`sysand auth login`) for the given index key.
+    Stored {
+        key: String,
+        expires_at: Option<DateTime<Utc>>,
+    },
+    /// A short-lived token acquired via CI trusted publishing.
+    TrustedPublishing,
+}
+
 impl PublishBearerSource {
     fn name(self) -> &'static str {
         match self {
@@ -356,14 +422,14 @@ impl PublishBearerSource {
 /// publishing) never touches the credential store
 /// (design/credential-storage.md, section 7).
 pub fn resolve_publish_bearer(
-    env_bearers: &GlobMap<ForceBearerAuth>,
-    stored_bearers: impl FnOnce() -> GlobMap<ForceBearerAuth>,
+    env_bearers: &GlobMap<EnvBearerAuth>,
+    stored_bearers: impl FnOnce() -> GlobMap<StoredBearerAuth>,
     api_root: &Url,
     mode: TrustedPublishingMode,
     env: &TrustedPublishingEnvironment,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
-) -> Result<ForceBearerAuth, PublishError> {
+) -> Result<SelectedPublishBearer, PublishError> {
     let upload_url = build_upload_url(api_root);
     match mode {
         TrustedPublishingMode::Auto => {
@@ -388,16 +454,27 @@ pub fn resolve_publish_bearer(
 /// `stored_bearers` provider invoked and its map tried, under the same
 /// single-match rule.
 fn resolve_publish_bearer_from_config(
-    env_bearers: &GlobMap<ForceBearerAuth>,
-    stored_bearers: impl FnOnce() -> GlobMap<ForceBearerAuth>,
+    env_bearers: &GlobMap<EnvBearerAuth>,
+    stored_bearers: impl FnOnce() -> GlobMap<StoredBearerAuth>,
     upload_url: &Url,
-) -> Result<ForceBearerAuth, PublishError> {
-    if let Some(token) = lookup_publish_bearer(env_bearers, PublishBearerSource::Env, upload_url)? {
-        return Ok(token);
+) -> Result<SelectedPublishBearer, PublishError> {
+    if let Some(entry) = lookup_publish_bearer(env_bearers, PublishBearerSource::Env, upload_url)? {
+        return Ok(SelectedPublishBearer {
+            auth: entry.auth.clone(),
+            provenance: PublishBearerProvenance::Env {
+                label: entry.label.clone(),
+            },
+        });
     }
     let stored = stored_bearers();
-    if let Some(token) = lookup_publish_bearer(&stored, PublishBearerSource::Keyring, upload_url)? {
-        return Ok(token);
+    if let Some(entry) = lookup_publish_bearer(&stored, PublishBearerSource::Keyring, upload_url)? {
+        return Ok(SelectedPublishBearer {
+            auth: entry.auth().clone(),
+            provenance: PublishBearerProvenance::Stored {
+                key: entry.key().to_string(),
+                expires_at: entry.expires_at(),
+            },
+        });
     }
     Err(PublishError::NoPublishBearer {
         upload_url: upload_url.as_str().into(),
@@ -407,13 +484,13 @@ fn resolve_publish_bearer_from_config(
 /// Look `upload_url` up in one source's bearer map: a unique match wins, an
 /// ambiguous match errors naming the source, and no match returns `None` so
 /// the caller can fall through to the next source.
-fn lookup_publish_bearer(
-    map: &GlobMap<ForceBearerAuth>,
+fn lookup_publish_bearer<'a, T>(
+    map: &'a GlobMap<T>,
     source: PublishBearerSource,
     upload_url: &Url,
-) -> Result<Option<ForceBearerAuth>, PublishError> {
+) -> Result<Option<&'a T>, PublishError> {
     match map.lookup(upload_url.as_str()) {
-        GlobMapResult::Found(_, token) => Ok(Some(token.clone())),
+        GlobMapResult::Found(_, entry) => Ok(Some(entry)),
         GlobMapResult::Ambiguous(candidates) => Err(PublishError::AmbiguousPublishBearer {
             upload_url: upload_url.as_str().into(),
             bearer_source: source,
@@ -428,7 +505,7 @@ fn acquire_trusted_publishing_bearer(
     api_root: &Url,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &Arc<tokio::runtime::Runtime>,
-) -> Result<ForceBearerAuth, PublishError> {
+) -> Result<SelectedPublishBearer, PublishError> {
     log::debug!("trusted publishing: using {provider:?}");
     let provider_token = match provider {
         SelectedTrustedPublishingProvider::Github {
@@ -440,7 +517,10 @@ fn acquire_trusted_publishing_bearer(
     let index_token =
         exchange_oidc_token_for_index_token(api_root, &provider_token, client, runtime)?;
 
-    Ok(ForceBearerAuth::new(index_token))
+    Ok(SelectedPublishBearer {
+        auth: ForceBearerAuth::new(index_token),
+        provenance: PublishBearerProvenance::TrustedPublishing,
+    })
 }
 
 /// Ask the GitHub Actions runner OIDC endpoint for a token with the `sysand`
@@ -892,6 +972,23 @@ pub enum PublishError {
     #[error("authentication failed: {0}")]
     AuthError(String),
 
+    #[error("{}", publish_auth_failed_message(*.status, .detail, .provenance))]
+    PublishAuthFailed {
+        status: u16,
+        detail: String,
+        provenance: PublishBearerProvenance,
+    },
+
+    #[error(
+        "the stored login for `{key}` expired at {expires_at}, so publish stopped\n\
+         before uploading; re-run `sysand auth login {key}` to store a fresh token\n\
+         (a matching `SYSAND_CRED_*` environment credential would take precedence instead)"
+    )]
+    StoredCredentialExpired {
+        key: String,
+        expires_at: DateTime<Utc>,
+    },
+
     #[error("conflict: package version already exists: {0}")]
     Conflict(String),
 
@@ -1270,7 +1367,11 @@ fn check_metamodel(metamodel: &str) -> Result<AllowedMetamodelKind, PublishError
 }
 
 /// Maps an HTTP status and body to a `PublishResponse` or `PublishError`.
-fn map_publish_response(status: u16, body_bytes: &[u8]) -> Result<PublishResponse, PublishError> {
+fn map_publish_response(
+    status: u16,
+    body_bytes: &[u8],
+    provenance: &PublishBearerProvenance,
+) -> Result<PublishResponse, PublishError> {
     match status {
         200 => Ok(PublishResponse {
             status,
@@ -1283,7 +1384,11 @@ fn map_publish_response(status: u16, body_bytes: &[u8]) -> Result<PublishRespons
             is_new_project: true,
         }),
         400 => Err(PublishError::BadRequest(error_body_to_string(body_bytes))),
-        401 | 403 => Err(PublishError::AuthError(error_body_to_string(body_bytes))),
+        401 | 403 => Err(publish_auth_error(
+            status,
+            error_body_to_string(body_bytes),
+            provenance,
+        )),
         404 => Err(PublishError::NotFound(error_body_to_string(body_bytes))),
         409 => Err(PublishError::Conflict(error_body_to_string(body_bytes))),
         _ => Err(PublishError::ServerError {
@@ -1291,6 +1396,75 @@ fn map_publish_response(status: u16, body_bytes: &[u8]) -> Result<PublishRespons
             body: error_body_to_string(body_bytes),
         }),
     }
+}
+
+/// Build the error for a 401/403 upload response. Configured credentials
+/// get the source-named message (design/credential-storage.md section 7);
+/// a trusted-publishing token has no user-fixable source, so it keeps the
+/// generic wording.
+fn publish_auth_error(
+    status: u16,
+    detail: String,
+    provenance: &PublishBearerProvenance,
+) -> PublishError {
+    match provenance {
+        PublishBearerProvenance::TrustedPublishing => PublishError::AuthError(detail),
+        _ => PublishError::PublishAuthFailed {
+            status,
+            detail,
+            provenance: provenance.clone(),
+        },
+    }
+}
+
+/// The source-named upload auth-failure message (design section 7):
+/// because env credentials shadow stored logins, "re-run `sysand auth
+/// login`" would be the wrong fix for a stale `SYSAND_CRED_*` bearer, so
+/// the message states where the selected bearer came from and tailors the
+/// remediation. A 403 is authorization, not authentication: it
+/// additionally points at `sysand auth status`, whose stored `subject`
+/// catches a token for a different project or account.
+fn publish_auth_failed_message(
+    status: u16,
+    detail: &str,
+    provenance: &PublishBearerProvenance,
+) -> String {
+    let mut message = if status == 401 {
+        format!("authentication failed (HTTP 401): {detail}")
+    } else {
+        format!("authorization failed (HTTP {status}): {detail}")
+    };
+    match provenance {
+        PublishBearerProvenance::Env { label: Some(label) } => {
+            message.push_str(&format!(
+                "\nthe publish credential came from `SYSAND_CRED_{label}`; unset it or rotate\n\
+                 `SYSAND_CRED_{label}_BEARER_TOKEN` (environment credentials take precedence\n\
+                 over stored logins, so `sysand auth login` alone cannot replace it)"
+            ));
+        }
+        PublishBearerProvenance::Env { label: None } => {
+            message.push_str(
+                "\nthe publish credential came from a `SYSAND_CRED_*` environment variable;\n\
+                 unset it or rotate its `_BEARER_TOKEN` value (environment credentials take\n\
+                 precedence over stored logins, so `sysand auth login` alone cannot replace it)",
+            );
+        }
+        PublishBearerProvenance::Stored { key, .. } => {
+            message.push_str(&format!(
+                "\nthe publish credential came from your stored login for `{key}`;\n\
+                 re-run `sysand auth login {key}` to store a fresh token"
+            ));
+        }
+        // `publish_auth_error` never routes trusted publishing here.
+        PublishBearerProvenance::TrustedPublishing => {}
+    }
+    if status == 403 {
+        message.push_str(
+            "\nrun `sysand auth status` to check which subject the credential authenticates\n\
+             as; a token for a different project or account cannot publish here",
+        );
+    }
+    message
 }
 
 #[derive(Deserialize)]

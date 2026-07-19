@@ -776,23 +776,37 @@ fn assert_publish_error_status(
 
 #[test]
 fn publish_401_maps_to_auth_error() -> TestResult {
+    // The bearer came from the `SYSAND_CRED_TEST` environment credential,
+    // so the failure names that source with the env remediation
+    // (design/credential-storage.md section 7).
     assert_publish_error_status(
         "publish-auth-401",
         401,
         "unauthorized",
         None,
-        &["authentication failed", "unauthorized"],
+        &[
+            "authentication failed",
+            "unauthorized",
+            "came from `SYSAND_CRED_TEST`",
+            "SYSAND_CRED_TEST_BEARER_TOKEN",
+        ],
     )
 }
 
 #[test]
 fn publish_403_maps_to_auth_error() -> TestResult {
+    // 403 additionally points at `sysand auth status`.
     assert_publish_error_status(
         "publish-auth-403",
         403,
         "forbidden",
         None,
-        &["authentication failed", "forbidden"],
+        &[
+            "authorization failed",
+            "forbidden",
+            "came from `SYSAND_CRED_TEST`",
+            "run `sysand auth status`",
+        ],
     )
 }
 

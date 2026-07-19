@@ -1020,6 +1020,128 @@ mod login {
         assert_eq!(record.expires_at, None);
     }
 
+    // 429 carve-out (design/credential-storage.md section 5): a 429 is
+    // never a verdict, so rate limiting can never refuse a credential.
+
+    #[test]
+    fn validated_login_treats_a_rate_limited_baseline_as_not_tested() {
+        // A 429 baseline sends no forced retry (it would spend more of
+        // the rate budget and prove nothing): stored, not validated.
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let baseline = server
+            .mock("GET", "/index.json")
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(429)
+            .expect(1)
+            .create();
+        let forced = server
+            .mock("GET", "/index.json")
+            .match_header("authorization", "Bearer tok")
+            .expect(0)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert!(validated.is_empty(), "429 must not validate: {validated:?}");
+        assert_eq!(
+            notices,
+            vec![AuthLoginNotice::ProbeRateLimited {
+                surface: ProbeSurface::Read,
+            }]
+        );
+        baseline.assert();
+        forced.assert();
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
+    }
+
+    #[test]
+    fn validated_login_stores_when_the_forced_retry_is_rate_limited() {
+        // Formerly false-refusing sequence: baseline 401, forced 429
+        // counted as rejected and refused a possibly valid token. Now the
+        // surface is not tested and the credential is stored with a
+        // rate-limited warning.
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let (unauth, forced) = private_index_json(&mut server, "tok", 429);
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert!(validated.is_empty(), "429 must not validate: {validated:?}");
+        assert_eq!(
+            notices,
+            vec![AuthLoginNotice::ProbeRateLimited {
+                surface: ProbeSurface::Read,
+            }]
+        );
+        unauth.assert();
+        forced.assert();
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
+    }
+
+    #[test]
+    fn validated_login_treats_a_rate_limited_whoami_as_not_tested() {
+        // Public read, advertised API, whoami rate limited: nothing was
+        // tested, so the credential stores as "not validated" instead of
+        // being refused by the throttle.
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
+        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let whoami = server
+            .mock("GET", "/api/v1/whoami")
+            .with_status(429)
+            .expect(1)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert!(validated.is_empty(), "429 must not validate: {validated:?}");
+        assert_eq!(
+            notices,
+            vec![AuthLoginNotice::ProbeRateLimited {
+                surface: ProbeSurface::Api,
+            }]
+        );
+        whoami.assert();
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
+    }
+
+    #[test]
+    fn validated_login_validates_api_when_read_is_rate_limited() {
+        // A throttled read surface must not mask a working API probe: the
+        // stored claim is scoped to what actually accepted.
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
+        let _index = server.mock("GET", "/index.json").with_status(429).create();
+        let _whoami = server
+            .mock("GET", "/api/v1/whoami")
+            .match_header("authorization", "Bearer tok")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(WHOAMI_BODY)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &server.url(), "tok", None);
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert_eq!(validated, vec![ProbeSurface::Api]);
+        assert_eq!(
+            notices,
+            vec![AuthLoginNotice::ProbeRateLimited {
+                surface: ProbeSurface::Read,
+            }]
+        );
+    }
+
     #[test]
     fn login_without_validation_sends_no_probe_requests() {
         // `--validation false` preserves the pre-validation behavior

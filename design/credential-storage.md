@@ -186,7 +186,8 @@ actually tested_, warning about any surface that rejected or was
 unreachable. Refuse only when at least one exercised surface rejected the
 credential and none accepted it. A surface counts as "tested" only if the
 credential was exercised: a _public_ read surface returns 200 without
-sending the credential, so it proves nothing. If nothing exercised the
+sending the credential, so it proves nothing. A 429 response is never a
+verdict; a rate-limited probe counts the surface as not tested. If nothing exercised the
 credential (fully public read with no API, or every probe unreachable),
 store as "stored, not validated".
 

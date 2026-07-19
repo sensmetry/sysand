@@ -3,8 +3,12 @@
 
 //! This module includes utilities for creating and using authentication policies for requests.
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
+use chrono::{DateTime, Utc};
 use globset::{GlobBuilder, GlobSetBuilder};
 use reqwest::{Response, header};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
@@ -391,7 +395,14 @@ impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthe
 #[derive(Debug, Clone)]
 pub enum StandardInnerAuthentication {
     HTTPBasicAuth(ForceHTTPBasicAuth),
-    BearerAuth(ForceBearerAuth),
+    BearerAuth {
+        auth: ForceBearerAuth,
+        /// The `SYSAND_CRED_<LABEL>` stem this bearer came from, when it
+        /// was built from environment variables. Display-only: publish
+        /// auth failures name the variable to fix
+        /// (design/credential-storage.md section 7).
+        env_label: Option<Box<str>>,
+    },
 }
 
 impl HTTPAuthentication for StandardInnerAuthentication {
@@ -409,9 +420,8 @@ impl HTTPAuthentication for StandardInnerAuthentication {
                     .request_with_authentication(request, renew_request)
                     .await
             }
-            StandardInnerAuthentication::BearerAuth(inner) => {
-                inner
-                    .request_with_authentication(request, renew_request)
+            StandardInnerAuthentication::BearerAuth { auth, .. } => {
+                auth.request_with_authentication(request, renew_request)
                     .await
             }
         }
@@ -433,11 +443,32 @@ pub type StandardHTTPAuthentication = RestrictAuthentication<
     Unauthenticated,
 >;
 
+/// One environment-sourced bearer credential as extracted for publish:
+/// the token plus the `SYSAND_CRED_<LABEL>` stem it came from, so an
+/// upload auth failure can name the variable to fix
+/// (design/credential-storage.md section 7).
+#[derive(Clone)]
+pub struct EnvBearerAuth {
+    pub auth: ForceBearerAuth,
+    /// The `SYSAND_CRED_<LABEL>` stem, when known.
+    pub label: Option<String>,
+}
+
+impl std::fmt::Debug for EnvBearerAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Redacts the token (unlike the pre-existing derived `Debug` on
+        // `ForceBearerAuth`): only the non-secret label is shown.
+        f.debug_struct("EnvBearerAuth")
+            .field("label", &self.label)
+            .finish_non_exhaustive()
+    }
+}
+
 impl StandardHTTPAuthentication {
     /// Extracts the bearer tokens from the configured credential set into a URL-glob map
     /// suitable for driving publish-time credential selection. Basic-auth entries are
     /// dropped, since publish only supports bearer authentication.
-    pub fn publish_bearer_auth_map(&self) -> Result<GlobMap<ForceBearerAuth>, globset::Error> {
+    pub fn publish_bearer_auth_map(&self) -> Result<GlobMap<EnvBearerAuth>, globset::Error> {
         let mut partial = GlobMapBuilder::new();
 
         // `GlobMap` stores keys and values in parallel vectors. This clones the bearer
@@ -447,8 +478,16 @@ impl StandardHTTPAuthentication {
         // extraction must work by reference (see design/credential-storage.md,
         // section 9, which accepts the secret clones as the cost of that layer).
         for (key, sequence_auth) in self.restricted.keys.iter().zip(&self.restricted.values) {
-            if let StandardInnerAuthentication::BearerAuth(inner) = &sequence_auth.lower {
-                partial.add(key, inner.clone());
+            if let StandardInnerAuthentication::BearerAuth { auth, env_label } =
+                &sequence_auth.lower
+            {
+                partial.add(
+                    key,
+                    EnvBearerAuth {
+                        auth: auth.clone(),
+                        label: env_label.as_deref().map(str::to_string),
+                    },
+                );
             }
         }
 
@@ -493,13 +532,125 @@ impl StandardHTTPAuthenticationBuilder {
     }
 
     pub fn add_bearer_auth<S: AsRef<str>, T: AsRef<str>>(&mut self, globstr: S, token: T) {
+        self.push_bearer_auth(globstr, token, None);
+    }
+
+    /// Like [`Self::add_bearer_auth`], additionally recording the
+    /// `SYSAND_CRED_<LABEL>` stem the credential came from, so publish
+    /// auth failures can name the variable to fix.
+    pub fn add_bearer_auth_labeled<S: AsRef<str>, T: AsRef<str>, L: AsRef<str>>(
+        &mut self,
+        globstr: S,
+        token: T,
+        env_label: L,
+    ) {
+        self.push_bearer_auth(globstr, token, Some(env_label.as_ref().into()));
+    }
+
+    fn push_bearer_auth<S: AsRef<str>, T: AsRef<str>>(
+        &mut self,
+        globstr: S,
+        token: T,
+        env_label: Option<Box<str>>,
+    ) {
         self.partial.add(
             globstr,
             SequenceAuthentication {
                 higher: Unauthenticated {},
-                lower: StandardInnerAuthentication::BearerAuth(ForceBearerAuth::new(token)),
+                lower: StandardInnerAuthentication::BearerAuth {
+                    auth: ForceBearerAuth::new(token),
+                    env_label,
+                },
             },
         );
+    }
+}
+
+/// One stored login as loaded into the lazy credential map: the bearer
+/// token plus the non-secret record fields runtime messages need
+/// (design/credential-storage.md sections 7 and 9): the index key names
+/// the login in hints, and `expires_at` drives the reactive expiry hint
+/// and publish's fail-fast check.
+#[derive(Clone)]
+pub struct StoredBearerAuth {
+    auth: ForceBearerAuth,
+    key: String,
+    expires_at: Option<DateTime<Utc>>,
+    /// Whether the reactive expiry hint has already been emitted for this
+    /// record. `Arc`d so the flag is shared across the record's globs and
+    /// across map clones: together with the once-per-process map cache
+    /// this gives at most one warning per record per process.
+    expiry_warned: Arc<AtomicBool>,
+}
+
+impl std::fmt::Debug for StoredBearerAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Redacts the token (unlike the pre-existing derived `Debug` on
+        // `ForceBearerAuth`): only non-secret record fields are shown.
+        f.debug_struct("StoredBearerAuth")
+            .field("key", &self.key)
+            .field("expires_at", &self.expires_at)
+            .finish_non_exhaustive()
+    }
+}
+
+impl StoredBearerAuth {
+    pub(crate) fn new(
+        auth: ForceBearerAuth,
+        key: String,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Self {
+        StoredBearerAuth {
+            auth,
+            key,
+            expires_at,
+            expiry_warned: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// The forced-retry bearer policy for this login.
+    pub fn auth(&self) -> &ForceBearerAuth {
+        &self.auth
+    }
+
+    /// The normalized index key the login was stored under, in the exact
+    /// form `sysand auth login <key>` accepts.
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    /// Expiry, when a validating login learned it.
+    pub fn expires_at(&self) -> Option<DateTime<Utc>> {
+        self.expires_at
+    }
+
+    /// The reactive expiry hint (design/credential-storage.md section 9),
+    /// returned at most once per record: `Some` exactly when the record
+    /// carries a past `expires_at` and no hint was emitted before.
+    fn take_expiry_warning(&self, now: DateTime<Utc>) -> Option<String> {
+        let expires_at = self.expires_at?;
+        if expires_at >= now || self.expiry_warned.swap(true, Ordering::SeqCst) {
+            return None;
+        }
+        Some(format!(
+            "credential for `{key}` may be expired or revoked; \
+             re-run `sysand auth login {key}`",
+            key = self.key
+        ))
+    }
+
+    /// Emit the reactive expiry hint after a forced retry that still
+    /// ended in a 4xx. Any 4xx counts, not just 401: GitLab-style hosts
+    /// answer 404 on bad auth (design/credential-storage.md section 9).
+    fn warn_if_expired(&self) {
+        if let Some(message) = self.take_expiry_warning(Utc::now()) {
+            log::warn!("{message}");
+        }
+    }
+
+    #[cfg(test)]
+    fn expiry_warning_emitted(&self) -> bool {
+        self.expiry_warned.load(Ordering::SeqCst)
     }
 }
 
@@ -537,7 +688,7 @@ pub struct CredentialStoreAuthentication<Inner, S> {
     /// sync `OnceLock`) so concurrent first requests (the resolve path
     /// fans out with `join_all`) share a single read: at most one keychain
     /// touch per process.
-    cache: tokio::sync::OnceCell<GlobMap<ForceBearerAuth>>,
+    cache: tokio::sync::OnceCell<GlobMap<StoredBearerAuth>>,
 }
 
 /// Standard composed policy: eager `SYSAND_CRED_*` credentials first, then
@@ -590,7 +741,7 @@ where
     }
 
     /// The stored bearer credentials, read and cached on first use.
-    pub async fn stored_bearer_map(&self) -> &GlobMap<ForceBearerAuth> {
+    pub async fn stored_bearer_map(&self) -> &GlobMap<StoredBearerAuth> {
         self.cache
             .get_or_init(|| async {
                 let Some(store) = self.store.clone() else {
@@ -619,7 +770,7 @@ where
     /// Synchronous variant of [`Self::stored_bearer_map`] for callers
     /// outside the async runtime (publish's credential selection). Shares
     /// the same once-per-process cache.
-    pub fn stored_bearer_map_blocking(&self) -> &GlobMap<ForceBearerAuth> {
+    pub fn stored_bearer_map_blocking(&self) -> &GlobMap<StoredBearerAuth> {
         if let Some(map) = self.cache.get() {
             return map;
         }
@@ -644,7 +795,7 @@ where
 /// whole operation) matches design/credential-storage.md section 9: the
 /// request itself may still succeed via env credentials or anonymously,
 /// and hard failure is reserved for the `auth` commands.
-fn read_stored_bearer_map<S: CredentialStore + ?Sized>(store: &S) -> GlobMap<ForceBearerAuth> {
+fn read_stored_bearer_map<S: CredentialStore + ?Sized>(store: &S) -> GlobMap<StoredBearerAuth> {
     let records = match store.list() {
         Ok(records) => records,
         Err(CredentialStoreError::BackendAbsent { source }) => {
@@ -671,7 +822,13 @@ fn read_stored_bearer_map<S: CredentialStore + ?Sized>(store: &S) -> GlobMap<For
         match record.scheme {
             CredentialScheme::Bearer => {}
         }
-        let auth = ForceBearerAuth::new(&record.secret);
+        // One `StoredBearerAuth` per record, cloned per glob: the clones
+        // share the record's expiry-warned flag.
+        let auth = StoredBearerAuth::new(
+            ForceBearerAuth::new(&record.secret),
+            record.key.clone(),
+            record.expires_at,
+        );
         for glob in &record.globs {
             // Validate each glob individually so one invalid pattern skips
             // only itself, not every stored login.
@@ -735,21 +892,28 @@ where
 
         // One stored login covers several (normally non-overlapping) URL
         // patterns with the same token, so several patterns matching is a
-        // real ambiguity only between *distinct* tokens.
-        let mut deduped: Vec<&ForceBearerAuth> = Vec::new();
-        for auth in candidates {
-            if !deduped.iter().any(|seen| seen.0 == auth.0) {
-                deduped.push(auth);
+        // real ambiguity only between *distinct* tokens. Records with
+        // identical tokens collapse to the first record, so a hint after
+        // a failed retry names that record's key.
+        let mut deduped: Vec<&StoredBearerAuth> = Vec::new();
+        for bearer in candidates {
+            if !deduped.iter().any(|seen| seen.auth.0 == bearer.auth.0) {
+                deduped.push(bearer);
             }
         }
 
         let mut deduped = deduped.into_iter();
-        let first_auth = deduped.next().expect("lookup produced no candidates");
+        let first_bearer = deduped.next().expect("lookup produced no candidates");
         if deduped.len() == 0 {
             log::debug!("stored credential matches `{url}`; retrying with forced bearer auth");
-            return first_auth
+            let response = first_bearer
+                .auth
                 .request_with_authentication(renew_request(&client), renew_request)
-                .await;
+                .await?;
+            if response.status().is_client_error() {
+                first_bearer.warn_if_expired();
+            }
+            return Ok(response);
         }
 
         // Genuinely ambiguous: reads try all matches, in order, until one
@@ -757,17 +921,23 @@ where
         // 8), mirroring `RestrictAuthentication`. If every candidate
         // fails, the first retry response is returned.
         log::warn!("URL {url} matches multiple stored credentials; trying each in order");
-        let first_response = first_auth
+        let first_response = first_bearer
+            .auth
             .request_with_authentication(renew_request(&client), renew_request)
             .await?;
         if !first_response.status().is_client_error() {
             return Ok(first_response);
         }
-        for auth in deduped {
-            let response = auth.with_authentication(&client, renew_request).await?;
+        first_bearer.warn_if_expired();
+        for bearer in deduped {
+            let response = bearer
+                .auth
+                .with_authentication(&client, renew_request)
+                .await?;
             if !response.status().is_client_error() {
                 return Ok(response);
             }
+            bearer.warn_if_expired();
         }
         Ok(first_response)
     }

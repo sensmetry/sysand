@@ -124,10 +124,11 @@ fn publish_bearer_auth_map_keeps_bearer_drops_basic() -> Result<(), Box<dyn std:
     // By-ref extraction: the policy stays usable afterwards.
     let bearer_map = policy.publish_bearer_auth_map()?;
 
-    if let crate::auth::GlobMapResult::Found(_, auth) =
+    if let crate::auth::GlobMapResult::Found(_, entry) =
         bearer_map.lookup("https://bearer.example.com/upload")
     {
-        assert_eq!(&*auth.0, "tok");
+        assert_eq!(&*entry.auth.0, "tok");
+        assert_eq!(entry.label, None);
     } else {
         panic!("expected bearer entry to be extracted");
     }
@@ -140,6 +141,26 @@ fn publish_bearer_auth_map_keeps_bearer_drops_basic() -> Result<(), Box<dyn std:
         bearer_map.lookup("https://other.example.com/upload"),
         crate::auth::GlobMapResult::NotFound
     ));
+
+    Ok(())
+}
+
+#[test]
+fn publish_bearer_auth_map_carries_the_env_label() -> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = crate::auth::StandardHTTPAuthenticationBuilder::new();
+    builder.add_bearer_auth_labeled("https://bearer.example.com/*", "tok", "TEAMIDX");
+    let policy = builder.build()?;
+
+    let bearer_map = policy.publish_bearer_auth_map()?;
+
+    if let crate::auth::GlobMapResult::Found(_, entry) =
+        bearer_map.lookup("https://bearer.example.com/upload")
+    {
+        assert_eq!(&*entry.auth.0, "tok");
+        assert_eq!(entry.label.as_deref(), Some("TEAMIDX"));
+    } else {
+        panic!("expected labeled bearer entry to be extracted");
+    }
 
     Ok(())
 }
@@ -673,4 +694,155 @@ fn stored_bearer_map_blocking_shares_the_request_path_cache() {
     assert_eq!(response.status().as_u16(), 404);
     assert_eq!(lists.load(Ordering::SeqCst), 1);
     mock.assert();
+}
+
+// Reactive expiry hint (design/credential-storage.md section 9).
+
+use chrono::{Duration, Utc};
+
+use crate::auth::{ForceBearerAuth, StoredBearerAuth};
+
+#[test]
+fn stored_bearer_expiry_warning_fires_at_most_once() {
+    let now = Utc::now();
+    let bearer = StoredBearerAuth::new(
+        ForceBearerAuth::new("tok"),
+        "https://example.com/".to_string(),
+        Some(now - Duration::hours(1)),
+    );
+
+    let message = bearer
+        .take_expiry_warning(now)
+        .expect("an expired record must produce the hint once");
+    assert!(
+        message.contains("credential for `https://example.com/` may be expired or revoked"),
+        "message: {message}"
+    );
+    assert!(
+        message.contains("re-run `sysand auth login https://example.com/`"),
+        "message: {message}"
+    );
+    // Second failure on the same record: no repeat hint.
+    assert_eq!(bearer.take_expiry_warning(now), None);
+}
+
+#[test]
+fn stored_bearer_expiry_warning_skips_unexpired_and_unknown_expiry() {
+    let now = Utc::now();
+    let unexpired = StoredBearerAuth::new(
+        ForceBearerAuth::new("tok"),
+        "https://example.com/".to_string(),
+        Some(now + Duration::hours(1)),
+    );
+    assert_eq!(unexpired.take_expiry_warning(now), None);
+    assert!(!unexpired.expiry_warning_emitted());
+
+    let unknown = StoredBearerAuth::new(
+        ForceBearerAuth::new("tok"),
+        "https://example.com/".to_string(),
+        None,
+    );
+    assert_eq!(unknown.take_expiry_warning(now), None);
+    assert!(!unknown.expiry_warning_emitted());
+}
+
+/// Look the stored bearer for `url` up in the policy's cached map, to
+/// observe the per-record expiry-warned flag after driving requests.
+fn stored_bearer_for<'a, Inner, S>(
+    policy: &'a CredentialStoreAuthentication<Inner, S>,
+    url: &str,
+) -> &'a StoredBearerAuth
+where
+    S: CredentialStore + Send + Sync + 'static,
+{
+    match policy.stored_bearer_map_blocking().lookup(url) {
+        crate::auth::GlobMapResult::Found(_, bearer) => bearer,
+        other => panic!("expected a stored bearer for `{url}`, got {other:?}"),
+    }
+}
+
+#[test]
+fn lazy_layer_warns_once_for_an_expired_record_that_keeps_failing() {
+    let mut server = mockito::Server::new();
+    // GitLab-style host: bad auth answers 404, not 401 (the hint must
+    // fire on any 4xx). Two full escalations; the flag must latch after
+    // the first, so the hint is emitted at most once per process.
+    let unauth_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(404)
+        .expect(2)
+        .create();
+    let forced_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer stored-token")
+        .with_status(404)
+        .expect(2)
+        .create();
+
+    let mut record = bearer_record(&[format!("{}/**", server.url())], "stored-token");
+    record.expires_at = Some(Utc::now() - Duration::days(1));
+    let (store, _lists) = CountingStore::with_records(vec![record]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+    let url = format!("{}/pkg/versions.json", server.url());
+
+    let first = get(&runtime, &policy, &url);
+    // The hint was emitted (and latched) during the first escalation, so
+    // the second identical failure cannot repeat it: `take_expiry_warning`
+    // returns `None` once the flag is set (covered by the unit test above).
+    assert!(stored_bearer_for(&policy, &url).expiry_warning_emitted());
+    let second = get(&runtime, &policy, &url);
+
+    assert_eq!(first.status().as_u16(), 404);
+    assert_eq!(second.status().as_u16(), 404);
+    assert!(stored_bearer_for(&policy, &url).expiry_warning_emitted());
+    unauth_mock.assert();
+    forced_mock.assert();
+}
+
+#[test]
+fn lazy_layer_does_not_warn_for_an_unexpired_record_or_a_successful_retry() {
+    // Case 1: unexpired record, failing retry: no hint.
+    let mut server = mockito::Server::new();
+    let _unauth = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(401)
+        .create();
+    let _forced = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer stored-token")
+        .with_status(404)
+        .create();
+    let mut record = bearer_record(&[format!("{}/**", server.url())], "stored-token");
+    record.expires_at = Some(Utc::now() + Duration::days(1));
+    let (store, _lists) = CountingStore::with_records(vec![record]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+    let url = format!("{}/pkg/versions.json", server.url());
+    get(&runtime, &policy, &url);
+    assert!(!stored_bearer_for(&policy, &url).expiry_warning_emitted());
+
+    // Case 2: expired record, but the forced retry succeeds: no hint
+    // (the credential demonstrably still works).
+    let mut server = mockito::Server::new();
+    let _unauth = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(401)
+        .create();
+    let _forced = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer stored-token")
+        .with_status(200)
+        .create();
+    let mut record = bearer_record(&[format!("{}/**", server.url())], "stored-token");
+    record.expires_at = Some(Utc::now() - Duration::days(1));
+    let (store, _lists) = CountingStore::with_records(vec![record]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let url = format!("{}/pkg/versions.json", server.url());
+    let response = get(&runtime, &policy, &url);
+    assert_eq!(response.status().as_u16(), 200);
+    assert!(!stored_bearer_for(&policy, &url).expiry_warning_emitted());
 }

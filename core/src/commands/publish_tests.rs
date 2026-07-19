@@ -2,16 +2,20 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::{
-    AllowedMetamodelKind, PublishBearerSource, PublishError, TrustedPublishingEnvironment,
-    TrustedPublishingMode, build_upload_url, check_metamodel, check_usage, error_body_to_string,
+    AllowedMetamodelKind, PublishBearerProvenance, PublishBearerSource, PublishError,
+    PublishPreparation, SelectedPublishBearer, TrustedPublishingEnvironment, TrustedPublishingMode,
+    build_upload_url, check_metamodel, check_usage, do_publish, error_body_to_string,
     map_publish_response, resolve_publish_bearer, resolve_publish_bearer_from_config,
-    validate_api_root_url_shape,
+    stored_bearer_clearly_expired, validate_api_root_url_shape,
 };
 use crate::{
-    auth::{ForceBearerAuth, GlobMap, GlobMapBuilder},
+    auth::{EnvBearerAuth, ForceBearerAuth, GlobMap, GlobMapBuilder, StoredBearerAuth},
+    index_location::IndexLocation,
     model::InterchangeProjectUsageRaw,
     resolve::net_utils::create_reqwest_client,
 };
+use bytes::Bytes;
+use chrono::{DateTime, Duration, Utc};
 use mockito::Matcher;
 use std::assert_matches;
 use std::sync::Arc;
@@ -27,25 +31,51 @@ fn runtime() -> Arc<tokio::runtime::Runtime> {
     )
 }
 
-fn glob_map(entries: &[(&str, &str)]) -> GlobMap<ForceBearerAuth> {
+fn empty_sources() -> GlobMap<EnvBearerAuth> {
+    GlobMap::default()
+}
+
+fn env_sources(entries: &[(&str, &str)]) -> GlobMap<EnvBearerAuth> {
     let mut builder = GlobMapBuilder::new();
     for (pattern, token) in entries {
-        builder.add(*pattern, ForceBearerAuth::new(*token));
+        builder.add(
+            *pattern,
+            EnvBearerAuth {
+                auth: ForceBearerAuth::new(*token),
+                label: None,
+            },
+        );
     }
     builder.build().unwrap()
 }
 
-fn empty_sources() -> GlobMap<ForceBearerAuth> {
-    GlobMap::default()
+const STORED_KEY: &str = "https://example.org/";
+
+fn stored_sources(entries: &[(&str, &str)]) -> GlobMap<StoredBearerAuth> {
+    stored_sources_expiring(entries, None)
 }
 
-fn env_sources(entries: &[(&str, &str)]) -> GlobMap<ForceBearerAuth> {
-    glob_map(entries)
+fn stored_sources_expiring(
+    entries: &[(&str, &str)],
+    expires_at: Option<DateTime<Utc>>,
+) -> GlobMap<StoredBearerAuth> {
+    let mut builder = GlobMapBuilder::new();
+    for (pattern, token) in entries {
+        builder.add(
+            *pattern,
+            StoredBearerAuth::new(
+                ForceBearerAuth::new(*token),
+                STORED_KEY.to_string(),
+                expires_at,
+            ),
+        );
+    }
+    builder.build().unwrap()
 }
 
 /// A stored-credential provider for paths that must never consult the
 /// store (env matched, or the flow errors before configured credentials).
-fn stored_unreached() -> GlobMap<ForceBearerAuth> {
+fn stored_unreached() -> GlobMap<StoredBearerAuth> {
     panic!("stored credentials must not be read on this path");
 }
 
@@ -136,9 +166,13 @@ fn publish_bearer_env_match_wins_without_reading_stored_credentials() {
     let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
     let env = env_sources(&[("https://example.org/api/**", "env-token")]);
 
-    let token = resolve_publish_bearer_from_config(&env, stored_unreached, &upload_url).unwrap();
+    let selected = resolve_publish_bearer_from_config(&env, stored_unreached, &upload_url).unwrap();
 
-    assert_eq!(token, ForceBearerAuth::new("env-token"));
+    assert_eq!(selected.auth, ForceBearerAuth::new("env-token"));
+    assert_eq!(
+        selected.provenance,
+        PublishBearerProvenance::Env { label: None }
+    );
 }
 
 #[test]
@@ -146,14 +180,21 @@ fn publish_bearer_falls_through_to_keyring_when_env_has_no_match() {
     let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
     let env = env_sources(&[("https://other.example.com/**", "env-token")]);
 
-    let token = resolve_publish_bearer_from_config(
+    let selected = resolve_publish_bearer_from_config(
         &env,
-        || glob_map(&[("https://example.org/api/**", "keyring-token")]),
+        || stored_sources(&[("https://example.org/api/**", "keyring-token")]),
         &upload_url,
     )
     .unwrap();
 
-    assert_eq!(token, ForceBearerAuth::new("keyring-token"));
+    assert_eq!(selected.auth, ForceBearerAuth::new("keyring-token"));
+    assert_eq!(
+        selected.provenance,
+        PublishBearerProvenance::Stored {
+            key: STORED_KEY.to_string(),
+            expires_at: None,
+        }
+    );
 }
 
 #[test]
@@ -187,7 +228,7 @@ fn publish_bearer_keyring_ambiguity_errors() {
     let err = resolve_publish_bearer_from_config(
         &empty_sources(),
         || {
-            glob_map(&[
+            stored_sources(&[
                 ("https://example.org/**", "broad-keyring-token"),
                 ("https://example.org/api/**", "specific-keyring-token"),
             ])
@@ -214,7 +255,7 @@ fn publish_bearer_no_match_in_any_source_errors() {
 
     let err = resolve_publish_bearer_from_config(
         &env,
-        || glob_map(&[("https://another.example.com/**", "keyring-token")]),
+        || stored_sources(&[("https://another.example.com/**", "keyring-token")]),
         &upload_url,
     )
     .unwrap_err();
@@ -689,22 +730,227 @@ fn check_usage_rejects_directory_usage_with_version_constraint() {
 
 #[test]
 fn map_publish_response_400_maps_to_bad_request() {
-    let err = map_publish_response(400, b"bad field").unwrap_err();
+    let err = map_publish_response(
+        400,
+        b"bad field",
+        &PublishBearerProvenance::TrustedPublishing,
+    )
+    .unwrap_err();
     assert_matches!(err, PublishError::BadRequest(_));
 }
 
 #[test]
 fn map_publish_response_200_is_ok_not_new_project() {
-    let resp = map_publish_response(200, b"ok").unwrap();
+    let resp =
+        map_publish_response(200, b"ok", &PublishBearerProvenance::TrustedPublishing).unwrap();
     assert!(!resp.is_new_project);
     assert_eq!(resp.status, 200);
 }
 
 #[test]
 fn map_publish_response_201_is_ok_new_project() {
-    let resp = map_publish_response(201, b"created").unwrap();
+    let resp =
+        map_publish_response(201, b"created", &PublishBearerProvenance::TrustedPublishing).unwrap();
     assert!(resp.is_new_project);
     assert_eq!(resp.status, 201);
+}
+
+// --- source-named auth failures and the pre-upload expiry stop
+//     (design/credential-storage.md section 7) ---
+
+fn preparation() -> PublishPreparation {
+    PublishPreparation {
+        norm_publisher: "acme".to_string(),
+        norm_name: "widgets".to_string(),
+        version: "1.0.0".to_string(),
+        metadata: "{}".to_string(),
+        kpar_bytes: Bytes::from_static(b"not a real kpar"),
+    }
+}
+
+/// Run `do_publish` against `server`'s `/api/v1/upload` with the given
+/// selected bearer.
+fn publish_to(
+    server: &mockito::Server,
+    bearer: SelectedPublishBearer,
+) -> Result<super::PublishResponse, PublishError> {
+    let discovery_root = IndexLocation::parse(&server.url()).unwrap();
+    let api_root = Url::parse(&format!("{}/api/", server.url())).unwrap();
+    let client = create_reqwest_client().unwrap();
+    do_publish(
+        preparation(),
+        discovery_root,
+        api_root,
+        bearer,
+        client,
+        runtime(),
+    )
+}
+
+fn env_bearer(label: Option<&str>) -> SelectedPublishBearer {
+    SelectedPublishBearer {
+        auth: ForceBearerAuth::new("env-token"),
+        provenance: PublishBearerProvenance::Env {
+            label: label.map(str::to_string),
+        },
+    }
+}
+
+fn stored_bearer(expires_at: Option<DateTime<Utc>>) -> SelectedPublishBearer {
+    SelectedPublishBearer {
+        auth: ForceBearerAuth::new("stored-token"),
+        provenance: PublishBearerProvenance::Stored {
+            key: STORED_KEY.to_string(),
+            expires_at,
+        },
+    }
+}
+
+fn upload_mock(server: &mut mockito::Server, status: usize, body: &str) -> mockito::Mock {
+    server
+        .mock("POST", "/api/v1/upload")
+        .with_status(status)
+        .with_body(body)
+        .expect(1)
+        .create()
+}
+
+#[test]
+fn publish_env_auth_failure_names_the_env_var() {
+    let mut server = mockito::Server::new();
+    let mock = upload_mock(&mut server, 401, "unauthorized");
+
+    let err = publish_to(&server, env_bearer(Some("TEAMIDX"))).unwrap_err();
+
+    let message = err.to_string();
+    assert!(
+        message.contains("authentication failed (HTTP 401): unauthorized"),
+        "message: {message}"
+    );
+    assert!(
+        message.contains("came from `SYSAND_CRED_TEAMIDX`"),
+        "message: {message}"
+    );
+    assert!(
+        message.contains("`SYSAND_CRED_TEAMIDX_BEARER_TOKEN`"),
+        "message: {message}"
+    );
+    // Env shadows stored logins, so re-login must not be the suggested fix.
+    assert!(
+        message.contains("`sysand auth login` alone cannot replace it"),
+        "message: {message}"
+    );
+    assert!(!message.contains("auth status"), "message: {message}");
+    mock.assert();
+}
+
+#[test]
+fn publish_stored_auth_failure_names_the_login() {
+    let mut server = mockito::Server::new();
+    let mock = upload_mock(&mut server, 401, "unauthorized");
+
+    let err = publish_to(&server, stored_bearer(None)).unwrap_err();
+
+    let message = err.to_string();
+    assert!(
+        message.contains(&format!("your stored login for `{STORED_KEY}`")),
+        "message: {message}"
+    );
+    assert!(
+        message.contains(&format!("re-run `sysand auth login {STORED_KEY}`")),
+        "message: {message}"
+    );
+    assert!(!message.contains("SYSAND_CRED_"), "message: {message}");
+    mock.assert();
+}
+
+#[test]
+fn publish_403_points_at_auth_status() {
+    // 403 is authorization, not authentication: `sysand auth status`
+    // shows the stored subject, catching a wrong-project token.
+    let mut server = mockito::Server::new();
+    let mock = upload_mock(&mut server, 403, "forbidden");
+
+    let err = publish_to(&server, stored_bearer(None)).unwrap_err();
+
+    let message = err.to_string();
+    assert!(
+        message.contains("authorization failed (HTTP 403): forbidden"),
+        "message: {message}"
+    );
+    assert!(
+        message.contains("run `sysand auth status`"),
+        "message: {message}"
+    );
+    mock.assert();
+}
+
+#[test]
+fn publish_trusted_publishing_auth_failure_stays_generic() {
+    // A trusted-publishing token has no user-fixable source: neither env
+    // nor stored-login remediation applies.
+    let mut server = mockito::Server::new();
+    let _mock = upload_mock(&mut server, 401, "unauthorized");
+
+    let bearer = SelectedPublishBearer {
+        auth: ForceBearerAuth::new("exchanged-token"),
+        provenance: PublishBearerProvenance::TrustedPublishing,
+    };
+    let err = publish_to(&server, bearer).unwrap_err();
+
+    assert_matches!(&err, PublishError::AuthError(detail) if detail == "unauthorized");
+}
+
+#[test]
+fn publish_stops_before_upload_when_the_stored_bearer_is_expired() {
+    let mut server = mockito::Server::new();
+    let mock = server.mock("POST", "/api/v1/upload").expect(0).create();
+
+    let expires_at = Utc::now() - Duration::days(1);
+    let err = publish_to(&server, stored_bearer(Some(expires_at))).unwrap_err();
+
+    assert_matches!(
+        &err,
+        PublishError::StoredCredentialExpired { key, .. } if key == STORED_KEY
+    );
+    let message = err.to_string();
+    assert!(
+        message.contains(&format!("re-run `sysand auth login {STORED_KEY}`")),
+        "message: {message}"
+    );
+    // The archive was never uploaded.
+    mock.assert();
+}
+
+#[test]
+fn publish_uploads_normally_without_a_known_expiry() {
+    // An env bearer carries no expiry and must never trip the stop.
+    let mut server = mockito::Server::new();
+    let mock = upload_mock(&mut server, 201, "created");
+
+    let response = publish_to(&server, env_bearer(Some("TEAMIDX"))).unwrap();
+
+    assert!(response.is_new_project);
+    mock.assert();
+}
+
+#[test]
+fn stored_bearer_clearly_expired_allows_a_skew_margin() {
+    let now = Utc::now();
+    // Within the 60 s margin: a fast client clock must not false-trip;
+    // the server's 401 stays the authority.
+    assert!(!stored_bearer_clearly_expired(
+        now - Duration::seconds(30),
+        now
+    ));
+    assert!(stored_bearer_clearly_expired(
+        now - Duration::seconds(120),
+        now
+    ));
+    assert!(!stored_bearer_clearly_expired(
+        now + Duration::hours(1),
+        now
+    ));
 }
 
 // --- validate_api_root_url_shape ---

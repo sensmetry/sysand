@@ -241,6 +241,11 @@ pub enum AuthLoginNotice {
         surface: ProbeSurface,
         error: String,
     },
+    /// A validation probe was answered with HTTP 429. A 429 is never a
+    /// verdict (design/credential-storage.md section 5): whether it hit
+    /// the unauth baseline or the forced retry, the surface counts as not
+    /// tested, so rate limiting can never refuse a credential.
+    ProbeRateLimited { surface: ProbeSurface },
     /// A surface rejected the credential, but another surface accepted
     /// it, so the credential was stored anyway. `basic_challenge` is true
     /// when the read surface answered with a `WWW-Authenticate: Basic`
@@ -500,6 +505,13 @@ fn probe_read_surface(
         // case, not a failure).
         return;
     }
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        // Never force-retry a rate-limited surface: the retry would spend
+        // more of the rate budget, and a 429 answer to it would prove
+        // nothing either (429 is never a verdict, section 5).
+        notify(AuthLoginNotice::ProbeRateLimited { surface });
+        return;
+    }
     if !status.is_client_error() {
         notify(AuthLoginNotice::ProbeUnreachable {
             surface,
@@ -521,6 +533,12 @@ fn probe_read_surface(
             surface,
             target: redirect_target(&forced),
         });
+    } else if forced_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        // 429 is never a verdict (section 5): a rate-limited forced retry
+        // must not count as rejected, or throttling could false-refuse a
+        // valid token. A basic challenge seen on the baseline is discarded
+        // with the verdict: without a rejection there is nothing to route.
+        notify(AuthLoginNotice::ProbeRateLimited { surface });
     } else if forced_status.is_success() {
         outcome.accepted.push(surface);
     } else if forced_status.is_client_error() {
@@ -599,6 +617,10 @@ fn probe_api_surface(
         }
     } else if status == reqwest::StatusCode::UNAUTHORIZED {
         outcome.rejected.push(surface);
+    } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        // 429 is never a verdict (section 5); the protocol explicitly
+        // allows rate limiting on `v1/whoami`.
+        notify(AuthLoginNotice::ProbeRateLimited { surface });
     } else {
         notify(AuthLoginNotice::ProbeUnreachable {
             surface,

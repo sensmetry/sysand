@@ -120,6 +120,11 @@ pub fn command_auth_login(
                      validated against it",
                     surface_name(surface)
                 ),
+                AuthLoginNotice::ProbeRateLimited { surface } => log::warn!(
+                    "the {} probe was rate limited (HTTP 429); the credential was \
+                     not validated against it",
+                    surface_name(surface)
+                ),
                 AuthLoginNotice::SurfaceRejected {
                     surface,
                     basic_challenge,

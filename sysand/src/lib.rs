@@ -307,7 +307,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 if let Some(token) = maybe_token {
                     matched_schemes += 1;
                     log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
-                    auths_builder.add_bearer_auth(pattern, token);
+                    // The label lets a publish auth failure name the
+                    // `SYSAND_CRED_<LABEL>` variable to fix.
+                    auths_builder.add_bearer_auth_labeled(pattern, token, k);
                 }
 
                 if matched_schemes > 1 {
