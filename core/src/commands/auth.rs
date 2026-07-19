@@ -695,8 +695,10 @@ fn run_validation_probes(
 /// only once validation has decided the write will happen: a refused
 /// login never announces a replacement).
 ///
-/// `validation` maps the `--validation true|false` flag: `None` means the
-/// default, `true`. When enabled, the section 5 probes run between glob
+/// `validation`: `None` means the default, `true`; the CLI's
+/// `--no-validation` flag maps to `Some(false)`, and language bindings can
+/// expose this as an optional keyword. When enabled, the section 5 probes
+/// run between glob
 /// derivation and the store write, and the refusal rule applies: the
 /// credential is stored if any exercised surface accepted it, refused
 /// ([`AuthCommandError::ValidationRejected`]) when at least one exercised

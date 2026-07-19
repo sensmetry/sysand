@@ -129,19 +129,20 @@ duplicate entries.
 
 ## 5. Validation
 
-`auth login` takes `--validation true|false` (default `true`). It maps to
-an `Option<bool>` argument (absent = `None` = the default), so the language
-bindings expose a clean optional keyword: `validation: Optional[bool] =
-None`. This intentionally diverges from the repo's `--no-<flag>` boolean
-convention (for example `--no-lock`), which binds as a required,
-negative-sense `no_lock: bool`; a positive `Option<bool>` reads better as an
-optional keyword across the py/js/java bindings.
+Validation is on by default; the CLI flag to disable it is
+`--no-validation`, a presence flag following the repo's `--no-<thing>`
+convention (`--no-lock`, `--no-deps`, ...). The flag spelling and the
+library parameter are independent: core's `do_auth_login` takes
+`validation: Option<bool>` (`None` = the default, validate), the CLI maps
+`--no-validation` to `Some(false)`, and the language bindings expose the
+parameter as a clean optional keyword (`validation: Optional[bool] =
+None`). Both the house-style flag and the bindings ergonomics are kept.
 
-- `--validation true` (default): probe every surface the index supports and
-  store unless the credential is rejected everywhere it was actually tested
-  (see the refusal rule below). A static index has only the read surface; a
+- Default (validate): probe every surface the index supports and store
+  unless the credential is rejected everywhere it was actually tested (see
+  the refusal rule below). A static index has only the read surface; a
   dynamic index adds the API.
-- `--validation false`: store without any credential probe. Discovery is
+- `--no-validation`: store without any credential probe. Discovery is
   still fetched best-effort for glob scoping (§8); if unreachable, fall back
   to the URL-derived glob with a warning. Use it offline, or when a probe
   would false-refuse.
@@ -149,8 +150,8 @@ optional keyword across the py/js/java bindings.
 Validation is a boolean, not per-surface levels: since `v1/whoami` checks
 only that a token is _accepted_ by the API (identity, not capability, §6),
 validating everything almost never wrongly refuses a valid token, so a
-"read-only" level would add a choice without payoff. `--validation` could
-later give way to a levelled flag without disrupting this default.
+"read-only" level would add a choice without payoff. The flag could later
+give way to a levelled one without disrupting this default.
 
 **Probe mechanism.** Validation cannot reuse the runtime unauth-first
 policy, which returns only the final response and cannot report whether a
@@ -178,7 +179,7 @@ so a redirected probe counts as "not tested" with a warning naming the
 redirect target.
 
 User-visible wording uses one stem, **validated**: "validated (read)",
-"stored, not validated", matching the `--validation` flag, rather than
+"stored, not validated", rather than
 mixing "verified"/"unvalidated" families.
 
 **Refusal rule.** Store if the credential is _accepted by any surface it
@@ -220,7 +221,7 @@ under `api_root`. Its purpose is credential validation and identity for
   `api/` (`api/v1/whoami`); `api_root` carries the `/api/` segment, so the
   client's `api_root/v1/whoami` join is consistent with `v1/upload`.
 - `200` on a valid, unexpired token; `401` otherwise. Under
-  `--validation true` a `200` passes the API leg (§5). The `401` body is
+  validation (§5) a `200` passes the API leg. The `401` body is
   unspecified (the client only reads the status).
 - Body on `200`:
 
@@ -605,7 +606,7 @@ not here. Follow that repo's `docs/README.md` (sentence case, no em-dash,
 trailing-slash links). Pages to touch:
 
 - **Reference, rewrite** `docs/source/client/reference/authentication.md`:
-  the `sysand auth` model, single-keyring storage, `--validation`,
+  the `sysand auth` model, single-keyring storage, `--no-validation`,
   precedence (`SYSAND_CRED_*` > keyring), read/API surfaces, the trust
   model. Keep the `SYSAND_CRED_*` reference, it remains the CI / no-keyring
   path (and the only basic-auth path in v1).

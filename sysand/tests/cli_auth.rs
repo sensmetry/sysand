@@ -403,15 +403,14 @@ fn auth_login_covers_a_disjoint_api_root_from_discovery() -> TestResult {
         .create();
     let root = format!("{}/", server.url());
 
-    // `--validation false`: the advertised api_root is a foreign host
+    // `--no-validation`: the advertised api_root is a foreign host
     // this test must not probe.
     let (_t, _c, out) = run_sysand_stdin(
         [
             "auth",
             "login",
             "--token-stdin",
-            "--validation",
-            "false",
+            "--no-validation",
             &server.url(),
         ],
         &env,

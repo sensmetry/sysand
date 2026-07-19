@@ -219,12 +219,15 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 AuthCommand::Login {
                     index_url,
                     token_stdin,
-                    validation,
+                    no_validation,
                     default_index,
                 } => command_auth_login(
                     index_url,
                     token_stdin,
-                    validation,
+                    // Core keeps `Option<bool>` (None = validate) so the
+                    // bindings can expose a clean optional keyword; the
+                    // CLI flag follows the house `--no-<thing>` style.
+                    if no_validation { Some(false) } else { None },
                     &default_index,
                     &config,
                     &client,
