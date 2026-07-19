@@ -27,7 +27,7 @@ use crate::{
         CredentialSubject, normalize_index_key,
     },
     env::discovery::{ResolvedEndpoints, fetch_index_config},
-    index_location::{IndexLocation, is_template_syntax},
+    index_location::{IndexLocation, IndexLocationError, is_template_syntax},
 };
 
 /// Errors from the `sysand auth` commands.
@@ -42,15 +42,17 @@ pub enum AuthCommandError {
     /// The target could not be parsed or normalized as an index URL.
     #[error("invalid index URL for credential storage: {0}")]
     InvalidIndexUrl(String),
-    /// The target is a URL-template index location, which `sysand auth`
-    /// does not support in v1 (a template does not normalize to a stable
-    /// index key). `SYSAND_CRED_*` environment variables remain the
-    /// authentication path for templated indexes.
+    /// The target is a URL template whose literal prefix has no anchor at
+    /// a safe URL boundary (at least `scheme://authority/`), so no
+    /// credential scope glob could be derived for it (the section 8
+    /// clamp). `SYSAND_CRED_*` environment variables remain the
+    /// authentication path for such templates.
     #[error(
-        "`{url}`: URL-template index locations are not supported by `sysand auth`;\n\
-         use `SYSAND_CRED_*` environment variables to authenticate a templated index"
+        "`{url}`: this URL template has no literal prefix at a safe URL boundary\n\
+         (at least `scheme://authority/`) to scope a credential to;\n\
+         use `SYSAND_CRED_*` environment variables to authenticate it"
     )]
-    TemplateIndexUrl { url: String },
+    TemplateWithoutAnchor { url: String },
     /// Every surface that exercised the credential rejected it and none
     /// accepted it, so nothing was stored (design/credential-storage.md
     /// section 5 refusal rule).
@@ -155,7 +157,10 @@ pub struct StoredCredentialStatus {
     /// record's key URL. Env credentials take precedence per matched
     /// request URL, so an env pattern matching only part of the covered
     /// URLs (or spelled so it misses the key, for example with a port
-    /// wildcard) may shadow requests without being listed here.
+    /// wildcard) may shadow requests without being listed here. For a
+    /// template key the match target contains the literal placeholder
+    /// text, which no request URL contains, so shadow detection is extra
+    /// approximate for templates.
     pub shadowed_by: Vec<String>,
 }
 
@@ -177,19 +182,32 @@ pub struct AuthStatus {
     pub env: Vec<EnvCredentialEntry>,
 }
 
-/// Validate that `index_url` is an absolute, non-template HTTP(S) URL and
-/// normalize it to its credential store key form.
+/// Validate that `index_url` is an absolute HTTP(S) index location (a
+/// plain URL or a `{path}`/`{path_raw}` URL template) and normalize it to
+/// its credential store key form.
+///
+/// A plain URL normalizes via
+/// [`normalize_index_key`]. A template's key is
+/// the template text with its anchorable literal prefix rewritten through
+/// `url::Url` serialization (lowercased scheme and host, default port
+/// stripped, IDN punycoded); the text after the prefix's last `/`, the
+/// placeholder, and the suffix stay verbatim, since they are raw template
+/// text, not a parsed URL. The result is idempotent and round-trips
+/// through [`IndexLocation::parse`] / `Display`, so `auth status` prints
+/// template keys in the exact form `auth logout` accepts. A template with
+/// no safe anchor (at least `scheme://authority/`) is rejected
+/// ([`AuthCommandError::TemplateWithoutAnchor`]): no credential scope
+/// glob could be derived for it.
 ///
 /// Public so the CLI can validate the target before reading a secret (a
-/// `file://` or template target must fail before any prompt).
+/// `file://` or unanchorable-template target must fail before any
+/// prompt).
 pub fn validated_index_key(index_url: &str) -> Result<String, AuthCommandError> {
-    // Reject template syntax before `Url::parse`: the `url` crate would
+    // Handle template syntax before `Url::parse`: the `url` crate would
     // percent-encode the braces and normalization would then silently
     // produce a mangled `%7Bpath%7D` key.
     if is_template_syntax(index_url) {
-        return Err(AuthCommandError::TemplateIndexUrl {
-            url: index_url.to_string(),
-        });
+        return normalized_template_key(index_url);
     }
     // Check the scheme before normalizing so a non-HTTP(S) location gets
     // the dedicated message instead of a generic normalization error.
@@ -207,6 +225,39 @@ pub fn validated_index_key(index_url: &str) -> Result<String, AuthCommandError> 
         CredentialStoreError::InvalidIndexUrl(msg) => AuthCommandError::InvalidIndexUrl(msg),
         other => AuthCommandError::Store(other),
     })
+}
+
+/// The credential-key form of a URL-template target: see
+/// [`validated_index_key`].
+fn normalized_template_key(index_url: &str) -> Result<String, AuthCommandError> {
+    let location = IndexLocation::parse(index_url).map_err(|err| match err {
+        IndexLocationError::UnsupportedScheme { .. } => AuthCommandError::NotHttpIndex {
+            url: index_url.to_string(),
+        },
+        // The index-location errors already name the URL; no re-prefixing.
+        other => AuthCommandError::InvalidIndexUrl(other.to_string()),
+    })?;
+    let IndexLocation::Template(template) = &location else {
+        // `IndexLocation::parse` classifies every brace-containing string
+        // as a template, and `index_url` contains a brace.
+        unreachable!("BUG: template syntax parsed as a plain URL");
+    };
+    let prefix = template.prefix();
+    let Some((cut, anchor)) = template_anchor_root(prefix) else {
+        return Err(AuthCommandError::TemplateWithoutAnchor {
+            url: index_url.to_string(),
+        });
+    };
+    // `Display` reproduces the validated template text, so slicing off
+    // the prefix leaves the placeholder plus suffix verbatim. The rest of
+    // the prefix past its last `/` contains no `/` by construction, so
+    // reassembly keeps the anchor as the key's own anchor (idempotence).
+    let tail = location.to_string();
+    Ok(format!(
+        "{anchor}{}{}",
+        &prefix[cut + 1..],
+        &tail[prefix.len()..]
+    ))
 }
 
 /// Progress notice emitted by [`do_auth_login`] while it works, so the
@@ -285,12 +336,15 @@ pub enum AuthLoginOutcome {
     },
 }
 
-/// Derive the escaped URL glob patterns a login for `key` covers
+/// Derive the escaped URL glob patterns a login covers
 /// (design/credential-storage.md section 8).
 ///
-/// The primary glob anchors on the normalized user-supplied discovery URL
-/// (`globset::escape(<root ending in />)` + `**`), so the discovery fetch
-/// itself is authenticated on later runs. The resolved `index_root` and
+/// The primary glob anchors on `primary_root`: the normalized
+/// user-supplied discovery URL for a plain-URL target (so the discovery
+/// fetch itself is authenticated on later runs), or the literal-prefix
+/// anchor for a template target
+/// (`globset::escape(<root ending in />)` + `**` either way). The
+/// resolved `index_root` and
 /// `api_root` add further globs only when not already covered by an
 /// earlier root (Case B, disjoint host or path); a root that is itself a
 /// prefix of an earlier one is also skipped, keeping the set minimal. A
@@ -301,7 +355,7 @@ pub enum AuthLoginOutcome {
 /// Both derivation and runtime matching serialize URLs via
 /// `url::Url::as_str()`, so IDN/percent-encoding agree on both sides.
 fn derive_credential_globs(
-    key: &str,
+    primary_root: &str,
     endpoints: Option<&ResolvedEndpoints>,
     notify: &mut impl FnMut(AuthLoginNotice),
 ) -> Vec<String> {
@@ -309,7 +363,7 @@ fn derive_credential_globs(
     // covered when one of these is its string prefix: the corresponding
     // `<escaped root>**` glob then matches every URL under the candidate
     // (`**` after `/` crosses separators).
-    let mut roots: Vec<String> = vec![key.to_string()];
+    let mut roots: Vec<String> = vec![primary_root.to_string()];
 
     let push_if_uncovered = |roots: &mut Vec<String>, candidate: &str| {
         if !roots
@@ -327,7 +381,7 @@ fn derive_credential_globs(
         match &endpoints.index_root {
             IndexLocation::Root(url) => push_if_uncovered(&mut roots, url.as_str()),
             IndexLocation::Template(template) => match template_anchor_root(template.prefix()) {
-                Some(anchor) => push_if_uncovered(&mut roots, anchor.as_str()),
+                Some((_, anchor)) => push_if_uncovered(&mut roots, anchor.as_str()),
                 None => notify(AuthLoginNotice::TemplateIndexRootSkipped {
                     template: template.to_string(),
                 }),
@@ -344,20 +398,21 @@ fn derive_credential_globs(
         .collect()
 }
 
-/// Anchor a templated `index_root`'s literal prefix at a safe URL
-/// boundary: the prefix cut back to its last `/`, reparsed as a URL so the
-/// anchor uses the same serialization runtime request URLs will (host
-/// case, default port). Returns `None` when no anchor at least as deep as
-/// `scheme://authority/` exists (for example a placeholder directly in the
-/// query of a path-less URL, whose last `/` is the one in `://`).
-fn template_anchor_root(prefix: &str) -> Option<Url> {
+/// Anchor a URL template's literal prefix at a safe URL boundary: the
+/// prefix cut back to its last `/`, reparsed as a URL so the anchor uses
+/// the same serialization runtime request URLs will (host case, default
+/// port). Returns the cut position (the byte index of that last `/`)
+/// alongside the anchor. Returns `None` when no anchor at least as deep
+/// as `scheme://authority/` exists (for example a placeholder directly in
+/// the query of a path-less URL, whose last `/` is the one in `://`).
+fn template_anchor_root(prefix: &str) -> Option<(usize, Url)> {
     let cut = prefix.rfind('/')?;
     let candidate = &prefix[..=cut];
     let url = Url::parse(candidate).ok()?;
     if !matches!(url.scheme(), "http" | "https") || url.host().is_none() {
         return None;
     }
-    Some(url)
+    Some((cut, url))
 }
 
 /// Identity fields parsed from a successful `v1/whoami` probe, persisted
@@ -721,6 +776,19 @@ pub fn do_auth_login<S: CredentialStore>(
     let key = validated_index_key(index_url)?;
     let location = IndexLocation::parse(&key)
         .map_err(|err| AuthCommandError::InvalidIndexUrl(format!("`{key}`: {err}")))?;
+    // The primary glob root: the key itself for a plain URL (it ends in
+    // `/`), the literal-prefix anchor for a template target. Key
+    // validation already rejected unanchorable templates; this re-check
+    // just avoids a panic path.
+    let primary_root = match &location {
+        IndexLocation::Root(_) => key.clone(),
+        IndexLocation::Template(template) => match template_anchor_root(template.prefix()) {
+            Some((_, anchor)) => anchor.as_str().to_string(),
+            None => {
+                return Err(AuthCommandError::TemplateWithoutAnchor { url: key });
+            }
+        },
+    };
 
     let endpoints =
         match runtime.block_on(fetch_index_config(client, &Unauthenticated {}, &location)) {
@@ -732,7 +800,7 @@ pub fn do_auth_login<S: CredentialStore>(
                 None
             }
         };
-    let globs = derive_credential_globs(&key, endpoints.as_ref(), &mut notify);
+    let globs = derive_credential_globs(&primary_root, endpoints.as_ref(), &mut notify);
 
     // Detect an existing login before writing, so the host can announce
     // the replacement before the write. `list` and `upsert` are

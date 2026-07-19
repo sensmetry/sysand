@@ -16,7 +16,7 @@ use sysand_core::{
         validated_index_key,
     },
     config::Config,
-    credential_store::{CredentialStoreError, normalize_index_key},
+    credential_store::CredentialStoreError,
 };
 
 use crate::{DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
@@ -77,7 +77,7 @@ pub fn command_auth_login(
         None => resolve_default_index(default_index, config)?,
     };
     // Validate and normalize before any secret entry, so a `file://` or
-    // template target fails without prompting.
+    // unanchorable-template target fails without prompting.
     let key = validated_index_key(&target)?;
     // Echo the resolved index before reading the secret, on both the
     // prompt and the stdin path, so a project-configured default cannot
@@ -262,7 +262,7 @@ pub fn command_auth_logout(
     // Echo the resolved index (normalized to the stored-key form when
     // possible) so a configured default cannot be targeted silently.
     // Printed, not logged: `--quiet` must not hide it.
-    let echo = normalize_index_key(&target).unwrap_or_else(|_| target.clone());
+    let echo = validated_index_key(&target).unwrap_or_else(|_| target.clone());
     println!("Logging out from index `{echo}`");
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;

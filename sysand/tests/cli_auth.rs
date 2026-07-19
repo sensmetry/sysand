@@ -497,6 +497,69 @@ fn auth_login_validates_the_read_surface_of_a_private_index() -> TestResult {
 }
 
 #[test]
+fn auth_login_status_logout_round_trip_a_template_target() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    let env = seam_env(&store_path);
+
+    let mut server = mockito::Server::new();
+    let template = format!("{}/repo/files/{{path}}/raw?ref=index", server.url());
+    let anchor_glob = format!("{}/repo/files/**", server.url());
+    let ref_query = mockito::Matcher::UrlEncoded("ref".into(), "index".into());
+    let _config = server
+        .mock("GET", "/repo/files/sysand-index-config.json/raw")
+        .match_query(ref_query.clone())
+        .with_status(404)
+        .create();
+    // The GitLab reality: unauthenticated GET answers 404 on a private
+    // repo, the forced bearer retry 200s (the accepted-read path).
+    let _unauth = server
+        .mock("GET", "/repo/files/index.json/raw")
+        .match_query(ref_query.clone())
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(404)
+        .create();
+    let _forced = server
+        .mock("GET", "/repo/files/index.json/raw")
+        .match_query(ref_query)
+        .match_header("authorization", "Bearer template-tok")
+        .with_status(200)
+        .create();
+
+    let (_t, _c, out) = run_sysand_stdin(
+        ["auth", "login", "--token-stdin", &template],
+        &env,
+        b"template-tok\n",
+    )?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "Logging in to index `{template}`"
+        )))
+        .stdout(predicate::str::contains(&anchor_glob))
+        .stderr(predicate::str::contains("validated (read)"));
+
+    // `status` shows the key in the exact form `logout` accepts.
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(format!("stored  {template}")))
+        .stdout(predicate::str::contains(&anchor_glob));
+
+    let (_t, _c, out) = run_sysand_with(["auth", "logout", &template], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains(format!(
+            "Logging out from index `{template}`"
+        )));
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("No stored index logins."));
+    Ok(())
+}
+
+#[test]
 fn auth_status_shows_identity_learned_by_a_validating_login() -> TestResult {
     let (_store_dir, store_path) = seam_store()?;
     let env = seam_env(&store_path);

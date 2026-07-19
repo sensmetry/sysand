@@ -1452,7 +1452,9 @@ pub enum AuthCommand {
     #[clap(verbatim_doc_comment)]
     Login {
         /// Index URL to log in to (e.g. https://sysand.com).
-        /// Defaults to the default index
+        /// URL templates (see --index under resolution options) are
+        /// accepted; the credential is scoped to the template's literal
+        /// prefix. Defaults to the default index
         #[clap(verbatim_doc_comment)]
         index_url: Option<String>,
         /// Read the token from standard input (trimming one trailing
@@ -1480,7 +1482,8 @@ pub enum AuthCommand {
     /// Remove a stored index login
     Logout {
         /// Index URL to log out from (e.g. https://sysand.com).
-        /// Defaults to the default index
+        /// URL templates (see --index under resolution options) are
+        /// accepted. Defaults to the default index
         #[clap(verbatim_doc_comment)]
         index_url: Option<String>,
         /// Comma-delimited list of URLs to use as default index URLs.

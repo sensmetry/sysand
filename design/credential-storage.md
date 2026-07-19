@@ -117,11 +117,16 @@ Under a `sysand auth` namespace:
 - **Glob derivation** (§8): automatic from the URL; no manual `--pattern` in
   v1. If derivation is ever wrong for an unusual layout, the `SYSAND_CRED_*`
   env var is the escape hatch until `--pattern` / `auth set` land (§10).
-  v1 implementation note: a **templated URL as the login target itself**
-  (the user typing a `{path}` template into `auth login`/`logout`) is
-  rejected with a pointer to `SYSAND_CRED_*`; a templated `index_root`
-  advertised **by discovery** is anchored per §8 as planned. Revisit if
-  template-target logins turn out to matter.
+  A **templated URL as the login target itself** (the user typing a
+  `{path}` / `{path_raw}` template into `auth login`/`logout`, for example
+  a GitLab repository-files URL) is supported: the storage key is the
+  template text with its literal-prefix anchor normalized through
+  `url::Url` serialization (lowercased scheme and host, default port
+  stripped, IDN punycoded; the rest of the template stays verbatim, since
+  it is raw text rather than a parsed URL), and the primary glob anchors
+  on that literal prefix per §8, exactly like a templated `index_root`
+  advertised by discovery. A template with no safe anchor (at least
+  `scheme://authority/`) is rejected with a pointer to `SYSAND_CRED_*`.
 
 The index URL is normalized (trailing slash, scheme) before use as the
 storage key and for glob derivation, so different spellings do not create
@@ -334,8 +339,10 @@ two-leg flow and trusted publishing are otherwise unchanged.
   one (string-prefix coverage with both sides slash-terminated), it
   replaces it, keeping the set minimal and non-overlapping. Normative test
   requirements: the discovery-document URL, the `index.json` URL, and the
-  upload URL each match the compiled derived set, and an IPv6-literal login
-  (`https://[::1]:8000/`) works.
+  upload URL each match the compiled derived set (for a template-target
+  login without an advertised `api_root` there is no upload URL, and an
+  encoded-`{path}` project-file URL stands in for it), and an IPv6-literal
+  login (`https://[::1]:8000/`) works.
 - **Divergent `api_root` (Case B).** If `api_root` nests under the derived
   root (Case A), one glob suffices. If it is a disjoint host/path, store the
   same credential under both globs (minimal, non-overlapping), so the upload

@@ -5,7 +5,7 @@ use chrono::{TimeZone, Utc};
 
 use super::{
     AuthCommandError, EnvCredentialEntry, StoredCredentialsStatus, assemble_auth_status,
-    do_auth_logout, do_auth_status,
+    do_auth_logout, do_auth_status, validated_index_key,
 };
 use crate::credential_store::{
     CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
@@ -577,31 +577,241 @@ mod login {
         }
     }
 
+    // Template targets (design/credential-storage.md section 4: templated
+    // login targets are supported, anchored per section 8).
+
+    /// The motivating GitLab-shaped target: the key is the template text
+    /// itself (already canonical), with the anchor normalizing only the
+    /// URL-parsed part of the literal prefix.
     #[test]
-    fn login_rejects_a_template_target() {
+    fn template_key_is_the_template_with_a_normalized_anchor() {
+        let gitlab =
+            "https://gitlab.com/api/v4/projects/84113019/repository/files/{path}/raw?ref=index";
+
+        assert_eq!(validated_index_key(gitlab).unwrap(), gitlab);
+        // Scheme/host case and the default port normalize through the
+        // anchor; the placeholder and suffix stay verbatim.
+        let spelled =
+            "HTTPS://GitLab.COM:443/api/v4/projects/84113019/repository/files/{path}/raw?ref=index";
+        assert_eq!(validated_index_key(spelled).unwrap(), gitlab);
+        // Idempotent: the key is its own key.
+        assert_eq!(
+            validated_index_key(&validated_index_key(spelled).unwrap()).unwrap(),
+            gitlab
+        );
+    }
+
+    #[test]
+    fn template_key_rejects_an_unanchorable_template() {
+        // Placeholder directly in the query of a path-less URL: the only
+        // `/` in the literal prefix is the one in `://`.
+        let err = validated_index_key("https://files.example.com?f={path}").unwrap_err();
+
+        assert!(matches!(
+            &err,
+            AuthCommandError::TemplateWithoutAnchor { .. }
+        ));
+        let message = err.to_string();
+        assert!(message.contains("SYSAND_CRED_"), "was: {message}");
+    }
+
+    #[test]
+    fn template_key_keeps_the_non_http_rejection() {
+        let err = validated_index_key("ftp://files.example.com/{path}").unwrap_err();
+
+        assert!(matches!(&err, AuthCommandError::NotHttpIndex { .. }));
+    }
+
+    #[test]
+    fn login_with_a_template_target_anchors_and_covers_expanded_urls() {
+        let mut server = mockito::Server::new();
+        let template = format!("{}/repo/files/{{path}}/raw?ref=index", server.url());
+        let anchor = format!("{}/repo/files/", server.url());
+        // No discovery document: the fetch goes through the template
+        // (asserted indirectly: a missed mock would answer 501, which is
+        // a DiscoveryUnreachable notice, and notices must stay empty).
+        let _config = server
+            .mock("GET", "/repo/files/sysand-index-config.json/raw")
+            .match_query(mockito::Matcher::UrlEncoded("ref".into(), "index".into()))
+            .with_status(404)
+            .create();
         let mut store = InMemoryCredentialStore::new();
 
-        let (outcome, notices) = run_login(
-            &mut store,
-            "https://files.example.com/repo/{path}/raw",
-            "tok",
+        let (outcome, notices) = run_login(&mut store, &template, "tok");
+
+        let (key, globs) = stored(outcome);
+        assert_eq!(key, template);
+        assert!(notices.is_empty(), "unexpected notices: {notices:?}");
+        assert_eq!(globs, vec![format!("{}**", globset::escape(&anchor))]);
+        // Section 8 coverage for a template without an api_root: the
+        // template-resolved discovery URL, `index.json` URL, and an
+        // encoded-`{path}` project-file URL all match the derived set.
+        let location = IndexLocation::parse(&template).unwrap();
+        let set = matcher(&globs);
+        let kpar = location.resolve(["some-publisher", "some.name", "1.0.0", "project.kpar"]);
+        for url in [
+            location.resolve(["sysand-index-config.json"]),
+            location.resolve(["index.json"]),
+            kpar.clone(),
+        ] {
+            assert!(set.is_match(url.as_str()), "`{url}` must match {globs:?}");
+        }
+        // The `{path}` expansion really is one encoded segment.
+        assert!(kpar.as_str().contains("some-publisher%2Fsome.name"));
+        assert!(!set.is_match(format!("{}/elsewhere", server.url())));
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
+    }
+
+    #[test]
+    fn login_and_logout_round_trip_a_template_key() {
+        // Port 1 answers nothing: discovery is unreachable and the glob
+        // set is the anchor-derived fallback.
+        let template = "http://127.0.0.1:1/files/{path}/raw?ref=main";
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login(&mut store, template, "tok");
+
+        let (key, globs) = stored(outcome);
+        assert_eq!(key, template);
+        assert_eq!(
+            globs,
+            vec![format!(
+                "{}**",
+                globset::escape("http://127.0.0.1:1/files/")
+            )]
         );
+        assert!(
+            notices
+                .iter()
+                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { .. }))
+        );
+        // `status` reports the key in the exact form `logout` accepts.
+        let status = do_auth_status(&store, vec![]).unwrap();
+        let StoredCredentialsStatus::Available(stored) = status.stored else {
+            panic!("expected stored credentials");
+        };
+        assert_eq!(stored[0].key, template);
+        // A differently-spelled scheme normalizes to the same key.
+        let removed =
+            do_auth_logout(&mut store, "HTTP://127.0.0.1:1/files/{path}/raw?ref=main").unwrap();
+        assert_eq!(removed, template);
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn login_with_a_query_placeholder_template_anchors_at_the_path() {
+        // Anchorable query-position placeholder: the anchor cuts back to
+        // the last `/` of the literal prefix, shallower than the whole
+        // prefix.
+        let template = "http://127.0.0.1:1/repo/download?file={path}&ref=main";
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login(&mut store, template, "tok");
+
+        let (key, globs) = stored(outcome);
+        assert_eq!(key, template);
+        assert_eq!(
+            globs,
+            vec![format!("{}**", globset::escape("http://127.0.0.1:1/repo/"))]
+        );
+        let expanded = IndexLocation::parse(template)
+            .unwrap()
+            .resolve(["index.json"]);
+        assert!(matcher(&globs).is_match(expanded.as_str()));
+        assert!(!matcher(&globs).is_match("http://127.0.0.1:1/other"));
+    }
+
+    #[test]
+    fn login_with_a_path_raw_template_target_round_trips() {
+        let template = "http://127.0.0.1:1/raw/{path_raw}?ref=main";
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login(&mut store, template, "tok");
+
+        let (key, globs) = stored(outcome);
+        assert_eq!(key, template);
+        // `{path_raw}` keeps literal `/` separators; `**` after `/`
+        // crosses them.
+        let expanded =
+            IndexLocation::parse(template)
+                .unwrap()
+                .resolve(["pub", "name", "versions.json"]);
+        assert!(expanded.as_str().contains("/raw/pub/name/versions.json"));
+        assert!(matcher(&globs).is_match(expanded.as_str()));
+        assert_eq!(do_auth_logout(&mut store, template).unwrap(), template);
+    }
+
+    #[test]
+    fn login_rejects_an_unanchorable_template_target() {
+        let mut store = InMemoryCredentialStore::new();
+
+        // Fails in key validation, before any network or store access.
+        let (outcome, notices) = run_login(&mut store, "https://files.example.com?f={path}", "tok");
 
         assert!(matches!(
             outcome.unwrap_err(),
-            AuthCommandError::TemplateIndexUrl { .. }
+            AuthCommandError::TemplateWithoutAnchor { .. }
         ));
         assert!(notices.is_empty());
         assert!(store.list().unwrap().is_empty());
     }
 
     #[test]
-    fn logout_rejects_a_template_target() {
+    fn logout_rejects_an_unanchorable_template_target() {
         let mut store = InMemoryCredentialStore::new();
 
-        let err = do_auth_logout(&mut store, "https://files.example.com/{path}").unwrap_err();
+        let err = do_auth_logout(&mut store, "https://files.example.com?f={path}").unwrap_err();
 
-        assert!(matches!(err, AuthCommandError::TemplateIndexUrl { .. }));
+        assert!(matches!(
+            err,
+            AuthCommandError::TemplateWithoutAnchor { .. }
+        ));
+    }
+
+    #[test]
+    fn validated_login_on_a_private_template_index_validates_read() {
+        // The GitLab reality check: unauthenticated GET answers 404 on a
+        // private repo, the forced bearer retry 200s; that is the
+        // accepted-read path. A template without a discovery document
+        // has no api_root, so whoami is never probed.
+        let mut server = mockito::Server::new();
+        let template = format!("{}/repo/files/{{path}}/raw?ref=index", server.url());
+        let ref_query = mockito::Matcher::UrlEncoded("ref".into(), "index".into());
+        let _config = server
+            .mock("GET", "/repo/files/sysand-index-config.json/raw")
+            .match_query(ref_query.clone())
+            .with_status(404)
+            .create();
+        let unauth = server
+            .mock("GET", "/repo/files/index.json/raw")
+            .match_query(ref_query.clone())
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(404)
+            .expect(1)
+            .create();
+        let forced = server
+            .mock("GET", "/repo/files/index.json/raw")
+            .match_query(ref_query)
+            .match_header("authorization", "Bearer tok")
+            .with_status(200)
+            .expect(1)
+            .create();
+        let whoami = server
+            .mock("GET", mockito::Matcher::Regex("whoami".to_string()))
+            .expect(0)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login_with(&mut store, &template, "tok", None);
+
+        let (key, _, validated) = stored_validated(outcome);
+        assert_eq!(key, template);
+        assert_eq!(validated, vec![ProbeSurface::Read]);
+        assert!(notices.is_empty(), "unexpected notices: {notices:?}");
+        unauth.assert();
+        forced.assert();
+        whoami.assert();
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
     }
 
     // Validation probes (design/credential-storage.md section 5).
