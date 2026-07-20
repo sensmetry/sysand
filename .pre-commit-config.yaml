@@ -59,7 +59,7 @@ repos:
         entry: cargo fmt
         description: Formats all bin and lib files of the current workspace using rustfmt.
         language: rust
-        language_version: "1.96"
+        language_version: "1.97.1"
         types: [rust]
         args: ["--"]
 
@@ -68,7 +68,7 @@ repos:
         entry: cargo clippy
         description: Checks all packages in the workspace to catch common mistakes and improve your Rust code.
         language: rust
-        language_version: "1.96"
+        language_version: "1.97.1"
         types: [rust]
         args:
           - --workspace
