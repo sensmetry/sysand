@@ -159,6 +159,6 @@ rejected.
 
 The endpoint is read-only and MUST NOT consume single-use credentials:
 presenting an exchanged trusted-publishing token to `v1/whoami` leaves
-it usable for the subsequent upload. Servers MAY rate limit the
+it usable for the subsequent upload. Servers SHOULD rate limit the
 endpoint (429), since it can be probed without a valid credential and
 acts as a token-validity oracle.
