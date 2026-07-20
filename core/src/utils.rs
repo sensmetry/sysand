@@ -240,3 +240,5 @@ pub fn to_pretty_json_string<T: Serialize>(value: &T) -> String {
     serialized.push('\n');
     serialized
 }
+
+pub const SP: char = ' ';

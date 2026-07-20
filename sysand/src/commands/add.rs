@@ -29,6 +29,7 @@ use crate::{
     CliError, DEFAULT_INDEX_URL,
     cli::{ProjectSourceOptions, ResolutionOptions},
     commands::{lock::create_resolver, sync::command_sync},
+    style::GOOD,
 };
 
 // TODO: Collect common arguments
@@ -183,17 +184,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
         });
     }
 
-    let provided_iris = if !resolution_opts.include_std {
-        let sysml_std = crate::known_std_libs();
-        if sysml_std.contains_key(iri) {
-            crate::logger::warn_std(iri);
-            return Ok(());
-        }
-        sysml_std
-    } else {
-        HashMap::default()
-    };
-
     let usage_raw = InterchangeProjectUsageRaw::Resource {
         resource: iri.to_owned(),
         version_constraint,
@@ -206,6 +196,22 @@ pub fn command_add<Policy: HTTPAuthentication>(
         if !added {
             return Ok(());
         }
+
+        let provided_iris = if !resolution_opts.include_std {
+            let sysml_std = crate::known_std_libs();
+            if sysml_std.contains_key(iri) {
+                log::info!(
+                    "{GOOD}note{GOOD:#}: SysMLv2/KerML standard libraries will not be installed during sync"
+                );
+                // Can't skip either locking or syncing, since lockfile needs to add the usage,
+                // and std version being added may affect version resolution of other packages
+                // in the dependency graph (e.g. older versions used older std, newer use some
+                // newer version)
+            }
+            sysml_std
+        } else {
+            HashMap::default()
+        };
 
         let alias_iris = if let Some(w) = &ctx.current_workspace {
             w.projects()

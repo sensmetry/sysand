@@ -197,10 +197,8 @@ where
             }
         }
 
-        let mut no_supported = true;
         // TODO: does it make sense to install the same project from all the sources?
         for source in &project.sources {
-            let supported = true;
             match source {
                 Source::Editable { editable } => {
                     // Nothing to install for editable
@@ -345,16 +343,6 @@ where
                         })?;
                 }
             }
-            if supported {
-                no_supported = false;
-            }
-        }
-        if no_supported {
-            return Err(SyncError::UnsupportedSources(
-                main_uri
-                    .cloned()
-                    .unwrap_or_else(|| "project without IRI".to_string()),
-            ));
         }
         updated = true;
     }

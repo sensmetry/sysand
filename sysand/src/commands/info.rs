@@ -82,7 +82,13 @@ pub fn pprint_interchange_project(
             })
             .collect();
         if has_ignored_usages && usages_to_print.is_empty() {
-            println!("All usages are ignored");
+            // TODO: distinguish between provided iris in general and std libs in
+            // particular. Here it's assumed that non-empty excluded_iris == std is ignored,
+            // which may not continue to be the case
+            println!(
+                "All usages are ignored. Standard library usages are not\n\
+                shown by default, unless `--include-std` is passed"
+            );
         } else {
             println!("{header}Usages:{header:#}");
             for usage in usages_to_print.iter() {
@@ -101,7 +107,11 @@ pub fn pprint_interchange_project(
                 }
             }
             if has_ignored_usages {
-                println!("Some usages are ignored");
+                // Same caveat as for "All usages are ignored"
+                println!(
+                    "Some usages are ignored. Standard library usages are not\n\
+                    shown by default, unless `--include-std` is passed"
+                );
             }
         }
     }

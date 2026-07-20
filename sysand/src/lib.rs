@@ -41,14 +41,13 @@ use sysand_core::{
         utils::wrapfs,
     },
     resolve::net_utils::create_reqwest_client,
-    sources::Dependencies,
     stdlib::known_std_libs,
     workspace::Workspace,
 };
 use url::Url;
 
 use crate::{
-    cli::{Args, Command, InfoCommand},
+    cli::{Args, Command},
     commands::{
         add::command_add,
         build::{command_build_for_project, command_build_for_workspace},
@@ -409,9 +408,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         Command::Sync { resolution_opts } => {
-            // TODO: only print this if we actually skip install of any std libs
             let provided_iris = if !resolution_opts.include_std {
-                crate::logger::warn_std_deps();
                 known_std_libs()
             } else {
                 HashMap::default()
@@ -484,21 +481,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )?)
             };
             let excluded_iris: HashSet<_> = if !include_std {
-                // Only print std warning when command is to print all info
-                // or just usages.
-                // These are the only cases where stdlib usages affect output
-                // TODO: be more precise, this warning is annoying
-                match subcommand {
-                    None
-                    | Some(InfoCommand::Usage {
-                        clear: None,
-                        add: None,
-                        set: None,
-                        remove: None,
-                        numbered: _,
-                    }) => crate::logger::warn_std_deps(),
-                    _ => (),
-                }
                 known_std_libs().into_keys().collect()
             } else {
                 HashSet::default()
@@ -730,11 +712,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             runtime,
         ),
         Command::Sources { sources_opts } => {
-            let dependencies = sources_opts.dependencies();
-            if dependencies == Dependencies::Deps {
-                crate::logger::warn_std_omit();
-            }
-            command_sources_project(sources_opts.no_own(), dependencies, ctx)
+            command_sources_project(sources_opts.no_own(), sources_opts.dependencies(), ctx)
         }
         Command::Clone {
             locator,

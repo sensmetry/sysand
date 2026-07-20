@@ -69,9 +69,6 @@ pub fn command_sources_env<S: AsRef<str>>(
             bail!("project is missing project information")
         };
 
-        if dependencies == Dependencies::Deps {
-            crate::logger::warn_std_deps();
-        }
         for dep in resolve_dependencies(info.validate()?.usage, env, dependencies)? {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
                 println!("{}", src_path);
