@@ -261,7 +261,7 @@ sources = [
     {{ remote_src = "{}", checksum = "3bd4c3c6b54690d38eeb035e136b667b4307063451b140feb2f49d266f653a26" }},
 ]
 "#,
-            &server.url()
+            server.url()
         ),
     )?;
 
@@ -376,7 +376,7 @@ sources = [
     {{ remote_src = "{}", checksum = "3bd4c3c6b54690d38eeb035e136b667b4307063451b140feb2f49d266f653a26" }},
 ]
 "#,
-            &server.url()
+            server.url()
         )
         .as_bytes(),
     )?;
@@ -481,7 +481,7 @@ sources = [
     {{ remote_src = "{}", checksum = "3bd4c3c6b54690d38eeb035e136b667b4307063451b140feb2f49d266f653a26" }},
 ]
 "#,
-            &server.url()
+            server.url()
         ),
     )?;
 

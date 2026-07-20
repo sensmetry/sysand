@@ -396,7 +396,7 @@ pub fn get_project_version<R: ResolveRead>(
                     Err(e) => {
                         log::warn!(
                             "skipping candidate project with invalid SemVer version {}: {e}",
-                            &info.version
+                            info.version
                         );
                         continue;
                     }

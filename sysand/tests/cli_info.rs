@@ -1337,8 +1337,8 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
     url = "{}"
     default = true
     "#,
-        &server.url(),
-        &server_alt.url()
+        server.url(),
+        server_alt.url()
     );
 
     let cfg_path = cwd.join(sysand_core::config::local_fs::CONFIG_FILE);

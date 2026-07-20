@@ -58,7 +58,7 @@ pub fn get_local_browser_storage<S: AsRef<str>>(
 
 impl LocalStorageVFS {
     pub fn to_key<P: AsRef<Utf8UnixPath>>(&self, path: P) -> String {
-        format!("{}{}", &self.prefix, path.as_ref())
+        format!("{}{}", self.prefix, path.as_ref())
     }
 
     pub fn exists<P: AsRef<Utf8UnixPath>>(&self, path: P) -> Result<bool, LocalStorageError> {
