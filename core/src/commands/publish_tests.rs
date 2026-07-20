@@ -261,9 +261,10 @@ fn publish_bearer_no_match_in_any_source_errors() {
     .unwrap_err();
 
     assert_matches!(err, PublishError::NoPublishBearer { .. });
-    // The hint must stay truthful about what exists today: `SYSAND_CRED_*`
-    // configuration, not the yet-unimplemented `sysand auth login`.
+    // The hint points at both remedies: `sysand auth login` to store a
+    // credential, and the `SYSAND_CRED_*` environment fallback.
     let message = err.to_string();
+    assert!(message.contains("sysand auth login"), "message: {message}");
     assert!(message.contains("SYSAND_CRED_<X>"), "message: {message}");
     assert!(
         message.contains("https://example.org/api/v1/upload"),

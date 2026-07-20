@@ -870,7 +870,8 @@ pub enum PublishError {
 
     #[error(
         "no bearer token credentials configured for publish URL `{upload_url}`;\n\
-         set `SYSAND_CRED_<X>` and `SYSAND_CRED_<X>_BEARER_TOKEN` with a matching URL pattern"
+         run `sysand auth login <index-url>` to store one, or set `SYSAND_CRED_<X>`\n\
+         and `SYSAND_CRED_<X>_BEARER_TOKEN` with a matching URL pattern"
     )]
     NoPublishBearer { upload_url: Box<str> },
 
