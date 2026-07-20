@@ -24,6 +24,7 @@ use sysand_core::{
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
     },
+    utils::SP,
 };
 
 use crate::{
@@ -31,6 +32,7 @@ use crate::{
     cli::{CloneProjectLocatorArgs, ResolutionOptions},
     commands::sync::command_sync,
     get_or_create_env,
+    style::GOOD,
 };
 
 pub enum ProjectLocator {
@@ -140,14 +142,18 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             &provided_iris,
             &ctx,
         )?;
-        // Warn if we have any std lib dependencies
+        // If we have any std lib dependencies, they will not be installed
         if !provided_iris.is_empty()
             && lock
                 .projects
                 .iter()
                 .any(|x| x.identifiers.iter().any(|y| provided_iris.contains_key(y)))
         {
-            crate::logger::warn_std_deps();
+            log::info!(
+                "{GOOD}note{GOOD:#}: SysMLv2/KerML standard library packages will not be installed during sync,\n\
+                {SP:>5} since they should be provided by the tooling. If you want to install them,\n\
+                {SP:>5} run `sysand sync --include-std`"
+            );
         }
         let lock = lock.canonicalize();
         wrapfs::write(

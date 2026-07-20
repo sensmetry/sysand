@@ -201,11 +201,50 @@ fn clone_not_found() -> Result<(), Box<dyn std::error::Error>> {
 //     todo!()
 // }
 
-// warn if deps of cloned project include std libs
-// #[test]
-// fn clone_std_warn() -> Result<(), Box<dyn std::error::Error>> {
-//     todo!()
-// }
+// note if deps of cloned project include std libs
+#[test]
+fn clone_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
+    let (_dep_temp_dir, cwd_dep, out) = run_sysand(
+        ["init", "--version", "1.2.3", "--name", "clone_std_note_dep"],
+        None,
+    )?;
+    out.assert().success();
+
+    std::fs::write(
+        cwd_dep.join("CloneStdNoteDep.sysml"),
+        "package CloneStdNoteDep;",
+    )?;
+    run_sysand_in(&cwd_dep, ["include", "CloneStdNoteDep.sysml"], None)?
+        .assert()
+        .success();
+
+    run_sysand_in(
+        &cwd_dep,
+        [
+            "add",
+            "--no-lock",
+            "--include-std",
+            "https://www.omg.org/spec/KerML/20250201/Function-Library.kpar",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let dep_path_str = cwd_dep.as_str();
+    let (_temp_dir, cwd, out) = run_sysand(["clone", dep_path_str], None)?;
+
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "note: SysMLv2/KerML standard library packages will not be installed during sync,",
+        ))
+        .stderr(predicate::str::contains("run `sysand sync --include-std`"));
+
+    assert!(cwd.join(DEFAULT_ENV_NAME).is_dir());
+
+    Ok(())
+}
 
 // do not warn about std deps if `--include-std` is given
 // TODO: should also check that they are installed (mock them)

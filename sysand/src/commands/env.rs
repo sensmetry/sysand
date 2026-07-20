@@ -28,6 +28,7 @@ use sysand_core::{
         priority::PriorityResolver,
         standard::standard_resolver,
     },
+    utils::SP,
 };
 use typed_path::Utf8UnixPathBuf;
 
@@ -82,7 +83,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     let provided_iris = if !include_std {
         let sysml_std = crate::known_std_libs();
         if sysml_std.contains_key(iri.as_ref()) {
-            crate::logger::warn_std(iri.as_ref());
+            warn_std_install(iri.as_ref());
             return Ok(());
         }
         sysml_std
@@ -144,7 +145,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             allow_multiple,
         )?;
     } else {
-        let usages = vec![InterchangeProjectUsage::Resource {
+        let usages = [InterchangeProjectUsage::Resource {
             resource: fluent_uri::Iri::from_str(iri.as_ref())?,
             version_constraint: version.map(|v| semver::VersionReq::parse(&v)).transpose()?,
         }];
@@ -162,13 +163,18 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         // Find if we added any std lib dependencies. This relies on `Lock::default()`
         // and `do_lock_extend()` to not read the existing lockfile, i.e. `lock` contains
         // only `iri` and `iri`'s dependencies.
+        // This is unreachable if `iri` is an std lib, so this warning will not duplicate
+        // the above one
         if !provided_iris.is_empty()
             && lock
                 .projects
                 .iter()
                 .any(|x| x.identifiers.iter().any(|y| provided_iris.contains_key(y)))
         {
-            crate::logger::warn_std_deps();
+            // TODO: this could be more helpful, currently it suggests `--include-std`,
+            // but that by itself will not work, since the project will be already installed,
+            // so `sysand env install <original iri> --allow-overwrite --include-std` is needed
+            crate::logger::note_std_deps_no_install();
         }
         command_sync(
             &lock,
@@ -244,7 +250,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     let provided_iris = if !include_std {
         let sysml_std = crate::known_std_libs();
         if sysml_std.contains_key(iri.as_ref()) {
-            crate::logger::warn_std(&iri);
+            warn_std_install(&iri);
             return Ok(());
         }
         sysml_std
@@ -360,4 +366,16 @@ pub fn command_env_list(env: Option<LocalDirectoryEnvironment>) -> Result<()> {
         println!("`{uri}` {}", version.unwrap_or("".to_string()));
     }
     Ok(())
+}
+
+fn warn_std_install(iri: impl AsRef<str>) {
+    log::warn!(
+        "it's not recommended to install SysML v2/KerML standard
+        {SP:>8} library package `{}`,\n\
+        {SP:>8} as installing it may break other tooling, since standard library\n\
+        {SP:>8} is usually provided by default, and the tool will therefore see two\n\
+        {SP:>8} conflicting copies of the same library;\n\
+        {SP:>8} to proceed anyway, pass `--include-std`",
+        iri.as_ref()
+    );
 }

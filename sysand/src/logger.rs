@@ -4,8 +4,9 @@
 use env_logger::{Builder, Target, fmt::Formatter};
 use log::{LevelFilter, Record, SetLoggerError};
 use std::io::{self, Write};
+use sysand_core::utils::SP;
 
-use crate::style;
+use crate::style::{self, GOOD};
 
 pub fn init(level: LevelFilter) -> Result<(), SetLoggerError> {
     Builder::new()
@@ -41,29 +42,11 @@ fn format(buf: &mut Formatter, record: &Record<'_>) -> Result<(), io::Error> {
     }
 }
 
-const SP: char = ' ';
-
-/// Print a warning that standard library package `iri` is ignored
-pub fn warn_std(iri: impl AsRef<str>) {
-    log::warn!(
-        "SysML v2/KerML standard library package `{}` is ignored\n\
-        {SP:>8} by default. If you want to process it, pass `--include-std` flag",
-        iri.as_ref()
-    );
-}
-
-/// Print a warning that standard library packages are omitted from output
-pub fn warn_std_omit() {
-    log::warn!(
-        "SysML v2/KerML standard library packages are omitted by default.\n\
-        {SP:>8} If you want to include them, pass `--include-std` flag"
-    );
-}
-
 /// Print a warning that dependencies on standard library packages are ignored
-pub fn warn_std_deps() {
-    log::warn!(
-        "Direct or transitive usages of SysML v2/KerML standard library packages are\n\
-        {SP:>8} ignored by default. If you want to process them, pass `--include-std` flag"
+pub fn note_std_deps_no_install() {
+    log::info!(
+        "{GOOD}note{GOOD:#}: SysML v2/KerML standard library packages will not be installed during sync,\n\
+        {SP:>5} since they should be provided by the tooling. If you want to install them,\n\
+        {SP:>5} pass `--include-std` flag"
     );
 }

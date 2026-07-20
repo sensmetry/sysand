@@ -8,9 +8,8 @@ use crate::{
     },
     project::ProjectMut,
     purl::{PKG_SYSAND_PREFIX, SysandPurlError, parse_sysand_purl},
+    utils::SP,
 };
-
-const SP: char = ' ';
 
 #[derive(Error, Debug)]
 pub enum AddError<ProjectError> {
