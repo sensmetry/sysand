@@ -53,8 +53,7 @@ pub fn load_configs<P: AsRef<Utf8Path>>(working_dir: P) -> Result<Config, Config
     load_configs_from(user_config.as_deref(), working_dir)
 }
 
-/// [`load_configs`] with the user configuration file location injected,
-/// so tests never read the developer's real configuration.
+/// [`load_configs`] with the user configuration file location injected
 pub(crate) fn load_configs_from<P: AsRef<Utf8Path>>(
     user_config: Option<&Utf8Path>,
     working_dir: P,

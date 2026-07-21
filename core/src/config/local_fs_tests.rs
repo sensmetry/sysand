@@ -46,8 +46,7 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
         }],
         projects: vec![],
     };
-    wrapfs::File::create(&user_path)?
-        .write_all(toml::to_string_pretty(&user_config)?.as_bytes())?;
+    wrapfs::write(&user_path, toml::to_string(&user_config)?)?;
 
     let working_dir = tempdir()?;
     let working_config = Config {
@@ -57,8 +56,7 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
         }],
         projects: vec![],
     };
-    wrapfs::File::create(working_dir.path().join(local_fs::CONFIG_FILE))?
-        .write_all(toml::to_string_pretty(&working_config)?.as_bytes())?;
+    wrapfs::write(working_dir.path().join(local_fs::CONFIG_FILE), toml::to_string(&working_config)?)?;
 
     let config_read = local_fs::load_configs_from(Some(&user_path), working_dir.path())?;
 
