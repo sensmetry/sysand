@@ -4,8 +4,12 @@
 use std::error::Error;
 
 use camino::Utf8Path;
+use fluent_uri::Iri;
 
-use crate::project::utils::relativize_path;
+use crate::{
+    model::InterchangeProjectUsage,
+    project::utils::{Identifier, relativize_path},
+};
 
 #[test]
 fn simple_relativize_path() -> Result<(), Box<dyn Error>> {
@@ -137,4 +141,30 @@ fn relativize_path_error_non_common_prefix() -> Result<(), Box<dyn Error>> {
     assert_eq!(*err_path, *path);
     assert_eq!(*err_root, *root);
     Ok(())
+}
+
+// --- Identifier constructors ---
+
+#[test]
+fn identifier_from_resource_usage_returns_iri_as_is() {
+    let resource = Iri::parse("urn:kpar:test".to_owned()).unwrap();
+    let usage = InterchangeProjectUsage::Resource {
+        resource,
+        version_constraint: None,
+    };
+    assert_eq!(Identifier::from(usage).as_str(), "urn:kpar:test");
+}
+
+#[test]
+fn identifier_from_iri_unchecked_str() {
+    assert_eq!(
+        Identifier::from_iri_unchecked_str("urn:kpar:test").as_str(),
+        "urn:kpar:test"
+    );
+}
+
+#[test]
+fn identifier_from_iri_owned() {
+    let iri = Iri::parse("urn:kpar:test".to_owned()).unwrap();
+    assert_eq!(Identifier::from_iri_owned(iri).as_str(), "urn:kpar:test");
 }
