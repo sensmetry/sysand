@@ -25,9 +25,47 @@ fn load_configs() -> Result<(), Box<dyn Error>> {
     };
     config_file.write_all(toml::to_string_pretty(&config)?.as_bytes())?;
 
-    let config_read = local_fs::load_configs(dir.path())?;
+    // `None` user config: `load_configs` itself would read the
+    // developer's real `~/.config/sysand/sysand.toml` and make the
+    // assertion environment-dependent.
+    let config_read = local_fs::load_configs_from(None, dir.path())?;
 
     assert_eq!(config_read, config);
+
+    Ok(())
+}
+
+#[test]
+fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Error>> {
+    let user_dir = tempdir()?;
+    let user_path = user_dir.path().join(local_fs::CONFIG_FILE);
+    let user_config = Config {
+        indexes: vec![Index {
+            url: "http://user.example.com".to_string(),
+            ..Default::default()
+        }],
+        projects: vec![],
+    };
+    wrapfs::write(&user_path, toml::to_string(&user_config)?)?;
+
+    let working_dir = tempdir()?;
+    let working_config = Config {
+        indexes: vec![Index {
+            url: "http://working.example.com".to_string(),
+            ..Default::default()
+        }],
+        projects: vec![],
+    };
+    wrapfs::write(
+        working_dir.path().join(local_fs::CONFIG_FILE),
+        toml::to_string(&working_config)?,
+    )?;
+
+    let config_read = local_fs::load_configs_from(Some(&user_path), working_dir.path())?;
+
+    let mut expected = user_config;
+    expected.merge(working_config);
+    assert_eq!(config_read, expected);
 
     Ok(())
 }
