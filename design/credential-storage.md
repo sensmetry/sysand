@@ -331,8 +331,10 @@ two-leg flow and trusted publishing are otherwise unchanged.
   additionally points at `sysand auth status`, which shows the stored
   `subject`, catching "this is a project token for a different project".
 - **Fail fast on expiry:** if the selected bearer carries a known
-  `expires_at` (§9) already past (with a small skew margin, since a fast
-  client clock could false-trip), publish stops before uploading the archive
+  `expires_at` (§9) already past by more than a **generous clock-skew
+  margin** (an hour; real client-clock skew is often minutes, and the stop
+  is only an optimization, so it errs toward attempting rather than refuse a
+  token the server would accept), publish stops before uploading the archive
   and points at `sysand auth login`. The server's `401` remains the real
   authority; the escape hatches are re-login or an env var.
 
@@ -454,10 +456,16 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
     "credential store full on this platform (Windows ~2.5 KB limit);
     remove an unused login or use a smaller token", and `status`/the error
     flag stale or expired entries so the user knows what to drop.
-- **Blob format robustness.** The blob carries a `version` field; readers
-  do not merely tolerate unknown record fields but **round-trip** them
-  (serde-flatten passthrough maps), so an older binary's read-modify-write
-  preserves a newer binary's fields instead of dropping them. On a parse failure
+- **Blob format robustness.** The blob carries a `version` field that
+  **gates the format**: a reader that does not recognize the version fails
+  closed rather than guessing, reserving a clean migration point if the
+  schema ever changes. Readers do not merely tolerate unknown record fields
+  but **round-trip** them (serde-flatten passthrough maps), so an older
+  binary's read-modify-write preserves a newer binary's fields instead of
+  dropping them. There is no record-level merge: concurrent writers are
+  serialized by the file lock (below) so the last writer wins, and that
+  field round-tripping is what keeps a concurrent newer binary's additions
+  from being lost. On a parse failure
   (interrupted write, older/newer sysand, another same-user process's
   scribble) read-modify-write **fails closed**, "credential store
   unreadable; remove the `sysand` keyring entry to reset", never silently
@@ -472,7 +480,9 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   world-writable shared path (lock squatting / symlink games), with a
   bounded wait and a clear error. A lock file is not a credentials file, so
   the no-plaintext rule is untouched. Parallel `sysand` invocations are
-  real; an in-process mutex alone would lose one writer's record.
+  real; an in-process mutex alone would lose one writer's record. The lock
+  coordinates `sysand` processes with each other only, not `sysand` against
+  another application that writes the same keyring entry.
 - **Consumption and keyring access.** The blob is read only when a
   credential might actually be needed, to avoid unnecessary keychain prompts.
   This requires a credential source the auth policy consults on demand. The
