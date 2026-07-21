@@ -231,6 +231,13 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
                 .map_err(HTTPProjectError::KparDownloaded),
         }
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        match self {
+            HTTPProjectAsync::HTTPSrcProject(proj) => proj.project_root(),
+            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj.project_root(),
+        }
+    }
 }
 
 pub struct HTTPProjects<Policy> {

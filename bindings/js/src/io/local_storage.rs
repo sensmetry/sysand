@@ -167,6 +167,11 @@ impl ProjectRead for ProjectLocalBrowserStorage {
             },
         }
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        // LocalStorage should not be treated as a filesystem
+        None
+    }
 }
 
 impl ProjectMut for ProjectLocalBrowserStorage {

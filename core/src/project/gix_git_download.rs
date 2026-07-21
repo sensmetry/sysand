@@ -87,6 +87,8 @@ impl GixDownloadedProject {
         let tmp_dir = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
 
         Ok(GixDownloadedProject {
+            // TODO: gix::url::parse() accepts bare local paths; we should verify before that
+            // it's URL or path as we expected instead of relying on gix::url::Parse to error out
             url: gix::url::parse(url.as_ref().into())
                 .map_err(|e| GixDownloadedError::UrlParse(url.as_ref().into(), Box::new(e)))?,
             inner: LocalSrcProject {
@@ -159,6 +161,13 @@ impl ProjectRead for GixDownloadedProject {
         self.ensure_downloaded()?;
 
         Ok(self.inner.checksum_canonical_variant()?)
+    }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        // FIXME: the URL can be `file:`, but it's tricky to
+        // get an absolute path from that, as it's unclear how Windows drive prefixes
+        // are handled in gix::url::parse()
+        None
     }
 }
 

@@ -206,6 +206,10 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
             .ok_or(ReqwestSrcError::MissingInfoMeta)?;
         Ok(ProjectChecksum::Project(checksum))
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        None
+    }
 }
 
 #[cfg(test)]

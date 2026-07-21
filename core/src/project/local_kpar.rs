@@ -282,6 +282,12 @@ impl ProjectRead for LocalKParProject {
             Err(e) => Err(e),
         }
     }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        // TODO: is this appropriate? KPAR is not really meant
+        // to be tied to a specific folder
+        Some(&self.archive_path)
+    }
 }
 
 impl LocalKParProjectRaw {
@@ -539,6 +545,12 @@ impl ProjectRead for LocalKParProjectRaw {
 
     /// This always panics. Wrapper is responsible for providing the checksum
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        panic!()
+    }
+
+    /// This always panics. Wrapper is responsible for deciding whether to
+    /// provide a path
+    fn project_root(&self) -> Option<&Utf8Path> {
         panic!()
     }
 }

@@ -307,6 +307,13 @@ impl ProjectRead for FileResolverProject {
             FileResolverProject::LocalKParProject(proj) => Ok(proj.checksum_canonical_variant()?),
         }
     }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        match self {
+            FileResolverProject::LocalSrcProject(proj) => proj.project_root(),
+            FileResolverProject::LocalKParProject(proj) => proj.project_root(),
+        }
+    }
 }
 
 impl ResolveRead for FileResolver {

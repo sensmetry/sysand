@@ -67,6 +67,10 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
     fn checksum_canonical_variant(&self) -> Result<super::ProjectChecksum, Self::Error> {
         self.project.checksum_canonical_variant()
     }
+
+    fn project_root(&self) -> Option<&camino::Utf8Path> {
+        self.project.project_root()
+    }
 }
 
 #[cfg(feature = "filesystem")]
