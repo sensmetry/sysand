@@ -938,16 +938,16 @@ fn publish_uploads_normally_without_a_known_expiry() {
 #[test]
 fn stored_bearer_clearly_expired_allows_a_skew_margin() {
     let now = Utc::now();
-    // Within the 60 s margin: a fast client clock must not false-trip;
-    // the server's 401 stays the authority.
+    // Within the one-hour margin: a skewed client clock must not false-trip
+    // and refuse a token the server would accept; the server's 401 stays the
+    // authority.
     assert!(!stored_bearer_clearly_expired(
-        now - Duration::seconds(30),
+        now - Duration::minutes(30),
         now
     ));
-    assert!(stored_bearer_clearly_expired(
-        now - Duration::seconds(120),
-        now
-    ));
+    // Well past the margin: skip uploading with a known-dead token.
+    assert!(stored_bearer_clearly_expired(now - Duration::hours(2), now));
+    // Not yet expired.
     assert!(!stored_bearer_clearly_expired(
         now + Duration::hours(1),
         now

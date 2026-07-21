@@ -296,11 +296,16 @@ pub fn do_publish(
     map_publish_response(status, &body_bytes, &bearer.provenance)
 }
 
-/// Whether a stored login's known expiry is clearly past: beyond a small
-/// skew margin, so a fast client clock cannot false-trip the pre-upload
-/// stop (design/credential-storage.md section 7).
+/// Whether a stored login's known expiry is clearly past: beyond a generous
+/// clock-skew margin, so a skewed client clock (real skew is often minutes,
+/// not seconds) cannot false-trip the pre-upload stop and refuse a token the
+/// server would still accept. The stop is only an optimization to avoid
+/// uploading with a known-dead token; the server's 401 is the real authority,
+/// so the margin errs toward attempting. A clock wrong by more than an hour
+/// has larger problems and a request would likely fail regardless
+/// (design/credential-storage.md section 7).
 fn stored_bearer_clearly_expired(expires_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
-    now.signed_duration_since(expires_at) > TimeDelta::seconds(60)
+    now.signed_duration_since(expires_at) > TimeDelta::hours(1)
 }
 
 /// Validate the shape of the resolved `api_root` that comes back from
