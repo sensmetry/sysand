@@ -56,7 +56,10 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
         }],
         projects: vec![],
     };
-    wrapfs::write(working_dir.path().join(local_fs::CONFIG_FILE), toml::to_string(&working_config)?)?;
+    wrapfs::write(
+        working_dir.path().join(local_fs::CONFIG_FILE),
+        toml::to_string(&working_config)?,
+    )?;
 
     let config_read = local_fs::load_configs_from(Some(&user_path), working_dir.path())?;
 
