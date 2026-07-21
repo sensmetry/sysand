@@ -302,7 +302,7 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     out.assert().failure().stderr(predicate::str::contains(
-        "no resolver was able to resolve the IRI",
+        "no resolver was able to resolve the project",
     ));
 
     Ok(())

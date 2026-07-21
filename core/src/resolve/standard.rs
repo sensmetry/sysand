@@ -14,7 +14,7 @@ use crate::{
     },
     index_location::IndexLocation,
     resolve::{
-        AsSyncResolveTokio, ResolveRead, ResolveReadAsync,
+        AsSyncResolveTokio, ResolutionInfo, ResolveRead, ResolveReadAsync,
         combined::CombinedResolver,
         env::EnvResolver,
         file::FileResolver,
@@ -54,9 +54,9 @@ impl<Policy: HTTPAuthentication> ResolveRead for StandardResolver<Policy> {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<crate::resolve::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        self.0.resolve_read(uri)
+        self.0.resolve_read(resolve)
     }
 }
 

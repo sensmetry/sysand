@@ -6,8 +6,9 @@ use std::{collections::HashMap, convert::Infallible};
 use fluent_uri::{Iri, component::Scheme};
 
 use crate::{
+    model::InterchangeProjectUsage,
     project::ProjectRead,
-    resolve::{ResolutionOutcome, ResolveRead},
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
 };
 
 #[derive(Debug)]
@@ -85,17 +86,21 @@ impl<Predicate: IRIPredicate, ProjectStorage: ProjectRead + Clone> ResolveRead
 
     fn resolve_read(
         &self,
-        uri: &Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+        let InterchangeProjectUsage::Resource { resource: uri, .. } = resolve.usage();
+
         if !self.iri_predicate.accept_iri(uri) {
-            return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "invalid IRI `{uri}` for this memory resolver"
-            )));
+            return Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: format!("invalid IRI `{uri}` for this memory resolver"),
+            });
         }
 
         Ok(match self.projects.get(uri) {
             Some(xs) => ResolutionOutcome::Resolved(xs.iter().map(|x| Ok(x.clone())).collect()),
-            None => ResolutionOutcome::Unresolvable(uri.to_string()),
+            None => ResolutionOutcome::NotFound {
+                reason: format!("no project found for IRI `{uri}` in this memory resolver"),
+            },
         })
     }
 }

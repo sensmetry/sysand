@@ -4,7 +4,8 @@
 // Resolve IRIs in an environment
 use crate::{
     env::{ReadEnvironment, ReadEnvironmentAsync},
-    resolve::{ResolutionOutcome, ResolveRead, ResolveReadAsync},
+    model::InterchangeProjectUsage,
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, ResolveReadAsync},
 };
 
 #[derive(Debug)]
@@ -21,8 +22,10 @@ impl<Env: ReadEnvironment> ResolveRead for EnvResolver<Env> {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+        let InterchangeProjectUsage::Resource { resource: uri, .. } = resolve.usage();
+
         let versions = self.env.versions(uri)?;
 
         let projects: Self::ResolvedStorages = versions
@@ -34,9 +37,9 @@ impl<Env: ReadEnvironment> ResolveRead for EnvResolver<Env> {
             )
             .collect();
         if projects.is_empty() {
-            Ok(ResolutionOutcome::Unresolvable(format!(
-                "no versions of `{uri}` found in environment"
-            )))
+            Ok(ResolutionOutcome::NotFound {
+                reason: format!("no versions of `{uri}` found in environment"),
+            })
         } else {
             Ok(ResolutionOutcome::Resolved(projects))
         }
@@ -59,15 +62,17 @@ impl<Env: ReadEnvironmentAsync> ResolveReadAsync for EnvResolver<Env> {
 
     async fn resolve_read_async(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         use futures::StreamExt as _;
 
+        let InterchangeProjectUsage::Resource { resource: uri, .. } = resolve.usage();
+
         let versions: Vec<Result<String, _>> = self.env.versions_async(uri).await?.collect().await;
         if versions.is_empty() {
-            return Ok(ResolutionOutcome::Unresolvable(format!(
-                "no versions of `{uri}` found in environment"
-            )));
+            return Ok(ResolutionOutcome::NotFound {
+                reason: format!("no versions of `{uri}` found in environment"),
+            });
         }
 
         let projects = futures::future::join_all(

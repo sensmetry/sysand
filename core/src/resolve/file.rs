@@ -14,14 +14,14 @@ use thiserror::Error;
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
         self, ProjectRead,
         local_kpar::{KparInnerPath, LocalKParError, LocalKParProject},
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, ProjectDeserializationError, RelativizePathError, wrapfs},
     },
-    resolve::{ResolutionOutcome, ResolveRead},
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::scheme::SCHEME_FILE,
 };
 
@@ -86,10 +86,12 @@ impl FileResolver {
             if let Some(root_part) = &self.relative_path_root {
                 root_part.join(&path)
             } else {
-                return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                    "cannot resolve relative file without a specified root directory: {}",
-                    path
-                )));
+                return Ok(ResolutionOutcome::UnsupportedUsageType {
+                    reason: format!(
+                        "cannot resolve relative file without a specified root directory: {}",
+                        path
+                    ),
+                });
             }
         } else {
             path
@@ -110,11 +112,13 @@ impl FileResolver {
                 sandbox_roots_canonical.push(sandbox_root_canonical.to_string());
             }
             if !found {
-                return Ok(ResolutionOutcome::Unresolvable(format!(
-                    "refusing to resolve path `{}`, is not inside in any of the allowed directories\n{}",
-                    project_path,
-                    sandbox_roots_canonical.join("; "),
-                )));
+                return Ok(ResolutionOutcome::Unresolvable {
+                    reason: format!(
+                        "refusing to resolve path `{}`, is not inside in any of the allowed directories\n{}",
+                        project_path,
+                        sandbox_roots_canonical.join("; "),
+                    ),
+                });
             }
         }
 
@@ -127,9 +131,9 @@ impl FileResolver {
     ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
         match try_file_uri_to_path(uri)? {
             Some(path) => self.resolve_platform_path(path),
-            None => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "`{uri}` is not a file URL",
-            ))),
+            None => Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: format!("`{uri}` is not a file URL"),
+            }),
         }
     }
 }
@@ -325,8 +329,10 @@ impl ResolveRead for FileResolver {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+        let InterchangeProjectUsage::Resource { resource: uri, .. } = resolve.usage();
+
         Ok(match self.resolve_general(uri)? {
             ResolutionOutcome::Resolved(path) => ResolutionOutcome::Resolved(vec![
                 Ok(FileResolverProject::LocalSrcProject(LocalSrcProject {
@@ -338,10 +344,13 @@ impl ResolveRead for FileResolver {
                     LocalKParProject::new(path, KparInnerPath::Guess, None, None),
                 )),
             ]),
-            ResolutionOutcome::UnsupportedIRIType(msg) => {
-                ResolutionOutcome::UnsupportedIRIType(msg)
+            ResolutionOutcome::UnsupportedUsageType { reason } => {
+                ResolutionOutcome::UnsupportedUsageType { reason }
             }
-            ResolutionOutcome::Unresolvable(msg) => ResolutionOutcome::Unresolvable(msg),
+            ResolutionOutcome::Unresolvable { reason } => {
+                ResolutionOutcome::Unresolvable { reason }
+            }
+            ResolutionOutcome::NotFound { reason } => ResolutionOutcome::NotFound { reason },
         })
     }
 }

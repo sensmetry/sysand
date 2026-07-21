@@ -3,7 +3,10 @@
 
 use std::convert::Infallible;
 
-use crate::{project::null::NullProject, resolve::ResolveRead};
+use crate::{
+    project::null::NullProject,
+    resolve::{ResolutionInfo, ResolveRead},
+};
 
 #[derive(Debug)]
 pub struct NullResolver {}
@@ -17,10 +20,10 @@ impl ResolveRead for NullResolver {
 
     fn resolve_read(
         &self,
-        _uri: &fluent_uri::Iri<String>,
+        _resolve: &ResolutionInfo,
     ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        Ok(super::ResolutionOutcome::UnsupportedIRIType(
-            "null resolver".to_string(),
-        ))
+        Ok(super::ResolutionOutcome::UnsupportedUsageType {
+            reason: String::from("null resolver"),
+        })
     }
 }

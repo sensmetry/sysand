@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use crate::resolve::{ResolutionOutcome, ResolveRead, ResolveReadAsync};
+use crate::resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, ResolveReadAsync};
 use futures::StreamExt as _;
 use std::iter::Flatten;
 
@@ -30,24 +30,29 @@ impl<R: ResolveRead> ResolveRead for SequentialResolver<R> {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let mut iters = vec![];
         let mut any_supported = false;
         let mut msgs = vec![];
 
         for resolver in &self.inner {
-            match resolver.resolve_read(uri)? {
+            match resolver.resolve_read(resolve)? {
                 ResolutionOutcome::Resolved(storages) => {
                     any_supported = true;
                     iters.push(storages)
                 }
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    msgs.push(msg);
+                ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    msgs.push(reason);
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
+                ResolutionOutcome::Unresolvable { reason } => {
                     any_supported = true;
-                    msgs.push(msg);
+                    msgs.push(reason);
+                }
+                ResolutionOutcome::NotFound { reason } => {
+                    // TODO: should this be treated differently?
+                    any_supported = true;
+                    msgs.push(reason);
                 }
             }
         }
@@ -55,15 +60,13 @@ impl<R: ResolveRead> ResolveRead for SequentialResolver<R> {
         if !iters.is_empty() {
             Ok(ResolutionOutcome::Resolved(iters.into_iter().flatten()))
         } else if any_supported {
-            Ok(ResolutionOutcome::Unresolvable(format!(
-                "unresolvable: {:?}",
-                msgs
-            )))
+            Ok(ResolutionOutcome::Unresolvable {
+                reason: format!("{msgs:?}"),
+            })
         } else {
-            Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "unsupported IRI: {:?}",
-                msgs
-            )))
+            Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: format!("{msgs:?}"),
+            })
         }
     }
 }
@@ -79,12 +82,12 @@ impl<R: ResolveReadAsync> ResolveReadAsync for SequentialResolver<R> {
 
     async fn resolve_read_async(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         let outcomes = futures::future::join_all(
             self.inner
                 .iter()
-                .map(|resolver| resolver.resolve_read_async(uri)),
+                .map(|resolver| resolver.resolve_read_async(resolve)),
         )
         .await;
 
@@ -98,12 +101,17 @@ impl<R: ResolveReadAsync> ResolveReadAsync for SequentialResolver<R> {
                     any_supported = true;
                     streams.push(storages)
                 }
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    msgs.push(msg);
+                ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    msgs.push(reason);
                 }
-                ResolutionOutcome::Unresolvable(msg) => {
+                ResolutionOutcome::Unresolvable { reason } => {
                     any_supported = true;
-                    msgs.push(msg);
+                    msgs.push(reason);
+                }
+                ResolutionOutcome::NotFound { reason } => {
+                    // TODO: should this be treated differently?
+                    any_supported = true;
+                    msgs.push(reason);
                 }
             }
         }
@@ -113,15 +121,13 @@ impl<R: ResolveReadAsync> ResolveReadAsync for SequentialResolver<R> {
                 futures::stream::iter(streams).flatten(),
             ))
         } else if any_supported {
-            Ok(ResolutionOutcome::Unresolvable(format!(
-                "unresolvable: {:?}",
-                msgs
-            )))
+            Ok(ResolutionOutcome::Unresolvable {
+                reason: format!("{msgs:?}"),
+            })
         } else {
-            Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "unsupported IRI: {:?}",
-                msgs
-            )))
+            Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: format!("{msgs:?}"),
+            })
         }
     }
 }

@@ -5,9 +5,13 @@ use std::{fmt::Debug, sync::Arc};
 
 use crate::{
     env::{SyncStreamIter, utils::ErrorBound},
-    project::{AsAsyncProject, AsSyncProjectTokio, ProjectRead, ProjectReadAsync},
+    model::InterchangeProjectUsage,
+    project::{
+        AsAsyncProject, AsSyncProjectTokio, ProjectRead, ProjectReadAsync, utils::Identifier,
+    },
 };
 
+use fluent_uri::Iri;
 use futures::stream::StreamExt as _;
 
 pub mod combined;
@@ -33,19 +37,69 @@ pub enum ResolutionOutcome<T> {
     /// Successfully resolved a `T`. If `T` is a collection/iterator,
     /// it must contain at least one element
     Resolved(T),
-    /// Resolution failed due to an unsupported type of IRI
-    UnsupportedIRIType(String),
-    /// Resolution failed due to an invalid IRI that is in principle supported
-    Unresolvable(String),
+    /// Resolution failed due to an unsupported type of usage
+    UnsupportedUsageType { reason: String },
+    /// Usage is supported, but was not found
+    NotFound { reason: String },
+    /// Resolution failed due to an invalid usage that is in principle supported
+    Unresolvable { reason: String },
 }
 
 impl<T> ResolutionOutcome<T> {
     pub fn map<U, F: FnOnce(T) -> U>(self, op: F) -> ResolutionOutcome<U> {
         match self {
             Self::Resolved(t) => ResolutionOutcome::Resolved(op(t)),
-            Self::UnsupportedIRIType(e) => ResolutionOutcome::UnsupportedIRIType(e),
-            Self::Unresolvable(e) => ResolutionOutcome::Unresolvable(e),
+            Self::UnsupportedUsageType { reason } => {
+                ResolutionOutcome::UnsupportedUsageType { reason }
+            }
+            Self::NotFound { reason } => ResolutionOutcome::NotFound { reason },
+            Self::Unresolvable { reason } => ResolutionOutcome::Unresolvable { reason },
         }
+    }
+}
+
+/// Information needed to resolve a usage
+#[derive(Debug, Clone)]
+pub struct ResolutionInfo {
+    usage: InterchangeProjectUsage,
+}
+
+impl ResolutionInfo {
+    pub fn new(usage: InterchangeProjectUsage) -> Self {
+        Self { usage }
+    }
+
+    pub fn iri(iri: Iri<String>) -> Self {
+        Self {
+            usage: InterchangeProjectUsage::Resource {
+                resource: iri,
+                version_constraint: None,
+            },
+        }
+    }
+
+    pub fn usage(&self) -> &InterchangeProjectUsage {
+        &self.usage
+    }
+
+    /// Identifier of this usage, to be used in lock/env.
+    // TODO: how to take versions/requirements into account here?
+    pub fn id(&self) -> Identifier {
+        Identifier::from(&self.usage)
+    }
+}
+
+impl std::fmt::Display for ResolutionInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let InterchangeProjectUsage::Resource {
+            resource,
+            version_constraint,
+        } = &self.usage;
+        write!(f, "IRI `{resource}`")?;
+        if let Some(vc) = version_constraint {
+            write!(f, " ({vc})")?;
+        }
+        Ok(())
     }
 }
 
@@ -60,11 +114,10 @@ pub trait ResolveRead {
         uri: S,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         match fluent_uri::Iri::parse(uri.as_ref().to_string()) {
-            Ok(uri) => self.resolve_read(&uri),
-            Err((err, val)) => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "unable to parse IRI `{}`: {}",
-                val, err
-            ))),
+            Ok(uri) => self.resolve_read(&ResolutionInfo::iri(uri)),
+            Err((err, val)) => Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: format!("unable to parse IRI `{}`: {}", val, err),
+            }),
         }
     }
 
@@ -77,7 +130,7 @@ pub trait ResolveRead {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error>;
 
     /// Treat this `ResolveRead` as a (trivial) `ResolveReadAsync`
@@ -101,11 +154,10 @@ pub trait ResolveReadAsync {
     ) -> impl Future<Output = Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error>> {
         async move {
             match fluent_uri::Iri::parse(uri.as_ref().to_string()) {
-                Ok(uri) => self.resolve_read_async(&uri).await,
-                Err((err, val)) => Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                    "unable to parse IRI `{}`: {}",
-                    val, err
-                ))),
+                Ok(uri) => self.resolve_read_async(&ResolutionInfo::iri(uri)).await,
+                Err((err, val)) => Ok(ResolutionOutcome::UnsupportedUsageType {
+                    reason: format!("unable to parse IRI `{}`: {}", val, err),
+                }),
             }
         }
     }
@@ -119,7 +171,7 @@ pub trait ResolveReadAsync {
 
     fn resolve_read_async(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> impl Future<Output = Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error>>;
 
     // Maybe make this return an associated type instead? Would, for example, allow
@@ -167,9 +219,9 @@ where
 
     async fn resolve_read_async(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        Ok(match self.inner.resolve_read(uri)? {
+        Ok(match self.inner.resolve_read(resolve)? {
             ResolutionOutcome::Resolved(projects) => ResolutionOutcome::Resolved({
                 let projects_map: std::iter::Map<_, fn(_) -> _> = projects
                     .into_iter()
@@ -177,10 +229,13 @@ where
 
                 futures::stream::iter(projects_map)
             }),
-            ResolutionOutcome::UnsupportedIRIType(msg) => {
-                ResolutionOutcome::UnsupportedIRIType(msg)
+            ResolutionOutcome::UnsupportedUsageType { reason } => {
+                ResolutionOutcome::UnsupportedUsageType { reason }
             }
-            ResolutionOutcome::Unresolvable(msg) => ResolutionOutcome::Unresolvable(msg),
+            ResolutionOutcome::Unresolvable { reason } => {
+                ResolutionOutcome::Unresolvable { reason }
+            }
+            ResolutionOutcome::NotFound { reason } => ResolutionOutcome::NotFound { reason },
         })
         //let bar = foo.map(|x| futures::stream::iter(x.into_iter());
         //Ok(bar)
@@ -220,10 +275,13 @@ where
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         Ok(
-            match self.runtime.block_on(self.inner.resolve_read_async(uri))? {
+            match self
+                .runtime
+                .block_on(self.inner.resolve_read_async(resolve))?
+            {
                 ResolutionOutcome::Resolved(storages) => {
                     let runtime_clone = self.runtime.clone();
 
@@ -240,10 +298,13 @@ where
                         inner,
                     })
                 }
-                ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    ResolutionOutcome::UnsupportedIRIType(msg)
+                ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    ResolutionOutcome::UnsupportedUsageType { reason }
                 }
-                ResolutionOutcome::Unresolvable(msg) => ResolutionOutcome::Unresolvable(msg),
+                ResolutionOutcome::Unresolvable { reason } => {
+                    ResolutionOutcome::Unresolvable { reason }
+                }
+                ResolutionOutcome::NotFound { reason } => ResolutionOutcome::NotFound { reason },
             },
         )
     }
