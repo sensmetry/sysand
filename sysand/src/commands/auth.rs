@@ -19,8 +19,10 @@ use sysand_core::{
         do_auth_whoami, validated_index_key,
     },
     config::Config,
-    credential_store::CredentialStoreError,
+    credential_store::{CredentialStore, CredentialStoreError},
 };
+
+use chrono::{DateTime, Utc};
 
 use crate::{CliAuthPolicy, DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
 
@@ -205,8 +207,49 @@ pub fn command_auth_login(
         Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
             Err(err).context(KEYRING_LOCKED_HINT)
         }
+        Err(AuthCommandError::Store(CredentialStoreError::BlobTooLarge)) => {
+            // The core store reports only the condition (it must not name
+            // CLI commands); the CLI owns the `sysand auth` remediation.
+            let stored = store.list().unwrap_or_default();
+            let entries: Vec<(&str, Option<DateTime<Utc>>)> = stored
+                .iter()
+                .map(|record| (record.key.as_str(), record.expires_at))
+                .collect();
+            bail!("{}", blob_full_message(&entries, Utc::now()))
+        }
         Err(err) => Err(err.into()),
     }
+}
+
+/// Remediation message for the platform credential-store cap on `auth login`
+/// (Windows ~2.5 KB). The core store reports only the condition; naming the
+/// `sysand auth` commands to fix it belongs here in the CLI. Points at
+/// `auth status`/`auth logout` and lists already-expired logins as the
+/// obvious drop candidates. With no stored logins (a single oversized token)
+/// there is nothing to remove, so it does not suggest removing one.
+fn blob_full_message(stored: &[(&str, Option<DateTime<Utc>>)], now: DateTime<Utc>) -> String {
+    let expired: Vec<&str> = stored
+        .iter()
+        .filter(|(_, at)| at.is_some_and(|at| at < now))
+        .map(|(key, _)| *key)
+        .collect();
+    let mut message = if stored.is_empty() {
+        "the token is too large for this platform's credential store \
+         (Windows ~2.5 KB limit); use a smaller token"
+            .to_string()
+    } else {
+        "the credential store is full (Windows ~2.5 KB limit); remove a login with \
+         `sysand auth logout <index>` (run `sysand auth status` to list them) or use \
+         a smaller token"
+            .to_string()
+    };
+    if !expired.is_empty() {
+        message.push_str("\nthese stored logins have expired and are safe to remove:");
+        for key in expired {
+            message.push_str(&format!("\n  sysand auth logout {key}"));
+        }
+    }
+    message
 }
 
 /// Read the login secret: from stdin when `--token-stdin` was given
@@ -686,5 +729,50 @@ pub fn command_auth_whoami(
             "could not reach the index API (`{}`): {detail}",
             outcome.whoami_url
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::blob_full_message;
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn blob_full_first_login_does_not_suggest_removing_a_login() {
+        let message = blob_full_message(&[], Utc::now());
+        assert!(message.contains("use a smaller token"), "{message}");
+        assert!(!message.contains("logout"), "{message}");
+    }
+
+    #[test]
+    fn blob_full_names_the_status_and_logout_commands() {
+        let now = Utc::now();
+        let stored = [("https://a.example/", None), ("https://b.example/", None)];
+        let message = blob_full_message(&stored, now);
+        assert!(message.contains("sysand auth status"), "{message}");
+        assert!(message.contains("sysand auth logout <index>"), "{message}");
+    }
+
+    #[test]
+    fn blob_full_lists_expired_logins_as_drop_candidates() {
+        let now = Utc::now();
+        let stored = [
+            ("https://live.example/", Some(now + Duration::days(30))),
+            ("https://dead.example/", Some(now - Duration::days(1))),
+            ("https://unknown.example/", None),
+        ];
+        let message = blob_full_message(&stored, now);
+        assert!(
+            message.contains("sysand auth logout https://dead.example/"),
+            "{message}"
+        );
+        assert!(
+            !message.contains("logout https://live.example/"),
+            "{message}"
+        );
+        assert!(
+            !message.contains("logout https://unknown.example/"),
+            "{message}"
+        );
     }
 }
