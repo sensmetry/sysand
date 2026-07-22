@@ -512,6 +512,36 @@ struct WhoamiToken {
     expires_at: Option<DateTime<Utc>>,
 }
 
+/// Read and parse a `v1/whoami` `200` body into the identity fields.
+/// Lenient: a body this client cannot read only loses the identity (the
+/// `200` was already the acceptance verdict), so failures return `None`.
+fn parse_whoami_identity(
+    runtime: &tokio::runtime::Runtime,
+    response: reqwest::Response,
+) -> Option<WhoamiIdentity> {
+    let parsed = runtime
+        .block_on(response.bytes())
+        .map_err(|err| err.to_string())
+        .and_then(|body| {
+            serde_json::from_slice::<WhoamiBody>(&body).map_err(|err| err.to_string())
+        });
+    match parsed {
+        Ok(body) => Some(WhoamiIdentity {
+            subject: CredentialSubject {
+                kind: body.subject.kind,
+                name: body.subject.name,
+            },
+            token_name: body.token.name,
+            token_prefix: body.token.prefix,
+            expires_at: body.token.expires_at,
+        }),
+        Err(err) => {
+            log::debug!("whoami body was not read: {err}");
+            None
+        }
+    }
+}
+
 /// What the validation probes concluded (design/credential-storage.md
 /// section 5). A surface appears in `accepted` or `rejected` only when it
 /// actually exercised the credential; surfaces that were public,
@@ -709,28 +739,7 @@ fn probe_api_surface(
         });
     } else if status == reqwest::StatusCode::OK {
         outcome.accepted.push(surface);
-        let parsed = runtime
-            .block_on(response.bytes())
-            .map_err(|err| err.to_string())
-            .and_then(|body| {
-                serde_json::from_slice::<WhoamiBody>(&body).map_err(|err| err.to_string())
-            });
-        match parsed {
-            Ok(body) => {
-                outcome.identity = Some(WhoamiIdentity {
-                    subject: CredentialSubject {
-                        kind: body.subject.kind,
-                        name: body.subject.name,
-                    },
-                    token_name: body.token.name,
-                    token_prefix: body.token.prefix,
-                    expires_at: body.token.expires_at,
-                });
-            }
-            // Lenient: the 200 status is the acceptance verdict; a body
-            // this client cannot parse only loses the identity fields.
-            Err(err) => log::debug!("whoami body was not read: {err}"),
-        }
+        outcome.identity = parse_whoami_identity(runtime, response);
     } else if status == reqwest::StatusCode::UNAUTHORIZED {
         outcome.rejected.push(surface);
     } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -1320,30 +1329,7 @@ pub fn do_auth_whoami<S: CredentialStore, P: HTTPAuthentication>(
             Ok(response) => {
                 let status = response.status();
                 if status == reqwest::StatusCode::OK {
-                    let parsed = runtime
-                        .block_on(response.bytes())
-                        .map_err(|err| err.to_string())
-                        .and_then(|body| {
-                            serde_json::from_slice::<WhoamiBody>(&body)
-                                .map_err(|err| err.to_string())
-                        });
-                    let identity = match parsed {
-                        Ok(body) => Some(WhoamiIdentity {
-                            subject: CredentialSubject {
-                                kind: body.subject.kind,
-                                name: body.subject.name,
-                            },
-                            token_name: body.token.name,
-                            token_prefix: body.token.prefix,
-                            expires_at: body.token.expires_at,
-                        }),
-                        // Lenient: the 200 is the verdict; an unparseable
-                        // body only loses the details.
-                        Err(err) => {
-                            log::debug!("whoami body was not read: {err}");
-                            None
-                        }
-                    };
+                    let identity = parse_whoami_identity(runtime, response);
                     WhoamiVerdict::Identified { identity }
                 } else if status == reqwest::StatusCode::UNAUTHORIZED {
                     WhoamiVerdict::Rejected

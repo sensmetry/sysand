@@ -425,6 +425,9 @@ fn expiry_qualifier(expired: bool, expires_in_days: Option<i64>) -> String {
         return format!(" {error}(expired){error:#}");
     }
     let text = match expires_in_days {
+        // `num_days` truncates, so a not-yet-expired token with under a day
+        // left reports 0; do not render "expires in 0 days".
+        Some(0) => "(expires in less than a day)".to_string(),
         Some(1) => "(expires in 1 day)".to_string(),
         Some(days) => format!("(expires in {days} days)"),
         None => return String::new(),
@@ -498,7 +501,7 @@ fn render_auth_status(status: &AuthStatus) {
         StoredCredentialsStatus::BackendUnavailable { reason } => {
             let note = style.note;
             println!(
-                "{note}note:{note:#} no usable OS keyring backend ({reason}); showing \
+                "{note}note:{note:#} no OS keyring backend is available ({reason}); showing \
                  `SYSAND_CRED_*` environment credentials only"
             );
             &none

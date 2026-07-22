@@ -104,9 +104,20 @@ impl HTTPAuthentication for ForceHTTPBasicAuth {
 }
 
 /// Authentication policy that *always* includes a bearer token
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub struct ForceBearerAuth(Box<str>);
+
+// Hand-written so the token is never rendered. This is the single
+// secret-bearing leaf: redacting it here keeps every wrapper's `Debug`
+// (and any accidental `{:?}` on a composed policy) from leaking the token.
+impl std::fmt::Debug for ForceBearerAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ForceBearerAuth")
+            .field(&"<redacted>")
+            .finish()
+    }
+}
 
 impl ForceBearerAuth {
     pub fn new<S: AsRef<str>>(token: S) -> ForceBearerAuth {
@@ -787,8 +798,15 @@ where
             None => GlobMap::default(),
             Some(store) => read_stored_bearer_map(store.as_ref()),
         };
-        // `set` fails only if a concurrent initialization won; either way
-        // the cell holds a value now.
+        // Safe because this never races the async accessor on the current
+        // flow: publish resolves its bearer only after discovery's
+        // `block_on` has returned, and the runtime is current-thread, so no
+        // async `get_or_init` is in flight here. `set` therefore either
+        // succeeds or reports the cell already initialized, and `get` is
+        // populated. If this accessor is ever called concurrently with the
+        // async one (e.g. on a multi-thread runtime), revisit: `set` can
+        // return `InitializingError` with the cell still empty, which would
+        // trip the `expect` below.
         let _ = self.cache.set(map);
         self.cache.get().expect("cache was just initialized")
     }
@@ -913,23 +931,17 @@ where
 
         let mut deduped = deduped.into_iter();
         let first_bearer = deduped.next().expect("lookup produced no candidates");
+        // A single distinct token retries once; genuinely ambiguous matches
+        // try each in order until one yields a non-4xx response
+        // (design/credential-storage.md, section 8), mirroring
+        // `RestrictAuthentication`. If every candidate fails, the first
+        // retry response is returned. The single-match case is this same
+        // path with an empty remainder loop.
         if deduped.len() == 0 {
             log::debug!("stored credential matches `{url}`; retrying with forced bearer auth");
-            let response = first_bearer
-                .auth
-                .request_with_authentication(renew_request(&client), renew_request)
-                .await?;
-            if response.status().is_client_error() {
-                first_bearer.warn_if_expired();
-            }
-            return Ok(response);
+        } else {
+            log::warn!("URL {url} matches multiple stored credentials; trying each in order");
         }
-
-        // Genuinely ambiguous: reads try all matches, in order, until one
-        // yields a non-4xx response (design/credential-storage.md, section
-        // 8), mirroring `RestrictAuthentication`. If every candidate
-        // fails, the first retry response is returned.
-        log::warn!("URL {url} matches multiple stored credentials; trying each in order");
         let first_response = first_bearer
             .auth
             .request_with_authentication(renew_request(&client), renew_request)

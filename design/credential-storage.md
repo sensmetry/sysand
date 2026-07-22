@@ -554,10 +554,11 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   exactly when it bites.
 - **Expiry:** reactive first, when a request that exercised a stored
   credential ends in **any 4xx** and the record's `expires_at` is past,
-  print "credential for `<index>` may be expired or revoked; re-run
-  `sysand auth login <index>`", any 4xx, not just 401, because
-  GitLab-style hosts answer 404 on bad auth and the blob is already loaded
-  on that path. Proactive when known, `expires_at` (stored from `v1/whoami`
+  print "credential for `<index>` may be expired or revoked; re-authenticate
+  to store a fresh credential", any 4xx, not just 401, because GitLab-style
+  hosts answer 404 on bad auth and the blob is already loaded on that path.
+  This warning is emitted in the library (on the read path, where the CLI
+  cannot re-wrap it), so it names no CLI command. Proactive when known, `expires_at` (stored from `v1/whoami`
   at login, absent for static/read-only or non-validated logins) lets
   `auth status` show "expires in N days / expired".
 - **`auth status` output:** one unified view of **everything sysand will

@@ -23,14 +23,16 @@ use super::{
 };
 
 /// Keyring service name of the single sysand credential entry.
-pub const KEYRING_SERVICE: &str = "sysand";
+pub(crate) const KEYRING_SERVICE: &str = "sysand";
 /// Keyring account name of the single sysand credential entry.
-pub const KEYRING_ACCOUNT: &str = "credentials";
+pub(crate) const KEYRING_ACCOUNT: &str = "credentials";
 
 /// Windows `CRED_MAX_CREDENTIAL_BLOB_SIZE`: the Credential Manager caps a
 /// credential blob at 2560 bytes, measured against the UTF-16 encoding the
-/// keyring crate stores on Windows.
-pub const WINDOWS_MAX_BLOB_BYTES: usize = 2560;
+/// keyring crate stores on Windows. Only the Windows enforcement path and
+/// the (platform-independent) size-logic tests use it.
+#[cfg(any(windows, test))]
+pub(crate) const WINDOWS_MAX_BLOB_BYTES: usize = 2560;
 
 const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -136,12 +138,14 @@ fn musl_backend_absent() -> CredentialStoreError {
 
 /// UTF-16 byte length of a string: the unit Windows measures credential
 /// blobs in.
-pub fn utf16_byte_len(raw: &str) -> usize {
+#[cfg(any(windows, test))]
+pub(crate) fn utf16_byte_len(raw: &str) -> usize {
     raw.encode_utf16().count() * 2
 }
 
 /// Check a blob byte length against a platform limit.
-pub fn check_blob_size(byte_len: usize, limit: usize) -> Result<(), CredentialStoreError> {
+#[cfg(any(windows, test))]
+pub(crate) fn check_blob_size(byte_len: usize, limit: usize) -> Result<(), CredentialStoreError> {
     if byte_len > limit {
         Err(CredentialStoreError::BlobTooLarge)
     } else {
