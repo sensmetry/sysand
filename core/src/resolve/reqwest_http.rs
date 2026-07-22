@@ -10,13 +10,13 @@ use crate::{
     auth::HTTPAuthentication,
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
         CanonicalizationError, ProjectReadAsync,
         reqwest_kpar_download::ReqwestRemoteKparDownloadedProject,
         reqwest_src::ReqwestSrcProjectAsync,
     },
-    resolve::ResolveReadAsync,
+    resolve::{ResolutionInfo, ResolveReadAsync},
     utils::scheme::{SCHEME_HTTP, SCHEME_HTTPS},
 };
 
@@ -359,28 +359,32 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
 
     async fn resolve_read_async(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+        let InterchangeProjectUsage::Resource { resource: iri, .. } = resolve.usage();
+
         // Try to resolve as a HTTP src project.
-        Ok(
-            if uri.scheme() == SCHEME_HTTP || uri.scheme() == SCHEME_HTTPS {
-                if let Ok(url) = reqwest::Url::parse(uri.as_str()) {
-                    ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
-                        client: self.client.clone(),
-                        url,
-                        src_done: false,
-                        kpar_done: false,
-                        lax: self.lax,
-                        auth_policy: self.auth_policy.clone(),
-                        // prefer_ranged: self.prefer_ranged,
-                    }))
-                } else {
-                    ResolutionOutcome::UnsupportedIRIType("invalid http(s) URL".to_string())
-                }
-            } else {
-                ResolutionOutcome::UnsupportedIRIType("not an http(s) URL".to_string())
-            },
-        )
+        let outcome = if iri.scheme() == SCHEME_HTTP || iri.scheme() == SCHEME_HTTPS {
+            match reqwest::Url::parse(iri.as_str()) {
+                Ok(url) => ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
+                    client: self.client.clone(),
+                    url,
+                    src_done: false,
+                    kpar_done: false,
+                    lax: self.lax,
+                    auth_policy: self.auth_policy.clone(),
+                    // prefer_ranged: self.prefer_ranged,
+                })),
+                Err(e) => ResolutionOutcome::Unresolvable {
+                    reason: format!("invalid http(s) URL: {e}"),
+                },
+            }
+        } else {
+            ResolutionOutcome::UnsupportedUsageType {
+                reason: String::from("not an http(s) URL"),
+            }
+        };
+        Ok(outcome)
     }
 }
 

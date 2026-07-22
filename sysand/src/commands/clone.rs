@@ -19,7 +19,7 @@ use sysand_core::{
         local_src::LocalSrcProject, utils::wrapfs,
     },
     resolve::{
-        ResolutionOutcome, ResolveRead,
+        ResolutionInfo, ResolutionOutcome, ResolveRead,
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
@@ -357,7 +357,8 @@ pub fn get_project_version<R: ResolveRead>(
     version: Option<String>,
     resolver: &R,
 ) -> Result<(semver::Version, R::ProjectStorage), anyhow::Error> {
-    match resolver.resolve_read(iri)? {
+    let resolve_info = ResolutionInfo::iri(iri.clone());
+    match resolver.resolve_read(&resolve_info)? {
         ResolutionOutcome::Resolved(alternatives) => {
             // If no version is supplied, choose the highest
             // Else, choose version that is supplied
@@ -433,13 +434,16 @@ pub fn get_project_version<R: ResolveRead>(
                 }
             }
         }
-        ResolutionOutcome::UnsupportedIRIType(e) => bail!(
-            "IRI scheme `{}` of `{}` is not supported: {e}",
+        ResolutionOutcome::UnsupportedUsageType { reason } => bail!(
+            "IRI scheme `{}` of `{}` is not supported: {reason}",
             iri.scheme(),
             iri
         ),
-        ResolutionOutcome::Unresolvable(e) => {
-            bail!("failed to resolve project `{iri}`: {e}")
+        ResolutionOutcome::NotFound { reason } => {
+            bail!("failed to resolve project `{iri}`: {reason}")
+        }
+        ResolutionOutcome::Unresolvable { reason } => {
+            bail!("failed to resolve project `{iri}`: {reason}")
         }
     }
 }

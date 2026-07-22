@@ -15,7 +15,11 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{model::InterchangeProjectUsage, project::ProjectRead, resolve::ResolveRead};
+use crate::{
+    model::InterchangeProjectUsage,
+    project::ProjectRead,
+    resolve::{ResolutionInfo, ResolveRead},
+};
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum DependencyIdentifier {
@@ -208,6 +212,7 @@ pub struct ProjectSolver<R: ResolveRead> {
 }
 
 /// Returned Vec will have `len >= 1`
+#[expect(clippy::result_large_err)]
 fn resolve_candidates<R: ResolveRead>(
     resolver: &R,
     uri: &fluent_uri::Iri<String>,
@@ -224,17 +229,22 @@ fn resolve_candidates<R: ResolveRead>(
         Entry::Vacant(vacant_entry) => {
             let mut found = vec![];
 
+            let resolve_info = ResolutionInfo::iri(uri.clone());
             match resolver
-                .resolve_read(uri)
+                .resolve_read(&resolve_info)
                 .map_err(InternalSolverError::Resolution)?
             {
-                crate::resolve::ResolutionOutcome::UnsupportedIRIType(msg) => {
-                    return Err(InternalSolverError::UnsupportedIriType(format!(
-                        "unsupported IRI type of `{uri}`: {msg}"
-                    )));
+                crate::resolve::ResolutionOutcome::UnsupportedUsageType { reason } => {
+                    return Err(InternalSolverError::UnsupportedUsageType {
+                        usage: resolve_info,
+                        reason,
+                    });
                 }
-                crate::resolve::ResolutionOutcome::Unresolvable(msg) => {
-                    return Err(InternalSolverError::NotFound(uri.as_str().into(), msg));
+                crate::resolve::ResolutionOutcome::NotFound { reason } => {
+                    return Err(InternalSolverError::NotFound(resolve_info, reason));
+                }
+                crate::resolve::ResolutionOutcome::Unresolvable { reason } => {
+                    return Err(InternalSolverError::NotFound(resolve_info, reason));
                 }
                 crate::resolve::ResolutionOutcome::Resolved(alternatives) => {
                     for alternative in alternatives {
@@ -302,7 +312,7 @@ fn resolve_candidates<R: ResolveRead>(
                         });
                     }
                     if found.is_empty() {
-                        return Err(InternalSolverError::NoValidCandidates(uri.as_str().into()));
+                        return Err(InternalSolverError::NoValidCandidates(resolve_info));
                     }
                 }
             }
@@ -316,6 +326,7 @@ fn resolve_candidates<R: ResolveRead>(
     }
 }
 
+#[expect(clippy::result_large_err)]
 fn compute_deps<R: ResolveRead + fmt::Debug>(
     resolver: &R,
     usages: &Vec<InterchangeProjectUsage>,
@@ -458,17 +469,20 @@ pub enum InternalSolverError<R: ResolveRead> {
     // InvalidProject,
     /// Project not found by current resolver
     /// Value is the formatted error message
-    #[error("project with IRI `{0}` not found: {1}")]
-    NotFound(Box<str>, String),
+    #[error("project {0} not found: {1}")]
+    NotFound(ResolutionInfo, String),
     /// Project candidates were found, but none of them were
     /// valid.
     /// Value is the formatted error message
-    #[error("no valid candidates found for project `{0}`")]
-    NoValidCandidates(Box<str>),
+    #[error("no valid candidates found for project {0}")]
+    NoValidCandidates(ResolutionInfo),
     /// Project not found by current resolver
     /// Value is the formatted error message
-    #[error("IRI is of type not supported by this resolver: {0}")]
-    UnsupportedIriType(String),
+    #[error("usage {usage} is of type not supported by this resolver: {reason}")]
+    UnsupportedUsageType {
+        usage: ResolutionInfo,
+        reason: String,
+    },
     /// Project is found, but the requested version is not
     /// Value is the formatted error message
     #[error("requested version unavailable: {0}")]

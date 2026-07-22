@@ -110,9 +110,14 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
                 None => Err(InfoError::NoSemanticVersionsFound(non_semantic_versions)),
             }
         }
-        ResolutionOutcome::UnsupportedIRIType(e) => {
-            Err(InfoError::UnsupportedIri(uri.as_ref().into(), e))
+        ResolutionOutcome::UnsupportedUsageType { reason } => {
+            Err(InfoError::UnsupportedIri(uri.as_ref().into(), reason))
         }
-        ResolutionOutcome::Unresolvable(e) => Err(InfoError::NoResolve(uri.as_ref().into(), e)),
+        ResolutionOutcome::NotFound { reason } => {
+            Err(InfoError::NoResolve(uri.as_ref().into(), reason))
+        }
+        ResolutionOutcome::Unresolvable { reason } => {
+            Err(InfoError::NoResolve(uri.as_ref().into(), reason))
+        }
     }
 }

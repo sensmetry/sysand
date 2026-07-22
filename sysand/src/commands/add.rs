@@ -21,7 +21,7 @@ use sysand_core::{
         ProjectRead,
         utils::{relativize_path, wrapfs},
     },
-    resolve::{ResolutionOutcome, ResolveRead, standard::standard_resolver},
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, standard::standard_resolver},
     utils::format_err,
 };
 
@@ -95,7 +95,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
             runtime.clone(),
             auth_policy.clone(),
         )?;
-        let outcome = std_resolver.resolve_read(&url)?;
+        let resolve_info = ResolutionInfo::iri(url.clone());
+        let outcome = std_resolver.resolve_read(&resolve_info)?;
         let mut source = None;
         match outcome {
             ResolutionOutcome::Resolved(alternatives) => {
@@ -111,9 +112,14 @@ pub fn command_add<Policy: HTTPAuthentication>(
                     }
                 }
             }
-            ResolutionOutcome::UnsupportedIRIType(e) => bail!("unsupported URL `{url}`:\n{e}"),
-            ResolutionOutcome::Unresolvable(e) => {
-                bail!("failed to resolve URL `{url}`:\n{e}")
+            ResolutionOutcome::UnsupportedUsageType { reason } => {
+                bail!("unsupported URL `{url}`:\n{reason}")
+            }
+            ResolutionOutcome::NotFound { reason } => {
+                bail!("failed to resolve URL `{url}`:\n{reason}")
+            }
+            ResolutionOutcome::Unresolvable { reason } => {
+                bail!("failed to resolve URL `{url}`:\n{reason}")
             }
         }
         if source.is_none() {

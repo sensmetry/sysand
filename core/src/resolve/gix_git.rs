@@ -4,8 +4,9 @@
 use thiserror::Error;
 
 use crate::{
+    model::InterchangeProjectUsage,
     project::gix_git_download::{GixDownloadedError, GixDownloadedProject},
-    resolve::{ResolutionOutcome, ResolveRead},
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead},
     utils::scheme::{
         SCHEME_FILE, SCHEME_GIT_FILE, SCHEME_GIT_HTTP, SCHEME_GIT_HTTPS, SCHEME_GIT_SSH,
         SCHEME_HTTP, SCHEME_HTTPS, SCHEME_SSH,
@@ -30,8 +31,10 @@ impl ResolveRead for GitResolver {
 
     fn resolve_read(
         &self,
-        uri: &fluent_uri::Iri<String>,
+        resolve: &ResolutionInfo,
     ) -> Result<super::ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
+        let InterchangeProjectUsage::Resource { resource: uri, .. } = resolve.usage();
+
         let scheme = uri.scheme();
 
         if ![
@@ -46,11 +49,13 @@ impl ResolveRead for GitResolver {
         ]
         .contains(&scheme)
         {
-            return Ok(ResolutionOutcome::UnsupportedIRIType(format!(
-                "url scheme `{}` of IRI `{}` is not known to be git-compatible",
-                scheme,
-                uri.as_str()
-            )));
+            return Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: format!(
+                    "url scheme `{}` of IRI `{}` is not known to be git-compatible",
+                    scheme,
+                    uri.as_str()
+                ),
+            });
         }
 
         Ok(ResolutionOutcome::Resolved(std::iter::once(
