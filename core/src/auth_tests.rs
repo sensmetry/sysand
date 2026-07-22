@@ -719,10 +719,12 @@ fn stored_bearer_expiry_warning_fires_at_most_once() {
         message.contains("credential for `https://example.com/` may be expired or revoked"),
         "message: {message}"
     );
+    // The core warning names no CLI command; it says to re-authenticate.
     assert!(
-        message.contains("re-run `sysand auth login https://example.com/`"),
+        message.contains("re-authenticate to store a fresh credential"),
         "message: {message}"
     );
+    assert!(!message.contains("sysand auth"), "message: {message}");
     // Second failure on the same record: no repeat hint.
     assert_eq!(bearer.take_expiry_warning(now), None);
 }

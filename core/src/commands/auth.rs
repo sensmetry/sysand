@@ -107,10 +107,7 @@ pub enum AuthCommandError {
         candidates: usize,
     },
     /// No credential of either source matches the `v1/whoami` URL.
-    #[error(
-        "no credential matches `{url}`; run `sysand auth login {index}` to \
-         store one, or set `SYSAND_CRED_*` environment variables"
-    )]
+    #[error("no credential matches `{url}`; set `SYSAND_CRED_*` environment variables")]
     NoWhoamiCredential { url: String, index: String },
     /// The credential store failed.
     #[error(transparent)]

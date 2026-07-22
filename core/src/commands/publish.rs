@@ -875,8 +875,7 @@ pub enum PublishError {
 
     #[error(
         "no bearer token credentials configured for publish URL `{upload_url}`;\n\
-         run `sysand auth login <index-url>` to store one, or set `SYSAND_CRED_<X>`\n\
-         and `SYSAND_CRED_<X>_BEARER_TOKEN` with a matching URL pattern"
+         set `SYSAND_CRED_<X>` and `SYSAND_CRED_<X>_BEARER_TOKEN` with a matching URL pattern"
     )]
     NoPublishBearer { upload_url: Box<str> },
 
@@ -986,9 +985,9 @@ pub enum PublishError {
     },
 
     #[error(
-        "the stored login for `{key}` expired at {expires_at}, so publish stopped\n\
-         before uploading; re-run `sysand auth login {key}` to store a fresh token\n\
-         (a matching `SYSAND_CRED_*` environment credential would take precedence instead)"
+        "the stored credential for `{key}` expired at {expires_at}, so publish stopped\n\
+         before uploading (a matching `SYSAND_CRED_*` environment credential would take\n\
+         precedence instead)"
     )]
     StoredCredentialExpired {
         key: String,
@@ -1424,12 +1423,13 @@ fn publish_auth_error(
 }
 
 /// The source-named upload auth-failure message (design section 7):
-/// because env credentials shadow stored logins, "re-run `sysand auth
-/// login`" would be the wrong fix for a stale `SYSAND_CRED_*` bearer, so
-/// the message states where the selected bearer came from and tailors the
-/// remediation. A 403 is authorization, not authentication: it
-/// additionally points at `sysand auth status`, whose stored `subject`
-/// catches a token for a different project or account.
+/// because env credentials shadow stored credentials, replacing the stored
+/// credential alone would be the wrong fix for a stale `SYSAND_CRED_*`
+/// bearer, so the message states where the selected bearer came from. A 403
+/// is authorization, not authentication, so it adds that a wrong-project or
+/// wrong-account token cannot publish. The message states the situation
+/// only; the remediation commands (`sysand auth login` / `status`) are the
+/// frontend's to add, so no CLI command name appears here.
 fn publish_auth_failed_message(
     status: u16,
     detail: &str,
@@ -1445,30 +1445,26 @@ fn publish_auth_failed_message(
             message.push_str(&format!(
                 "\nthe publish credential came from `SYSAND_CRED_{label}`; unset it or rotate\n\
                  `SYSAND_CRED_{label}_BEARER_TOKEN` (environment credentials take precedence\n\
-                 over stored logins, so `sysand auth login` alone cannot replace it)"
+                 over stored credentials, so re-authenticating alone cannot replace it)"
             ));
         }
         PublishBearerProvenance::Env { label: None } => {
             message.push_str(
                 "\nthe publish credential came from a `SYSAND_CRED_*` environment variable;\n\
                  unset it or rotate its `_BEARER_TOKEN` value (environment credentials take\n\
-                 precedence over stored logins, so `sysand auth login` alone cannot replace it)",
+                 precedence over stored credentials, so re-authenticating alone cannot replace it)",
             );
         }
         PublishBearerProvenance::Stored { key, .. } => {
             message.push_str(&format!(
-                "\nthe publish credential came from your stored login for `{key}`;\n\
-                 re-run `sysand auth login {key}` to store a fresh token"
+                "\nthe publish credential came from the stored credential for `{key}`"
             ));
         }
         // `publish_auth_error` never routes trusted publishing here.
         PublishBearerProvenance::TrustedPublishing => {}
     }
     if status == 403 {
-        message.push_str(
-            "\nrun `sysand auth status` to check which subject the credential authenticates\n\
-             as; a token for a different project or account cannot publish here",
-        );
+        message.push_str("\na token for a different project or account cannot publish here");
     }
     message
 }

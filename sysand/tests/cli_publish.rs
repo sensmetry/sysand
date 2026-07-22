@@ -691,6 +691,9 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
         .stderr(predicate::str::contains(
             "no bearer token credentials configured for publish URL",
         ))
+        // The CLI adds the `sysand auth login` remediation the core message
+        // deliberately omits (core/CLI message split).
+        .stderr(predicate::str::contains("run `sysand auth login"))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     publish_mock.assert();
@@ -795,7 +798,9 @@ fn publish_401_maps_to_auth_error() -> TestResult {
 
 #[test]
 fn publish_403_maps_to_auth_error() -> TestResult {
-    // 403 additionally points at `sysand auth status`.
+    // 403 additionally points at `sysand auth status` (added by the CLI, per
+    // the core/CLI message split: core states the condition, the frontend
+    // names the command).
     assert_publish_error_status(
         "publish-auth-403",
         403,

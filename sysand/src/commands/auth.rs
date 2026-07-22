@@ -653,6 +653,17 @@ pub fn command_auth_whoami(
         Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
             return Err(err).context(KEYRING_LOCKED_HINT);
         }
+        // The core error states the condition (and the `SYSAND_CRED_*`
+        // fallback) without naming a CLI command; the CLI adds the
+        // `sysand auth login` remediation using the index from the error.
+        Err(err @ AuthCommandError::NoWhoamiCredential { .. }) => {
+            let AuthCommandError::NoWhoamiCredential { index, .. } = &err else {
+                unreachable!()
+            };
+            return Err(anyhow::anyhow!(
+                "{err}\nrun `sysand auth login {index}` to store one"
+            ));
+        }
         Err(err) => return Err(err.into()),
     };
 

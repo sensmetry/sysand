@@ -1968,9 +1968,13 @@ mod whoami {
             matches!(&err, AuthCommandError::NoWhoamiCredential { .. }),
             "unexpected error: {err}"
         );
+        // The core message states the condition without naming a CLI
+        // command; the frontend adds the `sysand auth login` hint.
+        let message = err.to_string();
         assert!(
-            err.to_string()
-                .contains("sysand auth login https://example.com/")
+            message.contains("no credential matches"),
+            "message: {message}"
         );
+        assert!(!message.contains("sysand auth"), "message: {message}");
     }
 }

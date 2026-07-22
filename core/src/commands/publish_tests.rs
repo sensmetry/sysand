@@ -261,10 +261,11 @@ fn publish_bearer_no_match_in_any_source_errors() {
     .unwrap_err();
 
     assert_matches!(err, PublishError::NoPublishBearer { .. });
-    // The hint points at both remedies: `sysand auth login` to store a
-    // credential, and the `SYSAND_CRED_*` environment fallback.
+    // The core message names no CLI command (the `sysand auth login` hint
+    // is added by the frontend); it states the condition and the
+    // `SYSAND_CRED_*` environment fallback.
     let message = err.to_string();
-    assert!(message.contains("sysand auth login"), "message: {message}");
+    assert!(!message.contains("sysand auth"), "message: {message}");
     assert!(message.contains("SYSAND_CRED_<X>"), "message: {message}");
     assert!(
         message.contains("https://example.org/api/v1/upload"),
@@ -836,39 +837,40 @@ fn publish_env_auth_failure_names_the_env_var() {
         message.contains("`SYSAND_CRED_TEAMIDX_BEARER_TOKEN`"),
         "message: {message}"
     );
-    // Env shadows stored logins, so re-login must not be the suggested fix.
+    // Env shadows stored credentials, so re-authenticating must not be the
+    // suggested fix. The core message names no CLI command.
     assert!(
-        message.contains("`sysand auth login` alone cannot replace it"),
+        message.contains("re-authenticating alone cannot replace it"),
         "message: {message}"
     );
-    assert!(!message.contains("auth status"), "message: {message}");
+    assert!(!message.contains("sysand auth"), "message: {message}");
     mock.assert();
 }
 
 #[test]
-fn publish_stored_auth_failure_names_the_login() {
+fn publish_stored_auth_failure_names_the_credential() {
     let mut server = mockito::Server::new();
     let mock = upload_mock(&mut server, 401, "unauthorized");
 
     let err = publish_to(&server, stored_bearer(None)).unwrap_err();
 
     let message = err.to_string();
+    // The core message states the source only; the frontend adds the
+    // `sysand auth login` remediation.
     assert!(
-        message.contains(&format!("your stored login for `{STORED_KEY}`")),
+        message.contains(&format!("the stored credential for `{STORED_KEY}`")),
         "message: {message}"
     );
-    assert!(
-        message.contains(&format!("re-run `sysand auth login {STORED_KEY}`")),
-        "message: {message}"
-    );
+    assert!(!message.contains("sysand auth"), "message: {message}");
     assert!(!message.contains("SYSAND_CRED_"), "message: {message}");
     mock.assert();
 }
 
 #[test]
-fn publish_403_points_at_auth_status() {
-    // 403 is authorization, not authentication: `sysand auth status`
-    // shows the stored subject, catching a wrong-project token.
+fn publish_403_points_at_the_credential_subject() {
+    // 403 is authorization, not authentication: the message points at the
+    // credential's subject, catching a wrong-project token, without naming
+    // a CLI command.
     let mut server = mockito::Server::new();
     let mock = upload_mock(&mut server, 403, "forbidden");
 
@@ -880,9 +882,10 @@ fn publish_403_points_at_auth_status() {
         "message: {message}"
     );
     assert!(
-        message.contains("run `sysand auth status`"),
+        message.contains("a token for a different project or account cannot publish here"),
         "message: {message}"
     );
+    assert!(!message.contains("sysand auth"), "message: {message}");
     mock.assert();
 }
 
@@ -915,10 +918,10 @@ fn publish_stops_before_upload_when_the_stored_bearer_is_expired() {
         PublishError::StoredCredentialExpired { key, .. } if key == STORED_KEY
     );
     let message = err.to_string();
-    assert!(
-        message.contains(&format!("re-run `sysand auth login {STORED_KEY}`")),
-        "message: {message}"
-    );
+    // The core message states the condition without naming a CLI command;
+    // the frontend adds the `sysand auth login` remediation.
+    assert!(message.contains("expired at"), "message: {message}");
+    assert!(!message.contains("sysand auth"), "message: {message}");
     // The archive was never uploaded.
     mock.assert();
 }

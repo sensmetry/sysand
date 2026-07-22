@@ -643,7 +643,7 @@ impl StoredBearerAuth {
         }
         Some(format!(
             "credential for `{key}` may be expired or revoked; \
-             re-run `sysand auth login {key}`",
+             re-authenticate to store a fresh credential",
             key = self.key
         ))
     }

@@ -8,8 +8,8 @@ use camino::Utf8PathBuf;
 use sysand_core::{
     build::default_kpar_path,
     commands::publish::{
-        TrustedPublishingEnvironment, do_publish, prepare_publish_payload, resolve_publish_bearer,
-        validate_api_root_url_shape,
+        PublishBearerProvenance, PublishError, TrustedPublishingEnvironment, do_publish,
+        prepare_publish_payload, resolve_publish_bearer, validate_api_root_url_shape,
     },
     context::ProjectContext,
     env::discovery::{ResolvedEndpoints, fetch_index_config},
@@ -80,9 +80,11 @@ pub fn command_publish(
         &trusted_publishing_env,
         &client,
         &runtime,
-    )?;
+    )
+    .map_err(publish_error_with_hint)?;
 
-    let response = do_publish(prepared, index, api_root, bearer, client, runtime)?;
+    let response = do_publish(prepared, index, api_root, bearer, client, runtime)
+        .map_err(publish_error_with_hint)?;
 
     let header = sysand_core::style::get_style_config().header;
     if response.is_new_project {
@@ -98,6 +100,48 @@ pub fn command_publish(
     }
 
     Ok(())
+}
+
+/// Add the CLI-specific `sysand auth` remediation to a publish error whose
+/// core message deliberately names no CLI command: the library states the
+/// condition (and the `SYSAND_CRED_*` fallback), and the frontend owns the
+/// command vocabulary.
+fn publish_error_with_hint(err: PublishError) -> anyhow::Error {
+    let hint = match &err {
+        PublishError::NoPublishBearer { .. } => {
+            Some("or run `sysand auth login <index-url>` to store one".to_string())
+        }
+        PublishError::StoredCredentialExpired { key, .. } => Some(format!(
+            "re-run `sysand auth login {key}` to store a fresh token"
+        )),
+        PublishError::PublishAuthFailed {
+            status, provenance, ..
+        } => {
+            // A stale stored credential is refreshed by re-login; an env
+            // credential is not (it shadows stored logins, which the core
+            // message already explains). A 403 is authorization, so point
+            // at the subject the credential authenticates as.
+            let mut lines = Vec::new();
+            if let PublishBearerProvenance::Stored { key, .. } = provenance {
+                lines.push(format!(
+                    "re-run `sysand auth login {key}` to store a fresh token"
+                ));
+            }
+            if *status == 403 {
+                lines.push(
+                    "run `sysand auth status` to see which subject the credential \
+                     authenticates as"
+                        .to_string(),
+                );
+            }
+            (!lines.is_empty()).then(|| lines.join("\n"))
+        }
+        _ => None,
+    };
+    match hint {
+        Some(hint) => anyhow::anyhow!("{err}\n{hint}"),
+        None => err.into(),
+    }
 }
 
 fn resolve_publish_kpar_path(
