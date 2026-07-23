@@ -28,8 +28,6 @@ use crate::{
 /// Resolver for resolving `file://` URIs.
 #[derive(Debug)]
 pub struct FileResolver {
-    /// Relative URIs are resolved with respect to this root.
-    pub relative_path_root: Option<Utf8PathBuf>,
     /// This field enables sandboxing the resolved path. If field is not `None`,
     /// the resolved path must be inside at least one of these directories.
     pub sandbox_roots: Option<Vec<Utf8PathBuf>>,
@@ -81,29 +79,13 @@ impl FileResolver {
         &self,
         path: Utf8PathBuf,
     ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
-        // Try to resolve relative paths
-        let project_path = if path.is_relative() {
-            if let Some(root_part) = &self.relative_path_root {
-                root_part.join(&path)
-            } else {
-                return Ok(ResolutionOutcome::UnsupportedUsageType {
-                    reason: format!(
-                        "cannot resolve relative file without a specified root directory: {}",
-                        path
-                    ),
-                });
-            }
-        } else {
-            path
-        };
-
         // Use canonicalised paths to check that the tentative project path is within the "jail"
         if let Some(sandboxed_roots) = &self.sandbox_roots {
             let mut found = false;
             let mut sandbox_roots_canonical = Vec::new();
             for sandbox_root in sandboxed_roots {
                 let sandbox_root_canonical = wrapfs::canonicalize(sandbox_root)?;
-                let project_path_canonical = wrapfs::canonicalize(&project_path)?;
+                let project_path_canonical = wrapfs::canonicalize(&path)?;
 
                 if project_path_canonical.starts_with(&sandbox_root_canonical) {
                     found = true;
@@ -115,14 +97,14 @@ impl FileResolver {
                 return Ok(ResolutionOutcome::Unresolvable {
                     reason: format!(
                         "refusing to resolve path `{}`, is not inside in any of the allowed directories\n{}",
-                        project_path,
+                        path,
                         sandbox_roots_canonical.join("; "),
                     ),
                 });
             }
         }
 
-        Ok(ResolutionOutcome::Resolved(project_path))
+        Ok(ResolutionOutcome::Resolved(path))
     }
 
     fn resolve_general(

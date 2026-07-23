@@ -121,7 +121,6 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
         override_resolver,
         standard_resolver(
             None,
-            None,
             Some(client.clone()),
             index_urls,
             runtime.clone(),
@@ -309,7 +308,6 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         let resolver = PriorityResolver::new(
             override_resolver,
             standard_resolver(
-                Some(path),
                 None,
                 Some(client.clone()),
                 index_urls,

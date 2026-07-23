@@ -147,7 +147,6 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     let wrapped_resolver = PriorityResolver::new(
         override_resolver,
         standard_resolver(
-            None,
             // TODO: borrow?
             ctx.env.to_owned(),
             Some(client),

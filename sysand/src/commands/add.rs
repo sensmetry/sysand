@@ -87,7 +87,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
             Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
         };
         let std_resolver = standard_resolver(
-            None,
             // TODO: why not use env here?
             None,
             Some(client.clone()),
