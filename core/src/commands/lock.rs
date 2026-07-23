@@ -370,11 +370,10 @@ pub fn do_lock_local_editable<
     let path = path.as_ref();
     let project = EditableProject::new(
         path.to_owned(),
-        LocalSrcProject {
-            nominal_path: None,
-            project_path: wrapfs::canonicalize(&project_root).map_err(LockError::Io)?,
-            expected_checksum: None,
-        },
+        LocalSrcProject::new_access(
+            wrapfs::canonicalize(&project_root).map_err(LockError::Io)?,
+            None,
+        ),
     );
 
     do_lock_projects([(identifiers, &project)], resolver, provided_iris, ctx)

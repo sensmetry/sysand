@@ -40,62 +40,79 @@ pub struct LocalSrcProject {
     /// E.g. if used in lockfile would be the path relative to the lockfile.
     // TODO: Consider removing this and replacing it with some way of
     // relativizing `project_path` at the call site of .sources().
-    pub nominal_path: Option<Utf8UnixPathBuf>,
+    nominal_path: Option<Utf8UnixPathBuf>,
     /// Path used when locating the project internally.
     /// Should be absolute.
-    pub project_path: Utf8PathBuf,
+    project_path: Utf8PathBuf,
     // TODO: enforce that the project matches the checksum if provided
     // before reading; see LocalKparProject for example
-    pub expected_checksum: Option<String>,
-}
-
-/// Tries to canonicalize the (longest possible) prefix of a path.
-/// Useful if you have /path/to/file/that/does/not/exist
-/// but where some prefix, say, /path/to/file can be canonicalized.
-fn canonicalize_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
-    let mut relative_part = Utf8PathBuf::new();
-    let mut absolute_part = path.to_path_buf();
-
-    loop {
-        if let Ok(canonical_absolute) = wrapfs::canonicalize_raw(&absolute_part) {
-            absolute_part = canonical_absolute;
-            break;
-        }
-
-        match (absolute_part.parent(), absolute_part.file_name()) {
-            (Some(absolute_part_parent), Some(absolute_part_file)) => {
-                relative_part = Utf8Path::new(absolute_part_file).join(relative_part);
-                absolute_part = absolute_part_parent.to_path_buf();
-            }
-            _ => {
-                break;
-            }
-        }
-    }
-
-    absolute_part.push(relative_part);
-    absolute_part
-}
-
-fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
-    path: P,
-    relative_to: Q,
-) -> Option<Utf8PathBuf> {
-    let path = if !path.as_ref().is_absolute() {
-        let path = camino::absolute_utf8(path.as_ref()).ok()?;
-        canonicalize_prefix(path)
-    } else {
-        canonicalize_prefix(path)
-    };
-
-    path.strip_prefix(canonicalize_prefix(relative_to))
-        .ok()
-        .map(|x| x.to_path_buf())
+    expected_checksum: Option<String>,
+    expected_publisher: Option<Option<String>>,
+    expected_name: Option<String>,
 }
 
 impl LocalSrcProject {
+    /// Access the project. No invariants will be checked. If `nominal_path` is provided,
+    /// `sources()` will work.
+    pub fn new_access(
+        path: impl Into<Utf8PathBuf>,
+        nominal_path: Option<Utf8UnixPathBuf>,
+    ) -> LocalSrcProject {
+        Self {
+            nominal_path,
+            project_path: path.into(),
+            expected_checksum: None,
+            expected_publisher: None,
+            expected_name: None,
+        }
+    }
+
+    pub fn new_for_solve(
+        path: impl Into<Utf8PathBuf>,
+        nominal_path: Option<Utf8UnixPathBuf>,
+        publisher: Option<String>,
+        name: String,
+    ) -> LocalSrcProject {
+        Self {
+            nominal_path,
+            project_path: path.into(),
+            expected_checksum: None,
+            expected_publisher: Some(publisher),
+            expected_name: Some(name),
+        }
+    }
+
+    /// Construct lockfile information, where everything is known
+    pub fn new_for_sync(
+        path: impl Into<Utf8PathBuf>,
+        nominal_path: Option<Utf8UnixPathBuf>,
+        publisher: Option<String>,
+        name: String,
+        checksum: String,
+    ) -> LocalSrcProject {
+        Self {
+            nominal_path,
+            project_path: path.into(),
+            expected_checksum: Some(checksum),
+            expected_publisher: Some(publisher),
+            expected_name: Some(name),
+        }
+    }
+
     pub fn root_path(&self) -> &Utf8Path {
         &self.project_path
+    }
+
+    pub fn set_path(&mut self, path: impl Into<Utf8PathBuf>) {
+        self.project_path = path.into();
+    }
+
+    pub fn nominal_path(&self) -> Option<&Utf8UnixPath> {
+        self.nominal_path.as_deref()
+    }
+
+    pub fn set_nominal_path(&mut self, path: Option<Utf8UnixPathBuf>) {
+        self.nominal_path = path;
     }
 
     pub fn info_path(&self) -> Utf8PathBuf {
@@ -202,11 +219,7 @@ impl LocalSrcProject {
         CloneError<Pr::Error, LocalSrcError>,
     > {
         let tmp = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
-        let mut tmp_project = Self {
-            nominal_path: None,
-            project_path: wrapfs::canonicalize(tmp.path())?,
-            expected_checksum: None,
-        };
+        let mut tmp_project = Self::new_access(wrapfs::canonicalize(tmp.path())?, None);
 
         let (info, meta) = clone_project(project, &mut tmp_project, true)?;
 
@@ -326,6 +339,17 @@ pub enum LocalSrcError {
         {0}"
     )]
     ImpossibleRelativePath(#[from] RelativizePathError),
+    #[error(
+        "project publisher `{}` does not match expected `{}`",
+        if let Some(a) = actual { a.as_str() } else { "<none>" },
+        if let Some(p) = expected { p.as_str() } else { "<none>" }
+    )]
+    PublisherMismatch {
+        expected: Option<String>,
+        actual: Option<String>,
+    },
+    #[error("project name `{actual}` does not match expected `{expected}`")]
+    NameMismatch { expected: String, actual: String },
 }
 
 impl From<FsIoError> for LocalSrcError {
@@ -369,10 +393,27 @@ impl ProjectRead for LocalSrcProject {
         let info_json_path = self.info_path();
 
         let info_json = if info_json_path.exists() {
-            Some(
+            let info: InterchangeProjectInfoRaw =
                 serde_json::from_reader(wrapfs::File::open(&info_json_path)?)
-                    .map_err(|e| ProjectDeserializationError::new(".project.json", e))?,
-            )
+                    .map_err(|e| ProjectDeserializationError::new(".project.json", e))?;
+            // TODO: ensure this is checked in all functions
+            if let Some(expected) = &self.expected_publisher
+                && &info.publisher != expected
+            {
+                return Err(LocalSrcError::PublisherMismatch {
+                    expected: expected.to_owned(),
+                    actual: info.publisher,
+                });
+            }
+            if let Some(expected) = &self.expected_name
+                && &info.name != expected
+            {
+                return Err(LocalSrcError::NameMismatch {
+                    expected: expected.to_owned(),
+                    actual: info.name,
+                });
+            }
+            Some(info)
         } else {
             None
         };
@@ -453,3 +494,51 @@ impl ProjectRead for LocalSrcProject {
         }
     }
 }
+
+/// Tries to canonicalize the (longest possible) prefix of a path.
+/// Useful if you have /path/to/file/that/does/not/exist
+/// but where some prefix, say, /path/to/file can be canonicalized.
+fn canonicalize_prefix<P: AsRef<Utf8Path>>(path: P) -> Utf8PathBuf {
+    let mut relative_part = Utf8PathBuf::new();
+    let mut absolute_part = path.to_path_buf();
+
+    loop {
+        if let Ok(canonical_absolute) = wrapfs::canonicalize_raw(&absolute_part) {
+            absolute_part = canonical_absolute;
+            break;
+        }
+
+        match (absolute_part.parent(), absolute_part.file_name()) {
+            (Some(absolute_part_parent), Some(absolute_part_file)) => {
+                relative_part = Utf8Path::new(absolute_part_file).join(relative_part);
+                absolute_part = absolute_part_parent.to_path_buf();
+            }
+            _ => {
+                break;
+            }
+        }
+    }
+
+    absolute_part.push(relative_part);
+    absolute_part
+}
+
+fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
+    path: P,
+    relative_to: Q,
+) -> Option<Utf8PathBuf> {
+    let path = if !path.as_ref().is_absolute() {
+        let path = camino::absolute_utf8(path.as_ref()).ok()?;
+        canonicalize_prefix(path)
+    } else {
+        canonicalize_prefix(path)
+    };
+
+    path.strip_prefix(canonicalize_prefix(relative_to))
+        .ok()
+        .map(|x| x.to_path_buf())
+}
+
+#[cfg(test)]
+#[path = "./local_src_tests.rs"]
+mod tests;

@@ -500,12 +500,8 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
 
     let mut result = Vec::new();
     for project_root in workspace.projects() {
-        let project = LocalSrcProject {
-            nominal_path: None,
-            project_path: workspace.root_path().join(&project_root.path),
-            expected_checksum: None,
-        };
-
+        let project =
+            LocalSrcProject::new_access(workspace.root_path().join(&project_root.path), None);
         let file_name = default_kpar_file_name(&project)?;
         let output_path = path.as_ref().join(file_name);
         let kpar_project = match do_build_kpar_inner(

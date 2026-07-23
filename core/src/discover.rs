@@ -23,11 +23,9 @@ pub fn discover_project<P: AsRef<Utf8Path>>(
         "trying to discover project in `{}`",
         working_directory.as_ref()
     );
-    let project = discover(working_directory, is_project_file)?.map(|path| LocalSrcProject {
-        nominal_path: Some(Utf8UnixPathBuf::from(".")),
-        project_path: path,
-        expected_checksum: None,
-    });
+    // FIXME: assuming nominal path "." is incorrect
+    let project = discover(working_directory, is_project_file)?
+        .map(|path| LocalSrcProject::new_access(path, Some(Utf8UnixPathBuf::from("."))));
     Ok(project)
 }
 

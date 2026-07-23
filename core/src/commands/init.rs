@@ -120,12 +120,7 @@ pub fn do_init_local_file(
     license: Option<String>,
     path: Utf8PathBuf,
 ) -> Result<LocalSrcProject, InitError<LocalSrcError>> {
-    let mut storage = LocalSrcProject {
-        nominal_path: None,
-        project_path: path,
-        expected_checksum: None,
-    };
-
+    let mut storage = LocalSrcProject::new_access(path, None);
     do_init(name, publisher, version, license, &mut storage)?;
 
     Ok(storage)

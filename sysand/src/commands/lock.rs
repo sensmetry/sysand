@@ -58,7 +58,7 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
     {
         w.projects()
             .iter()
-            .find(|p| &p.path == project.nominal_path.as_ref().unwrap())
+            .find(|p| p.path == project.nominal_path().unwrap())
             .map(|p| p.iris.clone())
     } else {
         None

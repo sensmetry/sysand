@@ -83,6 +83,8 @@ fn do_init_py_local_file(
                     LocalSrcError::ImpossibleRelativePath(_) => PyValueError::new_err(e),
                     LocalSrcError::MissingMeta => PyFileNotFoundError::new_err(e),
                     LocalSrcError::MissingInfoMeta => PyFileNotFoundError::new_err(e),
+                    LocalSrcError::PublisherMismatch { .. }
+                    | LocalSrcError::NameMismatch { .. } => PyValueError::new_err(e),
                 },
             }
         },
@@ -110,7 +112,9 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
                 LocalWriteError::Serialize(_) => PyValueError::new_err(e),
                 LocalWriteError::TryMove(_) => PyIOError::new_err(e),
                 LocalWriteError::LocalRead(_) => PyIOError::new_err(e),
-                LocalWriteError::ImpossibleRelativePath(_) => PyValueError::new_err(e),
+                LocalWriteError::ImpossibleRelativePath(_)
+                | LocalWriteError::PublisherMismatch { .. }
+                | LocalWriteError::NameMismatch { .. } => PyValueError::new_err(e),
                 LocalWriteError::AddProject(_) => PyIOError::new_err(e),
                 LocalWriteError::MissingMeta | LocalWriteError::MissingInfoMeta => {
                     PyFileNotFoundError::new_err(e)
@@ -131,11 +135,7 @@ fn do_info_py_path(
 ) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     let _ = pyo3_log::try_init();
 
-    let project = LocalSrcProject {
-        nominal_path: None,
-        project_path: path.into(),
-        expected_checksum: None,
-    };
+    let project = LocalSrcProject::new_access(path, None);
 
     match do_info_project(&project) {
         Ok(info_meta) => Ok(info_meta),
@@ -227,11 +227,7 @@ fn do_build_py(
     let Some(current_project_path) = project_path else {
         return Err(pyo3::exceptions::PyNotImplementedError::new_err("TODO"));
     };
-    let project = LocalSrcProject {
-        nominal_path: None,
-        project_path: current_project_path.into(),
-        expected_checksum: None,
-    };
+    let project = LocalSrcProject::new_access(current_project_path, None);
 
     let compression = match compression {
         Some(compression) => match KparCompressionMethod::try_from(compression) {
@@ -403,11 +399,7 @@ pub fn do_sources_project_py(
 
     let mut result = vec![];
 
-    let current_project = LocalSrcProject {
-        nominal_path: None,
-        project_path: path.into(),
-        expected_checksum: None,
-    };
+    let current_project = LocalSrcProject::new_access(path, None);
 
     if !no_own {
         for src_path in do_sources_local_src_project_no_deps(&current_project, true)
@@ -454,11 +446,7 @@ pub fn do_sources_project_py(
 fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()> {
     let _ = pyo3_log::try_init();
 
-    let mut project = LocalSrcProject {
-        nominal_path: None,
-        project_path: path.into(),
-        expected_checksum: None,
-    };
+    let mut project = LocalSrcProject::new_access(path, None);
 
     // TODO: do dependency resolution and locking?
     match do_add_guess(&mut project, iri, version) {
@@ -474,11 +462,7 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
 fn do_remove_py(path: String, iri: String) -> PyResult<()> {
     let _ = pyo3_log::try_init();
 
-    let mut project = LocalSrcProject {
-        nominal_path: None,
-        project_path: path.into(),
-        expected_checksum: None,
-    };
+    let mut project = LocalSrcProject::new_access(path, None);
 
     do_remove_guess(&mut project, iri).map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
@@ -500,11 +484,7 @@ fn do_include_py(
 ) -> PyResult<()> {
     let _ = pyo3_log::try_init();
 
-    let mut project = LocalSrcProject {
-        nominal_path: None,
-        project_path: path.into(),
-        expected_checksum: None,
-    };
+    let mut project = LocalSrcProject::new_access(path, None);
     let force_format = match force_format {
         Some(language_str) => match Language::from_suffix(&language_str) {
             Some(language) => Some(language),
@@ -537,11 +517,7 @@ fn do_include_py(
 fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
     let _ = pyo3_log::try_init();
 
-    let mut project = LocalSrcProject {
-        nominal_path: None,
-        project_path: path.into(),
-        expected_checksum: None,
-    };
+    let mut project = LocalSrcProject::new_access(path, None);
     // TODO: print the whole error chain
     do_exclude(&mut project, iter::once(Utf8UnixPathBuf::from(src_path)))
         .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
@@ -583,11 +559,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
         })
         .map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
     } else if metadata.is_dir() {
-        let project = LocalSrcProject {
-            nominal_path: None,
-            project_path: location,
-            expected_checksum: None,
-        };
+        let project = LocalSrcProject::new_access(location, None);
 
         let Some(version) = project
             .version()
@@ -595,7 +567,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
         else {
             return Err(PyRuntimeError::new_err(format!(
                 "project at {} lacks project information",
-                project.project_path
+                project.root_path()
             )));
         };
         let checksum = project

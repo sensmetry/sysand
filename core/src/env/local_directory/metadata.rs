@@ -214,14 +214,13 @@ impl EnvMetadata {
     ) -> Result<(), AddProjectError> {
         let info = project
             .get_info()?
-            .ok_or(AddProjectError::MissingInfo(project.project_path.clone()))?;
+            .ok_or(AddProjectError::MissingInfo(project.root_path().to_owned()))?;
         let project = EnvProject {
             publisher: info.publisher,
             name: info.name,
             version: info.version,
             path: project
-                .nominal_path
-                .as_ref()
+                .nominal_path()
                 .expect("BUG: no nominal path for project")
                 .to_owned(),
             identifiers,

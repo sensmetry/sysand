@@ -127,11 +127,7 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverPro
             None,
         ))
     } else if metadata.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject {
-            nominal_path: None,
-            project_path: path.as_ref().as_str().into(),
-            expected_checksum: None,
-        })
+        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(path.as_ref(), None))
     } else {
         // TODO: NoResolve is for IRIs, this is a path
         bail!(CliError::NoResolve(path.as_ref().to_string()));

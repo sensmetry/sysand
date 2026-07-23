@@ -72,11 +72,10 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
     ) -> Result<Self, TryFromSourceError> {
         match source {
             OverrideSource::Editable { editable } => {
-                let project = LocalSrcProject {
-                    nominal_path: Some(editable.to_string().into()),
-                    project_path: project_root.as_ref().join(editable.as_str()),
-                    expected_checksum: None,
-                };
+                let project = LocalSrcProject::new_access(
+                    project_root.as_ref().join(editable.as_str()),
+                    Some(editable.to_string().into()),
+                );
                 Ok(AnyProject::Editable(
                     EditableProject::<LocalSrcProject>::new(editable.as_str().into(), project),
                 ))
@@ -91,11 +90,10 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
             }
             OverrideSource::LocalSrc { src_path } => {
                 let project_path = project_root.as_ref().join(src_path.as_str());
-                Ok(AnyProject::LocalSrc(LocalSrcProject {
-                    nominal_path: Some(src_path),
+                Ok(AnyProject::LocalSrc(LocalSrcProject::new_access(
                     project_path,
-                    expected_checksum: None,
-                }))
+                    Some(src_path),
+                )))
             }
             // TODO: use expected size
             OverrideSource::RemoteKpar { remote_kpar } => Ok(AnyProject::RemoteKpar(

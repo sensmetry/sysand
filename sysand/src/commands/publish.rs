@@ -122,6 +122,6 @@ fn resolve_publish_kpar_path(
     Ok(default_kpar_path(
         current_project,
         ctx.current_workspace.as_ref(),
-        &current_project.project_path,
+        current_project.root_path(),
     )?)
 }
