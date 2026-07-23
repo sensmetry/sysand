@@ -335,11 +335,9 @@ impl ResolveRead for FileResolver {
 
         Ok(match self.resolve_general(uri)? {
             ResolutionOutcome::Resolved(path) => ResolutionOutcome::Resolved(vec![
-                Ok(FileResolverProject::LocalSrcProject(LocalSrcProject {
-                    nominal_path: None,
-                    project_path: path.clone(),
-                    expected_checksum: None,
-                })),
+                Ok(FileResolverProject::LocalSrcProject(
+                    LocalSrcProject::new_access(path.clone(), None),
+                )),
                 Ok(FileResolverProject::LocalKParProject(
                     LocalKParProject::new(path, KparInnerPath::Guess, None, None),
                 )),

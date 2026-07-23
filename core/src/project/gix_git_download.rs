@@ -55,6 +55,17 @@ pub enum GixDownloadedError {
     MissingMeta,
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
+    #[error(
+        "project publisher `{}` does not match expected `{}`",
+        if let Some(a) = actual { a.as_str() } else { "<none>" },
+        if let Some(p) = expected { p.as_str() } else { "<none>" }
+    )]
+    PublisherMismatch {
+        expected: Option<String>,
+        actual: Option<String>,
+    },
+    #[error("project name `{actual}` does not match expected `{expected}`")]
+    NameMismatch { expected: String, actual: String },
     #[error("{0}")]
     Other(String),
 }
@@ -78,6 +89,12 @@ impl From<LocalSrcError> for GixDownloadedError {
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
             LocalSrcError::MissingInfoMeta => Self::MissingInfoMeta,
+            LocalSrcError::PublisherMismatch { expected, actual } => {
+                Self::PublisherMismatch { expected, actual }
+            }
+            LocalSrcError::NameMismatch { expected, actual } => {
+                Self::NameMismatch { expected, actual }
+            }
         }
     }
 }
@@ -91,11 +108,7 @@ impl GixDownloadedProject {
             // it's URL or path as we expected instead of relying on gix::url::Parse to error out
             url: gix::url::parse(url.as_ref().into())
                 .map_err(|e| GixDownloadedError::UrlParse(url.as_ref().into(), Box::new(e)))?,
-            inner: LocalSrcProject {
-                nominal_path: None,
-                project_path: wrapfs::canonicalize(tmp_dir.path())?,
-                expected_checksum: None,
-            },
+            inner: LocalSrcProject::new_access(wrapfs::canonicalize(tmp_dir.path())?, None),
             tmp_dir,
         })
     }

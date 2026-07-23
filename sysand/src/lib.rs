@@ -661,7 +661,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     let path = sysand_core::build::default_kpar_path(
                         &current_project,
                         ctx.current_workspace.as_ref(),
-                        &current_project.project_path,
+                        current_project.root_path(),
                     )?;
                     if let Some(output_dir) = path.parent()
                         && !wrapfs::is_dir(output_dir)?

@@ -41,12 +41,18 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         lock,
         env,
         Some(
-            |src_path: Utf8UnixPathBuf, checksum: String| -> LocalSrcProject {
-                LocalSrcProject {
-                    project_path: project_root.as_ref().join(src_path.as_str()),
-                    nominal_path: Some(src_path),
-                    expected_checksum: Some(checksum),
-                }
+            |src_path: Utf8UnixPathBuf,
+             publisher: Option<String>,
+             name: String,
+             checksum: String|
+             -> LocalSrcProject {
+                LocalSrcProject::new_for_sync(
+                    project_root.as_ref().join(src_path.as_str()),
+                    Some(src_path),
+                    publisher,
+                    name,
+                    checksum,
+                )
             },
         ),
         Some(

@@ -38,11 +38,7 @@ pub fn command_init(
         no_semver,
         license,
         no_spdx,
-        &mut LocalSrcProject {
-            nominal_path: None,
-            project_path: path,
-            expected_checksum: None,
-        },
+        &mut LocalSrcProject::new_access(path, None),
     )?;
     Ok(())
 }

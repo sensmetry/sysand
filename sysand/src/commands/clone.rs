@@ -157,7 +157,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
         let lock = lock.canonicalize();
         wrapfs::write(
-            project.inner().project_path.join(DEFAULT_LOCKFILE_NAME),
+            project.inner().root_path().join(DEFAULT_LOCKFILE_NAME),
             lock.to_string(),
         )?;
 
@@ -169,7 +169,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         )?;
         command_sync(
             &lock,
-            &project.inner().project_path,
+            project.inner().root_path(),
             &mut env,
             client,
             &provided_iris,
@@ -250,11 +250,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
     let cloned = "Cloned";
     let header = sysand_core::style::get_style_config().header;
 
-    let mut local_project = LocalSrcProject {
-        nominal_path: None,
-        project_path,
-        expected_checksum: None,
-    };
+    let mut local_project = LocalSrcProject::new_access(project_path, None);
 
     let std_resolver = standard_resolver(
         None,
@@ -271,7 +267,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
                 {:>12} `{}`",
                 iri,
                 ' ',
-                local_project.project_path,
+                local_project.root_path(),
             );
             let (_version, storage) = get_project_version(iri, version, &std_resolver)?;
             let (info, _meta) = clone_project(&storage, &mut local_project, true)?;
@@ -294,11 +290,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
                     remote_project,
                 )?;
             } else {
-                let remote_project = LocalSrcProject {
-                    nominal_path: None,
-                    project_path: path.into(),
-                    expected_checksum: None,
-                };
+                let remote_project = LocalSrcProject::new_access(path.to_owned(), None);
                 clone_local(
                     version,
                     cloning,
@@ -338,7 +330,7 @@ fn clone_local<P: ProjectRead>(
                 {:>12} `{}`",
         wrapfs::canonicalize(path)?,
         ' ',
-        local_project.project_path,
+        local_project.root_path(),
     );
     let (info, _meta) = clone_project(&remote_project, local_project, true)?;
     log::info!(

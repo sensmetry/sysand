@@ -204,19 +204,11 @@ impl LocalDirectoryEnvironment {
                     }
                 }
             }
-            LocalSrcProject {
-                nominal_path: Some(relative.into()),
-                project_path: absolute,
-                expected_checksum: None,
-            }
+            LocalSrcProject::new_access(absolute, Some(relative.into()))
         } else {
             let absolute = self.root_dir.join(relative);
             let relative = format!("{}/{relative}", self.root_dir.file_name().unwrap());
-            LocalSrcProject {
-                nominal_path: Some(relative.into()),
-                project_path: absolute,
-                expected_checksum: None,
-            }
+            LocalSrcProject::new_access(absolute, Some(relative.into()))
         }
     }
 
@@ -382,6 +374,17 @@ pub enum LocalWriteError {
     MissingMeta,
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
+    #[error(
+        "project publisher `{}` does not match expected `{}`",
+        if let Some(a) = actual { a.as_str() } else { "<none>" },
+        if let Some(p) = expected { p.as_str() } else { "<none>" }
+    )]
+    PublisherMismatch {
+        expected: Option<String>,
+        actual: Option<String>,
+    },
+    #[error("project name `{actual}` does not match expected `{expected}`")]
+    NameMismatch { expected: String, actual: String },
 }
 
 impl From<FsIoError> for LocalWriteError {
@@ -410,6 +413,12 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => LocalWriteError::MissingMeta,
             LocalSrcError::MissingInfoMeta => LocalWriteError::MissingInfoMeta,
+            LocalSrcError::PublisherMismatch { expected, actual } => {
+                Self::PublisherMismatch { expected, actual }
+            }
+            LocalSrcError::NameMismatch { expected, actual } => {
+                Self::NameMismatch { expected, actual }
+            }
         }
     }
 }
@@ -438,11 +447,8 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
 
         let project_temp = camino_tempfile::tempdir()
             .map_err(|e| LocalWriteError::from(FsIoError::MkTempDir(e)))?;
-        let mut tentative_project = LocalSrcProject {
-            nominal_path: None,
-            project_path: project_temp.path().to_path_buf(),
-            expected_checksum: None,
-        };
+        let mut tentative_project =
+            LocalSrcProject::new_access(project_temp.path().to_path_buf(), None);
 
         if let Some(existing) = self.metadata.find_project_version_mut(identifier, version) {
             // Create a temp clone and change it to avoid modifying env in case of errors
@@ -455,7 +461,7 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             let absolute_path = self.root_dir.join(existing.path.as_str());
             try_move_files(&[(project_temp.path(), &absolute_path)])
                 .map_err(LocalWriteError::from)?;
-            tentative_project.project_path = absolute_path;
+            tentative_project.set_path(absolute_path);
 
             let info = match tentative_project.get_info() {
                 Ok(Some(info)) => info,
@@ -499,8 +505,8 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             try_move_files(&[(project_temp.path(), &absolute_project_path)])
                 .map_err(LocalWriteError::from)?;
 
-            tentative_project.project_path = absolute_project_path;
-            tentative_project.nominal_path = Some(path);
+            tentative_project.set_path(absolute_project_path);
+            tentative_project.set_nominal_path(Some(path));
 
             self.metadata
                 .add_local_project(

@@ -120,7 +120,7 @@ pub fn do_sync<
 ) -> Result<(), SyncError<UrlParseError, GitError>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
-    CreateSrcPathStorage: Fn(Utf8UnixPathBuf, String) -> SrcPathStorage,
+    CreateSrcPathStorage: Fn(Utf8UnixPathBuf, Option<String>, String, String) -> SrcPathStorage,
     SrcPathStorage: ProjectRead,
     CreateRemoteSrcStorage: Fn(String, String) -> Result<RemoteSrcStorage, UrlParseError>,
     RemoteSrcStorage: ProjectRead,
@@ -211,7 +211,12 @@ where
                     let src_path_storage = src_path_storage
                         .as_ref()
                         .ok_or_else(|| SyncError::MissingSrcPathStorage(uri.as_str().into()))?;
-                    let storage = src_path_storage(src_path.clone(), checksum.clone());
+                    let storage = src_path_storage(
+                        src_path.clone(),
+                        project.publisher.clone(),
+                        project.name.clone(),
+                        checksum.clone(),
+                    );
                     log::debug!("trying to install `{uri}` from src_path `{src_path}`");
                     try_install(
                         uri,

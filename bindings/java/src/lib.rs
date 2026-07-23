@@ -110,6 +110,10 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
                     LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
                         env.throw_exception(ExceptionKind::SysandException, e)
                     }
+                    LocalSrcError::PublisherMismatch { .. }
+                    | LocalSrcError::NameMismatch { .. } => {
+                        env.throw_exception(ExceptionKind::ResolutionError, e)
+                    }
                 },
             }
         }
@@ -169,7 +173,10 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
                     LocalWriteError::AddProject(_) => {
                         env.throw_exception(ExceptionKind::IOError, e)
                     }
-                    LocalWriteError::MissingMeta | LocalWriteError::MissingInfoMeta => {
+                    LocalWriteError::MissingMeta
+                    | LocalWriteError::MissingInfoMeta
+                    | LocalWriteError::PublisherMismatch { .. }
+                    | LocalWriteError::NameMismatch { .. } => {
                         env.throw_exception(ExceptionKind::SysandException, e)
                     }
                 },
@@ -187,11 +194,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_infoPath<'local>(
     let Some(path) = env.get_str(&path, "path") else {
         return JObject::default();
     };
-    let project = LocalSrcProject {
-        nominal_path: None,
-        project_path: Utf8PathBuf::from(&path),
-        expected_checksum: None,
-    };
+    let project = LocalSrcProject::new_access(Utf8PathBuf::from(&path), None);
 
     let command_result = commands::info::do_info_project(&project);
     match command_result {
@@ -341,11 +344,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectIndex<'local>(
             return;
         }
     };
-    let mut project = LocalSrcProject {
-        nominal_path: None,
-        project_path: Utf8PathBuf::from(project_path),
-        expected_checksum: None,
-    };
+    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
     let _ = project
         .set_index(rust_index)
         .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
@@ -364,11 +363,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectInfo<'local>(
     let Some(info_raw) = java_info_to_raw(&mut env, &info) else {
         return;
     };
-    let mut project = LocalSrcProject {
-        nominal_path: None,
-        project_path: Utf8PathBuf::from(project_path),
-        expected_checksum: None,
-    };
+    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
     let _ = project
         .put_info(&info_raw, true)
         .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
@@ -387,11 +382,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectMetadata<'loca
     let Some(metadata_raw) = java_metadata_to_raw(&mut env, &metadata) else {
         return;
     };
-    let mut project = LocalSrcProject {
-        nominal_path: None,
-        project_path: Utf8PathBuf::from(project_path),
-        expected_checksum: None,
-    };
+    let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
     let _ = project
         .put_meta(&metadata_raw, true)
         .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
@@ -499,11 +490,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
     let Some(project_path) = env.get_str(&project_path, "projectPath") else {
         return;
     };
-    let project = LocalSrcProject {
-        nominal_path: None,
-        project_path: Utf8PathBuf::from(project_path),
-        expected_checksum: None,
-    };
+    let project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
     let Some(compression) = env.get_str(&compression, "compression") else {
         return;
     };

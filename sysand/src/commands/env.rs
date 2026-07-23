@@ -229,13 +229,12 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
 
     let metadata = wrapfs::metadata(&path)?;
     let project = if metadata.is_dir() {
-        FileResolverProject::LocalSrcProject(LocalSrcProject {
+        FileResolverProject::LocalSrcProject(LocalSrcProject::new_access(
+            path.as_str(),
             // Provide an empty nominal path to satisfy lock. It won't be used for actual
             // syncing, as the project is installed manually
-            nominal_path: Some(Utf8UnixPathBuf::new()),
-            project_path: path.as_str().into(),
-            expected_checksum: None,
-        })
+            Some(Utf8UnixPathBuf::new()),
+        ))
     } else if metadata.is_file() {
         FileResolverProject::LocalKParProject(LocalKParProject::new(
             &path,
