@@ -75,79 +75,111 @@ pub fn do_add<P: ProjectMut>(
     project: &mut P,
     usage_raw: &InterchangeProjectUsageRaw,
 ) -> Result<bool, AddError<P::Error>> {
-    let usage: InterchangeProjectUsageG<String, String> = usage_raw.validate()?.into();
+    let usage: InterchangeProjectUsageG<String, String, String> = usage_raw.validate()?.into();
 
     let adding = "Adding";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{adding:>12}{header:#} usage: {usage_raw}");
 
     if let Some(info) = project.get_info().map_err(AddError::Project)?.as_mut() {
-        let mut found = false;
+        let mut dont_add = false;
         match &usage {
             InterchangeProjectUsageRaw::Resource {
                 resource: new_resource,
                 version_constraint: new_vc,
             } => {
                 for u in info.usage.iter_mut() {
-                    match u {
-                        InterchangeProjectUsageRaw::Resource {
-                            resource,
-                            version_constraint,
-                        } if resource == new_resource => {
-                            match (&new_vc, version_constraint) {
-                                (None, None) => {
-                                    log::warn!(
-                                        "ignoring usage `{new_resource}`,\n\
+                    if let InterchangeProjectUsageRaw::Resource {
+                        resource,
+                        version_constraint,
+                    } = u
+                        && resource == new_resource
+                    {
+                        match (&new_vc, version_constraint) {
+                            (None, None) => {
+                                log::warn!(
+                                    "ignoring usage `{new_resource}`,\n\
                                          {SP:>8} since it is already present"
-                                    );
-                                    return Ok(false);
-                                }
-                                (None, Some(vc)) => {
-                                    log::warn!(
-                                        "ignoring usage `{new_resource}`\n\
+                                );
+                                return Ok(false);
+                            }
+                            (None, Some(vc)) => {
+                                log::warn!(
+                                    "ignoring usage `{new_resource}`\n\
                                          {SP:>8} without a version constraint, since it is already present with\n\
                                          {SP:>8} version constraint `{vc}`",
-                                    );
-                                    return Ok(false);
-                                }
-                                (Some(vc), vc_current @ None) => {
-                                    log::warn!(
-                                        "usage `{new_resource}` is already present,\n\
+                                );
+                                return Ok(false);
+                            }
+                            (Some(vc), vc_current @ None) => {
+                                log::warn!(
+                                    "usage `{new_resource}` is already present,\n\
                                          {SP:>8} but without a version constraint; version constraint\n\
                                          {SP:>8} `{vc}` will be added to it",
-                                    );
-                                    *vc_current = Some(vc.to_owned());
-                                    found = true;
-                                }
-                                (Some(vc_new), Some(vc_current)) => {
-                                    // TODO: more intelligent merging of constraints
-                                    if vc_new == vc_current {
-                                        log::warn!(
-                                            "ignoring usage `{new_resource}` with version constraint\n\
+                                );
+                                *vc_current = Some(vc.to_owned());
+                                dont_add = true;
+                            }
+                            (Some(vc_new), Some(vc_current)) => {
+                                // TODO: more intelligent merging of constraints
+                                if vc_new == vc_current {
+                                    log::warn!(
+                                        "ignoring usage `{new_resource}` with version constraint\n\
                                              {SP:>8} `{vc_new}`, since it is already present with identical version constraint",
-                                        );
-                                        return Ok(false);
-                                    } else {
-                                        log::warn!(
-                                            "usage `{new_resource}` is already present, but with version\n\
+                                    );
+                                    return Ok(false);
+                                } else {
+                                    log::warn!(
+                                        "usage `{new_resource}` is already present, but with version\n\
                                              {SP:>8} constraint `{vc_current}`; new version constraint\n\
                                              {SP:>8} `{vc_new}` will be added to the existing ones; this may\n\
                                              {SP:>8} result in failed version resolution or conflicting symbol errors",
-                                        );
-                                        vc_current.push_str(", ");
-                                        vc_current.push_str(vc_new);
-                                        found = true;
-                                    }
+                                    );
+                                    vc_current.push_str(", ");
+                                    vc_current.push_str(vc_new);
+                                    dont_add = true;
                                 }
                             }
+                        }
+                        break;
+                    }
+                }
+            }
+            InterchangeProjectUsageRaw::Directory {
+                dir: new_dir,
+                publisher: new_publisher,
+                name: new_name,
+            } => {
+                for u in info.usage.iter_mut() {
+                    if let InterchangeProjectUsageRaw::Directory {
+                        dir,
+                        publisher,
+                        name,
+                    } = u
+                    {
+                        if publisher == new_publisher && name == new_name {
+                            log::warn!(
+                                "usage `{publisher}`/`{name}` is already present;\n\
+                                {SP:>8} it will be updated to point to `{new_dir}`"
+                            );
+                            *dir = new_dir.to_owned();
+                            dont_add = true;
+                            break;
+                        } else if dir == new_dir {
+                            log::warn!(
+                                "existing usage `{publisher}`/`{name}` already points to path
+                                {SP:>8} `{dir}`; existing usage will be overwritten"
+                            );
+                            *publisher = new_publisher.to_owned();
+                            *name = new_name.to_owned();
+                            dont_add = true;
                             break;
                         }
-                        InterchangeProjectUsageRaw::Resource { .. } => (),
                     }
                 }
             }
         }
-        if !found {
+        if !dont_add {
             info.usage.push(usage);
         }
         project.put_info(info, true).map_err(AddError::Project)?;

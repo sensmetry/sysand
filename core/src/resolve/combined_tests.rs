@@ -103,6 +103,35 @@ fn prefer_file_resolver_when_successful() {
     assert_eq!(info.name, "a");
 }
 
+// TODO: decide and document the resolution policy, in this case: when should
+// fallbacks be allowed (relevant for all explicit usages, like http/git/file urls
+// and relative paths) and which one should be prioritized? If this test passes
+// (by changing CombinedResolver's file resolver NotFound return to abort the resolution),
+// then transitive env relative path usages will not get resolved, because
+// FileResolver will get the wrong absolute path (due to current env read design,
+// base_path will be the env-internal project path, not the original
+// source of it), and return NotFound, which will abort the resolution.
+// See lock_directory_usage_env_installed_dependency and
+// directory_usage_missing_path_falls_back_to_env_resolver
+// which conflict with this test
+//
+// #[test]
+// fn prefer_file_resolver_even_when_unresolved() {
+//     let example_uri = iri("http://example.com");
+
+//     let project_a = minimal_project("a", "1.2.3");
+
+//     let resolver = CombinedResolver {
+//         file_resolver: empty_any_resolver(),
+//         remote_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+//         local_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+//         index_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+//     };
+
+//     let xs = do_info(&example_uri, &resolver);
+//     assert!(xs.is_err())
+// }
+
 #[test]
 fn skip_file_resolver_if_unsupported_iri() {
     let example_uri = iri("http://example.com");
@@ -279,6 +308,70 @@ fn skip_non_semantic_versions() {
     let (info, _) = do_info(&example_uri, &resolver).unwrap();
 
     assert_eq!(info.name, "a");
+}
+
+/// A dependency obtained from an environment (or an index/kpar copy) may
+/// declare a `Directory` usage whose relative path only exists in its
+/// original source tree. When the file resolver cannot find that path on
+/// disk, resolution must fall through to the remaining resolvers, which
+/// resolve the usage by the identifier derived from its publisher/name —
+/// the behaviour established by
+/// `solve::pubgrub_tests::directory_usage_env_transitive`. A typed usage
+/// that hard-fails here would abort the whole solve even though the project
+/// is installed in the environment.
+#[cfg(feature = "filesystem")]
+#[test]
+fn directory_usage_missing_path_falls_back_to_env_resolver() {
+    use crate::{
+        env::memory::MemoryStorageEnvironment, model::InterchangeProjectUsage,
+        project::ProjectRead, resolve::env::EnvResolver, resolve::file::FileResolver,
+    };
+
+    let mut widget = minimal_project("widget", "1.0.0");
+    widget.info.as_mut().unwrap().publisher = Some("acme".to_string());
+
+    let env = MemoryStorageEnvironment::from([(
+        "pkg:sysand/acme/widget".to_string(),
+        "1.0.0".to_string(),
+        widget,
+    )]);
+
+    let resolver = CombinedResolver {
+        file_resolver: Some(FileResolver {
+            sandbox_roots: None,
+        }),
+        local_resolver: Some(EnvResolver { env }),
+        remote_resolver: NO_RESOLVER,
+        index_resolver: NO_RESOLVER,
+    };
+
+    // The base path exists (as an env-internal project root would), but
+    // `../widget` relative to it does not.
+    let tmp = camino_tempfile::tempdir().unwrap();
+    let base = tmp.path().join("app");
+    std::fs::create_dir(&base).unwrap();
+
+    let usage = InterchangeProjectUsage::Directory {
+        dir: "../widget".into(),
+        publisher: "acme".to_string(),
+        name: "widget".to_string(),
+    };
+    let resolution = ResolutionInfo::new(usage, Some(base));
+
+    let projects = match resolver.resolve_read(&resolution).unwrap() {
+        ResolutionOutcome::Resolved(projects) => projects,
+        ResolutionOutcome::UnsupportedUsageType { reason }
+        | ResolutionOutcome::NotFound { reason }
+        | ResolutionOutcome::Unresolvable { reason } => {
+            panic!("directory usage should have been resolved from the environment: {reason}")
+        }
+    };
+
+    let projects: Vec<_> = projects.into_iter().collect::<Result<Vec<_>, _>>().unwrap();
+    assert_eq!(projects.len(), 1);
+    let info = projects[0].get_info().unwrap().unwrap();
+    assert_eq!(info.name, "widget");
+    assert_eq!(info.version, "1.0.0");
 }
 
 #[test]

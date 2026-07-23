@@ -361,28 +361,35 @@ impl<Policy: HTTPAuthentication> ResolveReadAsync for HTTPResolverAsync<Policy> 
         &self,
         resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        let InterchangeProjectUsage::Resource { resource: iri, .. } = resolve.usage();
-
         // Try to resolve as a HTTP src project.
-        let outcome = if iri.scheme() == SCHEME_HTTP || iri.scheme() == SCHEME_HTTPS {
-            match reqwest::Url::parse(iri.as_str()) {
-                Ok(url) => ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
-                    client: self.client.clone(),
-                    url,
-                    src_done: false,
-                    kpar_done: false,
-                    lax: self.lax,
-                    auth_policy: self.auth_policy.clone(),
-                    // prefer_ranged: self.prefer_ranged,
-                })),
-                Err(e) => ResolutionOutcome::Unresolvable {
-                    reason: format!("invalid http(s) URL: {e}"),
-                },
+        let outcome = match resolve.usage() {
+            InterchangeProjectUsage::Resource { resource: iri, .. } => {
+                if iri.scheme() == SCHEME_HTTP || iri.scheme() == SCHEME_HTTPS {
+                    match reqwest::Url::parse(iri.as_str()) {
+                        Ok(url) => {
+                            ResolutionOutcome::Resolved(futures::stream::iter(HTTPProjects {
+                                client: self.client.clone(),
+                                url,
+                                src_done: false,
+                                kpar_done: false,
+                                lax: self.lax,
+                                auth_policy: self.auth_policy.clone(),
+                                // prefer_ranged: self.prefer_ranged,
+                            }))
+                        }
+                        Err(e) => ResolutionOutcome::Unresolvable {
+                            reason: format!("invalid http(s) URL: {e}"),
+                        },
+                    }
+                } else {
+                    ResolutionOutcome::UnsupportedUsageType {
+                        reason: String::from("not an http(s) URL"),
+                    }
+                }
             }
-        } else {
-            ResolutionOutcome::UnsupportedUsageType {
-                reason: String::from("not an http(s) URL"),
-            }
+            _ => ResolutionOutcome::UnsupportedUsageType {
+                reason: String::from("not a url/resource usage"),
+            },
         };
         Ok(outcome)
     }

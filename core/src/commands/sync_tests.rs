@@ -130,7 +130,7 @@ fn try_install_fails_to_install_wrong_checksum() {
     let mut env = new_env();
 
     let SyncError::BadChecksum {
-        iri,
+        id: iri,
         expected,
         actual,
     } = try_install::<_, _, Infallible, Infallible, _>(

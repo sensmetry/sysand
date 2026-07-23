@@ -37,7 +37,7 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
 ) -> Result<sysand_core::lock::Lock> {
-    let provided_usages = if !resolution_opts.include_std {
+    let provided_iris = if !resolution_opts.include_std {
         known_std_libs()
     } else {
         HashMap::default()
@@ -48,7 +48,7 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         &project_root,
         ctx,
         // TODO: avoid expensive clone here
-        provided_usages.clone(),
+        provided_iris.clone(),
         client,
         runtime,
         auth_policy,
@@ -71,7 +71,7 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         &path,
         &project_root,
         alias_iris,
-        &provided_usages,
+        &provided_iris,
         wrapped_resolver,
         ctx,
     )?;

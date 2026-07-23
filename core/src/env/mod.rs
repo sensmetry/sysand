@@ -149,7 +149,6 @@ pub trait ReadEnvironmentAsync {
     ) -> impl Future<Output = Result<bool, Self::ReadError>> {
         async move {
             let needle = uri.as_ref();
-
             let uris = self.uris_async().await?;
             uris.try_any(|u| async move { u == needle }).await
         }
@@ -162,7 +161,6 @@ pub trait ReadEnvironmentAsync {
     ) -> impl Future<Output = Result<bool, Self::ReadError>> {
         async move {
             let needle = version.as_ref();
-
             let versions = self.versions_async(&uri).await?;
             versions.try_any(|v| async move { v == needle }).await
         }

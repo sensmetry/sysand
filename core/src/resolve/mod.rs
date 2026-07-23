@@ -10,7 +10,8 @@ use crate::{
     env::{SyncStreamIter, utils::ErrorBound},
     model::InterchangeProjectUsage,
     project::{
-        AsAsyncProject, AsSyncProjectTokio, ProjectRead, ProjectReadAsync, utils::Identifier,
+        AsAsyncProject, AsSyncProjectTokio, ProjectRead, ProjectReadAsync,
+        utils::{Identifier, wrapfs},
     },
 };
 
@@ -184,6 +185,19 @@ impl Display for ResolutionInfo {
                 write!(f, "IRI `{resource}`")?;
                 if let Some(vc) = version_constraint {
                     write!(f, " ({vc})")?;
+                }
+            }
+            InterchangeProjectUsage::Directory {
+                dir,
+                publisher,
+                name,
+            } => {
+                if let Some(bp) = &self.base_path {
+                    let abs_path = bp.join(dir.as_str());
+                    let abs_path = wrapfs::absolute(&abs_path).unwrap_or(abs_path);
+                    write!(f, "`{publisher}/{name}` from `{abs_path}`")?;
+                } else {
+                    write!(f, "`{publisher}/{name}` from `{dir}` (full path unknown)")?;
                 }
             }
         }

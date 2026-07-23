@@ -191,7 +191,6 @@ fn do_info_py(
 
         let uri = Iri::parse(uri)
             .map_err(|(e, input)| PyValueError::new_err(format!("invalid IRI `{input}`: {e}")))?;
-
         match do_info(&uri, &combined_resolver) {
             Ok(info_meta) => Ok(info_meta),
             Err(e) => Err(PyRuntimeError::new_err(format_err(e))),

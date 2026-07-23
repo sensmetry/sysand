@@ -85,7 +85,7 @@ public class Sysand {
     /**
      * Get the project information and metadata at the given URI.
      *
-     * @param uri              The URI of the project.
+     * @param uri The URI of the project.
      * @return The project information and metadata.
      */
     public static native com.sensmetry.sysand.model.InterchangeProject info(
@@ -96,7 +96,7 @@ public class Sysand {
     /**
      * Get the project information and metadata at the given URI.
      *
-     * @param uri              The URI of the project.
+     * @param uri The URI of the project.
      * @return The project information and metadata.
      */
     public static com.sensmetry.sysand.model.InterchangeProject info(

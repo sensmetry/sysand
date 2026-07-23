@@ -85,7 +85,7 @@ pub fn do_info<R: ResolveRead>(
                     Err(e) => {
                         // These errors may be ugly, as `resolved` includes all
                         // possible candidates, with expectation that only some
-                        // of them will work. So we don't show these by default
+                        // of them will work. So we don't show them by default
                         log::debug!("skipping candidate project: {}", format_err(e));
                         continue;
                     }

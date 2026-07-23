@@ -64,11 +64,13 @@ pub struct AcceptScheme<'a> {
 
 impl IRIPredicate for AcceptScheme<'_> {
     fn accept(&self, usage: &ResolutionInfo) -> bool {
-        let InterchangeProjectUsage::Resource {
-            resource,
-            version_constraint: _,
-        } = usage.usage();
-        resource.scheme() == self.scheme
+        match usage.usage() {
+            InterchangeProjectUsage::Resource {
+                resource,
+                version_constraint: _,
+            } => resource.scheme() == self.scheme,
+            InterchangeProjectUsage::Directory { .. } => false,
+        }
     }
 }
 

@@ -29,14 +29,14 @@ anstream = "1.0.0"
 anyhow = "1.0.102"
 clap = { version = "4.5.60", default-features = false, features = ["derive", "unicode", "help", "cargo", "color", "env", "suggestions", "usage"] }
 env_logger = "0.11.9"
-log = { version = "0.4.29", default-features = false }
+log.workspace = true
 sysand-core = { path = "../core", features = ["std", "filesystem", "networking"] }
 thiserror = "2.0.18"
 toml = { version = "1.0.6", features = ["fast_hash"] }
 semver = "1.0.27"
 serde_json = { version = "1.0.149", default-features = false }
 spdx = "0.13.4"
-fluent-uri = { version = "0.4.1", default-features = false, features = ["net"] }
+fluent-uri.workspace = true
 typed-path = { version = "0.12.3", default-features = false }
 url = { version = "2.5.8", default-features = false }
 pubgrub = { version = "0.4.0", default-features = false }

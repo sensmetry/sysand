@@ -111,6 +111,7 @@ pub enum IriNormalizeError {
     #[cfg(feature = "filesystem")]
     #[error("IRI is not a well-formed RFC 3987 IRI: {0}")]
     Parse(fluent_uri::ParseError),
+    // `idna::Errors` is an empty type, so not needed here
     #[error("host `{host}` is not a valid IDN and cannot be converted to Punycode")]
     IdnConversion { host: String },
 }

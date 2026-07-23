@@ -27,3 +27,24 @@ pub struct ProjectContext {
     #[cfg(feature = "filesystem")]
     pub env: Option<LocalDirectoryEnvironment>,
 }
+
+impl ProjectContext {
+    #[cfg(feature = "filesystem")]
+    pub fn project_root(&self) -> Option<Utf8PathBuf> {
+        self.current_project
+            .as_ref()
+            .map(|p| p.root_path().to_owned())
+    }
+
+    #[cfg(feature = "filesystem")]
+    pub fn workspace_root(&self) -> Option<Utf8PathBuf> {
+        self.current_workspace
+            .as_ref()
+            .map(|p| p.root_path().to_owned())
+    }
+
+    #[cfg(feature = "filesystem")]
+    pub fn workspace_or_project_root(&self) -> Option<Utf8PathBuf> {
+        self.workspace_root().or_else(|| self.project_root())
+    }
+}

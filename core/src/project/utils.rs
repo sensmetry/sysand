@@ -259,6 +259,7 @@ pub mod wrapfs {
     pub fn canonicalize_raw<P: AsRef<Utf8Path>>(path: P) -> Result<Utf8PathBuf, io::Error> {
         dunce::canonicalize(path.as_ref()).and_then(|path| {
             Utf8PathBuf::from_path_buf(path)
+                // error is just original `path`
                 .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
         })
     }
@@ -275,6 +276,7 @@ pub mod wrapfs {
         std::env::current_dir()
             .and_then(|d| {
                 Utf8PathBuf::from_path_buf(d)
+                    // error is just original `path`
                     .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
             })
             .map_err(|e| Box::new(FsIoError::CurrentDir(e)))
@@ -543,19 +545,49 @@ impl Borrow<String> for Identifier {
 
 impl From<&InterchangeProjectUsage> for Identifier {
     fn from(value: &InterchangeProjectUsage) -> Self {
-        let InterchangeProjectUsage::Resource { resource, .. } = value;
-        Self(resource.to_string())
+        let (publisher, name) = match value {
+            InterchangeProjectUsage::Resource { resource, .. } => {
+                return Self(resource.to_string());
+            }
+            InterchangeProjectUsage::Directory {
+                publisher, name, ..
+            } => (publisher, name),
+        };
+        Self::make_identifier_iri(publisher, name)
     }
 }
 
 impl From<InterchangeProjectUsage> for Identifier {
     fn from(value: InterchangeProjectUsage) -> Self {
-        let InterchangeProjectUsage::Resource { resource, .. } = value;
-        Self(resource.into_string())
+        let (publisher, name) = match value {
+            InterchangeProjectUsage::Resource { resource, .. } => {
+                return Self(resource.into_string());
+            }
+            InterchangeProjectUsage::Directory {
+                publisher, name, ..
+            } => (publisher, name),
+        };
+        Self::make_identifier_iri(publisher, name)
     }
 }
 
 impl Identifier {
+    pub fn from_pub_name(publisher: &str, name: &str) -> Identifier {
+        Self::make_identifier_iri(publisher, name)
+    }
+
+    pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Identifier {
+        let (publisher, name) = match usage {
+            InterchangeProjectUsageRaw::Resource { resource, .. } => {
+                return Self(resource.to_string());
+            }
+            InterchangeProjectUsageRaw::Directory {
+                publisher, name, ..
+            } => (publisher, name),
+        };
+        Self::make_identifier_iri(publisher, name)
+    }
+
     pub fn from_iri_owned(iri: Iri<String>) -> Identifier {
         Self(iri.into_string())
     }
@@ -580,15 +612,6 @@ impl Identifier {
     /// Construct `Identifier` from `&str`, assuming it's a valid IRI
     pub fn from_iri_unchecked_str(iri: &str) -> Identifier {
         Self(iri.to_owned())
-    }
-
-    pub fn from_pub_name(publisher: &str, name: &str) -> Identifier {
-        Self::make_identifier_iri(publisher, name)
-    }
-
-    pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Identifier {
-        let InterchangeProjectUsageRaw::Resource { resource, .. } = usage;
-        Self(resource.to_string())
     }
 
     fn make_identifier_iri(publisher: impl AsRef<str>, name: impl AsRef<str>) -> Identifier {

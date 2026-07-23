@@ -854,6 +854,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
             "info",
             "--iri",
             "urn:kpar:other",
+            "-v",
             "--default-index",
             &server.url(),
         ],

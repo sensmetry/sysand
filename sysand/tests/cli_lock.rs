@@ -651,6 +651,178 @@ fn lock_rejects_non_normalized_sysand_purl() -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+/// A transitive directory usage must be resolved relative to the project
+/// that declares it, not relative to the top-level project being locked:
+/// `app` uses `deps/widget`, and `widget` uses `../gadget`, which points at
+/// `deps/gadget` only when resolved against `widget`'s own directory. If the
+/// solver kept passing the top-level base path down, `../gadget` would land
+/// outside the temporary directory and resolution would fail
+#[test]
+fn lock_directory_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "app", "1.2.3")?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let widget_dir = cwd.join("deps").join("widget");
+    std::fs::create_dir_all(&widget_dir)?;
+    cli_init_project_in(&widget_dir, None, "b", Some("widget"), Some("1.0.0"), None)?
+        .assert()
+        .success();
+
+    let gadget_dir = cwd.join("deps").join("gadget");
+    std::fs::create_dir_all(&gadget_dir)?;
+    cli_init_project_in(&gadget_dir, None, "c", Some("gadget"), Some("2.0.0"), None)?
+        .assert()
+        .success();
+
+    run_sysand_in(
+        &cwd,
+        ["experimental", "add", "--no-lock", "--dir", "deps/widget"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(
+        &widget_dir,
+        ["experimental", "add", "--no-lock", "--dir", "../gadget"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let out = run_sysand_in(&cwd, ["lock"], None)?;
+    out.assert().success();
+
+    let lock_file: Lock =
+        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let projects = lock_file.projects;
+
+    assert_eq!(
+        projects.len(),
+        3,
+        "expected app, widget and gadget in the lockfile, got: {projects:#?}"
+    );
+
+    // Resolved paths are relativized back against the top-level project
+    // root when recorded in the lockfile
+    for (name, version, expected_src_path) in [
+        ("widget", "1.0.0", "deps/widget"),
+        ("gadget", "2.0.0", "deps/gadget"),
+    ] {
+        let project = projects
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("`{name}` missing from lockfile: {projects:#?}"));
+        assert_eq!(project.version, version);
+        let [Source::LocalSrc { src_path, .. }] = project.sources.as_slice() else {
+            panic!("expected a single local source for `{name}`, got: {project:#?}");
+        };
+        assert_eq!(src_path.as_str(), expected_src_path);
+    }
+
+    Ok(())
+}
+
+/// A dependency resolved *from the environment* can declare a directory
+/// usage whose relative path only made sense in its original source tree:
+/// `app` was authored next to `widget` and uses `../widget`, but once `app`
+/// is installed into `.sysand`, that path (relative to the env-internal
+/// project root) points at nothing. Resolution must then fall back to the
+/// environment, where the usage's publisher/name identify `widget`, instead
+/// of failing the whole lock on the file resolver's `NotFound`
+#[test]
+fn lock_directory_usage_env_installed_dependency() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "consumer", "1.0.0")?;
+    out.assert().success();
+
+    // Source tree: `app` uses `widget` via the directory usage `../widget`
+    let app_dir = cwd.join("src").join("app");
+    let widget_dir = cwd.join("src").join("widget");
+    std::fs::create_dir_all(&app_dir)?;
+    std::fs::create_dir_all(&widget_dir)?;
+    cli_init_project_in(
+        &widget_dir,
+        None,
+        "acme",
+        Some("widget"),
+        Some("1.0.0"),
+        None,
+    )?
+    .assert()
+    .success();
+    cli_init_project_in(&app_dir, None, "acme", Some("app"), Some("1.0.0"), None)?
+        .assert()
+        .success();
+    run_sysand_in(
+        &app_dir,
+        ["experimental", "add", "--no-lock", "--dir", "../widget"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    // Install both projects into the consumer's environment, then delete the
+    // source tree: the env copies are the only ones left, and the `../widget`
+    // recorded in `app` now points at a non-existent path inside `.sysand`
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "pkg:sysand/acme/widget",
+            "--path",
+            "src/widget",
+            "--no-deps",
+            "--no-index",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "pkg:sysand/acme/app",
+            "--path",
+            "src/app",
+            "--no-deps",
+            "--no-index",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+    std::fs::remove_dir_all(cwd.join("src"))?;
+
+    run_sysand_in(&cwd, ["add", "acme/app", "--no-lock", "--no-index"], None)?
+        .assert()
+        .success();
+
+    let out = run_sysand_in(&cwd, ["lock", "--no-index"], None)?;
+    out.assert().success();
+
+    let lock_file: Lock =
+        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let projects = lock_file.projects;
+
+    assert_eq!(
+        projects.len(),
+        3,
+        "expected consumer, app and widget in the lockfile, got: {projects:#?}"
+    );
+    for name in ["app", "widget"] {
+        let project = projects
+            .iter()
+            .find(|p| p.name == name)
+            .unwrap_or_else(|| panic!("`{name}` missing from lockfile: {projects:#?}"));
+        assert_eq!(project.version, "1.0.0");
+    }
+
+    Ok(())
+}
+
 #[test]
 fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::new();
