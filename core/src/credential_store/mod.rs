@@ -231,7 +231,9 @@ pub trait CredentialStore {
     fn remove(&mut self, key: &str) -> Result<bool, CredentialStoreError>;
 }
 
-/// Replace-by-key upsert shared by store implementations.
+/// Replace-by-key upsert shared by store implementations (the keyring
+/// store and the test-only in-memory store).
+#[cfg(any(feature = "keyring", test))]
 fn upsert_record(records: &mut Vec<CredentialRecord>, record: CredentialRecord) {
     match records
         .iter_mut()
@@ -242,8 +244,9 @@ fn upsert_record(records: &mut Vec<CredentialRecord>, record: CredentialRecord) 
     }
 }
 
-/// Remove-by-key shared by store implementations. Returns whether a record
-/// was removed.
+/// Remove-by-key shared by store implementations (the keyring store and
+/// the test-only in-memory store). Returns whether a record was removed.
+#[cfg(any(feature = "keyring", test))]
 fn remove_record(records: &mut Vec<CredentialRecord>, key: &str) -> bool {
     let before = records.len();
     records.retain(|record| record.key != key);
