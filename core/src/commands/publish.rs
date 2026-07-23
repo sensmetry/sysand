@@ -397,7 +397,7 @@ impl PublishBearerSource {
     fn name(self) -> &'static str {
         match self {
             PublishBearerSource::Env => "`SYSAND_CRED_*` environment variables",
-            PublishBearerSource::Keyring => "stored logins",
+            PublishBearerSource::Keyring => "stored credentials",
         }
     }
 

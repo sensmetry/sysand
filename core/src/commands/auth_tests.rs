@@ -1935,7 +1935,7 @@ mod whoami {
             ),
             "unexpected error: {err}"
         );
-        assert!(err.to_string().contains("stored logins"));
+        assert!(err.to_string().contains("stored credentials"));
     }
 
     #[test]

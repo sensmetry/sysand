@@ -160,13 +160,13 @@ fn bare_auth_logout_with_two_configured_defaults_asks_for_an_explicit_url() -> T
 
 #[test]
 fn auth_status_with_nothing_configured_prints_a_single_line() -> TestResult {
-    // The seam store file does not exist: no stored logins, no env
+    // The seam store file does not exist: no stored credentials, no env
     // credentials. The two per-source negatives collapse into exactly
     // one combined line.
     let (_store_dir, store_path) = seam_store()?;
     let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &seam_env(&store_path))?;
     out.assert().success().stdout(predicate::eq(
-        "No credentials configured (no stored logins, no `SYSAND_CRED_*` variables).\n",
+        "No credentials configured (no stored credentials, no `SYSAND_CRED_*` variables).\n",
     ));
     Ok(())
 }
@@ -221,7 +221,7 @@ fn auth_status_lists_env_credentials_and_never_secrets() -> TestResult {
         .stdout(predicate::str::contains("secret-user-name").not())
         .stdout(predicate::str::contains("secret-pass-word").not())
         // Env credentials exist, so the stored-side negative is omitted
-        // entirely (no "no stored logins" noise, no combined negative).
+        // entirely (no "no stored credentials" noise, no combined negative).
         .stdout(predicate::str::contains("No credentials configured").not())
         .stdout(predicate::str::contains("Stored").not());
     Ok(())
@@ -294,11 +294,12 @@ fn auth_login_token_stdin_stores_and_status_lists_the_entry() -> TestResult {
     )?;
     out.assert()
         .success()
+        // The echo is printed (stdout, shown even under `--quiet`); the
+        // result lines ("Stored", "Covers") are log output (stderr).
         .stdout(predicate::str::contains(
             "  Logging in to index `http://127.0.0.1:1/`",
         ))
-        .stdout(predicate::str::contains("Covers http://127.0.0.1:1/**"))
-        // The styled confirmation is log output (stderr).
+        .stderr(predicate::str::contains("Covers http://127.0.0.1:1/**"))
         .stderr(predicate::str::contains(STORED_MESSAGE));
 
     // The stored secret is exactly the piped bytes minus one trailing
@@ -434,8 +435,9 @@ fn auth_login_covers_a_disjoint_api_root_from_discovery() -> TestResult {
     )?;
     out.assert()
         .success()
-        .stdout(predicate::str::contains(format!("{root}**")))
-        .stdout(predicate::str::contains(format!("{api_root}**")))
+        // The "Covers" globs are part of the login result (log output).
+        .stderr(predicate::str::contains(format!("{root}**")))
+        .stderr(predicate::str::contains(format!("{api_root}**")))
         // Public read never exercised the token; the advertised API did.
         .stderr(predicate::str::contains("validated (api)"));
 
@@ -569,7 +571,8 @@ fn auth_login_status_logout_round_trip_a_template_target() -> TestResult {
         .stdout(predicate::str::contains(format!(
             "Logging in to index `{template}`"
         )))
-        .stdout(predicate::str::contains(&anchor_glob))
+        // The "Covers" glob is part of the login result (log output).
+        .stderr(predicate::str::contains(&anchor_glob))
         .stderr(predicate::str::contains("validated (read)"));
 
     // `status` shows the key in the exact form `logout` accepts.
@@ -1043,7 +1046,7 @@ fn auth_whoami_with_a_stored_login_renders_the_identity() -> TestResult {
             server.url()
         )))
         .stdout(predicate::str::contains(format!(
-            "       Using stored login for `{}/`",
+            "       Using stored credential for `{}/`",
             server.url()
         )))
         .stdout(predicate::str::contains("     Subject user alice"))
@@ -1069,7 +1072,7 @@ fn auth_whoami_reports_a_rejected_credential_with_the_source() -> TestResult {
     let (_t, _c, out) = run_sysand_with(["auth", "whoami", &server.url()], None, &env)?;
     out.assert()
         .failure()
-        .stdout(predicate::str::contains("Using stored login for"))
+        .stdout(predicate::str::contains("Using stored credential for"))
         .stderr(predicate::str::contains("rejected the credential"))
         .stderr(predicate::str::contains("sysand auth login"));
     Ok(())
@@ -1112,7 +1115,7 @@ fn auth_whoami_env_credential_wins_over_a_stored_login() -> TestResult {
 
 #[test]
 fn auth_whoami_without_a_matching_credential_suggests_login() -> TestResult {
-    // The seam store file does not exist: no stored logins.
+    // The seam store file does not exist: no stored credentials.
     let (_store_dir, store_path) = seam_store()?;
     let env = seam_env(&store_path);
     let mut server = mockito::Server::new();

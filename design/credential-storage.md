@@ -78,7 +78,7 @@ Under a `sysand auth` namespace:
 | Command                          | Role                                                                                                                                                                                  |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sysand auth login [index-url]`  | validated, index-keyed bearer credential (see §5); no URL = the default index                                                                                                         |
-| `sysand auth logout [index-url]` | remove an index login; no URL = the default index (symmetric with `login`)                                                                                                            |
+| `sysand auth logout [index-url]` | remove a stored credential; no URL = the default index (symmetric with `login`)                                                                                                       |
 | `sysand auth status`             | list stored credentials (never secrets), backend, and `SYSAND_CRED_*` shadowing; marks the entries that apply to the default index                                                    |
 | `sysand auth whoami [index-url]` | query-only live identity via `v1/whoami` (advertised `api_root` required), with runtime credential selection (env over stored, §7); names the source used; no URL = the default index |
 
@@ -90,7 +90,7 @@ Under a `sysand auth` namespace:
   request-time basic auth via `SYSAND_CRED_*` still works.
 - **`auth whoami` semantics.** Query-only: it never writes the credential
   store (no refresh of cached identity fields). Its discovery fetch uses
-  the regular runtime read policy (env credentials and stored logins
+  the regular runtime read policy (env credentials and stored credentials
   apply), so it works against private indexes. Exit code 0 only when the
   API accepted the credential; rejected, unreachable, redirected, and
   rate-limited responses are distinct nonzero errors. An index whose
@@ -326,7 +326,7 @@ two-leg flow and trusted publishing are otherwise unchanged.
   bearer came from a stale `SYSAND_CRED_*` var (a fresh login would stay
   shadowed and the user would loop). So an upload auth failure states where
   the selected bearer came from ("from `SYSAND_CRED_TEAMIDX`" vs "from your
-  stored login for `<index>`") and tailors the remediation (unset/rotate the
+  stored credential for `<index>`") and tailors the remediation (unset/rotate the
   env var vs re-login). A `403` (authorization, not authentication)
   additionally points at `sysand auth status`, which shows the stored
   `subject`, catching "this is a project token for a different project".
@@ -469,7 +469,7 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   (interrupted write, older/newer sysand, another same-user process's
   scribble) read-modify-write **fails closed**, "credential store
   unreadable; remove the `sysand` keyring entry to reset", never silently
-  treats the blob as empty, which would clobber all stored logins on the
+  treats the blob as empty, which would clobber all stored credentials on the
   next `login`.
 - **Concurrency.** Read-modify-write is guarded by a **cross-process
   advisory OS file lock** (`flock`/`LockFileEx`, via a crate like
@@ -586,8 +586,8 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   values carry the visual weight; `shadowed by:` stays warn-styled. Env
   entries list the variable label and pattern. A source with nothing to
   show is omitted rather than announced with a negative; only when neither
-  stored logins nor `SYSAND_CRED_*` variables exist does status print the
-  single line "No credentials configured (no stored logins, no
+  stored credentials nor `SYSAND_CRED_*` variables exist does status print the
+  single line "No credentials configured (no stored credentials, no
   `SYSAND_CRED_*` variables)." The no-usable-keyring note still prints
   whenever the backend is unusable (it is information, not a negative). No
   `scheme` column in v1 (always bearer for stored; env entries may be

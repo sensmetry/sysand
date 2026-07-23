@@ -212,9 +212,39 @@ fn blob_size_check_uses_utf16_length() {
     assert_eq!(
         err.to_string(),
         "credential store full on this platform (Windows ~2.5 KB limit); \
-         remove an unused login or use a smaller token"
+         remove an unused credential or use a smaller token"
     );
 
     let small = "a".repeat(1280);
     check_blob_size(utf16_byte_len(&small), WINDOWS_MAX_BLOB_BYTES).unwrap();
+}
+
+#[test]
+fn upsert_enforces_the_size_limit_and_does_not_write_when_exceeded() {
+    // The platform-cap enforcement (store_blob -> upsert) is Windows-only
+    // in production, so CI never runs it. Inject a tiny limit to drive the
+    // same wiring on any platform: prove the gate is connected, not just
+    // that the `check_blob_size` helper works, and that an over-limit write
+    // is refused before it reaches the backend.
+    let dir = tempdir().unwrap();
+    let backend = MemoryBackend::default();
+    let mut store = store_at(backend.clone(), &dir).with_size_limit(Some(16));
+
+    let err = store
+        .upsert(record(
+            "https://a.example/",
+            "a-token-well-over-sixteen-bytes",
+        ))
+        .unwrap_err();
+    assert!(matches!(err, CredentialStoreError::BlobTooLarge));
+    // The oversized blob never reached the backend.
+    assert!(backend.read().unwrap().is_none());
+
+    // A generous limit lets the same write through, so the gate is the
+    // size check, not an unconditional refusal.
+    let mut ok_store = store_at(backend.clone(), &dir).with_size_limit(Some(100_000));
+    ok_store
+        .upsert(record("https://a.example/", "tok"))
+        .unwrap();
+    assert!(backend.read().unwrap().is_some());
 }

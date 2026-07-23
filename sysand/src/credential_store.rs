@@ -31,17 +31,22 @@ pub const TEST_STORE_ENV_VAR: &str = "SYSAND_TEST_CREDENTIAL_STORE";
 
 /// Special [`TEST_STORE_ENV_VAR`] value simulating an absent keyring
 /// backend.
+#[cfg(debug_assertions)]
 pub const TEST_STORE_ABSENT: &str = ":absent:";
 
 /// The blob backend the CLI credential store runs on: the OS keyring in
 /// real use, a plain file or a simulated-absent backend under the test
-/// seam.
+/// seam. The plaintext-writing test variants are compiled only in debug
+/// builds, so the cleartext path is physically absent from release
+/// binaries (not merely refused at runtime).
 #[derive(Debug)]
 pub enum CliBlobBackend {
     Keyring(OsKeyringBackend),
     /// Test seam: the blob as a plain JSON file at the given path.
+    #[cfg(debug_assertions)]
     File(PathBuf),
     /// Test seam: every access reports an absent keyring backend.
+    #[cfg(debug_assertions)]
     Absent,
 }
 
@@ -49,11 +54,13 @@ impl BlobBackend for CliBlobBackend {
     fn read(&self) -> Result<Option<String>, CredentialStoreError> {
         match self {
             CliBlobBackend::Keyring(keyring) => keyring.read(),
+            #[cfg(debug_assertions)]
             CliBlobBackend::File(path) => match std::fs::read_to_string(path) {
                 Ok(raw) => Ok(Some(raw)),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
                 Err(err) => Err(CredentialStoreError::Lock(err)),
             },
+            #[cfg(debug_assertions)]
             CliBlobBackend::Absent => Err(absent()),
         }
     }
@@ -61,9 +68,11 @@ impl BlobBackend for CliBlobBackend {
     fn write(&self, raw: &str) -> Result<(), CredentialStoreError> {
         match self {
             CliBlobBackend::Keyring(keyring) => keyring.write(raw),
+            #[cfg(debug_assertions)]
             CliBlobBackend::File(path) => {
                 std::fs::write(path, raw).map_err(CredentialStoreError::Lock)
             }
+            #[cfg(debug_assertions)]
             CliBlobBackend::Absent => Err(absent()),
         }
     }
@@ -71,16 +80,19 @@ impl BlobBackend for CliBlobBackend {
     fn delete(&self) -> Result<(), CredentialStoreError> {
         match self {
             CliBlobBackend::Keyring(keyring) => keyring.delete(),
+            #[cfg(debug_assertions)]
             CliBlobBackend::File(path) => match std::fs::remove_file(path) {
                 Ok(()) => Ok(()),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
                 Err(err) => Err(CredentialStoreError::Lock(err)),
             },
+            #[cfg(debug_assertions)]
             CliBlobBackend::Absent => Err(absent()),
         }
     }
 }
 
+#[cfg(debug_assertions)]
 fn absent() -> CredentialStoreError {
     CredentialStoreError::BackendAbsent {
         source: "simulated absent backend (test seam)".into(),
@@ -95,15 +107,10 @@ pub type CliCredentialStore = LockedBlobStore<CliBlobBackend>;
 /// test seam ([`TEST_STORE_ENV_VAR`]) selects a file-backed or
 /// simulated-absent store.
 pub fn open_cli_credential_store() -> Result<CliCredentialStore, CredentialStoreError> {
+    // Debug builds honor the test seam; the file/absent backends only
+    // exist here (they are `#[cfg(debug_assertions)]`).
+    #[cfg(debug_assertions)]
     if let Ok(value) = std::env::var(TEST_STORE_ENV_VAR) {
-        if !cfg!(debug_assertions) {
-            // Fail loudly: silently falling through to the OS keyring
-            // would defeat the seam's whole purpose.
-            return Err(CredentialStoreError::Lock(io::Error::other(format!(
-                "{TEST_STORE_ENV_VAR} is set, but this build does not support the \
-                 test credential store"
-            ))));
-        }
         if value == TEST_STORE_ABSENT {
             // The lock file must not land on the real per-user path
             // either; keep everything test-scoped.
@@ -116,6 +123,17 @@ pub fn open_cli_credential_store() -> Result<CliCredentialStore, CredentialStore
             CliBlobBackend::File(PathBuf::from(value)),
             lock_path,
         ));
+    }
+    // Release builds have no test backend at all, so seeing the variable
+    // must fail loudly rather than silently use the real keyring (which
+    // would let a forgotten variable make tests scribble on a developer's
+    // keychain).
+    #[cfg(not(debug_assertions))]
+    if std::env::var_os(TEST_STORE_ENV_VAR).is_some() {
+        return Err(CredentialStoreError::Lock(io::Error::other(format!(
+            "{TEST_STORE_ENV_VAR} is set, but this build does not support the \
+             test credential store"
+        ))));
     }
     Ok(LockedBlobStore::new(
         CliBlobBackend::Keyring(OsKeyringBackend),

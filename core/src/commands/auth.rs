@@ -1135,7 +1135,7 @@ pub enum WhoamiVerdict {
 
 /// What [`do_auth_whoami`] found: the normalized index key, the exact URL
 /// asked, which credential was sent (the host must name it: an env
-/// credential shadows a stored login, so "re-login" would be the wrong
+/// credential shadows a stored credential, so "re-login" would be the wrong
 /// remediation for a rejected env credential), and the verdict.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthWhoamiOutcome {
@@ -1233,7 +1233,7 @@ fn select_whoami_credential(
                 None => {
                     return Err(AuthCommandError::AmbiguousWhoamiCredential {
                         url: whoami_url.as_str().to_string(),
-                        source_name: "stored logins",
+                        source_name: "stored credentials",
                         candidates: candidates.len(),
                     });
                 }

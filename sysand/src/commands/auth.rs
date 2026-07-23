@@ -172,11 +172,15 @@ pub fn command_auth_login(
                     .collect();
                 format!("validated ({})", surfaces.join(", "))
             };
+            // Both lines are the login result: keep them on one channel
+            // (the log) so `--quiet` suppresses the confirmation as a unit,
+            // the way `sysand publish` suppresses "Published", instead of
+            // leaving an orphan "Covers" line on stdout.
             log::info!(
                 "{header}{:>12}{header:#} credential for `{key}` ({claim})",
                 "Stored"
             );
-            println!("{header}{:>12}{header:#} {}", "Covers", globs.join(", "));
+            log::info!("{header}{:>12}{header:#} {}", "Covers", globs.join(", "));
             Ok(())
         }
         Ok(AuthLoginOutcome::BackendUnavailable { key, globs, reason }) => {
@@ -244,7 +248,7 @@ fn blob_full_message(stored: &[(&str, Option<DateTime<Utc>>)], now: DateTime<Utc
             .to_string()
     };
     if !expired.is_empty() {
-        message.push_str("\nthese stored logins have expired and are safe to remove:");
+        message.push_str("\nthese stored credentials have expired and are safe to remove:");
         for key in expired {
             message.push_str(&format!("\n  sysand auth logout {key}"));
         }
@@ -324,7 +328,7 @@ pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result
         }
         Err(AuthCommandError::Store(CredentialStoreError::BackendAbsent { source })) => bail!(
             "no OS keyring backend is available ({source}), so this host has no \
-             stored logins; credentials here come from `SYSAND_CRED_*` \
+             stored credentials; credentials here come from `SYSAND_CRED_*` \
              environment variables"
         ),
         Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
@@ -559,7 +563,9 @@ fn render_auth_status(status: &AuthStatus) {
         );
     }
     if stored.is_empty() && status.env.is_empty() {
-        println!("No credentials configured (no stored logins, no `SYSAND_CRED_*` variables).");
+        println!(
+            "No credentials configured (no stored credentials, no `SYSAND_CRED_*` variables)."
+        );
     }
 }
 
@@ -687,7 +693,10 @@ pub fn command_auth_whoami(
             );
         }
         WhoamiCredentialSource::Stored { key } => {
-            println!("{header}{:>12}{header:#} stored login for `{key}`", "Using");
+            println!(
+                "{header}{:>12}{header:#} stored credential for `{key}`",
+                "Using"
+            );
         }
     }
 
@@ -739,8 +748,13 @@ pub fn command_auth_whoami(
                 outcome.whoami_url
             );
         }
+        // "Unreachable" here covers both genuine transport failures and a
+        // server that answered without a usable identity (a redirect, a
+        // 429, an unexpected status like 403). "could not get an identity"
+        // reads correctly for all of them, unlike "could not reach", which
+        // contradicts a 403 the API actually returned.
         WhoamiVerdict::Unreachable { detail } => bail!(
-            "could not reach the index API (`{}`): {detail}",
+            "could not get an identity from the index API (`{}`): {detail}",
             outcome.whoami_url
         ),
     }

@@ -58,7 +58,7 @@ pub enum CredentialStoreError {
     Lock(#[from] std::io::Error),
     /// The serialized blob exceeds the platform credential size limit.
     #[error(
-        "credential store full on this platform (Windows ~2.5 KB limit); remove an unused login or use a smaller token"
+        "credential store full on this platform (Windows ~2.5 KB limit); remove an unused credential or use a smaller token"
     )]
     BlobTooLarge,
     /// Serializing the blob failed.
@@ -251,18 +251,23 @@ fn remove_record(records: &mut Vec<CredentialRecord>, key: &str) -> bool {
 }
 
 /// An in-memory [`CredentialStore`], for tests of code that consumes the
-/// trait.
+/// trait. Test-only (`#[cfg(test)]`) so this double never reaches the
+/// library's public API; several core test modules share it, which is why
+/// it lives here rather than in one test file.
+#[cfg(test)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InMemoryCredentialStore {
     records: Vec<CredentialRecord>,
 }
 
+#[cfg(test)]
 impl InMemoryCredentialStore {
     pub fn new() -> Self {
         InMemoryCredentialStore::default()
     }
 }
 
+#[cfg(test)]
 impl CredentialStore for InMemoryCredentialStore {
     fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
         Ok(self.records.clone())
