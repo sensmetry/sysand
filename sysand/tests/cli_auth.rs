@@ -316,7 +316,7 @@ fn auth_login_token_stdin_stores_and_status_lists_the_entry() -> TestResult {
         .success()
         .stdout(predicate::str::contains("      Stored http://127.0.0.1:1/"))
         .stdout(predicate::str::contains(
-            "             patterns: http://127.0.0.1:1/**",
+            "             covers: http://127.0.0.1:1/**",
         ))
         // A stored login exists, so the env-side negative is omitted.
         .stdout(predicate::str::contains("SYSAND_CRED").not());
@@ -646,7 +646,7 @@ fn auth_status_renders_one_stored_entry_without_separators_or_negatives() -> Tes
     let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &seam_env(&store_path))?;
     out.assert().success().stdout(predicate::eq(concat!(
         "      Stored https://one.example/  validated (read, api)\n",
-        "             patterns: https://one.example/**\n",
+        "             covers: https://one.example/**\n",
     )));
     Ok(())
 }
@@ -674,10 +674,10 @@ fn auth_status_separates_multiple_stored_entries_with_a_blank_line() -> TestResu
     let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &seam_env(&store_path))?;
     out.assert().success().stdout(predicate::eq(concat!(
         "      Stored https://a.example/  not validated\n",
-        "             patterns: https://a.example/**\n",
+        "             covers: https://a.example/**\n",
         "\n",
         "      Stored https://b.example/  validated (read)\n",
-        "             patterns: https://b.example/**\n",
+        "             covers: https://b.example/**\n",
     )));
     Ok(())
 }

@@ -44,7 +44,10 @@ pub enum AuthCommandError {
     #[error("no stored credential for `{index}`")]
     NoStoredCredential { index: String },
     /// The target is not an HTTP(S) index (for example a `file://` URL).
-    #[error("`{url}`: not an HTTP(S) index; nothing to authenticate to")]
+    #[error(
+        "`{url}`: not an HTTP(S) index; nothing to authenticate to \
+         (use an https:// index URL)"
+    )]
     NotHttpIndex { url: String },
     /// The target could not be parsed or normalized as an index URL.
     #[error("invalid index URL for credential storage: {0}")]
@@ -175,7 +178,7 @@ impl std::fmt::Display for ProbeSurface {
     }
 }
 
-/// Status of one stored login, as shown by `auth status`. Never contains
+/// Status of one stored credential, as shown by `auth status`. Never contains
 /// the secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredCredentialStatus {
@@ -1090,7 +1093,7 @@ pub fn do_auth_login<S: CredentialStore>(
     }
 }
 
-/// Remove the stored login for `index_url`.
+/// Remove the stored credential for `index_url`.
 ///
 /// Returns the normalized index key the record was stored under. Removing
 /// a login that does not exist is an error
@@ -1109,13 +1112,13 @@ pub fn do_auth_logout<S: CredentialStore>(
 
 /// Where the credential `auth whoami` selected came from. Selection
 /// mirrors publish's source precedence (design/credential-storage.md
-/// section 7): environment credentials before stored logins.
+/// section 7): environment credentials before stored credentials.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WhoamiCredentialSource {
     /// A `SYSAND_CRED_*` environment bearer; `label` is the
     /// `SYSAND_CRED_<LABEL>` stem when known.
     Env { label: Option<String> },
-    /// A stored login (`sysand auth login`) for the given index key.
+    /// A stored credential (`sysand auth login`) for the given index key.
     Stored { key: String },
 }
 
@@ -1457,7 +1460,7 @@ pub fn assemble_auth_status(
     }
 }
 
-/// Read the stored logins and assemble the unified `auth status` view.
+/// Read the stored credentials and assemble the unified `auth status` view.
 ///
 /// An absent keyring backend degrades to the env-only view
 /// ([`StoredCredentialsStatus::BackendUnavailable`]); a present but locked

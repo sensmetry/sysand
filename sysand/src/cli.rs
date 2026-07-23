@@ -1466,7 +1466,7 @@ pub enum AuthCommand {
     /// Show who the index API identifies you as: sends one authenticated
     /// request to the index API (`v1/whoami`) with the credential sysand
     /// would use (`SYSAND_CRED_*` environment credentials take precedence
-    /// over stored logins). Query-only: nothing is stored or refreshed
+    /// over stored credentials). Query-only: nothing is stored or refreshed
     #[clap(verbatim_doc_comment)]
     Whoami {
         /// Index URL to query (e.g. https://sysand.com).

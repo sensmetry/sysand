@@ -229,7 +229,7 @@ pub fn command_auth_login(
 /// (Windows ~2.5 KB). The core store reports only the condition; naming the
 /// `sysand auth` commands to fix it belongs here in the CLI. Points at
 /// `auth status`/`auth logout` and lists already-expired logins as the
-/// obvious drop candidates. With no stored logins (a single oversized token)
+/// obvious drop candidates. With no stored credentials (a single oversized token)
 /// there is nothing to remove, so it does not suggest removing one.
 fn blob_full_message(stored: &[(&str, Option<DateTime<Utc>>)], now: DateTime<Utc>) -> String {
     let expired: Vec<&str> = stored
@@ -523,11 +523,7 @@ fn render_auth_status(status: &AuthStatus) {
             validation_claim(&entry.validated),
             default_marker(entry.applies_to_default)
         );
-        println!(
-            "{:>12} {dim}patterns:{dim:#} {}",
-            ' ',
-            entry.globs.join(", ")
-        );
+        println!("{:>12} {dim}covers:{dim:#} {}", ' ', entry.globs.join(", "));
         if let Some(subject) = &entry.subject {
             println!(
                 "{:>12} {dim}subject:{dim:#} {} {}",
@@ -676,7 +672,7 @@ pub fn command_auth_whoami(
         Err(err) => return Err(err.into()),
     };
 
-    // Name the source: an env credential shadows a stored login, so the
+    // Name the source: an env credential shadows a stored credential, so the
     // right remediation for a bad credential depends on where it came
     // from (design/credential-storage.md section 7).
     match &outcome.source {

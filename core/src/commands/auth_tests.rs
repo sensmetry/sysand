@@ -93,7 +93,8 @@ fn logout_of_non_http_url_errors_without_touching_the_store() {
     assert!(matches!(&err, AuthCommandError::NotHttpIndex { .. }));
     assert_eq!(
         err.to_string(),
-        "`file:///srv/index`: not an HTTP(S) index; nothing to authenticate to"
+        "`file:///srv/index`: not an HTTP(S) index; nothing to authenticate to \
+         (use an https:// index URL)"
     );
     assert_eq!(store.list().unwrap().len(), 1);
 }

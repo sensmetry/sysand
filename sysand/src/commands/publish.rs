@@ -118,7 +118,7 @@ fn publish_error_with_hint(err: PublishError) -> anyhow::Error {
             status, provenance, ..
         } => {
             // A stale stored credential is refreshed by re-login; an env
-            // credential is not (it shadows stored logins, which the core
+            // credential is not (it shadows stored credentials, which the core
             // message already explains). A 403 is authorization, so point
             // at the subject the credential authenticates as.
             let mut lines = Vec::new();

@@ -30,7 +30,7 @@ pub const BLOB_VERSION: u32 = 1;
 pub enum CredentialStoreError {
     /// The stored blob failed to parse or has an unknown version. This
     /// fails closed: a corrupt blob is never treated as empty, which would
-    /// clobber all stored logins on the next write.
+    /// clobber all stored credentials on the next write.
     #[error("credential store unreadable; remove the `sysand` keyring entry to reset")]
     Unreadable,
     /// The given index URL cannot be used as a credential store key.
@@ -88,7 +88,7 @@ pub struct CredentialSubject {
     pub name: String,
 }
 
-/// One stored login: a normalized index-URL key, the URL glob patterns the
+/// One stored credential: a normalized index-URL key, the URL glob patterns the
 /// credential applies to, the scheme, the secret, plus the identity and
 /// expiry fields a validating login learned from `v1/whoami` (absent for
 /// non-validated logins and read-only indexes; blob version stays 1, older

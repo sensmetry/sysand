@@ -586,7 +586,7 @@ impl StandardHTTPAuthenticationBuilder {
     }
 }
 
-/// One stored login as loaded into the lazy credential map: the bearer
+/// One stored credential as loaded into the lazy credential map: the bearer
 /// token plus the non-secret record fields runtime messages need
 /// (design/credential-storage.md sections 7 and 9): the index key names
 /// the login in hints, and `expires_at` drives the reactive expiry hint
@@ -858,7 +858,7 @@ fn read_stored_bearer_map<S: CredentialStore + ?Sized>(store: &S) -> GlobMap<Sto
         );
         for glob in &record.globs {
             // Validate each glob individually so one invalid pattern skips
-            // only itself, not every stored login.
+            // only itself, not every stored credential.
             if let Err(err) = GlobBuilder::new(glob).literal_separator(true).build() {
                 log::warn!(
                     "ignoring invalid stored credential URL pattern `{glob}` for `{}`: {err}",
@@ -917,7 +917,7 @@ where
             GlobMapResult::Ambiguous(items) => items.into_iter().map(|(_, auth)| auth).collect(),
         };
 
-        // One stored login covers several (normally non-overlapping) URL
+        // One stored credential covers several (normally non-overlapping) URL
         // patterns with the same token, so several patterns matching is a
         // real ambiguity only between *distinct* tokens. Records with
         // identical tokens collapse to the first record, so a hint after

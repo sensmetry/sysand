@@ -216,7 +216,7 @@ pub fn do_publish(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<PublishResponse, PublishError> {
-    // Fail fast on a clearly expired stored login before uploading the
+    // Fail fast on a clearly expired stored credential before uploading the
     // archive (design/credential-storage.md section 7). The server's 401
     // remains the authority: only an expiry past the skew margin stops
     // here, and an env credential (no known expiry) always proceeds.
@@ -296,7 +296,7 @@ pub fn do_publish(
     map_publish_response(status, &body_bytes, &bearer.provenance)
 }
 
-/// Whether a stored login's known expiry is clearly past: beyond a generous
+/// Whether a stored credential's known expiry is clearly past: beyond a generous
 /// clock-skew margin, so a skewed client clock (real skew is often minutes,
 /// not seconds) cannot false-trip the pre-upload stop and refuse a token the
 /// server would still accept. The stop is only an optimization to avoid
@@ -384,7 +384,7 @@ pub enum PublishBearerProvenance {
     /// A `SYSAND_CRED_*` environment credential; `label` is the
     /// `SYSAND_CRED_<LABEL>` stem when known.
     Env { label: Option<String> },
-    /// A stored login (`sysand auth login`) for the given index key.
+    /// A stored credential (`sysand auth login`) for the given index key.
     Stored {
         key: String,
         expires_at: Option<DateTime<Utc>>,
@@ -422,7 +422,7 @@ impl PublishBearerSource {
 ///
 /// Configured credentials come from two sources in precedence order: the
 /// eager `env_bearers` map (`SYSAND_CRED_*`) and `stored_bearers`, a lazy
-/// provider for stored logins that is invoked only when no env bearer
+/// provider for stored credentials that is invoked only when no env bearer
 /// matches the upload URL, so a publish resolved from env (or via trusted
 /// publishing) never touches the credential store
 /// (design/credential-storage.md, section 7).
