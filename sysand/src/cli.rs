@@ -193,8 +193,8 @@ pub enum Command {
         #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
         allow_path_usage: bool,
         /// Note: this is now the default and kept only for compatibility.
-        /// Update project metadata before building. This includes updating
-        /// project symbol index and adding/updating source file checksums
+        /// Update project metadata that is written into the kpar. This includes
+        /// updating project symbol index and adding/updating source file checksums
         #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
         update_meta: bool,
         /// Don't update exported symbols index in the built KPAR metadata
@@ -304,7 +304,11 @@ pub struct AddProjectLocatorArgs {
     /// IRI/URI/URL identifying the project to be used, or
     /// `<publisher>/<name>` shorthand for `pkg:sysand/<publisher>/<name>`.
     /// Paths must use `--path`
-    #[clap(default_value = None, value_parser = parse_usage_locator_suggest_path)]
+    #[clap(
+        default_value = None,
+        value_parser = parse_usage_locator_suggest_path,
+        verbatim_doc_comment
+    )]
     pub iri: Option<Iri<String>>,
     /// Path to the project to be added. Since every usage is identified
     /// by an IRI, `file://` URL will be used to refer to the project.
@@ -326,7 +330,11 @@ pub struct RemoveProjectLocatorArgs {
     /// IRI identifying the project usage to be removed, or
     /// `<publisher>/<name>` shorthand for `pkg:sysand/<publisher>/<name>`.
     /// Paths must use `--path`
-    #[clap(default_value = None, value_parser = parse_usage_locator_suggest_path)]
+    #[clap(
+        default_value = None,
+        value_parser = parse_usage_locator_suggest_path,
+        verbatim_doc_comment
+    )]
     pub iri: Option<Iri<String>>,
     /// Path to the project to be removed from usages. Since every usage is
     /// identified by an IRI, the path will be transformed into a `file://` URL
@@ -1586,36 +1594,36 @@ pub struct ProjectSourceOptions {
     /// Add usage as a local interchange project at PATH and
     /// update configuration file attempting to guess the
     /// source from the PATH
-    #[arg(long, value_name = "PATH", group = "source")]
+    #[arg(long, value_name = "PATH", group = "source", verbatim_doc_comment)]
     pub from_path: Option<Utf8PathBuf>,
     /// Add usage as a remote interchange project at URL and
     /// update configuration file attempting to guess the
     /// source from the URL
-    #[arg(long, value_name = "URL", group = "source")]
+    #[arg(long, value_name = "URL", group = "source", verbatim_doc_comment)]
     pub from_url: Option<Iri<String>>,
     /// Add usage as an editable interchange project at PATH and
     /// update configuration file with appropriate source
-    #[arg(long, value_name = "PATH", group = "source")]
+    #[arg(long, value_name = "PATH", group = "source", verbatim_doc_comment)]
     pub as_editable: Option<Utf8PathBuf>,
     /// Add usage as a local interchange project at PATH and
     /// update configuration file with appropriate source
-    #[arg(long, value_name = "PATH", group = "source")]
+    #[arg(long, value_name = "PATH", group = "source", verbatim_doc_comment)]
     pub as_local_src: Option<Utf8PathBuf>,
     /// Add usage as a local interchange project archive at PATH
     /// and update configuration file with appropriate source
-    #[arg(long, value_name = "PATH", group = "source")]
+    #[arg(long, value_name = "PATH", group = "source", verbatim_doc_comment)]
     pub as_local_kpar: Option<Utf8PathBuf>,
     /// Add usage as a remote interchange project at URL and
     /// update configuration file with appropriate source
-    #[arg(long, value_name = "URL", group = "source")]
+    #[arg(long, value_name = "URL", group = "source", verbatim_doc_comment)]
     pub as_remote_src: Option<Iri<String>>,
     /// Add usage as a remote interchange project archive at URL
     /// and update configuration file with appropriate source
-    #[arg(long, value_name = "URL", group = "source")]
+    #[arg(long, value_name = "URL", group = "source", verbatim_doc_comment)]
     pub as_remote_kpar: Option<Iri<String>>,
     /// Add usage as a remote git interchange project at URL and
     /// update configuration file with appropriate source
-    #[arg(long, value_name = "URL", group = "source")]
+    #[arg(long, value_name = "URL", group = "source", verbatim_doc_comment)]
     pub as_remote_git: Option<Iri<String>>,
 }
 
