@@ -172,14 +172,7 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
 
     let combined_resolver = PriorityResolver::new(
         MemoryResolver::from(overrides),
-        standard_resolver(
-            Some(ctx.current_directory),
-            ctx.env,
-            Some(client),
-            index_urls,
-            runtime,
-            auth_policy,
-        )?,
+        standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
     );
 
     let (info, _) = do_info(&uri, &combined_resolver)?;
@@ -244,14 +237,7 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
         InfoCommandVerb::Get(get_verb) => {
             let combined_resolver = PriorityResolver::new(
                 MemoryResolver::from(overrides),
-                standard_resolver(
-                    Some(ctx.current_directory),
-                    ctx.env,
-                    Some(client),
-                    index_urls,
-                    runtime,
-                    auth_policy,
-                )?,
+                standard_resolver(ctx.env, Some(client), index_urls, runtime, auth_policy)?,
             );
 
             match get_verb {

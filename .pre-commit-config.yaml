@@ -13,6 +13,8 @@
 # - Register git hooks:    prek install
 #
 # FIXME: transition to a prek official config as we now require prek
+#        Blocked until renovate gets prek.toml support:
+#        https://github.com/renovatebot/renovate/pull/42254
 # FIXME: ensure hooks gets updated over time automatically
 #
 fail_fast: true
