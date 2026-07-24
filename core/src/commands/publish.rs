@@ -507,7 +507,7 @@ pub struct PublishResponse {
 #[derive(Error, Debug)]
 pub enum PublishError {
     #[error(
-        "archive contains a file with executable permisions `{path}`;
+        "archive contains a file with executable permissions `{path}`;
         archive containing executable files cannot be published for security reasons"
     )]
     ExecInArchive { path: Box<str> },
@@ -1258,7 +1258,10 @@ const SYSML_STD_LIB_SUFFIXES: [&str; 7] = [
     "/Requirement-Derivation-Domain-Library.kpar",
 ];
 
-/// A usage can be either `pkg:sysand/` or an std lib
+/// Checks that a usage is allowed for a project in index. Does not
+/// duplicate checks performed by `InterchangeProjectUsage::validate()`.
+///
+/// A resource usage can be either `pkg:sysand/` or an std lib
 // TODO: be case insensitive
 fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
     if check_std_libs(

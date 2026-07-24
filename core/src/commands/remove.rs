@@ -17,8 +17,8 @@ pub enum RemoveError<ProjectError> {
     Validation(#[from] InterchangeProjectValidationError),
     #[error("could not find usage for `{0}`")]
     UsageNotFound(Box<str>),
-    #[error("could not find project information for `{0}`")]
-    MissingInfo(Box<str>),
+    #[error("project is missing project information")]
+    MissingInfo,
 }
 
 /// Like `do_remove`, but try to guess how `resource` should be interpreted.
@@ -48,7 +48,7 @@ pub fn do_remove<P: ProjectMut>(
 ) -> Result<Vec<InterchangeProjectUsageRaw>, RemoveError<P::Error>> {
     let removing = "Removing";
     let header = crate::style::get_style_config().header;
-    log::info!("{header}{removing:>12}{header:#} `{}` from usages", iri);
+    log::info!("{header}{removing:>12}{header:#} `{iri}` from usages");
 
     if let Some(mut info) = project.get_info().map_err(RemoveError::Project)? {
         let popped = info.pop_usage(&iri);
@@ -62,7 +62,7 @@ pub fn do_remove<P: ProjectMut>(
             Ok(popped)
         }
     } else {
-        Err(RemoveError::MissingInfo(iri.into_boxed_str()))
+        Err(RemoveError::MissingInfo)
     }
 }
 

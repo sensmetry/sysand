@@ -97,7 +97,7 @@ pub enum LockError<PD: ProjectRead, R: ResolveRead + Debug + 'static> {
         field: IncompleteField,
     },
     #[error("project `{identifier}` has invalid metadata")]
-    InvalidUsage {
+    InvalidProject {
         identifier: String,
         source: InterchangeProjectValidationError,
     },
@@ -162,7 +162,7 @@ pub fn do_lock_projects<
                     field: IncompleteField::Info,
                 })
             })?;
-        let validated_info = info.validate().map_err(|e| LockError::InvalidUsage {
+        let validated_info = info.validate().map_err(|e| LockError::InvalidProject {
             identifier: {
                 if let Some(ids) = &identifiers {
                     ids[0].as_str().to_owned()
