@@ -217,27 +217,35 @@ pub fn resolve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
     SolverError<impl ResolveRead + Debug + use<Env>>,
 > {
+    // No need to resolve dependencies if they are not gonna be used.
+    if dependencies == Dependencies::None {
+        return Ok(Vec::new());
+    }
+
+    let std_libs = known_std_libs();
+
     // For `Deps` the standard libraries are treated as already provided so the
     // solver omits them; otherwise everything is resolved and filtered below.
+    let empty = HashMap::default();
     let provided_iris = match dependencies {
-        Dependencies::Deps => known_std_libs(),
-        _ => HashMap::default(),
+        Dependencies::Deps => &std_libs,
+        _ => &empty,
     };
 
-    let resolved = solve_dependencies(requested, env, &provided_iris)?;
+    let resolved = solve_dependencies(requested, env, provided_iris)?;
 
-    let std_iris: HashSet<fluent_uri::Iri<String>> = known_std_libs()
-        .into_keys()
-        .map(|iri| fluent_uri::Iri::parse(iri).expect("BUG: invalid std lib IRI"))
+    let std_iris: HashSet<fluent_uri::Iri<String>> = std_libs
+        .keys()
+        .map(|iri| fluent_uri::Iri::parse(iri.clone()).expect("BUG: invalid std lib IRI"))
         .collect();
 
     Ok(resolved
         .into_iter()
         .filter(|(iri, _)| match dependencies {
-            Dependencies::None => false,
             Dependencies::Std => std_iris.contains(iri),
-            Dependencies::Deps => !std_iris.contains(iri),
-            Dependencies::DepsStd => true,
+            // std_libs are already filtered out by `solve_dependencies`
+            Dependencies::Deps | Dependencies::DepsStd => true,
+            Dependencies::None => false,
         })
         .map(|(_, project)| project)
         .collect())
