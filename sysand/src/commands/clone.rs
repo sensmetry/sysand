@@ -409,8 +409,8 @@ pub fn get_project_version<R: ResolveRead>(
 
             match candidates.len() {
                 0 => match version {
-                    Some(v) => bail!(CliError::MissingProjectVersion(iri.as_ref().to_string(), v)),
-                    None => bail!(CliError::MissingProject(iri.as_ref().to_string())),
+                    Some(v) => bail!(CliError::MissingProjectVersion(resolve_info.to_string(), v)),
+                    None => bail!(CliError::MissingProject(resolve_info.to_string())),
                 },
                 1 => {
                     // Can't move out values with match
@@ -425,16 +425,14 @@ pub fn get_project_version<R: ResolveRead>(
                 }
             }
         }
-        ResolutionOutcome::UnsupportedUsageType { reason } => bail!(
-            "IRI scheme `{}` of `{}` is not supported: {reason}",
-            iri.scheme(),
-            iri
-        ),
+        ResolutionOutcome::UnsupportedUsageType { reason } => {
+            bail!("locator type of {resolve_info} is not supported: {reason}")
+        }
         ResolutionOutcome::NotFound { reason } => {
-            bail!("failed to resolve project `{iri}`: {reason}")
+            bail!("usage {resolve_info} was not found: {reason}")
         }
         ResolutionOutcome::Unresolvable { reason } => {
-            bail!("failed to resolve project `{iri}`: {reason}")
+            bail!("usage {resolve_info} is not resolvable: {reason}")
         }
     }
 }

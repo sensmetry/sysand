@@ -94,8 +94,8 @@ pub fn command_add<Policy: HTTPAuthentication>(
             runtime.clone(),
             auth_policy.clone(),
         )?;
-        let resolve_info = ResolutionInfo::iri(url.clone());
-        let outcome = std_resolver.resolve_read(&resolve_info)?;
+        let resolve = ResolutionInfo::iri(url);
+        let outcome = std_resolver.resolve_read(&resolve)?;
         let mut source = None;
         match outcome {
             ResolutionOutcome::Resolved(alternatives) => {
@@ -112,17 +112,17 @@ pub fn command_add<Policy: HTTPAuthentication>(
                 }
             }
             ResolutionOutcome::UnsupportedUsageType { reason } => {
-                bail!("unsupported URL `{url}`:\n{reason}")
+                bail!("unsupported project locator {resolve}: {reason}")
             }
             ResolutionOutcome::NotFound { reason } => {
-                bail!("failed to resolve URL `{url}`:\n{reason}")
+                bail!("project not found at {resolve}: {reason}")
             }
             ResolutionOutcome::Unresolvable { reason } => {
-                bail!("failed to resolve URL `{url}`:\n{reason}")
+                bail!("{resolve} is not resolvable: {reason}")
             }
         }
         if source.is_none() {
-            bail!("unable to find project at URL `{url}`")
+            bail!("unable to find project {resolve}")
         }
         source
     } else if let Some(editable) = source_opts.as_editable {
