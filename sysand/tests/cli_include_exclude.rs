@@ -19,6 +19,8 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",
@@ -75,6 +77,8 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",
@@ -118,6 +122,8 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",
@@ -168,6 +174,8 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",
@@ -237,6 +245,8 @@ fn include_same_file_replaces_old_symbols() -> Result<(), Box<dyn std::error::Er
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",
@@ -286,6 +296,8 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",
@@ -368,6 +380,8 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",
@@ -466,6 +480,8 @@ fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",
@@ -498,6 +514,8 @@ fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",

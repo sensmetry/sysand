@@ -26,7 +26,15 @@ use serde_json::json;
 #[test]
 fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--name", "lock_trivial", "--version", "1.2.3"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--name",
+            "lock_trivial",
+            "--version",
+            "1.2.3",
+        ],
         None,
     )?;
 
@@ -58,13 +66,32 @@ fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--name", "lock_local_source", "--version", "1.2.3"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--name",
+            "lock_local_source",
+            "--version",
+            "1.2.3",
+        ],
         None,
     )?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let out = run_sysand_in(&cwd, ["init", "--version", "1.0.0", "local_dep"], None)?;
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.0.0",
+            "local_dep",
+        ],
+        None,
+    )?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -101,7 +128,15 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--name", "lock_std_lib", "--version", "1.2.3"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--name",
+            "lock_std_lib",
+            "--version",
+            "1.2.3",
+        ],
         None,
     )?;
 
@@ -291,6 +326,8 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--name",
             "lock_basic_http_deps",
             "--version",
@@ -461,6 +498,8 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--name",
             "lock_and_sync_against_mock_index",
             "--version",
@@ -582,7 +621,15 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .create();
 
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--name", "sync_tripwire", "--version", "1.2.3"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--name",
+            "sync_tripwire",
+            "--version",
+            "1.2.3",
+        ],
         None,
     )?;
     out.assert().success().stdout(predicate::str::is_empty());
@@ -664,6 +711,8 @@ fn lock_rejects_non_normalized_sysand_purl() -> Result<(), Box<dyn std::error::E
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--name",
             "lock_rejects_non_normalized_sysand_purl",
             "--version",
@@ -705,6 +754,8 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--name",
             "lock_basic_http_deps",
             "--version",

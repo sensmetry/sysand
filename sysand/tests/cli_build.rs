@@ -42,8 +42,18 @@ fn expected_index() -> IndexMap<String, String> {
 
 #[test]
 fn project_build() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        run_sysand(["init", "--version", "1.2.3", "--name", "test_build"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "test_build",
+        ],
+        None,
+    )?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -123,7 +133,15 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn project_build_pretty_prints_project_and_meta_json() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "test_pretty"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "test_pretty",
+        ],
         None,
     )?;
 
@@ -164,6 +182,8 @@ fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn s
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "a",
             "--name",
             "test_build_missing_index_symbol",
         ],
@@ -215,6 +235,8 @@ fn project_build_warns_when_file_symbol_is_missing_from_index()
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "a",
             "--name",
             "test_build_missing_index_entry",
         ],
@@ -248,11 +270,27 @@ fn project_build_warns_when_file_symbol_is_missing_from_index()
 #[test]
 fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir1, cwd1, out1) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "test_build1"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "test_build1",
+        ],
         None,
     )?;
     let (_temp_dir2, cwd2, out2) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "test_build2"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "test_build2",
+        ],
         None,
     )?;
 
@@ -354,6 +392,8 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
                 "init",
                 "--version",
                 "1.2.3",
+                "--publisher",
+                "a",
                 "--name",
                 project_cwd.file_name().unwrap(),
             ],
@@ -486,7 +526,15 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir(&project1_cwd)?;
     let out = run_sysand_in(
         &project1_cwd,
-        ["init", "--version", "1.0.0", "--name", "project1"],
+        [
+            "init",
+            "--version",
+            "1.0.0",
+            "--publisher",
+            "a",
+            "--name",
+            "project1",
+        ],
         None,
     )?;
     out.assert().success();
@@ -542,7 +590,15 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     std::fs::create_dir(&project1_cwd)?;
     let out = run_sysand_in(
         &project1_cwd,
-        ["init", "--version", "1.0.0", "--name", "project1"],
+        [
+            "init",
+            "--version",
+            "1.0.0",
+            "--publisher",
+            "a",
+            "--name",
+            "project1",
+        ],
         None,
     )?;
     out.assert().success();
@@ -600,7 +656,15 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
     std::fs::create_dir(&project1_cwd)?;
     let out = run_sysand_in(
         &project1_cwd,
-        ["init", "--version", "1.0.0", "--name", "project1"],
+        [
+            "init",
+            "--version",
+            "1.0.0",
+            "--publisher",
+            "a",
+            "--name",
+            "project1",
+        ],
         None,
     )?;
     out.assert().success();
@@ -650,7 +714,15 @@ fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error
     std::fs::create_dir(&project1_cwd)?;
     let out = run_sysand_in(
         &project1_cwd,
-        ["init", "--version", "1.0.0", "--name", "project1"],
+        [
+            "init",
+            "--version",
+            "1.0.0",
+            "--publisher",
+            "a",
+            "--name",
+            "project1",
+        ],
         None,
     )?;
     out.assert().success();
@@ -701,7 +773,15 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
     std::fs::create_dir(&project1_cwd)?;
     let out = run_sysand_in(
         &project1_cwd,
-        ["init", "--version", "1.0.0", "--name", "project1"],
+        [
+            "init",
+            "--version",
+            "1.0.0",
+            "--publisher",
+            "a",
+            "--name",
+            "project1",
+        ],
         None,
     )?;
     out.assert().success();
@@ -768,7 +848,15 @@ fn compression_methods() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "test_readme"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "test_readme",
+        ],
         None,
     )?;
 
@@ -798,7 +886,15 @@ fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn project_build_without_readme() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "test_no_readme"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "test_no_readme",
+        ],
         None,
     )?;
 
@@ -840,7 +936,15 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
         let project_name = project_cwd.file_name().unwrap();
         let out = run_sysand_in(
             project_cwd,
-            ["init", "--version", "1.2.3", "--name", project_name],
+            [
+                "init",
+                "--version",
+                "1.2.3",
+                "--publisher",
+                "a",
+                "--name",
+                project_name,
+            ],
             None,
         )?;
         out.assert().success();
@@ -881,7 +985,15 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "test_changelog"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "test_changelog",
+        ],
         None,
     )?;
 
@@ -914,7 +1026,15 @@ fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn project_build_without_changelog() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "test_no_changelog"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "test_no_changelog",
+        ],
         None,
     )?;
 
@@ -956,7 +1076,15 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
         let project_name = project_cwd.file_name().unwrap();
         let out = run_sysand_in(
             project_cwd,
-            ["init", "--version", "1.2.3", "--name", project_name],
+            [
+                "init",
+                "--version",
+                "1.2.3",
+                "--publisher",
+                "a",
+                "--name",
+                project_name,
+            ],
             None,
         )?;
         out.assert().success();
@@ -1006,6 +1134,8 @@ fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>>
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "a",
             "--name",
             "test_license",
             "--license",
@@ -1046,6 +1176,8 @@ fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "a",
             "--name",
             "test_compound_license",
             "--license",
@@ -1093,6 +1225,8 @@ fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Erro
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "a",
             "--name",
             "test_license_with",
             "--license",
@@ -1140,6 +1274,8 @@ fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "a",
             "--name",
             "test_license_ref",
             "--license",
@@ -1181,6 +1317,8 @@ fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::E
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "a",
             "--name",
             "test_missing_license",
             "--license",
@@ -1210,7 +1348,15 @@ fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::E
 #[test]
 fn project_build_without_license() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "test_no_license"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "test_no_license",
+        ],
         None,
     )?;
 
@@ -1266,8 +1412,18 @@ fn assert_kpar_no_licenses_dir(kpar_path: &camino::Utf8Path) {
 }
 
 fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        run_sysand(["init", "--version", "1.2.3", "--name", "test_build"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "test_build",
+        ],
+        None,
+    )?;
 
     {
         let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;

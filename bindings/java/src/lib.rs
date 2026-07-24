@@ -49,16 +49,8 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
     let Some(name) = env.get_str(&name, "name") else {
         return;
     };
-    // If `publisher` is `null`, no publisher is specified
-    let publisher: Option<String> = match env.get_string(&publisher) {
-        Ok(s) => Some(s.into()),
-        Err(e) => match e {
-            Error::NullPtr(_) => None,
-            _ => {
-                env.throw_runtime_exception(format!("failed to get argument `publisher`: {}", e));
-                return;
-            }
-        },
+    let Some(publisher) = env.get_str(&publisher, "publisher") else {
+        return;
     };
     let Some(version) = env.get_str(&version, "version") else {
         return;

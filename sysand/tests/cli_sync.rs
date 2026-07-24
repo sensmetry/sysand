@@ -20,7 +20,15 @@ pub use common::*;
 #[test]
 fn sync_to_current() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "sync_to_current"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "d",
+            "--name",
+            "sync_to_current",
+        ],
         None,
     )?;
 
@@ -51,7 +59,7 @@ fn sync_to_current() -> Result<(), Box<dyn std::error::Error>> {
 version = "0.1"
 
 [[project]]
-publisher = "untitled"
+publisher = "d"
 name = "sync_to_current"
 version = "1.2.3"
 path = "."
@@ -77,7 +85,15 @@ editable = true
 #[test]
 fn repeated_sync_keeps_lockfile_and_env_toml_stable() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "lock_sync_stable"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.2.3",
+            "--name",
+            "lock_sync_stable",
+        ],
         None,
     )?;
     out.assert().success().stdout(predicate::str::is_empty());
@@ -85,6 +101,8 @@ fn repeated_sync_keeps_lockfile_and_env_toml_stable() -> Result<(), Box<dyn std:
     let (_dep_temp_dir, dep_cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "2.0.0",
             "--name",
@@ -513,8 +531,18 @@ sources = [
 #[test]
 fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::error::Error>> {
     // Set up main project with .meta.json (required for sync to lock itself).
-    let (_temp_dir, cwd, out) =
-        run_sysand(["init", "--version", "1.0.0", "--name", "sync_mixed"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.0.0",
+            "--name",
+            "sync_mixed",
+        ],
+        None,
+    )?;
     out.assert().success();
     fs::write(cwd.join("P.sysml"), "package P;")?;
     run_sysand_in(&cwd, ["include", "P.sysml"], None)?
@@ -523,7 +551,15 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
 
     // Non-editable dep: needs .meta.json so sync can compute its checksum.
     let (_tmp_src, cwd_src, out) = run_sysand(
-        ["init", "--version", "2.0.0", "--name", "sync_mixed_src"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "2.0.0",
+            "--name",
+            "sync_mixed_src",
+        ],
         None,
     )?;
     out.assert().success();
@@ -536,6 +572,8 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
     let (_tmp_editable, cwd_editable, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "3.0.0",
             "--name",

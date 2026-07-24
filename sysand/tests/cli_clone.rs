@@ -205,7 +205,15 @@ fn clone_not_found() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn clone_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
     let (_dep_temp_dir, cwd_dep, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "clone_std_note_dep"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.2.3",
+            "--name",
+            "clone_std_note_dep",
+        ],
         None,
     )?;
     out.assert().success();

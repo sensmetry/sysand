@@ -20,6 +20,8 @@ fn init_project(name: &str) -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn std::e
     let (temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "example-pub1",
             "--version",
             "1.0.0",
             "--name",

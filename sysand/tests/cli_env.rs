@@ -285,6 +285,8 @@ fn install_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",
@@ -316,7 +318,15 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build v1 with a .meta.json so checksum_canonical_variant succeeds.
     let (_temp_v1, cwd_v1, out) = run_sysand(
-        ["init", "--version", "1.0.0", "--name", "allow_multiple_lib"],
+        [
+            "init",
+            "--version",
+            "1.0.0",
+            "--publisher",
+            "a",
+            "--name",
+            "allow_multiple_lib",
+        ],
         None,
     )?;
     out.assert().success();
@@ -327,7 +337,15 @@ fn env_install_allow_multiple() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build v2 with the same IRI but a different version.
     let (_temp_v2, cwd_v2, out) = run_sysand(
-        ["init", "--version", "2.0.0", "--name", "allow_multiple_lib"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "2.0.0",
+            "--name",
+            "allow_multiple_lib",
+        ],
         None,
     )?;
     out.assert().success();
@@ -423,7 +441,15 @@ fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Er
 
     // Build two projects with valid .meta.json so checksum_canonical_variant succeeds.
     let (_tmp_a, cwd_a, out) = run_sysand(
-        ["init", "--version", "1.0.0", "--name", "env_multi_proj_a"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.0.0",
+            "--name",
+            "env_multi_proj_a",
+        ],
         None,
     )?;
     out.assert().success();
@@ -433,7 +459,15 @@ fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Er
         .success();
 
     let (_tmp_b, cwd_b, out) = run_sysand(
-        ["init", "--version", "2.0.0", "--name", "env_multi_proj_b"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "2.0.0",
+            "--name",
+            "env_multi_proj_b",
+        ],
         None,
     )?;
     out.assert().success();

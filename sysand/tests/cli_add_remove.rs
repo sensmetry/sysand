@@ -11,7 +11,15 @@ pub use common::*;
 #[test]
 fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "e",
+            "--name",
+            "add_and_remove",
+        ],
         None,
     )?;
 
@@ -29,7 +37,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "e",
   "version": "1.2.3",
   "usage": [
     {
@@ -53,7 +61,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "e",
   "version": "1.2.3"
 }
 "#
@@ -65,7 +73,15 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn add_accepts_sysand_shorthand_without_lock() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_shorthand"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "f",
+            "--name",
+            "add_shorthand",
+        ],
         None,
     )?;
 
@@ -83,7 +99,7 @@ fn add_accepts_sysand_shorthand_without_lock() -> Result<(), Box<dyn std::error:
         info_json,
         r#"{
   "name": "add_shorthand",
-  "publisher": "untitled",
+  "publisher": "f",
   "version": "1.2.3",
   "usage": [
     {
@@ -104,6 +120,8 @@ fn add_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::erro
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "g",
             "--name",
             "reject_add_shorthand",
         ],
@@ -125,7 +143,7 @@ fn add_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::erro
         info_json,
         r#"{
   "name": "reject_add_shorthand",
-  "publisher": "untitled",
+  "publisher": "g",
   "version": "1.2.3"
 }
 "#
@@ -148,7 +166,15 @@ fn add_path_like_positional_suggests_path_option() -> Result<(), Box<dyn std::er
 #[test]
 fn remove_accepts_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "remove_shorthand"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "h",
+            "--name",
+            "remove_shorthand",
+        ],
         None,
     )?;
 
@@ -174,7 +200,7 @@ fn remove_accepts_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "remove_shorthand",
-  "publisher": "untitled",
+  "publisher": "h",
   "version": "1.2.3"
 }
 "#
@@ -190,6 +216,8 @@ fn remove_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::e
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "h",
             "--name",
             "reject_remove_shorthand",
         ],
@@ -219,7 +247,7 @@ fn remove_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::e
         info_json,
         r#"{
   "name": "reject_remove_shorthand",
-  "publisher": "untitled",
+  "publisher": "h",
   "version": "1.2.3",
   "usage": [
     {
@@ -252,6 +280,8 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "i",
             "--name",
             "add_and_remove_path1",
         ],
@@ -262,6 +292,8 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "i",
             "--name",
             "add_and_remove_path2",
         ],
@@ -287,16 +319,15 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
         format!(
             r#"{{
   "name": "add_and_remove_path1",
-  "publisher": "untitled",
+  "publisher": "i",
   "version": "1.2.3",
   "usage": [
     {{
-      "resource": "{}"
+      "resource": "{file_url}"
     }}
   ]
 }}
-"#,
-            file_url
+"#
         )
     );
 
@@ -316,7 +347,7 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove_path1",
-  "publisher": "untitled",
+  "publisher": "i",
   "version": "1.2.3"
 }
 "#
@@ -328,7 +359,15 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "j",
+            "--name",
+            "add_and_remove",
+        ],
         None,
     )?;
 
@@ -362,7 +401,7 @@ fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "j",
   "version": "1.2.3",
   "usage": [
     {
@@ -408,7 +447,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "j",
   "version": "1.2.3"
 }
 "#
@@ -422,7 +461,15 @@ sources = [
 #[test]
 fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "k",
+            "--name",
+            "add_and_remove",
+        ],
         None,
     )?;
 
@@ -456,7 +503,7 @@ fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "k",
   "version": "1.2.3",
   "usage": [
     {
@@ -502,7 +549,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "k",
   "version": "1.2.3"
 }
 "#
@@ -516,7 +563,15 @@ sources = [
 #[test]
 fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "l",
+            "--name",
+            "add_and_remove",
+        ],
         None,
     )?;
 
@@ -550,7 +605,7 @@ fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "l",
   "version": "1.2.3",
   "usage": [
     {
@@ -596,7 +651,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "l",
   "version": "1.2.3"
 }
 "#
@@ -610,7 +665,15 @@ sources = [
 #[test]
 fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "m",
+            "--name",
+            "add_and_remove",
+        ],
         None,
     )?;
 
@@ -644,7 +707,7 @@ fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "m",
   "version": "1.2.3",
   "usage": [
     {
@@ -690,7 +753,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "m",
   "version": "1.2.3"
 }
 "#
@@ -704,7 +767,15 @@ sources = [
 #[test]
 fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "n",
+            "--name",
+            "add_and_remove",
+        ],
         None,
     )?;
 
@@ -738,7 +809,7 @@ fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "n",
   "version": "1.2.3",
   "usage": [
     {
@@ -784,7 +855,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "n",
   "version": "1.2.3"
 }
 "#
@@ -798,7 +869,15 @@ sources = [
 #[test]
 fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "n",
+            "--name",
+            "add_and_remove",
+        ],
         None,
     )?;
 
@@ -832,7 +911,7 @@ fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "n",
   "version": "1.2.3",
   "usage": [
     {
@@ -878,7 +957,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "n",
   "version": "1.2.3"
 }
 "#
@@ -892,7 +971,15 @@ sources = [
 #[test]
 fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_and_remove"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "o",
+            "--name",
+            "add_and_remove",
+        ],
         None,
     )?;
 
@@ -949,7 +1036,7 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "o",
   "version": "1.2.3",
   "usage": [
     {
@@ -1020,7 +1107,7 @@ sources = [
         info_json,
         r#"{
   "name": "add_and_remove",
-  "publisher": "untitled",
+  "publisher": "o",
   "version": "1.2.3"
 }
 "#
@@ -1038,13 +1125,29 @@ sources = [
 #[test]
 fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir_dep, cwd_dep, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_from_url_dep"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "p",
+            "--name",
+            "add_from_url_dep",
+        ],
         None,
     )?;
     out.assert().success();
 
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_from_url"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "p",
+            "--name",
+            "add_from_url",
+        ],
         None,
     )?;
     out.assert().success();
@@ -1077,7 +1180,7 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_from_url",
-  "publisher": "untitled",
+  "publisher": "p",
   "version": "1.2.3",
   "usage": [
     {
@@ -1115,7 +1218,7 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
         info_json,
         r#"{
   "name": "add_from_url",
-  "publisher": "untitled",
+  "publisher": "p",
   "version": "1.2.3"
 }
 "#
@@ -1132,7 +1235,15 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_full_purl"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "q",
+            "--name",
+            "add_full_purl",
+        ],
         None,
     )?;
 
@@ -1154,7 +1265,7 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
         info_json,
         r#"{
   "name": "add_full_purl",
-  "publisher": "untitled",
+  "publisher": "q",
   "version": "1.2.3",
   "usage": [
     {
@@ -1178,7 +1289,7 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
         info_json,
         r#"{
   "name": "add_full_purl",
-  "publisher": "untitled",
+  "publisher": "q",
   "version": "1.2.3"
 }
 "#
@@ -1194,8 +1305,18 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
 #[test]
 fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dyn std::error::Error>>
 {
-    let (_temp_dir, cwd, out) =
-        run_sysand(["init", "--version", "1.2.3", "--name", "urn_slash"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "r",
+            "--name",
+            "urn_slash",
+        ],
+        None,
+    )?;
 
     out.assert().success();
 
@@ -1215,7 +1336,7 @@ fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dy
         info_json,
         r#"{
   "name": "urn_slash",
-  "publisher": "untitled",
+  "publisher": "r",
   "version": "1.2.3",
   "usage": [
     {
@@ -1239,7 +1360,7 @@ fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dy
         info_json,
         r#"{
   "name": "urn_slash",
-  "publisher": "untitled",
+  "publisher": "r",
   "version": "1.2.3"
 }
 "#
@@ -1258,6 +1379,8 @@ fn add_shorthand_then_remove_full_purl() -> Result<(), Box<dyn std::error::Error
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "s",
             "--name",
             "shorthand_then_full_purl",
         ],
@@ -1282,7 +1405,7 @@ fn add_shorthand_then_remove_full_purl() -> Result<(), Box<dyn std::error::Error
         info_json,
         r#"{
   "name": "shorthand_then_full_purl",
-  "publisher": "untitled",
+  "publisher": "s",
   "version": "1.2.3"
 }
 "#
@@ -1300,6 +1423,8 @@ fn remove_nonexistent_shorthand() -> Result<(), Box<dyn std::error::Error>> {
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "a",
             "--name",
             "remove_nonexistent_shorthand",
         ],
@@ -1324,6 +1449,8 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "a",
             "--name",
             "add_and_remove_with_lock_preinstall_dep",
         ],
@@ -1350,6 +1477,8 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "t",
             "--name",
             "add_and_remove_with_lock_preinstall",
         ],
@@ -1393,7 +1522,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
         info_json,
         r#"{
   "name": "add_and_remove_with_lock_preinstall",
-  "publisher": "untitled",
+  "publisher": "t",
   "version": "1.2.3",
   "usage": [
     {
@@ -1418,7 +1547,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
         info_json,
         r#"{
   "name": "add_and_remove_with_lock_preinstall",
-  "publisher": "untitled",
+  "publisher": "t",
   "version": "1.2.3"
 }
 "#
@@ -1430,7 +1559,15 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
 #[test]
 fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_nonexistent"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "add_nonexistent",
+        ],
         None,
     )?;
 
@@ -1448,7 +1585,15 @@ fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn remove_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "remove_nonexistent"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "--name",
+            "remove_nonexistent",
+        ],
         None,
     )?;
 

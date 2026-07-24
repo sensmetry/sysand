@@ -33,8 +33,18 @@ fn mock_index_config_absent(server: &mut mockito::Server, expected_count: usize)
 
 #[test]
 fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) =
-        run_sysand(["init", "--version", "1.2.3", "--name", "info_basic"], None)?;
+    let (_temp_dir, cwd, out_init) = run_sysand(
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.2.3",
+            "--name",
+            "info_basic",
+        ],
+        None,
+    )?;
     out_init
         .assert()
         .success()
@@ -51,8 +61,17 @@ fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
 }
 
 fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) =
-        run_sysand(["init", "--version", "1.2.3", "info_basic"], None)?;
+    let (_temp_dir, cwd, out_init) = run_sysand(
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.2.3",
+            "info_basic",
+        ],
+        None,
+    )?;
     out_init
         .assert()
         .success()
@@ -1386,7 +1405,17 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
-    let (_tmp, cwd, out) = run_sysand(["init", "info_detailed_verbs", "--version", "1.2.3"], None)?;
+    let (_tmp, cwd, out) = run_sysand(
+        [
+            "init",
+            "--publisher",
+            "a",
+            "info_detailed_verbs",
+            "--version",
+            "1.2.3",
+        ],
+        None,
+    )?;
     out.assert().success();
 
     let project_path = &cwd.join("info_detailed_verbs");
@@ -1492,6 +1521,11 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
     try_clear("name", false)?;
     try_add("name", "name_1", false)?;
     try_remove("name", "1", false)?;
+    get_field("publisher", Some("a\n".to_string()))?;
+    try_set("publisher", "a_alt", true, None)?;
+    try_clear("publisher", false)?;
+    try_add("publisher", "pub_1", false)?;
+    try_remove("publisher", "1", false)?;
     get_field("version", Some("1.2.3\n".to_string()))?;
     try_set("version", "3.2.1", true, None)?;
     try_clear("version", false)?;
@@ -1592,7 +1626,14 @@ fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
     let _ = env_logger::try_init();
 
     let (_tmp, cwd, out) = run_sysand(
-        ["init", "info_custom_metamodel", "--version", "1.2.3"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "info_custom_metamodel",
+            "--version",
+            "1.2.3",
+        ],
         None,
     )?;
     out.assert().success();

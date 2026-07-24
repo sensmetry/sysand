@@ -26,7 +26,15 @@ const FUNCTION_LIBRARY_IRI: &str = "https://www.omg.org/spec/KerML/20250201/Func
 #[test]
 fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "add_std_direct"],
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "u",
+            "--name",
+            "add_std_direct",
+        ],
         None,
     )?;
     out.assert().success();
@@ -46,7 +54,7 @@ fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::e
         format!(
             r#"{{
   "name": "add_std_direct",
-  "publisher": "untitled",
+  "publisher": "u",
   "version": "1.2.3",
   "usage": [
     {{
@@ -140,6 +148,8 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
     let (_dep_temp_dir, cwd_dep, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--version",
             "1.2.3",
             "--name",
@@ -205,7 +215,15 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
 #[test]
 fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "--name", "info_std_only"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.2.3",
+            "--name",
+            "info_std_only",
+        ],
         None,
     )?;
     out.assert().success();
@@ -239,8 +257,18 @@ fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> 
 /// usage prints the normal usage plus the "Some usages are ignored" note.
 #[test]
 fn info_some_usages_ignored_mixed() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) =
-        run_sysand(["init", "--version", "1.2.3", "--name", "info_mixed"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.2.3",
+            "--name",
+            "info_mixed",
+        ],
+        None,
+    )?;
     out.assert().success();
 
     run_sysand_in(&cwd, ["add", "--no-lock", "urn:kpar:normal-dep"], None)?
