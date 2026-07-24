@@ -3,7 +3,7 @@
 
 use std::{fmt::Debug, marker::Unpin, sync::Arc};
 
-use futures::{Stream, StreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 use thiserror::Error;
 
 use crate::{
@@ -62,11 +62,13 @@ pub trait ReadEnvironment {
     // Utilities
 
     fn has<S: AsRef<str>>(&self, uri: S) -> Result<bool, Self::ReadError> {
-        Ok(self
-            .uris()?
-            .into_iter()
-            .filter_map(Result::ok)
-            .any(|u: String| u == uri.as_ref()))
+        for res in self.uris()? {
+            let u = res?;
+            if u == uri.as_ref() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn has_version<S: AsRef<str>, V: AsRef<str>>(
@@ -74,11 +76,13 @@ pub trait ReadEnvironment {
         uri: S,
         version: V,
     ) -> Result<bool, Self::ReadError> {
-        Ok(self
-            .versions(&uri)?
-            .into_iter()
-            .filter_map(Result::ok)
-            .any(|v: String| v == version.as_ref()))
+        for res in self.versions(&uri)? {
+            let v = res?;
+            if v == version.as_ref() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     // TODO: decide on whtat should be returned here in these cases:
@@ -144,14 +148,10 @@ pub trait ReadEnvironmentAsync {
         uri: S,
     ) -> impl Future<Output = Result<bool, Self::ReadError>> {
         async move {
-            let uri = uri.as_ref();
+            let needle = uri.as_ref();
 
-            Ok(self
-                .uris_async()
-                .await?
-                .filter_map(|x| async move { Result::ok(x) })
-                .any(|u: String| async move { u == uri })
-                .await)
+            let uris = self.uris_async().await?;
+            uris.try_any(|u| async move { u == needle }).await
         }
     }
 
@@ -161,14 +161,10 @@ pub trait ReadEnvironmentAsync {
         version: V,
     ) -> impl Future<Output = Result<bool, Self::ReadError>> {
         async move {
-            let version = version.as_ref();
+            let needle = version.as_ref();
 
-            Ok(self
-                .versions_async(&uri)
-                .await?
-                .filter_map(|x| async move { Result::ok(x) })
-                .any(|v: String| async move { v == version })
-                .await)
+            let versions = self.versions_async(&uri).await?;
+            versions.try_any(|v| async move { v == needle }).await
         }
     }
 
