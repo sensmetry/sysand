@@ -5,11 +5,10 @@ use crate::CliError;
 
 use anstream::println;
 use anyhow::{Result, bail};
-use semver::VersionReq;
+use semver::{Version, VersionReq};
 use sysand_core::{
     context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
-    project::ProjectRead,
     sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
 };
 
@@ -34,8 +33,15 @@ pub fn command_sources_env<S: AsRef<str>>(
         Some(vr) => loop {
             if let Some(candidate) = projects.next() {
                 if let Some(v) = candidate
-                    .version()?
-                    .and_then(|x| semver::Version::parse(&x).ok())
+                    .get_info()?
+                    // projects with non-semver versions cannot match the constraint
+                    .and_then(|x| match Version::parse(&x.version) {
+                        Ok(v) => Some(v),
+                        Err(e) => {
+                            log::debug!("ignoring env project `{}` because it has invalid semver version:\n{e}", x.name);
+                            None
+                        },
+                    })
                     && vr.matches(&v)
                 {
                     break Some(candidate);
