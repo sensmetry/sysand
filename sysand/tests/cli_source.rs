@@ -10,17 +10,8 @@ use sysand_core::project::utils::wrapfs;
 
 #[test]
 fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir1, cwd_dep, out) = run_sysand(
-        [
-            "init",
-            "--publisher",
-            "a",
-            "--version",
-            "1.2.3",
-            "list_sources_dep",
-        ],
-        None,
-    )?;
+    let (_temp_dir1, cwd_dep, out) =
+        cli_init_project(Some("list_sources_dep"), "a", None, Some("1.2.3"), None)?;
     out.assert().success();
 
     let dep_path = cwd_dep.join("list_sources_dep");
@@ -30,17 +21,8 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&dep_path, ["include", "dep_src.sysml"], None)?;
     out.assert().success();
 
-    let (_temp_dir2, cwd, out) = run_sysand(
-        [
-            "init",
-            "--publisher",
-            "a",
-            "--version",
-            "1.2.3",
-            "list_sources",
-        ],
-        None,
-    )?;
+    let (_temp_dir2, cwd, out) =
+        cli_init_project(Some("list_sources"), "a", None, Some("1.2.3"), None)?;
     out.assert().success();
 
     let path = cwd.join("list_sources");
@@ -142,15 +124,11 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir1, cwd_dep, out) = run_sysand(
-        [
-            "init",
-            "--publisher",
-            "a",
-            "--version",
-            "1.2.3",
-            "sources_without_std_dep",
-        ],
+    let (_temp_dir1, cwd_dep, out) = cli_init_project(
+        Some("sources_without_std_dep"),
+        "a",
+        None,
+        Some("1.2.3"),
         None,
     )?;
     out.assert().success();
@@ -206,17 +184,8 @@ fn sources_without_std() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     out.assert().success();
 
-    let (_temp_dir2, cwd, out) = run_sysand(
-        [
-            "init",
-            "--publisher",
-            "a",
-            "--version",
-            "1.2.3",
-            "sources_without_std",
-        ],
-        None,
-    )?;
+    let (_temp_dir2, cwd, out) =
+        cli_init_project(Some("sources_without_std"), "a", None, Some("1.2.3"), None)?;
     out.assert().success();
 
     let path = cwd.join("sources_without_std");

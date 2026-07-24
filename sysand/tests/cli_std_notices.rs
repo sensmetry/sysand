@@ -25,18 +25,7 @@ const FUNCTION_LIBRARY_IRI: &str = "https://www.omg.org/spec/KerML/20250201/Func
 /// provided (source-less) dependency
 #[test]
 fn add_std_lib_direct_note_still_locks_skips_sync() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "u",
-            "--name",
-            "add_std_direct",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("u", "add_std_direct", "1.2.3")?;
     out.assert().success();
 
     let out = run_sysand_in(&cwd, ["add", FUNCTION_LIBRARY_IRI], None)?;
@@ -145,18 +134,8 @@ fn env_install_std_lib_direct_no_path_warns_and_skips() -> Result<(), Box<dyn st
 #[test]
 fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Error>> {
     // A project that itself depends on a standard library.
-    let (_dep_temp_dir, cwd_dep, out) = run_sysand(
-        [
-            "init",
-            "--publisher",
-            "a",
-            "--version",
-            "1.2.3",
-            "--name",
-            "env_install_std_dep",
-        ],
-        None,
-    )?;
+    let (_dep_temp_dir, cwd_dep, out) =
+        cli_init_project_basic("a", "env_install_std_dep", "1.2.3")?;
     out.assert().success();
 
     std::fs::write(cwd_dep.join("EnvInstallStdDep.sysml"), "package Dep;")?;
@@ -214,18 +193,7 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
 /// "All usages are ignored" note instead of an empty/misleading usage list.
 #[test]
 fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--publisher",
-            "a",
-            "--version",
-            "1.2.3",
-            "--name",
-            "info_std_only",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_std_only", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(
@@ -257,18 +225,7 @@ fn info_all_usages_ignored_std_only() -> Result<(), Box<dyn std::error::Error>> 
 /// usage prints the normal usage plus the "Some usages are ignored" note.
 #[test]
 fn info_some_usages_ignored_mixed() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--publisher",
-            "a",
-            "--version",
-            "1.2.3",
-            "--name",
-            "info_mixed",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "info_mixed", "1.2.3")?;
     out.assert().success();
 
     run_sysand_in(&cwd, ["add", "--no-lock", "urn:kpar:normal-dep"], None)?

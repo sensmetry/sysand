@@ -51,6 +51,31 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `sysand init`, when not given a version, should default to `0.0.1`.
+#[test]
+fn init_default_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project(Some("init_default_version"), "a", None, None, None)?;
+
+    let proj_dir_path = cwd.join("init_default_version");
+
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let info = std::fs::read_to_string(proj_dir_path.join(".project.json"))?;
+
+    assert_eq!(
+        info,
+        r#"{
+  "name": "init_default_version",
+  "publisher": "a",
+  "version": "0.0.1"
+}
+"#
+    );
+
+    Ok(())
+}
+
 /// `sysand init`, when not given a directory, should create a
 /// project in cwd.
 #[test]

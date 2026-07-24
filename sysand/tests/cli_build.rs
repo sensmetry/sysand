@@ -42,18 +42,7 @@ fn expected_index() -> IndexMap<String, String> {
 
 #[test]
 fn project_build() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_build",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_build", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -132,18 +121,7 @@ fn project_build() -> Result<(), Box<dyn std::error::Error>> {
 /// inside the built kpar, not minified onto a single line.
 #[test]
 fn project_build_pretty_prints_project_and_meta_json() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_pretty",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_pretty", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -177,18 +155,8 @@ fn project_build_pretty_prints_project_and_meta_json() -> Result<(), Box<dyn std
 
 #[test]
 fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_build_missing_index_symbol",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "test_build_missing_index_symbol", "1.2.3")?;
     out.assert().success();
 
     std::fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
@@ -230,18 +198,8 @@ fn build_errors_when_index_symbol_is_missing_from_file() -> Result<(), Box<dyn s
 #[test]
 fn project_build_warns_when_file_symbol_is_missing_from_index()
 -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_build_missing_index_entry",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "test_build_missing_index_entry", "1.2.3")?;
     out.assert().success();
 
     std::fs::write(cwd.join("test.sysml"), b"package Present;\n")?;
@@ -269,30 +227,8 @@ fn project_build_warns_when_file_symbol_is_missing_from_index()
 /// Build a project that has a path (`file:`) usage
 #[test]
 fn project_build_path_usage() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir1, cwd1, out1) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_build1",
-        ],
-        None,
-    )?;
-    let (_temp_dir2, cwd2, out2) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_build2",
-        ],
-        None,
-    )?;
+    let (_temp_dir1, cwd1, out1) = cli_init_project_basic("a", "test_build1", "1.2.3")?;
+    let (_temp_dir2, cwd2, out2) = cli_init_project_basic("a", "test_build2", "1.2.3")?;
 
     out1.assert().success();
     out2.assert().success();
@@ -386,17 +322,12 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
 
     for project_cwd in [&project1_cwd, &project2_cwd, &project3_cwd] {
         std::fs::create_dir(project_cwd)?;
-        let out = run_sysand_in(
+        let out = cli_init_project_in(
             project_cwd,
-            [
-                "init",
-                "--version",
-                "1.2.3",
-                "--publisher",
-                "a",
-                "--name",
-                project_cwd.file_name().unwrap(),
-            ],
+            None,
+            "a",
+            Some(project_cwd.file_name().unwrap()),
+            Some("1.2.3"),
             None,
         )?;
         out.assert().success();
@@ -524,17 +455,12 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     std::fs::create_dir(&project1_cwd)?;
-    let out = run_sysand_in(
+    let out = cli_init_project_in(
         &project1_cwd,
-        [
-            "init",
-            "--version",
-            "1.0.0",
-            "--publisher",
-            "a",
-            "--name",
-            "project1",
-        ],
+        None,
+        "a",
+        Some("project1"),
+        Some("1.0.0"),
         None,
     )?;
     out.assert().success();
@@ -588,17 +514,12 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     )?;
 
     std::fs::create_dir(&project1_cwd)?;
-    let out = run_sysand_in(
+    let out = cli_init_project_in(
         &project1_cwd,
-        [
-            "init",
-            "--version",
-            "1.0.0",
-            "--publisher",
-            "a",
-            "--name",
-            "project1",
-        ],
+        None,
+        "a",
+        Some("project1"),
+        Some("1.0.0"),
         None,
     )?;
     out.assert().success();
@@ -654,17 +575,12 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
     )?;
 
     std::fs::create_dir(&project1_cwd)?;
-    let out = run_sysand_in(
+    let out = cli_init_project_in(
         &project1_cwd,
-        [
-            "init",
-            "--version",
-            "1.0.0",
-            "--publisher",
-            "a",
-            "--name",
-            "project1",
-        ],
+        None,
+        "a",
+        Some("project1"),
+        Some("1.0.0"),
         None,
     )?;
     out.assert().success();
@@ -712,17 +628,12 @@ fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error
     )?;
 
     std::fs::create_dir(&project1_cwd)?;
-    let out = run_sysand_in(
+    let out = cli_init_project_in(
         &project1_cwd,
-        [
-            "init",
-            "--version",
-            "1.0.0",
-            "--publisher",
-            "a",
-            "--name",
-            "project1",
-        ],
+        None,
+        "a",
+        Some("project1"),
+        Some("1.0.0"),
         None,
     )?;
     out.assert().success();
@@ -771,17 +682,12 @@ fn workspace_build_metamodel_idempotent() -> Result<(), Box<dyn std::error::Erro
     )?;
 
     std::fs::create_dir(&project1_cwd)?;
-    let out = run_sysand_in(
+    let out = cli_init_project_in(
         &project1_cwd,
-        [
-            "init",
-            "--version",
-            "1.0.0",
-            "--publisher",
-            "a",
-            "--name",
-            "project1",
-        ],
+        None,
+        "a",
+        Some("project1"),
+        Some("1.0.0"),
         None,
     )?;
     out.assert().success();
@@ -847,18 +753,7 @@ fn compression_methods() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project with a README.md at the project root
 #[test]
 fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_readme",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_readme", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     std::fs::write(cwd.join("README.md"), b"# My Project\nHello world\n")?;
@@ -885,18 +780,7 @@ fn project_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project without any README file — should succeed
 #[test]
 fn project_build_without_readme() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_no_readme",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_no_readme", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -934,17 +818,12 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         std::fs::create_dir(project_cwd)?;
         let project_name = project_cwd.file_name().unwrap();
-        let out = run_sysand_in(
+        let out = cli_init_project_in(
             project_cwd,
-            [
-                "init",
-                "--version",
-                "1.2.3",
-                "--publisher",
-                "a",
-                "--name",
-                project_name,
-            ],
+            None,
+            "a",
+            Some(project_name),
+            Some("1.2.3"),
             None,
         )?;
         out.assert().success();
@@ -984,18 +863,7 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project with a CHANGELOG.md at the project root
 #[test]
 fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_changelog",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_changelog", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     std::fs::write(
@@ -1025,18 +893,7 @@ fn project_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
 /// Build a project without any CHANGELOG file — should succeed
 #[test]
 fn project_build_without_changelog() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_no_changelog",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_no_changelog", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -1074,17 +931,12 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         std::fs::create_dir(project_cwd)?;
         let project_name = project_cwd.file_name().unwrap();
-        let out = run_sysand_in(
+        let out = cli_init_project_in(
             project_cwd,
-            [
-                "init",
-                "--version",
-                "1.2.3",
-                "--publisher",
-                "a",
-                "--name",
-                project_name,
-            ],
+            None,
+            "a",
+            Some(project_name),
+            Some("1.2.3"),
             None,
         )?;
         out.assert().success();
@@ -1129,20 +981,8 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
 /// `LICENSES/<id>.txt` is included in the KPAR.
 #[test]
 fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_license",
-            "--license",
-            "MIT",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project(None, "a", Some("test_license"), Some("1.2.3"), Some("MIT"))?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
     std::fs::create_dir(cwd.join("LICENSES"))?;
@@ -1171,19 +1011,12 @@ fn project_build_with_single_license() -> Result<(), Box<dyn std::error::Error>>
 /// are included.
 #[test]
 fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_compound_license",
-            "--license",
-            "MIT OR Apache-2.0",
-        ],
+    let (_temp_dir, cwd, out) = cli_init_project(
         None,
+        "a",
+        Some("test_compound_license"),
+        Some("1.2.3"),
+        Some("MIT OR Apache-2.0"),
     )?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
@@ -1220,19 +1053,12 @@ fn project_build_with_compound_license() -> Result<(), Box<dyn std::error::Error
 /// exception file are included.
 #[test]
 fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_license_with",
-            "--license",
-            "GPL-2.0-only WITH Classpath-exception-2.0",
-        ],
+    let (_temp_dir, cwd, out) = cli_init_project(
         None,
+        "a",
+        Some("test_license_with"),
+        Some("1.2.3"),
+        Some("GPL-2.0-only WITH Classpath-exception-2.0"),
     )?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
@@ -1269,19 +1095,12 @@ fn project_build_with_license_exception() -> Result<(), Box<dyn std::error::Erro
 /// file is bundled verbatim.
 #[test]
 fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_license_ref",
-            "--license",
-            "LicenseRef-MyCustom",
-        ],
+    let (_temp_dir, cwd, out) = cli_init_project(
         None,
+        "a",
+        Some("test_license_ref"),
+        Some("1.2.3"),
+        Some("LicenseRef-MyCustom"),
     )?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
@@ -1312,19 +1131,12 @@ fn project_build_with_license_ref() -> Result<(), Box<dyn std::error::Error>> {
 /// the build succeeds and warns about the missing license file.
 #[test]
 fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_missing_license",
-            "--license",
-            "MIT",
-        ],
+    let (_temp_dir, cwd, out) = cli_init_project(
         None,
+        "a",
+        Some("test_missing_license"),
+        Some("1.2.3"),
+        Some("MIT"),
     )?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
@@ -1347,18 +1159,7 @@ fn project_build_with_license_file_missing() -> Result<(), Box<dyn std::error::E
 /// Build a project without any license — no LICENSES/* entries are added.
 #[test]
 fn project_build_without_license() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_no_license",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_no_license", "1.2.3")?;
 
     std::fs::write(cwd.join("test.sysml"), b"package P;\n")?;
 
@@ -1412,18 +1213,7 @@ fn assert_kpar_no_licenses_dir(kpar_path: &camino::Utf8Path) {
 }
 
 fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "test_build",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "test_build", "1.2.3")?;
 
     {
         let mut sysml_file = std::fs::File::create(cwd.join("test.sysml"))?;

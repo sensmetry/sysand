@@ -13,17 +13,8 @@ pub use common::*;
 /// on directory name as name.
 #[test]
 fn discover_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, _) = run_sysand(
-        [
-            "init",
-            "--publisher",
-            "a",
-            "--version",
-            "1.2.3",
-            "discover_basic",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, _) =
+        cli_init_project(Some("discover_basic"), "a", None, Some("1.2.3"), None)?;
 
     let project_path = cwd.join("discover_basic").join("path");
 

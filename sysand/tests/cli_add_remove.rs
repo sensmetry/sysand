@@ -10,18 +10,7 @@ pub use common::*;
 
 #[test]
 fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "e",
-            "--name",
-            "add_and_remove",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("e", "add_and_remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -72,18 +61,7 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn add_accepts_sysand_shorthand_without_lock() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "f",
-            "--name",
-            "add_shorthand",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("f", "add_shorthand", "1.2.3")?;
 
     out.assert().success();
 
@@ -115,18 +93,7 @@ fn add_accepts_sysand_shorthand_without_lock() -> Result<(), Box<dyn std::error:
 
 #[test]
 fn add_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "g",
-            "--name",
-            "reject_add_shorthand",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("g", "reject_add_shorthand", "1.2.3")?;
 
     out.assert().success();
 
@@ -165,18 +132,7 @@ fn add_path_like_positional_suggests_path_option() -> Result<(), Box<dyn std::er
 
 #[test]
 fn remove_accepts_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "h",
-            "--name",
-            "remove_shorthand",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "remove_shorthand", "1.2.3")?;
 
     out.assert().success();
 
@@ -211,18 +167,7 @@ fn remove_accepts_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn remove_rejects_non_normalized_sysand_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "h",
-            "--name",
-            "reject_remove_shorthand",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("h", "reject_remove_shorthand", "1.2.3")?;
 
     out.assert().success();
 
@@ -275,30 +220,8 @@ fn remove_path_like_positional_suggests_path_option() -> Result<(), Box<dyn std:
 /// Add and remove usages with `--path <path>`
 #[test]
 fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir1, cwd1, out1) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "i",
-            "--name",
-            "add_and_remove_path1",
-        ],
-        None,
-    )?;
-    let (_temp_dir2, cwd2, out2) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "i",
-            "--name",
-            "add_and_remove_path2",
-        ],
-        None,
-    )?;
+    let (_temp_dir1, cwd1, out1) = cli_init_project_basic("i", "add_and_remove_path1", "1.2.3")?;
+    let (_temp_dir2, cwd2, out2) = cli_init_project_basic("i", "add_and_remove_path2", "1.2.3")?;
     let file_url = file_url_from_path(&cwd2);
 
     out1.assert().success();
@@ -358,18 +281,7 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "j",
-            "--name",
-            "add_and_remove",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("j", "add_and_remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -460,18 +372,7 @@ sources = [
 
 #[test]
 fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "k",
-            "--name",
-            "add_and_remove",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("k", "add_and_remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -562,18 +463,7 @@ sources = [
 
 #[test]
 fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "l",
-            "--name",
-            "add_and_remove",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("l", "add_and_remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -664,18 +554,7 @@ sources = [
 
 #[test]
 fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "m",
-            "--name",
-            "add_and_remove",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("m", "add_and_remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -766,18 +645,7 @@ sources = [
 
 #[test]
 fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "n",
-            "--name",
-            "add_and_remove",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("n", "add_and_remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -868,18 +736,7 @@ sources = [
 
 #[test]
 fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "n",
-            "--name",
-            "add_and_remove",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("n", "add_and_remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -970,18 +827,7 @@ sources = [
 
 #[test]
 fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "o",
-            "--name",
-            "add_and_remove",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("o", "add_and_remove", "1.2.3")?;
 
     out.assert().success();
 
@@ -1124,32 +970,10 @@ sources = [
 /// configuration file, similar to `--path` but driven by the URL resolver.
 #[test]
 fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir_dep, cwd_dep, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "p",
-            "--name",
-            "add_from_url_dep",
-        ],
-        None,
-    )?;
+    let (_temp_dir_dep, cwd_dep, out) = cli_init_project_basic("p", "add_from_url_dep", "1.2.3")?;
     out.assert().success();
 
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "p",
-            "--name",
-            "add_from_url",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("p", "add_from_url", "1.2.3")?;
     out.assert().success();
 
     let dep_url = file_url_from_path(&cwd_dep);
@@ -1234,18 +1058,7 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
 /// `publisher/name` shorthand heuristic, so the value is stored verbatim.
 #[test]
 fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "q",
-            "--name",
-            "add_full_purl",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("q", "add_full_purl", "1.2.3")?;
 
     out.assert().success();
 
@@ -1305,18 +1118,7 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
 #[test]
 fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dyn std::error::Error>>
 {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "r",
-            "--name",
-            "urn_slash",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("r", "urn_slash", "1.2.3")?;
 
     out.assert().success();
 
@@ -1374,18 +1176,7 @@ fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dy
 /// identical regardless of which form was used on input.
 #[test]
 fn add_shorthand_then_remove_full_purl() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "s",
-            "--name",
-            "shorthand_then_full_purl",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("s", "shorthand_then_full_purl", "1.2.3")?;
 
     out.assert().success();
 
@@ -1418,18 +1209,8 @@ fn add_shorthand_then_remove_full_purl() -> Result<(), Box<dyn std::error::Error
 /// the expanded PURL form so the user understands what was looked up.
 #[test]
 fn remove_nonexistent_shorthand() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "remove_nonexistent_shorthand",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "remove_nonexistent_shorthand", "1.2.3")?;
 
     out.assert().success();
 
@@ -1444,18 +1225,8 @@ fn remove_nonexistent_shorthand() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir_dep, cwd_dep, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "add_and_remove_with_lock_preinstall_dep",
-        ],
-        None,
-    )?;
+    let (_temp_dir_dep, cwd_dep, out) =
+        cli_init_project_basic("a", "add_and_remove_with_lock_preinstall_dep", "1.2.3")?;
 
     out.assert().success();
 
@@ -1472,18 +1243,8 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
     .assert()
     .success();
 
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "t",
-            "--name",
-            "add_and_remove_with_lock_preinstall",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("t", "add_and_remove_with_lock_preinstall", "1.2.3")?;
 
     out.assert().success();
 
@@ -1558,18 +1319,7 @@ fn add_and_remove_with_lock_preinstall() -> Result<(), Box<dyn std::error::Error
 
 #[test]
 fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "add_nonexistent",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "add_nonexistent", "1.2.3")?;
 
     out.assert().success();
 
@@ -1584,18 +1334,7 @@ fn add_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn remove_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.2.3",
-            "--publisher",
-            "a",
-            "--name",
-            "remove_nonexistent",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "remove_nonexistent", "1.2.3")?;
 
     out.assert().success();
 
