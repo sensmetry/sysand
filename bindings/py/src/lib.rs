@@ -323,9 +323,15 @@ pub fn do_sources_env_py(
         Some(vr) => loop {
             if let Some(candidate) = projects.next() {
                 if let Some(v) = candidate
-                    .version()
+                    .get_info()
                     .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
-                    .and_then(|x| Version::parse(&x).ok())
+                    .and_then(|x| match Version::parse(&x.version) {
+                        Ok(v) => Some(v),
+                        Err(e) => {
+                            log::debug!("ignoring env project `{}` because it has invalid semver version:\n{e}", x.name);
+                            None
+                        },
+                    })
                     && vr.matches(&v)
                 {
                     break Some(candidate);

@@ -24,6 +24,7 @@ kpar-ppmd = ["sysand-core/kpar-ppmd", "sysand/kpar-ppmd"]
 sysand-core = { path = "../../core", features = ["python", "filesystem", "networking"] }
 sysand = { path = "../../sysand" }
 camino.workspace = true
+log = { version = "0.4.29", default-features = false }
 pyo3 = { version = "0.29.0", default-features = false, features = ["macros"] }
 pyo3-log = "0.13.3"
 semver = { version = "1.0.27", default-features = false }

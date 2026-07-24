@@ -3803,6 +3803,7 @@ version = "0.1.7"
 dependencies = [
  "camino",
  "camino-tempfile",
+ "log",
  "predicates",
  "pyo3",
  "pyo3-log",
