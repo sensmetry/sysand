@@ -17,8 +17,6 @@ use crate::project::local_src::{LocalSrcError, LocalSrcProject};
 
 use thiserror::Error;
 
-const DEFAULT_PUBLISHER: &str = "untitled";
-
 #[derive(Error, Debug)]
 pub enum InitError<ProjectError: ErrorBound> {
     #[error("failed to parse `{0}` as a Semantic Version: {1}")]
@@ -31,7 +29,7 @@ pub enum InitError<ProjectError: ErrorBound> {
 
 pub fn do_init_ext<P: ProjectMut>(
     name: String,
-    publisher: Option<String>,
+    publisher: String,
     version: String,
     no_semver: bool,
     license: Option<String>,
@@ -50,7 +48,6 @@ pub fn do_init_ext<P: ProjectMut>(
     } else {
         None
     };
-    let publisher = publisher.unwrap_or_else(|| String::from(DEFAULT_PUBLISHER));
 
     let creating = "Creating";
     let header = crate::style::get_style_config().header;
@@ -85,7 +82,7 @@ pub fn do_init_ext<P: ProjectMut>(
 
 pub fn do_init<P: ProjectMut>(
     name: String,
-    publisher: Option<String>,
+    publisher: String,
     version: String,
     license: Option<String>,
     storage: &mut P,
@@ -95,7 +92,7 @@ pub fn do_init<P: ProjectMut>(
 
 pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
     name: N,
-    publisher: Option<P>,
+    publisher: P,
     version: V,
     license: Option<String>,
 ) -> Result<InMemoryProject, InitError<crate::project::memory::InMemoryError>> {
@@ -103,7 +100,7 @@ pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
 
     do_init(
         name.as_ref().to_owned(),
-        publisher.map(|p| String::from(p.as_ref())),
+        publisher.as_ref().to_owned(),
         version.as_ref().to_owned(),
         license,
         &mut storage,
@@ -115,7 +112,7 @@ pub fn do_init_memory<N: AsRef<str>, P: AsRef<str>, V: AsRef<str>>(
 #[cfg(feature = "filesystem")]
 pub fn do_init_local_file(
     name: String,
-    publisher: Option<String>,
+    publisher: String,
     version: String,
     license: Option<String>,
     path: Utf8PathBuf,

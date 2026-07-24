@@ -25,9 +25,9 @@ fn write_environment() {
     let uri1 = "urn:kpar:first".to_string();
     let uri2 = "urn:kpar:second".to_string();
     let version = "0.0.1".to_string();
-    let project1 = do_init_memory("First", Some("a"), &version, None).unwrap();
+    let project1 = do_init_memory("First", "a", &version, None).unwrap();
     let c1 = project1.checksum_canonical_variant().unwrap();
-    let project2 = do_init_memory("Second", None::<&str>, &version, None).unwrap();
+    let project2 = do_init_memory("Second", "b", &version, None).unwrap();
     let c2 = project2.checksum_canonical_variant().unwrap();
     let mut env = new_env();
 
@@ -72,7 +72,7 @@ fn write_environment() {
 fn read_environment() {
     let iri = "urn:kpar:first".to_string();
     let version = "0.0.1".to_string();
-    let project = do_init_memory("First", Some("a"), &version, None).unwrap();
+    let project = do_init_memory("First", "a", &version, None).unwrap();
     let env = MemoryStorageEnvironment {
         projects: HashMap::from([(
             iri.clone(),
@@ -106,9 +106,9 @@ fn from() {
     let version1 = "0.0.1".to_string();
     let version2 = "0.1.0".to_string();
     let version3 = "0.0.1".to_string();
-    let project1 = do_init_memory("First 0.0.1", Some("a"), &version1, None).unwrap();
-    let project2 = do_init_memory("First 0.1.0", None::<&str>, &version2, None).unwrap();
-    let project3 = do_init_memory("Second", Some("a"), &version3, None).unwrap();
+    let project1 = do_init_memory("First 0.0.1", "a", &version1, None).unwrap();
+    let project2 = do_init_memory("First 0.1.0", "a", &version2, None).unwrap();
+    let project3 = do_init_memory("Second", "a", &version3, None).unwrap();
     let env = MemoryStorageEnvironment::<InMemoryProject>::from([
         ("urn:kpar:first".into(), version1.clone(), project1.clone()),
         ("urn:kpar:first".into(), version2.clone(), project2.clone()),
@@ -133,9 +133,9 @@ fn from() {
 
 #[test]
 fn try_from() {
-    let project1 = do_init_memory("First 0.0.1", Some("a"), "0.0.1", None).unwrap();
-    let project2 = do_init_memory("First 0.1.0", Some("a"), "0.1.0", None).unwrap();
-    let project3 = do_init_memory("Second", Some("a"), "0.0.1", None).unwrap();
+    let project1 = do_init_memory("First 0.0.1", "a", "0.0.1", None).unwrap();
+    let project2 = do_init_memory("First 0.1.0", "a", "0.1.0", None).unwrap();
+    let project3 = do_init_memory("Second", "a", "0.0.1", None).unwrap();
     let env = MemoryStorageEnvironment::<InMemoryProject>::try_from([
         ("urn:kpar:first".into(), project1.clone()),
         ("urn:kpar:first".into(), project2.clone()),

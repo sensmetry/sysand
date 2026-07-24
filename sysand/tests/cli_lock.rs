@@ -25,10 +25,7 @@ use serde_json::json;
 /// and .meta.json files in the current working directory. (Non-interactive use)
 #[test]
 fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--name", "lock_trivial", "--version", "1.2.3"],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_trivial", "1.2.3")?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -57,14 +54,11 @@ fn lock_trivial() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--name", "lock_local_source", "--version", "1.2.3"],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_local_source", "1.2.3")?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
-    let out = run_sysand_in(&cwd, ["init", "--version", "1.0.0", "local_dep"], None)?;
+    let out = cli_init_project_in(&cwd, Some("local_dep"), "a", None, Some("1.0.0"), None)?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -100,10 +94,7 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--name", "lock_std_lib", "--version", "1.2.3"],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_std_lib", "1.2.3")?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -288,16 +279,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
         [&c_url],
     );
 
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--name",
-            "lock_basic_http_deps",
-            "--version",
-            "1.2.3",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_basic_http_deps", "1.2.3")?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 
@@ -458,16 +440,8 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         .expect(1)
         .create();
 
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--name",
-            "lock_and_sync_against_mock_index",
-            "--version",
-            "1.2.3",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "lock_and_sync_against_mock_index", "1.2.3")?;
     out.assert().success().stdout(predicate::str::is_empty());
 
     inject_usages(
@@ -581,10 +555,7 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
         .expect(0)
         .create();
 
-    let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--name", "sync_tripwire", "--version", "1.2.3"],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "sync_tripwire", "1.2.3")?;
     out.assert().success().stdout(predicate::str::is_empty());
 
     inject_usages(
@@ -661,16 +632,8 @@ fn lock_rejects_non_normalized_sysand_purl() -> Result<(), Box<dyn std::error::E
     // offending IRI and shows the suggested normalized form, rather than
     // being silently rerouted to `_iri/<sha256>/` and surfacing only as
     // an opaque "not found" downstream.
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--name",
-            "lock_rejects_non_normalized_sysand_purl",
-            "--version",
-            "1.2.3",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) =
+        cli_init_project_basic("a", "lock_rejects_non_normalized_sysand_purl", "1.2.3")?;
     out.assert().success().stdout(predicate::str::is_empty());
 
     inject_usages(
@@ -702,16 +665,7 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
         NO_DEP,
     );
 
-    let (_temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--name",
-            "lock_basic_http_deps",
-            "--version",
-            "1.2.3",
-        ],
-        None,
-    )?;
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "lock_basic_http_deps", "1.2.3")?;
 
     out.assert().success().stdout(predicate::str::is_empty());
 

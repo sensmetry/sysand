@@ -35,7 +35,7 @@ pub fn clear_local_storage(prefix: &str) -> Result<(), JsValue> {
 #[wasm_bindgen(js_name = do_init_js_local_storage)]
 pub fn do_init_js_local_storage(
     name: String,
-    publisher: Option<String>,
+    publisher: String,
     version: String,
     prefix: &str,
     root_path: &str,

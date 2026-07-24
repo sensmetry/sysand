@@ -70,9 +70,12 @@ pub enum Command {
         /// The name of the project. Defaults to the directory name
         #[arg(long)]
         name: Option<String>,
-        /// The publisher of the project. Defaults to `untitled`
-        #[arg(long)]
-        publisher: Option<String>,
+        /// The publisher of the project. Should be the person/team/organization
+        /// developing the project. It is (together with name) used
+        /// to uniquely refer to a project by other projects when added as a
+        /// usage (dependency)
+        #[arg(long, verbatim_doc_comment)]
+        publisher: String,
         /// Set the version in SemVer 2.0 format. Defaults to `0.0.1`
         #[arg(long)]
         version: Option<String>,
@@ -299,7 +302,7 @@ pub enum Command {
 #[group(required = true, multiple = false)]
 pub struct AddProjectLocatorArgs {
     /// IRI/URI/URL identifying the project to be used, or
-    /// <publisher>/<name> shorthand for pkg:sysand/<publisher>/<name>.
+    /// `<publisher>/<name>` shorthand for `pkg:sysand/<publisher>/<name>`.
     /// Paths must use `--path`
     #[clap(default_value = None, value_parser = parse_usage_locator_suggest_path)]
     pub iri: Option<Iri<String>>,
@@ -321,7 +324,7 @@ pub struct AddProjectLocatorArgs {
 #[group(required = true, multiple = false)]
 pub struct RemoveProjectLocatorArgs {
     /// IRI identifying the project usage to be removed, or
-    /// <publisher>/<name> shorthand for pkg:sysand/<publisher>/<name>.
+    /// `<publisher>/<name>` shorthand for `pkg:sysand/<publisher>/<name>`.
     /// Paths must use `--path`
     #[clap(default_value = None, value_parser = parse_usage_locator_suggest_path)]
     pub iri: Option<Iri<String>>,
@@ -512,8 +515,9 @@ pub enum InfoCommand {
     Publisher {
         #[arg(long, value_name = "PUBLISHER", default_value=None)]
         set: Option<String>,
-        #[arg(long, default_value = None)]
-        clear: bool,
+        #[arg(hide = true, long, num_args=0, default_missing_value="None", value_parser=
+            invalid_command("`publisher` cannot be unset"))]
+        clear: Option<Infallible>,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=
             invalid_command("`publisher` is not a list, consider using `sysand info publisher --set`?"))]
@@ -1066,11 +1070,7 @@ impl InfoCommand {
             } => pack_info(
                 GetInfoVerb::GetPublisher,
                 set.map(SetInfoVerb::SetPublisher),
-                if clear {
-                    Some(ClearInfoVerb::ClearPublisher)
-                } else {
-                    None
-                },
+                impossible(clear),
                 impossible(add),
                 impossible(remove),
             ),
@@ -1443,22 +1443,20 @@ pub enum IndexCommand {
     Init {
         /// Path to the index directory. If not provided, current working directory is used.
         /// If the directory does not exist, it is created
-        #[clap(verbatim_doc_comment)]
-        #[arg(long)]
+        #[arg(long, verbatim_doc_comment)]
         index_root: Option<Utf8PathBuf>,
     },
     /// Add a KPAR to a local sysand index
     #[clap(verbatim_doc_comment)]
     Add {
-        /// Project identifier. Default is pkg:sysand/<publisher>/<name>, if publisher is
+        /// Project identifier. Default is `pkg:sysand/<publisher>/<name>`, if publisher is
         /// specified in .project.json. Omitting both publisher and IRI is an error
         #[clap(verbatim_doc_comment)]
         iri: Option<String>,
         // The type is str, not Iri so that a better error can be reported in some cases
         // for example when the publisher contains a space
-        #[clap(verbatim_doc_comment)]
         /// Path to KPAR
-        #[arg(long)]
+        #[arg(long, verbatim_doc_comment)]
         kpar_path: Utf8PathBuf,
         /// Path to the index directory. If not provided, current working directory is used
         #[arg(long)]

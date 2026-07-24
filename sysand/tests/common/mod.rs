@@ -105,6 +105,56 @@ pub fn sysand_cmd_in<'a, I: IntoIterator<Item = &'a str>>(
     sysand_cmd_in_with(cwd, args, cfg, &IndexMap::<&str, &str>::default())
 }
 
+/// Initialize a project in a temp directory
+pub fn cli_init_project_basic(
+    publisher: &str,
+    name: &str,
+    version: &str,
+) -> Result<(Utf8TempDir, Utf8PathBuf, Output), Box<dyn Error>> {
+    cli_init_project(None, publisher, Some(name), Some(version), None)
+}
+
+/// Initialize a project in a temp directory
+pub fn cli_init_project(
+    path: Option<&str>,
+    publisher: &str,
+    name: Option<&str>,
+    version: Option<&str>,
+    license: Option<&str>,
+) -> Result<(Utf8TempDir, Utf8PathBuf, Output), Box<dyn Error>> {
+    let (tempdir, cwd) = new_temp_cwd()?;
+    cli_init_project_in(&cwd, path, publisher, name, version, license).map(|o| (tempdir, cwd, o))
+}
+
+/// Like [`cli_init_project`], but initializes the project in an already
+/// existing `cwd`
+pub fn cli_init_project_in(
+    cwd: &Utf8Path,
+    path: Option<&str>,
+    publisher: &str,
+    name: Option<&str>,
+    version: Option<&str>,
+    license: Option<&str>,
+) -> Result<Output, Box<dyn Error>> {
+    let mut args = vec!["init", "--publisher", publisher];
+    if let Some(name) = name {
+        args.push("--name");
+        args.push(name);
+    }
+    if let Some(version) = version {
+        args.push("--version");
+        args.push(version);
+    }
+    if let Some(license) = license {
+        args.push("--license");
+        args.push(license);
+    }
+    if let Some(path) = path {
+        args.push(path);
+    }
+    run_sysand_in(cwd, args, None)
+}
+
 /// Creates a temporary directory and returns the tuple of the temporary
 /// directory handle and the canonicalised path to it. We need to canonicalise
 /// the path because tests check the output of CLI to see whether it operated on

@@ -17,18 +17,8 @@ pub use common::*;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn init_project(name: &str) -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn std::error::Error>> {
-    let (temp_dir, cwd, out) = run_sysand(
-        [
-            "init",
-            "--version",
-            "1.0.0",
-            "--name",
-            name,
-            "--license",
-            "MIT",
-        ],
-        None,
-    )?;
+    let (temp_dir, cwd, out) =
+        cli_init_project(None, "example-pub1", Some(name), Some("1.0.0"), Some("MIT"))?;
     out.assert().success();
     let mut licenses = cwd.join("LICENSES");
     fs::create_dir(&licenses)?;

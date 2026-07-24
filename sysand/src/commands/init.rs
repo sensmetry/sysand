@@ -10,7 +10,7 @@ const DEFAULT_VERSION: &str = "0.0.1";
 
 pub fn command_init(
     name: Option<String>,
-    publisher: Option<String>,
+    publisher: String,
     version: Option<String>,
     no_semver: bool,
     license: Option<String>,

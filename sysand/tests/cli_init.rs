@@ -13,7 +13,17 @@ pub use common::*;
 /// on directory name as name.
 #[test]
 fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
-    let (_temp_dir, cwd, out) = run_sysand(["init", "--version", "1.2.3", "init_basic"], None)?;
+    let (_temp_dir, cwd, out) = run_sysand(
+        [
+            "init",
+            "--version",
+            "1.2.3",
+            "--publisher",
+            "a",
+            "init_basic",
+        ],
+        None,
+    )?;
 
     let proj_dir_path = cwd.join("init_basic");
 
@@ -30,7 +40,7 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
         info,
         r#"{
   "name": "init_basic",
-  "publisher": "untitled",
+  "publisher": "a",
   "version": "1.2.3"
 }
 "#
@@ -41,12 +51,45 @@ fn init_basic() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `sysand init`, when not given a version, should default to `0.0.1`.
+#[test]
+fn init_default_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) =
+        cli_init_project(Some("init_default_version"), "a", None, None, None)?;
+
+    let proj_dir_path = cwd.join("init_default_version");
+
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let info = std::fs::read_to_string(proj_dir_path.join(".project.json"))?;
+
+    assert_eq!(
+        info,
+        r#"{
+  "name": "init_default_version",
+  "publisher": "a",
+  "version": "0.0.1"
+}
+"#
+    );
+
+    Ok(())
+}
+
 /// `sysand init`, when not given a directory, should create a
 /// project in cwd.
 #[test]
 fn init_basic_cwd() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--name", "init_basic_cwd", "--version", "1.2.3"],
+        [
+            "init",
+            "--publisher",
+            "b",
+            "--name",
+            "init_basic_cwd",
+            "--version",
+            "1.2.3",
+        ],
         None,
     )?;
 
@@ -63,7 +106,7 @@ fn init_basic_cwd() -> Result<(), Box<dyn std::error::Error>> {
         info,
         r#"{
   "name": "init_basic_cwd",
-  "publisher": "untitled",
+  "publisher": "b",
   "version": "1.2.3"
 }
 "#
@@ -84,6 +127,8 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
             "init",
             "--version",
             "1.2.3",
+            "--publisher",
+            "c",
             "--name",
             "other_than_init_explicit_name",
             "init_explicit_name",
@@ -106,7 +151,7 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
         info,
         r#"{
   "name": "other_than_init_explicit_name",
-  "publisher": "untitled",
+  "publisher": "c",
   "version": "1.2.3"
 }
 "#
@@ -124,7 +169,14 @@ fn init_explicit_name() -> Result<(), Box<dyn std::error::Error>> {
 fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     // Run 1
     let (_temp_dir, cwd, out) = run_sysand(
-        ["init", "--version", "1.2.3", "init_fail_on_double_init"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.2.3",
+            "init_fail_on_double_init",
+        ],
         None,
     )?;
     out.assert().success().stdout(predicate::str::is_empty());
@@ -139,7 +191,14 @@ fn init_fail_on_double_init() -> Result<(), Box<dyn std::error::Error>> {
     // Run 2
     let out_again = run_sysand_in(
         &cwd,
-        ["init", "--version", "1.2.3", "init_fail_on_double_init"],
+        [
+            "init",
+            "--publisher",
+            "a",
+            "--version",
+            "1.2.3",
+            "init_fail_on_double_init",
+        ],
         None,
     )?;
     out_again
@@ -168,6 +227,8 @@ fn init_fail_on_double_init_cwd() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, out) = run_sysand(
         [
             "init",
+            "--publisher",
+            "a",
             "--name",
             "init_fail_on_double_init_cwd",
             "--version",
@@ -185,6 +246,8 @@ fn init_fail_on_double_init_cwd() -> Result<(), Box<dyn std::error::Error>> {
         &cwd,
         [
             "init",
+            "--publisher",
+            "a",
             "--name",
             "init_fail_on_double_init_cwd_again",
             "--version",
