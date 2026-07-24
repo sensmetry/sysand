@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use crate::env::ReadEnvironment;
+use crate::{env::ReadEnvironment, utils::format_err};
 
 pub fn do_env_list<E: ReadEnvironment>(
     env: E,
@@ -9,12 +9,13 @@ pub fn do_env_list<E: ReadEnvironment>(
     let uris: Vec<String> = env
         .uris()?
         .into_iter()
-        .inspect(|res| {
-            if let Err(e) = res {
-                log::warn!("failed to read uri: {e}");
+        .filter_map(|res| match res {
+            Ok(u) => Some(u),
+            Err(e) => {
+                log::warn!("failed to read uri: {}", format_err(e));
+                None
             }
         })
-        .filter_map(Result::ok)
         .collect();
 
     #[allow(clippy::type_complexity)]
@@ -24,7 +25,13 @@ pub fn do_env_list<E: ReadEnvironment>(
             let versions: Vec<String> = env
                 .versions(&uri)?
                 .into_iter()
-                .filter_map(Result::ok)
+                .filter_map(|res| match res {
+                    Ok(u) => Some(u),
+                    Err(e) => {
+                        log::warn!("failed to read one version of `{uri}`: {}", format_err(e));
+                        None
+                    }
+                })
                 .collect();
 
             if versions.is_empty() {

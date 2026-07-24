@@ -25,6 +25,7 @@ use sysand_core::{
         standard::{StandardResolver, standard_resolver},
     },
     utils::SP,
+    utils::format_err,
 };
 
 use crate::{
@@ -371,14 +372,17 @@ pub fn get_project_version<R: ResolveRead>(
                         // These errors may be ugly, as `candidates` includes all
                         // possible candidates, with expectation that only some
                         // of them will work. So we don't show these by default
-                        log::debug!("skipping candidate project: {e}");
+                        log::debug!("skipping candidate project: {}", format_err(e));
                         continue;
                     }
                 };
                 let maybe_info = match candidate_project.get_info() {
                     Ok(mi) => mi,
                     Err(e) => {
-                        log::debug!("skipping candidate project, failed to get info: {e}");
+                        log::debug!(
+                            "skipping candidate project, failed to get info: {}",
+                            format_err(e)
+                        );
                         continue;
                     }
                 };

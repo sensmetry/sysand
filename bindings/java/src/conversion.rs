@@ -11,6 +11,7 @@ use sysand_core::model::{
     InterchangeProjectChecksum, InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw,
     InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw,
 };
+use sysand_core::utils::format_err;
 
 fn get_string_field<'local>(
     env: &mut JNIEnv<'local>,
@@ -21,19 +22,28 @@ fn get_string_field<'local>(
         Ok(v) => match v.l() {
             Ok(o) => o,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to get field `{field_name}`: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         },
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+            env.throw_runtime_exception(format!(
+                "Failed to get field `{field_name}`: {}",
+                format_err(e)
+            ));
             return None;
         }
     };
     match env.get_string(&JString::from(field_obj)) {
         Ok(s) => Some(s.into()),
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to read string field `{field_name}`: {e}"));
+            env.throw_runtime_exception(format!(
+                "Failed to read string field `{field_name}`: {}",
+                format_err(e)
+            ));
             None
         }
     }
@@ -49,12 +59,18 @@ fn get_nullable_string_field<'local>(
         Ok(v) => match v.l() {
             Ok(o) => o,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to get field `{field_name}`: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         },
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+            env.throw_runtime_exception(format!(
+                "Failed to get field `{field_name}`: {}",
+                format_err(e)
+            ));
             return None;
         }
     };
@@ -64,7 +80,10 @@ fn get_nullable_string_field<'local>(
     match env.get_string(&JString::from(field_obj)) {
         Ok(s) => Some(Some(s.into())),
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to read string field `{field_name}`: {e}"));
+            env.throw_runtime_exception(format!(
+                "Failed to read string field `{field_name}`: {}",
+                format_err(e)
+            ));
             None
         }
     }
@@ -79,12 +98,18 @@ fn get_string_array_field<'local>(
         Ok(v) => match v.l() {
             Ok(o) => o,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to get field `{field_name}`: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         },
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+            env.throw_runtime_exception(format!(
+                "Failed to get field `{field_name}`: {}",
+                format_err(e)
+            ));
             return None;
         }
     };
@@ -92,7 +117,10 @@ fn get_string_array_field<'local>(
     let len = match env.get_array_length(&arr) {
         Ok(l) => l as usize,
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to get length of `{field_name}`: {e}"));
+            env.throw_runtime_exception(format!(
+                "Failed to get length of `{field_name}`: {}",
+                format_err(e)
+            ));
             return None;
         }
     };
@@ -102,7 +130,8 @@ fn get_string_array_field<'local>(
             Ok(o) => o,
             Err(e) => {
                 env.throw_runtime_exception(format!(
-                    "Failed to get element of `{field_name}[{i}]`: {e}"
+                    "Failed to get element of `{field_name}[{i}]`: {}",
+                    format_err(e)
                 ));
                 return None;
             }
@@ -111,7 +140,8 @@ fn get_string_array_field<'local>(
             Ok(s) => s.into(),
             Err(e) => {
                 env.throw_runtime_exception(format!(
-                    "Failed to read string element of `{field_name}[{i}]`: {e}"
+                    "Failed to read string element of `{field_name}[{i}]`: {}",
+                    format_err(e)
                 ));
                 return None;
             }
@@ -131,12 +161,18 @@ fn get_nullable_boolean_field<'local>(
         Ok(v) => match v.l() {
             Ok(o) => o,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to get field `{field_name}`: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         },
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+            env.throw_runtime_exception(format!(
+                "Failed to get field `{field_name}`: {}",
+                format_err(e)
+            ));
             return None;
         }
     };
@@ -147,13 +183,17 @@ fn get_nullable_boolean_field<'local>(
         Ok(v) => match v.z() {
             Ok(b) => Some(Some(b)),
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to unbox Boolean `{field_name}`: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to unbox Boolean `{field_name}`: {}",
+                    format_err(e)
+                ));
                 None
             }
         },
         Err(e) => {
             env.throw_runtime_exception(format!(
-                "Failed to call booleanValue on `{field_name}`: {e}"
+                "Failed to call booleanValue on `{field_name}`: {}",
+                format_err(e)
             ));
             None
         }
@@ -170,12 +210,18 @@ fn get_usage_array_field<'local>(
         Ok(v) => match v.l() {
             Ok(o) => o,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to get field `{field_name}`: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         },
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to get field `{field_name}`: {e}"));
+            env.throw_runtime_exception(format!(
+                "Failed to get field `{field_name}`: {}",
+                format_err(e)
+            ));
             return None;
         }
     };
@@ -183,7 +229,10 @@ fn get_usage_array_field<'local>(
     let len = match env.get_array_length(&arr) {
         Ok(l) => l as usize,
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to get length of `{field_name}`: {e}"));
+            env.throw_runtime_exception(format!(
+                "Failed to get length of `{field_name}`: {}",
+                format_err(e)
+            ));
             return None;
         }
     };
@@ -193,7 +242,8 @@ fn get_usage_array_field<'local>(
             Ok(o) => o,
             Err(e) => {
                 env.throw_runtime_exception(format!(
-                    "Failed to get element of `{field_name}[{i}]`: {e}"
+                    "Failed to get element of `{field_name}[{i}]`: {}",
+                    format_err(e)
                 ));
                 return None;
             }
@@ -217,7 +267,8 @@ fn get_usage_array_field<'local>(
             Err(e) => {
                 env.throw_runtime_exception(format!(
                     "Failed to check whether `{field_name}[{i}]` is InterchangeProjectUsageResource:\n\
-                    {e}"
+                    {}",
+                    format_err(e)
                 ));
                 return None;
             }
@@ -260,12 +311,15 @@ pub(crate) fn java_metadata_to_raw<'local>(
         Ok(v) => match v.l() {
             Ok(o) => o,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to get field `index`: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to get field `index`: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         },
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to get field `index`: {e}"));
+            env.throw_runtime_exception(format!("Failed to get field `index`: {}", format_err(e)));
             return None;
         }
     };
@@ -273,7 +327,7 @@ pub(crate) fn java_metadata_to_raw<'local>(
         Ok(m) => m,
         Err(jni::errors::Error::JavaException) => return None,
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to convert index map: {e}"));
+            env.throw_runtime_exception(format!("Failed to convert index map: {}", format_err(e)));
             return None;
         }
     };
@@ -285,12 +339,18 @@ pub(crate) fn java_metadata_to_raw<'local>(
         Ok(v) => match v.l() {
             Ok(o) => o,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to get field `checksum`: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to get field `checksum`: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         },
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to get field `checksum`: {e}"));
+            env.throw_runtime_exception(format!(
+                "Failed to get field `checksum`: {}",
+                format_err(e)
+            ));
             return None;
         }
     };
@@ -300,14 +360,20 @@ pub(crate) fn java_metadata_to_raw<'local>(
         let jmap = match JMap::from_env(env, &checksum_obj) {
             Ok(m) => m,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to wrap checksum map: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to wrap checksum map: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         };
         let mut iter = match jmap.iter(env) {
             Ok(i) => i,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to iterate checksum map: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to iterate checksum map: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         };
@@ -318,7 +384,8 @@ pub(crate) fn java_metadata_to_raw<'local>(
                 Ok(None) => break,
                 Err(e) => {
                     env.throw_runtime_exception(format!(
-                        "Failed to iterate checksum map entry: {e}"
+                        "Failed to iterate checksum map entry: {}",
+                        format_err(e)
                     ));
                     return None;
                 }
@@ -327,7 +394,10 @@ pub(crate) fn java_metadata_to_raw<'local>(
             let key_str: String = match env.get_string(&JString::from(key)) {
                 Ok(s) => s.into(),
                 Err(e) => {
-                    env.throw_runtime_exception(format!("Failed to read checksum key: {e}"));
+                    env.throw_runtime_exception(format!(
+                        "Failed to read checksum key: {}",
+                        format_err(e)
+                    ));
                     return None;
                 }
             };
@@ -401,7 +471,7 @@ impl ToJObject for str {
         match env.new_string(self) {
             Ok(s) => Some(s.into()),
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to create String: {e}"));
+                env.throw_runtime_exception(format!("Failed to create String: {}", format_err(e)));
                 None
             }
         }
@@ -431,7 +501,10 @@ impl ToJObjectArray for [String] {
         ) {
             Ok(a) => a,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to create String[]: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to create String[]: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         };
@@ -441,7 +514,10 @@ impl ToJObjectArray for [String] {
             match env.set_object_array_element(&mut array, index, value_object) {
                 Ok(_) => (),
                 Err(e) => {
-                    env.throw_runtime_exception(format!("Failed to set String[] element: {e}"));
+                    env.throw_runtime_exception(format!(
+                        "Failed to set String[] element: {}",
+                        format_err(e)
+                    ));
                     return None;
                 }
             };
@@ -462,7 +538,7 @@ impl ToJObject for bool {
         match env.new_object("java/lang/Boolean", "(Z)V", &[JValue::from(boolean_value)]) {
             Ok(b) => Some(b),
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to create Boolean: {e}"));
+                env.throw_runtime_exception(format!("Failed to create Boolean: {}", format_err(e)));
                 None
             }
         }
@@ -474,7 +550,10 @@ impl<K: ToJObject, V: ToJObject> ToJObject for IndexMap<K, V> {
         let mut map = match env.new_object("java/util/LinkedHashMap", "()V", &[]) {
             Ok(l) => l,
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to create LinkedHashMap: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to create LinkedHashMap: {}",
+                    format_err(e)
+                ));
                 return None;
             }
         };
@@ -490,7 +569,8 @@ impl<K: ToJObject, V: ToJObject> ToJObject for IndexMap<K, V> {
                 Ok(_) => (),
                 Err(e) => {
                     env.throw_runtime_exception(format!(
-                        "Failed to call LinkedHashMap::put(): {e}"
+                        "Failed to call LinkedHashMap::put(): {}",
+                        format_err(e)
                     ));
                     return None;
                 }
@@ -514,7 +594,10 @@ impl ToJObject for InterchangeProjectChecksum {
         ) {
             Ok(o) => Some(o),
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to create LinkedHashMap: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to create LinkedHashMap: {}",
+                    format_err(e)
+                ));
                 None
             }
         }
@@ -533,7 +616,8 @@ impl ToJObject for InterchangeProjectChecksumRaw {
             Ok(o) => Some(o),
             Err(e) => {
                 env.throw_runtime_exception(format!(
-                    "Failed to create InterchangeProjectChecksum: {e}"
+                    "Failed to create InterchangeProjectChecksum: {}",
+                    format_err(e)
                 ));
                 None
             }
@@ -557,7 +641,10 @@ impl ToJObject for InterchangeProjectUsageRaw {
                 ) {
                     Ok(o) => Some(o),
                     Err(e) => {
-                        env.throw_runtime_exception(format!("Failed to create LinkedHashMap: {e}"));
+                        env.throw_runtime_exception(format!(
+                            "Failed to create InterchangeProjectUsageResource: {}",
+                            format_err(e)
+                        ));
                         None
                     }
                 }
@@ -578,7 +665,8 @@ impl ToJObjectArray for Vec<InterchangeProjectUsageRaw> {
             Ok(o) => o,
             Err(e) => {
                 env.throw_runtime_exception(format!(
-                    "Failed to create InterchangeProjectUsage[]: {e}"
+                    "Failed to create InterchangeProjectUsage[]: {}",
+                    format_err(e)
                 ));
                 return None;
             }
@@ -590,7 +678,8 @@ impl ToJObjectArray for Vec<InterchangeProjectUsageRaw> {
                 Ok(o) => o,
                 Err(e) => {
                     env.throw_runtime_exception(format!(
-                        "Failed to set InterchangeProjectUsage[] element: {e}"
+                        "Failed to set InterchangeProjectUsage[] element: {}",
+                        format_err(e)
                     ));
                     return None;
                 }
@@ -635,7 +724,8 @@ impl ToJObject for InterchangeProjectInfoRaw {
             Ok(o) => Some(o),
             Err(e) => {
                 env.throw_runtime_exception(format!(
-                    "Failed to create InterchangeProjectInfo: {e}"
+                    "Failed to create InterchangeProjectInfo: {}",
+                    format_err(e)
                 ));
                 None
             }
@@ -666,7 +756,8 @@ impl ToJObject for InterchangeProjectMetadataRaw {
             Ok(o) => Some(o),
             Err(e) => {
                 env.throw_runtime_exception(format!(
-                    "Failed to create InterchangeProjectMetadata: {e}"
+                    "Failed to create InterchangeProjectMetadata: {}",
+                    format_err(e)
                 ));
                 None
             }
@@ -705,7 +796,10 @@ impl ToJObject for (InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw) {
         ) {
             Ok(o) => Some(o),
             Err(e) => {
-                env.throw_runtime_exception(format!("Failed to create InterchangeProject: {e}"));
+                env.throw_runtime_exception(format!(
+                    "Failed to create InterchangeProject: {}",
+                    format_err(e)
+                ));
                 None
             }
         }
