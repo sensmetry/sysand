@@ -4,6 +4,7 @@
 use std::fmt;
 
 use jni::{JNIEnv, objects::JString};
+use sysand_core::utils::format_err;
 
 pub(crate) trait JniExt {
     fn throw_exception(&mut self, exception_kind: ExceptionKind, message: impl AsRef<str>);
@@ -133,7 +134,10 @@ impl JniExt for JNIEnv<'_> {
                     None
                 }
                 jni::errors::Error::ThrowFailed(_) => {
-                    self.throw_runtime_exception(format!("`{variable_name}`: {error}"));
+                    self.throw_runtime_exception(format!(
+                        "`{variable_name}`: {}",
+                        format_err(error)
+                    ));
                     None
                 }
                 jni::errors::Error::ParseFailed(string_stream_error, _) => {
@@ -146,7 +150,8 @@ impl JniExt for JNIEnv<'_> {
                 jni::errors::Error::JniCall(jni_error) => {
                     self.throw_runtime_exception(format!(
                         "`{}`: JNI call failed: {}",
-                        variable_name, jni_error
+                        variable_name,
+                        format_err(jni_error)
                     ));
                     None
                 }

@@ -65,7 +65,10 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
         Err(e) => match e {
             Error::NullPtr(_) => None,
             _ => {
-                env.throw_runtime_exception(format!("failed to get argument `license`: {}", e));
+                env.throw_runtime_exception(format!(
+                    "failed to get argument `license`: {}",
+                    format_err(e)
+                ));
                 return;
             }
         },
@@ -120,7 +123,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_defaultEnvName<'local>(
     match env.new_string(DEFAULT_ENV_NAME) {
         Ok(s) => s,
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to create String: {e}"));
+            env.throw_runtime_exception(format!("Failed to create String: {}", format_err(e)));
             JString::default()
         }
     }
@@ -326,7 +329,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectIndex<'local>(
             return;
         }
         Err(e) => {
-            env.throw_runtime_exception(format!("Failed to convert index map: {e}"));
+            env.throw_runtime_exception(format!("Failed to convert index map: {}", format_err(e)));
             return;
         }
     };

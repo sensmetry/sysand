@@ -71,7 +71,7 @@ pub fn do_info<S: AsRef<str>, R: ResolveRead>(
                         // These errors may be ugly, as `resolved` includes all
                         // possible candidates, with expectation that only some
                         // of them will work. So we don't show these by default
-                        log::debug!("skipping candidate project: {e}");
+                        log::debug!("skipping candidate project: {}", format_err(e));
                         continue;
                     }
                 };

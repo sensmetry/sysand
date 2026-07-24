@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
-    error::Error,
     io::{self, Write as _},
     num::NonZeroU64,
     pin::Pin,
@@ -24,7 +23,7 @@ use crate::{
         local_kpar::{LocalKParError, LocalKParProject, LocalKParProjectRaw},
     },
     resolve::net_utils::kpar_get_request,
-    utils::lowercase_hex,
+    utils::{format_err, lowercase_hex},
 };
 
 use super::{
@@ -375,14 +374,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloade
         match self.ensure_downloaded_verified().await {
             Ok((inner, _)) => inner.is_definitely_invalid(),
             Err(e) => {
-                // TODO: generalize `format_sources()` to logging
-                log::debug!("error downloading/reading a kpar: {e}");
-                let mut error: &dyn Error = &e;
-                while let Some(source) = error.source() {
-                    log::debug!("  caused by: {source}");
-                    error = source;
-                }
-
+                log::debug!("error downloading/reading a kpar: {}", format_err(&e));
                 false
             }
         }
@@ -593,18 +585,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestIndexKparDownloaded
 
     async fn is_definitely_invalid_async(&self) -> bool {
         // FIXME: error should be returned; does it make sense to download the project
-        // here, as this is supposed to be a quick check
+        // here (this is supposed to be a quick check)?
         match self.ensure_downloaded_verified().await {
             Ok(inner) => inner.is_definitely_invalid(),
             Err(e) => {
-                // TODO: generalize `format_sources()` to logging
-                log::debug!("error downloading/reading a kpar: {e}");
-                let mut error: &dyn Error = &e;
-                while let Some(source) = error.source() {
-                    log::debug!("  caused by: {source}");
-                    error = source;
-                }
-
+                log::debug!("error downloading/reading a kpar: {}", format_err(&e));
                 false
             }
         }

@@ -42,6 +42,7 @@ use sysand_core::{
     },
     resolve::net_utils::create_reqwest_client,
     stdlib::known_std_libs,
+    utils::format_err,
     workspace::Workspace,
 };
 use url::Url;
@@ -420,7 +421,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 Ok(l) => match Lock::from_str(&l) {
                     Ok(l) => l,
                     // Include file path in errors
-                    Err(e) => bail!("invalid lockfile `{lockfile}`:\n{e}"),
+                    Err(e) => bail!("invalid lockfile `{lockfile}`:\n{}", format_err(e)),
                 },
                 Err(e) => {
                     if e.kind() == ErrorKind::NotFound {
@@ -435,7 +436,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                             &ctx,
                         )?
                     } else {
-                        bail!("failed to read lockfile `{lockfile}`: {e}")
+                        bail!("failed to read lockfile `{lockfile}`: {}", format_err(e))
                     }
                 }
             };
