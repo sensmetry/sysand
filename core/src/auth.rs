@@ -482,12 +482,8 @@ impl StandardHTTPAuthenticationBuilder {
             },
         );
     }
-
-    // TODO: For other authentication schemes
-    // pub fn add_..._auth<S: AsRef<str>, ...>(&self, globstr: S, ...)
 }
 
-// pub struct GlobsetAuth
 #[cfg(test)]
 #[path = "./auth_tests.rs"]
 mod tests;
