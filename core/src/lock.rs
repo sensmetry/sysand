@@ -405,6 +405,8 @@ pub const PROJECT_ENTRIES: &[&str] = &[
 /// Fields that might not be set for every project are `Option`
 #[derive(Clone, Eq, Debug, Deserialize, PartialEq)]
 pub struct Project {
+    /// Must match the actual project, i.e. be `None` only when the
+    /// project does not declare a publisher
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub publisher: Option<String>,
     pub name: String,
@@ -458,7 +460,7 @@ impl Project {
         if !exports.is_empty() {
             table.insert("exports", value(exports));
         }
-        let identifiers = multiline_array(self.identifiers.iter().map(Value::from));
+        let identifiers = multiline_array(self.identifiers.iter());
         if !identifiers.is_empty() {
             table.insert("identifiers", value(identifiers));
         }
@@ -710,7 +712,7 @@ impl Usage {
     }
 
     fn to_toml(&self) -> Value {
-        Value::from(&self.0)
+        (&self.0).into()
     }
 }
 
@@ -723,22 +725,6 @@ impl<'de> Deserialize<'de> for Usage {
         Ok(Self(s))
     }
 }
-
-// impl From<InterchangeProjectUsageRaw> for Usage {
-//     fn from(value: InterchangeProjectUsageRaw) -> Usage {
-//         Usage {
-//             resource: value.resource,
-//         }
-//     }
-// }
-
-// impl From<InterchangeProjectUsage> for Usage {
-//     fn from(value: InterchangeProjectUsage) -> Usage {
-//         Usage {
-//             resource: value.resource.to_string(),
-//         }
-//     }
-// }
 
 #[cfg(test)]
 #[path = "./lock_tests.rs"]

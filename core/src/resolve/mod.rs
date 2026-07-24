@@ -237,8 +237,6 @@ where
             }
             ResolutionOutcome::NotFound { reason } => ResolutionOutcome::NotFound { reason },
         })
-        //let bar = foo.map(|x| futures::stream::iter(x.into_iter());
-        //Ok(bar)
     }
 }
 
