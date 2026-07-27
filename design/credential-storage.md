@@ -120,9 +120,13 @@ Under a `sysand auth` namespace:
 - **HTTP(S) only.** `auth login` against a non-HTTP(S) location (for
   example a local file path, which index resolution accepts elsewhere)
   errors with "not an HTTP(S) index; nothing to authenticate to".
-- **Glob derivation** (§8): automatic from the URL; no manual `--pattern` in
-  v1. If derivation is ever wrong for an unusual layout, the `SYSAND_CRED_*`
-  env var is the escape hatch until `--pattern` / `auth set` land (§10).
+- **Glob derivation** (§8): automatic from the login-target index URL (the
+  URL the user passes to `auth login`, or the resolved default index when
+  none is given), not from the discovery document; discovery-advertised
+  `index_root` / `api_root` add further globs per §8. No manual `--pattern`
+  in v1. If derivation is ever wrong for an unusual layout, the
+  `SYSAND_CRED_*` env var is the escape hatch until `--pattern` / `auth set`
+  land (§10).
   A **templated URL as the login target itself** (the user typing a
   `{path}` / `{path_raw}` template into `auth login`/`logout`, for example
   a GitLab repository-files URL) is supported: the storage key is the
