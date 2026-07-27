@@ -66,12 +66,16 @@ pub enum AuthCommandError {
     /// Every surface that exercised the credential rejected it and none
     /// accepted it, so nothing was stored (design/credential-storage.md
     /// section 5 refusal rule).
-    #[error("{}", validation_rejected_message(.index, .rejected, *.basic_challenge))]
+    #[error("{}", validation_rejected_message(.index, .rejected, *.read_status, *.basic_challenge))]
     ValidationRejected {
         /// The normalized index key the login targeted.
         index: String,
         /// The surfaces that exercised and rejected the credential.
         rejected: Vec<ProbeSurface>,
+        /// The HTTP status of the read surface's rejection, when the read
+        /// surface rejected. A 404 hedges the message: it can mean a
+        /// rejected token, but also a URL with no index at all.
+        read_status: Option<u16>,
         /// Whether the read surface answered with a `WWW-Authenticate:
         /// Basic` challenge: the index wants username/password, not a
         /// bearer token, and the message routes the user to
@@ -120,20 +124,45 @@ pub enum AuthCommandError {
 fn validation_rejected_message(
     index: &str,
     rejected: &[ProbeSurface],
+    read_status: Option<u16>,
     basic_challenge: bool,
 ) -> String {
-    let surfaces: Vec<&str> = rejected
-        .iter()
-        .map(|surface| match surface {
-            ProbeSurface::Read => "the index read surface (`index.json`)",
-            ProbeSurface::Api => "the index API (`v1/whoami`)",
-        })
-        .collect();
-    let mut message = format!(
-        "credential for `{index}` was rejected by {} and accepted by no surface; \
-         nothing was stored",
-        surfaces.join(" and ")
-    );
+    let mut message = match rejected {
+        // Exactly one surface rejected: plain wording naming the endpoint
+        // and its answer. A read-surface 404 is hedged: it can also mean
+        // there is simply no index at this URL, so the token must not be
+        // blamed outright.
+        [surface] => {
+            let (endpoint, status) = match surface {
+                ProbeSurface::Read => ("index.json", read_status.unwrap_or(401)),
+                // The API surface rejects only on 401.
+                ProbeSurface::Api => ("v1/whoami", 401),
+            };
+            let hedge = if *surface == ProbeSurface::Read && status == 404 {
+                ", or no index exists at this URL"
+            } else {
+                ""
+            };
+            format!(
+                "the index rejected the token for `{index}` \
+                 (`{endpoint}` answered HTTP {status}){hedge}; nothing was stored"
+            )
+        }
+        _ => {
+            let surfaces: Vec<&str> = rejected
+                .iter()
+                .map(|surface| match surface {
+                    ProbeSurface::Read => "the index read surface (`index.json`)",
+                    ProbeSurface::Api => "the index API (`v1/whoami`)",
+                })
+                .collect();
+            format!(
+                "credential for `{index}` was rejected by {} and accepted by no surface; \
+                 nothing was stored",
+                surfaces.join(" and ")
+            )
+        }
+    };
     if basic_challenge {
         message.push_str(
             "\nthis index uses username/password (HTTP basic) authentication; configure \
@@ -554,6 +583,8 @@ fn parse_whoami_identity(
 struct ProbeOutcome {
     accepted: Vec<ProbeSurface>,
     rejected: Vec<ProbeSurface>,
+    /// The HTTP status of the read surface's rejection, when it rejected.
+    read_status: Option<u16>,
     basic_challenge: bool,
     identity: Option<WhoamiIdentity>,
 }
@@ -713,6 +744,7 @@ fn probe_read_surface(
         outcome.accepted.push(surface);
     } else if forced_status.is_client_error() {
         outcome.rejected.push(surface);
+        outcome.read_status = Some(forced_status.as_u16());
         outcome.basic_challenge = basic_challenge || offers_basic_challenge(forced.headers());
     } else {
         notify(AuthLoginNotice::ProbeUnreachable {
@@ -779,9 +811,10 @@ fn probe_api_surface(
 }
 
 /// Fetch discovery for a login (design/credential-storage.md sections 5,
-/// 8): an unauthenticated baseline, then, on any 4xx answer, one
-/// forced-bearer retry carrying the in-hand secret, mirroring the probe
-/// mechanism. The forced retry is what distinguishes a hidden discovery
+/// 8): an unauthenticated baseline, then, on any 4xx answer except 429,
+/// one forced-bearer retry carrying the in-hand secret, mirroring the
+/// probe mechanism (including its 429 carve-out: a throttling host gets
+/// no retry and no secret). The forced retry is what distinguishes a hidden discovery
 /// document from an absent one: a fully private index answers 401 (or, in
 /// GitLab's style, 404) to the unauthenticated fetch whether or not a
 /// document exists, and only the credentialed answer settles it, letting
@@ -810,12 +843,15 @@ fn fetch_login_endpoints(
     )) {
         Ok(endpoints) => Some(endpoints),
         Err(DiscoveryError::Fetch(HttpFetchError::BadHttpStatus { status, .. }))
-            if status.is_client_error() =>
+            if status.is_client_error() && status != reqwest::StatusCode::TOO_MANY_REQUESTS =>
         {
             forced_discovery_fetch(location, secret, runtime, notify)
         }
-        // Network failures, 5xx, and a present-but-invalid document are
-        // not "possibly hidden from me" signals: no secret is sent.
+        // Network failures, 5xx, a 429 baseline (the retry would spend
+        // more of the rate budget and send the secret to a throttling
+        // host, mirroring the probes' 429 carve-out), and a
+        // present-but-invalid document are not "possibly hidden from me"
+        // signals: no secret is sent.
         Err(err) => {
             notify(AuthLoginNotice::DiscoveryUnreachable {
                 error: err.to_string(),
@@ -954,7 +990,8 @@ fn run_validation_probes(
 /// Discovery is fetched best-effort to resolve `index_root` and
 /// `api_root` for glob scoping: an unauthenticated baseline, retried once
 /// with the in-hand secret as a forced bearer when the baseline answers
-/// any 4xx, so a fully private index can still advertise its topology
+/// any 4xx except 429, so a fully private index can still advertise its
+/// topology
 /// ([`fetch_login_endpoints`]); only the backend-absent path stays
 /// strictly unauthenticated, since its secret is discarded. When no usable
 /// document results, the credential falls back to the URL-derived glob
@@ -1066,6 +1103,7 @@ pub fn do_auth_login<S: CredentialStore>(
         return Err(AuthCommandError::ValidationRejected {
             index: key,
             rejected: outcome.rejected,
+            read_status: outcome.read_status,
             basic_challenge: outcome.basic_challenge,
         });
     }

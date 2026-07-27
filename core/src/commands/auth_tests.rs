@@ -1134,10 +1134,26 @@ mod login {
             AuthCommandError::ValidationRejected {
                 index,
                 rejected,
+                read_status: Some(401),
                 basic_challenge: false,
             } if index == &root && rejected == &vec![ProbeSurface::Read]
         ));
-        assert!(err.to_string().contains("nothing was stored"));
+        // Single rejecting surface: the plain wording names the endpoint
+        // and its answer.
+        let message = err.to_string();
+        assert!(
+            message.contains("the index rejected the token"),
+            "was: {message}"
+        );
+        assert!(
+            message.contains("`index.json` answered HTTP 401"),
+            "was: {message}"
+        );
+        assert!(message.contains("nothing was stored"), "was: {message}");
+        assert!(
+            !message.contains("no index exists"),
+            "a 401 must not be hedged: {message}"
+        );
         assert!(
             !notices
                 .iter()
@@ -1203,11 +1219,59 @@ mod login {
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
+        let err = outcome.unwrap_err();
         assert!(matches!(
-            outcome.unwrap_err(),
+            &err,
             AuthCommandError::ValidationRejected { rejected, .. }
-                if rejected == vec![ProbeSurface::Api]
+                if rejected == &vec![ProbeSurface::Api]
         ));
+        let message = err.to_string();
+        assert!(
+            message.contains("the index rejected the token"),
+            "was: {message}"
+        );
+        assert!(
+            message.contains("`v1/whoami` answered HTTP 401"),
+            "was: {message}"
+        );
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn validated_login_refusal_hedges_a_read_404() {
+        // A valid token against a URL with no index.json at all: the read
+        // baseline and forced retry both 404. The refusal must not blame
+        // only the credential; the message allows the no-index reading.
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let _index = server
+            .mock("GET", "/index.json")
+            .with_status(404)
+            .expect(2)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+
+        let err = outcome.unwrap_err();
+        assert!(matches!(
+            &err,
+            AuthCommandError::ValidationRejected {
+                rejected,
+                read_status: Some(404),
+                ..
+            } if rejected == &vec![ProbeSurface::Read]
+        ));
+        let message = err.to_string();
+        assert!(
+            message.contains("`index.json` answered HTTP 404"),
+            "was: {message}"
+        );
+        assert!(
+            message.contains("or no index exists at this URL"),
+            "was: {message}"
+        );
+        assert!(message.contains("nothing was stored"), "was: {message}");
         assert!(store.list().unwrap().is_empty());
     }
 
@@ -1568,10 +1632,45 @@ mod login {
         );
     }
 
+    #[test]
+    fn validated_login_refusal_enumerates_both_rejecting_surfaces() {
+        // Two rejecting surfaces keep the enumeration form (and no
+        // hedge: the API's 401 is authoritative about the credential).
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
+        let (_unauth, _forced) = private_index_json(&mut server, "tok", 404);
+        let _whoami = server
+            .mock("GET", "/api/v1/whoami")
+            .with_status(401)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+
+        let err = outcome.unwrap_err();
+        assert!(matches!(
+            &err,
+            AuthCommandError::ValidationRejected { rejected, .. }
+                if rejected == &vec![ProbeSurface::Read, ProbeSurface::Api]
+        ));
+        let message = err.to_string();
+        assert!(
+            message.contains(
+                "was rejected by the index read surface (`index.json`) \
+                 and the index API (`v1/whoami`) and accepted by no surface"
+            ),
+            "was: {message}"
+        );
+        assert!(!message.contains("no index exists"), "was: {message}");
+        assert!(store.list().unwrap().is_empty());
+    }
+
     // Authenticated discovery (design/credential-storage.md section 5):
     // the login discovery fetch is an unauth baseline retried once with a
-    // forced bearer on any 4xx (scoping is knowing the topology, not
-    // validating the credential, so its outcome never refuses a login).
+    // forced bearer on any 4xx except 429 (scoping is knowing the
+    // topology, not validating the credential, so its outcome never
+    // refuses a login).
 
     #[test]
     fn validated_login_uses_authed_discovery_on_a_private_index() {
@@ -1817,6 +1916,41 @@ mod login {
         );
         baseline.assert();
         forced.assert();
+    }
+
+    #[test]
+    fn validated_login_sends_no_credential_when_the_baseline_is_rate_limited() {
+        // A 429 discovery baseline gets no forced retry, mirroring the
+        // probes' 429 carve-out: the retry would spend more of the rate
+        // budget and hand the secret to a throttling host. Discovery
+        // degrades to the URL-derived glob with the unreachable notice.
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let baseline = server
+            .mock("GET", "/sysand-index-config.json")
+            .match_header("authorization", mockito::Matcher::Missing)
+            .with_status(429)
+            .expect(1)
+            .create();
+        let forced = no_authed_config_mock(&mut server);
+        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+
+        let (_, globs, validated) = stored_validated(outcome);
+        assert!(validated.is_empty());
+        assert_eq!(globs, vec![format!("{}**", globset::escape(&root))]);
+        assert!(
+            notices.iter().any(|n| matches!(
+                n,
+                AuthLoginNotice::DiscoveryUnreachable { error } if error.contains("429")
+            )),
+            "expected a 429 discovery notice, got {notices:?}"
+        );
+        baseline.assert();
+        forced.assert();
+        assert_eq!(store.list().unwrap()[0].secret, "tok");
     }
 
     #[test]
