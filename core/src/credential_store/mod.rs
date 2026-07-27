@@ -186,19 +186,22 @@ pub fn serialize_blob(blob: &CredentialBlob) -> Result<String, CredentialStoreEr
 /// trailing slash, and the fragment dropped. URLs carrying a query string
 /// or userinfo are rejected: they do not describe an index root.
 pub fn normalize_index_key(raw: &str) -> Result<String, CredentialStoreError> {
-    let mut url = Url::parse(raw)
-        .map_err(|err| CredentialStoreError::InvalidIndexUrl(format!("`{raw}`: {err}")))?;
+    let mut url = Url::parse(raw).map_err(|err| {
+        CredentialStoreError::InvalidIndexUrl(format!("`{}`: {err}", redact_userinfo(raw)))
+    })?;
     match url.scheme() {
         "http" | "https" => {}
         other => {
             return Err(CredentialStoreError::InvalidIndexUrl(format!(
-                "`{raw}`: unsupported scheme `{other}`; only http(s) indexes store credentials"
+                "`{}`: unsupported scheme `{other}`; only http(s) indexes store credentials",
+                redact_userinfo(raw)
             )));
         }
     }
     if !url.username().is_empty() || url.password().is_some() {
         return Err(CredentialStoreError::InvalidIndexUrl(format!(
-            "`{raw}`: must not embed userinfo credentials"
+            "`{}`: must not embed userinfo credentials",
+            redact_userinfo(raw)
         )));
     }
     if url.query().is_some() {
@@ -212,6 +215,27 @@ pub fn normalize_index_key(raw: &str) -> Result<String, CredentialStoreError> {
         url.set_path(&path);
     }
     Ok(url.into())
+}
+
+/// Render a possibly malformed URL for an error message with any userinfo
+/// replaced by `<redacted>`, so an embedded password never reaches stderr
+/// or CI logs. String-based on purpose: it must work for inputs
+/// `Url::parse` rejected.
+fn redact_userinfo(raw: &str) -> std::borrow::Cow<'_, str> {
+    // The authority runs from after any scheme separator to the first
+    // `/`, `?`, or `#`; userinfo is everything up to the last `@` in it.
+    let authority_start = raw.find("://").map_or(0, |idx| idx + 3);
+    let authority_end = raw[authority_start..]
+        .find(['/', '?', '#'])
+        .map_or(raw.len(), |idx| authority_start + idx);
+    match raw[authority_start..authority_end].rfind('@') {
+        Some(at) => std::borrow::Cow::Owned(format!(
+            "{}<redacted>@{}",
+            &raw[..authority_start],
+            &raw[authority_start + at + 1..]
+        )),
+        None => std::borrow::Cow::Borrowed(raw),
+    }
 }
 
 /// A persistent store of credential records.

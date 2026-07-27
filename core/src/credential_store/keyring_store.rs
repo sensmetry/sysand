@@ -5,8 +5,9 @@
 //!
 //! All persisted credentials live in one keyring entry (service `sysand`,
 //! account `credentials`) holding the versioned JSON blob from the parent
-//! module. Read-modify-write is guarded by a cross-process advisory OS
-//! file lock (never an existence-based lock file), with a bounded wait.
+//! module. Read-modify-write is guarded by an exclusive cross-process
+//! advisory OS file lock (never an existence-based lock file) and reads by
+//! its shared counterpart, both with a bounded wait.
 //!
 //! The blob handling is generic over [`BlobBackend`] so the lock,
 //! fail-closed, and size-limit logic is testable without a real OS
@@ -153,22 +154,30 @@ pub(crate) fn check_blob_size(byte_len: usize, limit: usize) -> Result<(), Crede
 
 /// Per-user path for the credential store lock file.
 ///
-/// Unix: `XDG_RUNTIME_DIR`, then `XDG_STATE_HOME` (via `dirs`), then the
-/// local data dir (covers macOS, where the XDG dirs are unset), falling
-/// back to a dotdir in the home directory. Windows: `%LOCALAPPDATA%`,
-/// falling back to the home directory. Never a world-writable shared path.
+/// Linux: `XDG_STATE_HOME` (via `dirs`, defaulting to `~/.local/state`),
+/// then the local data dir. macOS and Windows: the local data dir (the
+/// state dir is unset there). Both fall back to a dotdir in the home
+/// directory. Never a world-writable shared path, and deliberately never
+/// the session-scoped `XDG_RUNTIME_DIR`: it is often unset for cron,
+/// systemd, and container processes, so two same-user processes with
+/// different environments could lock different files while
+/// read-modify-writing the same keyring entry, silently losing a record.
 pub fn default_lock_path() -> Result<PathBuf, CredentialStoreError> {
-    #[cfg(windows)]
-    let base = dirs::data_local_dir();
-    #[cfg(not(windows))]
-    let base = dirs::runtime_dir()
-        .or_else(dirs::state_dir)
-        .or_else(dirs::data_local_dir);
+    lock_path_from_dirs(dirs::state_dir(), dirs::data_local_dir(), dirs::home_dir())
+}
 
-    if let Some(base) = base {
+/// Pure path selection behind [`default_lock_path`], taking the candidate
+/// directories as arguments so the precedence is testable without touching
+/// the process environment.
+fn lock_path_from_dirs(
+    state_dir: Option<PathBuf>,
+    data_local_dir: Option<PathBuf>,
+    home_dir: Option<PathBuf>,
+) -> Result<PathBuf, CredentialStoreError> {
+    if let Some(base) = state_dir.or(data_local_dir) {
         return Ok(base.join("sysand").join("credentials.lock"));
     }
-    match dirs::home_dir() {
+    match home_dir {
         Some(home) => Ok(home.join(".sysand").join("credentials.lock")),
         None => Err(CredentialStoreError::Lock(io::Error::new(
             io::ErrorKind::NotFound,
@@ -256,16 +265,23 @@ impl<B: BlobBackend> LockedBlobStore<B> {
         Ok(options.open(&self.lock_path)?)
     }
 
-    /// Run `body` under the exclusive cross-process lock, waiting at most
-    /// the configured timeout.
+    /// Run `body` under the cross-process lock, waiting at most the
+    /// configured timeout. Read-only operations take the shared lock so
+    /// concurrent readers do not serialize; read-modify-write takes the
+    /// exclusive lock.
     fn with_lock<T>(
         &self,
+        mode: LockMode,
         body: impl FnOnce(&B) -> Result<T, CredentialStoreError>,
     ) -> Result<T, CredentialStoreError> {
         let file = self.open_lock_file()?;
         let deadline = Instant::now() + self.lock_timeout;
         loop {
-            match file.try_lock() {
+            let attempt = match mode {
+                LockMode::Shared => file.try_lock_shared(),
+                LockMode::Exclusive => file.try_lock(),
+            };
+            match attempt {
                 Ok(()) => {
                     let result = body(&self.backend);
                     // Release explicitly (it would also unlock on drop) so
@@ -285,6 +301,14 @@ impl<B: BlobBackend> LockedBlobStore<B> {
             }
         }
     }
+}
+
+/// Which cross-process lock [`LockedBlobStore::with_lock`] takes: shared
+/// for read-only operations, exclusive for read-modify-write.
+#[derive(Clone, Copy)]
+enum LockMode {
+    Shared,
+    Exclusive,
 }
 
 /// Create a directory chain, with the final directory private (0700) on
@@ -330,12 +354,14 @@ fn store_blob<B: BlobBackend>(
 
 impl<B: BlobBackend> CredentialStore for LockedBlobStore<B> {
     fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
-        self.with_lock(|backend| Ok(load_blob(backend)?.credentials))
+        self.with_lock(LockMode::Shared, |backend| {
+            Ok(load_blob(backend)?.credentials)
+        })
     }
 
     fn upsert(&mut self, record: CredentialRecord) -> Result<(), CredentialStoreError> {
         let size_limit = self.size_limit;
-        self.with_lock(|backend| {
+        self.with_lock(LockMode::Exclusive, |backend| {
             let mut blob = load_blob(backend)?;
             upsert_record(&mut blob.credentials, record);
             store_blob(backend, &blob, size_limit)
@@ -344,7 +370,7 @@ impl<B: BlobBackend> CredentialStore for LockedBlobStore<B> {
 
     fn remove(&mut self, key: &str) -> Result<bool, CredentialStoreError> {
         let size_limit = self.size_limit;
-        self.with_lock(|backend| {
+        self.with_lock(LockMode::Exclusive, |backend| {
             let mut blob = load_blob(backend)?;
             let removed = remove_record(&mut blob.credentials, key);
             if removed {

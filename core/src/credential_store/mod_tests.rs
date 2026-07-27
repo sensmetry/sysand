@@ -242,6 +242,30 @@ fn normalize_rejects_query_and_userinfo() {
 }
 
 #[test]
+fn normalize_errors_never_echo_an_embedded_password() {
+    // One URL per error branch that can carry userinfo: the userinfo
+    // rejection, the scheme rejection, and the parse failure (a space in
+    // the host). These messages reach stderr and CI logs, so the password
+    // must never appear in them.
+    for url in [
+        "https://user:hunter2@example.com/idx",
+        "ftp://user:hunter2@example.com/idx",
+        "https://user:hunter2@exa mple.com/idx",
+    ] {
+        let err = normalize_index_key(url).unwrap_err();
+        let message = err.to_string();
+        assert!(
+            !message.contains("hunter2") && !message.contains("user:"),
+            "url {url:?} leaked userinfo: {message}"
+        );
+        assert!(
+            message.contains("<redacted>@"),
+            "url {url:?} must show the redaction marker: {message}"
+        );
+    }
+}
+
+#[test]
 fn in_memory_store_upsert_list_remove() {
     let mut store = InMemoryCredentialStore::new();
     assert!(store.list().unwrap().is_empty());

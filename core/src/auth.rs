@@ -808,26 +808,25 @@ where
 
     /// Synchronous variant of [`Self::stored_bearer_map`] for callers
     /// outside the async runtime (publish's credential selection). Shares
-    /// the same once-per-process cache.
-    pub fn stored_bearer_map_blocking(&self) -> &GlobMap<StoredBearerAuth> {
+    /// the same once-per-process cache; returns an owned map (cheap: the
+    /// records hold `Arc`s and small strings, and publish calls this once).
+    pub fn stored_bearer_map_blocking(&self) -> GlobMap<StoredBearerAuth> {
         if let Some(map) = self.cache.get() {
-            return map;
+            return map.clone();
         }
         let map = match &self.store {
             None => GlobMap::default(),
             Some(store) => read_stored_bearer_map(store.as_ref()),
         };
-        // Safe because this never races the async accessor on the current
-        // flow: publish resolves its bearer only after discovery's
-        // `block_on` has returned, and the runtime is current-thread, so no
-        // async `get_or_init` is in flight here. `set` therefore either
-        // succeeds or reports the cell already initialized, and `get` is
-        // populated. If this accessor is ever called concurrently with the
-        // async one (e.g. on a multi-thread runtime), revisit: `set` can
-        // return `InitializingError` with the cell still empty, which would
-        // trip the `expect` below.
-        let _ = self.cache.set(map);
-        self.cache.get().expect("cache was just initialized")
+        // On the current flow this never races the async accessor: publish
+        // resolves its bearer only after discovery's `block_on` has
+        // returned, and the runtime is current-thread, so `set` seeds the
+        // cache for later callers. Should an async `get_or_init` ever be
+        // in flight concurrently (e.g. on a multi-thread runtime), `set`
+        // fails and the locally read map is returned as-is: the cost is
+        // one extra store read, never a panic.
+        let _ = self.cache.set(map.clone());
+        map
     }
 }
 

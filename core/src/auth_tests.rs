@@ -697,6 +697,84 @@ fn stored_bearer_map_blocking_shares_the_request_path_cache() {
     mock.assert();
 }
 
+#[test]
+fn stored_bearer_map_blocking_reuses_an_async_initialized_cache() {
+    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+        &["https://other.example.com/**".to_string()],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+
+    // The async accessor initializes the cache first...
+    runtime.block_on(policy.stored_bearer_map());
+    // ...and the synchronous accessor reuses it: still one store read.
+    let map = policy.stored_bearer_map_blocking();
+    assert!(matches!(
+        map.lookup("https://other.example.com/upload"),
+        crate::auth::GlobMapResult::Found(_, _)
+    ));
+    assert_eq!(lists.load(Ordering::SeqCst), 1);
+}
+
+// Debug redaction: the hand-written `Debug` impls exist so a secret can
+// never reach logs via an accidental `{:?}`; pin that here.
+
+#[test]
+fn debug_of_secret_bearing_leaves_shows_the_marker_not_the_secret() {
+    let bearer = crate::auth::ForceBearerAuth::new("bearer-secret");
+    let rendered = format!("{bearer:?}");
+    assert!(rendered.contains("<redacted>"), "rendered: {rendered}");
+    assert!(!rendered.contains("bearer-secret"), "rendered: {rendered}");
+
+    let basic = crate::auth::ForceHTTPBasicAuth {
+        username: "alice".into(),
+        password: "basic-secret".into(),
+    };
+    let rendered = format!("{basic:?}");
+    assert!(rendered.contains("alice"), "rendered: {rendered}");
+    assert!(rendered.contains("<redacted>"), "rendered: {rendered}");
+    assert!(!rendered.contains("basic-secret"), "rendered: {rendered}");
+}
+
+#[test]
+fn debug_of_wrappers_and_composed_policy_never_renders_secrets() {
+    let env = crate::auth::EnvBearerAuth {
+        auth: crate::auth::ForceBearerAuth::new("env-secret"),
+        label: Some("TEAMIDX".to_string()),
+    };
+    let rendered = format!("{env:?}");
+    assert!(rendered.contains("TEAMIDX"), "rendered: {rendered}");
+    assert!(!rendered.contains("env-secret"), "rendered: {rendered}");
+
+    let stored = crate::auth::StoredBearerAuth::new(
+        crate::auth::ForceBearerAuth::new("stored-secret"),
+        "https://example.com/".to_string(),
+        None,
+    );
+    let rendered = format!("{stored:?}");
+    assert!(
+        rendered.contains("https://example.com/"),
+        "rendered: {rendered}"
+    );
+    assert!(!rendered.contains("stored-secret"), "rendered: {rendered}");
+
+    // The composed policy: env credentials in `inner`, stored credentials
+    // in the populated cache. Neither secret may surface.
+    let mut env_builder = StandardHTTPAuthenticationBuilder::new();
+    env_builder.add_bearer_auth("https://bearer.example.com/**", "env-secret");
+    let (store, _lists) = CountingStore::with_records(vec![bearer_record(
+        &["https://other.example.com/**".to_string()],
+        "stored-secret",
+    )]);
+    let policy = CredentialStoreAuthentication::new(env_builder.build().unwrap(), store);
+    let _ = policy.stored_bearer_map_blocking();
+    let rendered = format!("{policy:?}");
+    assert!(rendered.contains("<redacted>"), "rendered: {rendered}");
+    assert!(!rendered.contains("env-secret"), "rendered: {rendered}");
+    assert!(!rendered.contains("stored-secret"), "rendered: {rendered}");
+}
+
 // Reactive expiry hint (design/credential-storage.md section 9).
 
 use chrono::{Duration, Utc};
@@ -750,16 +828,17 @@ fn stored_bearer_expiry_warning_skips_unexpired_and_unknown_expiry() {
 }
 
 /// Look the stored bearer for `url` up in the policy's cached map, to
-/// observe the per-record expiry-warned flag after driving requests.
-fn stored_bearer_for<'a, Inner, S>(
-    policy: &'a CredentialStoreAuthentication<Inner, S>,
+/// observe the per-record expiry-warned flag after driving requests. The
+/// clone shares the record's `expiry_warned` flag (it is an `Arc`).
+fn stored_bearer_for<Inner, S>(
+    policy: &CredentialStoreAuthentication<Inner, S>,
     url: &str,
-) -> &'a StoredBearerAuth
+) -> StoredBearerAuth
 where
     S: CredentialStore + Send + Sync + 'static,
 {
     match policy.stored_bearer_map_blocking().lookup(url) {
-        crate::auth::GlobMapResult::Found(_, bearer) => bearer,
+        crate::auth::GlobMapResult::Found(_, bearer) => bearer.clone(),
         other => panic!("expected a stored bearer for `{url}`, got {other:?}"),
     }
 }

@@ -9,8 +9,11 @@ use std::time::Duration;
 
 use camino_tempfile::tempdir;
 
+use std::path::PathBuf;
+
 use super::{
-    BlobBackend, LockedBlobStore, WINDOWS_MAX_BLOB_BYTES, check_blob_size, utf16_byte_len,
+    BlobBackend, LockedBlobStore, WINDOWS_MAX_BLOB_BYTES, check_blob_size, lock_path_from_dirs,
+    utf16_byte_len,
 };
 use crate::credential_store::{
     CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
@@ -166,6 +169,123 @@ fn lock_wait_is_bounded() {
 
     // Once released, the operation succeeds.
     store.upsert(record("https://a.example/", "tok")).unwrap();
+}
+
+#[test]
+fn lock_path_prefers_state_then_data_local_then_home() {
+    // Pure precedence check: no process-env mutation. The session-scoped
+    // XDG_RUNTIME_DIR is deliberately not a candidate (two same-user
+    // processes with different environments must lock the same file).
+    let state = Some(PathBuf::from("/xdg/state"));
+    let data_local = Some(PathBuf::from("/xdg/data-local"));
+    let home = Some(PathBuf::from("/home/user"));
+
+    assert_eq!(
+        lock_path_from_dirs(state.clone(), data_local.clone(), home.clone()).unwrap(),
+        PathBuf::from("/xdg/state/sysand/credentials.lock")
+    );
+    assert_eq!(
+        lock_path_from_dirs(None, data_local, home.clone()).unwrap(),
+        PathBuf::from("/xdg/data-local/sysand/credentials.lock")
+    );
+    assert_eq!(
+        lock_path_from_dirs(None, None, home).unwrap(),
+        PathBuf::from("/home/user/.sysand/credentials.lock")
+    );
+    assert!(matches!(
+        lock_path_from_dirs(None, None, None).unwrap_err(),
+        CredentialStoreError::Lock(_)
+    ));
+}
+
+#[test]
+fn shared_lock_lets_reads_through_but_blocks_writes() {
+    let dir = tempdir().unwrap();
+    let lock_path: std::path::PathBuf = dir.path().join("credentials.lock").into();
+    let mut store = LockedBlobStore::new(MemoryBackend::default(), lock_path.clone())
+        .with_lock_timing(Duration::from_millis(100), Duration::from_millis(10));
+    store.upsert(record("https://a.example/", "tok")).unwrap();
+
+    // Hold a shared lock on a separate file descriptor, like a concurrent
+    // `list` would.
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .unwrap();
+    file.try_lock_shared().unwrap();
+
+    // Reads take the shared lock and proceed alongside another reader...
+    assert_eq!(store.list().unwrap().len(), 1);
+    // ...while read-modify-write needs the exclusive lock and times out.
+    let err = store
+        .upsert(record("https://b.example/", "tok"))
+        .unwrap_err();
+    assert!(matches!(err, CredentialStoreError::LockTimeout { .. }));
+    file.unlock().unwrap();
+}
+
+#[test]
+fn exclusive_lock_blocks_reads() {
+    let dir = tempdir().unwrap();
+    let lock_path: std::path::PathBuf = dir.path().join("credentials.lock").into();
+    let store = LockedBlobStore::new(MemoryBackend::default(), lock_path.clone())
+        .with_lock_timing(Duration::from_millis(100), Duration::from_millis(10));
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .unwrap();
+    file.try_lock().unwrap();
+
+    // A writer holds the exclusive lock: the shared read must wait it out
+    // (bounded), never read a half-written store.
+    let err = store.list().unwrap_err();
+    assert!(matches!(err, CredentialStoreError::LockTimeout { .. }));
+    file.unlock().unwrap();
+    assert!(store.list().unwrap().is_empty());
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "musl")))]
+#[test]
+fn map_keyring_error_covers_the_taxonomy() {
+    use super::map_keyring_error;
+
+    // `PlatformFailure` (for example no Secret Service daemon) means "no
+    // usable backend": callers may fall back to `SYSAND_CRED_*`.
+    assert!(matches!(
+        map_keyring_error(keyring::Error::PlatformFailure("no daemon".into())),
+        CredentialStoreError::BackendAbsent { .. }
+    ));
+    // A present-but-locked/denied backend must be surfaced.
+    assert!(matches!(
+        map_keyring_error(keyring::Error::NoStorageAccess("locked".into())),
+        CredentialStoreError::BackendDenied { .. }
+    ));
+    // The platform size backstop maps to the same error as the size gate.
+    assert!(matches!(
+        map_keyring_error(keyring::Error::TooLong("secret".to_string(), 2560)),
+        CredentialStoreError::BlobTooLarge
+    ));
+    // Corrupt or ambiguous entries read as an unreadable store.
+    assert!(matches!(
+        map_keyring_error(keyring::Error::BadEncoding(vec![0xff])),
+        CredentialStoreError::Unreadable
+    ));
+    assert!(matches!(
+        map_keyring_error(keyring::Error::Ambiguous(Vec::new())),
+        CredentialStoreError::Unreadable
+    ));
+    // Anything else is surfaced as a denied backend, never a fallback.
+    assert!(matches!(
+        map_keyring_error(keyring::Error::NoDefaultStore),
+        CredentialStoreError::BackendDenied { .. }
+    ));
 }
 
 #[test]
