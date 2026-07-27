@@ -76,6 +76,62 @@ fn surface_name(surface: ProbeSurface) -> &'static str {
     }
 }
 
+/// Render a login progress notice. `ReplacingExisting` is printed (it
+/// precedes the store write and must survive `--quiet`); the rest are
+/// warnings. `index_key` names the login for the basic-auth hint.
+fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
+    match notice {
+        AuthLoginNotice::ReplacingExisting { key } => {
+            let header = sysand_core::style::get_style_config().header;
+            println!(
+                "{header}{:>12}{header:#} existing credential for `{key}`",
+                "Replacing"
+            );
+        }
+        AuthLoginNotice::DiscoveryUnreachable { error } => log::warn!(
+            "could not read the index configuration ({error}); \
+                 scoping the credential to the URL-derived pattern"
+        ),
+        AuthLoginNotice::TemplateIndexRootSkipped { template } => log::warn!(
+            "discovery advertises a templated index_root (`{template}`) that \
+                 cannot be covered safely; no pattern was derived for it"
+        ),
+        AuthLoginNotice::ProbeRedirected { surface, target } => log::warn!(
+            "the {} probe was redirected to `{target}`; probes do not follow \
+                 redirects, so the credential was not validated against that surface",
+            surface_name(surface)
+        ),
+        AuthLoginNotice::ProbeUnreachable { surface, error } => log::warn!(
+            "could not probe the {} ({error}); the credential was not \
+                 validated against it",
+            surface_name(surface)
+        ),
+        AuthLoginNotice::ProbeRateLimited { surface } => log::warn!(
+            "the {} probe was rate limited (HTTP 429); the credential was \
+                 not validated against it",
+            surface_name(surface)
+        ),
+        AuthLoginNotice::SurfaceRejected {
+            surface,
+            basic_challenge,
+        } => {
+            log::warn!(
+                "the {} rejected the credential; it was stored anyway because \
+                     another surface accepted it",
+                surface_name(surface)
+            );
+            if basic_challenge {
+                let stem = cred_env_var_stem(index_key);
+                log::warn!(
+                    "this index uses username/password (HTTP basic) authentication; \
+                         configure `SYSAND_CRED_{stem}_BASIC_USER` / \
+                         `SYSAND_CRED_{stem}_BASIC_PASS` environment variables instead"
+                );
+            }
+        }
+    }
+}
+
 pub fn command_auth_login(
     index_url: Option<String>,
     token_stdin: bool,
@@ -113,57 +169,7 @@ pub fn command_auth_login(
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
     let index_key = key.clone();
     let outcome = do_auth_login(&mut store, &key, secret, client, runtime, |notice| {
-        match notice {
-            // Printed before the store write happens.
-            AuthLoginNotice::ReplacingExisting { key } => {
-                let header = sysand_core::style::get_style_config().header;
-                println!(
-                    "{header}{:>12}{header:#} existing credential for `{key}`",
-                    "Replacing"
-                );
-            }
-            AuthLoginNotice::DiscoveryUnreachable { error } => log::warn!(
-                "could not read the index configuration ({error}); \
-                     scoping the credential to the URL-derived pattern"
-            ),
-            AuthLoginNotice::TemplateIndexRootSkipped { template } => log::warn!(
-                "discovery advertises a templated index_root (`{template}`) that \
-                     cannot be covered safely; no pattern was derived for it"
-            ),
-            AuthLoginNotice::ProbeRedirected { surface, target } => log::warn!(
-                "the {} probe was redirected to `{target}`; probes do not follow \
-                     redirects, so the credential was not validated against that surface",
-                surface_name(surface)
-            ),
-            AuthLoginNotice::ProbeUnreachable { surface, error } => log::warn!(
-                "could not probe the {} ({error}); the credential was not \
-                     validated against it",
-                surface_name(surface)
-            ),
-            AuthLoginNotice::ProbeRateLimited { surface } => log::warn!(
-                "the {} probe was rate limited (HTTP 429); the credential was \
-                     not validated against it",
-                surface_name(surface)
-            ),
-            AuthLoginNotice::SurfaceRejected {
-                surface,
-                basic_challenge,
-            } => {
-                log::warn!(
-                    "the {} rejected the credential; it was stored anyway because \
-                         another surface accepted it",
-                    surface_name(surface)
-                );
-                if basic_challenge {
-                    let stem = cred_env_var_stem(&index_key);
-                    log::warn!(
-                        "this index uses username/password (HTTP basic) authentication; \
-                             configure `SYSAND_CRED_{stem}_BASIC_USER` / \
-                             `SYSAND_CRED_{stem}_BASIC_PASS` environment variables instead"
-                    );
-                }
-            }
-        }
+        render_login_notice(notice, &index_key);
     });
     match outcome {
         Ok(AuthLoginOutcome::Stored {
@@ -471,33 +477,20 @@ fn validation_claim(validated: &[String]) -> String {
 }
 
 /// Render the unified status view: stored entries tagged `Stored` (key in
-/// the exact form `sysand auth logout <key>` accepts), env entries tagged
-/// `Env`. Never any secret.
+/// the exact form `sysand auth logout <key>` accepts) and env entries
+/// tagged `Env`. Never any secret.
 ///
-/// The tags sit right-aligned in the CLI's 12-column gutter; the sublines
-/// of an entry keep their `label: value` form (unlike `auth whoami`, which
-/// puts each field's label in the gutter: here the fields are subordinate
-/// to a tagged entry, and the hierarchy would be lost) and are indented to
-/// the gutter like other multi-line log messages, with the sublabels
-/// dimmed so the values carry the visual weight. Multiple stored entries
-/// are separated by a blank line; each entry's header line carries its
-/// validation claim after the key, mirroring the `Env` lines' two-space
-/// label/pattern separation.
+/// A few non-obvious rules the code below relies on: entry sublines keep a
+/// `label: value` form (unlike `auth whoami`, which puts each label in the
+/// gutter); stored entries are separated by a blank line and carry their
+/// validation claim, plus a dim `(default index)` marker when they apply to
+/// the default index, on the header line. A source with nothing to show is
+/// omitted, and a single combined negative prints only when neither source
+/// has anything; the backend-unavailable note always prints.
 ///
-/// Entries that apply to the default index (which is what bare commands
-/// use) carry a dim `(default index)` annotation at the end of their
-/// header line, two spaces after the validation claim (stored) or the
-/// pattern (env).
-///
-/// A source with nothing to show is simply omitted; only when neither
-/// source has anything does a single combined negative print. The
-/// backend-unavailable note is information, not a negative, and always
-/// prints when the keyring backend is unusable.
-///
-/// Styling reuses the house tokens (`sysand_core::style`) and goes through
-/// `anstream::println`, which strips it on non-terminal stdout and under
-/// `NO_COLOR`, so piped output stays exactly the plain text the CLI tests
-/// assert on (the alignment spaces are content, the styling is not).
+/// Styling goes through `anstream::println`, which strips it on
+/// non-terminal stdout and under `NO_COLOR`, so piped output is exactly the
+/// plain text the CLI tests assert on (the alignment spaces are content).
 fn render_auth_status(status: &AuthStatus) {
     let style = sysand_core::style::get_style_config();
     let tag = style.header;

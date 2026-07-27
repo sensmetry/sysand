@@ -976,6 +976,31 @@ fn run_validation_probes(
 /// probe runs (no network is spent on a credential that cannot be
 /// stored), so the `SYSAND_CRED_*` guidance a no-keyring host prints
 /// always describes an unvalidated credential.
+///
+/// Best-effort discovery used only to scope the `SYSAND_CRED_*` guidance
+/// globs when the keyring backend is absent. It stays strictly
+/// unauthenticated (the secret is discarded on this path), and a discovery
+/// failure degrades to the URL-derived glob with a warning.
+fn guidance_globs(
+    client: &reqwest_middleware::ClientWithMiddleware,
+    location: &IndexLocation,
+    primary_root: &str,
+    runtime: &tokio::runtime::Runtime,
+    notify: &mut impl FnMut(AuthLoginNotice),
+) -> Vec<String> {
+    let endpoints =
+        match runtime.block_on(fetch_index_config(client, &Unauthenticated {}, location)) {
+            Ok(endpoints) => Some(endpoints),
+            Err(err) => {
+                notify(AuthLoginNotice::DiscoveryUnreachable {
+                    error: err.to_string(),
+                });
+                None
+            }
+        };
+    derive_credential_globs(primary_root, endpoints.as_ref(), notify)
+}
+
 pub fn do_auth_login<S: CredentialStore>(
     store: &mut S,
     index_url: &str,
@@ -1012,20 +1037,7 @@ pub fn do_auth_login<S: CredentialStore>(
     let records = match store.list() {
         Ok(records) => records,
         Err(CredentialStoreError::BackendAbsent { source }) => {
-            let endpoints = match runtime.block_on(fetch_index_config(
-                client,
-                &Unauthenticated {},
-                &location,
-            )) {
-                Ok(endpoints) => Some(endpoints),
-                Err(err) => {
-                    notify(AuthLoginNotice::DiscoveryUnreachable {
-                        error: err.to_string(),
-                    });
-                    None
-                }
-            };
-            let globs = derive_credential_globs(&primary_root, endpoints.as_ref(), &mut notify);
+            let globs = guidance_globs(client, &location, &primary_root, &runtime, &mut notify);
             return Ok(AuthLoginOutcome::BackendUnavailable {
                 key,
                 globs,
