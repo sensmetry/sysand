@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::collections::HashMap;
+use std::{collections::HashMap, slice};
 
 use fluent_uri::Iri;
 use indexmap::IndexMap;
@@ -13,7 +13,11 @@ use crate::{
         InterchangeProjectUsageRaw,
     },
     project::{ProjectRead, memory::InMemoryProject},
-    resolve::env::EnvResolver,
+    resolve::{
+        env::EnvResolver,
+        memory::{AcceptAll, MemoryResolver},
+        sequential::SequentialResolver,
+    },
 };
 
 fn trivial_memory_project(
@@ -50,6 +54,29 @@ fn trivial_memory_project(
         files: HashMap::default(),
         nominal_sources: vec![],
     }
+}
+
+fn memory_resolver(
+    structure: &[(&str, &[InMemoryProject])],
+) -> MemoryResolver<AcceptAll, InMemoryProject> {
+    MemoryResolver {
+        iri_predicate: AcceptAll {},
+        projects: structure
+            .iter()
+            .map(|(id, projs)| (Iri::parse(id.to_string()).unwrap(), projs.to_vec()))
+            .collect(),
+    }
+}
+
+/// The `(name, version)` pairs of all projects in a solution
+fn solution_projects<P: ProjectRead>(solution: &HashMap<Iri<String>, P>) -> Vec<(String, String)> {
+    solution
+        .values()
+        .map(|p| {
+            let info = p.get_info().unwrap().unwrap();
+            (info.name, info.version)
+        })
+        .collect()
 }
 
 fn simple_resolver_environment(
@@ -179,6 +206,86 @@ fn diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
         .get(Iri::parse("urn:kpar:diamond_selection_c")?.into())
         .unwrap();
     assert_eq!(install_c.version()?.unwrap(), "2.0.3");
+
+    Ok(())
+}
+
+/// Version resolution must fail if two incompatible versions of the same project are requested
+#[test]
+fn incompatible_versions_fail() {
+    let widget_v1 = trivial_memory_project("widget", "1.0.0", vec![]);
+    let widget_v2 = trivial_memory_project("widget", "2.0.0", vec![]);
+
+    let resolver = simple_resolver_environment(&[("urn:kpar:widget", &[widget_v1, widget_v2])]);
+
+    super::solve(
+        vec![
+            InterchangeProjectUsage::Resource {
+                resource: Iri::parse("urn:kpar:widget").unwrap().into(),
+                version_constraint: Some(semver::VersionReq::parse("=1.0.0").unwrap()),
+            },
+            InterchangeProjectUsage::Resource {
+                resource: Iri::parse("urn:kpar:widget").unwrap().into(),
+                version_constraint: Some(semver::VersionReq::parse("=2.0.0").unwrap()),
+            },
+        ],
+        resolver,
+    )
+    .unwrap_err();
+}
+
+/// Same as previous test, but for indirect dependencies
+#[test]
+fn incompatible_versions_fail_transitive() {
+    let app_a = trivial_memory_project("app_a", "1.0.0", vec![("urn:kpar:widget", Some("=1.0.0"))]);
+    let app_b = trivial_memory_project("app_b", "1.0.0", vec![("urn:kpar:widget", Some("=2.0.0"))]);
+    let widget_v1 = trivial_memory_project("widget", "1.0.0", vec![]);
+    let widget_v2 = trivial_memory_project("widget", "2.0.0", vec![]);
+
+    let resolver = simple_resolver_environment(&[
+        ("urn:kpar:app_a", &[app_a]),
+        ("urn:kpar:app_b", &[app_b]),
+        ("urn:kpar:widget", &[widget_v1, widget_v2]),
+    ]);
+
+    super::solve(
+        vec![
+            InterchangeProjectUsage::Resource {
+                resource: Iri::parse("urn:kpar:app_a").unwrap().into(),
+                version_constraint: None,
+            },
+            InterchangeProjectUsage::Resource {
+                resource: Iri::parse("urn:kpar:app_b").unwrap().into(),
+                version_constraint: None,
+            },
+        ],
+        resolver,
+    )
+    .unwrap_err();
+}
+
+/// When the same version of a project is available from several
+/// storages, the resolved dependency tree contains it exactly once
+#[test]
+fn single_version_single_project() -> Result<(), Box<dyn std::error::Error>> {
+    let widget = trivial_memory_project("widget", "1.0.0", vec![]);
+
+    let storage_a = memory_resolver(&[("urn:kpar:widget", slice::from_ref(&widget))]);
+    let storage_b = memory_resolver(&[("urn:kpar:widget", &[widget])]);
+    let resolver = SequentialResolver::new([storage_a, storage_b]);
+
+    let solution = super::solve(
+        vec![InterchangeProjectUsage::Resource {
+            resource: Iri::parse("urn:kpar:widget")?.into(),
+            version_constraint: None,
+        }],
+        resolver,
+    )?;
+
+    assert_eq!(
+        solution_projects(&solution),
+        vec![("widget".to_string(), "1.0.0".to_string())]
+    );
 
     Ok(())
 }
