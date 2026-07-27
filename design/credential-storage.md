@@ -147,9 +147,8 @@ described below), every surface the index supports is probed, and the
 refusal rule decides. A static index has only the read surface; a
 dynamic index adds the API.
 
-There is deliberately no `--no-validation` escape (and core's
-`do_auth_login` takes no validation parameter, so the bindings expose no
-knob either). Offline or unreachable-index logins already degrade
+There is deliberately no way to disable credential validation against the index
+that has an API. Offline or unreachable-index logins already degrade
 gracefully through the refusal rule: nothing exercises the credential,
 so the login stores as "stored, not validated" with warnings, and no
 secret is transmitted (an unreachable discovery baseline gets no forced
@@ -177,10 +176,7 @@ after reading discovery): fetch discovery, resolve `index_root` and
 `api_root`, probe `index_root/index.json`, and, **only if discovery
 advertised an `api_root`** (not the runtime plain-URL default, §3), probe
 `api_root/v1/whoami`, so a static plain-URL index is never phantom-probed
-for an API it does not have. Advertised-vs-defaulted needs a flag on the
-resolved endpoints (for example `api_root_advertised: bool`), true only in
-the explicit-field arm of discovery parsing, false in both defaulting arms
-and the no-document path.
+for an API it does not have.
 
 **Login's discovery fetch is itself unauth-baseline-then-forced** (only
 the backend-absent path of §9 stays strictly unauthenticated, since its
