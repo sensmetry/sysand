@@ -79,14 +79,15 @@ fn surface_name(surface: ProbeSurface) -> &'static str {
     }
 }
 
-/// Render a login progress notice. `ReplacingExisting` is printed (it
-/// precedes the store write and must survive `--quiet`); the rest are
-/// warnings. `index_key` names the login for the basic-auth hint.
+/// Render a login progress notice. `ReplacingExisting` is informational
+/// (log output, suppressed under `--quiet`, like the `Stored`/`Covers`
+/// result lines); the rest are warnings. `index_key` names the login for
+/// the basic-auth hint.
 fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
     match notice {
         AuthLoginNotice::ReplacingExisting { key } => {
             let header = sysand_core::style::get_style_config().header;
-            println!(
+            log::info!(
                 "{header}{:>12}{header:#} existing credential for `{key}`",
                 "Replacing"
             );
@@ -378,12 +379,17 @@ pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result
         Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
             Err(err).context(KEYRING_LOCKED_HINT)
         }
-        // The core error states the condition; the CLI points at `auth
-        // status`, which lists every stored login under its exact key (a
-        // logout target must match the key exactly, so a typo is best
-        // fixed by copying the key from that list).
+        // Logging out of an index with nothing stored is idempotent: a
+        // warning and exit 0, so cleanup scripts need not swallow a
+        // failure. The core error states the condition; the CLI points at
+        // `auth status`, which lists every stored login under its exact
+        // key (a logout target must match the key exactly, so a typo is
+        // best fixed by copying the key from that list).
         Err(err @ AuthCommandError::NoStoredCredential { .. }) => {
-            bail!("{err}\nrun `sysand auth status` to list the stored logins and their exact keys")
+            log::warn!(
+                "{err}; run `sysand auth status` to list the stored logins and their exact keys"
+            );
+            Ok(())
         }
         Err(err) => Err(err.into()),
     }
@@ -443,11 +449,10 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
 fn collect_env_credential_entries() -> Vec<EnvCredentialEntry> {
     let mut entries: Vec<EnvCredentialEntry> = std::env::vars()
         .filter(|(key, _)| {
-            key.strip_prefix("SYSAND_CRED_").is_some_and(|rest| {
-                !rest.ends_with("_BASIC_USER")
-                    && !rest.ends_with("_BASIC_PASS")
-                    && !rest.ends_with("_BEARER_TOKEN")
-            })
+            matches!(
+                crate::cred_env::classify(key),
+                Some((_, crate::cred_env::CredEnvRole::Pattern))
+            )
         })
         .map(|(key, value)| EnvCredentialEntry {
             label: key,
@@ -610,26 +615,10 @@ fn render_auth_status(status: &AuthStatus) {
 /// the command, because the `auth` commands must stay usable to diagnose
 /// exactly those (same stance as `auth status`).
 fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
-    let mut patterns = std::collections::HashMap::new();
-    let mut users = std::collections::HashMap::new();
-    let mut passwords = std::collections::HashMap::new();
-    let mut tokens = std::collections::HashMap::new();
-    for (key, value) in std::env::vars() {
-        if let Some(rest) = key.strip_prefix("SYSAND_CRED_") {
-            if let Some(stem) = rest.strip_suffix("_BASIC_USER") {
-                users.insert(stem.to_owned(), value);
-            } else if let Some(stem) = rest.strip_suffix("_BASIC_PASS") {
-                passwords.insert(stem.to_owned(), value);
-            } else if let Some(stem) = rest.strip_suffix("_BEARER_TOKEN") {
-                tokens.insert(stem.to_owned(), value);
-            } else {
-                patterns.insert(rest.to_owned(), value);
-            }
-        }
-    }
+    let groups = crate::cred_env::collect_env_groups();
 
     let mut builder = StandardHTTPAuthenticationBuilder::new();
-    for (stem, pattern) in &patterns {
+    for (stem, pattern) in &groups.patterns {
         // Pre-compile each pattern individually: `build` below fails
         // wholesale on one bad glob, and one bad group must not hide the
         // other credentials.
@@ -639,10 +628,13 @@ fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
             log::debug!("skipping SYSAND_CRED_{stem}: invalid URL glob pattern");
             continue;
         }
-        if let (Some(user), Some(password)) = (users.get(stem), passwords.get(stem)) {
+        if let (Some(user), Some(password)) = (
+            groups.basic_users.get(stem),
+            groups.basic_passwords.get(stem),
+        ) {
             builder.add_basic_auth(pattern, user, password);
         }
-        if let Some(token) = tokens.get(stem) {
+        if let Some(token) = groups.bearer_tokens.get(stem) {
             builder.add_bearer_auth_labeled(pattern, token, stem);
         }
     }

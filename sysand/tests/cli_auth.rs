@@ -362,7 +362,7 @@ fn auth_login_twice_reports_the_replacement_and_overwrites() -> TestResult {
     )?;
     out.assert()
         .success()
-        .stdout(predicate::str::contains("Replacing existing credential").not());
+        .stderr(predicate::str::contains("Replacing existing credential").not());
 
     let (_t, _c, out) = run_sysand_stdin(
         // A different spelling of the same index normalizes to one key.
@@ -370,13 +370,34 @@ fn auth_login_twice_reports_the_replacement_and_overwrites() -> TestResult {
         &env,
         b"new-tok\n",
     )?;
-    out.assert().success().stdout(predicate::str::contains(
+    // The notice is informational (log output, stderr), not stdout: the
+    // stdout channel carries only the pre-prompt target echo.
+    out.assert().success().stderr(predicate::str::contains(
         "   Replacing existing credential for `http://127.0.0.1:1/`",
     ));
 
     let blob = fs::read_to_string(&store_path)?;
     assert!(blob.contains(r#""secret":"new-tok""#), "blob was: {blob}");
     assert!(!blob.contains("old-tok"), "blob was: {blob}");
+
+    // Under `--quiet` a re-login is exit-code-only apart from the target
+    // echo: the replacement notice is suppressed with the result lines.
+    let (_t, _c, out) = run_sysand_stdin(
+        [
+            "--quiet",
+            "auth",
+            "login",
+            "--token-stdin",
+            "http://127.0.0.1:1",
+        ],
+        &env,
+        b"third-tok\n",
+    )?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Logging in to index"))
+        .stderr(predicate::str::contains("Replacing").not())
+        .stderr(predicate::str::contains("Stored").not());
     Ok(())
 }
 
@@ -403,10 +424,12 @@ fn auth_login_then_logout_removes_the_stored_entry() -> TestResult {
 }
 
 #[test]
-fn auth_logout_of_an_unknown_index_points_at_status() -> TestResult {
-    // The seam store file does not exist: nothing is stored. The error
-    // must point at `auth status`, whose listing shows every stored key
-    // in the exact spelling logout accepts (the fix for a typoed URL).
+fn auth_logout_of_an_unknown_index_warns_and_succeeds() -> TestResult {
+    // The seam store file does not exist: nothing is stored. Logout is
+    // idempotent: a warning and exit 0, so cleanup scripts need not
+    // swallow a failure. The warning still points at `auth status`,
+    // whose listing shows every stored key in the exact spelling logout
+    // accepts (the fix for a typoed URL).
     let (_store_dir, store_path) = seam_store()?;
     let (_t, _c, out) = run_sysand_with(
         ["auth", "logout", "https://nothing.example"],
@@ -414,9 +437,9 @@ fn auth_logout_of_an_unknown_index_points_at_status() -> TestResult {
         &seam_env(&store_path),
     )?;
     out.assert()
-        .failure()
+        .success()
         .stderr(predicate::str::contains(
-            "no stored credential for `https://nothing.example/`",
+            "warning: no stored credential for `https://nothing.example/`",
         ))
         .stderr(predicate::str::contains(
             "run `sysand auth status` to list the stored logins and their exact keys",

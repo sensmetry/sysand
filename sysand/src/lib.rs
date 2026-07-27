@@ -80,6 +80,7 @@ pub type CliAuthPolicy = StandardLazyHTTPAuthentication<credential_store::CliCre
 
 pub mod cli;
 pub mod commands;
+pub(crate) mod cred_env;
 pub mod credential_store;
 pub mod env_vars;
 pub mod logger;
@@ -233,24 +234,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     // FIXME: This is a temporary implementation to provide credentials until
     //        https://github.com/sensmetry/sysand/pull/157
     //        gets merged.
-    let mut auth_patterns = HashMap::new();
-    let mut basic_auth_users = HashMap::new();
-    let mut basic_auth_passwords = HashMap::new();
-    let mut bearer_auth_tokens = HashMap::new();
-
-    for (key, value) in std::env::vars() {
-        if let Some(key_rest) = key.strip_prefix("SYSAND_CRED_") {
-            if let Some(key_name) = key_rest.strip_suffix("_BASIC_USER") {
-                basic_auth_users.insert(key_name.to_owned(), value);
-            } else if let Some(key_name) = key_rest.strip_suffix("_BASIC_PASS") {
-                basic_auth_passwords.insert(key_name.to_owned(), value);
-            } else if let Some(key_name) = key_rest.strip_suffix("_BEARER_TOKEN") {
-                bearer_auth_tokens.insert(key_name.to_owned(), value);
-            } else {
-                auth_patterns.insert(key_rest.to_owned(), value);
-            }
-        }
-    }
+    let cred_env::CredEnvGroups {
+        patterns: auth_patterns,
+        basic_users: basic_auth_users,
+        basic_passwords: basic_auth_passwords,
+        bearer_tokens: bearer_auth_tokens,
+    } = cred_env::collect_env_groups();
 
     let mut basic_auth_pattern_names = HashSet::new();
     for x in [

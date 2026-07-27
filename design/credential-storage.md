@@ -611,7 +611,7 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   basic).
 - **Re-login:** `auth login` over an existing entry for the same key
   overwrites it, printing "Replacing existing credential for `<index>`"
-  before the write; the previous stored token is discarded locally (not
+  (informational output, suppressed under `--quiet`) before the write; the previous stored token is discarded locally (not
   revoked server-side).
 
 ## 10. Scope boundaries
