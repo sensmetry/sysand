@@ -900,15 +900,21 @@ where
 
 /// Read all stored records and build the URL-glob to bearer map.
 ///
-/// Store errors degrade to "no stored credentials", and every error
-/// variant is warned about (each caller reads at most once per process,
-/// so at most one warning per caller): the keyring taxonomy cannot tell a
-/// genuinely absent backend from a present-but-malfunctioning one (a
-/// broken Secret Service also maps to `BackendAbsent`), and staying quiet
-/// would silently downgrade a logged-in user to unauthenticated requests.
-/// Only the true no-entry case (a reachable backend with nothing stored)
-/// is quiet, because it is not an error at all. A locked/denied backend
-/// additionally names the unlock and `SYSAND_CRED_*` remediations.
+/// Store errors degrade to "no stored credentials". `BackendAbsent` is
+/// logged at debug only: it is the designed env-fallback state on hosts
+/// with no keyring (CI, musl, headless), where any 4xx on the request
+/// path would otherwise print a keyring warning to users who never asked
+/// for credentials. The cost, accepted deliberately, is that a
+/// present-but-malfunctioning backend that maps to `BackendAbsent` (a
+/// broken Secret Service) degrades quietly here; `auth status` and
+/// `auth login` still report it loudly. Every other error variant warns
+/// (each caller reads at most once per process, so at most one warning
+/// per caller): those variants imply a keyring exists and something is
+/// genuinely wrong, so staying quiet would silently downgrade a
+/// logged-in user to unauthenticated requests. The true no-entry case (a
+/// reachable backend with nothing stored) is quiet, because it is not an
+/// error at all. A locked/denied backend additionally names the unlock
+/// and `SYSAND_CRED_*` remediations.
 /// Degrading (rather than aborting the whole operation) matches
 /// design/credential-storage.md section 9: the request itself may still
 /// succeed via env credentials or anonymously, and hard failure is
@@ -917,7 +923,7 @@ fn read_stored_bearer_map<B: BlobBackend>(store: &LockedBlobStore<B>) -> GlobMap
     let records = match store.list() {
         Ok(records) => records,
         Err(CredentialStoreError::BackendAbsent { source }) => {
-            log::warn!(
+            log::debug!(
                 "no OS keyring backend ({source}); \
                  using `SYSAND_CRED_*` credentials only"
             );
