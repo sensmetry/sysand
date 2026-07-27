@@ -84,9 +84,9 @@ fn bearer_env_for_url(url: &str) -> IndexMap<String, String> {
 /// `api_root` is at `<server>/api/`. The upload fixtures in this file
 /// POST to `/api/v1/upload`, so the advertised `api_root` must carry
 /// the `/api/` segment. Discovery is mandatory on first use; without
-/// this mock the discovery fetch would 404 and `api_root` would default
-/// to the discovery root (yielding `/v1/upload`), which doesn't match
-/// the mocks in this file.
+/// this mock the discovery fetch would 404 and, since a plain root
+/// advertises no `api_root`, publish would refuse with "does not
+/// advertise a publish endpoint" instead of reaching the upload mocks.
 fn mock_index_config_api_at_api(server: &mut Server) -> mockito::Mock {
     let body = format!(r#"{{"api_root":"{}/api/"}}"#, server.url());
     server
@@ -465,13 +465,12 @@ fn publish_invalid_index_url_errors_early() -> TestResult {
 #[test]
 fn publish_rejects_upload_endpoint_index_url() -> TestResult {
     // If the user pastes the full upload URL as the `--index` value,
-    // discovery treats it as a flat root and the resolved `api_root` shape
-    // check rejects it before any upload. The error points back at the API
-    // root.
+    // discovery 404s against it and, since a plain root advertises no
+    // `api_root`, the index has no API surface. Publish refuses before any
+    // upload, pointing at the missing publish endpoint rather than trying
+    // the paste.
     let (_temp_dir, cwd) = setup_built_project_at("upload-endpoint-index", "artifact.kpar")?;
     let mut server = Server::new();
-    // Discovery runs against the pasted root; it 404s (no config), so the
-    // root itself becomes the `api_root`, which is then rejected.
     let config_mock = server
         .mock("GET", "/v1/upload/sysand-index-config.json")
         .with_status(404)
@@ -480,8 +479,8 @@ fn publish_rejects_upload_endpoint_index_url() -> TestResult {
     let publish_mock = server.mock("POST", "/v1/upload").expect(0).create();
     let endpoint_url = format!("{}/v1/upload", server.url());
 
-    // No bearer credentials needed: `api_root` shape validation rejects the
-    // `v1/upload` endpoint before credential resolution.
+    // No bearer credentials needed: publish bails on the missing API
+    // surface before credential resolution.
     let out = run_sysand_in(
         &cwd,
         ["publish", "artifact.kpar", "--index", endpoint_url.as_str()],
@@ -490,8 +489,9 @@ fn publish_rejects_upload_endpoint_index_url() -> TestResult {
 
     out.assert()
         .failure()
-        .stderr(predicate::str::contains("invalid api_root URL"))
-        .stderr(predicate::str::contains("not the `v1/upload` endpoint"))
+        .stderr(predicate::str::contains(
+            "does not advertise a publish endpoint",
+        ))
         .stderr(predicate::str::contains("HTTP request failed").not());
     publish_mock.assert();
     config_mock.assert();

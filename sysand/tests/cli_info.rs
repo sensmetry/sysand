@@ -21,8 +21,9 @@ use sysand_core::project::utils::wrapfs;
 /// Register a `sysand-index-config.json` 404 mock on `server`.
 /// Configured index URLs go through the discovery step, which fetches this
 /// URL first. These tests don't exercise the discovery-document path; they
-/// just want the client to proceed with `api_root` / `index_root` defaulting
-/// to the discovery root.
+/// just want the client to proceed with `index_root` defaulting to the
+/// discovery root (these reads need only `index_root`; `api_root` stays
+/// unset).
 fn mock_index_config_absent(server: &mut mockito::Server, expected_count: usize) -> mockito::Mock {
     server
         .mock("GET", "/sysand-index-config.json")

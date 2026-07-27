@@ -295,16 +295,6 @@ pub fn validate_api_root_url_shape(url: &Url) -> Result<(), PublishError> {
     if url.fragment().is_some() {
         return Err(err("URL must not include a fragment component".to_string()));
     }
-    // Reject a URL that already names the upload endpoint. Catches the
-    // common mistake of pasting the full upload URL into `--index`,
-    // which would otherwise either compose to `v1/upload/v1/upload`
-    // (after discovery defaulted `api_root` to the discovery root) or
-    // send a discovery request to a path that can never serve one.
-    if url.path().trim_end_matches('/').ends_with("v1/upload") {
-        return Err(err(
-            "URL must be a discovery root or `api_root`, not the `v1/upload` endpoint".to_string(),
-        ));
-    }
     Ok(())
 }
 

@@ -65,10 +65,13 @@ fields:
   or a URL template ([§3.1](#31-url-templates)). When absent, defaults to
   the discovery root.
 - `api_root` — base URL of the sysand index API (where `v1/upload` and
-  other endpoints live); never a template. When absent, defaults to the
-  discovery root if that is a plain URL; an index whose discovery root is
-  a template and whose discovery document does not set `api_root` has no
-  API endpoints ([§3.1](#31-url-templates)).
+  other endpoints live); never a template. It has no default: an index
+  advertises an API only by setting `api_root` explicitly. When absent,
+  the index has no API endpoints and is read-only, whether its discovery
+  root is a plain URL or a template ([§3.1](#31-url-templates)). A plain
+  discovery root is deliberately not treated as an implicit `api_root`,
+  so that "the index has an API" always means "the discovery document
+  advertises `api_root`".
 
 `index_root` and `api_root`, when present, MUST be absolute `http` or
 `https` URLs ([RFC 3986 §4.3][rfc3986-43]: scheme + hier-part, no
@@ -83,9 +86,10 @@ excluded so credentials are not logged, persisted, or propagated through
 generated source URLs.
 
 If the discovery document is absent (HTTP 404) the client proceeds as
-though it were present with no fields set: `index_root` and `api_root`
-both default to the discovery root. Any other non-success response (e.g.
-5xx) is a hard error.
+though it were present with no fields set: `index_root` defaults to the
+discovery root, and `api_root` stays unset, so the index has no API
+endpoints and is read-only. Any other non-success response (e.g. 5xx)
+is a hard error.
 
 Clients MUST follow HTTP redirects on the discovery fetch. Unknown fields
 in the document are silently ignored (see [§14]).
@@ -138,8 +142,10 @@ expanding the template with the relative path
 `sysand-index-config.json`, and — absent an
 `index_root` field — all index files are fetched through the same
 template. `api_root` MUST NOT be a template (uploads are not file
-fetches); an index reached through a template whose discovery document
-does not set `api_root` has no API endpoints and is read-only.
+fetches). As in [§3](#3-discovery-and-configuration), an index whose
+discovery document does not set `api_root` has no API endpoints and is
+read-only; this holds independent of URL shape, so a templated
+discovery root has no API endpoints unless it too advertises `api_root`.
 
 Note that append semantics at the end of a URL do not need a template: a
 plain base URL already covers that case. Templates exist for URL

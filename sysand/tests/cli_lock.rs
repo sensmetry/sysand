@@ -396,8 +396,9 @@ fn lock_and_sync_against_mock_index() -> Result<(), Box<dyn std::error::Error>> 
         .expect(0)
         .create();
 
-    // Discovery: no document present means `index_root` / `api_root`
-    // both default to the discovery root.
+    // Discovery: no document present means `index_root` defaults to the
+    // discovery root (reads need only `index_root`; `api_root` stays
+    // unset).
     let config_mock = server
         .mock("GET", "/sysand-index-config.json")
         .with_status(404)

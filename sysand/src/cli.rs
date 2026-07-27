@@ -210,11 +210,8 @@ pub enum Command {
         path: Option<Utf8PathBuf>,
 
         /// Configured index URL to publish to (e.g. https://sysand.com)
-        /// May point to a path containing sysand-index-config.json, or directly
-        /// to the API root (e.g. https://sysand.com/api)
-        /// URL templates (see --index under resolution options) are accepted,
-        /// but publishing then requires the index's sysand-index-config.json
-        /// to set `api_root`
+        /// The index must advertise a publish endpoint: its
+        /// sysand-index-config.json must set `api_root`
         #[arg(long, value_name = "URL", verbatim_doc_comment)]
         index: IndexLocation,
 

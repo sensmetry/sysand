@@ -31,8 +31,9 @@ The sysand index API is complementary:
 - Clients discover the API's base URL via `api_root` in
   `sysand-index-config.json` (see
   [§3 Discovery and configuration](index-protocol.md#3-discovery-and-configuration)
-  in the index protocol). When `api_root` is absent, clients default it
-  to the discovery root.
+  in the index protocol). `api_root` has no default: when it is absent
+  the server exposes no API, so the index is read-only. A server exposes
+  an API only by advertising `api_root` explicitly.
 
 The two protocols share terminology and configuration, but a server MAY
 conform to one without conforming to the other.
