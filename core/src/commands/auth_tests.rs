@@ -1243,6 +1243,42 @@ mod login {
     }
 
     #[test]
+    fn validated_login_stores_with_a_warning_when_api_accepts_and_read_rejects() {
+        // API-only token (the mirror of the read-accepts/api-rejects case):
+        // the read surface rejects even with the token, but the advertised
+        // whoami accepts. Store as validated (api) with a read-rejection
+        // warning; the token still authenticates the API.
+        let mut server = mockito::Server::new();
+        let root = format!("{}/", server.url());
+        let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
+        let (_unauth, _forced) = private_index_json(&mut server, "tok", 401);
+        let _whoami = server
+            .mock("GET", "/api/v1/whoami")
+            .with_status(200)
+            .with_body(WHOAMI_BODY)
+            .create();
+        let mut store = InMemoryCredentialStore::new();
+
+        let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
+
+        let (_, _, validated) = stored_validated(outcome);
+        assert_eq!(validated, vec![ProbeSurface::Api]);
+        assert!(
+            notices.iter().any(|n| matches!(
+                n,
+                AuthLoginNotice::SurfaceRejected {
+                    surface: ProbeSurface::Read,
+                    basic_challenge: false,
+                }
+            )),
+            "expected a read rejection notice, got {notices:?}"
+        );
+        let record = &store.list().unwrap()[0];
+        assert_eq!(record.secret, "tok");
+        assert!(record.subject.is_some());
+    }
+
+    #[test]
     fn validated_login_validates_both_surfaces() {
         // S4: private read accepts and whoami accepts: validated
         // (read, api), in probe order.

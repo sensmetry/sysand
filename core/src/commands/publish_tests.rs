@@ -955,6 +955,17 @@ fn stored_bearer_clearly_expired_allows_a_skew_margin() {
         now + Duration::hours(1),
         now
     ));
+    // Exactly at the one-hour boundary: the comparison is strict (`>`), so
+    // this is still within the margin; one second past it flips to expired.
+    // Pins the boundary against an accidental `>=`.
+    assert!(!stored_bearer_clearly_expired(
+        now - Duration::hours(1),
+        now
+    ));
+    assert!(stored_bearer_clearly_expired(
+        now - Duration::hours(1) - Duration::seconds(1),
+        now
+    ));
 }
 
 // --- validate_api_root_url_shape ---

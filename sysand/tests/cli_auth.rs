@@ -972,13 +972,19 @@ fn auth_login_prompts_hidden_on_a_terminal() -> TestResult {
     session.exp_string("Logging in to index `http://127.0.0.1:1/`")?;
     session.exp_string("Enter token for `http://127.0.0.1:1/`:")?;
     session.send_line("pty-tok")?;
-    session.exp_string(STORED_MESSAGE)?;
+    // The hidden prompt must not echo the secret: capture everything
+    // printed between sending the token and the stored confirmation, and
+    // assert the token never appears there (the only place it may appear
+    // is the seam store file).
+    let after_prompt = session.exp_string(STORED_MESSAGE)?;
+    assert!(
+        !after_prompt.contains("pty-tok"),
+        "secret was echoed to the terminal: {after_prompt:?}"
+    );
     assert!(await_exit(session)?.success());
 
     let blob = fs::read_to_string(&store_path)?;
     assert!(blob.contains(r#""secret":"pty-tok""#), "blob was: {blob}");
-    // The hidden prompt must not have echoed the secret; the only place
-    // it may appear is the seam store file.
     Ok(())
 }
 
