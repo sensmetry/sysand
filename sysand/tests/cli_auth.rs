@@ -8,7 +8,7 @@
 //! deliberately fail before any credential store access (parse errors,
 //! non-HTTP(S) targets, ambiguous defaults), so no test requires, or can
 //! ever mutate, a real OS keyring: store behavior itself is covered by the
-//! core tests over `InMemoryCredentialStore`.
+//! core tests over an in-memory blob backend.
 
 use std::fs;
 

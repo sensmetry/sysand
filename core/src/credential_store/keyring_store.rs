@@ -1,32 +1,44 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! OS-keyring-backed [`CredentialStore`] (design/credential-storage.md §9).
+//! The credential store: [`LockedBlobStore`], a persistent store of
+//! credential records over a [`BlobBackend`] (design/credential-storage.md
+//! §9).
 //!
-//! All persisted credentials live in one keyring entry (service `sysand`,
-//! account `credentials`) holding the versioned JSON blob from the parent
-//! module. Read-modify-write is guarded by an exclusive cross-process
-//! advisory OS file lock (never an existence-based lock file) and reads by
-//! its shared counterpart, both with a bounded wait.
+//! All persisted credentials live in one backend entry holding the
+//! versioned JSON blob from the parent module. Read-modify-write is
+//! guarded by an exclusive cross-process advisory OS file lock (never an
+//! existence-based lock file) and reads by its shared counterpart, both
+//! with a bounded wait.
 //!
 //! The blob handling is generic over [`BlobBackend`] so the lock,
 //! fail-closed, and size-limit logic is testable without a real OS
-//! keyring.
+//! keyring, and so hosts can substitute backends (the CLI's debug-only
+//! test seam). The production backend, [`OsKeyringBackend`] (one keyring
+//! entry: service `sysand`, account `credentials`), sits behind the
+//! `keyring` cargo feature; everything else here is unconditional.
 
 use std::fs;
+// Only the gated lock-path fallback error uses `io` directly.
+#[cfg(any(feature = "keyring", test))]
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use super::{
-    CredentialBlob, CredentialRecord, CredentialStore, CredentialStoreError, parse_blob,
-    remove_record, serialize_blob, upsert_record,
-};
+use super::{CredentialBlob, CredentialRecord, CredentialStoreError, parse_blob, serialize_blob};
 
 /// Keyring service name of the single sysand credential entry.
-pub(crate) const KEYRING_SERVICE: &str = "sysand";
+#[cfg(all(
+    feature = "keyring",
+    not(all(target_os = "linux", target_env = "musl"))
+))]
+const KEYRING_SERVICE: &str = "sysand";
 /// Keyring account name of the single sysand credential entry.
-pub(crate) const KEYRING_ACCOUNT: &str = "credentials";
+#[cfg(all(
+    feature = "keyring",
+    not(all(target_os = "linux", target_env = "musl"))
+))]
+const KEYRING_ACCOUNT: &str = "credentials";
 
 /// Windows `CRED_MAX_CREDENTIAL_BLOB_SIZE`: the Credential Manager caps a
 /// credential blob at 2560 bytes, measured against the UTF-16 encoding the
@@ -57,7 +69,10 @@ pub trait BlobBackend {
 /// Secret Service daemon to talk to) is treated as an absent backend, so
 /// callers may fall back to `SYSAND_CRED_*`; `NoStorageAccess` (locked or
 /// denied collection) and other errors must be surfaced.
-#[cfg(not(all(target_os = "linux", target_env = "musl")))]
+#[cfg(all(
+    feature = "keyring",
+    not(all(target_os = "linux", target_env = "musl"))
+))]
 fn map_keyring_error(err: keyring::Error) -> CredentialStoreError {
     match err {
         keyring::Error::PlatformFailure(source) => CredentialStoreError::BackendAbsent { source },
@@ -78,17 +93,24 @@ fn map_keyring_error(err: keyring::Error) -> CredentialStoreError {
 
 /// The real OS keyring entry (macOS Keychain, Windows Credential Manager,
 /// Linux Secret Service).
+#[cfg(feature = "keyring")]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct OsKeyringBackend;
 
-#[cfg(not(all(target_os = "linux", target_env = "musl")))]
+#[cfg(all(
+    feature = "keyring",
+    not(all(target_os = "linux", target_env = "musl"))
+))]
 impl OsKeyringBackend {
     fn entry() -> Result<keyring::Entry, CredentialStoreError> {
         keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(map_keyring_error)
     }
 }
 
-#[cfg(not(all(target_os = "linux", target_env = "musl")))]
+#[cfg(all(
+    feature = "keyring",
+    not(all(target_os = "linux", target_env = "musl"))
+))]
 impl BlobBackend for OsKeyringBackend {
     fn read(&self) -> Result<Option<String>, CredentialStoreError> {
         match Self::entry()?.get_password() {
@@ -115,7 +137,7 @@ impl BlobBackend for OsKeyringBackend {
 /// credential path is the norm). The backend reports "absent", so every
 /// caller takes the documented `SYSAND_CRED_*` fallback path
 /// (design/credential-storage.md section 9 taxonomy).
-#[cfg(all(target_os = "linux", target_env = "musl"))]
+#[cfg(all(feature = "keyring", target_os = "linux", target_env = "musl"))]
 impl BlobBackend for OsKeyringBackend {
     fn read(&self) -> Result<Option<String>, CredentialStoreError> {
         Err(musl_backend_absent())
@@ -130,7 +152,7 @@ impl BlobBackend for OsKeyringBackend {
     }
 }
 
-#[cfg(all(target_os = "linux", target_env = "musl"))]
+#[cfg(all(feature = "keyring", target_os = "linux", target_env = "musl"))]
 fn musl_backend_absent() -> CredentialStoreError {
     CredentialStoreError::BackendAbsent {
         source: "OS keyring support is not built on musl targets".into(),
@@ -162,6 +184,7 @@ pub(crate) fn check_blob_size(byte_len: usize, limit: usize) -> Result<(), Crede
 /// systemd, and container processes, so two same-user processes with
 /// different environments could lock different files while
 /// read-modify-writing the same keyring entry, silently losing a record.
+#[cfg(feature = "keyring")]
 pub fn default_lock_path() -> Result<PathBuf, CredentialStoreError> {
     lock_path_from_dirs(dirs::state_dir(), dirs::data_local_dir(), dirs::home_dir())
 }
@@ -169,6 +192,7 @@ pub fn default_lock_path() -> Result<PathBuf, CredentialStoreError> {
 /// Pure path selection behind [`default_lock_path`], taking the candidate
 /// directories as arguments so the precedence is testable without touching
 /// the process environment.
+#[cfg(any(feature = "keyring", test))]
 fn lock_path_from_dirs(
     state_dir: Option<PathBuf>,
     data_local_dir: Option<PathBuf>,
@@ -186,9 +210,11 @@ fn lock_path_from_dirs(
     }
 }
 
-/// A [`CredentialStore`] over a [`BlobBackend`], guarding every operation
-/// with a cross-process advisory file lock (`flock`/`LockFileEx` via the
-/// stable [`std::fs::File`] locking API) and a bounded wait.
+/// A persistent store of credential records over a [`BlobBackend`],
+/// guarding every operation with a cross-process advisory file lock
+/// (`flock`/`LockFileEx` via the stable [`std::fs::File`] locking API) and
+/// a bounded wait, so each operation is atomic with respect to other
+/// processes.
 #[derive(Debug)]
 pub struct LockedBlobStore<B> {
     backend: B,
@@ -216,8 +242,10 @@ fn default_platform_blob_limit() -> Option<usize> {
 }
 
 /// The OS-keyring-backed credential store.
+#[cfg(feature = "keyring")]
 pub type KeyringCredentialStore = LockedBlobStore<OsKeyringBackend>;
 
+#[cfg(feature = "keyring")]
 impl KeyringCredentialStore {
     /// The OS keyring store with the default per-user lock path.
     pub fn open_default() -> Result<Self, CredentialStoreError> {
@@ -352,27 +380,40 @@ fn store_blob<B: BlobBackend>(
     backend.write(&raw)
 }
 
-impl<B: BlobBackend> CredentialStore for LockedBlobStore<B> {
-    fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
+impl<B: BlobBackend> LockedBlobStore<B> {
+    /// All stored records.
+    pub fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
         self.with_lock(LockMode::Shared, |backend| {
             Ok(load_blob(backend)?.credentials)
         })
     }
 
-    fn upsert(&mut self, record: CredentialRecord) -> Result<(), CredentialStoreError> {
+    /// Insert a record, replacing any existing record with the same `key`.
+    pub fn upsert(&mut self, record: CredentialRecord) -> Result<(), CredentialStoreError> {
         let size_limit = self.size_limit;
         self.with_lock(LockMode::Exclusive, |backend| {
             let mut blob = load_blob(backend)?;
-            upsert_record(&mut blob.credentials, record);
+            match blob
+                .credentials
+                .iter_mut()
+                .find(|existing| existing.key == record.key)
+            {
+                Some(existing) => *existing = record,
+                None => blob.credentials.push(record),
+            }
             store_blob(backend, &blob, size_limit)
         })
     }
 
-    fn remove(&mut self, key: &str) -> Result<bool, CredentialStoreError> {
+    /// Remove the record with the given `key`. Returns whether a record
+    /// was removed.
+    pub fn remove(&mut self, key: &str) -> Result<bool, CredentialStoreError> {
         let size_limit = self.size_limit;
         self.with_lock(LockMode::Exclusive, |backend| {
             let mut blob = load_blob(backend)?;
-            let removed = remove_record(&mut blob.credentials, key);
+            let before = blob.credentials.len();
+            blob.credentials.retain(|record| record.key != key);
+            let removed = blob.credentials.len() != before;
             if removed {
                 store_blob(backend, &blob, size_limit)?;
             }

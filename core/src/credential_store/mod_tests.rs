@@ -4,9 +4,8 @@
 use chrono::{TimeZone, Utc};
 
 use super::{
-    BLOB_VERSION, CredentialBlob, CredentialRecord, CredentialScheme, CredentialStore,
-    CredentialStoreError, CredentialSubject, InMemoryCredentialStore, normalize_index_key,
-    parse_blob, serialize_blob,
+    BLOB_VERSION, CredentialBlob, CredentialRecord, CredentialScheme, CredentialStoreError,
+    CredentialSubject, normalize_index_key, parse_blob, serialize_blob,
 };
 
 fn record(key: &str, secret: &str) -> CredentialRecord {
@@ -263,27 +262,4 @@ fn normalize_errors_never_echo_an_embedded_password() {
             "url {url:?} must show the redaction marker: {message}"
         );
     }
-}
-
-#[test]
-fn in_memory_store_upsert_list_remove() {
-    let mut store = InMemoryCredentialStore::new();
-    assert!(store.list().unwrap().is_empty());
-
-    store.upsert(record("https://a.example/", "tok-a")).unwrap();
-    store.upsert(record("https://b.example/", "tok-b")).unwrap();
-    assert_eq!(store.list().unwrap().len(), 2);
-
-    // Upsert replaces by key without duplicating.
-    store
-        .upsert(record("https://a.example/", "tok-a2"))
-        .unwrap();
-    let records = store.list().unwrap();
-    assert_eq!(records.len(), 2);
-    assert_eq!(records[0].secret, "tok-a2");
-
-    assert!(store.remove("https://a.example/").unwrap());
-    assert!(!store.remove("https://a.example/").unwrap());
-    assert_eq!(store.list().unwrap().len(), 1);
-    assert_eq!(store.list().unwrap()[0].key, "https://b.example/");
 }

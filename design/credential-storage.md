@@ -729,8 +729,9 @@ CLI). Placement follows the repo's existing pattern: `do_*` command logic in
 `core/src/commands/`, thin wrappers in `sysand/src/commands/`, optional
 capabilities behind cargo features (`filesystem`, `networking`).
 
-- **core, unconditional:** only the record types, blob JSON codec (pure
-  serde), and the `CredentialStore` trait.
+- **core, unconditional:** the record types, blob JSON codec (pure
+  serde), and the store type itself (`LockedBlobStore`, including the
+  cross-process file lock), generic over the `BlobBackend` storage seam.
 - **core, behind the existing `networking` feature:** the `LazyKeyringLayer`
   policy layer and its composition with the env layer, since `auth.rs` (and
   the `HTTPAuthentication` trait, defined over reqwest types) is already
@@ -741,12 +742,12 @@ capabilities behind cargo features (`filesystem`, `networking`).
   currently private, so the composition needs a public constructor (or a
   new combinator, see §9's pass-the-response-down variant).
 - **core, behind a new `keyring` cargo feature** (not in `default`): the
-  OS-keyring-backed `CredentialStore` impl and the cross-process file lock
-  (uses `dirs`, mirroring `filesystem`). Enabled by the CLI and the py/java
+  OS-keyring `BlobBackend` and the default lock-file path (uses `dirs`,
+  mirroring `filesystem`). Enabled by the CLI and the py/java
   bindings; **off for the js/wasm binding**, the `keyring` crate does not
-  build for wasm. A browser-side store could later implement the same trait
-  (bindings/js already has local-storage machinery), but that is not v1 and
-  localStorage is not secure storage.
+  build for wasm. A browser-side store could later implement the same
+  backend trait (bindings/js already has local-storage machinery), but
+  that is not v1 and localStorage is not secure storage.
   - **Pure-Rust Secret Service.** keyring 4.x's `v1` feature uses the
     zbus Secret Service backend on glibc Linux, with no system libdbus
     (nothing to vendor) and a `crypto-rust` session that keeps openssl out
@@ -768,7 +769,8 @@ capabilities behind cargo features (`filesystem`, `networking`).
 - **core `commands/auth.rs`, gated `all(filesystem, networking)`** (the
   same gate as publish): `do_auth_login` / `do_auth_logout` /
   `do_auth_status` orchestration (discovery fetch, glob derivation,
-  validation probes, refusal rule), generic over the store trait.
+  validation probes, refusal rule), generic over the store's blob
+  backend.
   **A library call must never prompt**: the secret arrives as a
   parameter, and there is no validation knob to plumb (§5).
 - **sysand CLI:** the clap surface, hidden prompt, TTY detection,

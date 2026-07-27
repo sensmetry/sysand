@@ -4,17 +4,16 @@
 //! Persistent credential storage (design/credential-storage.md §9, §14).
 //!
 //! This module holds the unconditional pieces: the record types, the
-//! versioned JSON blob codec, the index-URL key normalization helper, and
-//! the [`CredentialStore`] trait, plus an in-memory implementation for
-//! tests. The OS-keyring-backed implementation lives in [`keyring_store`]
-//! behind the `keyring` cargo feature.
+//! versioned JSON blob codec, and the index-URL key normalization helper.
+//! The store itself is [`keyring_store::LockedBlobStore`], generic over
+//! the [`keyring_store::BlobBackend`] storage seam; the OS-keyring backend
+//! lives behind the `keyring` cargo feature.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
-#[cfg(feature = "keyring")]
 pub mod keyring_store;
 
 /// Current credential blob format version.
@@ -238,75 +237,72 @@ fn redact_userinfo(raw: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-/// A persistent store of credential records.
-///
-/// Each method is atomic with respect to other processes: implementations
-/// guard read-modify-write internally (the keyring implementation with a
-/// cross-process advisory file lock).
-pub trait CredentialStore {
-    /// All stored records.
-    fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError>;
-
-    /// Insert a record, replacing any existing record with the same `key`.
-    fn upsert(&mut self, record: CredentialRecord) -> Result<(), CredentialStoreError>;
-
-    /// Remove the record with the given `key`. Returns whether a record
-    /// was removed.
-    fn remove(&mut self, key: &str) -> Result<bool, CredentialStoreError>;
-}
-
-/// Replace-by-key upsert shared by store implementations (the keyring
-/// store and the test-only in-memory store).
-#[cfg(any(feature = "keyring", test))]
-fn upsert_record(records: &mut Vec<CredentialRecord>, record: CredentialRecord) {
-    match records
-        .iter_mut()
-        .find(|existing| existing.key == record.key)
-    {
-        Some(existing) => *existing = record,
-        None => records.push(record),
-    }
-}
-
-/// Remove-by-key shared by store implementations (the keyring store and
-/// the test-only in-memory store). Returns whether a record was removed.
-#[cfg(any(feature = "keyring", test))]
-fn remove_record(records: &mut Vec<CredentialRecord>, key: &str) -> bool {
-    let before = records.len();
-    records.retain(|record| record.key != key);
-    records.len() != before
-}
-
-/// An in-memory [`CredentialStore`], for tests of code that consumes the
-/// trait. Test-only (`#[cfg(test)]`) so this double never reaches the
-/// library's public API; several core test modules share it, which is why
-/// it lives here rather than in one test file.
+/// Test doubles shared by the core test modules (auth, commands::auth,
+/// keyring_store): an in-memory [`keyring_store::BlobBackend`] standing in
+/// for the single OS keyring entry, and a [`keyring_store::LockedBlobStore`]
+/// constructor over it. Test-only (`#[cfg(test)]`) so the doubles never
+/// reach the library's public API; several test modules share them, which
+/// is why they live here rather than in one test file.
 #[cfg(test)]
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct InMemoryCredentialStore {
-    records: Vec<CredentialRecord>,
-}
+pub(crate) mod test_support {
+    use std::path::PathBuf;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    };
 
-#[cfg(test)]
-impl InMemoryCredentialStore {
-    pub fn new() -> Self {
-        InMemoryCredentialStore::default()
-    }
-}
+    use super::CredentialStoreError;
+    use super::keyring_store::{BlobBackend, LockedBlobStore};
 
-#[cfg(test)]
-impl CredentialStore for InMemoryCredentialStore {
-    fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
-        Ok(self.records.clone())
-    }
-
-    fn upsert(&mut self, record: CredentialRecord) -> Result<(), CredentialStoreError> {
-        upsert_record(&mut self.records, record);
-        Ok(())
+    /// In-memory [`BlobBackend`] sharing its contents across clones,
+    /// standing in for the single OS keyring entry.
+    #[derive(Debug, Clone, Default)]
+    pub(crate) struct InMemoryBlobBackend {
+        blob: Arc<Mutex<Option<String>>>,
     }
 
-    fn remove(&mut self, key: &str) -> Result<bool, CredentialStoreError> {
-        Ok(remove_record(&mut self.records, key))
+    impl InMemoryBlobBackend {
+        pub(crate) fn with_contents(raw: &str) -> Self {
+            InMemoryBlobBackend {
+                blob: Arc::new(Mutex::new(Some(raw.to_string()))),
+            }
+        }
+
+        pub(crate) fn contents(&self) -> Option<String> {
+            self.blob.lock().unwrap().clone()
+        }
+    }
+
+    impl BlobBackend for InMemoryBlobBackend {
+        fn read(&self) -> Result<Option<String>, CredentialStoreError> {
+            Ok(self.blob.lock().unwrap().clone())
+        }
+
+        fn write(&self, raw: &str) -> Result<(), CredentialStoreError> {
+            *self.blob.lock().unwrap() = Some(raw.to_string());
+            Ok(())
+        }
+
+        fn delete(&self) -> Result<(), CredentialStoreError> {
+            *self.blob.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    /// A lock-file path no other store in this test process shares, so
+    /// parallel tests never contend on the cross-process lock.
+    pub(crate) fn unique_lock_path() -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        std::env::temp_dir().join(format!(
+            "sysand-core-test-{}-{}.lock",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    /// An empty in-memory store, the test stand-in for the keyring store.
+    pub(crate) fn in_memory_store() -> LockedBlobStore<InMemoryBlobBackend> {
+        LockedBlobStore::new(InMemoryBlobBackend::default(), unique_lock_path())
     }
 }
 

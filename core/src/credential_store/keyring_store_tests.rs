@@ -4,7 +4,6 @@
 //! Tests of the locked blob store logic against an in-memory backend, so
 //! they run headlessly without a real OS keyring.
 
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use camino_tempfile::tempdir;
@@ -15,44 +14,8 @@ use super::{
     BlobBackend, LockedBlobStore, WINDOWS_MAX_BLOB_BYTES, check_blob_size, lock_path_from_dirs,
     utf16_byte_len,
 };
-use crate::credential_store::{
-    CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
-};
-
-/// In-memory [`BlobBackend`] sharing its contents across clones, standing
-/// in for the single OS keyring entry.
-#[derive(Debug, Clone, Default)]
-struct MemoryBackend {
-    blob: Arc<Mutex<Option<String>>>,
-}
-
-impl MemoryBackend {
-    fn with_contents(raw: &str) -> Self {
-        MemoryBackend {
-            blob: Arc::new(Mutex::new(Some(raw.to_string()))),
-        }
-    }
-
-    fn contents(&self) -> Option<String> {
-        self.blob.lock().unwrap().clone()
-    }
-}
-
-impl BlobBackend for MemoryBackend {
-    fn read(&self) -> Result<Option<String>, CredentialStoreError> {
-        Ok(self.blob.lock().unwrap().clone())
-    }
-
-    fn write(&self, raw: &str) -> Result<(), CredentialStoreError> {
-        *self.blob.lock().unwrap() = Some(raw.to_string());
-        Ok(())
-    }
-
-    fn delete(&self) -> Result<(), CredentialStoreError> {
-        *self.blob.lock().unwrap() = None;
-        Ok(())
-    }
-}
+use crate::credential_store::test_support::InMemoryBlobBackend;
+use crate::credential_store::{CredentialRecord, CredentialScheme, CredentialStoreError};
 
 fn record(key: &str, secret: &str) -> CredentialRecord {
     CredentialRecord {
@@ -70,16 +33,16 @@ fn record(key: &str, secret: &str) -> CredentialRecord {
 }
 
 fn store_at(
-    backend: MemoryBackend,
+    backend: InMemoryBlobBackend,
     dir: &camino_tempfile::Utf8TempDir,
-) -> LockedBlobStore<MemoryBackend> {
+) -> LockedBlobStore<InMemoryBlobBackend> {
     LockedBlobStore::new(backend, dir.path().join("credentials.lock").into())
 }
 
 #[test]
 fn read_modify_write_persists_records() {
     let dir = tempdir().unwrap();
-    let backend = MemoryBackend::default();
+    let backend = InMemoryBlobBackend::default();
     let mut store = store_at(backend.clone(), &dir);
 
     assert!(store.list().unwrap().is_empty());
@@ -97,13 +60,15 @@ fn read_modify_write_persists_records() {
 
     let mut store = other;
     assert!(store.remove("https://a.example/").unwrap());
+    assert!(!store.remove("https://a.example/").unwrap());
     assert_eq!(store.list().unwrap().len(), 1);
+    assert_eq!(store.list().unwrap()[0].key, "https://b.example/");
 }
 
 #[test]
 fn removing_last_record_deletes_the_entry() {
     let dir = tempdir().unwrap();
-    let backend = MemoryBackend::default();
+    let backend = InMemoryBlobBackend::default();
     let mut store = store_at(backend.clone(), &dir);
 
     store.upsert(record("https://a.example/", "tok")).unwrap();
@@ -119,7 +84,7 @@ fn removing_last_record_deletes_the_entry() {
 #[test]
 fn corrupt_blob_fails_closed_and_is_not_clobbered() {
     let dir = tempdir().unwrap();
-    let backend = MemoryBackend::with_contents("not json at all");
+    let backend = InMemoryBlobBackend::with_contents("not json at all");
     let mut store = store_at(backend.clone(), &dir);
 
     assert!(matches!(
@@ -147,7 +112,7 @@ fn corrupt_blob_fails_closed_and_is_not_clobbered() {
 fn lock_wait_is_bounded() {
     let dir = tempdir().unwrap();
     let lock_path: std::path::PathBuf = dir.path().join("credentials.lock").into();
-    let mut store = LockedBlobStore::new(MemoryBackend::default(), lock_path.clone())
+    let mut store = LockedBlobStore::new(InMemoryBlobBackend::default(), lock_path.clone())
         .with_lock_timing(Duration::from_millis(100), Duration::from_millis(10));
 
     // Hold the advisory lock on a separate file descriptor; flock and
@@ -202,7 +167,7 @@ fn lock_path_prefers_state_then_data_local_then_home() {
 fn shared_lock_lets_reads_through_but_blocks_writes() {
     let dir = tempdir().unwrap();
     let lock_path: std::path::PathBuf = dir.path().join("credentials.lock").into();
-    let mut store = LockedBlobStore::new(MemoryBackend::default(), lock_path.clone())
+    let mut store = LockedBlobStore::new(InMemoryBlobBackend::default(), lock_path.clone())
         .with_lock_timing(Duration::from_millis(100), Duration::from_millis(10));
     store.upsert(record("https://a.example/", "tok")).unwrap();
 
@@ -231,7 +196,7 @@ fn shared_lock_lets_reads_through_but_blocks_writes() {
 fn exclusive_lock_blocks_reads() {
     let dir = tempdir().unwrap();
     let lock_path: std::path::PathBuf = dir.path().join("credentials.lock").into();
-    let store = LockedBlobStore::new(MemoryBackend::default(), lock_path.clone())
+    let store = LockedBlobStore::new(InMemoryBlobBackend::default(), lock_path.clone())
         .with_lock_timing(Duration::from_millis(100), Duration::from_millis(10));
 
     let file = std::fs::OpenOptions::new()
@@ -291,7 +256,7 @@ fn map_keyring_error_covers_the_taxonomy() {
 #[test]
 fn concurrent_writers_do_not_lose_records() {
     let dir = tempdir().unwrap();
-    let backend = MemoryBackend::default();
+    let backend = InMemoryBlobBackend::default();
     let lock_path: std::path::PathBuf = dir.path().join("credentials.lock").into();
 
     // 4 writers x 2 records: enough to lose an update without the lock,
@@ -346,7 +311,7 @@ fn upsert_enforces_the_size_limit_and_does_not_write_when_exceeded() {
     // that the `check_blob_size` helper works, and that an over-limit write
     // is refused before it reaches the backend.
     let dir = tempdir().unwrap();
-    let backend = MemoryBackend::default();
+    let backend = InMemoryBlobBackend::default();
     let mut store = store_at(backend.clone(), &dir).with_size_limit(Some(16));
 
     let err = store

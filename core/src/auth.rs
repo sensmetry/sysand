@@ -14,7 +14,8 @@ use reqwest::{Response, StatusCode, header};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 
 use crate::credential_store::{
-    CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
+    CredentialRecord, CredentialScheme, CredentialStoreError,
+    keyring_store::{BlobBackend, LockedBlobStore},
 };
 
 pub trait HTTPAuthentication: std::fmt::Debug + 'static {
@@ -754,8 +755,9 @@ impl StoredBearerAuth {
     }
 }
 
-/// Authentication layer that consults a persistent [`CredentialStore`] on
-/// demand (design/credential-storage.md, section 9).
+/// Authentication layer that consults the persistent credential store
+/// ([`LockedBlobStore`]) on demand (design/credential-storage.md,
+/// section 9).
 ///
 /// `inner` (the eager `SYSAND_CRED_*` env policy) runs first. Only when it
 /// ends in a 4xx is the credential store read, at most once per process
@@ -781,11 +783,11 @@ impl StoredBearerAuth {
 /// [`RestrictAuthentication`], a same-host redirect target is not
 /// re-checked against the stored globs (reqwest forwards the header there)
 /// and a cross-host redirect strips it.
-pub struct CredentialStoreAuthentication<Inner, S> {
+pub struct CredentialStoreAuthentication<Inner, B> {
     inner: Inner,
     /// `None` when no store is available (for example, opening the default
     /// OS keyring store failed); behaves as an always-empty store.
-    store: Option<Arc<S>>,
+    store: Option<Arc<LockedBlobStore<B>>>,
     /// Stored bearer credentials, read lazily. A `tokio` `OnceCell` (not a
     /// sync `OnceLock`) so concurrent first requests (the resolve path
     /// fans out with `join_all`) share a single read: at most one keychain
@@ -794,11 +796,11 @@ pub struct CredentialStoreAuthentication<Inner, S> {
 }
 
 /// Standard composed policy: eager `SYSAND_CRED_*` credentials first, then
-/// lazily read stored credentials from `S`.
-pub type StandardLazyHTTPAuthentication<S> =
-    CredentialStoreAuthentication<StandardHTTPAuthentication, S>;
+/// lazily read stored credentials from a [`LockedBlobStore`] over `B`.
+pub type StandardLazyHTTPAuthentication<B> =
+    CredentialStoreAuthentication<StandardHTTPAuthentication, B>;
 
-impl<Inner, S> std::fmt::Debug for CredentialStoreAuthentication<Inner, S>
+impl<Inner, B> std::fmt::Debug for CredentialStoreAuthentication<Inner, B>
 where
     Inner: std::fmt::Debug,
 {
@@ -814,11 +816,11 @@ where
     }
 }
 
-impl<Inner, S> CredentialStoreAuthentication<Inner, S>
+impl<Inner, B> CredentialStoreAuthentication<Inner, B>
 where
-    S: CredentialStore + Send + Sync + 'static,
+    B: BlobBackend + Send + Sync + 'static,
 {
-    pub fn new(inner: Inner, store: S) -> Self {
+    pub fn new(inner: Inner, store: LockedBlobStore<B>) -> Self {
         CredentialStoreAuthentication {
             inner,
             store: Some(Arc::new(store)),
@@ -833,6 +835,19 @@ where
             inner,
             store: None,
             cache: tokio::sync::OnceCell::new(),
+        }
+    }
+
+    /// A policy over an already-read snapshot of the store's records: the
+    /// cache is seeded from `records` and no store is ever touched. For
+    /// hosts that read the store once and share the snapshot between this
+    /// policy and their own credential selection (`auth whoami`'s
+    /// single-read guarantee).
+    pub fn preloaded(inner: Inner, records: &[CredentialRecord]) -> Self {
+        CredentialStoreAuthentication {
+            inner,
+            store: None,
+            cache: tokio::sync::OnceCell::new_with(Some(stored_bearer_map_from_records(records))),
         }
     }
 
@@ -898,7 +913,7 @@ where
 /// design/credential-storage.md section 9: the request itself may still
 /// succeed via env credentials or anonymously, and hard failure is
 /// reserved for the `auth` commands.
-fn read_stored_bearer_map<S: CredentialStore + ?Sized>(store: &S) -> GlobMap<StoredBearerAuth> {
+fn read_stored_bearer_map<B: BlobBackend>(store: &LockedBlobStore<B>) -> GlobMap<StoredBearerAuth> {
     let records = match store.list() {
         Ok(records) => records,
         Err(CredentialStoreError::BackendAbsent { source }) => {
@@ -969,10 +984,10 @@ pub(crate) fn stored_bearer_map_from_records(
     }
 }
 
-impl<Inner, S> HTTPAuthentication for CredentialStoreAuthentication<Inner, S>
+impl<Inner, B> HTTPAuthentication for CredentialStoreAuthentication<Inner, B>
 where
     Inner: HTTPAuthentication,
-    S: CredentialStore + Send + Sync + 'static,
+    B: BlobBackend + Send + Sync + 'static,
 {
     async fn request_with_authentication<F>(
         &self,

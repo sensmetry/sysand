@@ -10,9 +10,10 @@ use crate::auth::{
     CredentialStoreAuthentication, GlobMapBuilder, GlobMapResultMut, HTTPAuthentication,
     StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
 };
+use crate::credential_store::keyring_store::{BlobBackend, LockedBlobStore};
+use crate::credential_store::test_support::{InMemoryBlobBackend, unique_lock_path};
 use crate::credential_store::{
-    CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
-    InMemoryCredentialStore,
+    CredentialBlob, CredentialRecord, CredentialScheme, CredentialStoreError, serialize_blob,
 };
 use crate::resolve::net_utils::create_reqwest_client;
 
@@ -246,67 +247,53 @@ fn publish_bearer_auth_map_carries_the_env_label() -> Result<(), Box<dyn std::er
 // Tests for the lazy credential store layer
 // (`CredentialStoreAuthentication`).
 
-/// Counts `list` calls so tests can assert when (and how often) the
-/// credential store is actually read.
-#[derive(Debug)]
-struct CountingStore {
-    inner: InMemoryCredentialStore,
-    lists: Arc<AtomicUsize>,
+/// A backend that counts its reads, so tests can assert when (and how
+/// often) the credential store is actually read (one backend read per
+/// store `list`).
+#[derive(Debug, Clone)]
+struct CountingBackend {
+    inner: InMemoryBlobBackend,
+    reads: Arc<AtomicUsize>,
 }
 
-impl CountingStore {
-    fn with_records(records: Vec<CredentialRecord>) -> (Self, Arc<AtomicUsize>) {
-        let mut inner = InMemoryCredentialStore::new();
-        for record in records {
-            inner.upsert(record).unwrap();
-        }
-        let lists = Arc::new(AtomicUsize::new(0));
-        (
-            CountingStore {
-                inner,
-                lists: lists.clone(),
-            },
-            lists,
-        )
-    }
-}
-
-impl CredentialStore for CountingStore {
-    fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
-        self.lists.fetch_add(1, Ordering::SeqCst);
-        self.inner.list()
+impl BlobBackend for CountingBackend {
+    fn read(&self) -> Result<Option<String>, CredentialStoreError> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        self.inner.read()
     }
 
-    fn upsert(&mut self, record: CredentialRecord) -> Result<(), CredentialStoreError> {
-        self.inner.upsert(record)
+    fn write(&self, raw: &str) -> Result<(), CredentialStoreError> {
+        self.inner.write(raw)
     }
 
-    fn remove(&mut self, key: &str) -> Result<bool, CredentialStoreError> {
-        self.inner.remove(key)
+    fn delete(&self) -> Result<(), CredentialStoreError> {
+        self.inner.delete()
     }
 }
 
-/// A store whose reads always fail, for the degrade-to-no-credentials
+/// A store holding exactly `records`, counting its backend reads.
+fn counting_store(
+    records: Vec<CredentialRecord>,
+) -> (LockedBlobStore<CountingBackend>, Arc<AtomicUsize>) {
+    let raw = serialize_blob(&CredentialBlob::new(records)).unwrap();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let backend = CountingBackend {
+        inner: InMemoryBlobBackend::with_contents(&raw),
+        reads: reads.clone(),
+    };
+    (LockedBlobStore::new(backend, unique_lock_path()), reads)
+}
+
+/// A backend whose reads always fail, for the degrade-to-no-credentials
 /// paths. `absent` selects `BackendAbsent` over `BackendDenied` (both are
 /// warned about); the request-level behavior must be identical.
 #[derive(Debug)]
-struct FailingStore {
+struct FailingBackend {
     absent: bool,
-    lists: Arc<AtomicUsize>,
+    reads: Arc<AtomicUsize>,
 }
 
-impl FailingStore {
-    fn new(absent: bool) -> (Self, Arc<AtomicUsize>) {
-        let lists = Arc::new(AtomicUsize::new(0));
-        (
-            FailingStore {
-                absent,
-                lists: lists.clone(),
-            },
-            lists,
-        )
-    }
-
+impl FailingBackend {
     fn error(&self) -> CredentialStoreError {
         if self.absent {
             CredentialStoreError::BackendAbsent {
@@ -320,19 +307,28 @@ impl FailingStore {
     }
 }
 
-impl CredentialStore for FailingStore {
-    fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
-        self.lists.fetch_add(1, Ordering::SeqCst);
+impl BlobBackend for FailingBackend {
+    fn read(&self) -> Result<Option<String>, CredentialStoreError> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
         Err(self.error())
     }
 
-    fn upsert(&mut self, _record: CredentialRecord) -> Result<(), CredentialStoreError> {
+    fn write(&self, _raw: &str) -> Result<(), CredentialStoreError> {
         Err(self.error())
     }
 
-    fn remove(&mut self, _key: &str) -> Result<bool, CredentialStoreError> {
+    fn delete(&self) -> Result<(), CredentialStoreError> {
         Err(self.error())
     }
+}
+
+fn failing_store(absent: bool) -> (LockedBlobStore<FailingBackend>, Arc<AtomicUsize>) {
+    let reads = Arc::new(AtomicUsize::new(0));
+    let backend = FailingBackend {
+        absent,
+        reads: reads.clone(),
+    };
+    (LockedBlobStore::new(backend, unique_lock_path()), reads)
 }
 
 fn bearer_record(globs: &[String], secret: &str) -> CredentialRecord {
@@ -385,7 +381,7 @@ fn lazy_layer_never_reads_store_on_unauthenticated_success() {
         .expect(1)
         .create();
 
-    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, lists) = counting_store(vec![bearer_record(
         &[format!("{}/**", server.url())],
         "stored-token",
     )]);
@@ -412,7 +408,7 @@ fn lazy_layer_never_reads_store_on_server_error() {
         .expect(1)
         .create();
 
-    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, lists) = counting_store(vec![bearer_record(
         &[format!("{}/**", server.url())],
         "stored-token",
     )]);
@@ -442,7 +438,7 @@ fn lazy_layer_never_reads_store_on_rate_limiting() {
         .expect(1)
         .create();
 
-    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, lists) = counting_store(vec![bearer_record(
         &[format!("{}/**", server.url())],
         "stored-token",
     )]);
@@ -506,7 +502,7 @@ fn lazy_layer_reads_store_once_and_returns_original_response_on_no_match() {
         .expect(2)
         .create();
 
-    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, lists) = counting_store(vec![bearer_record(
         &["https://other.example.com/**".to_string()],
         "stored-token",
     )]);
@@ -539,7 +535,7 @@ fn lazy_layer_matching_record_forces_authenticated_retry() {
         .expect(1)
         .create();
 
-    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, lists) = counting_store(vec![bearer_record(
         &[format!("{}/**", server.url())],
         "stored-token",
     )]);
@@ -576,7 +572,7 @@ fn lazy_layer_env_credential_wins_without_store_read() {
 
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
     env_builder.add_bearer_auth(format!("{}/**", server.url()), "env-token");
-    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, lists) = counting_store(vec![bearer_record(
         &[format!("{}/**", server.url())],
         "stored-token",
     )]);
@@ -619,7 +615,7 @@ fn lazy_layer_failed_env_credential_escalates_to_store() {
 
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
     env_builder.add_bearer_auth(format!("{}/**", server.url()), "stale-env-token");
-    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, lists) = counting_store(vec![bearer_record(
         &[format!("{}/**", server.url())],
         "stored-token",
     )]);
@@ -657,7 +653,7 @@ fn lazy_layer_overlapping_globs_of_one_record_retry_once() {
         .expect(1)
         .create();
 
-    let (store, _lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, _lists) = counting_store(vec![bearer_record(
         &[
             format!("{}/**", server.url()),
             format!("{}/pkg/*", server.url()),
@@ -704,7 +700,7 @@ fn lazy_layer_ambiguous_distinct_records_try_all_in_order() {
     broad.key = "https://example.com/broad/".to_string();
     let mut narrow = bearer_record(&[format!("{}/pkg/*", server.url())], "narrow-token");
     narrow.key = "https://example.com/narrow/".to_string();
-    let (store, _lists) = CountingStore::with_records(vec![broad, narrow]);
+    let (store, _lists) = counting_store(vec![broad, narrow]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
     let runtime = runtime();
 
@@ -736,7 +732,7 @@ fn lazy_layer_invalid_stored_glob_skips_only_that_pattern() {
         .expect(1)
         .create();
 
-    let (store, _lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, _lists) = counting_store(vec![bearer_record(
         &["[invalid".to_string(), format!("{}/**", server.url())],
         "stored-token",
     )]);
@@ -764,7 +760,7 @@ fn lazy_layer_store_errors_degrade_to_no_credentials() {
             .expect(2)
             .create();
 
-        let (store, lists) = FailingStore::new(absent);
+        let (store, lists) = failing_store(absent);
         let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
         let runtime = runtime();
         let url = format!("{}/pkg/versions.json", server.url());
@@ -790,7 +786,7 @@ fn lazy_layer_without_store_returns_original_response() {
         .expect(1)
         .create();
 
-    let policy: CredentialStoreAuthentication<_, InMemoryCredentialStore> =
+    let policy: CredentialStoreAuthentication<_, InMemoryBlobBackend> =
         CredentialStoreAuthentication::without_store(empty_env_policy());
     let runtime = runtime();
 
@@ -806,7 +802,7 @@ fn lazy_layer_without_store_returns_original_response() {
 
 #[test]
 fn direct_stored_bearer_read_does_exactly_one_store_read_per_call() {
-    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, lists) = counting_store(vec![bearer_record(
         &["https://other.example.com/**".to_string()],
         "stored-token",
     )]);
@@ -824,7 +820,7 @@ fn direct_stored_bearer_read_does_exactly_one_store_read_per_call() {
 #[test]
 fn direct_stored_bearer_read_degrades_store_errors_to_an_empty_map() {
     for absent in [true, false] {
-        let (store, lists) = FailingStore::new(absent);
+        let (store, lists) = failing_store(absent);
         let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
 
         let map = policy.read_stored_bearer_map_direct();
@@ -885,7 +881,7 @@ fn debug_of_wrappers_and_composed_policy_never_renders_secrets() {
     // in the populated cache. Neither secret may surface.
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
     env_builder.add_bearer_auth("https://bearer.example.com/**", "env-secret");
-    let (store, _lists) = CountingStore::with_records(vec![bearer_record(
+    let (store, _lists) = counting_store(vec![bearer_record(
         &["https://other.example.com/**".to_string()],
         "stored-secret",
     )]);
@@ -954,13 +950,13 @@ fn stored_bearer_expiry_warning_skips_unexpired_and_unknown_expiry() {
 /// go through the request path's cache (not a direct store read, which
 /// would build fresh records with fresh flags); the clone shares the
 /// record's `expiry_warned` flag (it is an `Arc`).
-fn stored_bearer_for<Inner, S>(
+fn stored_bearer_for<Inner, B>(
     runtime: &tokio::runtime::Runtime,
-    policy: &CredentialStoreAuthentication<Inner, S>,
+    policy: &CredentialStoreAuthentication<Inner, B>,
     url: &str,
 ) -> StoredBearerAuth
 where
-    S: CredentialStore + Send + Sync + 'static,
+    B: BlobBackend + Send + Sync + 'static,
 {
     match runtime.block_on(policy.stored_bearer_map()).lookup(url) {
         crate::auth::GlobMapResult::Found(_, bearer) => bearer.clone(),
@@ -989,7 +985,7 @@ fn lazy_layer_warns_once_for_an_expired_record_that_keeps_failing() {
 
     let mut record = bearer_record(&[format!("{}/**", server.url())], "stored-token");
     record.expires_at = Some(Utc::now() - Duration::days(1));
-    let (store, _lists) = CountingStore::with_records(vec![record]);
+    let (store, _lists) = counting_store(vec![record]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
     let runtime = runtime();
     let url = format!("{}/pkg/versions.json", server.url());
@@ -1024,7 +1020,7 @@ fn lazy_layer_does_not_warn_for_an_unexpired_record_or_a_successful_retry() {
         .create();
     let mut record = bearer_record(&[format!("{}/**", server.url())], "stored-token");
     record.expires_at = Some(Utc::now() + Duration::days(1));
-    let (store, _lists) = CountingStore::with_records(vec![record]);
+    let (store, _lists) = counting_store(vec![record]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
     let runtime = runtime();
     let url = format!("{}/pkg/versions.json", server.url());
@@ -1046,7 +1042,7 @@ fn lazy_layer_does_not_warn_for_an_unexpired_record_or_a_successful_retry() {
         .create();
     let mut record = bearer_record(&[format!("{}/**", server.url())], "stored-token");
     record.expires_at = Some(Utc::now() - Duration::days(1));
-    let (store, _lists) = CountingStore::with_records(vec![record]);
+    let (store, _lists) = counting_store(vec![record]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
     let url = format!("{}/pkg/versions.json", server.url());
     let response = get(&runtime, &policy, &url);

@@ -3,8 +3,8 @@
 
 //! `sysand auth` command orchestration (design/credential-storage.md
 //! sections 4, 8, 9, 14): `do_auth_login`, `do_auth_logout`,
-//! `do_auth_status`, and `do_auth_whoami`, generic over
-//! [`CredentialStore`].
+//! `do_auth_status`, and `do_auth_whoami`, over the credential store
+//! ([`LockedBlobStore`], generic over its [`BlobBackend`]).
 //!
 //! Library calls never prompt and never print; the login secret arrives as
 //! a parameter and progress is reported through [`AuthLoginNotice`] values
@@ -25,8 +25,9 @@ use crate::{
         select_bearer, stored_bearer_map_from_records,
     },
     credential_store::{
-        CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
-        CredentialSubject, normalize_index_key,
+        CredentialRecord, CredentialScheme, CredentialStoreError, CredentialSubject,
+        keyring_store::{BlobBackend, LockedBlobStore},
+        normalize_index_key,
     },
     env::discovery::{
         DiscoveryError, INDEX_CONFIG_PATH, IndexConfigRaw, ResolvedEndpoints, fetch_index_config,
@@ -1046,8 +1047,8 @@ fn guidance_globs(
     derive_credential_globs(primary_root, endpoints.as_ref(), notify)
 }
 
-pub fn do_auth_login<S: CredentialStore>(
-    store: &mut S,
+pub fn do_auth_login<B: BlobBackend>(
+    store: &mut LockedBlobStore<B>,
     index_url: &str,
     secret: String,
     client: &reqwest_middleware::ClientWithMiddleware,
@@ -1178,8 +1179,8 @@ pub fn do_auth_login<S: CredentialStore>(
 /// Returns the normalized index key the record was stored under. Removing
 /// a login that does not exist is an error
 /// ([`AuthCommandError::NoStoredCredential`]).
-pub fn do_auth_logout<S: CredentialStore>(
-    store: &mut S,
+pub fn do_auth_logout<B: BlobBackend>(
+    store: &mut LockedBlobStore<B>,
     index_url: &str,
 ) -> Result<String, AuthCommandError> {
     let key = validated_index_key(index_url)?;
@@ -1476,8 +1477,8 @@ pub fn assemble_auth_status(
 /// ([`StoredCredentialsStatus::BackendUnavailable`]); a present but locked
 /// or denied backend is a hard error the caller must surface
 /// (design/credential-storage.md section 9 taxonomy).
-pub fn do_auth_status<S: CredentialStore>(
-    store: &S,
+pub fn do_auth_status<B: BlobBackend>(
+    store: &LockedBlobStore<B>,
     env: Vec<EnvCredentialEntry>,
     default_key: Option<&str>,
 ) -> Result<AuthStatus, AuthCommandError> {

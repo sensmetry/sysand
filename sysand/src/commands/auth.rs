@@ -11,10 +11,7 @@ use std::sync::Arc;
 use anstream::println;
 use anyhow::{Context, Result, bail};
 use sysand_core::{
-    auth::{
-        GlobMapBuilder, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
-        StandardLazyHTTPAuthentication,
-    },
+    auth::{GlobMapBuilder, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder},
     commands::auth::{
         AuthCommandError, AuthLoginNotice, AuthLoginOutcome, AuthStatus, EnvCredentialEntry,
         ProbeSurface, StoredCredentialStatus, StoredCredentialsStatus, WhoamiCredentialSource,
@@ -22,12 +19,12 @@ use sysand_core::{
         do_auth_whoami, validated_index_key,
     },
     config::Config,
-    credential_store::{CredentialRecord, CredentialStore, CredentialStoreError},
+    credential_store::CredentialStoreError,
 };
 
 use chrono::{DateTime, Utc};
 
-use crate::{DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
+use crate::{CliAuthPolicy, DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
 
 const KEYRING_LOCKED_HINT: &str = "unlock your OS keyring and retry, or provide credentials via \
      `SYSAND_CRED_*` environment variables";
@@ -643,30 +640,6 @@ fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
         .context("could not compile `SYSAND_CRED_*` URL patterns")
 }
 
-/// An already-read snapshot of the credential store, backing `auth
-/// whoami`'s discovery policy so the command performs exactly one store
-/// backend read (the `list` in [`command_auth_whoami`]) instead of a
-/// second one inside the policy's lazy cache. Read-only by construction:
-/// whoami never writes the credential store, so the mutating methods are
-/// unreachable.
-struct PreloadedCredentials {
-    records: Vec<CredentialRecord>,
-}
-
-impl CredentialStore for PreloadedCredentials {
-    fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
-        Ok(self.records.clone())
-    }
-
-    fn upsert(&mut self, _record: CredentialRecord) -> Result<(), CredentialStoreError> {
-        unreachable!("BUG: `auth whoami` never writes the credential store")
-    }
-
-    fn remove(&mut self, _key: &str) -> Result<bool, CredentialStoreError> {
-        unreachable!("BUG: `auth whoami` never writes the credential store")
-    }
-}
-
 pub fn command_auth_whoami(
     index_url: Option<String>,
     config: &Config,
@@ -711,12 +684,10 @@ pub fn command_auth_whoami(
         }
         Err(err) => return Err(err.into()),
     };
-    let discovery_policy = StandardLazyHTTPAuthentication::new(
-        env_policy,
-        PreloadedCredentials {
-            records: records.clone(),
-        },
-    );
+    // The policy is preloaded with the records read above, so whoami
+    // performs exactly one store backend read (on a locked keyring, the
+    // single unlock prompt) and its discovery policy never writes.
+    let discovery_policy = CliAuthPolicy::preloaded(env_policy, &records);
 
     let outcome = match do_auth_whoami(
         &records,

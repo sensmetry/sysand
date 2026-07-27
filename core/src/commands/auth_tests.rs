@@ -7,10 +7,11 @@ use super::{
     AuthCommandError, EnvCredentialEntry, StoredCredentialsStatus, assemble_auth_status,
     do_auth_logout, do_auth_status, validated_index_key,
 };
-use crate::credential_store::{
-    CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
-    InMemoryCredentialStore,
+use crate::credential_store::keyring_store::{BlobBackend, LockedBlobStore};
+use crate::credential_store::test_support::{
+    InMemoryBlobBackend, in_memory_store, unique_lock_path,
 };
+use crate::credential_store::{CredentialRecord, CredentialScheme, CredentialStoreError};
 
 fn record(key: &str, secret: &str) -> CredentialRecord {
     CredentialRecord {
@@ -27,8 +28,8 @@ fn record(key: &str, secret: &str) -> CredentialRecord {
     }
 }
 
-fn store_with(records: &[CredentialRecord]) -> InMemoryCredentialStore {
-    let mut store = InMemoryCredentialStore::new();
+fn store_with(records: &[CredentialRecord]) -> LockedBlobStore<InMemoryBlobBackend> {
+    let mut store = in_memory_store();
     for record in records {
         store.upsert(record.clone()).unwrap();
     }
@@ -101,7 +102,7 @@ fn logout_of_non_http_url_errors_without_touching_the_store() {
 
 #[test]
 fn logout_of_unparseable_url_errors() {
-    let mut store = InMemoryCredentialStore::new();
+    let mut store = in_memory_store();
 
     let err = do_auth_logout(&mut store, "not a url").unwrap_err();
 
@@ -264,27 +265,31 @@ fn status_marks_entries_for_a_template_default_index() {
     assert!(status.env[0].applies_to_default);
 }
 
-/// A store whose reads fail with a configurable error, for the error
+/// A backend whose accesses fail with a configurable error, for the error
 /// taxonomy paths.
-struct FailingStore(fn() -> CredentialStoreError);
+struct FailingBackend(fn() -> CredentialStoreError);
 
-impl CredentialStore for FailingStore {
-    fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
+impl BlobBackend for FailingBackend {
+    fn read(&self) -> Result<Option<String>, CredentialStoreError> {
         Err((self.0)())
     }
 
-    fn upsert(&mut self, _record: CredentialRecord) -> Result<(), CredentialStoreError> {
+    fn write(&self, _raw: &str) -> Result<(), CredentialStoreError> {
         Err((self.0)())
     }
 
-    fn remove(&mut self, _key: &str) -> Result<bool, CredentialStoreError> {
+    fn delete(&self) -> Result<(), CredentialStoreError> {
         Err((self.0)())
     }
 }
 
+fn failing_store(error: fn() -> CredentialStoreError) -> LockedBlobStore<FailingBackend> {
+    LockedBlobStore::new(FailingBackend(error), unique_lock_path())
+}
+
 #[test]
 fn status_degrades_to_env_only_when_the_backend_is_absent() {
-    let store = FailingStore(|| CredentialStoreError::BackendAbsent {
+    let store = failing_store(|| CredentialStoreError::BackendAbsent {
         source: "no secret service".into(),
     });
     let env = vec![env_entry("SYSAND_CRED_CI", "https://ci.example/**")];
@@ -300,7 +305,7 @@ fn status_degrades_to_env_only_when_the_backend_is_absent() {
 
 #[test]
 fn status_surfaces_a_denied_backend_as_an_error() {
-    let store = FailingStore(|| CredentialStoreError::BackendDenied {
+    let store = failing_store(|| CredentialStoreError::BackendDenied {
         source: "collection is locked".into(),
     });
 
@@ -332,8 +337,8 @@ mod login {
     /// notices in order. Validation always runs, so tests mock every
     /// surface a probe would touch (or point at an unreachable local
     /// port, where the probes degrade to warnings).
-    fn run_login<S: CredentialStore>(
-        store: &mut S,
+    fn run_login<B: BlobBackend>(
+        store: &mut LockedBlobStore<B>,
         index_url: &str,
         secret: &str,
     ) -> (
@@ -425,7 +430,7 @@ mod login {
             .create();
         // Public read surface: probed, but never exercises the token.
         let _index = server.mock("GET", "/index.json").with_status(200).create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -454,7 +459,7 @@ mod login {
             .with_header("content-type", "application/json")
             .with_body(WHOAMI_BODY)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &root, "tok");
 
@@ -480,7 +485,7 @@ mod login {
             .with_header("content-type", "application/json")
             .with_body(WHOAMI_BODY)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &root, "tok");
 
@@ -522,7 +527,7 @@ mod login {
             .with_header("content-type", "application/json")
             .with_body(WHOAMI_BODY)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &root, "tok");
 
@@ -556,7 +561,7 @@ mod login {
             .with_header("content-type", "application/json")
             .with_body(WHOAMI_BODY)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &root, "tok");
 
@@ -593,7 +598,7 @@ mod login {
             ))
             .with_status(200)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &root, "tok");
 
@@ -622,7 +627,7 @@ mod login {
             .create();
         // Keep the read probe quiet: the discovery notice is the point.
         let _index = server.mock("GET", "/index.json").with_status(200).create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &root, "tok");
 
@@ -642,7 +647,7 @@ mod login {
         // Port 1 answers nothing, so discovery is unreachable and the
         // URL-derived fallback glob is used. The IPv6 literal would read
         // as a globset character class without escaping.
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, "https://[::1]:1", "tok");
 
@@ -661,7 +666,7 @@ mod login {
 
     #[test]
     fn login_over_an_existing_key_notifies_replacement_and_overwrites() {
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
         let (first, first_notices) = run_login(&mut store, "http://127.0.0.1:1", "old-tok");
         stored(first);
         assert!(
@@ -684,7 +689,7 @@ mod login {
 
     #[test]
     fn login_reports_an_absent_backend_with_the_derived_globs() {
-        let mut store = FailingStore(|| CredentialStoreError::BackendAbsent {
+        let mut store = failing_store(|| CredentialStoreError::BackendAbsent {
             source: "no secret service".into(),
         });
 
@@ -765,7 +770,7 @@ mod login {
             .match_query(mockito::Matcher::UrlEncoded("ref".into(), "index".into()))
             .with_status(200)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &template, "tok");
 
@@ -797,7 +802,7 @@ mod login {
         // Port 1 answers nothing: discovery is unreachable and the glob
         // set is the anchor-derived fallback.
         let template = "http://127.0.0.1:1/files/{path}/raw?ref=main";
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, template, "tok");
 
@@ -834,7 +839,7 @@ mod login {
         // the last `/` of the literal prefix, shallower than the whole
         // prefix.
         let template = "http://127.0.0.1:1/repo/download?file={path}&ref=main";
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, template, "tok");
 
@@ -854,7 +859,7 @@ mod login {
     #[test]
     fn login_with_a_path_raw_template_target_round_trips() {
         let template = "http://127.0.0.1:1/raw/{path_raw}?ref=main";
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, template, "tok");
 
@@ -873,7 +878,7 @@ mod login {
 
     #[test]
     fn login_rejects_an_unanchorable_template_target() {
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         // Fails in key validation, before any network or store access.
         let (outcome, notices) = run_login(&mut store, "https://files.example.com?f={path}", "tok");
@@ -888,7 +893,7 @@ mod login {
 
     #[test]
     fn logout_rejects_an_unanchorable_template_target() {
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let err = do_auth_logout(&mut store, "https://files.example.com?f={path}").unwrap_err();
 
@@ -930,7 +935,7 @@ mod login {
             .mock("GET", mockito::Matcher::Regex("whoami".to_string()))
             .expect(0)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &template, "tok");
 
@@ -1030,7 +1035,7 @@ mod login {
         let _config = no_discovery_mock(&mut server);
         let _index = server.mock("GET", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1050,7 +1055,7 @@ mod login {
         let _config = config_mock(&mut server, "{}".to_string());
         let _index = server.mock("GET", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
@@ -1066,7 +1071,7 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let (unauth, forced) = private_index_json(&mut server, "tok", 200);
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1094,7 +1099,7 @@ mod login {
             .with_status(401)
             .create();
         let (_unauth, _forced) = private_index_json(&mut server, "tok", 200);
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1175,7 +1180,7 @@ mod login {
             .with_body(WHOAMI_BODY)
             .expect(1)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1211,7 +1216,7 @@ mod login {
             .mock("GET", "/api/v1/whoami")
             .with_status(401)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
@@ -1245,7 +1250,7 @@ mod login {
             .with_status(404)
             .expect(2)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
@@ -1283,7 +1288,7 @@ mod login {
             .mock("GET", "/api/v1/whoami")
             .with_status(401)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1318,7 +1323,7 @@ mod login {
             .with_status(200)
             .with_body(WHOAMI_BODY)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1356,7 +1361,7 @@ mod login {
             .with_status(200)
             .with_body(WHOAMI_BODY)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
@@ -1377,7 +1382,7 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let _index = server.mock("GET", "/index.json").with_status(500).create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1408,7 +1413,7 @@ mod login {
             .with_status(302)
             .with_header("location", target)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1439,7 +1444,7 @@ mod login {
             .with_header("www-authenticate", r#"Basic realm="idx""#)
             .expect(2)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
@@ -1472,7 +1477,7 @@ mod login {
             .with_header("www-authenticate", r#"Bearer realm="Basic migration""#)
             .expect(2)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
@@ -1498,7 +1503,7 @@ mod login {
             .with_status(200)
             .with_body("not json")
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
@@ -1531,7 +1536,7 @@ mod login {
             .match_header("authorization", "Bearer tok")
             .expect(0)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1557,7 +1562,7 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let (unauth, forced) = private_index_json(&mut server, "tok", 429);
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1588,7 +1593,7 @@ mod login {
             .with_status(429)
             .expect(1)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1619,7 +1624,7 @@ mod login {
             .with_header("content-type", "application/json")
             .with_body(WHOAMI_BODY)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1645,7 +1650,7 @@ mod login {
             .mock("GET", "/api/v1/whoami")
             .with_status(401)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
@@ -1699,7 +1704,7 @@ mod login {
             .with_body(WHOAMI_BODY)
             .expect(1)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1760,7 +1765,7 @@ mod login {
             .with_body(WHOAMI_BODY)
             .expect(1)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1786,7 +1791,7 @@ mod login {
             .create();
         let _index = server.mock("GET", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1814,7 +1819,7 @@ mod login {
             .with_status(401)
             .expect(2)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "bad-tok");
 
@@ -1846,7 +1851,7 @@ mod login {
         let forced_config = forced_config_mock(&mut server, "tok", 429, "");
         let _index = server.mock("GET", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1875,7 +1880,7 @@ mod login {
         let _unauth_config = unauth_config_mock(&mut server, 401);
         let _forced_config = forced_config_mock(&mut server, "tok", 200, "not json");
         let (_unauth, _forced) = private_index_json(&mut server, "tok", 200);
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1904,7 +1909,7 @@ mod login {
             .create();
         let forced = no_authed_config_mock(&mut server);
         let _index = server.mock("GET", "/index.json").with_status(200).create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1935,7 +1940,7 @@ mod login {
             .create();
         let forced = no_authed_config_mock(&mut server);
         let _index = server.mock("GET", "/index.json").with_status(200).create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
@@ -1976,7 +1981,7 @@ mod login {
             .with_header("content-type", "application/json")
             .with_body(WHOAMI_BODY)
             .create();
-        let mut store = InMemoryCredentialStore::new();
+        let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
