@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    fmt::{Debug, Display},
+    sync::Arc,
+};
 
 use crate::{
     env::{SyncStreamIter, utils::ErrorBound},
@@ -11,6 +14,7 @@ use crate::{
     },
 };
 
+use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use futures::stream::StreamExt as _;
 
@@ -62,11 +66,87 @@ impl<T> ResolutionOutcome<T> {
 #[derive(Debug, Clone)]
 pub struct ResolutionInfo {
     usage: InterchangeProjectUsage,
+    /// Base path to resolve this usage against. Not relevant for
+    /// usages that do not involve filesystem paths
+    base_path: Option<Utf8PathBuf>,
 }
 
+/// Information needed to resolve a usage, which determines equivalency
+/// by `Identifier`.
+#[derive(Debug, Clone)]
+pub struct CoalescingUsage {
+    usage: ResolutionInfo,
+    id: Identifier,
+}
+
+impl CoalescingUsage {
+    pub fn new_usage(usage: InterchangeProjectUsage, base_path: Option<Utf8PathBuf>) -> Self {
+        let usage = ResolutionInfo::new(usage, base_path);
+        Self {
+            id: usage.id(),
+            usage,
+        }
+    }
+
+    pub fn to_usage(&self) -> ResolutionInfo {
+        self.usage.clone()
+    }
+
+    pub fn to_id(&self) -> Identifier {
+        self.id.clone()
+    }
+
+    pub fn usage(&self) -> &ResolutionInfo {
+        &self.usage
+    }
+
+    pub fn id(&self) -> &Identifier {
+        &self.id
+    }
+
+    pub fn into_parts(self) -> (ResolutionInfo, Identifier) {
+        (self.usage, self.id)
+    }
+}
+
+// It is incorrect to use the derived `Hash` impl of `ResolutionInfo`
+// for resolution, since pubgrub
+// seemingly identifies packages by their hash, so e.g. usages of the same
+// package that have different version requirements will be treated as
+// referring to two distinct packages, and they will all be included in the
+// solution
+// Note that `PartialEq` effectively must match the behaviour of this due
+// to the way we implement dependency solving
+impl std::hash::Hash for CoalescingUsage {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Mention all fields here to remember to update whenever
+        // the struct changes
+        let Self { usage: _, id } = self;
+        id.hash(state);
+    }
+}
+
+impl PartialEq for CoalescingUsage {
+    fn eq(&self, other: &Self) -> bool {
+        // Mention all fields here to remember to update whenever
+        // the struct changes
+        let Self {
+            usage: _,
+            id: id_self,
+        } = self;
+        let Self {
+            usage: _,
+            id: id_other,
+        } = other;
+        id_self == id_other
+    }
+}
+
+impl Eq for CoalescingUsage {}
+
 impl ResolutionInfo {
-    pub fn new(usage: InterchangeProjectUsage) -> Self {
-        Self { usage }
+    pub fn new(usage: InterchangeProjectUsage, base_path: Option<Utf8PathBuf>) -> Self {
+        Self { usage, base_path }
     }
 
     pub fn iri(iri: Iri<String>) -> Self {
@@ -75,11 +155,16 @@ impl ResolutionInfo {
                 resource: iri,
                 version_constraint: None,
             },
+            base_path: None,
         }
     }
 
     pub fn usage(&self) -> &InterchangeProjectUsage {
         &self.usage
+    }
+
+    pub fn base_path(&self) -> Option<&Utf8Path> {
+        self.base_path.as_deref()
     }
 
     /// Identifier of this usage, to be used in lock/env.
@@ -89,17 +174,26 @@ impl ResolutionInfo {
     }
 }
 
-impl std::fmt::Display for ResolutionInfo {
+impl Display for ResolutionInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let InterchangeProjectUsage::Resource {
-            resource,
-            version_constraint,
-        } = &self.usage;
-        write!(f, "IRI `{resource}`")?;
-        if let Some(vc) = version_constraint {
-            write!(f, " ({vc})")?;
+        match &self.usage {
+            InterchangeProjectUsage::Resource {
+                resource,
+                version_constraint,
+            } => {
+                write!(f, "IRI `{resource}`")?;
+                if let Some(vc) = version_constraint {
+                    write!(f, " ({vc})")?;
+                }
+            }
         }
         Ok(())
+    }
+}
+
+impl Display for CoalescingUsage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.usage, f)
     }
 }
 
@@ -108,25 +202,6 @@ pub trait ResolveRead {
 
     type ProjectStorage: ProjectRead;
     type ResolvedStorages: IntoIterator<Item = Result<Self::ProjectStorage, Self::Error>>;
-
-    fn default_resolve_read_raw<S: AsRef<str>>(
-        &self,
-        uri: S,
-    ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        match fluent_uri::Iri::parse(uri.as_ref().to_string()) {
-            Ok(uri) => self.resolve_read(&ResolutionInfo::iri(uri)),
-            Err((err, val)) => Ok(ResolutionOutcome::UnsupportedUsageType {
-                reason: format!("unable to parse IRI `{}`: {}", val, err),
-            }),
-        }
-    }
-
-    fn resolve_read_raw<S: AsRef<str>>(
-        &self,
-        uri: S,
-    ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        self.default_resolve_read_raw(uri)
-    }
 
     fn resolve_read(
         &self,
@@ -147,27 +222,6 @@ pub trait ResolveReadAsync {
 
     type ProjectStorage: ProjectReadAsync;
     type ResolvedStorages: futures::Stream<Item = Result<Self::ProjectStorage, Self::Error>>;
-
-    fn default_resolve_read_raw_async<S: AsRef<str>>(
-        &self,
-        uri: S,
-    ) -> impl Future<Output = Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error>> {
-        async move {
-            match fluent_uri::Iri::parse(uri.as_ref().to_string()) {
-                Ok(uri) => self.resolve_read_async(&ResolutionInfo::iri(uri)).await,
-                Err((err, val)) => Ok(ResolutionOutcome::UnsupportedUsageType {
-                    reason: format!("unable to parse IRI `{}`: {}", val, err),
-                }),
-            }
-        }
-    }
-
-    fn resolve_read_raw_async<S: AsRef<str>>(
-        &self,
-        uri: S,
-    ) -> impl Future<Output = Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error>> {
-        async move { self.default_resolve_read_raw_async(uri).await }
-    }
 
     fn resolve_read_async(
         &self,

@@ -75,7 +75,7 @@ fn try_file_uri_to_path(
 }
 
 impl FileResolver {
-    fn resolve_platform_path(
+    fn check_sandbox(
         &self,
         path: Utf8PathBuf,
     ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
@@ -96,27 +96,13 @@ impl FileResolver {
             if !found {
                 return Ok(ResolutionOutcome::Unresolvable {
                     reason: format!(
-                        "refusing to resolve path `{}`, is not inside in any of the allowed directories\n{}",
-                        path,
+                        "refusing to resolve path `{path}`, is not inside in any of the allowed directories\n{}",
                         sandbox_roots_canonical.join("; "),
                     ),
                 });
             }
         }
-
         Ok(ResolutionOutcome::Resolved(path))
-    }
-
-    fn resolve_general(
-        &self,
-        uri: &fluent_uri::Iri<String>,
-    ) -> Result<ResolutionOutcome<Utf8PathBuf>, FileResolverError> {
-        match try_file_uri_to_path(uri)? {
-            Some(path) => self.resolve_platform_path(path),
-            None => Ok(ResolutionOutcome::UnsupportedUsageType {
-                reason: format!("`{uri}` is not a file URL"),
-            }),
-        }
     }
 }
 
@@ -313,24 +299,25 @@ impl ResolveRead for FileResolver {
         &self,
         resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        let InterchangeProjectUsage::Resource { resource: uri, .. } = resolve.usage();
+        let InterchangeProjectUsage::Resource { resource: url, .. } = resolve.usage();
 
-        Ok(match self.resolve_general(uri)? {
-            ResolutionOutcome::Resolved(path) => ResolutionOutcome::Resolved(vec![
-                Ok(FileResolverProject::LocalSrcProject(
-                    LocalSrcProject::new_access(path.clone(), None),
-                )),
-                Ok(FileResolverProject::LocalKParProject(
-                    LocalKParProject::new(path, KparInnerPath::Guess, None, None),
-                )),
-            ]),
-            ResolutionOutcome::UnsupportedUsageType { reason } => {
-                ResolutionOutcome::UnsupportedUsageType { reason }
+        match try_file_uri_to_path(url)? {
+            Some(path) => {
+                let res = self.check_sandbox(path)?;
+                Ok(res.map(|path| {
+                    vec![
+                        Ok(FileResolverProject::LocalSrcProject(
+                            LocalSrcProject::new_access(path.clone(), None),
+                        )),
+                        Ok(FileResolverProject::LocalKParProject(
+                            LocalKParProject::new(path, KparInnerPath::Guess, None, None),
+                        )),
+                    ]
+                }))
             }
-            ResolutionOutcome::Unresolvable { reason } => {
-                ResolutionOutcome::Unresolvable { reason }
-            }
-            ResolutionOutcome::NotFound { reason } => ResolutionOutcome::NotFound { reason },
-        })
+            None => Ok(ResolutionOutcome::UnsupportedUsageType {
+                reason: String::from("resource is not a file URL"),
+            }),
+        }
     }
 }

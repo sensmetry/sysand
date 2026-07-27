@@ -19,6 +19,7 @@ use sysand_core::{
         standard::{StandardResolver, standard_resolver},
     },
     stdlib::known_std_libs,
+    utils::ProvidedProjects,
 };
 use typed_path::Utf8UnixPath;
 
@@ -36,7 +37,7 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
 ) -> Result<sysand_core::lock::Lock> {
-    let provided_iris = if !resolution_opts.include_std {
+    let provided_usages = if !resolution_opts.include_std {
         known_std_libs()
     } else {
         HashMap::default()
@@ -47,7 +48,7 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         &project_root,
         ctx,
         // TODO: avoid expensive clone here
-        provided_iris.clone(),
+        provided_usages.clone(),
         client,
         runtime,
         auth_policy,
@@ -70,7 +71,7 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         &path,
         &project_root,
         alias_iris,
-        &provided_iris,
+        &provided_usages,
         wrapped_resolver,
         ctx,
     )?;
@@ -90,7 +91,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     config: &Config,
     project_root: R,
     ctx: &ProjectContext,
-    provided_iris: HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: ProvidedProjects,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
@@ -130,18 +131,11 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         auth_policy.clone(),
     )?;
 
-    // TODO: add fn next to known_std_libs() to get this structure directly
-    // it is created in most? all? places where `known_std_libs()` is used
-    let mut memory_projects = HashMap::default();
-    for (k, v) in provided_iris {
-        memory_projects.insert(fluent_uri::Iri::parse(k).unwrap(), v);
-    }
-
     let override_resolver = PriorityResolver::new(
         MemoryResolver::from(overrides),
         MemoryResolver {
             iri_predicate: AcceptAll {},
-            projects: memory_projects,
+            projects: provided_usages,
         },
     );
     let wrapped_resolver = PriorityResolver::new(

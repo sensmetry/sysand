@@ -38,7 +38,7 @@ use sysand_core::{
         any::{AnyProject, OverrideProject},
         local_src::LocalSrcProject,
         reference::ProjectReference,
-        utils::wrapfs,
+        utils::{Identifier, wrapfs},
     },
     resolve::net_utils::create_reqwest_client,
     stdlib::known_std_libs,
@@ -409,7 +409,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         Command::Sync { resolution_opts } => {
-            let provided_iris = if !resolution_opts.include_std {
+            let provided_usages = if !resolution_opts.include_std {
                 known_std_libs()
             } else {
                 HashMap::default()
@@ -451,7 +451,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 project_root,
                 &mut local_environment,
                 client,
-                &provided_iris,
+                &provided_usages,
                 runtime,
                 auth_policy,
                 ctx.current_workspace.as_ref(),
@@ -481,7 +481,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     default_index,
                 )?)
             };
-            let excluded_iris: HashSet<_> = if !include_std {
+            let excluded_usages: HashSet<_> = if !include_std {
                 known_std_libs().into_keys().collect()
             } else {
                 HashSet::default()
@@ -562,7 +562,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                     numbered,
                                 )
                             }
-                            None => command_info_path(current_project.root_path(), &excluded_iris),
+                            None => {
+                                command_info_path(current_project.root_path(), &excluded_usages)
+                            }
                         }
                     } else {
                         bail!(
@@ -575,7 +577,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     !no_normalise,
                     client,
                     index_urls,
-                    &excluded_iris,
+                    &excluded_usages,
                     overrides,
                     runtime,
                     auth_policy,
@@ -596,7 +598,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         ctx,
                     )
                 }
-                (Location::Path(path), None) => command_info_path(&path, &excluded_iris),
+                (Location::Path(path), None) => command_info_path(&path, &excluded_usages),
                 (Location::Path(path), Some(subcommand)) => {
                     let numbered = subcommand.numbered();
 
@@ -785,7 +787,7 @@ fn get_log_level(verbose: bool, quiet: bool) -> log::LevelFilter {
     }
 }
 
-pub type Overrides<Policy> = Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>;
+pub type Overrides<Policy> = Vec<(Identifier, Vec<OverrideProject<Policy>>)>;
 
 pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     config: &Config,
@@ -807,7 +809,10 @@ pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
                     runtime.clone(),
                 )?));
             }
-            overrides.push((Iri::parse(identifier.as_str())?.into(), projects));
+            overrides.push((
+                Identifier::from_iri(&Iri::parse(identifier.as_str())?),
+                projects,
+            ));
         }
     }
     Ok(overrides)

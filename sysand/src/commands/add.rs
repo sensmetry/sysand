@@ -22,7 +22,7 @@ use sysand_core::{
         utils::{relativize_path, wrapfs},
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, standard::standard_resolver},
-    utils::format_err,
+    utils::{ProvidedProjects, format_err},
 };
 
 use crate::{
@@ -262,7 +262,7 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     project_root: P,
     project_identifiers: Option<Vec<Iri<String>>>,
-    provided_iris: HashMap<String, Vec<sysand_core::project::memory::InMemoryProject>>,
+    provided_iris: ProvidedProjects,
     ctx: ProjectContext,
 ) -> Result<(), anyhow::Error> {
     let resolver = create_resolver(

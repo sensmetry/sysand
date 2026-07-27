@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, num::NonZeroU64};
+use std::num::NonZeroU64;
 
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
@@ -9,10 +9,9 @@ use typed_path::Utf8UnixPathBuf;
 use crate::{
     commands::env::do_env_install_project,
     env::{ProjectChecksumResult, ReadEnvironment, WriteEnvironment, utils::ErrorBound},
-    iri_normalize::canonicalize_iri_tolerant,
     lock::{Lock, Source},
-    project::{ProjectChecksum, ProjectRead, memory::InMemoryProject},
-    utils::format_err,
+    project::{ProjectChecksum, ProjectRead},
+    utils::{ProvidedProjects, format_err},
 };
 
 #[derive(Error, Debug)]
@@ -116,7 +115,7 @@ pub fn do_sync<
     remote_kpar_storage: Option<CreateRemoteKParStorage>,
     index_kpar_storage: Option<CreateIndexKParStorage>,
     remote_git_storage: Option<CreateRemoteGitStorage>,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
 ) -> Result<(), SyncError<UrlParseError, GitError>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
@@ -147,12 +146,8 @@ where
         let main_uri = project.identifiers.first();
 
         for iri in &project.identifiers {
-            let excluded_versions = if let Ok(parsed_iri) = fluent_uri::Iri::parse(iri.clone()) {
-                // TODO: maybe canonicalize on lock read, or don't canonicalize at all?
-                provided_iris.get(canonicalize_iri_tolerant(parsed_iri.borrow()).as_str())
-            } else {
-                provided_iris.get(iri.as_str())
-            };
+            // TODO: maybe canonicalize on lock read, or don't canonicalize at all?
+            let excluded_versions = provided_usages.get(iri.as_str());
 
             if let Some(versions) = excluded_versions {
                 let mut provided_versions = vec![];

@@ -1,18 +1,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use crate::resolve::{ResolutionOutcome, ResolveRead, gix_git::GitResolver};
+use fluent_uri::Iri;
+
+use crate::resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, gix_git::GitResolver};
 
 fn un_once<T>(x: &mut std::iter::Once<T>) -> T {
     x.next().unwrap()
 }
 
+fn resolve<R: ResolveRead>(
+    resolver: &R,
+    iri: &str,
+) -> Result<ResolutionOutcome<R::ResolvedStorages>, R::Error> {
+    let resolve = ResolutionInfo::iri(Iri::parse(iri).unwrap().into());
+    resolver.resolve_read(&resolve)
+}
+
 #[test]
 fn basic_url_examples() -> Result<(), Box<dyn std::error::Error>> {
-    let resolver = GitResolver {};
+    let res = GitResolver {};
 
     let ResolutionOutcome::Resolved(mut one_http_proj) =
-        resolver.resolve_read_raw("http://www.example.com/proj")?
+        resolve(&res, "http://www.example.com/proj")?
     else {
         panic!("expected http url to resolve");
     };
@@ -22,7 +32,7 @@ fn basic_url_examples() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let ResolutionOutcome::Resolved(mut one_https_proj) =
-        resolver.resolve_read_raw("https://www.example.com/proj")?
+        resolve(&res, "https://www.example.com/proj")?
     else {
         panic!("expected https url to resolve");
     };
@@ -32,7 +42,7 @@ fn basic_url_examples() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let ResolutionOutcome::Resolved(mut one_ssh_proj) =
-        resolver.resolve_read_raw("ssh://www.example.com/proj")?
+        resolve(&res, "ssh://www.example.com/proj")?
     else {
         panic!("expected ssh url to resolve");
     };
@@ -42,7 +52,7 @@ fn basic_url_examples() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let ResolutionOutcome::Resolved(mut one_file_proj) =
-        resolver.resolve_read_raw("file://www.example.com/proj")?
+        resolve(&res, "file://www.example.com/proj")?
     else {
         panic!("expected file url to resolve");
     };
@@ -52,7 +62,7 @@ fn basic_url_examples() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let ResolutionOutcome::Resolved(mut one_git_http_proj) =
-        resolver.resolve_read_raw("git+http://www.example.com/proj")?
+        resolve(&res, "git+http://www.example.com/proj")?
     else {
         panic!("expected git+http url to resolve");
     };
@@ -62,7 +72,7 @@ fn basic_url_examples() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let ResolutionOutcome::Resolved(mut one_git_https_proj) =
-        resolver.resolve_read_raw("git+https://www.example.com/proj")?
+        resolve(&res, "git+https://www.example.com/proj")?
     else {
         panic!("expected git+https url to resolve");
     };
@@ -72,7 +82,7 @@ fn basic_url_examples() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let ResolutionOutcome::Resolved(mut one_git_ssh_proj) =
-        resolver.resolve_read_raw("git+ssh://www.example.com/proj")?
+        resolve(&res, "git+ssh://www.example.com/proj")?
     else {
         panic!("expected git+ssh url to resolve");
     };
@@ -82,7 +92,7 @@ fn basic_url_examples() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let ResolutionOutcome::Resolved(mut one_git_file_proj) =
-        resolver.resolve_read_raw("git+file://www.example.com/proj")?
+        resolve(&res, "git+file://www.example.com/proj")?
     else {
         panic!("expected git+file url to resolve");
     };

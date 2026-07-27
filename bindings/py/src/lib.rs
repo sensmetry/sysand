@@ -4,6 +4,7 @@
 use std::{iter, process::ExitCode, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
+use fluent_uri::Iri;
 use pyo3::{
     exceptions::{PyFileExistsError, PyFileNotFoundError, PyIOError, PyRuntimeError, PyValueError},
     prelude::*,
@@ -27,7 +28,7 @@ use sysand_core::{
     exclude::do_exclude,
     include::do_include,
     index_location::IndexLocation,
-    info::{InfoError, InfoProjectError, do_info, do_info_project},
+    info::{InfoProjectError, do_info, do_info_project},
     init::InitError,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
     project::{
@@ -188,14 +189,12 @@ fn do_info_py(
         )
         .map_err(|err| PyValueError::new_err(format_err(err)))?;
 
+        let uri = Iri::parse(uri)
+            .map_err(|(e, input)| PyValueError::new_err(format!("invalid IRI `{input}`: {e}")))?;
+
         match do_info(&uri, &combined_resolver) {
             Ok(info_meta) => Ok(info_meta),
-            Err(
-                e @ (InfoError::NoSemanticVersionsFound(_)
-                | InfoError::NoResolve(..)
-                | InfoError::UnsupportedIri(..)
-                | InfoError::Resolution(_)),
-            ) => Err(PyRuntimeError::new_err(format_err(e))),
+            Err(e) => Err(PyRuntimeError::new_err(format_err(e))),
         }
     })
 }
