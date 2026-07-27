@@ -118,8 +118,9 @@ Under a `sysand auth` namespace:
   nothing, and a default that is not a valid HTTP(S) index key (for
   example `file://`) silently marks nothing.
 - **HTTP(S) only.** `auth login` against a non-HTTP(S) location (for
-  example a local file path, which index resolution accepts elsewhere)
-  errors with "not an HTTP(S) index; nothing to authenticate to".
+  example a local file path or `file://` URL, which sysand accepts
+  elsewhere as a project source but never as an index) errors with "not an
+  HTTP(S) index; nothing to authenticate to".
 - **Glob derivation** (§8): automatic from the login-target index URL (the
   URL the user passes to `auth login`, or the resolved default index when
   none is given), not from the discovery document; discovery-advertised
