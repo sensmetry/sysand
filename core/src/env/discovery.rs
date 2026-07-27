@@ -34,21 +34,22 @@ pub struct ResolvedEndpoints {
     /// base URL or a `{path}` URL template.
     pub index_root: IndexLocation,
     /// Base URL of the sysand index API (where `v1/upload` lives). `None`
-    /// when the discovery root is a URL template and the discovery
-    /// document does not supply an `api_root` — such an index is
-    /// read-only from this client's point of view.
+    /// unless the discovery document advertises `api_root`; a plain
+    /// discovery root is not treated as an implicit API. An index that
+    /// does not advertise `api_root` is read-only from this client's
+    /// point of view.
     pub api_root: Option<url::Url>,
 }
 
 impl ResolvedEndpoints {
-    /// Build a `ResolvedEndpoints` that routes index traffic (and, for a
-    /// plain-URL discovery root, API traffic) at the discovery root
-    /// itself. Used when the discovery document is absent (HTTP 404).
+    /// Build a `ResolvedEndpoints` that routes index traffic at the
+    /// discovery root itself. Used when the discovery document is absent
+    /// (HTTP 404). Such an index advertises no `api_root`, so it exposes
+    /// no API surface (it is read-only from this client's point of view).
     pub fn flat(discovery_root: IndexLocation) -> Self {
-        let api_root = discovery_root.as_root().cloned();
         Self {
             index_root: discovery_root,
-            api_root,
+            api_root: None,
         }
     }
 
@@ -283,10 +284,12 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
         })?,
     };
 
-    let api_root = match (raw.api_root, discovery_location) {
-        (Some(s), _) => Some(parse_base_url("api_root", s)?),
-        (None, IndexLocation::Root(directory_root)) => Some(directory_root),
-        (None, IndexLocation::Template(_)) => None,
+    // The API surface exists only when the discovery document advertises
+    // `api_root`; a plain discovery root is not an implicit API (see the
+    // `ResolvedEndpoints::api_root` field doc).
+    let api_root = match raw.api_root {
+        Some(s) => Some(parse_base_url("api_root", s)?),
+        None => None,
     };
 
     let endpoints = ResolvedEndpoints {

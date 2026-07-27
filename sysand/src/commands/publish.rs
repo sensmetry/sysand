@@ -49,16 +49,17 @@ pub fn command_publish(
     // policy because the discovery document may itself be auth-gated.
     let endpoints = runtime.block_on(fetch_index_config(&client, &*auth_policy, &index))?;
     let ResolvedEndpoints { api_root, .. } = endpoints;
-    // An index reached through a URL template serves files only; without
-    // an explicit `api_root` from its discovery document there is nothing
-    // to upload to. Check before credential handling so this clearer
-    // error is not masked by credential problems.
+    // Publishing needs an API, which exists only when the discovery
+    // document advertises `api_root`. An index that does not advertise one
+    // serves files only, so there is nothing to upload to. Check before
+    // credential handling so this clearer error is not masked by
+    // credential problems.
     let Some(api_root) = api_root else {
         bail!(
             "index `{index}` does not advertise a publish endpoint,\n\
              so publishing to it is not supported; ask the index administrator\n\
-             whether publishing is available (an index behind a URL template\n\
-             accepts uploads only if its sysand-index-config.json sets `api_root`)"
+             whether publishing is available (an index accepts uploads only\n\
+             if its sysand-index-config.json sets `api_root`)"
         );
     };
     // Validate the resolved `api_root` shape once here; both credential

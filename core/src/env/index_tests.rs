@@ -107,15 +107,15 @@ fn make_runtime() -> Result<Arc<tokio::runtime::Runtime>, Box<dyn std::error::Er
 }
 
 /// Build an unauthenticated async index environment whose discovery root
-/// is `base_url`. `base_url` serves both as the discovery root and the
-/// index/api root for tests that don't cover the discovery flow — those
-/// tests seed the `resolved` cell directly so no discovery fetch is
-/// issued against the mock server.
+/// is `base_url`. `base_url` serves as the discovery root and index root
+/// for tests that don't cover the discovery flow (those tests seed the
+/// `resolved` cell directly so no discovery fetch is issued against the
+/// mock server). These reads never need an `api_root`, which stays unset.
 fn index_env_async(
     base_url: &str,
 ) -> Result<super::IndexEnvironmentAsync<Unauthenticated>, Box<dyn std::error::Error>> {
     let base = url::Url::parse(base_url)?;
-    // Use a flat topology (index_root = api_root = discovery root).
+    // Flat topology: index_root = discovery root, api_root unset.
     // Tests that specifically cover discovery construct their own env
     // via `index_env_sync_discovery`, which goes through the real
     // `fetch_index_config` against a mock server.
@@ -2242,8 +2242,11 @@ mod sources {
 /// Discovery-specific rules (see module-level doc for cross-cutting
 /// ones):
 /// - 200 parses the document; 404 treats the discovery document as
-///   absent and defaults both roots to the discovery root; any other
-///   non-2xx is a hard error.
+///   absent and defaults `index_root` to the discovery root (leaving
+///   `api_root` unset, so the index is read-only); any other non-2xx
+///   is a hard error.
+/// - `api_root` exists only when the discovery document advertises it;
+///   a plain discovery root is not treated as an implicit API.
 /// - `index_root` and `api_root` MUST be absolute URLs; relative
 ///   values are rejected rather than resolved against the discovery
 ///   root (avoids redirect-dependent resolution).
@@ -2334,10 +2337,106 @@ mod discovery {
 
         let api_root = endpoints
             .api_root
-            .expect("a plain discovery root yields an api_root");
+            .expect("an advertised api_root is resolved");
         assert!(
             api_root.as_str().ends_with("/api/"),
             "api_root should be normalized with a trailing slash, got `{api_root}`"
+        );
+
+        config_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn discovery_absent_config_yields_no_api_root() -> Result<(), Box<dyn std::error::Error>> {
+        // An absent discovery document (404) leaves `api_root` unset:
+        // a plain discovery root is not treated as an implicit API, so
+        // the index is read-only.
+        let mut server = mockito::Server::new();
+        let config_mock = server
+            .mock("GET", "/sysand-index-config.json")
+            .with_status(404)
+            .expect(1)
+            .create();
+
+        let runtime = make_runtime()?;
+        let client = create_reqwest_client()?;
+        let auth = Arc::new(Unauthenticated {});
+        let endpoints = runtime.block_on(crate::env::discovery::fetch_index_config(
+            &client,
+            &*auth,
+            &IndexLocation::parse(&server.url())?,
+        ))?;
+
+        assert!(
+            endpoints.api_root.is_none(),
+            "a plain discovery root must not yield an implicit api_root, got `{:?}`",
+            endpoints.api_root
+        );
+
+        config_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn discovery_config_without_api_root_yields_no_api_root()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // A present discovery document that does not advertise `api_root`
+        // likewise leaves it unset. Only an advertised `api_root` creates
+        // an API surface.
+        let mut server = mockito::Server::new();
+        let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", r#"{}"#);
+
+        let runtime = make_runtime()?;
+        let client = create_reqwest_client()?;
+        let auth = Arc::new(Unauthenticated {});
+        let endpoints = runtime.block_on(crate::env::discovery::fetch_index_config(
+            &client,
+            &*auth,
+            &IndexLocation::parse(&server.url())?,
+        ))?;
+
+        assert!(
+            endpoints.api_root.is_none(),
+            "a config without api_root must not yield an implicit api_root, got `{:?}`",
+            endpoints.api_root
+        );
+
+        config_mock.assert();
+
+        Ok(())
+    }
+
+    #[test]
+    fn discovery_index_root_without_api_root_resolves_independently()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // A config that remaps `index_root` but sets no `api_root` proves
+        // the two fields resolve independently: `index_root` is honored
+        // while `api_root` stays unset (read-only).
+        let mut server = mockito::Server::new();
+        let config_body = format!(r#"{{"index_root":"{}/index/"}}"#, server.url());
+        let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", config_body);
+
+        let runtime = make_runtime()?;
+        let client = create_reqwest_client()?;
+        let auth = Arc::new(Unauthenticated {});
+        let endpoints = runtime.block_on(crate::env::discovery::fetch_index_config(
+            &client,
+            &*auth,
+            &IndexLocation::parse(&server.url())?,
+        ))?;
+
+        assert!(
+            endpoints.index_root.to_string().ends_with("/index/"),
+            "index_root should honor the remap, got `{}`",
+            endpoints.index_root
+        );
+        assert!(
+            endpoints.api_root.is_none(),
+            "an index_root remap must not imply an api_root, got `{:?}`",
+            endpoints.api_root
         );
 
         config_mock.assert();

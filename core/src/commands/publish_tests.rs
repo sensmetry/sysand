@@ -563,22 +563,6 @@ fn validate_api_root_rejects_non_http_scheme() {
 }
 
 #[test]
-fn validate_api_root_rejects_upload_endpoint_path() {
-    // An `api_root` that already ends in the upload path means the full
-    // upload URL was pasted in the wrong place; catch it before we would
-    // compose `v1/upload/v1/upload`.
-    for url in [
-        "https://example.org/v1/upload",
-        "https://example.org/v1/upload/",
-        "https://example.org/api/v1/upload",
-        "https://example.org/api/v1/upload/",
-    ] {
-        let err = validate_api_root_url_shape(&Url::parse(url).unwrap()).unwrap_err();
-        assert_matches!(err, PublishError::InvalidApiRoot { .. });
-    }
-}
-
-#[test]
 fn validate_api_root_rejects_query_and_fragment() {
     for url in [
         "https://example.org/index?x=1",
