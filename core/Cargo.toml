@@ -24,7 +24,7 @@ filesystem = ["dep:camino-tempfile", "dep:dirs", "dep:zip"]
 networking = ["dep:reqwest", "dep:gix"] # "dep:reqwest-middleware", "dep:partialzip"
 # OS-keyring-backed credential store (not for wasm; the js binding must not
 # enable it)
-keyring = ["dep:keyring", "dep:fd-lock", "dep:dirs"]
+keyring = ["dep:keyring", "dep:dirs"]
 # Different compression methods for creating KPARs
 kpar-bzip2 = ["zip?/bzip2"]
 kpar-zstd = ["zip?/zstd"]
@@ -43,7 +43,6 @@ digest = { version = "0.11", default-features = false }
 sha2.workspace = true
 hex.workspace = true
 dirs = { version = "6.0.0", optional = true}
-fd-lock = { version = "4.0.4", optional = true }
 fluent-uri.workspace = true
 idna = { version = "1.1.0", default-features = false, features = ["compiled_data"] }
 indexmap = { version = "2.13.0", default-features = false, features = ["serde"] }
@@ -79,16 +78,19 @@ icu_normalizer = { version = "2.1.1", default-features = false, features = ["com
 icu_casemap = "2.1.1"
 icu_properties = "2.1.2"
 
-# The OS-keyring crate is excluded on musl targets: its Linux Secret
-# Service backend needs dbus, whose vendored C build fails to link there
-# (missing aarch64 outline-atomics helpers), and musl builds are
-# containers/CI where the env-var credential path is the norm anyway.
-# On musl the keyring feature still compiles; the backend reports
-# "absent" and callers fall back to `SYSAND_CRED_*` (section 9 taxonomy).
-# `vendored` builds libdbus from source so glibc Linux builds (including
-# CI lint runs with --all-features) need no system libdbus headers.
+# The OS-keyring crate is excluded on musl targets by policy: musl builds
+# are containers/CI where the env-var credential path is the norm, so the
+# backend reports "absent" and callers fall back to `SYSAND_CRED_*`
+# (section 9 taxonomy). On musl the keyring feature still compiles; the
+# backend reports "absent".
+# On non-musl targets keyring 4.x's `v1` feature selects the native
+# backend per OS: Keychain on macOS, Credential Manager on Windows, and
+# the pure-Rust zbus Secret Service backend on glibc Linux. zbus needs no
+# system libdbus (nothing to vendor) and its crypto-rust session keeps
+# openssl out of the tree, so glibc builds (including CI lint runs with
+# --all-features) need no system libraries.
 [target.'cfg(not(all(target_os = "linux", target_env = "musl")))'.dependencies]
-keyring = { version = "3.6.3", optional = true, default-features = false, features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
+keyring = { version = "4.1.5", optional = true, default-features = false, features = ["v1"] }
 
 [dev-dependencies]
 assert_cmd = "2.1.2"

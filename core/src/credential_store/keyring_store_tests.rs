@@ -156,14 +156,13 @@ fn lock_wait_is_bounded() {
         .truncate(false)
         .open(&lock_path)
         .unwrap();
-    let mut held = fd_lock::RwLock::new(file);
-    let guard = held.try_write().unwrap();
+    file.try_lock().unwrap();
 
     let err = store
         .upsert(record("https://a.example/", "tok"))
         .unwrap_err();
     assert!(matches!(err, CredentialStoreError::LockTimeout { .. }));
-    drop(guard);
+    file.unlock().unwrap();
 
     // Once released, the operation succeeds.
     store.upsert(record("https://a.example/", "tok")).unwrap();

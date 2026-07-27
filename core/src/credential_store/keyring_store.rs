@@ -109,11 +109,11 @@ impl BlobBackend for OsKeyringBackend {
     }
 }
 
-/// On musl targets the `keyring` crate is not built at all: its Linux
-/// Secret Service backend needs dbus, whose vendored C build does not
-/// link there. The backend reports "absent", so every caller takes the
-/// documented `SYSAND_CRED_*` fallback path (design/credential-storage.md
-/// section 9 taxonomy).
+/// On musl targets the `keyring` crate is not built at all (excluded by
+/// policy in Cargo.toml: musl builds are containers/CI where the env-var
+/// credential path is the norm). The backend reports "absent", so every
+/// caller takes the documented `SYSAND_CRED_*` fallback path
+/// (design/credential-storage.md section 9 taxonomy).
 #[cfg(all(target_os = "linux", target_env = "musl"))]
 impl BlobBackend for OsKeyringBackend {
     fn read(&self) -> Result<Option<String>, CredentialStoreError> {
@@ -178,8 +178,8 @@ pub fn default_lock_path() -> Result<PathBuf, CredentialStoreError> {
 }
 
 /// A [`CredentialStore`] over a [`BlobBackend`], guarding every operation
-/// with a cross-process advisory file lock (`flock`/`LockFileEx` via
-/// `fd-lock`) and a bounded wait.
+/// with a cross-process advisory file lock (`flock`/`LockFileEx` via the
+/// stable [`std::fs::File`] locking API) and a bounded wait.
 #[derive(Debug)]
 pub struct LockedBlobStore<B> {
     backend: B,
@@ -263,16 +263,19 @@ impl<B: BlobBackend> LockedBlobStore<B> {
         body: impl FnOnce(&B) -> Result<T, CredentialStoreError>,
     ) -> Result<T, CredentialStoreError> {
         let file = self.open_lock_file()?;
-        let mut lock = fd_lock::RwLock::new(file);
         let deadline = Instant::now() + self.lock_timeout;
         loop {
-            match lock.try_write() {
-                Ok(guard) => {
+            match file.try_lock() {
+                Ok(()) => {
                     let result = body(&self.backend);
-                    drop(guard);
+                    // Release the advisory lock. The file also unlocks on
+                    // drop, matching the previous guard-drop behavior; the
+                    // explicit call keeps the release visible and lets the
+                    // backend result stand.
+                    let _ = file.unlock();
                     return result;
                 }
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                Err(fs::TryLockError::WouldBlock) => {
                     if Instant::now() >= deadline {
                         return Err(CredentialStoreError::LockTimeout {
                             path: self.lock_path.display().to_string(),
@@ -280,7 +283,7 @@ impl<B: BlobBackend> LockedBlobStore<B> {
                     }
                     std::thread::sleep(self.lock_poll_interval);
                 }
-                Err(err) => return Err(CredentialStoreError::Lock(err)),
+                Err(fs::TryLockError::Error(err)) => return Err(CredentialStoreError::Lock(err)),
             }
         }
     }
