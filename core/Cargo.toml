@@ -62,7 +62,7 @@ wasm-bindgen = { version = "0.2.114", default-features = false, optional = true 
 zip = { version = "8.0.0", default-features = false, optional = true, features = ["deflate"] }
 url = { version = "2.5.8", default-features = false }
 percent-encoding = { version = "2.3.2", default-features = false, features = ["alloc"] }
-gix = { version = "0.83.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation", "sha1"] }
+gix = { version = "0.85.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation", "sha1"] }
 logos = "0.16.1"
 futures = { version = "0.3.32", default-features = false, features = ["alloc", "async-await"] }
 tokio = { version = "1.50.0", default-features = false, features = ["rt", "io-util", "sync"] }
