@@ -51,13 +51,12 @@ Constraints:
 - **C2 - one credential per index.** `auth login` stores one credential per
   index, used for both the read leg and the API leg. Separate read/write
   tokens are not a v1 concept (a later `auth set` could cover them, §10).
-- **P2 - API presence is read from discovery (consumed, not enforced
-  here).** This plan treats an index as having an API iff its discovery
-  document advertises `api_root`, and derives globs accordingly. It does
-  **not** change the runtime default (today a plain-URL index still defaults
-  `api_root` to its root). Enforcing "`api_root` required" at the protocol
-  level, and dropping that default, is a **separate, decoupled change**
-  (§12), out of this plan's phases.
+- **P2 - API presence is read from discovery.** This plan treats an index
+  as having an API iff its discovery document advertises `api_root`, and
+  derives globs accordingly. Enforcing "`api_root` required" at the protocol
+  level (dropping the old plain-URL default) landed separately (§12); this
+  plan relies on it, so `api_root` is `Some` exactly when an API is
+  advertised.
 - **P1 - public discovery: not required.** Under C2 the single credential
   reads discovery on a private index, so there is no bootstrap paradox.
   Current behavior (discovery may be private) stands.
@@ -174,9 +173,8 @@ always authenticated, so its baseline is a known 401 and only the forced
 request is needed. Validation is discovery-first (`api_root` is known only
 after reading discovery): fetch discovery, resolve `index_root` and
 `api_root`, probe `index_root/index.json`, and, **only if discovery
-advertised an `api_root`** (not the runtime plain-URL default, §3), probe
-`api_root/v1/whoami`, so a static plain-URL index is never phantom-probed
-for an API it does not have.
+advertised an `api_root`**, probe `api_root/v1/whoami`, so a static
+plain-URL index is never phantom-probed for an API it does not have.
 
 **Login's discovery fetch is itself unauth-baseline-then-forced** (only
 the backend-absent path of §9 stays strictly unauthenticated, since its
@@ -189,7 +187,7 @@ one. This means an index with no discovery document sees one extra
 credentialed request at login; it goes to the same user-supplied trust
 anchor (§8) the probes already hit. Forced-retry outcomes: a 200 with a
 valid document is used exactly like a public discovery success (globs,
-`api_root_advertised`, the whoami gate); a 404 is the authoritative "no
+an advertised `api_root`, the whoami gate); a 404 is the authoritative "no
 document" answer and reconstructs the flat topology with no warning; and
 everything else (other 4xx, 429, a redirect, since the retry goes through
 the no-redirect probe client unlike the redirect-following baseline, 5xx,
@@ -603,14 +601,10 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   works).
 - Longest-prefix most-specific-glob-wins (needed only once `set` / nested
   logins create within-source overlaps).
-- **P2 enforcement** (dropping the plain-URL `api_root` default), a
-  separate protocol change on its own timeline (§12); this plan only
-  consumes `api_root` when advertised.
-
-**Out of scope entirely:** acquisition beyond store-what-you-paste (OAuth
-apps, device flows, refresh-token lifecycle); a self-written encrypted vault
-or plaintext credentials file; a user-facing credential "label" concept;
-multi-account-per-host switching; git credentials (git keeps its own).
+  **Out of scope entirely:** acquisition beyond store-what-you-paste (OAuth
+  apps, device flows, refresh-token lifecycle); a self-written encrypted vault
+  or plaintext credentials file; a user-facing credential "label" concept;
+  multi-account-per-host switching; git credentials (git keeps its own).
 
 ## 11. Build phases
 
@@ -649,8 +643,8 @@ Each phase is independently shippable.
 4. **Docs and specs** (§12, §13). Protocol specs in this repo; user docs in
    the `sysand-index` repo (docs.sysand.com).
 
-Separate, not part of these phases: **P2 enforcement** (§10, §12) and the
-deferred `auth set` / basic-auth work.
+Separate, not part of these phases: the deferred `auth set` / basic-auth
+work.
 
 CI notes for these phases: the test lanes do not enable `-F keyring`, so
 keyring-gated tests only compile via `clippy --all-features` until a
@@ -662,14 +656,14 @@ not read `rust-toolchain.toml`.
 
 - `design/index-api-protocol.md`: specify `v1/whoami` (§6), routed under
   `api/`.
-- `design/index-protocol.md` (**decoupled change**, not this plan's
-  phases): enforce "an index has an API iff discovery advertises `api_root`"
-  and drop the plain-URL default. This is a **breaking change**, a
-  third-party plain-URL _dynamic_ index that relies on the defaulted
-  `api_root` (no discovery document, or one without the field) becomes
-  read-only and must serve `sysand-index-config.json` with an explicit
-  `api_root` (the official index already does). Both the field-absent branch
-  and the 404 `flat()` path in `core/src/env/discovery.rs` must change.
+- `design/index-protocol.md` (**landed separately**, via the
+  require-`api_root` change now in `main`): an index has an API iff
+  discovery advertises `api_root`; the plain-URL default is dropped. This
+  was a **breaking change**, a third-party plain-URL _dynamic_ index that
+  relied on the defaulted `api_root` (no discovery document, or one without
+  the field) becomes read-only and must serve `sysand-index-config.json`
+  with an explicit `api_root` (the official index already does). This plan
+  relies on it: `api_root` is `Some` exactly when an API is advertised.
 
 ## 13. Documentation (docs.sysand.com, in the `sysand-index` repo)
 

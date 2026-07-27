@@ -915,8 +915,9 @@ fn run_validation_probes(
         notify,
     );
 
+    // `api_root` is set only when discovery advertises it, so only an index
+    // with an API gets probed.
     if let Some(endpoints) = endpoints
-        && endpoints.api_root_advertised
         && let Some(api_root) = &endpoints.api_root
     {
         probe_api_surface(runtime, &client, api_root, secret, &mut outcome, notify);
@@ -1292,15 +1293,8 @@ pub fn do_auth_whoami<S: CredentialStore, P: HTTPAuthentication>(
             index: key.clone(),
             error: err.to_string(),
         })?;
-    // Only an explicitly advertised API is asked (the same
-    // `api_root_advertised` gate as login's validation probes): a static
-    // index's plain-URL runtime default is not an identity endpoint.
-    if !endpoints.api_root_advertised {
-        return Err(AuthCommandError::NoAdvertisedApi { index: key });
-    }
+    // No advertised `api_root` means the index has no API to ask.
     let Some(api_root) = &endpoints.api_root else {
-        // `api_root_advertised` implies `api_root` is `Some`; keep a
-        // non-panicking path anyway.
         return Err(AuthCommandError::NoAdvertisedApi { index: key });
     };
     // `api_root` always ends in `/` (discovery normalizes it), so the
