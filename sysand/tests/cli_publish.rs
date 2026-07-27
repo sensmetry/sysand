@@ -692,8 +692,12 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
             "no bearer token credentials configured for publish URL",
         ))
         // The CLI adds the `sysand auth login` remediation the core message
-        // deliberately omits (core/CLI message split).
-        .stderr(predicate::str::contains("run `sysand auth login"))
+        // deliberately omits (core/CLI message split), naming the actual
+        // index URL so the hint is copy-pasteable.
+        .stderr(predicate::str::contains(format!(
+            "run `sysand auth login {}",
+            server.url()
+        )))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     publish_mock.assert();

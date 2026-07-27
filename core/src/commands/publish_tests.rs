@@ -15,7 +15,7 @@ use crate::{
     resolve::net_utils::create_reqwest_client,
 };
 use bytes::Bytes;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Timelike, Utc};
 use mockito::Matcher;
 use std::assert_matches;
 use std::sync::Arc;
@@ -188,6 +188,55 @@ fn publish_bearer_falls_through_to_keyring_when_env_has_no_match() {
     .unwrap();
 
     assert_eq!(selected.auth, ForceBearerAuth::new("keyring-token"));
+    assert_eq!(
+        selected.provenance,
+        PublishBearerProvenance::Stored {
+            key: STORED_KEY.to_string(),
+            expires_at: None,
+        }
+    );
+}
+
+#[test]
+fn publish_bearer_env_identical_token_candidates_collapse() {
+    // Two env patterns carrying the same token are one credential in
+    // effect, so they collapse to a match instead of erroring, mirroring
+    // the whoami and runtime selection flows.
+    let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
+    let env = env_sources(&[
+        ("https://example.org/**", "shared-env-token"),
+        ("https://example.org/api/**", "shared-env-token"),
+    ]);
+
+    let selected = resolve_publish_bearer_from_config(&env, stored_unreached, &upload_url).unwrap();
+
+    assert_eq!(selected.auth, ForceBearerAuth::new("shared-env-token"));
+    assert_eq!(
+        selected.provenance,
+        PublishBearerProvenance::Env { label: None }
+    );
+}
+
+#[test]
+fn publish_bearer_keyring_identical_token_candidates_collapse() {
+    // The typical shape: one stored login whose glob set matches the
+    // upload URL through more than one pattern. Same token, so publish
+    // selects it instead of reporting ambiguity.
+    let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
+
+    let selected = resolve_publish_bearer_from_config(
+        &empty_sources(),
+        || {
+            stored_sources(&[
+                ("https://example.org/**", "shared-keyring-token"),
+                ("https://example.org/api/**", "shared-keyring-token"),
+            ])
+        },
+        &upload_url,
+    )
+    .unwrap();
+
+    assert_eq!(selected.auth, ForceBearerAuth::new("shared-keyring-token"));
     assert_eq!(
         selected.provenance,
         PublishBearerProvenance::Stored {
@@ -910,7 +959,11 @@ fn publish_stops_before_upload_when_the_stored_bearer_is_expired() {
     let mut server = mockito::Server::new();
     let mock = server.mock("POST", "/api/v1/upload").expect(0).create();
 
-    let expires_at = Utc::now() - Duration::days(1);
+    // A sub-second component that must not leak into the message
+    // (timestamps are shown without sub-second precision).
+    let expires_at = (Utc::now() - Duration::days(1))
+        .with_nanosecond(123_456_789)
+        .unwrap();
     let err = publish_to(&server, stored_bearer(Some(expires_at))).unwrap_err();
 
     assert_matches!(
@@ -920,7 +973,12 @@ fn publish_stops_before_upload_when_the_stored_bearer_is_expired() {
     let message = err.to_string();
     // The core message states the condition without naming a CLI command;
     // the frontend adds the `sysand auth login` remediation.
-    assert!(message.contains("expired at"), "message: {message}");
+    let expected_timestamp = expires_at.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+    assert!(
+        message.contains(&format!("expired at {expected_timestamp}")),
+        "message: {message}"
+    );
+    assert!(!message.contains(".123"), "message: {message}");
     assert!(!message.contains("sysand auth"), "message: {message}");
     // The archive was never uploaded.
     mock.assert();

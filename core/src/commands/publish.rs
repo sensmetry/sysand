@@ -308,6 +308,13 @@ fn stored_bearer_clearly_expired(expires_at: DateTime<Utc>, now: DateTime<Utc>) 
     now.signed_duration_since(expires_at) > TimeDelta::hours(1)
 }
 
+/// Render an expiry timestamp for display, without chrono's sub-second
+/// noise (`11:39:28.149443` reads as `11:39:28`), matching how `auth status`
+/// renders expiry timestamps.
+fn format_expiry_utc(expires_at: &DateTime<Utc>) -> String {
+    expires_at.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+}
+
 /// Validate the shape of the resolved `api_root` that comes back from
 /// discovery before the upload step. The user-supplied discovery root is an
 /// [`IndexLocation`], which already enforces the HTTP(S)/no-userinfo
@@ -463,7 +470,11 @@ fn resolve_publish_bearer_from_config(
     stored_bearers: impl FnOnce() -> GlobMap<StoredBearerAuth>,
     upload_url: &Url,
 ) -> Result<SelectedPublishBearer, PublishError> {
-    if let Some(entry) = lookup_publish_bearer(env_bearers, PublishBearerSource::Env, upload_url)? {
+    if let Some(entry) =
+        lookup_publish_bearer(env_bearers, PublishBearerSource::Env, upload_url, |entry| {
+            entry.auth.token()
+        })?
+    {
         return Ok(SelectedPublishBearer {
             auth: entry.auth.clone(),
             provenance: PublishBearerProvenance::Env {
@@ -472,7 +483,11 @@ fn resolve_publish_bearer_from_config(
         });
     }
     let stored = stored_bearers();
-    if let Some(entry) = lookup_publish_bearer(&stored, PublishBearerSource::Keyring, upload_url)? {
+    if let Some(entry) =
+        lookup_publish_bearer(&stored, PublishBearerSource::Keyring, upload_url, |entry| {
+            entry.auth().token()
+        })?
+    {
         return Ok(SelectedPublishBearer {
             auth: entry.auth().clone(),
             provenance: PublishBearerProvenance::Stored {
@@ -488,19 +503,31 @@ fn resolve_publish_bearer_from_config(
 
 /// Look `upload_url` up in one source's bearer map: a unique match wins, an
 /// ambiguous match errors naming the source, and no match returns `None` so
-/// the caller can fall through to the next source.
+/// the caller can fall through to the next source. Like the whoami and
+/// runtime selection flows, candidates that carry the identical token are
+/// one credential in effect (for example two stored globs of one login both
+/// matching the upload URL), so they collapse to a single match instead of
+/// erroring; `token` extracts the token to compare.
 fn lookup_publish_bearer<'a, T>(
     map: &'a GlobMap<T>,
     source: PublishBearerSource,
     upload_url: &Url,
+    token: impl Fn(&T) -> &str,
 ) -> Result<Option<&'a T>, PublishError> {
     match map.lookup(upload_url.as_str()) {
         GlobMapResult::Found(_, entry) => Ok(Some(entry)),
-        GlobMapResult::Ambiguous(candidates) => Err(PublishError::AmbiguousPublishBearer {
-            upload_url: upload_url.as_str().into(),
-            bearer_source: source,
-            candidates: candidates.len(),
-        }),
+        GlobMapResult::Ambiguous(candidates) => {
+            if let Some(((_, first), rest)) = candidates.split_first()
+                && rest.iter().all(|(_, entry)| token(entry) == token(first))
+            {
+                return Ok(Some(first));
+            }
+            Err(PublishError::AmbiguousPublishBearer {
+                upload_url: upload_url.as_str().into(),
+                bearer_source: source,
+                candidates: candidates.len(),
+            })
+        }
         GlobMapResult::NotFound => Ok(None),
     }
 }
@@ -985,9 +1012,10 @@ pub enum PublishError {
     },
 
     #[error(
-        "the stored credential for `{key}` expired at {expires_at}, so publish stopped\n\
+        "the stored credential for `{key}` expired at {}, so publish stopped\n\
          before uploading (a matching `SYSAND_CRED_*` environment credential would take\n\
-         precedence instead)"
+         precedence instead)",
+        format_expiry_utc(.expires_at)
     )]
     StoredCredentialExpired {
         key: String,

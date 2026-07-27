@@ -72,6 +72,9 @@ pub fn command_publish(
     // policy) only when no env bearer matches the upload URL.
     let env_bearers = auth_policy.env_policy().publish_bearer_auth_map()?;
     let trusted_publishing_env = TrustedPublishingEnvironment::from_env();
+    // Captured before `index` moves into `do_publish`, so both hint sites
+    // can name the index the user actually targeted.
+    let index_display = index.to_string();
     let bearer = resolve_publish_bearer(
         &env_bearers,
         || auth_policy.stored_bearer_map_blocking().clone(),
@@ -81,10 +84,10 @@ pub fn command_publish(
         &client,
         &runtime,
     )
-    .map_err(publish_error_with_hint)?;
+    .map_err(|err| publish_error_with_hint(err, &index_display))?;
 
     let response = do_publish(prepared, index, api_root, bearer, client, runtime)
-        .map_err(publish_error_with_hint)?;
+        .map_err(|err| publish_error_with_hint(err, &index_display))?;
 
     let header = sysand_core::style::get_style_config().header;
     if response.is_new_project {
@@ -105,11 +108,12 @@ pub fn command_publish(
 /// Add the CLI-specific `sysand auth` remediation to a publish error whose
 /// core message deliberately names no CLI command: the library states the
 /// condition (and the `SYSAND_CRED_*` fallback), and the frontend owns the
-/// command vocabulary.
-fn publish_error_with_hint(err: PublishError) -> anyhow::Error {
+/// command vocabulary. `index` is the index the user targeted, so the
+/// login hint is copy-pasteable.
+fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
     let hint = match &err {
         PublishError::NoPublishBearer { .. } => {
-            Some("or run `sysand auth login <index-url>` to store one".to_string())
+            Some(format!("or run `sysand auth login {index}` to store one"))
         }
         PublishError::StoredCredentialExpired { key, .. } => Some(format!(
             "re-run `sysand auth login {key}` to store a fresh token"
