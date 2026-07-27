@@ -71,10 +71,22 @@ impl HTTPAuthentication for Unauthenticated {
 }
 
 /// Authentication policy that *always* sends a username/password pair
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ForceHTTPBasicAuth {
     pub username: Box<str>,
     pub password: Box<str>,
+}
+
+// Hand-written so the password is never rendered, matching the redaction
+// on `ForceBearerAuth`. Both are secret-bearing leaves reachable through a
+// composed policy's `Debug`, so both must redact.
+impl std::fmt::Debug for ForceHTTPBasicAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ForceHTTPBasicAuth")
+            .field("username", &self.username)
+            .field("password", &"<redacted>")
+            .finish()
+    }
 }
 
 impl HTTPAuthentication for ForceHTTPBasicAuth {
@@ -288,7 +300,10 @@ impl<T> GlobMap<T> {
         } else if outcome.len() == 1 {
             GlobMapResult::Found(key.to_owned(), &self.values[outcome[0]])
         } else {
-            // Need to do some magic to keep multiple (disjoint) references into a mutable array
+            // globset returns matched indices in ascending order, so walk one
+            // iterator forward, advancing by the gap since the previous index
+            // (`nth` consumes) rather than indexing the values repeatedly
+            // (which `lookup_mut` cannot do: the vec is borrowed mutably).
             let mut result = Vec::with_capacity(outcome.len());
             let mut values_iter = self.values.iter();
 
@@ -309,7 +324,10 @@ impl<T> GlobMap<T> {
         } else if outcome.len() == 1 {
             GlobMapResultMut::Found(key.to_owned(), &mut self.values[outcome[0]])
         } else {
-            // Need to do some magic to keep multiple (disjoint) references into a mutable array
+            // globset returns matched indices in ascending order, so walk one
+            // iterator forward, advancing by the gap since the previous index
+            // (`nth` consumes) rather than indexing the values repeatedly
+            // (which `lookup_mut` cannot do: the vec is borrowed mutably).
             let mut result = Vec::with_capacity(outcome.len());
             let mut mut_values_iter = self.values.iter_mut();
 
@@ -476,8 +494,8 @@ pub struct EnvBearerAuth {
 
 impl std::fmt::Debug for EnvBearerAuth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Redacts the token (unlike the pre-existing derived `Debug` on
-        // `ForceBearerAuth`): only the non-secret label is shown.
+        // The token is already redacted by `ForceBearerAuth`'s `Debug`;
+        // hand-written only to show just the non-secret label.
         f.debug_struct("EnvBearerAuth")
             .field("label", &self.label)
             .finish_non_exhaustive()
@@ -605,8 +623,9 @@ pub struct StoredBearerAuth {
 
 impl std::fmt::Debug for StoredBearerAuth {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Redacts the token (unlike the pre-existing derived `Debug` on
-        // `ForceBearerAuth`): only non-secret record fields are shown.
+        // The token is already redacted by `ForceBearerAuth`'s `Debug`;
+        // hand-written only to show the non-secret record fields and drop
+        // the `expiry_warned` `Arc` noise.
         f.debug_struct("StoredBearerAuth")
             .field("key", &self.key)
             .field("expires_at", &self.expires_at)
@@ -721,9 +740,9 @@ where
     Inner: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Deliberately redacts the cache: unlike the (pre-existing) derived
-        // `Debug` on the env layer, stored-login secrets never appear in
-        // debug output of this layer.
+        // Hand-written to show `has_store`/`cache_read` rather than the
+        // cache contents; the stored tokens it holds are already redacted
+        // by `ForceBearerAuth`'s `Debug`.
         f.debug_struct("CredentialStoreAuthentication")
             .field("inner", &self.inner)
             .field("has_store", &self.store.is_some())

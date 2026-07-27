@@ -268,10 +268,8 @@ impl<B: BlobBackend> LockedBlobStore<B> {
             match file.try_lock() {
                 Ok(()) => {
                     let result = body(&self.backend);
-                    // Release the advisory lock. The file also unlocks on
-                    // drop, matching the previous guard-drop behavior; the
-                    // explicit call keeps the release visible and lets the
-                    // backend result stand.
+                    // Release explicitly (it would also unlock on drop) so
+                    // the release is visible and the backend result stands.
                     let _ = file.unlock();
                     return result;
                 }

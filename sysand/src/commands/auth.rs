@@ -97,6 +97,17 @@ pub fn command_auth_login(
     let header = sysand_core::style::get_style_config().header;
     println!("{header}{:>12}{header:#} to index `{key}`", "Logging in");
 
+    // An `http` index sends the bearer token in cleartext, and a one-time
+    // MITM at login could rewrite discovery to a hostile `api_root` that
+    // then gets persisted (design/credential-storage.md section 8). Warn
+    // before the secret is entered so the user can abort.
+    if key.starts_with("http://") {
+        log::warn!(
+            "`{key}` uses an unencrypted (http) connection; the token will be \
+             sent in cleartext. Prefer an https:// index."
+        );
+    }
+
     let secret = read_token(&key, token_stdin)?;
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;

@@ -603,19 +603,40 @@ fn redirect_target(response: &reqwest::Response) -> String {
 
 /// Whether any `WWW-Authenticate` challenge on the response offers the
 /// `Basic` scheme. Scheme tokens are case-insensitive (RFC 7235) and one
-/// header value can carry several comma-separated challenges; a full
-/// challenge parser is overkill, but a plain substring check would
-/// false-positive on e.g. `Bearer realm="Basic migration"`.
+/// header value can carry several comma-separated challenges. A plain
+/// substring check would false-positive on `Bearer realm="Basic
+/// migration"`, and splitting on every comma would false-positive on a
+/// comma inside a quoted parameter value (`Bearer realm="use, basic"`),
+/// so we split on top-level commas only and check each challenge's leading
+/// scheme token. (A quoted `\"` inside a value is not handled, but such
+/// realms do not occur in practice, and this only tunes a hint message.)
 fn offers_basic_challenge(headers: &reqwest::header::HeaderMap) -> bool {
     headers
         .get_all(reqwest::header::WWW_AUTHENTICATE)
         .iter()
         .filter_map(|value| value.to_str().ok())
-        .any(|value| {
-            value.split(',').any(|part| {
-                let token = part.trim_start().split([' ', '\t']).next().unwrap_or("");
-                token.eq_ignore_ascii_case("basic")
-            })
+        .any(header_offers_basic)
+}
+
+fn header_offers_basic(value: &str) -> bool {
+    // Split into challenges on commas outside double quotes: the toggling
+    // closure flips `in_quotes` on each `"` and treats a `,` as a
+    // separator only while outside quotes.
+    let mut in_quotes = false;
+    value
+        .split(|c: char| {
+            if c == '"' {
+                in_quotes = !in_quotes;
+            }
+            c == ',' && !in_quotes
+        })
+        .any(|challenge| {
+            let token = challenge
+                .trim_start()
+                .split([' ', '\t'])
+                .next()
+                .unwrap_or("");
+            token.eq_ignore_ascii_case("basic")
         })
 }
 
@@ -877,9 +898,9 @@ fn forced_discovery_fetch(
 /// discovery-first (the already-fetched discovery result is reused; when
 /// it was unreachable the read surface falls back to the URL-derived
 /// `index.json`, so a fully private index still gets its read surface
-/// exercised), and the API surface only when discovery explicitly
-/// advertised `api_root` (never the plain-URL runtime default), so a
-/// static index is not phantom-probed for an API it does not have.
+/// exercised), and the API surface only when discovery advertised
+/// `api_root` (which the protocol now requires explicitly), so a static
+/// index is not phantom-probed for an API it does not have.
 fn run_validation_probes(
     endpoints: Option<&ResolvedEndpoints>,
     location: &IndexLocation,

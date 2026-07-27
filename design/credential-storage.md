@@ -471,9 +471,9 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   treats the blob as empty, which would clobber all stored credentials on the
   next `login`.
 - **Concurrency.** Read-modify-write is guarded by a **cross-process
-  advisory OS file lock** (`flock`/`LockFileEx`, via a crate like
-  `fd-lock`), never an existence-based lock file (those go stale after a
-  crash). The lock file lives in a **per-user** location
+  advisory OS file lock** (`flock`/`LockFileEx`, via the stable
+  `std::fs::File` locking API), never an existence-based lock file (those
+  go stale after a crash). The lock file lives in a **per-user** location
   (`XDG_RUNTIME_DIR`/`XDG_STATE_HOME` on Linux, `%LOCALAPPDATA%` on
   Windows, falling back to the home directory), mode `0600`, never a
   world-writable shared path (lock squatting / symlink games), with a
@@ -727,17 +727,16 @@ capabilities behind cargo features (`filesystem`, `networking`).
   build for wasm. A browser-side store could later implement the same trait
   (bindings/js already has local-storage machinery), but that is not v1 and
   localStorage is not secure storage.
-  - **Vendored dbus.** The Linux Secret Service backend pulls libdbus;
-    build it `vendored` so CI's `clippy --all-features` and contributor
-    machines need no system libdbus headers. Vendoring statically embeds
-    libdbus (dual AFL-2.1 OR GPL-2.0) in shipped binaries; verify with
-    cargo-deny.
-  - **musl exclusion.** The vendored dbus C build does not link on
-    aarch64-musl (missing outline-atomics helpers), and musl targets are
-    containers/CI where a Secret Service never runs. Target-gate the
-    keyring dependency off musl entirely and give `OsKeyringBackend` a
-    musl stub returning the backend-absent error, so the documented
-    `SYSAND_CRED_*` fallback is the behavior there.
+  - **Pure-Rust Secret Service.** keyring 4.x's `v1` feature uses the
+    zbus Secret Service backend on glibc Linux, with no system libdbus
+    (nothing to vendor) and a `crypto-rust` session that keeps openssl out
+    of the tree, so CI's `clippy --all-features` and contributor machines
+    need no system libraries.
+  - **musl exclusion.** musl targets are containers/CI where a Secret
+    Service never runs, so target-gate the keyring dependency off musl
+    entirely and give `OsKeyringBackend` a musl stub returning the
+    backend-absent error; the documented `SYSAND_CRED_*` fallback is the
+    behavior there.
   - **Test seam.** CLI integration tests must never touch the real OS
     keyring (macOS prompts on differently-signed test binaries; CI has no
     Secret Service). Provide a deliberate seam, a debug-build-only env var
