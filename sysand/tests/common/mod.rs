@@ -92,6 +92,12 @@ pub fn sysand_cmd_in_with<'a, I: IntoIterator<Item = &'a str>>(
     // tests (it would inject markers or ambiguity notes into asserted
     // output); tests that need it set it explicitly via `env`.
     cmd.env_remove("SYSAND_DEFAULT_INDEX");
+    // Default the debug-only credential store seam
+    // (sysand/src/credential_store.rs) to a simulated-absent keyring so
+    // no test ever reads the developer's real OS keyring (which could
+    // alter assertions, or pop a keychain prompt on macOS). Tests that
+    // need a working store override this via `env` (see cli_auth.rs).
+    cmd.env("SYSAND_TEST_CREDENTIAL_STORE", ":absent:");
     cmd.envs(env);
 
     cmd.args(args);
