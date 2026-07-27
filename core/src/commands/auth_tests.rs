@@ -315,21 +315,17 @@ fn status_surfaces_a_denied_backend_as_an_error() {
 // do_auth_login
 
 mod login {
-    use std::sync::Arc;
-
     use globset::{GlobBuilder, GlobSetBuilder};
 
     use super::super::{AuthLoginNotice, AuthLoginOutcome, do_auth_login};
     use super::*;
     use crate::{index_location::IndexLocation, resolve::net_utils::create_reqwest_client};
 
-    fn make_runtime() -> Arc<tokio::runtime::Runtime> {
-        Arc::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
-        )
+    fn make_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
     }
 
     /// Run `do_auth_login` against a real client/runtime, collecting the
@@ -351,7 +347,7 @@ mod login {
             index_url,
             secret.to_string(),
             &client,
-            make_runtime(),
+            &make_runtime(),
             |notice| notices.push(notice),
         );
         (outcome, notices)
@@ -1298,6 +1294,7 @@ mod login {
                 n,
                 AuthLoginNotice::SurfaceRejected {
                     surface: ProbeSurface::Api,
+                    read_status: None,
                     basic_challenge: false,
                 }
             )),
@@ -1332,6 +1329,10 @@ mod login {
                 n,
                 AuthLoginNotice::SurfaceRejected {
                     surface: ProbeSurface::Read,
+                    // The read surface carries its rejection status so
+                    // hosts can hedge a 404 (which can also mean no
+                    // `index.json` at all).
+                    read_status: Some(401),
                     basic_challenge: false,
                 }
             )),
@@ -2139,13 +2140,15 @@ mod whoami {
             matches!(&err, AuthCommandError::NoWhoamiCredential { .. }),
             "unexpected error: {err}"
         );
-        // The core message states the condition without naming a CLI
-        // command; the frontend adds the `sysand auth login` hint.
+        // The core message states the bare condition; all remediation
+        // (the `sysand auth login` hint and the `SYSAND_CRED_*` CI path)
+        // belongs to the frontend.
         let message = err.to_string();
         assert!(
             message.contains("no credential matches"),
             "message: {message}"
         );
         assert!(!message.contains("sysand auth"), "message: {message}");
+        assert!(!message.contains("SYSAND_CRED"), "message: {message}");
     }
 }

@@ -403,6 +403,72 @@ fn auth_login_then_logout_removes_the_stored_entry() -> TestResult {
 }
 
 #[test]
+fn auth_logout_of_an_unknown_index_points_at_status() -> TestResult {
+    // The seam store file does not exist: nothing is stored. The error
+    // must point at `auth status`, whose listing shows every stored key
+    // in the exact spelling logout accepts (the fix for a typoed URL).
+    let (_store_dir, store_path) = seam_store()?;
+    let (_t, _c, out) = run_sysand_with(
+        ["auth", "logout", "https://nothing.example"],
+        None,
+        &seam_env(&store_path),
+    )?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "no stored credential for `https://nothing.example/`",
+        ))
+        .stderr(predicate::str::contains(
+            "run `sysand auth status` to list the stored logins and their exact keys",
+        ));
+    Ok(())
+}
+
+#[test]
+fn auth_login_stored_anyway_hedges_a_read_404() -> TestResult {
+    let (_store_dir, store_path) = seam_store()?;
+    let env = seam_env(&store_path);
+
+    let mut server = mockito::Server::new();
+    let _config = server
+        .mock("GET", "/sysand-index-config.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(format!(r#"{{"api_root": "{}/api/"}}"#, server.url()))
+        .create();
+    // The read surface answers 404 with and without the token. A 404 can
+    // mean a rejected token (GitLab-style hosts) or no `index.json` at
+    // all, so the stored-anyway warning must carry the same hedge the
+    // refusal message has. The advertised API accepts, so the login
+    // stores the credential.
+    let _index = server
+        .mock("GET", "/index.json")
+        .with_status(404)
+        .expect(2)
+        .create();
+    let _whoami = server
+        .mock("GET", "/api/v1/whoami")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(WHOAMI_BODY)
+        .create();
+
+    let (_t, _c, out) = run_sysand_stdin(
+        ["auth", "login", "--token-stdin", &server.url()],
+        &env,
+        b"tok\n",
+    )?;
+    out.assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "HTTP 404, which can also mean no index exists at this URL",
+        ))
+        .stderr(predicate::str::contains("stored anyway"))
+        .stderr(predicate::str::contains("validated (api)"));
+    Ok(())
+}
+
+#[test]
 fn auth_login_covers_a_disjoint_api_root_from_discovery() -> TestResult {
     let (_store_dir, store_path) = seam_store()?;
     let env = seam_env(&store_path);
@@ -958,6 +1024,35 @@ fn auth_login_without_keyring_backend_prints_env_lines_with_a_placeholder() -> T
     Ok(())
 }
 
+#[test]
+fn auth_login_without_keyring_distinguishes_ports_in_the_env_stem() -> TestResult {
+    // Two indexes on different ports of one host must get different
+    // variable stems, or the second guidance would silently overwrite
+    // the first credential.
+    let mut env = IndexMap::new();
+    env.insert(SEAM_ENV_VAR.to_string(), ":absent:".to_string());
+
+    let (_t, _c, out) = run_sysand_stdin(
+        [
+            "auth",
+            "login",
+            "--token-stdin",
+            "https://sysand.example:8443/idx",
+        ],
+        &env,
+        b"tok\n",
+    )?;
+    out.assert()
+        .failure()
+        .stdout(predicate::str::contains(
+            "SYSAND_CRED_SYSAND_EXAMPLE_8443=https://sysand.example:8443/idx/**",
+        ))
+        .stdout(predicate::str::contains(
+            "SYSAND_CRED_SYSAND_EXAMPLE_8443_BEARER_TOKEN=<token>",
+        ));
+    Ok(())
+}
+
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn auth_login_prompts_hidden_on_a_terminal() -> TestResult {
@@ -1131,7 +1226,13 @@ fn auth_whoami_without_a_matching_credential_suggests_login() -> TestResult {
     out.assert()
         .failure()
         .stderr(predicate::str::contains("no credential matches"))
-        .stderr(predicate::str::contains("sysand auth login"));
+        // The hint leads with the interactive fix and names the
+        // `SYSAND_CRED_*` variables second, as the CI path.
+        .stderr(predicate::str::contains(format!(
+            "run `sysand auth login {}/` to store a credential; \
+             in CI, set `SYSAND_CRED_*` environment variables instead",
+            server.url()
+        )));
     Ok(())
 }
 

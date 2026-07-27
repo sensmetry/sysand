@@ -11,7 +11,10 @@ use std::sync::Arc;
 use anstream::println;
 use anyhow::{Context, Result, bail};
 use sysand_core::{
-    auth::{GlobMapBuilder, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder},
+    auth::{
+        GlobMapBuilder, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
+        StandardLazyHTTPAuthentication,
+    },
     commands::auth::{
         AuthCommandError, AuthLoginNotice, AuthLoginOutcome, AuthStatus, EnvCredentialEntry,
         ProbeSurface, StoredCredentialStatus, StoredCredentialsStatus, WhoamiCredentialSource,
@@ -19,12 +22,12 @@ use sysand_core::{
         do_auth_whoami, validated_index_key,
     },
     config::Config,
-    credential_store::{CredentialStore, CredentialStoreError},
+    credential_store::{CredentialRecord, CredentialStore, CredentialStoreError},
 };
 
 use chrono::{DateTime, Utc};
 
-use crate::{CliAuthPolicy, DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
+use crate::{DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
 
 const KEYRING_LOCKED_HINT: &str = "unlock your OS keyring and retry, or provide credentials via \
      `SYSAND_CRED_*` environment variables";
@@ -113,15 +116,26 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
         ),
         AuthLoginNotice::SurfaceRejected {
             surface,
+            read_status,
             basic_challenge,
         } => {
+            // The same read-404 hedge the refusal message carries: a 404
+            // can mean a rejected token, but also no `index.json` at all.
+            let hedge = if read_status == Some(404) {
+                " (HTTP 404, which can also mean no index exists at this URL)"
+            } else {
+                ""
+            };
             log::warn!(
-                "the {} rejected the credential; it was stored anyway because \
-                     another surface accepted it",
+                "the {} rejected the credential{hedge}; it was stored anyway \
+                     because another surface accepted it",
                 surface_name(surface)
             );
             if basic_challenge {
                 let stem = cred_env_var_stem(index_key);
+                // Keep this basic-auth routing hint consistent with the
+                // refusal-path variant in core/src/commands/auth.rs
+                // (validation_rejected_message).
                 log::warn!(
                     "this index uses username/password (HTTP basic) authentication; \
                          configure `SYSAND_CRED_{stem}_BASIC_USER` / \
@@ -168,7 +182,7 @@ pub fn command_auth_login(
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
     let index_key = key.clone();
-    let outcome = do_auth_login(&mut store, &key, secret, client, runtime, |notice| {
+    let outcome = do_auth_login(&mut store, &key, secret, client, &runtime, |notice| {
         render_login_notice(notice, &index_key);
     });
     match outcome {
@@ -301,14 +315,20 @@ fn read_token(key: &str, token_stdin: bool) -> Result<String> {
 }
 
 /// Derive the `SYSAND_CRED_<NAME>` stem suggested on a no-keyring host
-/// from the index host. Hostnames cannot produce the reserved
-/// `_BASIC_USER` / `_BASIC_PASS` / `_BEARER_TOKEN` suffixes.
+/// from the index host, plus the port when it is not the scheme default
+/// (for example `HOST_8443`): two indexes on different ports of one host
+/// must not suggest the same variable names, or the second guidance would
+/// silently overwrite the first credential. Hostnames and ports cannot
+/// produce the reserved `_BASIC_USER` / `_BASIC_PASS` / `_BEARER_TOKEN`
+/// suffixes (a port is all digits).
 fn cred_env_var_stem(key: &str) -> String {
-    let host = url::Url::parse(key)
-        .ok()
-        .and_then(|url| url.host_str().map(str::to_owned))
-        .unwrap_or_else(|| "INDEX".to_string());
-    host.chars()
+    let url = url::Url::parse(key).ok();
+    let host = url
+        .as_ref()
+        .and_then(|url| url.host_str())
+        .unwrap_or("INDEX");
+    let mut stem: String = host
+        .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() {
                 c.to_ascii_uppercase()
@@ -316,7 +336,14 @@ fn cred_env_var_stem(key: &str) -> String {
                 '_'
             }
         })
-        .collect()
+        .collect();
+    // `url::Url` strips a scheme-default port during normalization, so
+    // `port()` is `Some` exactly for non-default ports.
+    if let Some(port) = url.as_ref().and_then(url::Url::port) {
+        stem.push('_');
+        stem.push_str(&port.to_string());
+    }
+    stem
 }
 
 pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result<()> {
@@ -350,6 +377,13 @@ pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result
         ),
         Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
             Err(err).context(KEYRING_LOCKED_HINT)
+        }
+        // The core error states the condition; the CLI points at `auth
+        // status`, which lists every stored login under its exact key (a
+        // logout target must match the key exactly, so a typo is best
+        // fixed by copying the key from that list).
+        Err(err @ AuthCommandError::NoStoredCredential { .. }) => {
+            bail!("{err}\nrun `sysand auth status` to list the stored logins and their exact keys")
         }
         Err(err) => Err(err.into()),
     }
@@ -617,6 +651,30 @@ fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
         .context("could not compile `SYSAND_CRED_*` URL patterns")
 }
 
+/// An already-read snapshot of the credential store, backing `auth
+/// whoami`'s discovery policy so the command performs exactly one store
+/// backend read (the `list` in [`command_auth_whoami`]) instead of a
+/// second one inside the policy's lazy cache. Read-only by construction:
+/// whoami never writes the credential store, so the mutating methods are
+/// unreachable.
+struct PreloadedCredentials {
+    records: Vec<CredentialRecord>,
+}
+
+impl CredentialStore for PreloadedCredentials {
+    fn list(&self) -> Result<Vec<CredentialRecord>, CredentialStoreError> {
+        Ok(self.records.clone())
+    }
+
+    fn upsert(&mut self, _record: CredentialRecord) -> Result<(), CredentialStoreError> {
+        unreachable!("BUG: `auth whoami` never writes the credential store")
+    }
+
+    fn remove(&mut self, _key: &str) -> Result<bool, CredentialStoreError> {
+        unreachable!("BUG: `auth whoami` never writes the credential store")
+    }
+}
+
 pub fn command_auth_whoami(
     index_url: Option<String>,
     config: &Config,
@@ -641,17 +699,35 @@ pub fn command_auth_whoami(
     let env_bearers = env_policy
         .publish_bearer_auth_map()
         .context("could not compile `SYSAND_CRED_*` URL patterns")?;
-    // Two store handles on the same underlying store: one feeds the
-    // discovery policy (a private index may gate its discovery document,
-    // so unlike login the fetch runs with the regular read policy), the
-    // other is read for credential selection.
-    let discovery_store =
-        open_cli_credential_store().context("could not open the credential store")?;
+    // One store read serves both the discovery fetch and credential
+    // selection ("at most one keychain touch per command",
+    // design/credential-storage.md section 9): the records read here are
+    // passed to `do_auth_whoami` for selection, and a preloaded snapshot
+    // of the same records backs the discovery policy (a private index may
+    // gate its discovery document, so unlike login the fetch runs with
+    // the regular read policy). On a locked keyring this is the single
+    // unlock prompt.
     let store = open_cli_credential_store().context("could not open the credential store")?;
-    let discovery_policy = CliAuthPolicy::new(env_policy, discovery_store);
+    let records = match store.list() {
+        Ok(records) => records,
+        // No keyring backend: only env credentials can apply. A locked or
+        // denied backend is a hard error instead: "no credential, run
+        // login" would be the wrong remediation for an unlockable store.
+        Err(CredentialStoreError::BackendAbsent { .. }) => Vec::new(),
+        Err(err @ CredentialStoreError::BackendDenied { .. }) => {
+            return Err(err).context(KEYRING_LOCKED_HINT);
+        }
+        Err(err) => return Err(err.into()),
+    };
+    let discovery_policy = StandardLazyHTTPAuthentication::new(
+        env_policy,
+        PreloadedCredentials {
+            records: records.clone(),
+        },
+    );
 
     let outcome = match do_auth_whoami(
-        &store,
+        &records,
         &target,
         &env_bearers,
         &discovery_policy,
@@ -659,18 +735,17 @@ pub fn command_auth_whoami(
         runtime,
     ) {
         Ok(outcome) => outcome,
-        Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
-            return Err(err).context(KEYRING_LOCKED_HINT);
-        }
-        // The core error states the condition (and the `SYSAND_CRED_*`
-        // fallback) without naming a CLI command; the CLI adds the
-        // `sysand auth login` remediation using the index from the error.
+        // The core error states the condition without naming a CLI
+        // command; the CLI leads with the `sysand auth login` remediation
+        // (using the index from the error) and names the `SYSAND_CRED_*`
+        // variables second, as the non-interactive path for CI.
         Err(err @ AuthCommandError::NoWhoamiCredential { .. }) => {
             let AuthCommandError::NoWhoamiCredential { index, .. } = &err else {
                 unreachable!()
             };
             return Err(anyhow::anyhow!(
-                "{err}\nrun `sysand auth login {index}` to store one"
+                "{err}\nrun `sysand auth login {index}` to store a credential; \
+                 in CI, set `SYSAND_CRED_*` environment variables instead"
             ));
         }
         Err(err) => return Err(err.into()),
@@ -762,8 +837,58 @@ pub fn command_auth_whoami(
 
 #[cfg(test)]
 mod tests {
-    use super::blob_full_message;
+    use super::{blob_full_message, cred_env_var_stem};
     use chrono::{Duration, Utc};
+
+    #[test]
+    fn cred_env_var_stem_uses_the_uppercased_host() {
+        assert_eq!(
+            cred_env_var_stem("https://sysand.example/idx/"),
+            "SYSAND_EXAMPLE"
+        );
+    }
+
+    #[test]
+    fn cred_env_var_stem_includes_a_non_default_port() {
+        // Two indexes on different ports of one host must not suggest the
+        // same variable names.
+        assert_eq!(
+            cred_env_var_stem("https://sysand.example:8443/"),
+            "SYSAND_EXAMPLE_8443"
+        );
+        assert_ne!(
+            cred_env_var_stem("https://sysand.example:8443/"),
+            cred_env_var_stem("https://sysand.example:9000/")
+        );
+    }
+
+    #[test]
+    fn cred_env_var_stem_omits_a_scheme_default_port() {
+        assert_eq!(
+            cred_env_var_stem("https://sysand.example:443/"),
+            "SYSAND_EXAMPLE"
+        );
+        assert_eq!(
+            cred_env_var_stem("http://sysand.example:80/"),
+            "SYSAND_EXAMPLE"
+        );
+    }
+
+    #[test]
+    fn cred_env_var_stem_never_produces_a_reserved_suffix() {
+        // Host characters map to alphanumerics or `_`, and a port adds
+        // only digits, so no stem can end in a reserved secret suffix.
+        for key in [
+            "https://basic.user/",
+            "https://x.example:1234/",
+            "https://bearer-token.example/",
+        ] {
+            let stem = cred_env_var_stem(key);
+            for suffix in ["_BASIC_USER", "_BASIC_PASS", "_BEARER_TOKEN"] {
+                assert!(!stem.ends_with(suffix), "stem {stem} ends in {suffix}");
+            }
+        }
+    }
 
     #[test]
     fn blob_full_first_login_does_not_suggest_removing_a_login() {

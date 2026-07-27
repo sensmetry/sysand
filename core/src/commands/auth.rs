@@ -12,8 +12,6 @@
 //! passed in as [`EnvCredentialEntry`] values: this module does not read
 //! the process environment.
 
-use std::sync::Arc;
-
 use chrono::{DateTime, Utc};
 use globset::GlobBuilder;
 use thiserror::Error;
@@ -113,8 +111,10 @@ pub enum AuthCommandError {
         source_name: &'static str,
         candidates: usize,
     },
-    /// No credential of either source matches the `v1/whoami` URL.
-    #[error("no credential matches `{url}`; set `SYSAND_CRED_*` environment variables")]
+    /// No credential of either source matches the `v1/whoami` URL. The
+    /// message states the bare condition; the frontend appends its own
+    /// remediation (`sysand auth login`, `SYSAND_CRED_*`) from the fields.
+    #[error("no credential matches `{url}`")]
     NoWhoamiCredential { url: String, index: String },
     /// The credential store failed.
     #[error(transparent)]
@@ -164,6 +164,9 @@ fn validation_rejected_message(
         }
     };
     if basic_challenge {
+        // Keep this basic-auth routing hint consistent with the
+        // stored-anyway variant in sysand/src/commands/auth.rs
+        // (render_login_notice).
         message.push_str(
             "\nthis index uses username/password (HTTP basic) authentication; configure \
              `SYSAND_CRED_<X>_BASIC_USER` / `SYSAND_CRED_<X>_BASIC_PASS` environment \
@@ -388,11 +391,15 @@ pub enum AuthLoginNotice {
     /// tested, so rate limiting can never refuse a credential.
     ProbeRateLimited { surface: ProbeSurface },
     /// A surface rejected the credential, but another surface accepted
-    /// it, so the credential was stored anyway. `basic_challenge` is true
+    /// it, so the credential was stored anyway. `read_status` is the HTTP
+    /// status of the read surface's rejection (set only when `surface` is
+    /// the read surface); a 404 hedges the warning, since it can also
+    /// mean no `index.json` exists at that URL. `basic_challenge` is true
     /// when the read surface answered with a `WWW-Authenticate: Basic`
     /// challenge (the index wants username/password, not a bearer token).
     SurfaceRejected {
         surface: ProbeSurface,
+        read_status: Option<u16>,
         basic_challenge: bool,
     },
 }
@@ -1043,7 +1050,7 @@ pub fn do_auth_login<S: CredentialStore>(
     index_url: &str,
     secret: String,
     client: &reqwest_middleware::ClientWithMiddleware,
-    runtime: Arc<tokio::runtime::Runtime>,
+    runtime: &tokio::runtime::Runtime,
     mut notify: impl FnMut(AuthLoginNotice),
 ) -> Result<AuthLoginOutcome, AuthCommandError> {
     let key = validated_index_key(index_url)?;
@@ -1074,7 +1081,7 @@ pub fn do_auth_login<S: CredentialStore>(
     let records = match store.list() {
         Ok(records) => records,
         Err(CredentialStoreError::BackendAbsent { source }) => {
-            let globs = guidance_globs(client, &location, &primary_root, &runtime, &mut notify);
+            let globs = guidance_globs(client, &location, &primary_root, runtime, &mut notify);
             return Ok(AuthLoginOutcome::BackendUnavailable {
                 key,
                 globs,
@@ -1085,18 +1092,13 @@ pub fn do_auth_login<S: CredentialStore>(
     };
     let replacing = records.iter().any(|record| record.key == key);
 
-    let endpoints = fetch_login_endpoints(client, &location, &secret, &runtime, &mut notify);
+    let endpoints = fetch_login_endpoints(client, &location, &secret, runtime, &mut notify);
     let globs = derive_credential_globs(&primary_root, endpoints.as_ref(), &mut notify);
 
     // Validation probes (design/credential-storage.md section 5), between
     // glob derivation and the store write.
-    let outcome = run_validation_probes(
-        endpoints.as_ref(),
-        &location,
-        &secret,
-        &runtime,
-        &mut notify,
-    );
+    let outcome =
+        run_validation_probes(endpoints.as_ref(), &location, &secret, runtime, &mut notify);
     // The refusal rule: refuse only when at least one exercised
     // surface rejected the credential and none accepted it.
     if outcome.accepted.is_empty() && !outcome.rejected.is_empty() {
@@ -1112,6 +1114,11 @@ pub fn do_auth_login<S: CredentialStore>(
     for surface in &outcome.rejected {
         notify(AuthLoginNotice::SurfaceRejected {
             surface: *surface,
+            read_status: if *surface == ProbeSurface::Read {
+                outcome.read_status
+            } else {
+                None
+            },
             basic_challenge: outcome.basic_challenge && *surface == ProbeSurface::Read,
         });
     }
@@ -1334,20 +1341,20 @@ fn select_whoami_credential(
 /// 4): resolve the index API, select the credential the runtime would use
 /// (env over stored, [`select_whoami_credential`]), and send one
 /// forced-bearer GET to `api_root/v1/whoami` with the no-redirect probe
-/// client. Never prompts, never prints, and never writes the credential
-/// store: cached identity fields on a stored record are deliberately not
-/// refreshed.
+/// client. Never prompts, never prints, and never touches a credential
+/// store: the caller reads the store once and passes the `records`
+/// snapshot (an absent backend passes an empty slice; a locked or denied
+/// backend is the caller's hard error). Taking records instead of a store
+/// lets the host share one store read between this selection and its
+/// discovery policy, keeping whoami at one keychain touch. Cached
+/// identity fields on a stored record are deliberately not refreshed.
 ///
 /// `discovery_auth` is the policy for the discovery fetch: unlike login
 /// (which is unauthenticated because no credential exists yet), whoami
 /// runs when a credential does exist, and a private index may gate its
 /// discovery document, so the CLI passes its regular read policy here.
-///
-/// An absent keyring backend degrades to env-only selection; a locked or
-/// denied backend is a hard error the caller must surface, like the other
-/// auth commands.
-pub fn do_auth_whoami<S: CredentialStore, P: HTTPAuthentication>(
-    store: &S,
+pub fn do_auth_whoami<P: HTTPAuthentication>(
+    records: &[CredentialRecord],
     index_url: &str,
     env_bearers: &GlobMap<EnvBearerAuth>,
     discovery_auth: &P,
@@ -1378,15 +1385,7 @@ pub fn do_auth_whoami<S: CredentialStore, P: HTTPAuthentication>(
                 error: format!("could not build the whoami URL: {err}"),
             })?;
 
-    let records = match store.list() {
-        Ok(records) => records,
-        // No keyring backend: only env credentials can apply. A locked or
-        // denied backend propagates instead: "no credential, run login"
-        // would be the wrong remediation for an unlockable store.
-        Err(CredentialStoreError::BackendAbsent { .. }) => Vec::new(),
-        Err(err) => return Err(err.into()),
-    };
-    let (source, token) = select_whoami_credential(env_bearers, &records, &whoami_url, &key)?;
+    let (source, token) = select_whoami_credential(env_bearers, records, &whoami_url, &key)?;
 
     let verdict = match probe_client() {
         Err(err) => WhoamiVerdict::Unreachable {
