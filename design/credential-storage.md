@@ -155,8 +155,8 @@ There is deliberately no way to disable credential validation against the index
 that has an API. Offline or unreachable-index logins already degrade
 gracefully through the refusal rule: nothing exercises the credential,
 so the login stores as "stored, not validated" with warnings, and no
-secret is transmitted (an unreachable discovery baseline gets no forced
-retry, and unreachable probes produce no verdict). False refusals are
+secret is transmitted (an unreachable or rate-limited discovery baseline
+gets no forced retry, and unreachable probes produce no verdict). False refusals are
 engineered out rather than opted out of: 429 and redirects are never
 verdicts, and acceptance by any exercised surface wins. For the residual
 case where an index genuinely misbehaves, `SYSAND_CRED_*` environment
@@ -184,8 +184,11 @@ plain-URL index is never phantom-probed for an API it does not have.
 **Login's discovery fetch is itself unauth-baseline-then-forced** (only
 the backend-absent path of §9 stays strictly unauthenticated, since its
 secret is discarded). The
-baseline is unauthenticated; any 4xx answer triggers one forced-bearer
-retry with the in-hand secret. The retry must fire on 404 too: a private
+baseline is unauthenticated; any 4xx answer except 429 triggers one
+forced-bearer retry with the in-hand secret. A rate-limited baseline
+mirrors the probes' 429 carve-out: a throttling host gets no extra
+request and never sees the secret, and discovery falls back to the
+URL-derived glob with a notice. The retry must fire on 404 too: a private
 GitLab answers 404, not 401, when auth is missing, and the credentialed
 answer is what distinguishes a hidden discovery document from an absent
 one. This means an index with no discovery document sees one extra
@@ -194,10 +197,10 @@ anchor (§8) the probes already hit. Forced-retry outcomes: a 200 with a
 valid document is used exactly like a public discovery success (globs,
 an advertised `api_root`, the whoami gate); a 404 is the authoritative "no
 document" answer and reconstructs the flat topology with no warning; and
-everything else (other 4xx, 429, a redirect, since the retry goes through
-the no-redirect probe client unlike the redirect-following baseline, 5xx,
-or a network failure) is not a verdict and falls back to the URL-derived
-glob with a warning. In every fallback case the read probe falls back to
+everything else (other 4xx, a 429 answer to the retry itself, a redirect,
+since the retry goes through the no-redirect probe client unlike the
+redirect-following baseline, 5xx, or a network failure) is not a verdict
+and falls back to the URL-derived glob with a warning. In every fallback case the read probe falls back to
 the URL-derived `index.json` location, so a fully private index still
 gets its read leg exercised. The forced discovery fetch never counts
 toward the validated claim: the `index.json` probe is the sole read
@@ -216,7 +219,14 @@ mixing "verified"/"unvalidated" families.
 **Refusal rule.** Store if the credential is _accepted by any surface it
 actually tested_, warning about any surface that rejected or was
 unreachable. Refuse only when at least one exercised surface rejected the
-credential and none accepted it. A surface counts as "tested" only if the
+credential and none accepted it. A single-surface refusal reads plainly,
+naming the endpoint and its answer ("the index rejected the token for
+`<index>` (`v1/whoami` answered HTTP 401); nothing was stored"); the
+surface-enumeration wording is kept for the two-surface case. When the
+read surface alone rejected with a 404, the message hedges with "or no
+index exists at this URL": a valid token against a URL without an
+`index.json` answers the same way, so the credential must not be blamed
+outright. A surface counts as "tested" only if the
 credential was exercised: a _public_ read surface returns 200 without
 sending the credential, so it proves nothing. A 429 response is never a
 verdict; a rate-limited probe counts the surface as not tested. If nothing exercised the
@@ -302,7 +312,10 @@ The one change to publish's bearer selection is **source precedence**: try
 env bearer matches first (single match within env), then keyring (single
 match within keyring), instead of one flat "exactly one match or error" over
 the merged set. Within a source the existing exactly-one rule stands (its
-`AmbiguousPublishBearer` error becomes per-source). Concretely:
+`AmbiguousPublishBearer` error becomes per-source), with candidates
+carrying the identical token collapsing to one match, like the reads rule
+in section 9 (two stored globs of one login both matching the upload URL
+are one credential in effect). Concretely:
 `publish_bearer_auth_map` (the by-ref bearer extraction in
 `core/src/auth.rs`) and `resolve_publish_bearer_from_config` (in
 `core/src/commands/publish.rs`) keep env and keyring as **two maps**
@@ -347,8 +360,8 @@ logout` removes) may fall back to the default index.
 - **Source precedence, single match within a source.** For a given URL, all
   `SYSAND_CRED_*` (env) matches take precedence over all keyring matches
   (so CI can override an interactive login). Within one source, the existing
-  single-match rule applies (publish errors on a within-source ambiguity;
-  reads try-all). v1 deliberately does **not** add longest-prefix
+  single-match rule applies (publish errors on a within-source ambiguity,
+  identical-token matches collapsing first; reads try-all). v1 deliberately does **not** add longest-prefix
   tie-breaking, that is only needed once raw-pattern `auth set` or
   same-host nested logins create within-source overlaps (§10).
 - **Glob coverage.** `login` anchors the primary glob on the **discovery URL
@@ -470,14 +483,19 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   unreadable; remove the `sysand` keyring entry to reset", never silently
   treats the blob as empty, which would clobber all stored credentials on the
   next `login`.
-- **Concurrency.** Read-modify-write is guarded by a **cross-process
-  advisory OS file lock** (`flock`/`LockFileEx`, via the stable
-  `std::fs::File` locking API), never an existence-based lock file (those
-  go stale after a crash). The lock file lives in a **per-user** location
-  (`XDG_RUNTIME_DIR`/`XDG_STATE_HOME` on Linux, `%LOCALAPPDATA%` on
-  Windows, falling back to the home directory), mode `0600`, never a
-  world-writable shared path (lock squatting / symlink games), with a
-  bounded wait and a clear error. A lock file is not a credentials file, so
+- **Concurrency.** Read-modify-write is guarded by an **exclusive
+  cross-process advisory OS file lock** (`flock`/`LockFileEx`, via the
+  stable `std::fs::File` locking API), never an existence-based lock file
+  (those go stale after a crash); read-only operations take its shared
+  counterpart so concurrent readers do not serialize, both with a bounded
+  wait and a clear error. The lock file lives in a **per-user** location
+  with a stable order: the state dir (`XDG_STATE_HOME` on Linux), then the
+  local data dir (`%LOCALAPPDATA%` on Windows), falling back to a dotdir
+  in the home directory; deliberately never the session-scoped
+  `XDG_RUNTIME_DIR`, which is often unset for cron, systemd, and container
+  processes, so two same-user processes could lock different files while
+  writing the same keyring entry. It is mode `0600`, never a
+  world-writable shared path (lock squatting / symlink games). A lock file is not a credentials file, so
   the no-plaintext rule is untouched. Parallel `sysand` invocations are
   real; an in-process mutex alone would lose one writer's record. The lock
   coordinates `sysand` processes with each other only, not `sysand` against
@@ -581,7 +599,7 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   never breaks status. Default-index resolution for the marker never
   errors (section 4).
   Multiple stored entries are separated by one blank line. The sublabels
-  (`patterns:`, `subject:`, `token prefix:`, `expires:`) render dim so the
+  (`covers:`, `subject:`, `token prefix:`, `expires:`) render dim so the
   values carry the visual weight; `shadowed by:` stays warn-styled. Env
   entries list the variable label and pattern. A source with nothing to
   show is omitted rather than announced with a negative; only when neither
@@ -651,9 +669,11 @@ Each phase is independently shippable.
 Separate, not part of these phases: the deferred `auth set` / basic-auth
 work.
 
-CI notes for these phases: the test lanes do not enable `-F keyring`, so
-keyring-gated tests only compile via `clippy --all-features` until a
-keyring lane is added; and the prek job needs its rust hooks pinned via
+CI notes for these phases: the workspace test lane runs `sysand-core` and
+`sysand` together, and the CLI crate enables `sysand-core/keyring`, so
+with resolver 3 feature unification the keyring-gated tests build and run
+in the ordinary test lane (no separate keyring lane is needed); and the
+prek job needs its rust hooks pinned via
 `language_version` (handled separately from this plan), since prek does
 not read `rust-toolchain.toml`.
 
@@ -742,7 +762,9 @@ capabilities behind cargo features (`filesystem`, `networking`).
     Secret Service). Provide a deliberate seam, a debug-build-only env var
     (`SYSAND_TEST_CREDENTIAL_STORE`) selecting a file-backed or absent
     blob backend, refused loudly in release builds, and route every auth
-    command and the lazy policy through it.
+    command and the lazy policy through it. The shared CLI test harness
+    defaults the seam to the absent backend, so a test reaches a real
+    keyring only by opting out explicitly.
 - **core `commands/auth.rs`, gated `all(filesystem, networking)`** (the
   same gate as publish): `do_auth_login` / `do_auth_logout` /
   `do_auth_status` orchestration (discovery fetch, glob derivation,
