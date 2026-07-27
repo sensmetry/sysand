@@ -114,6 +114,84 @@ fn globmap_matches_template_expanded_urls() -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+// select_bearer: the selection semantics shared by the runtime read
+// retry, whoami, and publish. The end-to-end behavior of each consumer is
+// pinned by its own tests; these cover the helper's collapse rules
+// directly, in particular the mixed identical-plus-distinct case only
+// the runtime's try-all path can observe.
+mod select_bearer {
+    use crate::auth::{BearerSelection, GlobMap, GlobMapBuilder, select_bearer};
+
+    const URL: &str = "https://example.com/api/v1/upload";
+
+    fn map(entries: &[(&str, &str)]) -> GlobMap<String> {
+        let mut builder = GlobMapBuilder::new();
+        for (pattern, token) in entries {
+            builder.add(*pattern, (*token).to_string());
+        }
+        builder.build().unwrap()
+    }
+
+    fn select(map: &GlobMap<String>) -> BearerSelection<'_, String> {
+        select_bearer(map, URL, String::as_str)
+    }
+
+    #[test]
+    fn no_matching_pattern_is_none() {
+        let map = map(&[("https://other.example/**", "tok")]);
+        assert!(matches!(select(&map), BearerSelection::None));
+    }
+
+    #[test]
+    fn a_unique_match_is_unique() {
+        let map = map(&[("https://example.com/**", "tok")]);
+        assert!(matches!(select(&map), BearerSelection::Unique(tok) if tok == "tok"));
+    }
+
+    #[test]
+    fn identical_token_candidates_collapse_to_the_first() {
+        let map = map(&[
+            ("https://example.com/**", "same"),
+            ("https://example.com/api/**", "same"),
+        ]);
+        assert!(matches!(select(&map), BearerSelection::Unique(tok) if tok == "same"));
+    }
+
+    #[test]
+    fn distinct_tokens_are_ambiguous_with_the_pre_collapse_count() {
+        let map = map(&[
+            ("https://example.com/**", "tok-a"),
+            ("https://example.com/api/**", "tok-b"),
+        ]);
+        assert!(matches!(
+            select(&map),
+            BearerSelection::Ambiguous { candidates: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn mixed_candidates_dedupe_in_map_order_and_count_all_matches() {
+        // Two patterns of one credential plus a distinct one: the error
+        // count reports all three matches, while try-all consumers walk
+        // the two distinct tokens in map order.
+        let map = map(&[
+            ("https://example.com/**", "tok-a"),
+            ("https://example.com/api/**", "tok-a"),
+            ("https://example.com/api/v1/**", "tok-b"),
+        ]);
+        match select(&map) {
+            BearerSelection::Ambiguous {
+                candidates: 3,
+                deduped,
+            } => {
+                let tokens: Vec<&str> = deduped.iter().map(|token| token.as_str()).collect();
+                assert_eq!(tokens, ["tok-a", "tok-b"]);
+            }
+            other => panic!("expected a three-candidate ambiguity, got {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn publish_bearer_auth_map_keeps_bearer_drops_basic() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = crate::auth::StandardHTTPAuthenticationBuilder::new();

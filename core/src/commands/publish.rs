@@ -21,8 +21,8 @@ use chrono::{DateTime, TimeDelta, Utc};
 
 use crate::{
     auth::{
-        EnvBearerAuth, ForceBearerAuth, GlobMap, GlobMapResult, HTTPAuthentication,
-        StoredBearerAuth,
+        BearerSelection, EnvBearerAuth, ForceBearerAuth, GlobMap, HTTPAuthentication,
+        StoredBearerAuth, select_bearer,
     },
     env::discovery::{HttpBaseUrlShapeError, validate_http_base_url_shape},
     include::{IncludeError, extract_symbols},
@@ -501,34 +501,26 @@ fn resolve_publish_bearer_from_config(
     })
 }
 
-/// Look `upload_url` up in one source's bearer map: a unique match wins, an
-/// ambiguous match errors naming the source, and no match returns `None` so
-/// the caller can fall through to the next source. Like the whoami and
-/// runtime selection flows, candidates that carry the identical token are
-/// one credential in effect (for example two stored globs of one login both
-/// matching the upload URL), so they collapse to a single match instead of
-/// erroring; `token` extracts the token to compare.
+/// Look `upload_url` up in one source's bearer map: a unique match wins
+/// (candidates carrying the identical token collapse to one,
+/// [`select_bearer`]), an ambiguous match errors naming the source, and no
+/// match returns `None` so the caller can fall through to the next source.
 fn lookup_publish_bearer<'a, T>(
     map: &'a GlobMap<T>,
     source: PublishBearerSource,
     upload_url: &Url,
     token: impl Fn(&T) -> &str,
 ) -> Result<Option<&'a T>, PublishError> {
-    match map.lookup(upload_url.as_str()) {
-        GlobMapResult::Found(_, entry) => Ok(Some(entry)),
-        GlobMapResult::Ambiguous(candidates) => {
-            if let Some(((_, first), rest)) = candidates.split_first()
-                && rest.iter().all(|(_, entry)| token(entry) == token(first))
-            {
-                return Ok(Some(first));
-            }
+    match select_bearer(map, upload_url.as_str(), token) {
+        BearerSelection::Unique(entry) => Ok(Some(entry)),
+        BearerSelection::Ambiguous { candidates, .. } => {
             Err(PublishError::AmbiguousPublishBearer {
                 upload_url: upload_url.as_str().into(),
                 bearer_source: source,
-                candidates: candidates.len(),
+                candidates,
             })
         }
-        GlobMapResult::NotFound => Ok(None),
+        BearerSelection::None => Ok(None),
     }
 }
 

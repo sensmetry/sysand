@@ -21,7 +21,8 @@ use serde::Deserialize;
 
 use crate::{
     auth::{
-        EnvBearerAuth, GlobMap, GlobMapBuilder, GlobMapResult, HTTPAuthentication, Unauthenticated,
+        BearerSelection, EnvBearerAuth, GlobMap, HTTPAuthentication, Unauthenticated,
+        select_bearer, stored_bearer_map_from_records,
     },
     credential_store::{
         CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
@@ -1227,34 +1228,22 @@ pub struct AuthWhoamiOutcome {
     pub verdict: WhoamiVerdict,
 }
 
-/// The single entry left after collapsing candidates that carry the same
-/// token (overlapping globs for one credential must not read as
-/// ambiguity), or `None` when genuinely distinct credentials collide.
-fn unique_by_token<'a, T>(
-    candidates: &[(String, &'a T)],
-    token: impl Fn(&T) -> &str,
-) -> Option<&'a T> {
-    let ((_, first), rest) = candidates.split_first()?;
-    rest.iter()
-        .all(|(_, candidate)| token(candidate) == token(first))
-        .then_some(*first)
-}
-
 /// Select the credential `auth whoami` sends, mirroring the runtime and
 /// publish precedence (design/credential-storage.md sections 7, 9): a
 /// `SYSAND_CRED_*` env bearer matching the whoami URL wins over a stored
 /// login; within a source exactly one credential may match (candidates
-/// carrying the same token collapse to one). Invalid stored glob patterns
-/// are skipped individually, like the runtime's lazy stored map: one bad
-/// pattern must not hide the other credentials.
+/// carrying the same token collapse to one, [`select_bearer`]). The
+/// stored map is built by the same [`stored_bearer_map_from_records`] the
+/// runtime's lazy layer uses, so invalid glob patterns are skipped
+/// individually: one bad pattern must not hide the other credentials.
 fn select_whoami_credential(
     env_bearers: &GlobMap<EnvBearerAuth>,
     records: &[CredentialRecord],
     whoami_url: &Url,
     index_key: &str,
 ) -> Result<(WhoamiCredentialSource, String), AuthCommandError> {
-    match env_bearers.lookup(whoami_url.as_str()) {
-        GlobMapResult::Found(_, entry) => {
+    match select_bearer(env_bearers, whoami_url.as_str(), |entry| entry.auth.token()) {
+        BearerSelection::Unique(entry) => {
             return Ok((
                 WhoamiCredentialSource::Env {
                     label: entry.label.clone(),
@@ -1262,75 +1251,32 @@ fn select_whoami_credential(
                 entry.auth.token().to_string(),
             ));
         }
-        GlobMapResult::Ambiguous(candidates) => {
-            let Some(entry) =
-                unique_by_token(&candidates, |entry: &EnvBearerAuth| entry.auth.token())
-            else {
-                return Err(AuthCommandError::AmbiguousWhoamiCredential {
-                    url: whoami_url.as_str().to_string(),
-                    source_name: "`SYSAND_CRED_*` environment variables",
-                    candidates: candidates.len(),
-                });
-            };
-            return Ok((
-                WhoamiCredentialSource::Env {
-                    label: entry.label.clone(),
-                },
-                entry.auth.token().to_string(),
-            ));
-        }
-        GlobMapResult::NotFound => {}
-    }
-
-    let mut builder: GlobMapBuilder<&CredentialRecord> = GlobMapBuilder::new();
-    for record in records {
-        if record.scheme != CredentialScheme::Bearer {
-            continue;
-        }
-        for glob in &record.globs {
-            // Compile each pattern individually first, exactly as the map
-            // build will: `GlobMapBuilder::build` fails wholesale on one
-            // bad pattern.
-            if GlobBuilder::new(glob)
-                .literal_separator(true)
-                .build()
-                .is_ok()
-            {
-                builder.add(glob, record);
-            }
-        }
-    }
-    // Every added pattern was pre-compiled above, so the build cannot
-    // fail; degrade rather than panic if it somehow does.
-    let stored = builder.build().unwrap_or_default();
-
-    let entry = match stored.lookup(whoami_url.as_str()) {
-        GlobMapResult::Found(_, record) => Some(*record),
-        GlobMapResult::Ambiguous(candidates) => {
-            let unique = unique_by_token(&candidates, |record: &&CredentialRecord| {
-                record.secret.as_str()
+        BearerSelection::Ambiguous { candidates, .. } => {
+            return Err(AuthCommandError::AmbiguousWhoamiCredential {
+                url: whoami_url.as_str().to_string(),
+                source_name: "`SYSAND_CRED_*` environment variables",
+                candidates,
             });
-            match unique {
-                Some(record) => Some(*record),
-                None => {
-                    return Err(AuthCommandError::AmbiguousWhoamiCredential {
-                        url: whoami_url.as_str().to_string(),
-                        source_name: "stored credentials",
-                        candidates: candidates.len(),
-                    });
-                }
-            }
         }
-        GlobMapResult::NotFound => None,
-    };
-    match entry {
-        Some(record) => Ok((
+        BearerSelection::None => {}
+    }
+
+    let stored = stored_bearer_map_from_records(records);
+    match select_bearer(&stored, whoami_url.as_str(), |entry| entry.auth().token()) {
+        BearerSelection::Unique(entry) => Ok((
             WhoamiCredentialSource::Stored {
-                key: record.key.clone(),
+                key: entry.key().to_string(),
             },
-            record.secret.clone(),
+            entry.auth().token().to_string(),
         )),
-        None => Err(AuthCommandError::NoWhoamiCredential {
+        BearerSelection::Ambiguous { candidates, .. } => {
+            Err(AuthCommandError::AmbiguousWhoamiCredential {
+                url: whoami_url.as_str().to_string(),
+                source_name: "stored credentials",
+                candidates,
+            })
+        }
+        BearerSelection::None => Err(AuthCommandError::NoWhoamiCredential {
             url: whoami_url.as_str().to_string(),
             index: index_key.to_string(),
         }),

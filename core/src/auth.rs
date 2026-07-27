@@ -13,7 +13,9 @@ use globset::{GlobBuilder, GlobSetBuilder};
 use reqwest::{Response, header};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 
-use crate::credential_store::{CredentialScheme, CredentialStore, CredentialStoreError};
+use crate::credential_store::{
+    CredentialRecord, CredentialScheme, CredentialStore, CredentialStoreError,
+};
 
 pub trait HTTPAuthentication: std::fmt::Debug + 'static {
     /// Tries to execute a request with some authentication policy. The request might be retried
@@ -341,6 +343,63 @@ impl<T> GlobMap<T> {
             }
 
             GlobMapResultMut::Ambiguous(result)
+        }
+    }
+}
+
+/// What credential selection found in one source's bearer map for a URL.
+/// Shared by the runtime read retry, whoami, and publish so the collapse
+/// and ambiguity semantics are written once
+/// (design/credential-storage.md section 8).
+#[derive(Debug)]
+pub(crate) enum BearerSelection<'a, T> {
+    /// No matching pattern: the caller falls through to its next source.
+    None,
+    /// Exactly one credential in effect: either a unique match, or
+    /// several matching patterns all carrying the identical token,
+    /// collapsed to the first so any later hint names that entry.
+    Unique(&'a T),
+    /// Matching patterns carry distinct tokens. `candidates` is the full
+    /// pre-collapse match count (what ambiguity errors report), `deduped`
+    /// the distinct-token entries in map order (what try-all consumers
+    /// walk); it always holds at least two entries.
+    Ambiguous {
+        candidates: usize,
+        deduped: Vec<&'a T>,
+    },
+}
+
+/// Select the bearer credential(s) for `url` from one source's map.
+///
+/// One credential commonly covers several (normally non-overlapping) URL
+/// patterns with the same token, so several patterns matching is a real
+/// ambiguity only between *distinct* tokens; `token` extracts the token
+/// to compare. How ambiguity is handled stays with the caller: publish
+/// and whoami refuse it, the runtime read path tries each candidate in
+/// order (design/credential-storage.md section 8).
+pub(crate) fn select_bearer<'a, T>(
+    map: &'a GlobMap<T>,
+    url: &str,
+    token: impl Fn(&T) -> &str,
+) -> BearerSelection<'a, T> {
+    match map.lookup(url) {
+        GlobMapResult::NotFound => BearerSelection::None,
+        GlobMapResult::Found(_, entry) => BearerSelection::Unique(entry),
+        GlobMapResult::Ambiguous(candidates) => {
+            let mut deduped: Vec<&T> = Vec::new();
+            for (_, entry) in &candidates {
+                if !deduped.iter().any(|seen| token(seen) == token(entry)) {
+                    deduped.push(entry);
+                }
+            }
+            if deduped.len() == 1 {
+                BearerSelection::Unique(deduped[0])
+            } else {
+                BearerSelection::Ambiguous {
+                    candidates: candidates.len(),
+                    deduped,
+                }
+            }
         }
     }
 }
@@ -860,7 +919,19 @@ fn read_stored_bearer_map<S: CredentialStore + ?Sized>(store: &S) -> GlobMap<Sto
             return GlobMap::default();
         }
     };
+    stored_bearer_map_from_records(&records)
+}
 
+/// Build the URL-glob to bearer map from credential records. Also the
+/// stored-source map for whoami's credential selection, which reads the
+/// records once and shares the snapshot with its discovery policy.
+///
+/// Each glob is validated individually so one invalid pattern skips only
+/// itself, not every stored credential; a whole-map build failure degrades
+/// to "no stored credentials" with a warning rather than aborting.
+pub(crate) fn stored_bearer_map_from_records(
+    records: &[CredentialRecord],
+) -> GlobMap<StoredBearerAuth> {
     let mut builder = GlobMapBuilder::new();
     for record in records {
         // Exhaustive on purpose: adding a scheme must revisit this map.
@@ -929,37 +1000,25 @@ where
         }
 
         let stored = self.stored_bearer_map().await;
-        let candidates = match stored.lookup(url.as_str()) {
-            GlobMapResult::NotFound => return Ok(initial_response),
-            GlobMapResult::Found(_, auth) => vec![auth],
-            GlobMapResult::Ambiguous(items) => items.into_iter().map(|(_, auth)| auth).collect(),
-        };
-
-        // One stored credential covers several (normally non-overlapping) URL
-        // patterns with the same token, so several patterns matching is a
-        // real ambiguity only between *distinct* tokens. Records with
-        // identical tokens collapse to the first record, so a hint after
-        // a failed retry names that record's key.
-        let mut deduped: Vec<&StoredBearerAuth> = Vec::new();
-        for bearer in candidates {
-            if !deduped.iter().any(|seen| seen.auth.0 == bearer.auth.0) {
-                deduped.push(bearer);
-            }
-        }
-
-        let mut deduped = deduped.into_iter();
-        let first_bearer = deduped.next().expect("lookup produced no candidates");
         // A single distinct token retries once; genuinely ambiguous matches
         // try each in order until one yields a non-4xx response
         // (design/credential-storage.md, section 8), mirroring
         // `RestrictAuthentication`. If every candidate fails, the first
         // retry response is returned. The single-match case is this same
         // path with an empty remainder loop.
-        if deduped.len() == 0 {
-            log::debug!("stored credential matches `{url}`; retrying with forced bearer auth");
-        } else {
-            log::warn!("URL {url} matches multiple stored credentials; trying each in order");
-        }
+        let deduped = match select_bearer(stored, url.as_str(), |bearer| &bearer.auth.0) {
+            BearerSelection::None => return Ok(initial_response),
+            BearerSelection::Unique(bearer) => {
+                log::debug!("stored credential matches `{url}`; retrying with forced bearer auth");
+                vec![bearer]
+            }
+            BearerSelection::Ambiguous { deduped, .. } => {
+                log::warn!("URL {url} matches multiple stored credentials; trying each in order");
+                deduped
+            }
+        };
+        let mut deduped = deduped.into_iter();
+        let first_bearer = deduped.next().expect("selection produced no candidates");
         let first_response = first_bearer
             .auth
             .request_with_authentication(renew_request(&client), renew_request)
