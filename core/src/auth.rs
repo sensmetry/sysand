@@ -10,7 +10,7 @@ use std::sync::{
 
 use chrono::{DateTime, Utc};
 use globset::{GlobBuilder, GlobSetBuilder};
-use reqwest::{Response, header};
+use reqwest::{Response, StatusCode, header};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 
 use crate::credential_store::{
@@ -204,9 +204,11 @@ impl<Higher: HTTPAuthentication, Lower: HTTPAuthentication> HTTPAuthentication
             .await?;
 
         // Many servers (e.g. GitLab pages) generate a 404 instead of a 401 or 403 in response
-        // to lack of authentication.
+        // to lack of authentication. A 429 is exempt: rate limiting is not
+        // an auth verdict, and retrying with other credentials would spend
+        // more of the rate budget on a host that just throttled us.
         let status = initial_response.status();
-        if status.is_client_error() {
+        if status.is_client_error() && status != StatusCode::TOO_MANY_REQUESTS {
             log::debug!("higher priority auth request returned status {status}, trying lower");
             self.lower
                 .request_with_authentication(renew_request(&client), renew_request)
@@ -770,8 +772,10 @@ impl StoredBearerAuth {
 ///   retry is always [`ForceBearerAuth`].
 ///
 /// Escalation triggers on *any* 4xx (not just 401/403) because some hosts
-/// (GitLab) answer 404 on missing or under-scoped auth. Requests that
-/// succeed unauthenticated, and non-4xx failures, never touch the store.
+/// (GitLab) answer 404 on missing or under-scoped auth. A 429 is exempt:
+/// rate limiting is not an auth verdict, so it is returned as-is with no
+/// store read. Requests that succeed unauthenticated, and non-4xx
+/// failures, never touch the store.
 ///
 /// The store lookup uses the initial request URL. As with
 /// [`RestrictAuthentication`], a same-host redirect target is not
@@ -865,45 +869,40 @@ where
             .await
     }
 
-    /// Synchronous variant of [`Self::stored_bearer_map`] for callers
-    /// outside the async runtime (publish's credential selection). Shares
-    /// the same once-per-process cache; returns an owned map (cheap: the
-    /// records hold `Arc`s and small strings, and publish calls this once).
-    pub fn stored_bearer_map_blocking(&self) -> GlobMap<StoredBearerAuth> {
-        if let Some(map) = self.cache.get() {
-            return map.clone();
-        }
-        let map = match &self.store {
+    /// One direct store read for callers outside the async runtime
+    /// (publish's credential selection, which runs at most once per
+    /// process). Bypasses the request path's cache entirely: exactly one
+    /// backend read per call, with store errors degrading to an empty map
+    /// under [`read_stored_bearer_map`]'s warning semantics. With no store
+    /// available this is the empty map.
+    pub fn read_stored_bearer_map_direct(&self) -> GlobMap<StoredBearerAuth> {
+        match &self.store {
             None => GlobMap::default(),
             Some(store) => read_stored_bearer_map(store.as_ref()),
-        };
-        // On the current flow this never races the async accessor: publish
-        // resolves its bearer only after discovery's `block_on` has
-        // returned, and the runtime is current-thread, so `set` seeds the
-        // cache for later callers. Should an async `get_or_init` ever be
-        // in flight concurrently (e.g. on a multi-thread runtime), `set`
-        // fails and the locally read map is returned as-is: the cost is
-        // one extra store read, never a panic.
-        let _ = self.cache.set(map.clone());
-        map
+        }
     }
 }
 
 /// Read all stored records and build the URL-glob to bearer map.
 ///
-/// Store errors degrade to "no stored credentials" for this process (the
-/// result is cached, so at most one keychain touch and one warning): an
-/// absent backend is the normal no-keyring case and only logged at debug
-/// level, while a locked/denied backend is warned about with the unlock
-/// and `SYSAND_CRED_*` remediations. Degrading (rather than aborting the
-/// whole operation) matches design/credential-storage.md section 9: the
-/// request itself may still succeed via env credentials or anonymously,
-/// and hard failure is reserved for the `auth` commands.
+/// Store errors degrade to "no stored credentials", and every error
+/// variant is warned about (each caller reads at most once per process,
+/// so at most one warning per caller): the keyring taxonomy cannot tell a
+/// genuinely absent backend from a present-but-malfunctioning one (a
+/// broken Secret Service also maps to `BackendAbsent`), and staying quiet
+/// would silently downgrade a logged-in user to unauthenticated requests.
+/// Only the true no-entry case (a reachable backend with nothing stored)
+/// is quiet, because it is not an error at all. A locked/denied backend
+/// additionally names the unlock and `SYSAND_CRED_*` remediations.
+/// Degrading (rather than aborting the whole operation) matches
+/// design/credential-storage.md section 9: the request itself may still
+/// succeed via env credentials or anonymously, and hard failure is
+/// reserved for the `auth` commands.
 fn read_stored_bearer_map<S: CredentialStore + ?Sized>(store: &S) -> GlobMap<StoredBearerAuth> {
     let records = match store.list() {
         Ok(records) => records,
         Err(CredentialStoreError::BackendAbsent { source }) => {
-            log::debug!(
+            log::warn!(
                 "no OS keyring backend ({source}); \
                  using `SYSAND_CRED_*` credentials only"
             );
@@ -995,7 +994,13 @@ where
             )
             .await?;
 
-        if !initial_response.status().is_client_error() {
+        // A 429 is exempt from the escalation: rate limiting is not an
+        // auth verdict (design/credential-storage.md section 5, "429 is
+        // never a verdict"), and a forced retry would both read the store
+        // needlessly and spend more of the rate budget on a host that
+        // just throttled us. The response is returned as-is.
+        let status = initial_response.status();
+        if !status.is_client_error() || status == StatusCode::TOO_MANY_REQUESTS {
             return Ok(initial_response);
         }
 

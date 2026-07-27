@@ -707,6 +707,54 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
 }
 
 #[test]
+fn publish_uses_stored_credential_when_no_env_bearer_matches() -> TestResult {
+    // A stored login (seeded through the debug-only file-backed store
+    // seam, see cli_auth.rs) must reach the upload's Authorization header
+    // when no `SYSAND_CRED_*` bearer matches: publish reads the store
+    // directly, exactly once, during credential selection.
+    let (_temp_dir, cwd) = setup_built_project("publish-stored-credential")?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let publish_mock = mock_publish_with_bearer(&mut server, "stored-tok");
+
+    let store_dir = camino_tempfile::Utf8TempDir::with_prefix("sysand_cred_seam_")?;
+    let store_path = store_dir.path().join("creds.json");
+    // The blob as `sysand auth login` persists it, covering the whole
+    // index host, so the derived glob matches the upload URL.
+    fs::write(
+        &store_path,
+        format!(
+            r#"{{"version":1,"credentials":[{{
+                "key":"{url}/",
+                "globs":["{url}/**"],
+                "scheme":"bearer",
+                "secret":"stored-tok",
+                "validated":["publish"]}}]}}"#,
+            url = server.url()
+        ),
+    )?;
+
+    let mut env = IndexMap::new();
+    env.insert(
+        "SYSAND_TEST_CREDENTIAL_STORE".to_string(),
+        store_path.to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?;
+    out.assert().success();
+    publish_mock.assert();
+    config_mock.assert();
+
+    Ok(())
+}
+
+#[test]
 fn publish_rejects_ambiguous_bearer_credentials() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("publish-ambiguous-bearer")?;
 

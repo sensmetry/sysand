@@ -287,8 +287,8 @@ impl CredentialStore for CountingStore {
 }
 
 /// A store whose reads always fail, for the degrade-to-no-credentials
-/// paths. `absent` selects `BackendAbsent` (quiet) over `BackendDenied`
-/// (warned about); the request-level behavior must be identical.
+/// paths. `absent` selects `BackendAbsent` over `BackendDenied` (both are
+/// warned about); the request-level behavior must be identical.
 #[derive(Debug)]
 struct FailingStore {
     absent: bool,
@@ -428,6 +428,69 @@ fn lazy_layer_never_reads_store_on_server_error() {
     assert_eq!(response.status().as_u16(), 500);
     assert_eq!(lists.load(Ordering::SeqCst), 0);
     mock.assert();
+}
+
+#[test]
+fn lazy_layer_never_reads_store_on_rate_limiting() {
+    // 429 is rate limiting, not an auth verdict: the response is returned
+    // as-is, with no store read and no forced retry against a host that
+    // just throttled us (expect(1) asserts no retry happens).
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("GET", "/pkg/versions.json")
+        .with_status(429)
+        .expect(1)
+        .create();
+
+    let (store, lists) = CountingStore::with_records(vec![bearer_record(
+        &[format!("{}/**", server.url())],
+        "stored-token",
+    )]);
+    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 429);
+    assert_eq!(lists.load(Ordering::SeqCst), 0);
+    mock.assert();
+}
+
+#[test]
+fn sequence_auth_does_not_try_lower_on_rate_limiting() {
+    // The same 429 carve-out in `SequenceAuthentication`: a rate-limited
+    // unauthenticated request must not be retried with the env credential.
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", mockito::Matcher::Missing)
+        .with_status(429)
+        .expect(1)
+        .create();
+    let bearer_mock = server
+        .mock("GET", "/pkg/versions.json")
+        .match_header("authorization", "Bearer env-token")
+        .expect(0)
+        .create();
+
+    let mut env_builder = StandardHTTPAuthenticationBuilder::new();
+    env_builder.add_bearer_auth(format!("{}/**", server.url()), "env-token");
+    let policy = env_builder.build().unwrap();
+    let runtime = runtime();
+
+    let response = get(
+        &runtime,
+        &policy,
+        &format!("{}/pkg/versions.json", server.url()),
+    );
+
+    assert_eq!(response.status().as_u16(), 429);
+    mock.assert();
+    bearer_mock.assert();
 }
 
 #[test]
@@ -742,57 +805,38 @@ fn lazy_layer_without_store_returns_original_response() {
 }
 
 #[test]
-fn stored_bearer_map_blocking_shares_the_request_path_cache() {
-    let mut server = mockito::Server::new();
-    let mock = server
-        .mock("GET", "/pkg/versions.json")
-        .with_status(404)
-        .expect(1)
-        .create();
-
+fn direct_stored_bearer_read_does_exactly_one_store_read_per_call() {
     let (store, lists) = CountingStore::with_records(vec![bearer_record(
         &["https://other.example.com/**".to_string()],
         "stored-token",
     )]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
-    let runtime = runtime();
 
-    // Publish-style synchronous read first...
-    let map = policy.stored_bearer_map_blocking();
+    // Publish-style direct read: one `list` per call, no cache involved.
+    let map = policy.read_stored_bearer_map_direct();
     assert!(matches!(
         map.lookup("https://other.example.com/upload"),
         crate::auth::GlobMapResult::Found(_, _)
     ));
-    // ...then a request-path escalation reuses the same cache.
-    let response = get(
-        &runtime,
-        &policy,
-        &format!("{}/pkg/versions.json", server.url()),
-    );
-
-    assert_eq!(response.status().as_u16(), 404);
     assert_eq!(lists.load(Ordering::SeqCst), 1);
-    mock.assert();
 }
 
 #[test]
-fn stored_bearer_map_blocking_reuses_an_async_initialized_cache() {
-    let (store, lists) = CountingStore::with_records(vec![bearer_record(
-        &["https://other.example.com/**".to_string()],
-        "stored-token",
-    )]);
-    let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
-    let runtime = runtime();
+fn direct_stored_bearer_read_degrades_store_errors_to_an_empty_map() {
+    for absent in [true, false] {
+        let (store, lists) = FailingStore::new(absent);
+        let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
 
-    // The async accessor initializes the cache first...
-    runtime.block_on(policy.stored_bearer_map());
-    // ...and the synchronous accessor reuses it: still one store read.
-    let map = policy.stored_bearer_map_blocking();
-    assert!(matches!(
-        map.lookup("https://other.example.com/upload"),
-        crate::auth::GlobMapResult::Found(_, _)
-    ));
-    assert_eq!(lists.load(Ordering::SeqCst), 1);
+        let map = policy.read_stored_bearer_map_direct();
+        assert!(
+            matches!(
+                map.lookup("https://example.com/upload"),
+                crate::auth::GlobMapResult::NotFound
+            ),
+            "absent = {absent}"
+        );
+        assert_eq!(lists.load(Ordering::SeqCst), 1, "absent = {absent}");
+    }
 }
 
 // Debug redaction: the hand-written `Debug` impls exist so a secret can
@@ -846,7 +890,7 @@ fn debug_of_wrappers_and_composed_policy_never_renders_secrets() {
         "stored-secret",
     )]);
     let policy = CredentialStoreAuthentication::new(env_builder.build().unwrap(), store);
-    let _ = policy.stored_bearer_map_blocking();
+    runtime().block_on(policy.stored_bearer_map());
     let rendered = format!("{policy:?}");
     assert!(rendered.contains("<redacted>"), "rendered: {rendered}");
     assert!(!rendered.contains("env-secret"), "rendered: {rendered}");
@@ -906,16 +950,19 @@ fn stored_bearer_expiry_warning_skips_unexpired_and_unknown_expiry() {
 }
 
 /// Look the stored bearer for `url` up in the policy's cached map, to
-/// observe the per-record expiry-warned flag after driving requests. The
-/// clone shares the record's `expiry_warned` flag (it is an `Arc`).
+/// observe the per-record expiry-warned flag after driving requests. Must
+/// go through the request path's cache (not a direct store read, which
+/// would build fresh records with fresh flags); the clone shares the
+/// record's `expiry_warned` flag (it is an `Arc`).
 fn stored_bearer_for<Inner, S>(
+    runtime: &tokio::runtime::Runtime,
     policy: &CredentialStoreAuthentication<Inner, S>,
     url: &str,
 ) -> StoredBearerAuth
 where
     S: CredentialStore + Send + Sync + 'static,
 {
-    match policy.stored_bearer_map_blocking().lookup(url) {
+    match runtime.block_on(policy.stored_bearer_map()).lookup(url) {
         crate::auth::GlobMapResult::Found(_, bearer) => bearer.clone(),
         other => panic!("expected a stored bearer for `{url}`, got {other:?}"),
     }
@@ -951,12 +998,12 @@ fn lazy_layer_warns_once_for_an_expired_record_that_keeps_failing() {
     // The hint was emitted (and latched) during the first escalation, so
     // the second identical failure cannot repeat it: `take_expiry_warning`
     // returns `None` once the flag is set (covered by the unit test above).
-    assert!(stored_bearer_for(&policy, &url).expiry_warning_emitted());
+    assert!(stored_bearer_for(&runtime, &policy, &url).expiry_warning_emitted());
     let second = get(&runtime, &policy, &url);
 
     assert_eq!(first.status().as_u16(), 404);
     assert_eq!(second.status().as_u16(), 404);
-    assert!(stored_bearer_for(&policy, &url).expiry_warning_emitted());
+    assert!(stored_bearer_for(&runtime, &policy, &url).expiry_warning_emitted());
     unauth_mock.assert();
     forced_mock.assert();
 }
@@ -982,7 +1029,7 @@ fn lazy_layer_does_not_warn_for_an_unexpired_record_or_a_successful_retry() {
     let runtime = runtime();
     let url = format!("{}/pkg/versions.json", server.url());
     get(&runtime, &policy, &url);
-    assert!(!stored_bearer_for(&policy, &url).expiry_warning_emitted());
+    assert!(!stored_bearer_for(&runtime, &policy, &url).expiry_warning_emitted());
 
     // Case 2: expired record, but the forced retry succeeds: no hint
     // (the credential demonstrably still works).
@@ -1004,5 +1051,5 @@ fn lazy_layer_does_not_warn_for_an_unexpired_record_or_a_successful_retry() {
     let url = format!("{}/pkg/versions.json", server.url());
     let response = get(&runtime, &policy, &url);
     assert_eq!(response.status().as_u16(), 200);
-    assert!(!stored_bearer_for(&policy, &url).expiry_warning_emitted());
+    assert!(!stored_bearer_for(&runtime, &policy, &url).expiry_warning_emitted());
 }

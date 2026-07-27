@@ -68,8 +68,9 @@ pub fn command_publish(
     // extract the publish-specific bearer-credential map (by reference,
     // cloning the tokens). Upload is bearer-only; basic-auth entries are
     // intentionally dropped at this step. Stored logins are handed over as
-    // a lazy provider so the credential store is read (once, cached on the
-    // policy) only when no env bearer matches the upload URL.
+    // a lazy provider so the credential store is read (a single direct
+    // read, outside the request path's cache) only when no env bearer
+    // matches the upload URL.
     let env_bearers = auth_policy.env_policy().publish_bearer_auth_map()?;
     let trusted_publishing_env = TrustedPublishingEnvironment::from_env();
     // Captured before `index` moves into `do_publish`, so both hint sites
@@ -77,7 +78,7 @@ pub fn command_publish(
     let index_display = index.to_string();
     let bearer = resolve_publish_bearer(
         &env_bearers,
-        || auth_policy.stored_bearer_map_blocking().clone(),
+        || auth_policy.read_stored_bearer_map_direct(),
         &api_root,
         trusted_publishing.into(),
         &trusted_publishing_env,

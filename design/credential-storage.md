@@ -529,11 +529,11 @@ scheme, secret, expires_at-if-known}` plus optional whoami-derived
   ordinary 404, permanently doubling round-trips for logged-in users. The
   keyring layer therefore needs a **variant combinator that passes the
   initial response down**, returning it untouched when no record matches.
-  Two further semantics to pin: the blob cache needs **dual accessors**,
-  an async one (`OnceCell` + `spawn_blocking`, since the keyring crate is
-  synchronous and a locked store can block for seconds) for the request
-  path, and a plain sync one for publish, which runs outside the async
-  runtime and must not nest `block_on`. When several records' globs match
+  Two further semantics to pin: the blob cache serves the **request path
+  only**, through one async accessor (`OnceCell` + `spawn_blocking`, since
+  the keyring crate is synchronous and a locked store can block for
+  seconds); publish runs outside the async runtime and performs its own
+  single direct store read, outside the cache. When several records' globs match
   one URL: matches carrying the **identical token collapse to one retry**;
   genuinely distinct tokens warn and are tried in order (the reads
   try-all rule, section 8).
