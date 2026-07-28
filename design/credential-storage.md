@@ -327,12 +327,15 @@ logout` removes) may fall back to the default index.
   to end in `/` (for example `https://example.com/idx/**`), and both
   derivation and runtime matching use the same serialization
   (`url::Url::as_str()`) so IDN/percent-encoding agree on both sides. Two
-  refinements: a templated root's literal-prefix anchor is **clamped to
-  at least `scheme://authority/`** (a query-position placeholder would
-  otherwise degenerate the anchor to `https://**`), skipping the root
-  with a notice when even that is not meaningful; and a newly derived
-  root that **subsumes** an already-derived one replaces it, keeping the
-  set minimal and non-overlapping. Normative test requirements: the
+  refinements: a templated root's anchor is the literal prefix cut back
+  to its **last `/`**, and the root is skipped with a notice unless that
+  anchor still parses as `scheme://authority/` or deeper (a placeholder
+  in the host position, or a template with no `/` after the authority,
+  would otherwise degenerate the anchor toward `https://**`); and within
+  one login's derived set (the login URL plus its resolved `index_root`
+  and `api_root`, never other stored records), a newly derived root that
+  **subsumes** an already-derived one replaces it, keeping the set
+  minimal and non-overlapping. Normative test requirements: the
   discovery-document URL, the `index.json` URL, and the upload URL
   (if present) each match the compiled derived set, and an IPv6-literal
   login (`https://[::1]:8000/`) works.
