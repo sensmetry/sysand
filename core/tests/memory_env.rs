@@ -7,6 +7,7 @@ use std::{
 };
 
 use chrono::DateTime;
+use fluent_uri::Iri;
 use indexmap::IndexMap;
 use semver::Version;
 use sysand_core::{
@@ -20,6 +21,7 @@ use sysand_core::{
     project::{
         ProjectMut, ProjectRead,
         memory::{InMemoryError, InMemoryProject},
+        utils::Identifier,
     },
     resolve::memory::{AcceptAll, MemoryResolver},
 };
@@ -37,6 +39,7 @@ fn env_basic() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
     let mut memory_environment = do_env_memory()?;
+    let iri = Iri::parse("urn:sysand_test:1").unwrap().to_owned();
 
     let info = InterchangeProjectInfo {
         name: "env_manual_install".to_string(),
@@ -98,12 +101,12 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
     let resolver = MemoryResolver {
         iri_predicate: AcceptAll {},
         projects: HashMap::from([(
-            fluent_uri::Iri::parse("urn:sysand_test:1")?.into(),
+            Identifier::from_iri_owned(iri.clone()),
             vec![source_project.clone()],
         )]),
     };
 
-    let resolved_project = do_info("urn:sysand_test:1", &resolver)?;
+    let resolved_project = do_info(&iri, &resolver)?;
 
     assert_eq!(resolved_project, (info, meta));
 

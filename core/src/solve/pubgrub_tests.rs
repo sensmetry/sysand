@@ -12,7 +12,7 @@ use crate::{
         InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage,
         InterchangeProjectUsageRaw,
     },
-    project::{ProjectRead, memory::InMemoryProject},
+    project::{ProjectRead, memory::InMemoryProject, utils::Identifier},
     resolve::{
         env::EnvResolver,
         memory::{AcceptAll, MemoryResolver},
@@ -63,7 +63,12 @@ fn memory_resolver(
         iri_predicate: AcceptAll {},
         projects: structure
             .iter()
-            .map(|(id, projs)| (Iri::parse(id.to_string()).unwrap(), projs.to_vec()))
+            .map(|(id, projs)| {
+                (
+                    Identifier::from(Iri::parse(id.to_string()).unwrap()),
+                    projs.to_vec(),
+                )
+            })
             .collect(),
     }
 }

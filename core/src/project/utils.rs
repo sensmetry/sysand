@@ -9,14 +9,20 @@ use std::{
 };
 
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
-use fluent_uri::Iri;
+use fluent_uri::{
+    Iri,
+    pct_enc::{EString, encoder::IData},
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
 #[cfg(feature = "filesystem")]
 use zip::{self, result::ZipError};
 
-use crate::model::InterchangeProjectUsage;
+use crate::{
+    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
+    purl::{is_valid_purl_name, is_valid_purl_publisher, normalize_field},
+};
 
 /// A file that is guaranteed to exist as long as the lifetime.
 /// Intended to be used with temporary files that are automatically
@@ -574,6 +580,37 @@ impl Identifier {
     /// Construct `Identifier` from `&str`, assuming it's a valid IRI
     pub fn from_iri_unchecked_str(iri: &str) -> Identifier {
         Self(iri.to_owned())
+    }
+
+    pub fn from_pub_name(publisher: &str, name: &str) -> Identifier {
+        Self::make_identifier_iri(publisher, name)
+    }
+
+    pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Identifier {
+        let InterchangeProjectUsageRaw::Resource { resource, .. } = usage;
+        Self(resource.to_string())
+    }
+
+    fn make_identifier_iri(publisher: impl AsRef<str>, name: impl AsRef<str>) -> Identifier {
+        let publisher = publisher.as_ref();
+        let name = name.as_ref();
+        debug_assert!(!publisher.is_empty());
+        debug_assert!(!name.is_empty());
+
+        let normalized_pub = normalize_field(publisher);
+        let normalized_name = normalize_field(name);
+
+        let iri =
+            if is_valid_purl_publisher(&normalized_pub) && is_valid_purl_name(&normalized_name) {
+                format!("pkg:sysand/{normalized_pub}/{normalized_name}")
+            } else {
+                let mut enc_pub = EString::<IData>::new();
+                enc_pub.encode_str::<IData>(publisher);
+                let mut enc_name = EString::<IData>::new();
+                enc_name.encode_str::<IData>(name);
+                format!("urn:sysand:{enc_pub}/{enc_name}")
+            };
+        Self(iri)
     }
 }
 

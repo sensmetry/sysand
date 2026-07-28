@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 use crate::{
     info::{InfoError, do_info},
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::memory::InMemoryProject,
+    project::{memory::InMemoryProject, utils::Identifier},
     resolve::{
         ResolutionInfo, ResolutionOutcome, ResolveRead,
         combined::{CombinedResolver, NO_RESOLVER},
@@ -55,7 +55,7 @@ fn single_project_any_resolver<S: AsRef<str>>(
     uri: S,
     project: InMemoryProject,
 ) -> Option<MemoryResolver<AcceptAll, InMemoryProject>> {
-    let uri = Iri::parse(uri.as_ref().to_string()).unwrap();
+    let uri = Identifier::from_iri_unchecked_str(uri.as_ref());
 
     let mut projects = HashMap::new();
 
@@ -71,7 +71,7 @@ fn multiple_projects_any_resolver<S: AsRef<str>>(
     uri: S,
     projects: Vec<InMemoryProject>,
 ) -> Option<MemoryResolver<AcceptAll, InMemoryProject>> {
-    let uri = Iri::parse(uri.as_ref().to_string()).unwrap();
+    let uri = Identifier::from_iri_unchecked_str(uri.as_ref());
     let mut projects_map = HashMap::new();
     projects_map.insert(uri, projects);
     Some(MemoryResolver {

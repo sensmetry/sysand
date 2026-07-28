@@ -5,11 +5,24 @@
 
 use std::sync::Arc;
 
+use fluent_uri::Iri;
+
 use crate::{
     auth::Unauthenticated,
     project::ProjectRead,
-    resolve::{ResolutionOutcome, ResolveRead, ResolveReadAsync, net_utils::create_reqwest_client},
+    resolve::{
+        ResolutionInfo, ResolutionOutcome, ResolveRead, ResolveReadAsync,
+        net_utils::create_reqwest_client,
+    },
 };
+
+fn resolve<R: ResolveRead>(
+    resolver: &R,
+    iri: &str,
+) -> Result<ResolutionOutcome<R::ResolvedStorages>, R::Error> {
+    let resolve = ResolutionInfo::iri(Iri::parse(iri).unwrap().into());
+    resolver.resolve_read(&resolve)
+}
 
 #[test]
 fn basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
@@ -47,8 +60,7 @@ fn basic_http_src_url_non_lax() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap(),
     ));
 
-    let ResolutionOutcome::Resolved(projects) =
-        resolver.resolve_read_raw(format!("http://{}/foo/", host))?
+    let ResolutionOutcome::Resolved(projects) = resolve(&resolver, &format!("http://{host}/foo/"))?
     else {
         panic!()
     };
@@ -94,7 +106,7 @@ fn template_basic_http_url_lax(
         "http://www.example.invalid/foo"
     };
 
-    let ResolutionOutcome::Resolved(projects) = resolver.resolve_read_raw(url)? else {
+    let ResolutionOutcome::Resolved(projects) = resolve(&resolver, url)? else {
         panic!()
     };
     let projects: Vec<super::HTTPProjectAsync<Unauthenticated>> =

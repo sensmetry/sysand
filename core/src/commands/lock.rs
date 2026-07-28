@@ -23,9 +23,10 @@ use crate::{
     model::{
         InterchangeProjectUsage, InterchangeProjectUsageRaw, InterchangeProjectValidationError,
     },
-    project::{CanonicalizationError, ProjectRead, memory::InMemoryProject, utils::FsIoError},
+    project::{CanonicalizationError, ProjectRead, utils::FsIoError},
     resolve::ResolveRead,
     solve::pubgrub::{SolverError, solve},
+    utils::ProvidedProjects,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,7 +138,7 @@ pub fn do_lock_projects<
 >(
     projects: I,
     resolver: R,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<PI, PD, R>> {
     let mut lock = Lock::default();
@@ -210,7 +211,7 @@ pub fn do_lock_projects<
         all_deps.extend(validated_info.usage);
     }
 
-    let lock_outcome = do_lock_extend(lock, all_deps, resolver, provided_iris, ctx)?;
+    let lock_outcome = do_lock_extend(lock, all_deps, resolver, provided_usages, ctx)?;
 
     Ok(lock_outcome)
 }
@@ -233,7 +234,7 @@ pub fn do_lock_extend<
     mut lock: Lock,
     usages: I,
     resolver: R,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockError<PD, R>> {
     let inputs: Vec<_> = usages.into_iter().collect();
@@ -274,6 +275,11 @@ pub fn do_lock_extend<
                 project_label: iri_str.clone(),
                 field: IncompleteField::Info,
             })?;
+        // Validate dependency projects too, not just the top-level ones.
+        info.validate().map_err(|e| LockError::InvalidProject {
+            identifier: iri_str.clone(),
+            source: e,
+        })?;
         let meta = project
             .get_meta()
             .map_err(LockError::DependencyProject)?
@@ -282,7 +288,7 @@ pub fn do_lock_extend<
                 field: IncompleteField::Meta,
             })?;
 
-        let sources = if !provided_iris.contains_key(iri.as_str()) {
+        let sources = if !provided_usages.contains_key(iri.as_str()) {
             let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;
             debug_assert!(!sources.is_empty());
             sources
@@ -363,7 +369,7 @@ pub fn do_lock_local_editable<
     path: P,
     project_root: PR,
     identifiers: Option<Vec<Iri<String>>>,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
     resolver: R,
     ctx: &ProjectContext,
 ) -> Result<LockOutcome<PD>, LockProjectError<EditableLocalSrcProject, PD, R>> {
@@ -376,7 +382,7 @@ pub fn do_lock_local_editable<
         ),
     );
 
-    do_lock_projects([(identifiers, &project)], resolver, provided_iris, ctx)
+    do_lock_projects([(identifiers, &project)], resolver, provided_usages, ctx)
 }
 
 #[cfg(test)]

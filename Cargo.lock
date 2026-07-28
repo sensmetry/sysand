@@ -3655,6 +3655,7 @@ name = "sysand-java"
 version = "0.1.7"
 dependencies = [
  "camino",
+ "fluent-uri",
  "indexmap",
  "jni 0.21.1",
  "reqwest",
@@ -3701,6 +3702,7 @@ version = "0.1.7"
 dependencies = [
  "camino",
  "camino-tempfile",
+ "fluent-uri",
  "log",
  "predicates",
  "pyo3",

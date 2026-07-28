@@ -112,20 +112,15 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     };
 
     if !no_deps {
-        let provided_iris = if !include_std {
+        let provided_usages = if !include_std {
             crate::known_std_libs()
         } else {
             HashMap::default()
         };
-        let mut memory_projects = HashMap::default();
-        for (k, v) in provided_iris.iter() {
-            memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
-        }
-
         let resolver = PriorityResolver::new(
             MemoryResolver {
                 iri_predicate: AcceptAll {},
-                projects: memory_projects,
+                projects: provided_usages.clone(),
             },
             std_resolver,
         );
@@ -140,15 +135,16 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         } = sysand_core::commands::lock::do_lock_projects(
             [(identifiers, &project)],
             resolver,
-            &provided_iris,
+            &provided_usages,
             &ctx,
         )?;
         // If we have any std lib dependencies, they will not be installed
-        if !provided_iris.is_empty()
-            && lock
-                .projects
-                .iter()
-                .any(|x| x.identifiers.iter().any(|y| provided_iris.contains_key(y)))
+        if !provided_usages.is_empty()
+            && lock.projects.iter().any(|x| {
+                x.identifiers
+                    .iter()
+                    .any(|y| provided_usages.contains_key(y.as_str()))
+            })
         {
             log::info!(
                 "{GOOD}note{GOOD:#}: SysMLv2/KerML standard library packages will not be installed during sync,\n\
@@ -173,7 +169,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             project.inner().root_path(),
             &mut env,
             client,
-            &provided_iris,
+            &provided_usages,
             runtime,
             auth_policy,
             ctx.current_workspace.as_ref(),
@@ -269,7 +265,8 @@ fn obtain_project<Policy: HTTPAuthentication>(
                 ' ',
                 local_project.root_path(),
             );
-            let (_version, storage) = get_project_version(iri, version, &std_resolver)?;
+            let resolve = ResolutionInfo::iri(iri.to_owned());
+            let (_version, storage) = get_project_version(&resolve, version, &std_resolver)?;
             let (info, _meta) = clone_project(&storage, &mut local_project, true)?;
             log::info!(
                 "{header}{cloned:>12}{header:#} `{}` {}",
@@ -341,16 +338,15 @@ fn clone_local<P: ProjectRead>(
     Ok(())
 }
 
-/// Obtains a project identified by `iri` via `resolver`. If
+/// Obtains a project identified by `resolve` via `resolver`. If
 /// version is given, obtains exactly that version. If not,
 /// obtains the latest version (including prerelease versions)
 pub fn get_project_version<R: ResolveRead>(
-    iri: &Iri<String>,
+    resolve: &ResolutionInfo,
     version: Option<String>,
     resolver: &R,
 ) -> Result<(semver::Version, R::ProjectStorage), anyhow::Error> {
-    let resolve_info = ResolutionInfo::iri(iri.clone());
-    match resolver.resolve_read(&resolve_info)? {
+    match resolver.resolve_read(resolve)? {
         ResolutionOutcome::Resolved(alternatives) => {
             // If no version is supplied, choose the highest
             // Else, choose version that is supplied
@@ -413,8 +409,8 @@ pub fn get_project_version<R: ResolveRead>(
 
             match candidates.len() {
                 0 => match version {
-                    Some(v) => bail!(CliError::MissingProjectVersion(resolve_info.to_string(), v)),
-                    None => bail!(CliError::MissingProject(resolve_info.to_string())),
+                    Some(v) => bail!(CliError::MissingProjectVersion(resolve.to_string(), v)),
+                    None => bail!(CliError::MissingProject(resolve.to_string())),
                 },
                 1 => {
                     // Can't move out values with match
@@ -430,13 +426,13 @@ pub fn get_project_version<R: ResolveRead>(
             }
         }
         ResolutionOutcome::UnsupportedUsageType { reason } => {
-            bail!("locator type of {resolve_info} is not supported: {reason}")
+            bail!("locator type of {resolve} is not supported: {reason}")
         }
         ResolutionOutcome::NotFound { reason } => {
-            bail!("usage {resolve_info} was not found: {reason}")
+            bail!("usage {resolve} was not found: {reason}")
         }
         ResolutionOutcome::Unresolvable { reason } => {
-            bail!("usage {resolve_info} is not resolvable: {reason}")
+            bail!("usage {resolve} is not resolvable: {reason}")
         }
     }
 }

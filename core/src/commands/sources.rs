@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Debug,
-};
+use std::{collections::HashMap, fmt::Debug};
 
 #[cfg(feature = "filesystem")]
 use camino::Utf8PathBuf;
@@ -16,7 +13,7 @@ use crate::project::local_src::{LocalSrcError, LocalSrcProject, PathError};
 use crate::{
     env::ReadEnvironment,
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
-    project::{ProjectRead, memory::InMemoryProject},
+    project::ProjectRead,
     resolve::{
         ResolveRead,
         env::EnvResolver,
@@ -25,6 +22,7 @@ use crate::{
     },
     solve::pubgrub::SolverError,
     stdlib::known_std_libs,
+    utils::ProvidedProjects,
 };
 
 /// Selects which dependency sources a sources enumeration should yield. Whether
@@ -145,13 +143,13 @@ pub fn do_sources_local_src_project_no_deps(
 /// Transitively resolves a list of usages (typically the usages of some project)
 /// in an environment and enumerates the resolved projects together with their IRIs.
 ///
-/// `provided_iris` are assumed to have been satisfied (including their dependencies)
+/// `provided_usages` are assumed to have been satisfied (including their dependencies)
 /// but have to match.
 #[allow(clippy::type_complexity)]
 fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
 ) -> Result<
     Vec<(
         fluent_uri::Iri<String>,
@@ -161,8 +159,8 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
 > {
     let mut memory_projects = HashMap::default();
 
-    for (k, v) in provided_iris {
-        memory_projects.insert(fluent_uri::Iri::parse(k.clone()).unwrap(), v.to_vec());
+    for (k, v) in provided_usages {
+        memory_projects.insert(k.clone(), v.to_vec());
     }
 
     let wrapped_resolver = PriorityResolver::new(
@@ -187,17 +185,17 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
 /// Transitively resolve a list of usages (typically the usages of some project)
 /// in an environment and enumerate the resolved projects.
 ///
-/// `provided_iris` are assumed to have been satisfied (including their dependencies)
+/// `provided_usages` are assumed to have been satisfied (including their dependencies)
 /// but have to match.
 pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
-    provided_iris: &HashMap<String, Vec<InMemoryProject>>,
+    provided_usages: &ProvidedProjects,
 ) -> Result<
     Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
     SolverError<impl ResolveRead + Debug + use<Env>>,
 > {
-    Ok(solve_dependencies(requested, env, provided_iris)?
+    Ok(solve_dependencies(requested, env, provided_usages)?
         .into_iter()
         .map(|(_, project)| project)
         .collect())
@@ -227,22 +225,17 @@ pub fn resolve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     // For `Deps` the standard libraries are treated as already provided so the
     // solver omits them; otherwise everything is resolved and filtered below.
     let empty = HashMap::default();
-    let provided_iris = match dependencies {
+    let provided_usages = match dependencies {
         Dependencies::Deps => &std_libs,
         _ => &empty,
     };
 
-    let resolved = solve_dependencies(requested, env, provided_iris)?;
-
-    let std_iris: HashSet<fluent_uri::Iri<String>> = std_libs
-        .keys()
-        .map(|iri| fluent_uri::Iri::parse(iri.clone()).expect("BUG: invalid std lib IRI"))
-        .collect();
+    let resolved = solve_dependencies(requested, env, provided_usages)?;
 
     Ok(resolved
         .into_iter()
         .filter(|(iri, _)| match dependencies {
-            Dependencies::Std => std_iris.contains(iri),
+            Dependencies::Std => std_libs.contains_key(iri.as_str()),
             // std_libs are already filtered out by `solve_dependencies`
             Dependencies::Deps | Dependencies::DepsStd => true,
             Dependencies::None => false,

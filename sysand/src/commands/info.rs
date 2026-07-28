@@ -17,19 +17,21 @@ use sysand_core::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsageRaw,
     },
-    project::{ProjectMut, ProjectRead, any::OverrideProject, local_kpar::KparInnerPath},
+    project::{
+        ProjectMut, ProjectRead, any::OverrideProject, local_kpar::KparInnerPath, utils::Identifier,
+    },
     resolve::{
         file::FileResolverProject, memory::MemoryResolver, priority::PriorityResolver,
         standard::standard_resolver,
     },
     style,
-    utils::format_err,
+    utils::{ProvidedIdentifiers, format_err},
 };
 
 use anstream::{print, println};
 use anyhow::{Result, bail};
 use fluent_uri::Iri;
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 use sysand_core::{
     info::{do_info, do_info_project},
     project::utils::wrapfs,
@@ -38,7 +40,7 @@ use sysand_core::{
 
 pub fn pprint_interchange_project(
     info: &InterchangeProjectInfoRaw,
-    excluded_iris: &HashSet<String>,
+    excluded_iris: &ProvidedIdentifiers,
 ) {
     let header = style::get_style_config().header;
     println!("{header}Name:{header:#} {}", info.name);
@@ -137,7 +139,7 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverPro
 
 pub fn command_info_path<P: AsRef<Utf8Path>>(
     path: P,
-    excluded_iris: &HashSet<String>,
+    excluded_iris: &ProvidedIdentifiers,
 ) -> Result<()> {
     let project = interpret_project_path(&path)?;
     match do_info_project(&project) {
@@ -159,8 +161,8 @@ pub fn command_info_uri<Policy: HTTPAuthentication>(
     _normalise: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<IndexLocation>>,
-    excluded_iris: &HashSet<String>,
-    overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
+    excluded_iris: &ProvidedIdentifiers,
+    overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ctx: ProjectContext,
@@ -229,7 +231,7 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     numbered: bool,
     client: reqwest_middleware::ClientWithMiddleware,
     index_urls: Option<Vec<IndexLocation>>,
-    overrides: Vec<(Iri<String>, Vec<OverrideProject<Policy>>)>,
+    overrides: Vec<(Identifier, Vec<OverrideProject<Policy>>)>,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ctx: ProjectContext,

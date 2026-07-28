@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{error::Error, fmt::Write as _};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    fmt::Write as _,
+};
 
 use digest::{array::Array, typenum};
 use indexmap::IndexSet;
@@ -10,7 +14,13 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8WindowsPath};
 
+use crate::project::{memory::InMemoryProject, utils::Identifier};
+
+pub type ProvidedProjects = HashMap<Identifier, Vec<InMemoryProject>>;
+pub type ProvidedIdentifiers = HashSet<Identifier>;
+
 pub(crate) mod scheme {
+    #[cfg(feature = "filesystem")]
     use fluent_uri::component::Scheme;
     #[cfg(feature = "filesystem")]
     pub const SCHEME_FILE: &Scheme = Scheme::new_or_panic("file");
@@ -24,7 +34,9 @@ pub(crate) mod scheme {
     pub const SCHEME_GIT_HTTP: &Scheme = Scheme::new_or_panic("git+http");
     #[cfg(all(feature = "filesystem", feature = "networking"))]
     pub const SCHEME_GIT_HTTPS: &Scheme = Scheme::new_or_panic("git+https");
+    #[cfg(feature = "filesystem")]
     pub const SCHEME_HTTP: &Scheme = Scheme::new_or_panic("http");
+    #[cfg(feature = "filesystem")]
     pub const SCHEME_HTTPS: &Scheme = Scheme::new_or_panic("https");
 }
 

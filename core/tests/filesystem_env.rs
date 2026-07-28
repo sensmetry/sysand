@@ -11,6 +11,7 @@ mod filesystem_tests {
 
     use camino::Utf8Path;
     use camino_tempfile::tempdir;
+    use fluent_uri::Iri;
     use indexmap::IndexMap;
     use sysand_core::{
         commands::env::do_env_local_dir,
@@ -252,6 +253,7 @@ version = \"0.1\"
     fn env_manual_install() -> Result<(), Box<dyn Error>> {
         let cwd = tempdir()?;
         let mut directory_environment = do_env_local_dir(cwd.path().join(DEFAULT_ENV_NAME))?;
+        let iri = Iri::parse("urn:sysand_test:1").unwrap().to_owned();
 
         let info = InterchangeProjectInfoRaw {
             name: "env_manual_install".to_string(),
@@ -331,7 +333,7 @@ version = \"0.1\"
             env: directory_environment,
         };
 
-        let resolved_project = do_info("urn:sysand_test:1", &resolver)?;
+        let resolved_project = do_info(&iri, &resolver)?;
 
         assert_eq!(resolved_project, (info, meta));
 
