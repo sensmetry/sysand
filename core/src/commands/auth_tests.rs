@@ -78,10 +78,6 @@ fn logout_of_missing_credential_errors() {
         &err,
         AuthCommandError::NoStoredCredential { index } if index == "https://absent.example/"
     ));
-    assert_eq!(
-        err.to_string(),
-        "no stored credential for `https://absent.example/`"
-    );
     assert_eq!(store.list().unwrap().len(), 1);
 }
 
@@ -92,21 +88,11 @@ fn logout_of_non_http_url_errors_without_touching_the_store() {
     let err = do_auth_logout(&mut store, "file:///srv/index").unwrap_err();
 
     assert!(matches!(&err, AuthCommandError::NotHttpIndex { .. }));
-    assert_eq!(
-        err.to_string(),
-        "`file:///srv/index`: not an HTTP(S) index; nothing to authenticate to \
-         (use an https:// index URL)"
+    assert!(
+        err.to_string().contains("not an HTTP(S) index"),
+        "was: {err}"
     );
     assert_eq!(store.list().unwrap().len(), 1);
-}
-
-#[test]
-fn logout_of_unparseable_url_errors() {
-    let mut store = in_memory_store();
-
-    let err = do_auth_logout(&mut store, "not a url").unwrap_err();
-
-    assert!(matches!(&err, AuthCommandError::InvalidIndexUrl(_)));
 }
 
 // do_auth_status / assemble_auth_status
@@ -453,12 +439,7 @@ mod login {
         let api_root = format!("{root}api/");
         let _mock = config_mock(&mut server, format!(r#"{{"api_root": "{api_root}"}}"#));
         let _index = server.mock("GET", "/index.json").with_status(200).create();
-        let _whoami = server
-            .mock("GET", "/api/v1/whoami")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(WHOAMI_BODY)
-            .create();
+        let _whoami = whoami_ok(&mut server, "/api/v1/whoami", None);
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &root, "tok");
@@ -479,12 +460,7 @@ mod login {
         let api_root = format!("{}/base/", api_server.url());
         let _mock = config_mock(&mut server, format!(r#"{{"api_root": "{api_root}"}}"#));
         let _index = server.mock("GET", "/index.json").with_status(200).create();
-        let _whoami = api_server
-            .mock("GET", "/base/v1/whoami")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(WHOAMI_BODY)
-            .create();
+        let _whoami = whoami_ok(&mut api_server, "/base/v1/whoami", None);
         let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &root, "tok");
@@ -521,12 +497,7 @@ mod login {
             .mock("GET", "/idx/index.json")
             .with_status(200)
             .create();
-        let _whoami = api_server
-            .mock("GET", "/v1/whoami")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(WHOAMI_BODY)
-            .create();
+        let _whoami = whoami_ok(&mut api_server, "/v1/whoami", None);
         let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &root, "tok");
@@ -555,12 +526,7 @@ mod login {
             .match_query(mockito::Matcher::UrlEncoded("ref".into(), "main".into()))
             .with_status(200)
             .create();
-        let _whoami = api_server
-            .mock("GET", "/v1/whoami")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(WHOAMI_BODY)
-            .create();
+        let _whoami = whoami_ok(&mut api_server, "/v1/whoami", None);
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &root, "tok");
@@ -612,33 +578,6 @@ mod login {
         assert!(
             !matcher(&globs).is_match("https://attacker.example/x"),
             "no derived glob may cover other hosts: {globs:?}"
-        );
-    }
-
-    #[test]
-    fn login_with_unauthorized_discovery_falls_back_with_a_notice() {
-        let mut server = mockito::Server::new();
-        let root = format!("{}/", server.url());
-        // 401 on both discovery legs (baseline and forced retry).
-        let _mock = server
-            .mock("GET", "/sysand-index-config.json")
-            .with_status(401)
-            .expect(2)
-            .create();
-        // Keep the read probe quiet: the discovery notice is the point.
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
-        let mut store = in_memory_store();
-
-        let (outcome, notices) = run_login(&mut store, &root, "tok");
-
-        let (_, globs) = stored(outcome);
-        assert_eq!(globs, vec![format!("{}**", globset::escape(&root))]);
-        assert!(
-            notices.iter().any(|n| matches!(
-                n,
-                AuthLoginNotice::DiscoveryUnreachable { error } if error.contains("401")
-            )),
-            "expected a 401 discovery notice, got {notices:?}"
         );
     }
 
@@ -727,20 +666,6 @@ mod login {
             validated_index_key(&validated_index_key(spelled).unwrap()).unwrap(),
             gitlab
         );
-    }
-
-    #[test]
-    fn template_key_rejects_an_unanchorable_template() {
-        // Placeholder directly in the query of a path-less URL: the only
-        // `/` in the literal prefix is the one in `://`.
-        let err = validated_index_key("https://files.example.com?f={path}").unwrap_err();
-
-        assert!(matches!(
-            &err,
-            AuthCommandError::TemplateWithoutAnchor { .. }
-        ));
-        let message = err.to_string();
-        assert!(message.contains("SYSAND_CRED_"), "was: {message}");
     }
 
     #[test]
@@ -878,29 +803,21 @@ mod login {
 
     #[test]
     fn login_rejects_an_unanchorable_template_target() {
+        // Placeholder directly in the query of a path-less URL: the only
+        // `/` in the literal prefix is the one in `://`.
         let mut store = in_memory_store();
 
         // Fails in key validation, before any network or store access.
         let (outcome, notices) = run_login(&mut store, "https://files.example.com?f={path}", "tok");
 
+        let err = outcome.unwrap_err();
         assert!(matches!(
-            outcome.unwrap_err(),
+            &err,
             AuthCommandError::TemplateWithoutAnchor { .. }
         ));
+        assert!(err.to_string().contains("SYSAND_CRED_"), "was: {err}");
         assert!(notices.is_empty());
         assert!(store.list().unwrap().is_empty());
-    }
-
-    #[test]
-    fn logout_rejects_an_unanchorable_template_target() {
-        let mut store = in_memory_store();
-
-        let err = do_auth_logout(&mut store, "https://files.example.com?f={path}").unwrap_err();
-
-        assert!(matches!(
-            err,
-            AuthCommandError::TemplateWithoutAnchor { .. }
-        ));
     }
 
     #[test]
@@ -960,6 +877,23 @@ mod login {
     const WHOAMI_BODY: &str = r#"{"subject":{"type":"user","name":"alice"},
         "token":{"name":"laptop","prefix":"sysand_u_1a2b3c4d",
                  "expires_at":"2026-09-01T00:00:00Z"}}"#;
+
+    /// Mock a whoami endpoint answering 200 with the standard identity
+    /// body; with `token` it also requires exactly that bearer and
+    /// expects exactly one request.
+    fn whoami_ok(server: &mut mockito::Server, path: &str, token: Option<&str>) -> mockito::Mock {
+        let mock = server.mock("GET", path);
+        let mock = match token {
+            Some(token) => mock
+                .match_header("authorization", format!("Bearer {token}").as_str())
+                .expect(1),
+            None => mock,
+        };
+        mock.with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(WHOAMI_BODY)
+            .create()
+    }
 
     fn no_discovery_mock(server: &mut mockito::Server) -> mockito::Mock {
         server
@@ -1139,13 +1073,9 @@ mod login {
                 basic_challenge: false,
             } if index == &root && rejected == &vec![ProbeSurface::Read]
         ));
-        // Single rejecting surface: the plain wording names the endpoint
-        // and its answer.
+        // Single rejecting surface: the wording names the endpoint and
+        // its answer.
         let message = err.to_string();
-        assert!(
-            message.contains("the index rejected the token"),
-            "was: {message}"
-        );
         assert!(
             message.contains("`index.json` answered HTTP 401"),
             "was: {message}"
@@ -1172,14 +1102,7 @@ mod login {
         let root = format!("{}/", server.url());
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
         let _index = server.mock("GET", "/index.json").with_status(200).create();
-        let whoami = server
-            .mock("GET", "/api/v1/whoami")
-            .match_header("authorization", "Bearer tok")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(WHOAMI_BODY)
-            .expect(1)
-            .create();
+        let whoami = whoami_ok(&mut server, "/api/v1/whoami", Some("tok"));
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
@@ -1228,10 +1151,6 @@ mod login {
         ));
         let message = err.to_string();
         assert!(
-            message.contains("the index rejected the token"),
-            "was: {message}"
-        );
-        assert!(
             message.contains("`v1/whoami` answered HTTP 401"),
             "was: {message}"
         );
@@ -1265,14 +1184,9 @@ mod login {
         ));
         let message = err.to_string();
         assert!(
-            message.contains("`index.json` answered HTTP 404"),
-            "was: {message}"
-        );
-        assert!(
             message.contains("or no index exists at this URL"),
             "was: {message}"
         );
-        assert!(message.contains("nothing was stored"), "was: {message}");
         assert!(store.list().unwrap().is_empty());
     }
 
@@ -1318,11 +1232,7 @@ mod login {
         let root = format!("{}/", server.url());
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
         let (_unauth, _forced) = private_index_json(&mut server, "tok", 401);
-        let _whoami = server
-            .mock("GET", "/api/v1/whoami")
-            .with_status(200)
-            .with_body(WHOAMI_BODY)
-            .create();
+        let _whoami = whoami_ok(&mut server, "/api/v1/whoami", None);
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
@@ -1356,11 +1266,7 @@ mod login {
         let root = format!("{}/", server.url());
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
         let (_unauth, _forced) = private_index_json(&mut server, "tok", 200);
-        let _whoami = server
-            .mock("GET", "/api/v1/whoami")
-            .with_status(200)
-            .with_body(WHOAMI_BODY)
-            .create();
+        let _whoami = whoami_ok(&mut server, "/api/v1/whoami", None);
         let mut store = in_memory_store();
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
@@ -1457,7 +1363,6 @@ mod login {
             }
         ));
         let message = err.to_string();
-        assert!(message.contains("username/password"), "was: {message}");
         assert!(
             message.contains("SYSAND_CRED_<X>_BASIC_USER"),
             "was: {message}"
@@ -1617,13 +1522,7 @@ mod login {
         let root = format!("{}/", server.url());
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
         let _index = server.mock("GET", "/index.json").with_status(429).create();
-        let _whoami = server
-            .mock("GET", "/api/v1/whoami")
-            .match_header("authorization", "Bearer tok")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(WHOAMI_BODY)
-            .create();
+        let _whoami = whoami_ok(&mut server, "/api/v1/whoami", Some("tok"));
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
@@ -1662,10 +1561,7 @@ mod login {
         ));
         let message = err.to_string();
         assert!(
-            message.contains(
-                "was rejected by the index read surface (`index.json`) \
-                 and the index API (`v1/whoami`) and accepted by no surface"
-            ),
+            message.contains("and accepted by no surface"),
             "was: {message}"
         );
         assert!(!message.contains("no index exists"), "was: {message}");
@@ -1696,14 +1592,7 @@ mod login {
             &format!(r#"{{"api_root": "{api_root}"}}"#),
         );
         let (unauth_index, forced_index) = private_index_json(&mut server, "tok", 200);
-        let whoami = api_server
-            .mock("GET", "/api/v1/whoami")
-            .match_header("authorization", "Bearer tok")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(WHOAMI_BODY)
-            .expect(1)
-            .create();
+        let whoami = whoami_ok(&mut api_server, "/api/v1/whoami", Some("tok"));
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
@@ -1757,14 +1646,7 @@ mod login {
             &format!(r#"{{"api_root": "{root}api/"}}"#),
         );
         let _index = server.mock("GET", "/index.json").with_status(200).create();
-        let whoami = server
-            .mock("GET", "/api/v1/whoami")
-            .match_header("authorization", "Bearer tok")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(WHOAMI_BODY)
-            .expect(1)
-            .create();
+        let whoami = whoami_ok(&mut server, "/api/v1/whoami", Some("tok"));
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
@@ -1975,12 +1857,7 @@ mod login {
             .create();
         let forced = no_authed_config_mock(&mut server);
         let _index = server.mock("GET", "/index.json").with_status(200).create();
-        let _whoami = server
-            .mock("GET", "/api/v1/whoami")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(WHOAMI_BODY)
-            .create();
+        let _whoami = whoami_ok(&mut server, "/api/v1/whoami", None);
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");

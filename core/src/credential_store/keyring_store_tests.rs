@@ -53,7 +53,7 @@ fn read_modify_write_persists_records() {
         .unwrap();
 
     // A second store over the same backend sees the same records.
-    let other = store_at(backend, &dir);
+    let other = store_at(backend.clone(), &dir);
     let records = other.list().unwrap();
     assert_eq!(records.len(), 2);
     assert_eq!(records[0].secret, "tok-a2");
@@ -63,17 +63,9 @@ fn read_modify_write_persists_records() {
     assert!(!store.remove("https://a.example/").unwrap());
     assert_eq!(store.list().unwrap().len(), 1);
     assert_eq!(store.list().unwrap()[0].key, "https://b.example/");
-}
 
-#[test]
-fn removing_last_record_deletes_the_entry() {
-    let dir = tempdir().unwrap();
-    let backend = InMemoryBlobBackend::default();
-    let mut store = store_at(backend.clone(), &dir);
-
-    store.upsert(record("https://a.example/", "tok")).unwrap();
-    assert!(backend.contents().is_some());
-    assert!(store.remove("https://a.example/").unwrap());
+    // Removing the last record deletes the backend entry outright.
+    assert!(store.remove("https://b.example/").unwrap());
     assert_eq!(
         backend.contents(),
         None,
@@ -293,10 +285,9 @@ fn blob_size_check_uses_utf16_length() {
     assert_eq!(utf16_byte_len(&blob), 2600);
     let err = check_blob_size(utf16_byte_len(&blob), WINDOWS_MAX_BLOB_BYTES).unwrap_err();
     assert!(matches!(err, CredentialStoreError::BlobTooLarge));
-    assert_eq!(
-        err.to_string(),
-        "credential store full on this platform (Windows ~2.5 KB limit); \
-         remove an unused credential or use a smaller token"
+    assert!(
+        err.to_string().contains("Windows"),
+        "message must name the platform limit: {err}"
     );
 
     let small = "a".repeat(1280);

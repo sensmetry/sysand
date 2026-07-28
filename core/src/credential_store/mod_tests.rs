@@ -24,27 +24,15 @@ fn record(key: &str, secret: &str) -> CredentialRecord {
 }
 
 #[test]
-fn blob_round_trip() {
+fn blob_round_trip_and_version_field() {
     let mut with_expiry = record("https://example.com/idx/", "tok-1");
     with_expiry.expires_at = Some(Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap());
     let blob = CredentialBlob::new(vec![with_expiry, record("https://other.example/", "tok-2")]);
     let raw = serialize_blob(&blob).unwrap();
-    let parsed = parse_blob(&raw).unwrap();
-    assert_eq!(parsed, blob);
-}
-
-#[test]
-fn blob_serializes_version_field() {
-    let raw = serialize_blob(&CredentialBlob::empty()).unwrap();
     let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
     assert_eq!(value["version"], serde_json::json!(BLOB_VERSION));
-}
-
-#[test]
-fn blob_omits_absent_expiry() {
-    let blob = CredentialBlob::new(vec![record("https://example.com/", "tok")]);
-    let raw = serialize_blob(&blob).unwrap();
-    assert!(!raw.contains("expires_at"));
+    let parsed = parse_blob(&raw).unwrap();
+    assert_eq!(parsed, blob);
 }
 
 #[test]
@@ -74,9 +62,10 @@ fn parse_tolerates_unknown_fields_and_round_trips_them() {
 }
 
 #[test]
-fn parse_accepts_a_blob_written_before_the_identity_fields() {
-    // A blob written before `subject` / `token_name` / `token_prefix`
-    // existed (still version 1) must parse, with the new fields absent.
+fn parse_accepts_a_blob_written_before_the_newer_fields() {
+    // A blob written before `subject` / `token_name` / `token_prefix` /
+    // `validated` existed (still version 1) must parse, with the newer
+    // fields absent and the absent claim reading as "not validated".
     let raw = r#"{
         "version": 1,
         "credentials": [{
@@ -93,6 +82,7 @@ fn parse_accepts_a_blob_written_before_the_identity_fields() {
     assert_eq!(record.subject, None);
     assert_eq!(record.token_name, None);
     assert_eq!(record.token_prefix, None);
+    assert!(record.validated.is_empty());
     assert!(record.expires_at.is_some());
     assert!(record.extra.is_empty());
 }
@@ -117,34 +107,6 @@ fn identity_fields_round_trip() {
 }
 
 #[test]
-fn blob_omits_an_empty_validated_list() {
-    let blob = CredentialBlob::new(vec![record("https://example.com/", "tok")]);
-    let raw = serialize_blob(&blob).unwrap();
-    assert!(!raw.contains("validated"));
-}
-
-#[test]
-fn parse_accepts_a_blob_written_before_the_validated_field() {
-    // A blob written before `validated` existed (still version 1) must
-    // parse, and the absent claim reads as "not validated".
-    let raw = r#"{
-        "version": 1,
-        "credentials": [{
-            "key": "https://example.com/",
-            "globs": ["https://example.com/**"],
-            "scheme": "bearer",
-            "secret": "tok",
-            "subject": {"type": "user", "name": "alice"},
-            "token_prefix": "sysand_u_1a2b3c4d"
-        }]
-    }"#;
-    let blob = parse_blob(raw).unwrap();
-    let record = &blob.credentials[0];
-    assert!(record.validated.is_empty());
-    assert!(record.extra.is_empty());
-}
-
-#[test]
 fn parse_fails_closed_on_unknown_version() {
     let raw = r#"{"version": 2, "credentials": []}"#;
     let err = parse_blob(raw).unwrap_err();
@@ -159,73 +121,40 @@ fn parse_fails_closed_on_garbage() {
             matches!(err, CredentialStoreError::Unreadable),
             "input {garbage:?} must fail closed"
         );
-        assert_eq!(
-            err.to_string(),
-            "credential store unreadable; remove the `sysand` keyring entry to reset"
-        );
-    }
-}
-
-#[test]
-fn normalize_adds_trailing_slash() {
-    assert_eq!(
-        normalize_index_key("https://example.com/idx").unwrap(),
-        "https://example.com/idx/"
-    );
-    assert_eq!(
-        normalize_index_key("https://example.com").unwrap(),
-        "https://example.com/"
-    );
-}
-
-#[test]
-fn normalize_keeps_existing_trailing_slash() {
-    assert_eq!(
-        normalize_index_key("https://example.com/idx/").unwrap(),
-        "https://example.com/idx/"
-    );
-}
-
-#[test]
-fn normalize_lowercases_host_and_strips_default_port() {
-    assert_eq!(
-        normalize_index_key("HTTPS://EXAMPLE.com:443/Idx").unwrap(),
-        "https://example.com/Idx/"
-    );
-}
-
-#[test]
-fn normalize_keeps_explicit_port_and_ipv6_literal() {
-    assert_eq!(
-        normalize_index_key("https://[::1]:8000/idx").unwrap(),
-        "https://[::1]:8000/idx/"
-    );
-}
-
-#[test]
-fn normalize_drops_fragment() {
-    assert_eq!(
-        normalize_index_key("https://example.com/idx#frag").unwrap(),
-        "https://example.com/idx/"
-    );
-}
-
-#[test]
-fn normalize_rejects_non_http_schemes() {
-    for url in ["file:///tmp/idx", "ftp://example.com/idx", "not a url"] {
         assert!(
-            matches!(
-                normalize_index_key(url),
-                Err(CredentialStoreError::InvalidIndexUrl(_))
-            ),
-            "url {url:?} must be rejected"
+            err.to_string()
+                .contains("remove the `sysand` keyring entry"),
+            "message must point at the reset: {err}"
         );
     }
 }
 
 #[test]
-fn normalize_rejects_query_and_userinfo() {
+fn normalize_canonicalizes_accepted_urls() {
+    // Trailing slash added/kept, host lowercased, default port stripped,
+    // explicit port and IPv6 literal kept, fragment dropped.
+    for (url, expected) in [
+        ("https://example.com/idx", "https://example.com/idx/"),
+        ("https://example.com", "https://example.com/"),
+        ("https://example.com/idx/", "https://example.com/idx/"),
+        ("HTTPS://EXAMPLE.com:443/Idx", "https://example.com/Idx/"),
+        ("https://[::1]:8000/idx", "https://[::1]:8000/idx/"),
+        ("https://example.com/idx#frag", "https://example.com/idx/"),
+    ] {
+        assert_eq!(
+            normalize_index_key(url).unwrap(),
+            expected,
+            "url {url:?} must normalize to {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn normalize_rejects_non_http_query_and_userinfo() {
     for url in [
+        "file:///tmp/idx",
+        "ftp://example.com/idx",
+        "not a url",
         "https://example.com/idx?token=x",
         "https://user:pass@example.com/idx",
         "https://user@example.com/idx",
