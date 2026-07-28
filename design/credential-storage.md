@@ -333,11 +333,9 @@ logout` removes) may fall back to the default index.
   with a notice when even that is not meaningful; and a newly derived
   root that **subsumes** an already-derived one replaces it, keeping the
   set minimal and non-overlapping. Normative test requirements: the
-  discovery-document URL, the `index.json` URL, and the upload URL each
-  match the compiled derived set (for a template-target login without an
-  advertised `api_root`, an encoded-`{path}` project-file URL stands in
-  for the upload URL), and an IPv6-literal login (`https://[::1]:8000/`)
-  works.
+  discovery-document URL, the `index.json` URL, and the upload URL
+  (if present) each match the compiled derived set, and an IPv6-literal
+  login (`https://[::1]:8000/`) works.
 - **Divergent `api_root` (Case B).** If `api_root` nests under the derived
   root (Case A), one glob suffices. If it is a disjoint host/path, store the
   same credential under both globs (minimal, non-overlapping), so the upload
