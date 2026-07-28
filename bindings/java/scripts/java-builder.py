@@ -12,9 +12,24 @@ import shutil
 import subprocess
 from typing import Any, Union
 
-
 ROOT_DIR = Path(__file__).absolute().parent.parent.parent.parent
-TARGET_DIR = ROOT_DIR / "target"
+CARGO_METADATA = json.loads(
+    subprocess.check_output(
+        [
+            "cargo",
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+            ROOT_DIR / "Cargo.toml",
+        ],
+        text=True,
+    )
+)
+# target-dir may be overridden via cargo configuration or CARGO_TARGET_DIR,
+# so ask cargo where the build artifacts actually go
+TARGET_DIR = Path(CARGO_METADATA["target_directory"])
 BUILD_DIR = TARGET_DIR / "java"
 TEST_DIR = TARGET_DIR / "java-test"
 DEPLOY_TEST_DIR = TARGET_DIR / "java-deploy-test"
@@ -93,20 +108,7 @@ def parse_version() -> str:
         print("Using version from version.txt")
         return VERSION_FILE.read_text().strip()
     print("Getting version from Cargo.toml")
-    output = subprocess.check_output(
-        [
-            "cargo",
-            "metadata",
-            "--no-deps",
-            "--format-version",
-            "1",
-            "--manifest-path",
-            ROOT_DIR / "Cargo.toml",
-        ],
-        text=True,
-    )
-    metadata = json.loads(output)
-    for package in metadata["packages"]:
+    for package in CARGO_METADATA["packages"]:
         if package["name"] == "sysand-java":
             version: str = package["version"]
             return version
@@ -139,7 +141,7 @@ def build(
         args = ["cargo", "build", "--package", "sysand-java"]
         if use_release_build:
             args.append("--release")
-        execute(args, cwd=BUILD_DIR)
+        execute(args, cwd=ROOT_DIR)
 
     print("Copying the Java code to the target directory...")
     shutil.copytree(ROOT_DIR / "bindings" / "java" / "java" / "src", BUILD_DIR / "src")
