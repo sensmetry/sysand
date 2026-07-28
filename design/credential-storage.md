@@ -269,7 +269,8 @@ Publish's bearer selection uses **source precedence**: env bearer matches
 first, then keyring, never one flat "exactly one match or error" over a
 merged set. Within a source the exactly-one rule stands
 (`AmbiguousPublishBearer` is per-source), with candidates carrying the
-identical token collapsing to one match, like the reads rule in section 9. Env and keyring stay **two maps** (source-tagged, with the selected
+identical token collapsing to one match, like the reads rule in section 9.
+Env and keyring stay **two maps** (source-tagged, with the selected
 bearer's provenance threaded to the failure messages) with a two-stage
 lookup, making the precedence real: a CI `SYSAND_CRED_*` overrides an
 interactive login. The two-leg flow and trusted publishing are otherwise
