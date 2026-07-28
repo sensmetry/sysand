@@ -329,9 +329,11 @@ logout` removes) may fall back to the default index.
   (`url::Url::as_str()`) so IDN/percent-encoding agree on both sides. Two
   refinements: a templated root's anchor is the literal prefix cut back
   to its **last `/`**, and the root is skipped with a notice unless that
-  anchor still parses as `scheme://authority/` or deeper (a placeholder
-  in the host position, or a template with no `/` after the authority,
-  would otherwise degenerate the anchor toward `https://**`); and within
+  anchor still parses as `scheme://authority/` or deeper (template
+  parsing already rejects placeholders outside the path or query, so the
+  reachable degenerate case is a template with no `/` after the
+  authority, where the cut would land inside `https://`; the parse check
+  is defense-in-depth for the rest); and within
   one login's derived set (the login URL plus its resolved `index_root`
   and `api_root`, never other stored records), a newly derived root that
   **subsumes** an already-derived one replaces it, keeping the set
