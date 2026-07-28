@@ -237,12 +237,9 @@ fn redact_userinfo(raw: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-/// Test doubles shared by the core test modules (auth, commands::auth,
-/// keyring_store): an in-memory [`keyring_store::BlobBackend`] standing in
-/// for the single OS keyring entry, and a [`keyring_store::LockedBlobStore`]
-/// constructor over it. Test-only (`#[cfg(test)]`) so the doubles never
-/// reach the library's public API; several test modules share them, which
-/// is why they live here rather than in one test file.
+/// Test doubles shared by several core test modules (auth, commands::auth,
+/// keyring_store), which is why they live here rather than in one test
+/// file. Test-only so they never reach the library's public API.
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::path::PathBuf;

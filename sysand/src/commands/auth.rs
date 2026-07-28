@@ -35,9 +35,7 @@ const KEYRING_LOCKED_HINT: &str = "unlock your OS keyring and retry, or provide 
 /// set, else a `default = true` index from configuration, else the
 /// built-in [`DEFAULT_INDEX_URL`]. If the consulted stage yields more
 /// than one distinct URL, the target is ambiguous and an explicit URL is
-/// required. Read from the environment here rather than a per-subcommand
-/// `--default-index` flag: a flag would only duplicate the positional
-/// index argument.
+/// required.
 pub fn resolve_default_index(config: &Config) -> Result<String> {
     let env_override = std::env::var(crate::env_vars::SYSAND_DEFAULT_INDEX).ok();
     let env_candidates: Vec<&str> = env_override
@@ -117,8 +115,7 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
             read_status,
             basic_challenge,
         } => {
-            // The same read-404 hedge the refusal message carries: a 404
-            // can mean a rejected token, but also no `index.json` at all.
+            // Same read-404 hedge as the refusal message.
             let hedge = if read_status == Some(404) {
                 " (HTTP 404, which can also mean no index exists at this URL)"
             } else {
@@ -165,10 +162,9 @@ pub fn command_auth_login(
     let header = sysand_core::style::get_style_config().header;
     println!("{header}{:>12}{header:#} to index `{key}`", "Logging in");
 
-    // An `http` index sends the bearer token in cleartext, and a one-time
-    // MITM at login could rewrite discovery to a hostile `api_root` that
-    // then gets persisted (design/credential-storage.md section 8). Warn
-    // before the secret is entered so the user can abort.
+    // An `http` index sends the token in cleartext, and a MITM at login
+    // could persist a hostile `api_root` (design/credential-storage.md
+    // section 8). Warn before the secret is entered so the user can abort.
     if key.starts_with("http://") {
         log::warn!(
             "`{key}` uses an unencrypted (http) connection; the token will be \
@@ -189,9 +185,8 @@ pub fn command_auth_login(
             globs,
             validated,
         }) => {
-            // The claim is always scoped to the surfaces that accepted
-            // the credential; never a bare "validated"
-            // (design/credential-storage.md section 5).
+            // The claim is scoped to the surfaces that accepted; never a
+            // bare "validated" (design section 5).
             let claim = if validated.is_empty() {
                 "stored, not validated".to_string()
             } else {
@@ -201,10 +196,8 @@ pub fn command_auth_login(
                     .collect();
                 format!("validated ({})", surfaces.join(", "))
             };
-            // Both lines are the login result: keep them on one channel
-            // (the log) so `--quiet` suppresses the confirmation as a unit,
-            // the way `sysand publish` suppresses "Published", instead of
-            // leaving an orphan "Covers" line on stdout.
+            // Both lines are the login result: one channel (the log), so
+            // `--quiet` suppresses the confirmation as a unit.
             log::info!(
                 "{header}{:>12}{header:#} credential for `{key}` ({claim})",
                 "Stored"
@@ -213,10 +206,9 @@ pub fn command_auth_login(
             Ok(())
         }
         Ok(AuthLoginOutcome::BackendUnavailable { key, globs, reason }) => {
-            // No-keyring host (design/credential-storage.md section 9):
-            // refuse to persist, print the exact `SYSAND_CRED_*` lines to
-            // set instead. The secret is never echoed: stdout on such
-            // hosts typically lands in captured CI job logs.
+            // No-keyring host (design section 9): print the exact
+            // `SYSAND_CRED_*` lines to set instead. The secret is never
+            // echoed: stdout here typically lands in CI job logs.
             println!(
                 "No OS keyring backend is available ({reason}), so the credential \
                  was not stored."
@@ -254,12 +246,10 @@ pub fn command_auth_login(
     }
 }
 
-/// Remediation message for the platform credential-store cap on `auth login`
-/// (Windows ~2.5 KB). The core store reports only the condition; naming the
-/// `sysand auth` commands to fix it belongs here in the CLI. Points at
-/// `auth status`/`auth logout` and lists already-expired logins as the
-/// obvious drop candidates. With no stored credentials (a single oversized token)
-/// there is nothing to remove, so it does not suggest removing one.
+/// Remediation message for the platform credential-store cap on
+/// `auth login` (Windows ~2.5 KB). Naming the `sysand auth` commands
+/// belongs in the CLI, not core. Lists already-expired logins as drop
+/// candidates; with no stored credentials there is nothing to remove.
 fn blob_full_message(stored: &[(&str, Option<DateTime<Utc>>)], now: DateTime<Utc>) -> String {
     let expired: Vec<&str> = stored
         .iter()
@@ -313,12 +303,10 @@ fn read_token(key: &str, token_stdin: bool) -> Result<String> {
 }
 
 /// Derive the `SYSAND_CRED_<NAME>` stem suggested on a no-keyring host
-/// from the index host, plus the port when it is not the scheme default
-/// (for example `HOST_8443`): two indexes on different ports of one host
-/// must not suggest the same variable names, or the second guidance would
-/// silently overwrite the first credential. Hostnames and ports cannot
-/// produce the reserved `_BASIC_USER` / `_BASIC_PASS` / `_BEARER_TOKEN`
-/// suffixes (a port is all digits).
+/// from the index host plus any non-default port: two indexes on
+/// different ports of one host must not suggest the same variable names.
+/// Hostnames and ports cannot produce the reserved `_BASIC_USER` /
+/// `_BASIC_PASS` / `_BEARER_TOKEN` suffixes (a port is all digits).
 fn cred_env_var_stem(key: &str) -> String {
     let url = url::Url::parse(key).ok();
     let host = url
@@ -376,12 +364,9 @@ pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result
         Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
             Err(err).context(KEYRING_LOCKED_HINT)
         }
-        // Logging out of an index with nothing stored is idempotent: a
-        // warning and exit 0, so cleanup scripts need not swallow a
-        // failure. The core error states the condition; the CLI points at
-        // `auth status`, which lists every stored login under its exact
-        // key (a logout target must match the key exactly, so a typo is
-        // best fixed by copying the key from that list).
+        // Idempotent: a warning and exit 0, so cleanup scripts need not
+        // swallow a failure. The CLI adds the `auth status` pointer (a
+        // logout target must match the stored key exactly).
         Err(err @ AuthCommandError::NoStoredCredential { .. }) => {
             log::warn!(
                 "{err}; run `sysand auth status` to list the stored logins and their exact keys"
@@ -393,11 +378,9 @@ pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result
 }
 
 pub fn command_auth_status(config: &Config) -> Result<()> {
-    // Resolve the default index only to mark the entries that apply to
-    // it. Status is a diagnostic view, so resolution is lenient: an
+    // Status is diagnostic, so default-index resolution is lenient: an
     // ambiguous chain gets a note instead of the hard error bare
-    // `login`/`logout` raise, and a default that is not a valid HTTP(S)
-    // index key (for example `file://`) simply marks nothing.
+    // `login`/`logout` raise, and an invalid default simply marks nothing.
     let default_key = match resolve_default_index(config) {
         Ok(url) => validated_index_key(&url).ok(),
         // `resolve_default_index` errors only on an ambiguous chain
@@ -420,9 +403,8 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
             }
             Err(err) => return Err(err.into()),
         },
-        // Could not even open the store (no per-user lock path): degrade
-        // to the env-only view like an absent backend. Assembly still
-        // runs so env entries keep their default-index marking.
+        // Could not open the store: degrade to the env-only view like an
+        // absent backend, keeping the env entries' default-index marking.
         Err(err) => {
             let mut status =
                 assemble_auth_status(Vec::new(), env, chrono::Utc::now(), default_key.as_deref());
@@ -437,12 +419,10 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
 }
 
 /// Collect `SYSAND_CRED_*` URL-pattern variables as status entries.
-///
 /// Deliberately tolerant, unlike the eager auth-policy build: `auth
-/// status` is the command for diagnosing credential configuration, so an
-/// incomplete group (a pattern without a scheme variable) is still listed
-/// rather than rejected. Only pattern variables are shown; the `_BASIC_USER`
-/// / `_BASIC_PASS` / `_BEARER_TOKEN` companions hold secrets.
+/// status` diagnoses credential configuration, so an incomplete group is
+/// listed rather than rejected. Only pattern variables are shown; the
+/// companion variables hold secrets.
 fn collect_env_credential_entries() -> Vec<EnvCredentialEntry> {
     let mut entries: Vec<EnvCredentialEntry> = std::env::vars()
         .filter(|(key, _)| {
@@ -514,19 +494,13 @@ fn validation_claim(validated: &[String]) -> String {
 
 /// Render the unified status view: stored entries tagged `Stored` (key in
 /// the exact form `sysand auth logout <key>` accepts) and env entries
-/// tagged `Env`. Never any secret.
-///
-/// A few non-obvious rules the code below relies on: entry sublines keep a
-/// `label: value` form (unlike `auth whoami`, which puts each label in the
-/// gutter); stored entries are separated by a blank line and carry their
-/// validation claim, plus a dim `(default index)` marker when they apply to
-/// the default index, on the header line. A source with nothing to show is
-/// omitted, and a single combined negative prints only when neither source
-/// has anything; the backend-unavailable note always prints.
+/// tagged `Env`. Never any secret. A source with nothing to show is
+/// omitted; the combined negative prints only when neither source has
+/// anything; the backend-unavailable note always prints.
 ///
 /// Styling goes through `anstream::println`, which strips it on
-/// non-terminal stdout and under `NO_COLOR`, so piped output is exactly the
-/// plain text the CLI tests assert on (the alignment spaces are content).
+/// non-terminal stdout and under `NO_COLOR`, so piped output is exactly
+/// the plain text the CLI tests assert on.
 fn render_auth_status(status: &AuthStatus) {
     let style = sysand_core::style::get_style_config();
     let tag = style.header;
@@ -605,12 +579,10 @@ fn render_auth_status(status: &AuthStatus) {
     }
 }
 
-/// Build the read auth policy for `auth whoami`'s discovery fetch (and its
-/// env bearer map), tolerantly: unlike the eager policy build in
-/// `run_cli`, a malformed `SYSAND_CRED_*` group (an incomplete pair, an
-/// invalid glob pattern) is skipped with a debug log instead of failing
-/// the command, because the `auth` commands must stay usable to diagnose
-/// exactly those (same stance as `auth status`).
+/// Build the read auth policy for `auth whoami`'s discovery fetch (and
+/// its env bearer map), tolerantly: unlike the eager build in `run_cli`,
+/// a malformed `SYSAND_CRED_*` group is skipped with a debug log, because
+/// the `auth` commands must stay usable to diagnose exactly those.
 fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
     let groups = crate::cred_env::collect_env_groups();
 
@@ -666,27 +638,22 @@ pub fn command_auth_whoami(
         .context("could not compile `SYSAND_CRED_*` URL patterns")?;
     // One store read serves both the discovery fetch and credential
     // selection ("at most one keychain touch per command",
-    // design/credential-storage.md section 9): the records read here are
-    // passed to `do_auth_whoami` for selection, and a preloaded snapshot
-    // of the same records backs the discovery policy (a private index may
-    // gate its discovery document, so unlike login the fetch runs with
-    // the regular read policy). On a locked keyring this is the single
-    // unlock prompt.
+    // design/credential-storage.md section 9); on a locked keyring this
+    // is the single unlock prompt.
     let store = open_cli_credential_store().context("could not open the credential store")?;
     let records = match store.list() {
         Ok(records) => records,
-        // No keyring backend: only env credentials can apply. A locked or
-        // denied backend is a hard error instead: "no credential, run
-        // login" would be the wrong remediation for an unlockable store.
+        // No keyring backend: only env credentials can apply. A locked
+        // backend is a hard error instead: "no credential, run login"
+        // would be the wrong remediation for an unlockable store.
         Err(CredentialStoreError::BackendAbsent { .. }) => Vec::new(),
         Err(err @ CredentialStoreError::BackendDenied { .. }) => {
             return Err(err).context(KEYRING_LOCKED_HINT);
         }
         Err(err) => return Err(err.into()),
     };
-    // The policy is preloaded with the records read above, so whoami
-    // performs exactly one store backend read (on a locked keyring, the
-    // single unlock prompt) and its discovery policy never writes.
+    // Preloaded with the records read above: the discovery policy shares
+    // that single read and never touches the store itself.
     let discovery_policy = CliAuthPolicy::preloaded(env_policy, &records);
 
     let outcome = match do_auth_whoami(
@@ -698,10 +665,8 @@ pub fn command_auth_whoami(
         runtime,
     ) {
         Ok(outcome) => outcome,
-        // The core error states the condition without naming a CLI
-        // command; the CLI leads with the `sysand auth login` remediation
-        // (using the index from the error) and names the `SYSAND_CRED_*`
-        // variables second, as the non-interactive path for CI.
+        // Core states the condition; the CLI adds the `auth login`
+        // remediation, with `SYSAND_CRED_*` second as the CI path.
         Err(err @ AuthCommandError::NoWhoamiCredential { .. }) => {
             let AuthCommandError::NoWhoamiCredential { index, .. } = &err else {
                 unreachable!()
@@ -714,9 +679,8 @@ pub fn command_auth_whoami(
         Err(err) => return Err(err.into()),
     };
 
-    // Name the source: an env credential shadows a stored credential, so the
-    // right remediation for a bad credential depends on where it came
-    // from (design/credential-storage.md section 7).
+    // Name the source: env shadows stored, so the right remediation
+    // depends on where the credential came from (design section 7).
     match &outcome.source {
         WhoamiCredentialSource::Env { label: Some(label) } => {
             println!(
@@ -786,11 +750,9 @@ pub fn command_auth_whoami(
                 outcome.whoami_url
             );
         }
-        // "Unreachable" here covers both genuine transport failures and a
-        // server that answered without a usable identity (a redirect, a
-        // 429, an unexpected status like 403). "could not get an identity"
-        // reads correctly for all of them, unlike "could not reach", which
-        // contradicts a 403 the API actually returned.
+        // Covers transport failures and answers without a usable identity
+        // (redirect, 429, unexpected status): "could not get an identity"
+        // reads correctly for all of them, unlike "could not reach".
         WhoamiVerdict::Unreachable { detail } => bail!(
             "could not get an identity from the index API (`{}`): {detail}",
             outcome.whoami_url

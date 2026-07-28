@@ -233,10 +233,8 @@ pub fn do_publish(
     }
 
     let header = crate::style::get_style_config().header;
-    // Caller is expected to have run discovery and passed the resolved
-    // `api_root`. `discovery_root` is the user-facing URL (what was
-    // passed as `--index`) and is kept only so log messages match what
-    // the user configured — the actual upload targets `api_root`.
+    // `discovery_root` is the user-facing `--index` URL, kept only for
+    // log messages; the actual upload targets the resolved `api_root`.
     let upload_url = build_upload_url(&api_root);
     let PublishPreparation {
         norm_publisher: publisher,
@@ -296,13 +294,10 @@ pub fn do_publish(
     map_publish_response(status, &body_bytes, &bearer.provenance)
 }
 
-/// Whether a stored credential's known expiry is clearly past: beyond a generous
-/// clock-skew margin, so a skewed client clock (real skew is often minutes,
-/// not seconds) cannot false-trip the pre-upload stop and refuse a token the
-/// server would still accept. The stop is only an optimization to avoid
-/// uploading with a known-dead token; the server's 401 is the real authority,
-/// so the margin errs toward attempting. A clock wrong by more than an hour
-/// has larger problems and a request would likely fail regardless
+/// Whether a stored credential's known expiry is clearly past: beyond a
+/// generous clock-skew margin, so a skewed client clock cannot false-trip
+/// the pre-upload stop. The stop is only an optimization; the server's 401
+/// is the real authority, so the margin errs toward attempting
 /// (design/credential-storage.md section 7).
 fn stored_bearer_clearly_expired(expires_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     now.signed_duration_since(expires_at) > TimeDelta::hours(1)
@@ -343,12 +338,10 @@ pub fn validate_api_root_url_shape(url: &Url) -> Result<(), PublishError> {
 }
 
 /// Build the `POST` URL for the publish endpoint from a resolved
-/// `api_root`. Precondition: `api_root` has already been checked with
-/// [`validate_api_root_url_shape`] (done once per publish) and normalized
-/// to end with `/` — both hold for a resolved API root from discovery — so
-/// it is an HTTP(S) base and the endpoint path appends rather than replaces
-/// its last segment. Does not prepend any `/api/` segment; that belongs to
-/// the API root itself.
+/// `api_root`. Precondition: `api_root` was checked with
+/// [`validate_api_root_url_shape`] and ends with `/`, so the endpoint
+/// path appends rather than replaces its last segment. Never prepends an
+/// `/api/` segment; that belongs to the API root itself.
 pub fn build_upload_url(api_root: &Url) -> Url {
     api_root.join(UPLOAD_ENDPOINT_PATH).unwrap()
 }
@@ -427,12 +420,11 @@ impl PublishBearerSource {
 /// mode, publish requires trusted publishing and ignores configured bearer
 /// credentials. In `never` mode, publish uses configured bearer credentials.
 ///
-/// Configured credentials come from two sources in precedence order: the
-/// eager `env_bearers` map (`SYSAND_CRED_*`) and `stored_bearers`, a lazy
-/// provider for stored credentials that is invoked only when no env bearer
-/// matches the upload URL, so a publish resolved from env (or via trusted
-/// publishing) never touches the credential store
-/// (design/credential-storage.md, section 7).
+/// Configured credentials come from two sources in precedence order:
+/// `env_bearers` (`SYSAND_CRED_*`), then the lazy `stored_bearers`
+/// provider, invoked only when no env bearer matches the upload URL, so a
+/// publish resolved from env (or trusted publishing) never touches the
+/// credential store (design/credential-storage.md section 7).
 pub fn resolve_publish_bearer(
     env_bearers: &GlobMap<EnvBearerAuth>,
     stored_bearers: impl FnOnce() -> GlobMap<StoredBearerAuth>,
@@ -1442,14 +1434,11 @@ fn publish_auth_error(
     }
 }
 
-/// The source-named upload auth-failure message (design section 7):
-/// because env credentials shadow stored credentials, replacing the stored
-/// credential alone would be the wrong fix for a stale `SYSAND_CRED_*`
-/// bearer, so the message states where the selected bearer came from. A 403
-/// is authorization, not authentication, so it adds that a wrong-project or
-/// wrong-account token cannot publish. The message states the situation
-/// only; the remediation commands (`sysand auth login` / `status`) are the
-/// frontend's to add, so no CLI command name appears here.
+/// The source-named upload auth-failure message (design section 7): env
+/// credentials shadow stored ones, so re-authenticating would be the
+/// wrong fix for a stale `SYSAND_CRED_*` bearer and the message must name
+/// where the selected bearer came from. States the situation only; the
+/// remediation commands are the frontend's to add.
 fn publish_auth_failed_message(
     status: u16,
     detail: &str,
