@@ -359,6 +359,9 @@ pub(crate) enum BearerSelection<'a, T> {
     /// the distinct-token entries in map order (what try-all consumers
     /// walk); it always holds at least two entries.
     Ambiguous {
+        // Read only by whoami and publish; without `filesystem` those
+        // consumers are compiled out and only `deduped` is used.
+        #[cfg_attr(not(feature = "filesystem"), allow(dead_code))]
         candidates: usize,
         deduped: Vec<&'a T>,
     },
