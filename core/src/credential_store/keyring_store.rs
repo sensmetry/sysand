@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 //! The credential store: [`LockedBlobStore`], a persistent store of
-//! credential records over a [`BlobBackend`] (design/credential-storage.md
-//! §9).
+//! credential records over a [`BlobBackend`]; the storage design is in
+//! design/credential-storage.md.
 //!
 //! All persisted credentials live in one backend entry holding the
 //! versioned JSON blob from the parent module. Read-modify-write is
@@ -135,8 +135,7 @@ impl BlobBackend for OsKeyringBackend {
 /// On musl targets the `keyring` crate is not built at all (excluded by
 /// policy in Cargo.toml: musl builds are containers/CI where the env-var
 /// credential path is the norm). The backend reports "absent", so every
-/// caller takes the documented `SYSAND_CRED_*` fallback path
-/// (design/credential-storage.md section 9 taxonomy).
+/// caller takes the documented `SYSAND_CRED_*` fallback path.
 #[cfg(all(feature = "keyring", target_os = "linux", target_env = "musl"))]
 impl BlobBackend for OsKeyringBackend {
     fn read(&self) -> Result<Option<String>, CredentialStoreError> {

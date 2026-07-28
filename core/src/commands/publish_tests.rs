@@ -162,7 +162,7 @@ fn resolve_publish_bearer_never_rejects_ambiguous_bearer() {
 #[test]
 fn publish_bearer_env_match_wins_without_reading_stored_credentials() {
     // With an env match the stored-credential provider must not run at
-    // all (never read the keyring when env already works, section 7).
+    // all (never read the keyring when env already works).
     let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
     let env = env_sources(&[("https://example.org/api/**", "env-token")]);
 
@@ -229,9 +229,8 @@ fn publish_bearer_keyring_identical_token_candidates_collapse() {
 
 #[test]
 fn publish_bearer_env_ambiguity_errors_without_keyring_fallback() {
-    // An ambiguous env match must error, not fall back to a unique keyring
-    // match (design/credential-storage.md, section 8), and must not read
-    // the stored credentials at all.
+    // An ambiguous env match must error, not fall back to a unique
+    // keyring match, and must not read the stored credentials at all.
     let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
     let env = env_sources(&[
         ("https://example.org/**", "broad-env-token"),
@@ -787,8 +786,7 @@ fn map_publish_response_201_is_ok_new_project() {
     assert_eq!(resp.status, 201);
 }
 
-// --- source-named auth failures and the pre-upload expiry stop
-//     (design/credential-storage.md section 7) ---
+// --- source-named auth failures and the pre-upload expiry stop ---
 
 fn preparation() -> PublishPreparation {
     PublishPreparation {

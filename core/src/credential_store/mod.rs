@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! Persistent credential storage (design/credential-storage.md §9, §14).
+//! Persistent credential storage; the full design is in
+//! design/credential-storage.md.
 //!
 //! This module holds the unconditional pieces: the record types, the
 //! versioned JSON blob codec, and the index-URL key normalization helper.
@@ -74,8 +75,7 @@ pub enum CredentialScheme {
 }
 
 /// Identity of the principal a credential authenticates as, learned from
-/// `v1/whoami` by a validating login (design/credential-storage.md
-/// sections 5, 6).
+/// `v1/whoami` by a validating login.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CredentialSubject {
     /// The principal type: `user`, `project`, or `oidc`. Kept as a plain
@@ -173,12 +173,11 @@ pub fn serialize_blob(blob: &CredentialBlob) -> Result<String, CredentialStoreEr
 }
 
 /// Normalize an index URL for use as a credential record key, so different
-/// spellings of the same index do not create duplicate entries
-/// (design/credential-storage.md §4).
+/// spellings of the same index do not create duplicate entries.
 ///
-/// Uses the `url` crate deliberately (not `iri_normalize`): §8 requires
-/// glob derivation and runtime matching to share `url::Url::as_str()` as
-/// their serialization, and the key must agree with the derived globs.
+/// Uses the `url` crate deliberately (not `iri_normalize`): glob
+/// derivation and runtime matching share `url::Url::as_str()` as their
+/// serialization, and the key must agree with the derived globs.
 ///
 /// Normalization: `Url` parsing (lowercased host, punycoded IDN, default
 /// port stripped), the scheme restricted to http(s), the path given a

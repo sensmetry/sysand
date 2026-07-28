@@ -377,7 +377,7 @@ mod login {
         }
     }
 
-    /// The section 8 coverage guarantee: the discovery-document URL, the
+    /// The coverage guarantee: the discovery-document URL, the
     /// `index.json` URL, and the upload URL each match the derived set.
     fn assert_surface_coverage(
         globs: &[String],
@@ -644,8 +644,8 @@ mod login {
         }
     }
 
-    // Template targets (design/credential-storage.md section 4: templated
-    // login targets are supported, anchored per section 8).
+    // Template targets: templated login targets are supported, anchored
+    // on their literal URL prefix.
 
     /// The motivating GitLab-shaped target: the key is the template text
     /// itself (already canonical), with the anchor normalizing only the
@@ -866,7 +866,7 @@ mod login {
         assert_eq!(store.list().unwrap()[0].secret, "tok");
     }
 
-    // Validation probes (design/credential-storage.md section 5).
+    // Validation probes.
     //
     // All tests follow the existing pattern: a sync `mockito::Server`
     // created before any `runtime.block_on` (never `#[tokio::test]`, which
@@ -1421,8 +1421,8 @@ mod login {
         assert_eq!(record.expires_at, None);
     }
 
-    // 429 carve-out (design/credential-storage.md section 5): a 429 is
-    // never a verdict, so rate limiting can never refuse a credential.
+    // The 429 carve-out: a 429 is never a verdict, so rate limiting can
+    // never refuse a credential.
 
     #[test]
     fn validated_login_treats_a_rate_limited_baseline_as_not_tested() {
@@ -1568,8 +1568,8 @@ mod login {
         assert!(store.list().unwrap().is_empty());
     }
 
-    // Authenticated discovery (design/credential-storage.md section 5):
-    // the login discovery fetch is an unauth baseline retried once with a
+    // Authenticated discovery: the login discovery fetch is an
+    // unauthenticated baseline retried once with a
     // forced bearer on any 4xx except 429 (scoping is knowing the
     // topology, not validating the credential, so its outcome never
     // refuses a login).

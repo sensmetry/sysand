@@ -216,8 +216,8 @@ pub fn do_publish(
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<PublishResponse, PublishError> {
-    // Fail fast on a clearly expired stored credential before uploading the
-    // archive (design/credential-storage.md section 7). The server's 401
+    // Fail fast on a clearly expired stored credential before uploading
+    // the archive. The server's 401
     // remains the authority: only an expiry past the skew margin stops
     // here, and an env credential (no known expiry) always proceeds.
     if let PublishBearerProvenance::Stored {
@@ -297,8 +297,7 @@ pub fn do_publish(
 /// Whether a stored credential's known expiry is clearly past: beyond a
 /// generous clock-skew margin, so a skewed client clock cannot false-trip
 /// the pre-upload stop. The stop is only an optimization; the server's 401
-/// is the real authority, so the margin errs toward attempting
-/// (design/credential-storage.md section 7).
+/// is the real authority, so the margin errs toward attempting.
 fn stored_bearer_clearly_expired(expires_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     now.signed_duration_since(expires_at) > TimeDelta::hours(1)
 }
@@ -348,8 +347,7 @@ pub fn build_upload_url(api_root: &Url) -> Url {
 
 /// Where a configured publish bearer credential came from. Selection tries
 /// sources in precedence order (env before keyring), and ambiguity errors
-/// name the source so the remediation can be accurate
-/// (see design/credential-storage.md, sections 7 and 8).
+/// name the source so the remediation can be accurate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PublishBearerSource {
     /// `SYSAND_CRED_*` environment variables.
@@ -360,8 +358,7 @@ pub enum PublishBearerSource {
 }
 
 /// The bearer credential publish selected for the upload, with the
-/// provenance an auth failure must name (design/credential-storage.md
-/// section 7).
+/// provenance an auth failure must name.
 #[derive(Clone)]
 pub struct SelectedPublishBearer {
     pub auth: ForceBearerAuth,
@@ -424,7 +421,7 @@ impl PublishBearerSource {
 /// `env_bearers` (`SYSAND_CRED_*`), then the lazy `stored_bearers`
 /// provider, invoked only when no env bearer matches the upload URL, so a
 /// publish resolved from env (or trusted publishing) never touches the
-/// credential store (design/credential-storage.md section 7).
+/// credential store.
 pub fn resolve_publish_bearer(
     env_bearers: &GlobMap<EnvBearerAuth>,
     stored_bearers: impl FnOnce() -> GlobMap<StoredBearerAuth>,
@@ -1416,7 +1413,7 @@ fn map_publish_response(
 }
 
 /// Build the error for a 401/403 upload response. Configured credentials
-/// get the source-named message (design/credential-storage.md section 7);
+/// get the source-named message;
 /// a trusted-publishing token has no user-fixable source, so it keeps the
 /// generic wording.
 fn publish_auth_error(
@@ -1434,7 +1431,7 @@ fn publish_auth_error(
     }
 }
 
-/// The source-named upload auth-failure message (design section 7): env
+/// The source-named upload auth-failure message: env
 /// credentials shadow stored ones, so re-authenticating would be the
 /// wrong fix for a stale `SYSAND_CRED_*` bearer and the message must name
 /// where the selected bearer came from. States the situation only; the

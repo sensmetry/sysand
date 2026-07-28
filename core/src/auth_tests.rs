@@ -721,7 +721,7 @@ fn debug_never_renders_secrets() {
     assert!(!rendered.contains("stored-secret"), "rendered: {rendered}");
 }
 
-// Reactive expiry hint (design/credential-storage.md section 9).
+// The reactive expiry hint.
 
 use chrono::{Duration, Utc};
 

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! CLI wrappers for the `sysand auth` commands (design/credential-storage.md
-//! sections 4, 9): default-index resolution, the OS keyring store handoff
-//! to core, and user-facing rendering. Secrets never appear in any output.
+//! CLI wrappers for the `sysand auth` commands: default-index
+//! resolution, the OS keyring store handoff to core, and user-facing
+//! rendering. Secrets never appear in any output.
 
 use std::io::{IsTerminal, Read};
 use std::sync::Arc;
@@ -30,8 +30,8 @@ const KEYRING_LOCKED_HINT: &str = "unlock your OS keyring and retry, or provide 
      `SYSAND_CRED_*` environment variables";
 
 /// Resolve the single index a bare `sysand auth login` / `auth logout`
-/// targets (design/credential-storage.md section 4): the
-/// `SYSAND_DEFAULT_INDEX` environment override (comma-delimited) when
+/// targets: the `SYSAND_DEFAULT_INDEX` environment override
+/// (comma-delimited) when
 /// set, else a `default = true` index from configuration, else the
 /// built-in [`DEFAULT_INDEX_URL`]. If the consulted stage yields more
 /// than one distinct URL, the target is ambiguous and an explicit URL is
@@ -157,14 +157,14 @@ pub fn command_auth_login(
     let key = validated_index_key(&target)?;
     // Echo the resolved index before reading the secret, on both the
     // prompt and the stdin path, so a project-configured default cannot
-    // be targeted silently (design/credential-storage.md section 4).
+    // be targeted silently.
     // Printed, not logged: `--quiet` must not hide it.
     let header = sysand_core::style::get_style_config().header;
     println!("{header}{:>12}{header:#} to index `{key}`", "Logging in");
 
     // An `http` index sends the token in cleartext, and a MITM at login
-    // could persist a hostile `api_root` (design/credential-storage.md
-    // section 8). Warn before the secret is entered so the user can abort.
+    // could persist a hostile `api_root`. Warn before the secret is
+    // entered so the user can abort.
     if key.starts_with("http://") {
         log::warn!(
             "`{key}` uses an unencrypted (http) connection; the token will be \
@@ -186,7 +186,7 @@ pub fn command_auth_login(
             validated,
         }) => {
             // The claim is scoped to the surfaces that accepted; never a
-            // bare "validated" (design section 5).
+            // bare "validated".
             let claim = if validated.is_empty() {
                 "stored, not validated".to_string()
             } else {
@@ -206,7 +206,7 @@ pub fn command_auth_login(
             Ok(())
         }
         Ok(AuthLoginOutcome::BackendUnavailable { key, globs, reason }) => {
-            // No-keyring host (design section 9): print the exact
+            // No-keyring host: print the exact
             // `SYSAND_CRED_*` lines to set instead. The secret is never
             // echoed: stdout here typically lands in CI job logs.
             println!(
@@ -637,9 +637,8 @@ pub fn command_auth_whoami(
         .publish_bearer_auth_map()
         .context("could not compile `SYSAND_CRED_*` URL patterns")?;
     // One store read serves both the discovery fetch and credential
-    // selection ("at most one keychain touch per command",
-    // design/credential-storage.md section 9); on a locked keyring this
-    // is the single unlock prompt.
+    // selection (at most one keychain touch per command); on a locked
+    // keyring this is the single unlock prompt.
     let store = open_cli_credential_store().context("could not open the credential store")?;
     let records = match store.list() {
         Ok(records) => records,
@@ -680,7 +679,7 @@ pub fn command_auth_whoami(
     };
 
     // Name the source: env shadows stored, so the right remediation
-    // depends on where the credential came from (design section 7).
+    // depends on where the credential came from.
     match &outcome.source {
         WhoamiCredentialSource::Env { label: Some(label) } => {
             println!(

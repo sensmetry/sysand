@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! `sysand auth` command orchestration (design/credential-storage.md
-//! sections 4, 8, 9, 14): `do_auth_login`, `do_auth_logout`,
+//! `sysand auth` command orchestration (the full design is in
+//! design/credential-storage.md): `do_auth_login`, `do_auth_logout`,
 //! `do_auth_status`, and `do_auth_whoami`, over the credential store
 //! ([`LockedBlobStore`], generic over its [`BlobBackend`]).
 //!
@@ -54,7 +54,7 @@ pub enum AuthCommandError {
     InvalidIndexUrl(String),
     /// The target is a URL template with no literal prefix at a safe URL
     /// boundary (at least `scheme://authority/`), so no credential scope
-    /// glob can be derived (the section 8 clamp).
+    /// glob can be derived.
     #[error(
         "`{url}`: this URL template has no literal prefix at a safe URL boundary\n\
          (at least `scheme://authority/`) to scope a credential to;\n\
@@ -62,7 +62,7 @@ pub enum AuthCommandError {
     )]
     TemplateWithoutAnchor { url: String },
     /// Every exercised surface rejected the credential and none accepted
-    /// it, so nothing was stored (section 5 refusal rule).
+    /// it, so nothing was stored.
     #[error("{}", validation_rejected_message(.index, .rejected, *.read_status, *.basic_challenge))]
     ValidationRejected {
         /// The normalized index key the login targeted.
@@ -76,7 +76,7 @@ pub enum AuthCommandError {
         /// Whether the read surface answered with a `WWW-Authenticate:
         /// Basic` challenge: the index wants username/password, not a
         /// bearer token, and the message routes the user to
-        /// `SYSAND_CRED_*` basic credentials (section 5).
+        /// `SYSAND_CRED_*` basic credentials.
         basic_challenge: bool,
     },
     /// `whoami` could not read the index configuration, so the API root
@@ -188,8 +188,8 @@ pub struct EnvCredentialEntry {
     pub applies_to_default: bool,
 }
 
-/// A credential-probing surface of an index (design/credential-storage.md
-/// section 5): the read surface (`index_root/index.json`) or the API
+/// A credential-probing surface of an index: the read surface
+/// (`index_root/index.json`) or the API
 /// surface (`api_root/v1/whoami`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProbeSurface {
@@ -363,7 +363,7 @@ pub enum AuthLoginNotice {
         error: String,
     },
     /// A validation probe was answered with HTTP 429. A 429 is never a
-    /// verdict (section 5): the surface counts as not tested, so rate
+    /// verdict: the surface counts as not tested, so rate
     /// limiting can never refuse a credential.
     ProbeRateLimited { surface: ProbeSurface },
     /// A surface rejected the credential but another accepted it, so it
@@ -382,8 +382,7 @@ pub enum AuthLoginNotice {
 ///
 /// An absent keyring backend is an outcome rather than an error because
 /// the host still needs the derived globs: the CLI prints the exact
-/// `SYSAND_CRED_*` lines to set instead (design/credential-storage.md
-/// section 9).
+/// `SYSAND_CRED_*` lines to set instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthLoginOutcome {
     /// The credential was persisted.
@@ -393,7 +392,7 @@ pub enum AuthLoginOutcome {
         /// The surfaces that exercised and accepted the credential, in
         /// probe order. Empty means "stored, not validated". Hosts must
         /// scope the claim to these surfaces and never print a bare
-        /// "validated" (section 5).
+        /// "validated".
         validated: Vec<ProbeSurface>,
     },
     /// No usable OS keyring backend on this host; nothing was persisted
@@ -405,8 +404,7 @@ pub enum AuthLoginOutcome {
     },
 }
 
-/// Derive the escaped URL glob patterns a login covers
-/// (design/credential-storage.md section 8).
+/// Derive the escaped URL glob patterns a login covers.
 ///
 /// The primary glob anchors on `primary_root`
 /// (`globset::escape(<root ending in />)` + `**`); the resolved
@@ -541,8 +539,8 @@ fn parse_whoami_identity(
     }
 }
 
-/// What the validation probes concluded (design/credential-storage.md
-/// section 5). A surface appears in `accepted` or `rejected` only when it
+/// What the validation probes concluded. A surface appears in
+/// `accepted` or `rejected` only when it
 /// actually exercised the credential; surfaces that were public,
 /// redirected, or unreachable appear in neither (they were reported as
 /// notices instead).
@@ -670,7 +668,7 @@ fn probe_read_surface(
     }
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         // Never force-retry a rate-limited surface (429 is never a
-        // verdict, section 5).
+        // verdict).
         notify(AuthLoginNotice::ProbeRateLimited { surface });
         return;
     }
@@ -696,7 +694,7 @@ fn probe_read_surface(
             target: redirect_target(&forced),
         });
     } else if forced_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        // 429 is never a verdict (section 5): counting it as rejected
+        // 429 is never a verdict: counting it as rejected
         // would let throttling false-refuse a valid token.
         notify(AuthLoginNotice::ProbeRateLimited { surface });
     } else if forced_status.is_success() {
@@ -758,7 +756,7 @@ fn probe_api_surface(
     } else if status == reqwest::StatusCode::UNAUTHORIZED {
         outcome.rejected.push(surface);
     } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        // 429 is never a verdict (section 5); the protocol explicitly
+        // 429 is never a verdict; the protocol explicitly
         // allows rate limiting on `v1/whoami`.
         notify(AuthLoginNotice::ProbeRateLimited { surface });
     } else {
@@ -769,9 +767,8 @@ fn probe_api_surface(
     }
 }
 
-/// Fetch discovery for a login (design/credential-storage.md sections 5,
-/// 8): an unauthenticated baseline, then one forced-bearer retry on any
-/// 4xx except 429. The forced retry distinguishes a hidden discovery
+/// Fetch discovery for a login: an unauthenticated baseline, then one
+/// forced-bearer retry on any 4xx except 429. The forced retry distinguishes a hidden discovery
 /// document from an absent one: a fully private index answers 401 (or
 /// GitLab-style 404) unauthenticated either way, and only the
 /// credentialed answer settles it.
@@ -878,7 +875,7 @@ fn forced_discovery_fetch(
     }
 }
 
-/// Run the validation probes (design/credential-storage.md section 5).
+/// Run the validation probes.
 /// When discovery was unreachable the read surface falls back to the
 /// URL-derived `index.json`; the API surface is probed only when
 /// discovery advertised `api_root`, so a static index is not
@@ -953,14 +950,13 @@ fn guidance_globs(
     derive_credential_globs(primary_root, endpoints.as_ref(), notify)
 }
 
-/// Store a bearer credential for `index_url` (design/credential-storage.md
-/// sections 4, 5, 8, 9). The secret arrives as a parameter: a library
-/// call never prompts.
+/// Store a bearer credential for `index_url`. The secret arrives as a
+/// parameter: a library call never prompts.
 ///
 /// Discovery is fetched best-effort for glob scoping
 /// ([`fetch_login_endpoints`]); with no usable document the credential
 /// falls back to the URL-derived glob. Validation always runs, between
-/// glob derivation and the store write, with the section 5 refusal rule:
+/// glob derivation and the store write, with the refusal rule:
 /// stored if any exercised surface accepted, refused
 /// ([`AuthCommandError::ValidationRejected`]) when surfaces only
 /// rejected, stored "not validated" when nothing exercised the credential
@@ -1105,8 +1101,8 @@ pub fn do_auth_logout<B: BlobBackend>(
 }
 
 /// Where the credential `auth whoami` selected came from. Selection
-/// mirrors publish's source precedence (design/credential-storage.md
-/// section 7): environment credentials before stored credentials.
+/// mirrors publish's source precedence: environment credentials before
+/// stored credentials.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WhoamiCredentialSource {
     /// A `SYSAND_CRED_*` environment bearer; `label` is the
@@ -1143,7 +1139,7 @@ pub struct AuthWhoamiOutcome {
 }
 
 /// Select the credential `auth whoami` sends, mirroring the runtime and
-/// publish precedence (design/credential-storage.md sections 7, 9): env
+/// publish precedence: env
 /// over stored, and within a source exactly one credential may match
 /// (same-token candidates collapse, [`select_bearer`]). The stored map is
 /// built by the same [`stored_bearer_map_from_records`] the runtime uses,
@@ -1195,8 +1191,8 @@ fn select_whoami_credential(
     }
 }
 
-/// Query-only live identity check (design/credential-storage.md section
-/// 4): resolve the index API, select the credential the runtime would use
+/// Query-only live identity check: resolve the index API, select the
+/// credential the runtime would use
 /// ([`select_whoami_credential`]), and send one forced-bearer GET to
 /// `api_root/v1/whoami` with the no-redirect probe client. Never prompts,
 /// never prints, never touches a credential store: taking a `records`
@@ -1377,8 +1373,7 @@ pub fn assemble_auth_status(
 ///
 /// An absent keyring backend degrades to the env-only view
 /// ([`StoredCredentialsStatus::BackendUnavailable`]); a present but locked
-/// or denied backend is a hard error the caller must surface
-/// (design/credential-storage.md section 9 taxonomy).
+/// or denied backend is a hard error the caller must surface.
 pub fn do_auth_status<B: BlobBackend>(
     store: &LockedBlobStore<B>,
     env: Vec<EnvCredentialEntry>,

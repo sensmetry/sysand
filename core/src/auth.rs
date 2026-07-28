@@ -345,8 +345,7 @@ impl<T> GlobMap<T> {
 
 /// What credential selection found in one source's bearer map for a URL.
 /// Shared by the runtime read retry, whoami, and publish so the collapse
-/// and ambiguity semantics are written once
-/// (design/credential-storage.md section 8).
+/// and ambiguity semantics are written once.
 #[derive(Debug)]
 pub(crate) enum BearerSelection<'a, T> {
     /// No matching pattern: the caller falls through to its next source.
@@ -370,7 +369,7 @@ pub(crate) enum BearerSelection<'a, T> {
 /// Several matching patterns are a real ambiguity only between *distinct*
 /// tokens (`token` extracts them to compare). Handling stays with the
 /// caller: publish and whoami refuse ambiguity, the runtime read path
-/// tries each candidate (design/credential-storage.md section 8).
+/// tries each candidate.
 pub(crate) fn select_bearer<'a, T>(
     map: &'a GlobMap<T>,
     url: &str,
@@ -490,8 +489,7 @@ pub enum StandardInnerAuthentication {
         auth: ForceBearerAuth,
         /// The `SYSAND_CRED_<LABEL>` stem this bearer came from, when it
         /// was built from environment variables. Display-only: publish
-        /// auth failures name the variable to fix
-        /// (design/credential-storage.md section 7).
+        /// auth failures name the variable to fix.
         env_label: Option<Box<str>>,
     },
 }
@@ -536,8 +534,7 @@ pub type StandardHTTPAuthentication = RestrictAuthentication<
 
 /// One environment-sourced bearer credential as extracted for publish:
 /// the token plus the `SYSAND_CRED_<LABEL>` stem it came from, so an
-/// upload auth failure can name the variable to fix
-/// (design/credential-storage.md section 7).
+/// upload auth failure can name the variable to fix.
 #[derive(Clone)]
 pub struct EnvBearerAuth {
     pub auth: ForceBearerAuth,
@@ -563,8 +560,7 @@ impl StandardHTTPAuthentication {
         let mut partial = GlobMapBuilder::new();
 
         // Clones the bearer tokens: extraction must work by reference
-        // because the lazy layer holding this policy is not `Clone`
-        // (design/credential-storage.md section 9 accepts the cost).
+        // because the lazy layer holding this policy is not `Clone`.
         for (key, sequence_auth) in self.restricted.keys.iter().zip(&self.restricted.values) {
             if let StandardInnerAuthentication::BearerAuth { auth, env_label } =
                 &sequence_auth.lower
@@ -711,8 +707,7 @@ impl StoredBearerAuth {
         self.expires_at
     }
 
-    /// The reactive expiry hint (design/credential-storage.md section 9),
-    /// returned at most once per record: `Some` exactly when the record
+    /// The reactive expiry hint, returned at most once per record: `Some` exactly when the record
     /// carries a past `expires_at` and no hint was emitted before.
     fn take_expiry_warning(&self, now: DateTime<Utc>) -> Option<String> {
         let expires_at = self.expires_at?;
@@ -728,7 +723,7 @@ impl StoredBearerAuth {
 
     /// Emit the reactive expiry hint after a forced retry that still
     /// ended in a 4xx. Any 4xx counts, not just 401: GitLab-style hosts
-    /// answer 404 on bad auth (design/credential-storage.md section 9).
+    /// answer 404 on bad auth.
     fn warn_if_expired(&self) {
         if let Some(message) = self.take_expiry_warning(Utc::now()) {
             log::warn!("{message}");
@@ -742,8 +737,7 @@ impl StoredBearerAuth {
 }
 
 /// Authentication layer that consults the persistent credential store
-/// ([`LockedBlobStore`]) on demand (design/credential-storage.md,
-/// section 9).
+/// ([`LockedBlobStore`]) on demand.
 ///
 /// `inner` (the eager `SYSAND_CRED_*` env policy) runs first; only a 4xx
 /// triggers a store read (cached, at most once per process). Not a stock
@@ -869,8 +863,8 @@ where
 ///
 /// Store errors degrade to "no stored credentials" rather than aborting:
 /// the request may still succeed via env credentials or anonymously, and
-/// hard failure is reserved for the `auth` commands
-/// (design/credential-storage.md section 9). `BackendAbsent` is debug-only
+/// hard failure is reserved for the `auth` commands.
+/// `BackendAbsent` is debug-only
 /// (the designed env-fallback state on keyring-less hosts; `auth status`
 /// and `auth login` still report it loudly), while every other variant
 /// warns: a keyring exists and something is wrong, so staying quiet would
@@ -967,8 +961,7 @@ where
             )
             .await?;
 
-        // 429 is never an auth verdict (design/credential-storage.md
-        // section 5): no store read, no forced retry.
+        // 429 is never an auth verdict: no store read, no forced retry.
         let status = initial_response.status();
         if !status.is_client_error() || status == StatusCode::TOO_MANY_REQUESTS {
             return Ok(initial_response);
@@ -976,8 +969,7 @@ where
 
         let stored = self.stored_bearer_map().await;
         // Ambiguous matches try each candidate in order until one yields
-        // a non-4xx response, else the first retry response is returned
-        // (design/credential-storage.md section 8).
+        // a non-4xx response, else the first retry response is returned.
         let deduped = match select_bearer(stored, url.as_str(), |bearer| &bearer.auth.0) {
             BearerSelection::None => return Ok(initial_response),
             BearerSelection::Unique(bearer) => {

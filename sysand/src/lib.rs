@@ -74,8 +74,8 @@ use crate::{
 pub const DEFAULT_INDEX_URL: &str = "https://sysand.com";
 
 /// The CLI's composed authentication policy: eager `SYSAND_CRED_*`
-/// credentials first, then lazily read stored credentials from the OS keyring
-/// (design/credential-storage.md, section 9).
+/// credentials first, then lazily read stored credentials from the OS
+/// keyring.
 pub type CliAuthPolicy = StandardLazyHTTPAuthentication<credential_store::CliBlobBackend>;
 
 pub mod cli;
