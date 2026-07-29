@@ -208,10 +208,9 @@ pub fn normalize_index_key(raw: &str) -> Result<String, CredentialStoreError> {
         )));
     }
     url.set_fragment(None);
-    if !url.path().ends_with('/') {
-        let path = format!("{}/", url.path());
-        url.set_path(&path);
-    }
+    // This will not panic for http(s)
+    let path = url.path_segments_mut().unwrap();
+    path.pop_if_empty().push("");
     Ok(url.into())
 }
 
