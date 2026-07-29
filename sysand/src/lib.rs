@@ -231,9 +231,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         command => command,
     };
 
-    // FIXME: This is a temporary implementation to provide credentials until
-    //        https://github.com/sensmetry/sysand/pull/157
-    //        gets merged.
     let cred_env::CredEnvGroups {
         patterns: auth_patterns,
         basic_users: basic_auth_users,
