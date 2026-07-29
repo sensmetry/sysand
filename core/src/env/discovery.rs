@@ -20,10 +20,7 @@ use crate::{
     index_location::{IndexLocation, IndexLocationError, with_trailing_slash},
 };
 
-/// Path of the discovery document under the discovery root. Shared with
-/// login's authenticated discovery retry
-/// (`crate::commands::auth`), which fetches the same URL with a forced
-/// bearer.
+/// Path of the discovery document under the discovery root
 pub(crate) const INDEX_CONFIG_PATH: &str = "sysand-index-config.json";
 
 const INDEX_PATH: &str = "index.json";

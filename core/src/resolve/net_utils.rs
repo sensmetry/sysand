@@ -77,6 +77,9 @@ impl Display for ReqwestClientBuildError {
 }
 impl Error for ReqwestClientBuildError {}
 
+/// sysand HTTP user agent
+pub(crate) const USER_AGENT: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
+
 /// Create a reqwest client. This must be used where possible.
 /// Note that gix manages its own HTTP client, so logs may indicate
 /// duplicate initialization.
@@ -84,11 +87,6 @@ impl Error for ReqwestClientBuildError {}
 /// Relies on `reqwest`'s default redirect behaviour (up to 10
 /// automatic redirects); index clients MUST follow HTTP redirects
 /// on the index URL discovery fetch and on every index resource.
-/// The sysand HTTP user agent (sysand-core's version, pre-existing
-/// behavior; shared with the validation probe client in
-/// `crate::commands::auth`).
-pub(crate) const USER_AGENT: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
-
 pub fn create_reqwest_client()
 -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
     let client = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
