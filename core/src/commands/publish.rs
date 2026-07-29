@@ -637,6 +637,12 @@ pub enum PublishError {
         which is neither in the index nor a SysML/KerML standard library"
     )]
     DisallowedUsage { name: Box<str> },
+    #[error(
+        "project uses local project at `{path}`\n\
+        and therefore cannot be published; if the project being published
+        uses projects that are not yet in the index, publish them first"
+    )]
+    PathUsage { path: Box<str> },
     #[error("KPAR's `.{name}.json` is invalid")]
     InfoMetaValidation {
         name: &'static str,
@@ -1279,6 +1285,9 @@ fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
                 }),
             }
         }
+        InterchangeProjectUsageRaw::Directory { dir, .. } => Err(PublishError::PathUsage {
+            path: dir.as_str().into(),
+        }),
     }
 }
 
@@ -1320,6 +1329,7 @@ fn check_std_libs(
             }
             Ok(false)
         }
+        InterchangeProjectUsageRaw::Directory { .. } => Ok(false),
     }
 }
 

@@ -48,9 +48,9 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, Command},
+    cli::{Args, Command, ExpCommand},
     commands::{
-        add::command_add,
+        add::{ExpAddArgs, command_add, exp_command_add},
         build::{command_build_for_project, command_build_for_workspace},
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
@@ -64,7 +64,7 @@ use crate::{
         lock::command_lock,
         print_root::command_print_root,
         publish::command_publish,
-        remove::command_remove,
+        remove::{command_remove, exp_command_remove},
         sources::{command_sources_env, command_sources_project},
         sync::command_sync,
     },
@@ -409,7 +409,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         Command::Sync { resolution_opts } => {
-            let provided_usages = if !resolution_opts.include_std {
+            let provided_iris = if !resolution_opts.include_std {
                 known_std_libs()
             } else {
                 HashMap::default()
@@ -451,7 +451,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 project_root,
                 &mut local_environment,
                 client,
-                &provided_usages,
+                &provided_iris,
                 runtime,
                 auth_policy,
                 ctx.current_workspace.as_ref(),
@@ -701,7 +701,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         }
-        cli::Command::Publish {
+        Command::Publish {
             path,
             index,
             trusted_publishing,
@@ -735,6 +735,28 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             runtime,
             auth_policy,
         ),
+        Command::Experimental { subcommand } => match subcommand {
+            ExpCommand::Add {
+                locator,
+                resolution_opts,
+                no_lock,
+                no_sync,
+            } => {
+                let add = ExpAddArgs::Dir { dir: locator.dir };
+                exp_command_add(
+                    add,
+                    no_lock,
+                    no_sync,
+                    resolution_opts,
+                    config,
+                    ctx,
+                    client,
+                    runtime,
+                    auth_policy,
+                )
+            }
+            ExpCommand::Remove { publisher, name } => exp_command_remove(publisher, name, ctx),
+        },
     }
 }
 

@@ -117,6 +117,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         } else {
             HashMap::default()
         };
+
         let resolver = PriorityResolver::new(
             MemoryResolver {
                 iri_predicate: AcceptAll {},
@@ -143,7 +144,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             && lock.projects.iter().any(|x| {
                 x.identifiers
                     .iter()
-                    .any(|y| provided_usages.contains_key(y.as_str()))
+                    .any(|y| provided_usages.contains_key(y))
             })
         {
             log::info!(
@@ -287,7 +288,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
                     remote_project,
                 )?;
             } else {
-                let remote_project = LocalSrcProject::new_access(path.to_owned(), None);
+                let remote_project = LocalSrcProject::new_access(path, None);
                 clone_local(
                     version,
                     cloning,

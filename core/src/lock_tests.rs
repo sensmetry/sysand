@@ -4,6 +4,9 @@
 use std::assert_matches;
 use std::{fmt::Display, num::NonZeroU64, slice, str::FromStr};
 
+use crate::model::InterchangeProjectUsage;
+use fluent_uri::Iri;
+
 use toml_edit::DocumentMut;
 use typed_path::Utf8UnixPathBuf;
 
@@ -380,7 +383,7 @@ fn one_usage_to_toml() {
             version: "0.5.1".to_string(),
             exports: vec![],
             identifiers: vec![],
-            usages: vec![Usage::from("urn:kpar:usage".to_string())],
+            usages: vec![Usage::from_str_unchecked("urn:kpar:usage")],
             sources: vec![],
         }],
         r#"
@@ -404,9 +407,9 @@ fn many_usage_to_toml() {
             exports: vec![],
             identifiers: vec![],
             usages: vec![
-                Usage::from("urn:kpar:first".to_string()),
-                Usage::from("urn:kpar:second".to_string()),
-                Usage::from("urn:kpar:third".to_string()),
+                Usage::from_str_unchecked("urn:kpar:first"),
+                Usage::from_str_unchecked("urn:kpar:second"),
+                Usage::from_str_unchecked("urn:kpar:third"),
             ],
             sources: vec![],
         }],
@@ -537,7 +540,7 @@ fn validate_single_usage() {
                 "0.0.1",
                 &[],
                 &[],
-                &[Usage::from(iri.to_string())],
+                &[Usage::from_str_unchecked(iri)],
             ),
             make_project("b", None, "0.0.1", &[], &[iri], &[]),
         ],
@@ -559,7 +562,10 @@ fn validate_multiple_usage() {
                 "0.0.1",
                 &[],
                 &[],
-                &[Usage::from(iri1.to_string()), Usage::from(iri2.to_string())],
+                &[
+                    Usage::from_str_unchecked(iri1),
+                    Usage::from_str_unchecked(iri2),
+                ],
             ),
             make_project("b", None, "0.0.1", &[], &[iri1], &[]),
             make_project("c", None, "0.0.1", &[], &[iri2], &[]),
@@ -582,7 +588,7 @@ fn validate_chained_usages() {
                 "0.0.1",
                 &[],
                 &[],
-                &[Usage::from(iri1.to_string())],
+                &[Usage::from_str_unchecked(iri1)],
             ),
             make_project(
                 "b",
@@ -590,7 +596,7 @@ fn validate_chained_usages() {
                 "0.0.1",
                 &[],
                 &[iri1],
-                &[Usage::from(iri2.to_string())],
+                &[Usage::from_str_unchecked(iri2)],
             ),
             make_project("c", None, "0.0.1", &[], &[iri2], &[]),
         ],
@@ -632,7 +638,7 @@ fn validate_single_name_collision() {
                 "0.0.1",
                 &[name],
                 &[],
-                &[Usage::from(iri.to_string())],
+                &[Usage::from_str_unchecked(iri)],
             ),
             make_project("b", None, "0.0.1", &[name], &[iri], &[]),
         ],
@@ -662,7 +668,7 @@ fn validate_multiple_name_collision() {
                 "0.0.1",
                 &[name1, name2, name3],
                 &[],
-                &[Usage::from(iri.to_string())],
+                &[Usage::from_str_unchecked(iri)],
             ),
             make_project("b", None, "0.0.1", &[name2, name3, name4], &[iri], &[]),
         ],
@@ -677,7 +683,7 @@ fn validate_multiple_name_collision() {
 
 #[test]
 fn validate_unsatisfied_usage() {
-    let usage_in = Usage::from("urn:kpar:test".to_string());
+    let usage_in = Usage::from_str_unchecked("urn:kpar:test");
     let Err(err) = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_string(),
         projects: vec![make_project(
@@ -850,8 +856,8 @@ fn sort_identifiers() {
 
 #[test]
 fn sort_sources() {
-    let usage1 = Usage::from("urn:kpar:a".to_string());
-    let usage2 = Usage::from("urn:kpar:b".to_string());
+    let usage1 = Usage::from_str_unchecked("urn:kpar:a");
+    let usage2 = Usage::from_str_unchecked("urn:kpar:b");
     let project1 = make_project(
         "a",
         None,
@@ -872,8 +878,8 @@ fn sort_sources() {
 
 #[test]
 fn sort_sources_with_constraints() {
-    let usage1 = Usage::from("urn:kpar:a".to_string());
-    let usage2 = Usage::from("urn:kpar:a".to_string());
+    let usage1 = Usage::from_str_unchecked("urn:kpar:a");
+    let usage2 = Usage::from_str_unchecked("urn:kpar:a");
     let project1 = make_project(
         "a",
         None,
@@ -1026,6 +1032,117 @@ fn canonicalize_checksums() {
     // canonicalize_checksums does not panic on them.
     assert_matches!(&project.sources[5], Source::Editable { .. });
     assert_matches!(&project.sources[6], Source::RemoteGit { .. });
+}
+
+// --- Lock identifiers ---
+
+#[test]
+fn usage_from_resource_usage_is_its_iri() {
+    let iri = Iri::parse("urn:kpar:my-dep".to_owned()).unwrap();
+    let interchange = InterchangeProjectUsage::Resource {
+        resource: iri,
+        version_constraint: None,
+    };
+    let usage = Usage::from(&interchange);
+    assert_eq!(usage.inner(), "urn:kpar:my-dep");
+}
+
+#[test]
+fn usage_from_directory_usage_is_sysand_purl() {
+    let interchange = InterchangeProjectUsage::Directory {
+        dir: Utf8UnixPathBuf::from("dep"),
+        publisher: "acme-corp".to_owned(),
+        name: "my-lib".to_owned(),
+    };
+    let usage = Usage::from(&interchange);
+    assert_eq!(usage.inner(), "pkg:sysand/acme-corp/my-lib");
+}
+
+#[test]
+fn usage_from_directory_usage_with_short_publisher_is_urn_sysand() {
+    // Short publisher → Arbitrary form → urn:sysand: (non-PURL, non-URL)
+    let interchange = InterchangeProjectUsage::Directory {
+        dir: Utf8UnixPathBuf::from("dep"),
+        publisher: "ab".to_owned(),
+        name: "my-lib".to_owned(),
+    };
+    let usage = Usage::from(&interchange);
+    assert_eq!(usage.inner(), "urn:sysand:ab/my-lib");
+}
+
+#[test]
+fn lock_project_with_urn_sysand_identifier_to_toml() {
+    to_toml_matches_expected(
+        vec![Project {
+            name: "my-lib".to_string(),
+            publisher: Some("ab".to_string()),
+            version: "1.0.0".to_string(),
+            exports: vec![],
+            identifiers: vec!["urn:sysand:ab/my-lib".to_string()],
+            usages: vec![],
+            sources: vec![],
+        }],
+        r#"
+[[project]]
+publisher = "ab"
+name = "my-lib"
+version = "1.0.0"
+identifiers = [
+    "urn:sysand:ab/my-lib",
+]
+"#,
+    );
+}
+
+#[test]
+fn lock_project_with_urn_sysand_identifier_roundtrip() {
+    roundtrip_makes_no_changes(
+        r#"
+[[project]]
+publisher = "ab"
+name = "my-lib"
+version = "1.0.0"
+identifiers = [
+    "urn:sysand:ab/my-lib",
+]
+
+[[project]]
+name = "consumer"
+version = "2.0.0"
+usages = [
+    "urn:sysand:ab/my-lib",
+]
+"#,
+    );
+}
+
+#[test]
+fn validate_usage_of_directory_derived_identifier() {
+    // A project identified by urn:sysand: can be depended on via its identifier
+    let dep_id = "urn:sysand:ab/my-lib";
+    Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_string(),
+        projects: vec![
+            make_project(
+                "consumer",
+                None,
+                "2.0.0",
+                &[],
+                &[],
+                &[Usage::from_str_unchecked(dep_id)],
+            ),
+            make_project(
+                "my-lib",
+                Some("ab".to_string()),
+                "1.0.0",
+                &[],
+                &[dep_id],
+                &[],
+            ),
+        ],
+    }
+    .validate()
+    .unwrap();
 }
 
 #[test]

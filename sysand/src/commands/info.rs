@@ -28,10 +28,10 @@ use sysand_core::{
     utils::{ProvidedIdentifiers, format_err},
 };
 
-use anstream::{print, println};
+use anstream::println;
 use anyhow::{Result, bail};
 use fluent_uri::Iri;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 use sysand_core::{
     info::{do_info, do_info_project},
     project::utils::wrapfs,
@@ -66,15 +66,9 @@ pub fn pprint_interchange_project(
     if !info.topic.is_empty() {
         println!("{header}Topics:{header:#} {}", info.topic.join(", "));
     }
-
     if info.usage.is_empty() {
         println!("No usages.");
     } else {
-        let has_ignored_usages = info.usage.iter().any(|u| match u {
-            InterchangeProjectUsageRaw::Resource { resource, .. } => {
-                excluded_iris.contains(resource)
-            }
-        });
         let usages_to_print: Vec<_> = info
             .usage
             .iter()
@@ -82,8 +76,10 @@ pub fn pprint_interchange_project(
                 InterchangeProjectUsageRaw::Resource { resource, .. } => {
                     !excluded_iris.contains(resource)
                 }
+                InterchangeProjectUsageRaw::Directory { .. } => true,
             })
             .collect();
+        let has_ignored_usages = info.usage.len() > usages_to_print.len();
         if has_ignored_usages && usages_to_print.is_empty() {
             // TODO: distinguish between provided iris in general and std libs in
             // particular. Here it's assumed that non-empty excluded_iris == std is ignored,
@@ -95,19 +91,7 @@ pub fn pprint_interchange_project(
         } else {
             println!("{header}Usages:{header:#}");
             for usage in usages_to_print.iter() {
-                match usage {
-                    InterchangeProjectUsageRaw::Resource {
-                        resource,
-                        version_constraint,
-                    } => {
-                        print!("    {resource}");
-                        if let Some(v) = version_constraint {
-                            println!(" ({v})");
-                        } else {
-                            println!();
-                        }
-                    }
-                }
+                println!("    {usage}");
             }
             if has_ignored_usages {
                 // Same caveat as for "All usages are ignored"
@@ -139,7 +123,7 @@ fn interpret_project_path<P: AsRef<Utf8Path>>(path: P) -> Result<FileResolverPro
 
 pub fn command_info_path<P: AsRef<Utf8Path>>(
     path: P,
-    excluded_iris: &ProvidedIdentifiers,
+    excluded_iris: &HashSet<Identifier>,
 ) -> Result<()> {
     let project = interpret_project_path(&path)?;
     match do_info_project(&project) {
@@ -351,23 +335,7 @@ fn apply_get_info(
         GetInfoVerb::GetWebsite => print_output(info.website.map(|x| vec![x]), numbered),
         GetInfoVerb::GetTopic => print_output(Some(info.topic), numbered),
         GetInfoVerb::GetUsage => print_output(
-            Some(
-                info.usage
-                    .into_iter()
-                    .map(|usage| match usage {
-                        InterchangeProjectUsageRaw::Resource {
-                            resource,
-                            version_constraint,
-                        } => {
-                            if let Some(version_constraint) = version_constraint {
-                                format!("{resource} ({version_constraint})")
-                            } else {
-                                resource.clone()
-                            }
-                        }
-                    })
-                    .collect(),
-            ),
+            Some(info.usage.iter().map(ToString::to_string).collect()),
             numbered,
         ),
     }

@@ -531,6 +531,33 @@ fn check_usage_rejects_unknown_std_lib() {
     assert_matches!(err, PublishError::UnknownStdLib { .. });
 }
 
+fn directory_usage(dir: &str) -> InterchangeProjectUsageRaw {
+    InterchangeProjectUsageRaw::Directory {
+        dir: dir.to_string(),
+        publisher: "acme".to_string(),
+        name: "lib".to_string(),
+    }
+}
+
+#[test]
+fn check_usage_rejects_directory_usage() {
+    let err = check_usage(&directory_usage("../local-dep")).unwrap_err();
+    assert_matches!(err, PublishError::PathUsage { path } if path.as_ref() == "../local-dep");
+}
+
+#[test]
+fn check_usage_rejects_directory_usage_with_version_constraint() {
+    // Directory usages have no version_constraint field, but verify the error
+    // is PathUsage regardless of publisher/name values.
+    let err = check_usage(&InterchangeProjectUsageRaw::Directory {
+        dir: "libs/sub".to_string(),
+        publisher: "org".to_string(),
+        name: "thing".to_string(),
+    })
+    .unwrap_err();
+    assert_matches!(err, PublishError::PathUsage { path } if path.as_ref() == "libs/sub");
+}
+
 // --- map_publish_response ---
 
 #[test]

@@ -282,7 +282,6 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
             return JObject::default();
         }
     };
-
     let info_meta = match commands::info::do_info(&uri, &combined_resolver) {
         Ok(info_meta) => info_meta,
         Err(e) => {

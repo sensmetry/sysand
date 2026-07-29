@@ -16,9 +16,10 @@ use sysand_core::{
         local_fs::{CONFIG_FILE, add_project_source_to_config},
     },
     context::ProjectContext,
-    model::InterchangeProjectUsageRaw,
+    model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
     project::{
         ProjectRead,
+        local_src::LocalSrcProject,
         utils::{relativize_path, wrapfs},
     },
     resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, standard::standard_resolver},
@@ -249,6 +250,96 @@ pub fn command_add<Policy: HTTPAuthentication>(
     } else {
         do_add(&mut current_project, &usage_raw)?;
         Ok(())
+    }
+}
+
+pub enum ExpAddArgs {
+    Dir { dir: Utf8PathBuf },
+}
+
+// TODO: Collect common arguments
+#[allow(clippy::too_many_arguments)]
+pub fn exp_command_add<Policy: HTTPAuthentication>(
+    add: ExpAddArgs,
+    no_lock: bool,
+    no_sync: bool,
+    resolution_opts: ResolutionOptions,
+    config: Config,
+    ctx: ProjectContext,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+) -> Result<()> {
+    let mut current_project = ctx
+        .current_project
+        .clone()
+        .ok_or(CliError::MissingProjectCurrentDir)?;
+
+    match add {
+        ExpAddArgs::Dir { dir } => {
+            let abs_path = wrapfs::canonicalize(dir)?;
+            let relative = relativize_path(&abs_path, current_project.root_path())?;
+            let project = LocalSrcProject::new_access(abs_path, None);
+            let info = project
+                .get_info()?
+                .ok_or_else(|| CliError::MissingProject(project.root_path().to_string()))?;
+            let publisher = info.publisher.ok_or_else(|| {
+                CliError::MissingPublisherForUsage(project.root_path().to_string())
+            })?;
+            let usage = InterchangeProjectUsage::Directory {
+                dir: relative,
+                publisher,
+                name: info.name,
+            };
+
+            if !no_lock {
+                let info_path = current_project.info_path();
+                let info_backup = wrapfs::read_to_string(&info_path)?;
+                let added = do_add(&mut current_project, &usage.into())?;
+                if !added {
+                    return Ok(());
+                }
+
+                let alias_iris = if let Some(w) = &ctx.current_workspace {
+                    w.projects()
+                        .iter()
+                        .find(|p| Path::new(&p.path) == current_project.root_path())
+                        .map(|p| p.iris.to_owned())
+                } else {
+                    None
+                };
+
+                let provided_iris = if !resolution_opts.include_std {
+                    // Don't warn; std libs are all `https://`, so they can't match this usage
+                    crate::known_std_libs()
+                } else {
+                    HashMap::default()
+                };
+
+                match resolve_deps(
+                    no_sync,
+                    resolution_opts,
+                    &config,
+                    client,
+                    runtime,
+                    auth_policy,
+                    current_project.root_path(),
+                    alias_iris,
+                    provided_iris,
+                    ctx,
+                ) {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        // Restore old info
+                        wrapfs::write(&info_path, info_backup)?;
+                        Err(e)
+                    }
+                }
+            } else {
+                do_add(&mut current_project, &usage.into())?;
+                Ok(())
+            }
+        }
     }
 }
 

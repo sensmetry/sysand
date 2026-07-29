@@ -200,6 +200,22 @@ fn get_nullable_boolean_field<'local>(
     }
 }
 
+fn try_instance_of<'local>(
+    env: &mut JNIEnv<'local>,
+    elem: &JObject<'local>,
+    class: &str,
+    label: &str,
+) -> Option<bool> {
+    env.is_instance_of(elem, class)
+        .map_err(|e| {
+            env.throw_runtime_exception(format!(
+                "Failed to check type of `{label}`: {}",
+                format_err(e)
+            ))
+        })
+        .ok()
+}
+
 fn get_usage_array_field<'local>(
     env: &mut JNIEnv<'local>,
     obj: &JObject<'local>,
@@ -248,30 +264,31 @@ fn get_usage_array_field<'local>(
                 return None;
             }
         };
-        match env.is_instance_of(&elem, INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS) {
-            Ok(true) => {
-                let resource = get_string_field(env, &elem, "resource")?;
-                let version_constraint =
-                    get_nullable_string_field(env, &elem, "versionConstraint")?;
-                result.push(InterchangeProjectUsageRaw::Resource {
-                    resource,
-                    version_constraint,
-                });
-            }
-            Ok(false) => {
-                env.throw_runtime_exception(
-                    "Unknown usage type, only InterchangeProjectUsageResource is supported",
-                );
-                return None;
-            }
-            Err(e) => {
-                env.throw_runtime_exception(format!(
-                    "Failed to check whether `{field_name}[{i}]` is InterchangeProjectUsageResource:\n\
-                    {}",
-                    format_err(e)
-                ));
-                return None;
-            }
+        let label = format!("{field_name}[{i}]");
+        if try_instance_of(env, &elem, INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS, &label)? {
+            let resource = get_string_field(env, &elem, "resource")?;
+            let version_constraint = get_nullable_string_field(env, &elem, "versionConstraint")?;
+            result.push(InterchangeProjectUsageRaw::Resource {
+                resource,
+                version_constraint,
+            });
+        } else if try_instance_of(
+            env,
+            &elem,
+            INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS,
+            &label,
+        )? {
+            let dir = get_string_field(env, &elem, "directory")?;
+            let publisher = get_string_field(env, &elem, "publisher")?;
+            let name = get_string_field(env, &elem, "name")?;
+            result.push(InterchangeProjectUsageRaw::Directory {
+                dir,
+                publisher,
+                name,
+            });
+        } else {
+            env.throw_runtime_exception(format!("Unknown usage type for `{label}`"));
+            return None;
         }
     }
     Some(result)
@@ -425,6 +442,8 @@ pub(crate) fn java_metadata_to_raw<'local>(
 
 pub(crate) const INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS: &str =
     "com/sensmetry/sysand/model/InterchangeProjectUsageResource";
+pub(crate) const INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS: &str =
+    "com/sensmetry/sysand/model/InterchangeProjectUsageDirectory";
 pub(crate) const INTERCHANGE_PROJECT_USAGE_CLASS: &str =
     "com/sensmetry/sysand/model/InterchangeProjectUsage";
 pub(crate) const INTERCHANGE_PROJECT_INFO_CLASS: &str =
@@ -643,6 +662,33 @@ impl ToJObject for InterchangeProjectUsageRaw {
                     Err(e) => {
                         env.throw_runtime_exception(format!(
                             "Failed to create InterchangeProjectUsageResource: {}",
+                            format_err(e)
+                        ));
+                        None
+                    }
+                }
+            }
+            InterchangeProjectUsageRaw::Directory {
+                dir,
+                publisher,
+                name,
+            } => {
+                let dir = dir.to_jobject(env)?;
+                let publisher = publisher.to_jobject(env)?;
+                let name = name.to_jobject(env)?;
+                match env.new_object(
+                    INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS,
+                    "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+                    &[
+                        JValue::from(&dir),
+                        JValue::from(&publisher),
+                        JValue::from(&name),
+                    ],
+                ) {
+                    Ok(o) => Some(o),
+                    Err(e) => {
+                        env.throw_runtime_exception(format!(
+                            "Failed to create InterchangeProjectUsageDirectory: {}",
                             format_err(e)
                         ));
                         None

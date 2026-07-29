@@ -13,7 +13,7 @@ use crate::project::local_src::{LocalSrcError, LocalSrcProject, PathError};
 use crate::{
     env::ReadEnvironment,
     model::{InterchangeProjectUsage, InterchangeProjectValidationError},
-    project::ProjectRead,
+    project::{ProjectRead, utils::Identifier},
     resolve::{
         ResolveRead,
         env::EnvResolver,
@@ -144,36 +144,28 @@ pub fn do_sources_local_src_project_no_deps(
 /// in an environment and enumerates the resolved projects together with their IRIs.
 ///
 /// `provided_usages` are assumed to have been satisfied (including their dependencies)
-/// but have to match.
+/// and are not included in the returned list
 #[allow(clippy::type_complexity)]
 fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
     provided_usages: &ProvidedProjects,
 ) -> Result<
-    Vec<(
-        fluent_uri::Iri<String>,
-        <Env as ReadEnvironment>::InterchangeProjectRead,
-    )>,
+    Vec<(Identifier, <Env as ReadEnvironment>::InterchangeProjectRead)>,
     SolverError<impl ResolveRead + Debug + use<Env>>,
 > {
-    let mut memory_projects = HashMap::default();
-
-    for (k, v) in provided_usages {
-        memory_projects.insert(k.clone(), v.to_vec());
-    }
-
-    let wrapped_resolver = PriorityResolver::new(
+    let resolver = PriorityResolver::new(
         MemoryResolver {
             iri_predicate: AcceptAll {},
-            projects: memory_projects,
+            projects: provided_usages.to_owned(),
         },
         EnvResolver { env },
     );
 
-    let mut wrapped_result = crate::solve::pubgrub::solve(requested, wrapped_resolver)?;
+    // `base_path` does not matter here, since the resolver only looks in env
+    let mut resolved = crate::solve::pubgrub::solve(requested, None, resolver)?;
 
-    Ok(wrapped_result
+    Ok(resolved
         .drain()
         .filter_map(|(iri, project)| match project {
             PriorityProject::HigherProject(_) => None,
@@ -186,7 +178,7 @@ fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
 /// in an environment and enumerate the resolved projects.
 ///
 /// `provided_usages` are assumed to have been satisfied (including their dependencies)
-/// but have to match.
+/// and are not included in the returned list
 pub fn find_project_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,
@@ -215,27 +207,26 @@ pub fn resolve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     Vec<<Env as ReadEnvironment>::InterchangeProjectRead>,
     SolverError<impl ResolveRead + Debug + use<Env>>,
 > {
-    // No need to resolve dependencies if they are not gonna be used.
+    // No need to resolve dependencies if they are not gonna be used
     if dependencies == Dependencies::None {
         return Ok(Vec::new());
     }
-
     let std_libs = known_std_libs();
 
     // For `Deps` the standard libraries are treated as already provided so the
     // solver omits them; otherwise everything is resolved and filtered below.
     let empty = HashMap::default();
-    let provided_usages = match dependencies {
+    let provided_iris = match dependencies {
         Dependencies::Deps => &std_libs,
         _ => &empty,
     };
 
-    let resolved = solve_dependencies(requested, env, provided_usages)?;
+    let resolved = solve_dependencies(requested, env, provided_iris)?;
 
     Ok(resolved
         .into_iter()
         .filter(|(iri, _)| match dependencies {
-            Dependencies::Std => std_libs.contains_key(iri.as_str()),
+            Dependencies::Std => std_libs.contains_key(iri),
             // std_libs are already filtered out by `solve_dependencies`
             Dependencies::Deps | Dependencies::DepsStd => true,
             Dependencies::None => false,

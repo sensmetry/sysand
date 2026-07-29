@@ -70,6 +70,11 @@ impl ResolveRead for GitResolver {
                     .map_err(|e| e.into()),
                 )))
             }
+            InterchangeProjectUsage::Directory { .. } => {
+                Ok(ResolutionOutcome::UnsupportedUsageType {
+                    reason: String::from("not a git usage"),
+                })
+            }
         }
     }
 }

@@ -289,11 +289,11 @@ version = \"0.1\"
         source_project.write_source(source_path, &mut Cursor::new(source_code), true)?;
         let checksum = source_project.checksum_canonical_variant()?;
 
-        directory_environment.put_project("urn:sysand_test:1", "1.2.3", Some(checksum), |p| {
+        directory_environment.put_project(iri.as_str(), "1.2.3", Some(checksum), |p| {
             clone_project(&source_project, p, true).map(|_| ())
         })?;
 
-        let target_project = directory_environment.get_project("urn:sysand_test:1", "1.2.3")?;
+        let target_project = directory_environment.get_project(iri.as_str(), "1.2.3")?;
         let (read_info, read_meta) = target_project.get_project()?;
 
         assert_eq!(read_info, Some(info.clone()));
@@ -309,17 +309,17 @@ version = \"0.1\"
 
         assert_eq!(
             directory_environment
-                .versions("urn:sysand_test:1")?
+                .versions(iri.as_str())?
                 .into_iter()
                 .collect::<Result<Vec<String>, _>>()?,
-            vec!["1.2.3"]
+            &["1.2.3"]
         );
         assert_eq!(
             directory_environment
                 .uris()?
                 .into_iter()
                 .collect::<Result<Vec<String>, _>>()?,
-            vec!["urn:sysand_test:1"]
+            vec![iri.as_str()]
         );
 
         assert_eq!(ls_dir(cwd.path()), vec![".sysand"]);

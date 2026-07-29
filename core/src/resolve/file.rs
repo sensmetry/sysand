@@ -4,7 +4,7 @@
 // Resolver for file:// URLs
 
 use std::{
-    io::{self, Read},
+    io::{self, ErrorKind, Read},
     path::PathBuf,
 };
 
@@ -299,25 +299,70 @@ impl ResolveRead for FileResolver {
         &self,
         resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
-        let InterchangeProjectUsage::Resource { resource: url, .. } = resolve.usage();
-
-        match try_file_uri_to_path(url)? {
-            Some(path) => {
-                let res = self.check_sandbox(path)?;
-                Ok(res.map(|path| {
-                    vec![
-                        Ok(FileResolverProject::LocalSrcProject(
-                            LocalSrcProject::new_access(path.clone(), None),
-                        )),
-                        Ok(FileResolverProject::LocalKParProject(
-                            LocalKParProject::new(path, KparInnerPath::Guess, None, None),
-                        )),
-                    ]
-                }))
+        match resolve.usage() {
+            InterchangeProjectUsage::Resource {
+                resource: url,
+                // TODO: check that the project version satisfies this
+                version_constraint: _,
+            } => match try_file_uri_to_path(url)? {
+                Some(path) => {
+                    let res = self.check_sandbox(path)?;
+                    Ok(res.map(|path| {
+                        vec![
+                            Ok(FileResolverProject::LocalSrcProject(
+                                LocalSrcProject::new_access(path.clone(), None),
+                            )),
+                            Ok(FileResolverProject::LocalKParProject(
+                                LocalKParProject::new(path, KparInnerPath::Guess, None, None),
+                            )),
+                        ]
+                    }))
+                }
+                None => Ok(ResolutionOutcome::UnsupportedUsageType {
+                    reason: String::from("resource is not a file URL"),
+                }),
+            },
+            InterchangeProjectUsage::Directory {
+                publisher,
+                name,
+                dir,
+            } => {
+                // TODO: should absolute paths be supported here? Cargo does.
+                if let Some(base) = resolve.base_path() {
+                    let abs_path = base.join(dir.as_str());
+                    let canonical = match wrapfs::canonicalize_raw(&abs_path) {
+                        Ok(p) => p,
+                        Err(e) if e.kind() == ErrorKind::NotFound => {
+                            return Ok(ResolutionOutcome::NotFound {
+                                reason: format!("path `{abs_path}` does not exist"),
+                            });
+                        }
+                        Err(e) => {
+                            return Err(FileResolverError::Io(
+                                FsIoError::Canonicalize(abs_path, e).into(),
+                            ));
+                        }
+                    };
+                    let res = self.check_sandbox(canonical)?;
+                    Ok(res.map(|path| {
+                        vec![Ok(FileResolverProject::LocalSrcProject(
+                            LocalSrcProject::new_for_solve(
+                                path,
+                                None,
+                                Some(publisher.clone()),
+                                name.clone(),
+                            ),
+                        ))]
+                    }))
+                } else {
+                    // TODO: return Err?
+                    Ok(ResolutionOutcome::Unresolvable {
+                        reason: String::from(
+                            "cannot resolve relative path usage without a base path",
+                        ),
+                    })
+                }
             }
-            None => Ok(ResolutionOutcome::UnsupportedUsageType {
-                reason: String::from("resource is not a file URL"),
-            }),
         }
     }
 }

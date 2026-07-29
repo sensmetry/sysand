@@ -9,6 +9,7 @@ import com.sensmetry.sysand.model.InterchangeProjectChecksum;
 import com.sensmetry.sysand.model.InterchangeProjectInfo;
 import com.sensmetry.sysand.model.InterchangeProjectMetadata;
 import com.sensmetry.sysand.model.InterchangeProjectUsage;
+import com.sensmetry.sysand.model.InterchangeProjectUsageDirectory;
 import com.sensmetry.sysand.model.InterchangeProjectUsageResource;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -157,6 +158,29 @@ public class SetProjectInfoTest {
         assertEquals("9.9.9", project.info.getVersion());
         assertEquals(1, project.metadata.getIndex().size());
         assertEquals("src/Foo.sysml", project.metadata.getIndex().get("Foo"));
+    }
+
+    @Test
+    public void testSetProjectInfoWithDirectoryUsage() throws Exception {
+        Path dir = initProject();
+
+        InterchangeProjectUsageDirectory usage = new InterchangeProjectUsageDirectory(
+                "../some-dep", "acme", "lib");
+        InterchangeProjectInfo updated = new InterchangeProjectInfo(
+                "original", "pub", null, "1.0.0", null,
+                new String[]{}, null, new String[]{},
+                new InterchangeProjectUsage[]{usage});
+
+        Sysand.setProjectInfo(dir, updated);
+
+        com.sensmetry.sysand.model.InterchangeProject project = Sysand.infoPath(dir);
+        assertEquals(1, project.info.getUsage().length);
+        assertInstanceOf(InterchangeProjectUsageDirectory.class, project.info.getUsage()[0]);
+        InterchangeProjectUsageDirectory d =
+                (InterchangeProjectUsageDirectory) project.info.getUsage()[0];
+        assertEquals("../some-dep", d.getDirectory());
+        assertEquals("acme", d.getPublisher());
+        assertEquals("lib", d.getName());
     }
 
     // --- setProjectMetadata ---

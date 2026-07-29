@@ -21,9 +21,10 @@ use typed_path::Utf8UnixPathBuf;
 use crate::{
     config::OverrideSource,
     env::ReadEnvironment,
+    model::InterchangeProjectUsage,
     project::{
         ProjectChecksum,
-        utils::{deserialize_unix_path, serialize_unix_path},
+        utils::{Identifier, deserialize_unix_path, serialize_unix_path},
     },
     utils::{RelativePathKind, RelativeUnixPathError, multiline_array, parse_relative_unix_path},
 };
@@ -240,7 +241,7 @@ impl Lock {
                         return Err(ValidationError::ProjectWithoutId(project.name.clone()));
                     }
                 };
-                return Err(ValidationError::ProjectIdCollision(id.to_string()));
+                return Err(ValidationError::ProjectIdCollision(id.to_owned()));
             }
             for name in &project.exports {
                 if !seen_exports.insert(name) {
@@ -252,7 +253,7 @@ impl Lock {
     }
 
     fn validate_usages(&self) -> Result<(), ValidationError> {
-        let mut iri_versions = HashSet::new();
+        let mut identifier_versions = HashSet::new();
         for project in &self.projects {
             let _ = Version::parse(&project.version).inspect_err(|err| {
                 log::warn!(
@@ -264,13 +265,13 @@ impl Lock {
                     err
                 );
             });
-            for iri in &project.identifiers {
-                iri_versions.insert(iri.clone());
+            for id in &project.identifiers {
+                identifier_versions.insert(id.clone());
             }
         }
         for project in &self.projects {
             for usage in &project.usages {
-                if !iri_versions.contains(usage.inner()) {
+                if !identifier_versions.contains(usage.inner()) {
                     return Err(ValidationError::UnsatisfiedUsage {
                         usage: usage.inner().to_owned(),
                         name: project.name.clone(),
@@ -401,6 +402,48 @@ pub const PROJECT_ENTRIES: &[&str] = &[
     "usages",
     "sources",
 ];
+
+// TODO: decide whether to change lockfile project identifier.
+// Ideally, we would require publisher to be present, then
+// `identifiers` could be removed entirely, and
+// projects would refer to each other by publisher and name only:
+// - usages in .project.json
+// - usages in lockfile
+// - standard libraries (can hardcode them to be treated as
+//   having a publisher `OMG` or similar)
+// Not having to deal with identifiers would be nice,
+// but would require an extremely large refactoring
+//
+// For:
+// - project identity becomes clearly defined for all projects,
+//   useful for deduplication, especially during locking
+// - clear how to communicate to the user about a project (errors, logs)
+// - less stuff in lockfile
+// - less identity information to keep track of
+// - easy dependency replacements (publisher+name is much simpler for the
+//   user than IRIs with their normalization etc.)
+//
+// Against:
+// - can't drop support for projects without a publisher, but
+//   publisher becomes load-bearing and necessary for correctness.
+//   TBD how to resolve this, maybe use a placeholder for all such
+//   projects, like `<unspecified-publisher>`.
+// - requires special treatment for std libs (not a big deal, they're
+//   already specially treated)
+// - populating a lockfile will always require pulling the project
+//   info for index projects, since we need non-normalized publisher
+//   and name for identification (or maybe it would be fine to use
+//   normalized variants in lockfile? they still allow checking
+//   if deps are satisfied. Alternatively, add them to versions.json,
+//   it's backwards compatible)
+//
+// Alternatively, use my previous design here that has a separate
+// `Identifier` type, which is constructed:
+// - `Resource`: just the IRI
+// - `Directory/Kpar`: URL-encoded publisher+name
+// - `Index`: pkg:sysand where possible, else URL-encoded publisher+name
+// - `Git`: TBD (maybe URL, maybe URL-encoded publisher+name)
+// - `Url`: TBD (maybe URL, maybe URL-encoded publisher+name)
 
 /// Fields that might not be set for every project are `Option`
 #[derive(Clone, Eq, Debug, Deserialize, PartialEq)]
@@ -690,25 +733,30 @@ impl Deref for Usage {
     }
 }
 
-impl From<String> for Usage {
-    fn from(resource: String) -> Self {
-        Self(resource)
+impl From<&InterchangeProjectUsage> for Usage {
+    fn from(value: &InterchangeProjectUsage) -> Self {
+        Self(Identifier::from(value).into_string())
     }
 }
 
-impl From<Iri<String>> for Usage {
-    fn from(resource: Iri<String>) -> Self {
-        Self(resource.into_string())
+impl From<InterchangeProjectUsage> for Usage {
+    fn from(value: InterchangeProjectUsage) -> Self {
+        Self(Identifier::from(value).into_string())
     }
 }
 
 impl Usage {
-    pub fn inner(&self) -> &String {
+    pub fn inner(&self) -> &str {
         &self.0
     }
 
-    pub fn into_string(self) -> String {
+    pub fn into_inner(self) -> String {
         self.0
+    }
+
+    /// This should not be used where possible
+    pub fn from_str_unchecked(u: &str) -> Usage {
+        Self(u.to_owned())
     }
 
     fn to_toml(&self) -> Value {
@@ -716,6 +764,7 @@ impl Usage {
     }
 }
 
+// TODO: proper validation must be done _somewhere_
 impl<'de> Deserialize<'de> for Usage {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
