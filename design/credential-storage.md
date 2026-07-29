@@ -534,10 +534,14 @@ transport-security guidance lives in the docs (§13).
   works).
 - Longest-prefix most-specific-glob-wins (needed only once `set` / nested
   logins create within-source overlaps).
-  **Out of scope entirely:** acquisition beyond store-what-you-paste (OAuth
-  apps, device flows, refresh-token lifecycle); a self-written encrypted vault
-  or plaintext credentials file; a user-facing credential "label" concept;
-  multi-account-per-host switching; git credentials (git keeps its own).
+
+**Out of scope entirely:**
+
+- Acquisition beyond store-what-you-paste (OAuth apps, device flows, refresh-token lifecycle).
+- Self-written encrypted vault or plaintext credentials file.
+- User-facing credential "label" concept.
+- Multi-account-per-host switching.
+- git credentials (git keeps its own).
 
 ## 11. Phases (landed)
 
@@ -552,18 +556,12 @@ valid token.
 CI notes that remain true: the workspace test lane runs `sysand-core` and
 `sysand` together, and the CLI crate enables `sysand-core/keyring`, so
 with resolver 3 feature unification the keyring-gated tests run in the
-ordinary test lane (no separate keyring lane); prek's rust hooks are
-pinned via `language_version`, since prek does not read
-`rust-toolchain.toml`.
+ordinary test lane (no separate keyring lane).
 
 ## 12. Protocol/spec changes (this repo, `design/`)
 
 `design/index-api-protocol.md` specifies `v1/whoami` (§6), routed under
-`api/`. The `design/index-protocol.md` require-`api_root` change landed
-separately (an index has an API iff discovery advertises `api_root`; the
-plain-URL default was dropped, a breaking change for third-party plain-URL
-dynamic indexes, which must now serve `sysand-index-config.json` with an
-explicit `api_root`).
+`api/`.
 
 ## 13. Documentation (docs.sysand.com, in the `sysand-index` repo)
 
