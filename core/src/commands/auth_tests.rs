@@ -4,8 +4,8 @@
 use chrono::{TimeZone, Utc};
 
 use super::{
-    AuthCommandError, EnvCredentialEntry, StoredCredentialsStatus, assemble_auth_status,
-    do_auth_logout, do_auth_status, validated_index_key,
+    AuthCommandError, EnvCredentialEntry, IndexKey, StoredCredentialsStatus, assemble_auth_status,
+    do_auth_logout, do_auth_status,
 };
 use crate::credential_store::keyring_store::{BlobBackend, LockedBlobStore};
 use crate::credential_store::test_support::{
@@ -36,6 +36,14 @@ fn store_with(records: &[CredentialRecord]) -> LockedBlobStore<InMemoryBlobBacke
     store
 }
 
+/// Logout through the same validate-then-call path the CLI uses.
+fn logout<B: BlobBackend>(
+    store: &mut LockedBlobStore<B>,
+    index_url: &str,
+) -> Result<String, AuthCommandError> {
+    do_auth_logout(store, &IndexKey::validate(index_url)?)
+}
+
 fn env_entry(label: &str, pattern: &str) -> EnvCredentialEntry {
     EnvCredentialEntry {
         label: label.to_string(),
@@ -51,7 +59,7 @@ fn logout_removes_only_the_matching_record() {
     let keep = record("https://other.example/", "tok-keep");
     let mut store = store_with(&[record("https://example.com/idx/", "tok-gone"), keep.clone()]);
 
-    let key = do_auth_logout(&mut store, "https://example.com/idx/").unwrap();
+    let key = logout(&mut store, "https://example.com/idx/").unwrap();
 
     assert_eq!(key, "https://example.com/idx/");
     assert_eq!(store.list().unwrap(), vec![keep]);
@@ -62,7 +70,7 @@ fn logout_normalizes_url_spellings_to_the_stored_key() {
     // Uppercase host, no trailing slash, default port: all the same key.
     let mut store = store_with(&[record("https://example.com/idx/", "tok")]);
 
-    let key = do_auth_logout(&mut store, "HTTPS://Example.COM:443/idx").unwrap();
+    let key = logout(&mut store, "HTTPS://Example.COM:443/idx").unwrap();
 
     assert_eq!(key, "https://example.com/idx/");
     assert!(store.list().unwrap().is_empty());
@@ -72,7 +80,7 @@ fn logout_normalizes_url_spellings_to_the_stored_key() {
 fn logout_of_missing_credential_errors() {
     let mut store = store_with(&[record("https://example.com/idx/", "tok")]);
 
-    let err = do_auth_logout(&mut store, "https://absent.example/").unwrap_err();
+    let err = logout(&mut store, "https://absent.example/").unwrap_err();
 
     assert!(matches!(
         &err,
@@ -85,7 +93,7 @@ fn logout_of_missing_credential_errors() {
 fn logout_of_non_http_url_errors_without_touching_the_store() {
     let mut store = store_with(&[record("https://example.com/idx/", "tok")]);
 
-    let err = do_auth_logout(&mut store, "file:///srv/index").unwrap_err();
+    let err = logout(&mut store, "file:///srv/index").unwrap_err();
 
     assert!(matches!(&err, AuthCommandError::NotHttpIndex { .. }));
     assert!(
@@ -333,9 +341,14 @@ mod login {
     ) {
         let client = create_reqwest_client().unwrap();
         let mut notices = Vec::new();
+        // Validate here, like the CLI does before calling core.
+        let index_key = match IndexKey::validate(index_url) {
+            Ok(key) => key,
+            Err(err) => return (Err(err), notices),
+        };
         let outcome = do_auth_login(
             store,
-            index_url,
+            &index_key,
             secret.to_string(),
             &client,
             &make_runtime(),
@@ -655,22 +668,24 @@ mod login {
         let gitlab =
             "https://gitlab.com/api/v4/projects/84113019/repository/files/{path}/raw?ref=index";
 
-        assert_eq!(validated_index_key(gitlab).unwrap(), gitlab);
+        assert_eq!(IndexKey::validate(gitlab).unwrap().as_str(), gitlab);
         // Scheme/host case and the default port normalize through the
         // anchor; the placeholder and suffix stay verbatim.
         let spelled =
             "HTTPS://GitLab.COM:443/api/v4/projects/84113019/repository/files/{path}/raw?ref=index";
-        assert_eq!(validated_index_key(spelled).unwrap(), gitlab);
+        assert_eq!(IndexKey::validate(spelled).unwrap().as_str(), gitlab);
         // Idempotent: the key is its own key.
         assert_eq!(
-            validated_index_key(&validated_index_key(spelled).unwrap()).unwrap(),
+            IndexKey::validate(IndexKey::validate(spelled).unwrap().as_str())
+                .unwrap()
+                .as_str(),
             gitlab
         );
     }
 
     #[test]
     fn template_key_keeps_the_non_http_rejection() {
-        let err = validated_index_key("ftp://files.example.com/{path}").unwrap_err();
+        let err = IndexKey::validate("ftp://files.example.com/{path}").unwrap_err();
 
         assert!(matches!(&err, AuthCommandError::NotHttpIndex { .. }));
     }
@@ -752,8 +767,7 @@ mod login {
         };
         assert_eq!(stored[0].key, template);
         // A differently-spelled scheme normalizes to the same key.
-        let removed =
-            do_auth_logout(&mut store, "HTTP://127.0.0.1:1/files/{path}/raw?ref=main").unwrap();
+        let removed = logout(&mut store, "HTTP://127.0.0.1:1/files/{path}/raw?ref=main").unwrap();
         assert_eq!(removed, template);
         assert!(store.list().unwrap().is_empty());
     }
@@ -798,7 +812,7 @@ mod login {
                 .resolve(["pub", "name", "versions.json"]);
         assert!(expanded.as_str().contains("/raw/pub/name/versions.json"));
         assert!(matcher(&globs).is_match(expanded.as_str()));
-        assert_eq!(do_auth_logout(&mut store, template).unwrap(), template);
+        assert_eq!(logout(&mut store, template).unwrap(), template);
     }
 
     #[test]

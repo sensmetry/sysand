@@ -263,45 +263,96 @@ pub struct AuthStatus {
     pub env: Vec<EnvCredentialEntry>,
 }
 
-/// Validate that `index_url` is an absolute HTTP(S) index location (a
-/// plain URL or a `{path}`/`{path_raw}` URL template) and normalize it to
-/// its credential store key form.
-///
-/// A plain URL normalizes via [`normalize_index_key`]. A template's key
-/// rewrites only the anchorable literal prefix through `url::Url`
-/// serialization; the rest stays verbatim (raw template text, not a
-/// parsed URL). The result is idempotent and round-trips through
-/// [`IndexLocation::parse`] / `Display`, so `auth status` prints template
-/// keys in the exact form `auth logout` accepts. A template with no safe
-/// anchor is rejected ([`AuthCommandError::TemplateWithoutAnchor`]).
-///
-/// Public so the CLI can validate the target before reading a secret.
-pub fn validated_index_key(index_url: &str) -> Result<String, AuthCommandError> {
-    // Before `Url::parse`: it would percent-encode the braces into a
-    // mangled `%7Bpath%7D` key.
-    if is_template_syntax(index_url) {
-        return normalized_template_key(index_url);
+/// A validated, normalized index credential key. Constructed only
+/// through [`IndexKey::validate`], so holding one proves the target was
+/// already validated: the `do_auth_*` commands take it instead of a raw
+/// string and never re-validate.
+#[derive(Debug, Clone)]
+pub struct IndexKey {
+    /// The normalized key, exactly as stored and printed.
+    key: String,
+    /// The key parsed as an index location (plain root or template), so
+    /// commands need not reparse the key.
+    location: IndexLocation,
+    /// The URL root credential globs anchor on: the key itself for a
+    /// plain URL, the literal-prefix anchor for a template key.
+    glob_root: String,
+}
+
+impl IndexKey {
+    /// Validate that `index_url` is an absolute HTTP(S) index location (a
+    /// plain URL or a `{path}`/`{path_raw}` URL template) and normalize it
+    /// to its credential store key form.
+    ///
+    /// A plain URL normalizes via [`normalize_index_key`]. A template's key
+    /// rewrites only the anchorable literal prefix through `url::Url`
+    /// serialization; the rest stays verbatim (raw template text, not a
+    /// parsed URL). The result is idempotent and round-trips through
+    /// [`IndexLocation::parse`] / `Display`, so `auth status` prints template
+    /// keys in the exact form `auth logout` accepts. A template with no safe
+    /// anchor is rejected ([`AuthCommandError::TemplateWithoutAnchor`]).
+    ///
+    /// This is the only validation path; the CLI calls it once, before
+    /// reading a secret.
+    pub fn validate(index_url: &str) -> Result<Self, AuthCommandError> {
+        // Before `Url::parse`: it would percent-encode the braces into a
+        // mangled `%7Bpath%7D` key.
+        let key = if is_template_syntax(index_url) {
+            normalized_template_key(index_url)?
+        } else {
+            // Scheme check first, so a non-HTTP(S) location gets the
+            // dedicated message instead of a generic normalization error.
+            let url = Url::parse(index_url).map_err(|err| {
+                AuthCommandError::InvalidIndexUrl(format!("`{index_url}`: {err}"))
+            })?;
+            match url.scheme() {
+                "http" | "https" => {}
+                _ => {
+                    return Err(AuthCommandError::NotHttpIndex {
+                        url: index_url.to_string(),
+                    });
+                }
+            }
+            normalize_index_key(index_url).map_err(|err| match err {
+                CredentialStoreError::InvalidIndexUrl(msg) => {
+                    AuthCommandError::InvalidIndexUrl(msg)
+                }
+                other => AuthCommandError::Store(other),
+            })?
+        };
+        let location = IndexLocation::parse(&key)
+            .map_err(|err| AuthCommandError::InvalidIndexUrl(format!("`{key}`: {err}")))?;
+        let glob_root = match &location {
+            IndexLocation::Root(_) => key.clone(),
+            IndexLocation::Template(template) => match template_anchor_root(template.prefix()) {
+                Some((_, anchor)) => anchor.as_str().to_string(),
+                // The raw-input check already rejected unanchorable
+                // templates; this arm just avoids a panic path.
+                None => return Err(AuthCommandError::TemplateWithoutAnchor { url: key }),
+            },
+        };
+        Ok(Self {
+            key,
+            location,
+            glob_root,
+        })
     }
-    // Scheme check first, so a non-HTTP(S) location gets the dedicated
-    // message instead of a generic normalization error.
-    let url = Url::parse(index_url)
-        .map_err(|err| AuthCommandError::InvalidIndexUrl(format!("`{index_url}`: {err}")))?;
-    match url.scheme() {
-        "http" | "https" => {}
-        _ => {
-            return Err(AuthCommandError::NotHttpIndex {
-                url: index_url.to_string(),
-            });
-        }
+
+    /// The normalized key string, in the exact form credentials are
+    /// stored and printed under.
+    pub fn as_str(&self) -> &str {
+        &self.key
     }
-    normalize_index_key(index_url).map_err(|err| match err {
-        CredentialStoreError::InvalidIndexUrl(msg) => AuthCommandError::InvalidIndexUrl(msg),
-        other => AuthCommandError::Store(other),
-    })
+}
+
+impl std::fmt::Display for IndexKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.key)
+    }
 }
 
 /// The credential-key form of a URL-template target: see
-/// [`validated_index_key`].
+/// [`IndexKey::validate`].
 fn normalized_template_key(index_url: &str) -> Result<String, AuthCommandError> {
     let location = IndexLocation::parse(index_url).map_err(|err| match err {
         IndexLocationError::UnsupportedScheme { .. } => AuthCommandError::NotHttpIndex {
@@ -950,8 +1001,8 @@ fn guidance_globs(
     derive_credential_globs(primary_root, endpoints.as_ref(), notify)
 }
 
-/// Store a bearer credential for `index_url`. The secret arrives as a
-/// parameter: a library call never prompts.
+/// Store a bearer credential for the index `index_key` names. The secret
+/// arrives as a parameter: a library call never prompts.
 ///
 /// Discovery is fetched best-effort for glob scoping
 /// ([`fetch_login_endpoints`]); with no usable document the credential
@@ -967,26 +1018,15 @@ fn guidance_globs(
 /// probe runs: no network is spent on a credential that cannot be stored.
 pub fn do_auth_login<B: BlobBackend>(
     store: &mut LockedBlobStore<B>,
-    index_url: &str,
+    index_key: &IndexKey,
     secret: String,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &tokio::runtime::Runtime,
     mut notify: impl FnMut(AuthLoginNotice),
 ) -> Result<AuthLoginOutcome, AuthCommandError> {
-    let key = validated_index_key(index_url)?;
-    let location = IndexLocation::parse(&key)
-        .map_err(|err| AuthCommandError::InvalidIndexUrl(format!("`{key}`: {err}")))?;
-    // Key validation already rejected unanchorable templates; this
-    // re-check just avoids a panic path.
-    let primary_root = match &location {
-        IndexLocation::Root(_) => key.clone(),
-        IndexLocation::Template(template) => match template_anchor_root(template.prefix()) {
-            Some((_, anchor)) => anchor.as_str().to_string(),
-            None => {
-                return Err(AuthCommandError::TemplateWithoutAnchor { url: key });
-            }
-        },
-    };
+    let key = index_key.as_str().to_string();
+    let location = &index_key.location;
+    let primary_root = index_key.glob_root.clone();
 
     // Read the store before any network: an absent keyring backend must
     // be detected before the secret could be spent on a credentialed
@@ -996,7 +1036,7 @@ pub fn do_auth_login<B: BlobBackend>(
     let records = match store.list() {
         Ok(records) => records,
         Err(CredentialStoreError::BackendAbsent { source }) => {
-            let globs = guidance_globs(client, &location, &primary_root, runtime, &mut notify);
+            let globs = guidance_globs(client, location, &primary_root, runtime, &mut notify);
             return Ok(AuthLoginOutcome::BackendUnavailable {
                 key,
                 globs,
@@ -1007,11 +1047,11 @@ pub fn do_auth_login<B: BlobBackend>(
     };
     let replacing = records.iter().any(|record| record.key == key);
 
-    let endpoints = fetch_login_endpoints(client, &location, &secret, runtime, &mut notify);
+    let endpoints = fetch_login_endpoints(client, location, &secret, runtime, &mut notify);
     let globs = derive_credential_globs(&primary_root, endpoints.as_ref(), &mut notify);
 
     let outcome =
-        run_validation_probes(endpoints.as_ref(), &location, &secret, runtime, &mut notify);
+        run_validation_probes(endpoints.as_ref(), location, &secret, runtime, &mut notify);
     // Refuse only when an exercised surface rejected and none accepted.
     if outcome.accepted.is_empty() && !outcome.rejected.is_empty() {
         return Err(AuthCommandError::ValidationRejected {
@@ -1083,16 +1123,16 @@ pub fn do_auth_login<B: BlobBackend>(
     }
 }
 
-/// Remove the stored credential for `index_url`.
+/// Remove the stored credential for the index `index_key` names.
 ///
 /// Returns the normalized index key the record was stored under. Removing
 /// a login that does not exist is an error
 /// ([`AuthCommandError::NoStoredCredential`]).
 pub fn do_auth_logout<B: BlobBackend>(
     store: &mut LockedBlobStore<B>,
-    index_url: &str,
+    index_key: &IndexKey,
 ) -> Result<String, AuthCommandError> {
-    let key = validated_index_key(index_url)?;
+    let key = index_key.as_str().to_string();
     if store.remove(&key)? {
         Ok(key)
     } else {
@@ -1205,18 +1245,20 @@ fn select_whoami_credential(
 /// discovery document, so the CLI passes its regular read policy.
 pub fn do_auth_whoami<P: HTTPAuthentication>(
     records: &[CredentialRecord],
-    index_url: &str,
+    index_key: &IndexKey,
     env_bearers: &GlobMap<EnvBearerAuth>,
     discovery_auth: &P,
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &tokio::runtime::Runtime,
 ) -> Result<AuthWhoamiOutcome, AuthCommandError> {
-    let key = validated_index_key(index_url)?;
-    let location = IndexLocation::parse(&key)
-        .map_err(|err| AuthCommandError::InvalidIndexUrl(format!("`{key}`: {err}")))?;
+    let key = index_key.as_str().to_string();
 
     let endpoints = runtime
-        .block_on(fetch_index_config(client, discovery_auth, &location))
+        .block_on(fetch_index_config(
+            client,
+            discovery_auth,
+            &index_key.location,
+        ))
         .map_err(|err| AuthCommandError::WhoamiDiscoveryFailed {
             index: key.clone(),
             error: err.to_string(),

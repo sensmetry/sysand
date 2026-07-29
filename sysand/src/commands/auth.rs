@@ -14,9 +14,9 @@ use sysand_core::{
     auth::{GlobMapBuilder, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder},
     commands::auth::{
         AuthCommandError, AuthLoginNotice, AuthLoginOutcome, AuthStatus, EnvCredentialEntry,
-        ProbeSurface, StoredCredentialStatus, StoredCredentialsStatus, WhoamiCredentialSource,
-        WhoamiVerdict, assemble_auth_status, do_auth_login, do_auth_logout, do_auth_status,
-        do_auth_whoami, validated_index_key,
+        IndexKey, ProbeSurface, StoredCredentialStatus, StoredCredentialsStatus,
+        WhoamiCredentialSource, WhoamiVerdict, assemble_auth_status, do_auth_login, do_auth_logout,
+        do_auth_status, do_auth_whoami,
     },
     config::Config,
     credential_store::CredentialStoreError,
@@ -153,8 +153,9 @@ pub fn command_auth_login(
         None => resolve_default_index(config)?,
     };
     // Validate and normalize before any secret entry, so a `file://` or
-    // unanchorable-template target fails without prompting.
-    let key = validated_index_key(&target)?;
+    // unanchorable-template target fails without prompting. This is the
+    // one validation; core takes the resulting `IndexKey` as proof.
+    let key = IndexKey::validate(&target)?;
     // Echo the resolved index before reading the secret, on both the
     // prompt and the stdin path, so a project-configured default cannot
     // be targeted silently.
@@ -165,17 +166,17 @@ pub fn command_auth_login(
     // An `http` index sends the token in cleartext, and a MITM at login
     // could persist a hostile `api_root`. Warn before the secret is
     // entered so the user can abort.
-    if key.starts_with("http://") {
+    if key.as_str().starts_with("http://") {
         log::warn!(
             "`{key}` uses an unencrypted (http) connection; the token will be \
              sent in cleartext. Prefer an https:// index."
         );
     }
 
-    let secret = read_token(&key, token_stdin)?;
+    let secret = read_token(key.as_str(), token_stdin)?;
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
-    let index_key = key.clone();
+    let index_key = key.to_string();
     let outcome = do_auth_login(&mut store, &key, secret, client, &runtime, |notice| {
         render_login_notice(notice, &index_key);
     });
@@ -340,7 +341,8 @@ pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result
     // Echo the resolved index (normalized to the stored-key form when
     // possible) so a configured default cannot be targeted silently.
     // Printed, not logged: `--quiet` must not hide it.
-    let echo = validated_index_key(&target).unwrap_or_else(|_| target.clone());
+    let validated = IndexKey::validate(&target);
+    let echo = validated.as_ref().map_or(target.as_str(), IndexKey::as_str);
     let header = sysand_core::style::get_style_config().header;
     println!(
         "{header}{:>12}{header:#} from index `{echo}`",
@@ -348,7 +350,10 @@ pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result
     );
 
     let mut store = open_cli_credential_store().context("could not open the credential store")?;
-    match do_auth_logout(&mut store, &target) {
+    // The one validation for this command; an invalid target surfaces
+    // here, after the echo, as it did when core validated it.
+    let key = validated?;
+    match do_auth_logout(&mut store, &key) {
         Ok(key) => {
             log::info!(
                 "{header}{:>12}{header:#} stored credential for `{key}`",
@@ -382,7 +387,7 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
     // ambiguous chain gets a note instead of the hard error bare
     // `login`/`logout` raise, and an invalid default simply marks nothing.
     let default_key = match resolve_default_index(config) {
-        Ok(url) => validated_index_key(&url).ok(),
+        Ok(url) => IndexKey::validate(&url).ok(),
         // `resolve_default_index` errors only on an ambiguous chain
         // (more than one distinct default index).
         Err(_) => {
@@ -394,9 +399,10 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
             None
         }
     };
+    let default_key = default_key.as_ref().map(IndexKey::as_str);
     let env = collect_env_credential_entries();
     let status = match open_cli_credential_store() {
-        Ok(store) => match do_auth_status(&store, env, default_key.as_deref()) {
+        Ok(store) => match do_auth_status(&store, env, default_key) {
             Ok(status) => status,
             Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
                 return Err(err).context(KEYRING_LOCKED_HINT);
@@ -406,8 +412,7 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
         // Could not open the store: degrade to the env-only view like an
         // absent backend, keeping the env entries' default-index marking.
         Err(err) => {
-            let mut status =
-                assemble_auth_status(Vec::new(), env, chrono::Utc::now(), default_key.as_deref());
+            let mut status = assemble_auth_status(Vec::new(), env, chrono::Utc::now(), default_key);
             status.stored = StoredCredentialsStatus::BackendUnavailable {
                 reason: err.to_string(),
             };
@@ -625,7 +630,7 @@ pub fn command_auth_whoami(
     // Validate before any store or network access, and echo the resolved
     // index so a configured default cannot be targeted silently. Printed,
     // not logged: `--quiet` must not hide it.
-    let key = validated_index_key(&target)?;
+    let key = IndexKey::validate(&target)?;
     let header = sysand_core::style::get_style_config().header;
     println!(
         "{header}{:>12}{header:#} identity on index `{key}`",
@@ -657,7 +662,7 @@ pub fn command_auth_whoami(
 
     let outcome = match do_auth_whoami(
         &records,
-        &target,
+        &key,
         &env_bearers,
         &discovery_policy,
         client,
