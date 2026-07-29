@@ -123,9 +123,7 @@ impl ResolvedEndpoints {
     }
 }
 
-/// Wire shape of the discovery document. `pub(crate)` so login's
-/// authenticated discovery retry can parse the forced response body and
-/// interpret it through [`resolve_index_config`].
+/// Wire shape of the discovery document.
 #[derive(Debug, Deserialize)]
 pub(crate) struct IndexConfigRaw {
     #[serde(default)]
