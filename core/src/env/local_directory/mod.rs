@@ -246,7 +246,11 @@ impl LocalDirectoryEnvironment {
                     );
                 }
             }
-            Err(e) => log::debug!("failed to get metadata of old env at `{path}`: {e}"),
+            Err(e) => {
+                if e.kind() != ErrorKind::NotFound {
+                    log::debug!("failed to get metadata of old env at `{path}`: {e}")
+                }
+            }
         }
     }
 
