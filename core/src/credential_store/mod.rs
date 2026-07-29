@@ -208,9 +208,10 @@ pub fn normalize_index_key(raw: &str) -> Result<String, CredentialStoreError> {
         )));
     }
     url.set_fragment(None);
-    // This will not panic for http(s)
-    let path = url.path_segments_mut().unwrap();
-    path.pop_if_empty().push("");
+    url.path_segments_mut()
+        .expect("http(s) URLs always have path segments")
+        .pop_if_empty()
+        .push("");
     Ok(url.into())
 }
 
