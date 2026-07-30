@@ -44,7 +44,7 @@ pub enum CredentialStoreError {
     },
     /// The OS keyring exists but refused access (locked or denied).
     /// Callers must surface this, never silently degrade.
-    #[error("the OS keyring denied access (it may be locked): {source}")]
+    #[error("the OS keyring denied access (it may be locked)")]
     BackendDenied {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
@@ -54,11 +54,12 @@ pub enum CredentialStoreError {
     )]
     LockTimeout { path: String },
     /// I/O failure around the credential store lock file.
-    #[error("credential store lock error: {0}")]
+    #[error("credential store lock error")]
     Lock(#[from] std::io::Error),
     /// The serialized blob exceeds the platform credential size limit.
     #[error(
-        "credential store full on this platform (Windows ~2.5 KB limit); remove an unused credential or use a smaller token"
+        "credential store full on this platform (Windows ~2.5 KB limit);\n\
+        remove an unused credential or use a smaller token"
     )]
     BlobTooLarge,
     /// Serializing the blob failed.
@@ -89,10 +90,8 @@ pub struct CredentialSubject {
 
 /// One stored credential: a normalized index-URL key, the URL glob patterns the
 /// credential applies to, the scheme, the secret, plus the identity and
-/// expiry fields a validating login learned from `v1/whoami` (absent for
-/// non-validated logins and read-only indexes; blob version stays 1, older
-/// blobs without them still parse). A validating login also records which
-/// surfaces accepted the credential (`validated`), shown by `auth status`.
+/// expiry fields a validating login learned from `v1/whoami`. A validating login also
+/// records which surfaces accepted the credential (`validated`), shown by `auth status`.
 ///
 /// Unknown fields written by a newer sysand are preserved in `extra` so a
 /// read-modify-write by an older binary does not drop them.
