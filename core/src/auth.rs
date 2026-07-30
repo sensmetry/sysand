@@ -650,6 +650,8 @@ pub struct StoredBearerAuth {
     /// record. `Arc`d so the flag is shared across the record's globs and
     /// across map clones: together with the once-per-process map cache
     /// this gives at most one warning per record per process.
+    /// (credential expiry is checked for every request that escalates to it,
+    /// so it can happen multiple times for a single credential)
     expiry_warned: Arc<AtomicBool>,
 }
 
