@@ -234,11 +234,7 @@ pub async fn fetch_index_config<P: HTTPAuthentication>(
 
 /// [`fetch_index_config`], except an absent document (HTTP 404) surfaces
 /// as [`HttpFetchError::BadHttpStatus`] instead of folding into the flat
-/// topology. "Strict" is about observability, not requirement: login's
-/// discovery fetch must see the unauthenticated 404 to decide on its
-/// authenticated retry (a private GitLab answers 404, not 401, when auth
-/// is missing), and then reconstructs the flat topology itself when the
-/// retry confirms the document is genuinely absent.
+/// topology
 pub(crate) async fn fetch_index_config_strict<P: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
     auth: &P,

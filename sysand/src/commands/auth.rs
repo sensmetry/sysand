@@ -451,12 +451,6 @@ fn collect_env_credential_entries() -> Vec<EnvCredentialEntry> {
 /// highlighted as a warning.
 const EXPIRES_SOON_DAYS: i64 = 7;
 
-/// Render an expiry timestamp for display, without chrono's sub-second
-/// noise (`11:39:28.149443` reads as `11:39:28`).
-fn format_expiry_timestamp(expires_at: &chrono::DateTime<chrono::Utc>) -> String {
-    expires_at.format("%Y-%m-%d %H:%M:%S UTC").to_string()
-}
-
 /// The ` (expired)` / ` (expires in N days)` qualifier for an expiry
 /// timestamp, styled through the house tokens (red for expired, yellow
 /// when expiry is close). Empty when nothing is known.
@@ -556,7 +550,7 @@ fn render_auth_status(status: &AuthStatus) {
             println!(
                 "{:>12} {dim}expires:{dim:#} {}{}",
                 ' ',
-                format_expiry_timestamp(expires_at),
+                sysand_core::utils::format_expiry_utc(expires_at),
                 expiry_qualifier(entry.expired, entry.expires_in_days)
             );
         }
@@ -725,7 +719,7 @@ pub fn command_auth_whoami(
                         println!(
                             "{header}{:>12}{header:#} {}{}",
                             "Expires",
-                            format_expiry_timestamp(&expires_at),
+                            sysand_core::utils::format_expiry_utc(&expires_at),
                             expiry_qualifier(expires_at < now, Some((expires_at - now).num_days()))
                         );
                     }

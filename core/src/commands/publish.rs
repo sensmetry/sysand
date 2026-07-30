@@ -272,12 +272,7 @@ pub fn do_publish(
         c.post(upload_url.clone()).multipart(form)
     };
 
-    let response = runtime.block_on(async {
-        bearer
-            .auth
-            .with_authentication(&client, &build_request)
-            .await
-    })?;
+    let response = runtime.block_on(bearer.auth.with_authentication(&client, &build_request))?;
 
     let status = response.status().as_u16();
     let response_url = response.url().to_string();
@@ -300,13 +295,6 @@ pub fn do_publish(
 /// is the real authority, so the margin errs toward attempting.
 fn stored_bearer_clearly_expired(expires_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     now.signed_duration_since(expires_at) > TimeDelta::hours(1)
-}
-
-/// Render an expiry timestamp for display, without chrono's sub-second
-/// noise (`11:39:28.149443` reads as `11:39:28`), matching how `auth status`
-/// renders expiry timestamps.
-fn format_expiry_utc(expires_at: &DateTime<Utc>) -> String {
-    expires_at.format("%Y-%m-%d %H:%M:%S UTC").to_string()
 }
 
 /// Validate the shape of the resolved `api_root` that comes back from
@@ -996,7 +984,7 @@ pub enum PublishError {
         "the stored credential for `{key}` expired at {}, so publish stopped\n\
          before uploading (a matching `SYSAND_CRED_*` environment credential would take\n\
          precedence instead)",
-        format_expiry_utc(.expires_at)
+        crate::utils::format_expiry_utc(.expires_at)
     )]
     StoredCredentialExpired {
         key: String,

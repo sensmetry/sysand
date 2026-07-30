@@ -254,3 +254,9 @@ pub fn to_pretty_json_string<T: Serialize>(value: &T) -> String {
 }
 
 pub const SP: char = ' ';
+
+/// Render an expiry timestamp for display, without chrono's sub-second
+/// noise (`11:39:28.149443` reads as `11:39:28`).
+pub fn format_expiry_utc(expires_at: &chrono::DateTime<chrono::Utc>) -> String {
+    expires_at.format("%Y-%m-%d %H:%M:%S UTC").to_string()
+}
