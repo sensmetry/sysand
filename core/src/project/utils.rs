@@ -131,6 +131,8 @@ pub enum FsIoError {
     CopyFile(Utf8PathBuf, Utf8PathBuf, io::Error),
     #[error("failed to remove file\n  `{0}`:\n  {1}")]
     RmFile(Utf8PathBuf, io::Error),
+    #[error("failed to lock file\n  `{0}`:\n  {1}")]
+    LockFile(Utf8PathBuf, io::Error),
     #[error("failed to remove directory\n  `{0}`:\n  {1}")]
     RmDir(Utf8PathBuf, io::Error),
     #[error("failed to get path to current directory:\n  {0}")]

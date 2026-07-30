@@ -60,9 +60,13 @@ pub enum CredentialStoreError {
         "timed out waiting for the credential store lock at `{path}`; retry once other sysand processes finish"
     )]
     LockTimeout { path: String },
-    /// I/O failure around the credential store lock file.
+    /// I/O failure around the credential store lock file; the inner
+    /// error names the operation and path.
     #[error("credential store lock error")]
-    Lock(#[from] std::io::Error),
+    Lock(#[from] crate::project::utils::FsIoError),
+    /// No per-user directory could be determined for the lock file.
+    #[error("could not determine a per-user directory for the credential store lock file")]
+    NoLockDir,
     /// The serialized blob exceeds the platform credential size limit.
     #[error(
         "credential store full on this platform (Windows ~2.5 KB limit);\n\

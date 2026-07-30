@@ -18,6 +18,9 @@
 use std::io;
 use std::path::PathBuf;
 
+use camino::Utf8PathBuf;
+use sysand_core::project::utils::FsIoError;
+
 use sysand_core::credential_store::{
     CredentialStoreError,
     keyring_store::{BlobBackend, LockedBlobStore, OsKeyringBackend, default_lock_path},
@@ -58,7 +61,7 @@ impl BlobBackend for CliBlobBackend {
             CliBlobBackend::File(path) => match std::fs::read_to_string(path) {
                 Ok(raw) => Ok(Some(raw)),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
-                Err(err) => Err(CredentialStoreError::Lock(err)),
+                Err(err) => Err(FsIoError::ReadFile(utf8_lossy(path), err).into()),
             },
             #[cfg(debug_assertions)]
             CliBlobBackend::Absent => Err(absent()),
@@ -69,9 +72,8 @@ impl BlobBackend for CliBlobBackend {
         match self {
             CliBlobBackend::Keyring(keyring) => keyring.write(raw),
             #[cfg(debug_assertions)]
-            CliBlobBackend::File(path) => {
-                std::fs::write(path, raw).map_err(CredentialStoreError::Lock)
-            }
+            CliBlobBackend::File(path) => std::fs::write(path, raw)
+                .map_err(|err| FsIoError::WriteFile(utf8_lossy(path), err).into()),
             #[cfg(debug_assertions)]
             CliBlobBackend::Absent => Err(absent()),
         }
@@ -84,7 +86,7 @@ impl BlobBackend for CliBlobBackend {
             CliBlobBackend::File(path) => match std::fs::remove_file(path) {
                 Ok(()) => Ok(()),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-                Err(err) => Err(CredentialStoreError::Lock(err)),
+                Err(err) => Err(FsIoError::RmFile(utf8_lossy(path), err).into()),
             },
             #[cfg(debug_assertions)]
             CliBlobBackend::Absent => Err(absent()),
@@ -130,13 +132,21 @@ pub fn open_cli_credential_store() -> Result<CliCredentialStore, CredentialStore
     // keychain).
     #[cfg(not(debug_assertions))]
     if std::env::var_os(TEST_STORE_ENV_VAR).is_some() {
-        return Err(CredentialStoreError::Lock(io::Error::other(format!(
-            "{TEST_STORE_ENV_VAR} is set, but this build does not support the \
-             test credential store"
-        ))));
+        return Err(CredentialStoreError::BackendDenied {
+            source: format!(
+                "{TEST_STORE_ENV_VAR} is set, but this build does not support the \
+                 test credential store"
+            )
+            .into(),
+        });
     }
     Ok(LockedBlobStore::new(
         CliBlobBackend::Keyring(OsKeyringBackend),
         default_lock_path()?,
     ))
+}
+
+/// Render a path for error context; lossy display is fine for messages.
+fn utf8_lossy(path: &std::path::Path) -> Utf8PathBuf {
+    Utf8PathBuf::from(path.display().to_string())
 }

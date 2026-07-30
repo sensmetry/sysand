@@ -151,7 +151,7 @@ fn lock_path_prefers_state_then_data_local_then_home() {
     );
     assert!(matches!(
         lock_path_from_dirs(None, None, None).unwrap_err(),
-        CredentialStoreError::Lock(_)
+        CredentialStoreError::NoLockDir
     ));
 }
 

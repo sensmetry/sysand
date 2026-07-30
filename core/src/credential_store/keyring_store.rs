@@ -21,11 +21,11 @@
 use std::fs;
 // Only the gated lock-path fallback error uses `io` directly.
 #[cfg(any(feature = "keyring", test))]
-use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use super::{CredentialBlob, CredentialRecord, CredentialStoreError, parse_blob, serialize_blob};
+use crate::project::utils::FsIoError;
 
 /// Keyring service name of the single sysand credential entry.
 #[cfg(all(
@@ -202,10 +202,7 @@ fn lock_path_from_dirs(
     }
     match home_dir {
         Some(home) => Ok(home.join(".sysand").join("credentials.lock")),
-        None => Err(CredentialStoreError::Lock(io::Error::new(
-            io::ErrorKind::NotFound,
-            "could not determine a per-user directory for the credential store lock file",
-        ))),
+        None => Err(CredentialStoreError::NoLockDir),
     }
 }
 
@@ -289,7 +286,9 @@ impl<B: BlobBackend> LockedBlobStore<B> {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        Ok(options.open(&self.lock_path)?)
+        options
+            .open(&self.lock_path)
+            .map_err(|err| FsIoError::OpenFile(utf8_lossy(&self.lock_path), err).into())
     }
 
     /// Run `body` under the cross-process lock, waiting at most the
@@ -324,7 +323,9 @@ impl<B: BlobBackend> LockedBlobStore<B> {
                     }
                     std::thread::sleep(self.lock_poll_interval);
                 }
-                Err(fs::TryLockError::Error(err)) => return Err(CredentialStoreError::Lock(err)),
+                Err(fs::TryLockError::Error(err)) => {
+                    return Err(FsIoError::LockFile(utf8_lossy(&self.lock_path), err).into());
+                }
             }
         }
     }
@@ -348,7 +349,16 @@ fn create_private_dir_all(dir: &Path) -> Result<(), CredentialStoreError> {
         use std::os::unix::fs::DirBuilderExt;
         builder.mode(0o700);
     }
-    Ok(builder.create(dir)?)
+    builder
+        .create(dir)
+        .map_err(|err| FsIoError::MkDir(utf8_lossy(dir), err))?;
+    Ok(())
+}
+
+/// Render a path for error context; lock paths come from the `dirs`
+/// crate, so a non-UTF-8 path is rare and lossy display is fine.
+fn utf8_lossy(path: &Path) -> camino::Utf8PathBuf {
+    camino::Utf8PathBuf::from(path.display().to_string())
 }
 
 /// Read and parse the blob; `None` (no entry) is an empty store, but a
