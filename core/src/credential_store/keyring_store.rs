@@ -266,8 +266,7 @@ impl<B: BlobBackend> LockedBlobStore<B> {
             match attempt {
                 Ok(()) => {
                     let result = body(&self.backend);
-                    // Release explicitly (it would also unlock on drop) so
-                    // the release is visible and the backend result stands.
+                    // Release explicitly (it would also unlock on `file` drop)
                     let _ = file.unlock();
                     return result;
                 }
