@@ -356,7 +356,6 @@ fn redact_userinfo(raw: &str) -> std::borrow::Cow<'_, str> {
 /// file. Test-only so they never reach the library's public API.
 #[cfg(test)]
 pub(crate) mod test_support {
-    use std::path::PathBuf;
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -402,13 +401,15 @@ pub(crate) mod test_support {
 
     /// A lock-file path no other store in this test process shares, so
     /// parallel tests never contend on the cross-process lock.
-    pub(crate) fn unique_lock_path() -> PathBuf {
+    pub(crate) fn unique_lock_path() -> camino::Utf8PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
-        std::env::temp_dir().join(format!(
-            "sysand-core-test-{}-{}.lock",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed)
-        ))
+        camino::Utf8PathBuf::from_path_buf(std::env::temp_dir())
+            .unwrap_or_else(|p| camino::Utf8PathBuf::from(p.display().to_string()))
+            .join(format!(
+                "sysand-core-test-{}-{}.lock",
+                std::process::id(),
+                COUNTER.fetch_add(1, Ordering::Relaxed)
+            ))
     }
 
     /// An empty in-memory store, the test stand-in for the keyring store.

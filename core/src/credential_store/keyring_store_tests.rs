@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use camino_tempfile::tempdir;
 
-use std::path::PathBuf;
+use camino::Utf8PathBuf;
 
 use super::{LockedBlobStore, lock_path_from_dirs};
 use crate::credential_store::test_support::InMemoryBlobBackend;
@@ -33,7 +33,7 @@ fn store_at(
     backend: InMemoryBlobBackend,
     dir: &camino_tempfile::Utf8TempDir,
 ) -> LockedBlobStore<InMemoryBlobBackend> {
-    LockedBlobStore::new(backend, dir.path().join("credentials.lock").into())
+    LockedBlobStore::new(backend, dir.path().join("credentials.lock"))
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn corrupt_blob_fails_closed_and_is_not_clobbered() {
 #[test]
 fn lock_wait_is_bounded() {
     let dir = tempdir().unwrap();
-    let lock_path: std::path::PathBuf = dir.path().join("credentials.lock").into();
+    let lock_path: Utf8PathBuf = dir.path().join("credentials.lock");
     let mut store = LockedBlobStore::new(InMemoryBlobBackend::default(), lock_path.clone())
         .with_lock_timing(Duration::from_millis(100), Duration::from_millis(10));
 
@@ -130,21 +130,21 @@ fn lock_path_prefers_state_then_data_local_then_home() {
     // Pure precedence check: no process-env mutation. The session-scoped
     // XDG_RUNTIME_DIR is deliberately not a candidate (two same-user
     // processes with different environments must lock the same file).
-    let state = Some(PathBuf::from("/xdg/state"));
-    let data_local = Some(PathBuf::from("/xdg/data-local"));
-    let home = Some(PathBuf::from("/home/user"));
+    let state = Some(std::path::PathBuf::from("/xdg/state"));
+    let data_local = Some(std::path::PathBuf::from("/xdg/data-local"));
+    let home = Some(std::path::PathBuf::from("/home/user"));
 
     assert_eq!(
         lock_path_from_dirs(state.clone(), data_local.clone(), home.clone()).unwrap(),
-        PathBuf::from("/xdg/state/sysand/credentials.lock")
+        Utf8PathBuf::from("/xdg/state/sysand/credentials.lock")
     );
     assert_eq!(
         lock_path_from_dirs(None, data_local, home.clone()).unwrap(),
-        PathBuf::from("/xdg/data-local/sysand/credentials.lock")
+        Utf8PathBuf::from("/xdg/data-local/sysand/credentials.lock")
     );
     assert_eq!(
         lock_path_from_dirs(None, None, home).unwrap(),
-        PathBuf::from("/home/user/.sysand/credentials.lock")
+        Utf8PathBuf::from("/home/user/.sysand/credentials.lock")
     );
     assert!(matches!(
         lock_path_from_dirs(None, None, None).unwrap_err(),
@@ -155,7 +155,7 @@ fn lock_path_prefers_state_then_data_local_then_home() {
 #[test]
 fn shared_lock_lets_reads_through_but_blocks_writes() {
     let dir = tempdir().unwrap();
-    let lock_path: std::path::PathBuf = dir.path().join("credentials.lock").into();
+    let lock_path: Utf8PathBuf = dir.path().join("credentials.lock");
     let mut store = LockedBlobStore::new(InMemoryBlobBackend::default(), lock_path.clone())
         .with_lock_timing(Duration::from_millis(100), Duration::from_millis(10));
     store.upsert(record("https://a.example/", "tok")).unwrap();
@@ -184,7 +184,7 @@ fn shared_lock_lets_reads_through_but_blocks_writes() {
 #[test]
 fn exclusive_lock_blocks_reads() {
     let dir = tempdir().unwrap();
-    let lock_path: std::path::PathBuf = dir.path().join("credentials.lock").into();
+    let lock_path: Utf8PathBuf = dir.path().join("credentials.lock");
     let store = LockedBlobStore::new(InMemoryBlobBackend::default(), lock_path.clone())
         .with_lock_timing(Duration::from_millis(100), Duration::from_millis(10));
 
@@ -246,7 +246,7 @@ fn map_keyring_error_covers_the_taxonomy() {
 fn concurrent_writers_do_not_lose_records() {
     let dir = tempdir().unwrap();
     let backend = InMemoryBlobBackend::default();
-    let lock_path: std::path::PathBuf = dir.path().join("credentials.lock").into();
+    let lock_path: Utf8PathBuf = dir.path().join("credentials.lock");
 
     // 4 writers x 2 records: enough to lose an update without the lock,
     // while the final blob stays under the Windows UTF-16 size cap, which

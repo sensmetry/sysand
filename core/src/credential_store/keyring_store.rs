@@ -19,7 +19,11 @@
 //! `keyring` cargo feature; everything else here is unconditional.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+// `PathBuf` feeds only the gated lock-path selection below.
+#[cfg(any(feature = "keyring", test))]
+use std::path::PathBuf;
+
+use camino::{Utf8Path, Utf8PathBuf};
 use std::time::{Duration, Instant};
 
 use super::{CredentialBlob, CredentialRecord, CredentialStoreError, parse_blob, serialize_blob};
@@ -160,7 +164,7 @@ fn musl_backend_absent() -> CredentialStoreError {
 /// different environments could lock different files while
 /// read-modify-writing the same keyring entry, silently losing a record.
 #[cfg(feature = "keyring")]
-pub fn default_lock_path() -> Result<PathBuf, CredentialStoreError> {
+pub fn default_lock_path() -> Result<Utf8PathBuf, CredentialStoreError> {
     lock_path_from_dirs(dirs::state_dir(), dirs::data_local_dir(), dirs::home_dir())
 }
 
@@ -172,11 +176,14 @@ fn lock_path_from_dirs(
     state_dir: Option<PathBuf>,
     data_local_dir: Option<PathBuf>,
     home_dir: Option<PathBuf>,
-) -> Result<PathBuf, CredentialStoreError> {
-    if let Some(base) = state_dir.or(data_local_dir) {
+) -> Result<Utf8PathBuf, CredentialStoreError> {
+    // A non-UTF-8 candidate directory is exceedingly unlikely (these come
+    // from the `dirs` crate); treat one like an unset candidate.
+    let utf8 = |dir: Option<PathBuf>| dir.and_then(|d| Utf8PathBuf::from_path_buf(d).ok());
+    if let Some(base) = utf8(state_dir).or_else(|| utf8(data_local_dir)) {
         return Ok(base.join("sysand").join("credentials.lock"));
     }
-    match home_dir {
+    match utf8(home_dir) {
         Some(home) => Ok(home.join(".sysand").join("credentials.lock")),
         None => Err(CredentialStoreError::NoLockDir),
     }
@@ -190,7 +197,7 @@ fn lock_path_from_dirs(
 #[derive(Debug)]
 pub struct LockedBlobStore<B> {
     backend: B,
-    lock_path: PathBuf,
+    lock_path: Utf8PathBuf,
     lock_timeout: Duration,
     lock_poll_interval: Duration,
 }
@@ -208,7 +215,7 @@ impl KeyringCredentialStore {
 }
 
 impl<B: BlobBackend> LockedBlobStore<B> {
-    pub fn new(backend: B, lock_path: PathBuf) -> Self {
+    pub fn new(backend: B, lock_path: Utf8PathBuf) -> Self {
         LockedBlobStore {
             backend,
             lock_path,
@@ -237,7 +244,7 @@ impl<B: BlobBackend> LockedBlobStore<B> {
         }
         options
             .open(&self.lock_path)
-            .map_err(|err| FsIoError::OpenFile(utf8_lossy(&self.lock_path), err).into())
+            .map_err(|err| FsIoError::OpenFile(self.lock_path.clone(), err).into())
     }
 
     /// Run `body` under the cross-process lock, waiting at most the
@@ -267,13 +274,13 @@ impl<B: BlobBackend> LockedBlobStore<B> {
                 Err(fs::TryLockError::WouldBlock) => {
                     if Instant::now() >= deadline {
                         return Err(CredentialStoreError::LockTimeout {
-                            path: self.lock_path.display().to_string(),
+                            path: self.lock_path.to_string(),
                         });
                     }
                     std::thread::sleep(self.lock_poll_interval);
                 }
                 Err(fs::TryLockError::Error(err)) => {
-                    return Err(FsIoError::LockFile(utf8_lossy(&self.lock_path), err).into());
+                    return Err(FsIoError::LockFile(self.lock_path.clone(), err).into());
                 }
             }
         }
@@ -290,7 +297,7 @@ enum LockMode {
 
 /// Create a directory chain, with the final directory private (0700) on
 /// unix.
-fn create_private_dir_all(dir: &Path) -> Result<(), CredentialStoreError> {
+fn create_private_dir_all(dir: &Utf8Path) -> Result<(), CredentialStoreError> {
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -300,14 +307,8 @@ fn create_private_dir_all(dir: &Path) -> Result<(), CredentialStoreError> {
     }
     builder
         .create(dir)
-        .map_err(|err| FsIoError::MkDir(utf8_lossy(dir), err))?;
+        .map_err(|err| FsIoError::MkDir(dir.to_owned(), err))?;
     Ok(())
-}
-
-/// Render a path for error context; lock paths come from the `dirs`
-/// crate, so a non-UTF-8 path is rare and lossy display is fine.
-fn utf8_lossy(path: &Path) -> camino::Utf8PathBuf {
-    camino::Utf8PathBuf::from(path.display().to_string())
 }
 
 /// Read and parse the blob; `None` (no entry) is an empty store, but a

@@ -16,7 +16,6 @@
 //! variable make tests scribble on a developer's keychain).
 
 use std::io;
-use std::path::PathBuf;
 
 use camino::Utf8PathBuf;
 use sysand_core::project::utils::FsIoError;
@@ -47,7 +46,7 @@ pub enum CliBlobBackend {
     Keyring(OsKeyringBackend),
     /// Test seam: the blob as a plain JSON file at the given path.
     #[cfg(debug_assertions)]
-    File(PathBuf),
+    File(Utf8PathBuf),
     /// Test seam: every access reports an absent keyring backend.
     #[cfg(debug_assertions)]
     Absent,
@@ -61,7 +60,7 @@ impl BlobBackend for CliBlobBackend {
             CliBlobBackend::File(path) => match std::fs::read_to_string(path) {
                 Ok(raw) => Ok(Some(raw)),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
-                Err(err) => Err(FsIoError::ReadFile(utf8_lossy(path), err).into()),
+                Err(err) => Err(FsIoError::ReadFile(path.clone(), err).into()),
             },
             #[cfg(debug_assertions)]
             CliBlobBackend::Absent => Err(absent()),
@@ -73,7 +72,7 @@ impl BlobBackend for CliBlobBackend {
             CliBlobBackend::Keyring(keyring) => keyring.write(raw),
             #[cfg(debug_assertions)]
             CliBlobBackend::File(path) => std::fs::write(path, raw)
-                .map_err(|err| FsIoError::WriteFile(utf8_lossy(path), err).into()),
+                .map_err(|err| FsIoError::WriteFile(path.clone(), err).into()),
             #[cfg(debug_assertions)]
             CliBlobBackend::Absent => Err(absent()),
         }
@@ -86,7 +85,7 @@ impl BlobBackend for CliBlobBackend {
             CliBlobBackend::File(path) => match std::fs::remove_file(path) {
                 Ok(()) => Ok(()),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-                Err(err) => Err(FsIoError::RmFile(utf8_lossy(path), err).into()),
+                Err(err) => Err(FsIoError::RmFile(path.clone(), err).into()),
             },
             #[cfg(debug_assertions)]
             CliBlobBackend::Absent => Err(absent()),
@@ -116,13 +115,14 @@ pub fn open_cli_credential_store() -> Result<CliCredentialStore, CredentialStore
         if value == TEST_STORE_ABSENT {
             // The lock file must not land on the real per-user path
             // either; keep everything test-scoped.
-            let lock_path = std::env::temp_dir()
+            let lock_path = Utf8PathBuf::from_path_buf(std::env::temp_dir())
+                .unwrap_or_else(|p| Utf8PathBuf::from(p.display().to_string()))
                 .join(format!("sysand-test-absent-{}.lock", std::process::id()));
             return Ok(LockedBlobStore::new(CliBlobBackend::Absent, lock_path));
         }
-        let lock_path = PathBuf::from(format!("{value}.lock"));
+        let lock_path = Utf8PathBuf::from(format!("{value}.lock"));
         return Ok(LockedBlobStore::new(
-            CliBlobBackend::File(PathBuf::from(value)),
+            CliBlobBackend::File(Utf8PathBuf::from(value)),
             lock_path,
         ));
     }
@@ -144,9 +144,4 @@ pub fn open_cli_credential_store() -> Result<CliCredentialStore, CredentialStore
         CliBlobBackend::Keyring(OsKeyringBackend),
         default_lock_path()?,
     ))
-}
-
-/// Render a path for error context; lossy display is fine for messages.
-fn utf8_lossy(path: &std::path::Path) -> Utf8PathBuf {
-    Utf8PathBuf::from(path.display().to_string())
 }
