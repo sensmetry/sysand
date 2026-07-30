@@ -10,7 +10,7 @@ use camino_tempfile::tempdir;
 
 use std::path::PathBuf;
 
-use super::{BlobBackend, LockedBlobStore, lock_path_from_dirs};
+use super::{LockedBlobStore, lock_path_from_dirs};
 use crate::credential_store::test_support::InMemoryBlobBackend;
 use crate::credential_store::{CredentialRecord, CredentialScheme, CredentialStoreError};
 
