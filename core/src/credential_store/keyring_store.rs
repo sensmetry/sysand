@@ -19,8 +19,6 @@
 //! `keyring` cargo feature; everything else here is unconditional.
 
 use std::fs;
-// Only the gated lock-path fallback error uses `io` directly.
-#[cfg(any(feature = "keyring", test))]
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
