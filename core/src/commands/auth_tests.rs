@@ -1908,7 +1908,7 @@ mod whoami {
                 pattern,
                 EnvBearerAuth {
                     auth: ForceBearerAuth::new(token),
-                    label: Some((*label).to_string()),
+                    label: (*label).to_string(),
                 },
             );
         }
@@ -1926,7 +1926,7 @@ mod whoami {
         assert_eq!(
             source,
             WhoamiCredentialSource::Env {
-                label: Some("TEAM".to_string())
+                label: "TEAM".to_string()
             }
         );
         assert_eq!(token, "env-tok");
@@ -1983,7 +1983,7 @@ mod whoami {
         assert_eq!(
             source,
             WhoamiCredentialSource::Env {
-                label: Some("A".to_string())
+                label: "A".to_string()
             }
         );
         assert_eq!(token, "same-tok");

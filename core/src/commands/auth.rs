@@ -1160,8 +1160,8 @@ pub fn do_auth_logout<B: BlobBackend>(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WhoamiCredentialSource {
     /// A `SYSAND_CRED_*` environment bearer; `label` is the
-    /// `SYSAND_CRED_<LABEL>` stem when known.
-    Env { label: Option<String> },
+    /// `SYSAND_CRED_<LABEL>` stem.
+    Env { label: String },
     /// A stored credential (`sysand auth login`) for the given index key.
     Stored { key: String },
 }

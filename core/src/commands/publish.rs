@@ -367,8 +367,8 @@ impl std::fmt::Debug for SelectedPublishBearer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PublishBearerProvenance {
     /// A `SYSAND_CRED_*` environment credential; `label` is the
-    /// `SYSAND_CRED_<LABEL>` stem when known.
-    Env { label: Option<String> },
+    /// `SYSAND_CRED_<LABEL>` stem.
+    Env { label: String },
     /// A stored credential (`sysand auth login`) for the given index key.
     Stored {
         key: String,
@@ -1435,19 +1435,12 @@ fn publish_auth_failed_message(
         format!("authorization failed (HTTP {status}): {detail}")
     };
     match provenance {
-        PublishBearerProvenance::Env { label: Some(label) } => {
+        PublishBearerProvenance::Env { label } => {
             message.push_str(&format!(
                 "\nthe publish credential came from `SYSAND_CRED_{label}`; unset it or rotate\n\
                  `SYSAND_CRED_{label}_BEARER_TOKEN` (environment credentials take precedence\n\
                  over stored credentials, so re-authenticating alone cannot replace it)"
             ));
-        }
-        PublishBearerProvenance::Env { label: None } => {
-            message.push_str(
-                "\nthe publish credential came from a `SYSAND_CRED_*` environment variable;\n\
-                 unset it or rotate its `_BEARER_TOKEN` value (environment credentials take\n\
-                 precedence over stored credentials, so re-authenticating alone cannot replace it)",
-            );
         }
         PublishBearerProvenance::Stored { key, .. } => {
             message.push_str(&format!(

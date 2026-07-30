@@ -42,7 +42,7 @@ fn env_sources(entries: &[(&str, &str)]) -> GlobMap<EnvBearerAuth> {
             *pattern,
             EnvBearerAuth {
                 auth: ForceBearerAuth::new(*token),
-                label: None,
+                label: "ENVIDX".to_string(),
             },
         );
     }
@@ -171,7 +171,9 @@ fn publish_bearer_env_match_wins_without_reading_stored_credentials() {
     assert_eq!(selected.auth, ForceBearerAuth::new("env-token"));
     assert_eq!(
         selected.provenance,
-        PublishBearerProvenance::Env { label: None }
+        PublishBearerProvenance::Env {
+            label: "ENVIDX".to_string()
+        }
     );
 }
 
@@ -817,11 +819,11 @@ fn publish_to(
     )
 }
 
-fn env_bearer(label: Option<&str>) -> SelectedPublishBearer {
+fn env_bearer(label: &str) -> SelectedPublishBearer {
     SelectedPublishBearer {
         auth: ForceBearerAuth::new("env-token"),
         provenance: PublishBearerProvenance::Env {
-            label: label.map(str::to_string),
+            label: label.to_string(),
         },
     }
 }
@@ -850,7 +852,7 @@ fn publish_env_auth_failure_names_the_env_var() {
     let mut server = mockito::Server::new();
     let mock = upload_mock(&mut server, 401, "unauthorized");
 
-    let err = publish_to(&server, env_bearer(Some("TEAMIDX"))).unwrap_err();
+    let err = publish_to(&server, env_bearer("TEAMIDX")).unwrap_err();
 
     let message = err.to_string();
     assert!(message.contains("HTTP 401"), "message: {message}");
@@ -947,7 +949,7 @@ fn publish_uploads_normally_without_a_known_expiry() {
     let mut server = mockito::Server::new();
     let mock = upload_mock(&mut server, 201, "created");
 
-    let response = publish_to(&server, env_bearer(Some("TEAMIDX"))).unwrap();
+    let response = publish_to(&server, env_bearer("TEAMIDX")).unwrap();
 
     assert!(response.is_new_project);
     mock.assert();

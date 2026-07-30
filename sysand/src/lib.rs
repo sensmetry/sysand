@@ -236,7 +236,18 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         basic_users: basic_auth_users,
         basic_passwords: basic_auth_passwords,
         bearer_tokens: bearer_auth_tokens,
+        missing_label,
     } = cred_env::collect_env_groups();
+
+    // Reject label-less names up front: `SYSAND_CRED_BASIC_PASS` would
+    // otherwise read as the pattern of a nonsense `BASIC_PASS` group.
+    if let Some(name) = missing_label.first() {
+        anyhow::bail!(
+            "{name} has no label; env credentials need one, as in SYSAND_CRED_MYINDEX \
+             with SYSAND_CRED_MYINDEX_BASIC_USER/SYSAND_CRED_MYINDEX_BASIC_PASS or \
+             SYSAND_CRED_MYINDEX_BEARER_TOKEN"
+        );
+    }
 
     let mut basic_auth_pattern_names = HashSet::new();
     for x in [
@@ -259,9 +270,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             basic_auth_passwords.get(k),
             bearer_auth_tokens.get(k),
         ) {
-            (Some(pattern), None, None, None) => {
+            // Never interpolate variable values into these messages: a
+            // misnamed variable can put a secret in any position.
+            (Some(_), None, None, None) => {
                 anyhow::bail!(
-                    "SYSAND_CRED_{k} (`{pattern}`) has no matching authentication scheme, please specify SYSAND_CRED_{k}_BASIC_USER/SYSAND_CRED_{k}_BASIC_PASS or SYSAND_CRED_{k}_BEARER_TOKEN"
+                    "SYSAND_CRED_{k} has no matching authentication scheme, please specify SYSAND_CRED_{k}_BASIC_USER/SYSAND_CRED_{k}_BASIC_PASS or SYSAND_CRED_{k}_BEARER_TOKEN"
                 );
             }
             (Some(pattern), maybe_username, maybe_password, maybe_token) => {
@@ -286,13 +299,11 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
                     // The label lets a publish auth failure name the
                     // `SYSAND_CRED_<LABEL>` variable to fix.
-                    auths_builder.add_bearer_auth_labeled(pattern, token, k);
+                    auths_builder.add_bearer_auth(pattern, token, k);
                 }
 
                 if matched_schemes > 1 {
-                    log::warn!(
-                        "SYSAND_CRED_{k} (`{pattern}`) has multiple authentication schemes!"
-                    );
+                    log::warn!("SYSAND_CRED_{k} has multiple authentication schemes!");
                 }
             }
             (None, _, _, _) => {

@@ -186,8 +186,8 @@ fn publish_bearer_auth_map_keeps_bearer_drops_basic_and_carries_labels()
 -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = crate::auth::StandardHTTPAuthenticationBuilder::new();
     builder.add_basic_auth("https://basic.example.com/*", "user", "password");
-    builder.add_bearer_auth("https://bearer.example.com/*", "tok");
-    builder.add_bearer_auth_labeled("https://labeled.example.com/*", "tok2", "TEAMIDX");
+    builder.add_bearer_auth("https://bearer.example.com/*", "tok", "MYIDX");
+    builder.add_bearer_auth("https://labeled.example.com/*", "tok2", "TEAMIDX");
     let policy = builder.build()?;
 
     // By-ref extraction: the policy stays usable afterwards.
@@ -197,7 +197,7 @@ fn publish_bearer_auth_map_keeps_bearer_drops_basic_and_carries_labels()
         bearer_map.lookup("https://bearer.example.com/upload")
     {
         assert_eq!(&*entry.auth.0, "tok");
-        assert_eq!(entry.label, None);
+        assert_eq!(entry.label, "MYIDX");
     } else {
         panic!("expected bearer entry to be extracted");
     }
@@ -206,7 +206,7 @@ fn publish_bearer_auth_map_keeps_bearer_drops_basic_and_carries_labels()
         bearer_map.lookup("https://labeled.example.com/upload")
     {
         assert_eq!(&*entry.auth.0, "tok2");
-        assert_eq!(entry.label.as_deref(), Some("TEAMIDX"));
+        assert_eq!(entry.label, "TEAMIDX");
     } else {
         panic!("expected labeled bearer entry to be extracted");
     }
@@ -420,7 +420,7 @@ fn sequence_auth_does_not_try_lower_on_rate_limiting() {
     let bearer_mock = versions_mock(&mut server, Some("env-token"), 200, 0);
 
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
-    env_builder.add_bearer_auth(format!("{}/**", server.url()), "env-token");
+    env_builder.add_bearer_auth(format!("{}/**", server.url()), "env-token", "ENVIDX");
     let policy = env_builder.build().unwrap();
     let runtime = runtime();
 
@@ -485,7 +485,7 @@ fn lazy_layer_env_credential_wins_without_store_read() {
     let env_mock = versions_mock(&mut server, Some("env-token"), 200, 1);
 
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
-    env_builder.add_bearer_auth(format!("{}/**", server.url()), "env-token");
+    env_builder.add_bearer_auth(format!("{}/**", server.url()), "env-token", "ENVIDX");
     let (store, lists) = counting_store(vec![bearer_record(
         &[format!("{}/**", server.url())],
         "stored-token",
@@ -509,7 +509,7 @@ fn lazy_layer_failed_env_credential_escalates_to_store() {
     let stored_mock = versions_mock(&mut server, Some("stored-token"), 200, 1);
 
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
-    env_builder.add_bearer_auth(format!("{}/**", server.url()), "stale-env-token");
+    env_builder.add_bearer_auth(format!("{}/**", server.url()), "stale-env-token", "ENVIDX");
     let (store, lists) = counting_store(vec![bearer_record(
         &[format!("{}/**", server.url())],
         "stored-token",
@@ -687,7 +687,7 @@ fn debug_never_renders_secrets() {
     assert!(!rendered.contains("basic-secret"), "rendered: {rendered}");
     let env = crate::auth::EnvBearerAuth {
         auth: crate::auth::ForceBearerAuth::new("env-secret"),
-        label: Some("TEAMIDX".to_string()),
+        label: "TEAMIDX".to_string(),
     };
     let rendered = format!("{env:?}");
     assert!(rendered.contains("TEAMIDX"), "rendered: {rendered}");
@@ -708,7 +708,7 @@ fn debug_never_renders_secrets() {
     // The composed policy: env credentials in `inner`, stored credentials
     // in the populated cache. Neither secret may surface.
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
-    env_builder.add_bearer_auth("https://bearer.example.com/**", "env-secret");
+    env_builder.add_bearer_auth("https://bearer.example.com/**", "env-secret", "ENVIDX");
     let (store, _lists) = counting_store(vec![bearer_record(
         &["https://other.example.com/**".to_string()],
         "stored-secret",

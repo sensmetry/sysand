@@ -40,16 +40,43 @@ const SECRET_SUFFIXES: [(&str, CredEnvRole); 3] = [
     ("_BEARER_TOKEN", CredEnvRole::BearerToken),
 ];
 
-/// Split a `SYSAND_CRED_*` variable name into its group stem and role.
-/// Returns `None` for variables outside the `SYSAND_CRED_` namespace.
-pub(crate) fn classify(name: &str) -> Option<(String, CredEnvRole)> {
+/// How a variable name relates to the `SYSAND_CRED_` namespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CredEnvName {
+    /// A well-formed name: the group label (stem) plus the variable's role.
+    Grouped(String, CredEnvRole),
+    /// In the namespace but with no label: bare `SYSAND_CRED`, a bare
+    /// role suffix such as `SYSAND_CRED_BASIC_PASS`, or an empty stem as
+    /// in `SYSAND_CRED__BEARER_TOKEN`.
+    MissingLabel,
+}
+
+/// Classify a `SYSAND_CRED_*` variable name. Returns `None` for variables
+/// outside the `SYSAND_CRED` namespace.
+pub(crate) fn classify(name: &str) -> Option<CredEnvName> {
+    // The bare prefix carries no trailing underscore, so check it before
+    // the prefix strip.
+    if name == "SYSAND_CRED" {
+        return Some(CredEnvName::MissingLabel);
+    }
     let rest = name.strip_prefix(ENV_PREFIX)?;
+    if rest.is_empty() {
+        return Some(CredEnvName::MissingLabel);
+    }
     for (suffix, role) in SECRET_SUFFIXES {
+        // A bare role suffix (`SYSAND_CRED_BASIC_PASS`) leaves no label
+        // and neither does an empty stem (`SYSAND_CRED__BASIC_PASS`).
+        if rest == &suffix[1..] {
+            return Some(CredEnvName::MissingLabel);
+        }
         if let Some(stem) = rest.strip_suffix(suffix) {
-            return Some((stem.to_owned(), role));
+            if stem.is_empty() {
+                return Some(CredEnvName::MissingLabel);
+            }
+            return Some(CredEnvName::Grouped(stem.to_owned(), role));
         }
     }
-    Some((rest.to_owned(), CredEnvRole::Pattern))
+    Some(CredEnvName::Grouped(rest.to_owned(), CredEnvRole::Pattern))
 }
 
 /// `SYSAND_CRED_*` variables read from the process environment, grouped
@@ -60,6 +87,10 @@ pub(crate) struct CredEnvGroups {
     pub(crate) basic_users: HashMap<String, String>,
     pub(crate) basic_passwords: HashMap<String, String>,
     pub(crate) bearer_tokens: HashMap<String, String>,
+    /// Variable names in the namespace but with no label, sorted. Never
+    /// part of any group; the strict consumer rejects them, the lenient
+    /// ones skip them.
+    pub(crate) missing_label: Vec<String>,
 }
 
 /// Collect every `SYSAND_CRED_*` variable from the process environment
@@ -67,8 +98,13 @@ pub(crate) struct CredEnvGroups {
 pub(crate) fn collect_env_groups() -> CredEnvGroups {
     let mut groups = CredEnvGroups::default();
     for (name, value) in std::env::vars() {
-        let Some((stem, role)) = classify(&name) else {
-            continue;
+        let (stem, role) = match classify(&name) {
+            None => continue,
+            Some(CredEnvName::MissingLabel) => {
+                groups.missing_label.push(name);
+                continue;
+            }
+            Some(CredEnvName::Grouped(stem, role)) => (stem, role),
         };
         let map = match role {
             CredEnvRole::Pattern => &mut groups.patterns,
@@ -78,6 +114,7 @@ pub(crate) fn collect_env_groups() -> CredEnvGroups {
         };
         map.insert(stem, value);
     }
+    groups.missing_label.sort();
     groups
 }
 

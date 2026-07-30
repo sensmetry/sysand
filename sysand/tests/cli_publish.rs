@@ -363,6 +363,67 @@ fn publish_malformed_explicit_credentials_abort_before_trusted_publishing() -> T
 }
 
 #[test]
+fn env_credentials_without_a_label_get_a_labels_are_required_error() -> TestResult {
+    // Label-less names must not be misread as a pattern for a nonsense
+    // group; the error explains the label grammar instead.
+    let (_temp_dir, cwd) = setup_built_project("publish-label-less-creds")?;
+    let mut env = IndexMap::new();
+    env.insert("SYSAND_CRED".to_string(), "https://a.org".to_string());
+    env.insert("SYSAND_CRED_BASIC_USER".to_string(), "user-a".to_string());
+    env.insert(
+        "SYSAND_CRED_BASIC_PASS".to_string(),
+        "secret-pass-b".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", "http://localhost:1"],
+        None,
+        &env,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "SYSAND_CRED has no label; env credentials need one, as in SYSAND_CRED_MYINDEX",
+        ))
+        .stderr(predicate::str::contains("no matching authentication scheme").not())
+        // Never any variable's value, in particular not the password.
+        .stderr(predicate::str::contains("secret-pass-b").not())
+        .stderr(predicate::str::contains("user-a").not());
+
+    Ok(())
+}
+
+#[test]
+fn env_credential_scheme_errors_never_print_the_variable_values() -> TestResult {
+    // A pattern variable with no secret companion errors without echoing
+    // its value: a misnamed variable can put a secret in any position.
+    let (_temp_dir, cwd) = setup_built_project("publish-pattern-value-secrecy")?;
+    let mut env = IndexMap::new();
+    env.insert(
+        "SYSAND_CRED_TEST".to_string(),
+        "accidental-secret-value".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", "http://localhost:1"],
+        None,
+        &env,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "SYSAND_CRED_TEST has no matching authentication scheme",
+        ))
+        .stderr(predicate::str::contains("accidental-secret-value").not());
+
+    Ok(())
+}
+
+#[test]
 fn publish_with_explicit_index_succeeds() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;
     let mut server = Server::new();

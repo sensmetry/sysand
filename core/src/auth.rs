@@ -490,10 +490,9 @@ pub enum StandardInnerAuthentication {
     HTTPBasicAuth(ForceHTTPBasicAuth),
     BearerAuth {
         auth: ForceBearerAuth,
-        /// The `SYSAND_CRED_<LABEL>` stem this bearer came from, when it
-        /// was built from environment variables. Display-only: publish
-        /// auth failures name the variable to fix.
-        env_label: Option<Box<str>>,
+        /// The `SYSAND_CRED_<LABEL>` stem this bearer was built from.
+        /// Display-only: publish auth failures name the variable to fix.
+        env_label: Box<str>,
     },
 }
 
@@ -541,8 +540,8 @@ pub type StandardHTTPAuthentication = RestrictAuthentication<
 #[derive(Clone)]
 pub struct EnvBearerAuth {
     pub auth: ForceBearerAuth,
-    /// The `SYSAND_CRED_<LABEL>` stem, when known.
-    pub label: Option<String>,
+    /// The `SYSAND_CRED_<LABEL>` stem.
+    pub label: String,
 }
 
 impl std::fmt::Debug for EnvBearerAuth {
@@ -562,8 +561,6 @@ impl StandardHTTPAuthentication {
     pub fn publish_bearer_auth_map(&self) -> Result<GlobMap<EnvBearerAuth>, globset::Error> {
         let mut partial = GlobMapBuilder::new();
 
-        // Clones the bearer tokens: extraction must work by reference
-        // because the lazy layer holding this policy is not `Clone`.
         for (key, sequence_auth) in self.restricted.keys.iter().zip(&self.restricted.values) {
             if let StandardInnerAuthentication::BearerAuth { auth, env_label } =
                 &sequence_auth.lower
@@ -572,7 +569,7 @@ impl StandardHTTPAuthentication {
                     key,
                     EnvBearerAuth {
                         auth: auth.clone(),
-                        label: env_label.as_deref().map(str::to_string),
+                        label: env_label.to_string(),
                     },
                 );
             }
@@ -618,27 +615,14 @@ impl StandardHTTPAuthenticationBuilder {
         );
     }
 
-    pub fn add_bearer_auth<S: AsRef<str>, T: AsRef<str>>(&mut self, globstr: S, token: T) {
-        self.push_bearer_auth(globstr, token, None);
-    }
-
-    /// Like [`Self::add_bearer_auth`], additionally recording the
-    /// `SYSAND_CRED_<LABEL>` stem the credential came from, so publish
-    /// auth failures can name the variable to fix.
-    pub fn add_bearer_auth_labeled<S: AsRef<str>, T: AsRef<str>, L: AsRef<str>>(
+    /// Add a bearer credential. `env_label` is the `SYSAND_CRED_<LABEL>`
+    /// stem the credential came from; every env credential has one, and
+    /// publish auth failures name the variable to fix through it.
+    pub fn add_bearer_auth<S: AsRef<str>, T: AsRef<str>, L: AsRef<str>>(
         &mut self,
         globstr: S,
         token: T,
         env_label: L,
-    ) {
-        self.push_bearer_auth(globstr, token, Some(env_label.as_ref().into()));
-    }
-
-    fn push_bearer_auth<S: AsRef<str>, T: AsRef<str>>(
-        &mut self,
-        globstr: S,
-        token: T,
-        env_label: Option<Box<str>>,
     ) {
         self.partial.add(
             globstr,
@@ -646,7 +630,7 @@ impl StandardHTTPAuthenticationBuilder {
                 higher: Unauthenticated {},
                 lower: StandardInnerAuthentication::BearerAuth {
                     auth: ForceBearerAuth::new(token),
-                    env_label,
+                    env_label: env_label.as_ref().into(),
                 },
             },
         );

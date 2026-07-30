@@ -433,7 +433,10 @@ fn collect_env_credential_entries() -> Vec<EnvCredentialEntry> {
         .filter(|(key, _)| {
             matches!(
                 crate::cred_env::classify(key),
-                Some((_, crate::cred_env::CredEnvRole::Pattern))
+                Some(crate::cred_env::CredEnvName::Grouped(
+                    _,
+                    crate::cred_env::CredEnvRole::Pattern
+                ))
             )
         })
         .map(|(key, value)| EnvCredentialEntry {
@@ -605,7 +608,7 @@ fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
             builder.add_basic_auth(pattern, user, password);
         }
         if let Some(token) = groups.bearer_tokens.get(stem) {
-            builder.add_bearer_auth_labeled(pattern, token, stem);
+            builder.add_bearer_auth(pattern, token, stem);
         }
     }
     builder
@@ -682,15 +685,9 @@ pub fn command_auth_whoami(
     // Name the source: env shadows stored, so the right remediation
     // depends on where the credential came from.
     match &outcome.source {
-        WhoamiCredentialSource::Env { label: Some(label) } => {
+        WhoamiCredentialSource::Env { label } => {
             println!(
                 "{header}{:>12}{header:#} credential from `SYSAND_CRED_{label}`",
-                "Using"
-            );
-        }
-        WhoamiCredentialSource::Env { label: None } => {
-            println!(
-                "{header}{:>12}{header:#} a `SYSAND_CRED_*` environment credential",
                 "Using"
             );
         }
@@ -735,11 +732,8 @@ pub fn command_auth_whoami(
         }
         WhoamiVerdict::Rejected => {
             let remediation = match &outcome.source {
-                WhoamiCredentialSource::Env { label: Some(label) } => {
+                WhoamiCredentialSource::Env { label } => {
                     format!("rotate or unset `SYSAND_CRED_{label}_BEARER_TOKEN`")
-                }
-                WhoamiCredentialSource::Env { label: None } => {
-                    "rotate or unset the matching `SYSAND_CRED_*` variables".to_string()
                 }
                 WhoamiCredentialSource::Stored { key } => {
                     format!("re-run `sysand auth login {key}`")
