@@ -11,8 +11,8 @@
 //! existence-based lock file) and reads by its shared counterpart, both
 //! with a bounded wait.
 //!
-//! The blob handling is generic over [`BlobBackend`] so the lock,
-//! fail-closed, and size-limit logic is testable without a real OS
+//! The blob handling is generic over [`BlobBackend`] so the lock and
+//! fail-closed logic is testable without a real OS
 //! keyring, and so hosts can substitute backends (the CLI's debug-only
 //! test seam). The production backend, [`OsKeyringBackend`] (one keyring
 //! entry: service `sysand`, account `credentials`), sits behind the
@@ -37,13 +37,6 @@ const KEYRING_SERVICE: &str = "sysand";
     not(all(target_os = "linux", target_env = "musl"))
 ))]
 const KEYRING_ACCOUNT: &str = "credentials";
-
-/// Windows `CRED_MAX_CREDENTIAL_BLOB_SIZE`: the Credential Manager caps a
-/// credential blob at 2560 bytes, measured against the UTF-16 encoding the
-/// keyring crate stores on Windows. Only the Windows enforcement path and
-/// the (platform-independent) size-logic tests use it.
-#[cfg(any(windows, test))]
-pub(crate) const WINDOWS_MAX_BLOB_BYTES: usize = 2560;
 
 const DEFAULT_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -75,8 +68,8 @@ fn map_keyring_error(err: keyring::Error) -> CredentialStoreError {
     match err {
         keyring::Error::PlatformFailure(source) => CredentialStoreError::BackendAbsent { source },
         keyring::Error::NoStorageAccess(source) => CredentialStoreError::BackendDenied { source },
-        // The platform store refused the value size (Windows); the blob
-        // size gate should catch this first, this is the backstop.
+        // The platform store refused the value size (Windows caps
+        // credential blobs); size limits are the platform's to enforce.
         keyring::Error::TooLong(_, _) => CredentialStoreError::BlobTooLarge,
         // A corrupt or ambiguous entry reads as an unreadable store, with
         // the same reset remediation as a corrupt blob.
@@ -156,21 +149,6 @@ fn musl_backend_absent() -> CredentialStoreError {
     }
 }
 
-/// UTF-16 byte length of a string: the unit Windows measures credential
-/// blobs in.
-pub(crate) fn utf16_byte_len(raw: &str) -> usize {
-    raw.encode_utf16().count() * 2
-}
-
-/// Check a blob byte length against a platform limit.
-pub(crate) fn check_blob_size(byte_len: usize, limit: usize) -> Result<(), CredentialStoreError> {
-    if byte_len > limit {
-        Err(CredentialStoreError::BlobTooLarge)
-    } else {
-        Ok(())
-    }
-}
-
 /// Per-user path for the credential store lock file.
 ///
 /// Linux: `XDG_STATE_HOME` (via `dirs`, defaulting to `~/.local/state`),
@@ -215,24 +193,6 @@ pub struct LockedBlobStore<B> {
     lock_path: PathBuf,
     lock_timeout: Duration,
     lock_poll_interval: Duration,
-    /// Max serialized blob size before a write is refused as
-    /// [`CredentialStoreError::BlobTooLarge`]. `None` means unbounded;
-    /// defaults to the platform limit (only Windows has one). Overridable
-    /// so the enforcement path is testable off Windows.
-    size_limit: Option<usize>,
-}
-
-/// The serialized-blob size limit that applies on this platform, if any.
-/// Only Windows caps credential blobs.
-fn default_platform_blob_limit() -> Option<usize> {
-    #[cfg(windows)]
-    {
-        Some(WINDOWS_MAX_BLOB_BYTES)
-    }
-    #[cfg(not(windows))]
-    {
-        None
-    }
 }
 
 /// The OS-keyring-backed credential store.
@@ -254,7 +214,6 @@ impl<B: BlobBackend> LockedBlobStore<B> {
             lock_path,
             lock_timeout: DEFAULT_LOCK_TIMEOUT,
             lock_poll_interval: DEFAULT_LOCK_POLL_INTERVAL,
-            size_limit: default_platform_blob_limit(),
         }
     }
 
@@ -262,14 +221,6 @@ impl<B: BlobBackend> LockedBlobStore<B> {
     pub fn with_lock_timing(mut self, timeout: Duration, poll_interval: Duration) -> Self {
         self.lock_timeout = timeout;
         self.lock_poll_interval = poll_interval;
-        self
-    }
-
-    /// Override the blob size limit so the platform-cap enforcement path
-    /// (otherwise Windows-only) can be exercised on any platform.
-    #[cfg(test)]
-    pub fn with_size_limit(mut self, size_limit: Option<usize>) -> Self {
-        self.size_limit = size_limit;
         self
     }
 
@@ -369,22 +320,18 @@ fn load_blob<B: BlobBackend>(backend: &B) -> Result<CredentialBlob, CredentialSt
 }
 
 /// Write the blob back, deleting the entry when nothing is left so a
-/// logged-out store keeps the cheap "no entry" fast path. `size_limit`
-/// refuses an oversized serialized blob before the write (the platform cap
-/// on Windows).
+/// logged-out store keeps the cheap "no entry" fast path. Size limits are
+/// the platform's to enforce: an oversized write surfaces as the
+/// backend's error (Windows caps blobs, mapped to
+/// [`CredentialStoreError::BlobTooLarge`]).
 fn store_blob<B: BlobBackend>(
     backend: &B,
     blob: &CredentialBlob,
-    size_limit: Option<usize>,
 ) -> Result<(), CredentialStoreError> {
     if blob.credentials.is_empty() && blob.extra.is_empty() {
         return backend.delete();
     }
-    let raw = serialize_blob(blob);
-    if let Some(limit) = size_limit {
-        check_blob_size(utf16_byte_len(&raw), limit)?;
-    }
-    backend.write(&raw)
+    backend.write(&serialize_blob(blob))
 }
 
 impl<B: BlobBackend> LockedBlobStore<B> {
@@ -397,7 +344,6 @@ impl<B: BlobBackend> LockedBlobStore<B> {
 
     /// Insert a record, replacing any existing record with the same `key`.
     pub fn upsert(&mut self, record: CredentialRecord) -> Result<(), CredentialStoreError> {
-        let size_limit = self.size_limit;
         self.with_lock(LockMode::Exclusive, |backend| {
             let mut blob = load_blob(backend)?;
             match blob
@@ -408,21 +354,20 @@ impl<B: BlobBackend> LockedBlobStore<B> {
                 Some(existing) => *existing = record,
                 None => blob.credentials.push(record),
             }
-            store_blob(backend, &blob, size_limit)
+            store_blob(backend, &blob)
         })
     }
 
     /// Remove the record with the given `key`. Returns whether a record
     /// was removed.
     pub fn remove(&mut self, key: &str) -> Result<bool, CredentialStoreError> {
-        let size_limit = self.size_limit;
         self.with_lock(LockMode::Exclusive, |backend| {
             let mut blob = load_blob(backend)?;
             let before = blob.credentials.len();
             blob.credentials.retain(|record| record.key != key);
             let removed = blob.credentials.len() != before;
             if removed {
-                store_blob(backend, &blob, size_limit)?;
+                store_blob(backend, &blob)?;
             }
             Ok(removed)
         })

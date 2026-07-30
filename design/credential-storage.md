@@ -402,10 +402,12 @@ transport-security guidance lives in the docs (§13).
   - **Windows size limit.** Windows caps a blob at ~2.5 KB
     (`CRED_MAX_CREDENTIAL_BLOB_SIZE` = 2560), measured in **UTF-16 code
     units**, so ~1280 ASCII characters of serialized JSON; a single large
-    JWT can exceed it on the first login. One message covers both cases
-    ("credential store full on this platform (Windows ~2.5 KB limit);
-    remove an unused login or use a smaller token"), and `status`/the
-    error flag stale or expired entries so the user knows what to drop.
+    JWT can exceed it on the first login. Size enforcement is the
+    platform's: an oversized write surfaces as the backend's own error,
+    mapped to one user-friendly message ("credential store full on this
+    platform (Windows ~2.5 KB limit); remove an unused credential or use
+    a smaller token"), and the CLI lists expired logins so the user knows
+    what to drop.
 - **Blob format robustness.** The blob carries a `version` field that
   **gates the format**: a reader that does not recognize the version fails
   closed rather than guessing, reserving a clean migration point. Readers

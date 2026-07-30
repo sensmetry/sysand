@@ -10,10 +10,7 @@ use camino_tempfile::tempdir;
 
 use std::path::PathBuf;
 
-use super::{
-    BlobBackend, LockedBlobStore, WINDOWS_MAX_BLOB_BYTES, check_blob_size, lock_path_from_dirs,
-    utf16_byte_len,
-};
+use super::{BlobBackend, LockedBlobStore, lock_path_from_dirs};
 use crate::credential_store::test_support::InMemoryBlobBackend;
 use crate::credential_store::{CredentialRecord, CredentialScheme, CredentialStoreError};
 
@@ -275,51 +272,4 @@ fn concurrent_writers_do_not_lose_records() {
 
     let store = store_at(backend, &dir);
     assert_eq!(store.list().unwrap().len(), 8);
-}
-
-#[test]
-fn blob_size_check_uses_utf16_length() {
-    // 1300 ASCII chars fit in UTF-8 under 2560 bytes but exceed the
-    // Windows UTF-16 limit.
-    let blob = "a".repeat(1300);
-    assert_eq!(utf16_byte_len(&blob), 2600);
-    let err = check_blob_size(utf16_byte_len(&blob), WINDOWS_MAX_BLOB_BYTES).unwrap_err();
-    assert!(matches!(err, CredentialStoreError::BlobTooLarge));
-    assert!(
-        err.to_string().contains("Windows"),
-        "message must name the platform limit: {err}"
-    );
-
-    let small = "a".repeat(1280);
-    check_blob_size(utf16_byte_len(&small), WINDOWS_MAX_BLOB_BYTES).unwrap();
-}
-
-#[test]
-fn upsert_enforces_the_size_limit_and_does_not_write_when_exceeded() {
-    // The platform-cap enforcement (store_blob -> upsert) is Windows-only
-    // in production, so CI never runs it. Inject a tiny limit to drive the
-    // same wiring on any platform: prove the gate is connected, not just
-    // that the `check_blob_size` helper works, and that an over-limit write
-    // is refused before it reaches the backend.
-    let dir = tempdir().unwrap();
-    let backend = InMemoryBlobBackend::default();
-    let mut store = store_at(backend.clone(), &dir).with_size_limit(Some(16));
-
-    let err = store
-        .upsert(record(
-            "https://a.example/",
-            "a-token-well-over-sixteen-bytes",
-        ))
-        .unwrap_err();
-    assert!(matches!(err, CredentialStoreError::BlobTooLarge));
-    // The oversized blob never reached the backend.
-    assert!(backend.read().unwrap().is_none());
-
-    // A generous limit lets the same write through, so the gate is the
-    // size check, not an unconditional refusal.
-    let mut ok_store = store_at(backend.clone(), &dir).with_size_limit(Some(100_000));
-    ok_store
-        .upsert(record("https://a.example/", "tok"))
-        .unwrap();
-    assert!(backend.read().unwrap().is_some());
 }
