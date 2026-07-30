@@ -372,7 +372,7 @@ fn store_blob<B: BlobBackend>(
     if blob.credentials.is_empty() && blob.extra.is_empty() {
         return backend.delete();
     }
-    let raw = serialize_blob(blob)?;
+    let raw = serialize_blob(blob);
     if let Some(limit) = size_limit {
         check_blob_size(utf16_byte_len(&raw), limit)?;
     }

@@ -254,7 +254,7 @@ impl BlobBackend for CountingBackend {
 fn counting_store(
     records: Vec<CredentialRecord>,
 ) -> (LockedBlobStore<CountingBackend>, Arc<AtomicUsize>) {
-    let raw = serialize_blob(&CredentialBlob::new(records)).unwrap();
+    let raw = serialize_blob(&CredentialBlob::new(records));
     let reads = Arc::new(AtomicUsize::new(0));
     let backend = CountingBackend {
         inner: InMemoryBlobBackend::with_contents(&raw),

@@ -28,11 +28,18 @@ pub const BLOB_VERSION: u32 = 1;
 /// never silently degrade).
 #[derive(Debug, Error)]
 pub enum CredentialStoreError {
-    /// The stored blob failed to parse or has an unknown version. This
-    /// fails closed: a corrupt blob is never treated as empty, which would
-    /// clobber all stored credentials on the next write.
+    /// The stored blob failed to parse. This fails closed: a corrupt
+    /// blob is never treated as empty, which would clobber all stored
+    /// credentials on the next write.
     #[error("credential store unreadable; remove the `sysand` keyring entry to reset")]
     Unreadable,
+    /// The stored blob parsed but declares a format version this build
+    /// does not know (likely written by a newer sysand). Also fails
+    /// closed, but the blob is not corrupt, so no reset is suggested.
+    #[error(
+        "unsupported credential store blob version {found} (this build supports version {expected})"
+    )]
+    UnsupportedBlobVersion { found: u32, expected: u32 },
     /// The given index URL cannot be used as a credential store key.
     #[error("invalid index URL for credential storage: {0}")]
     InvalidIndexUrl(String),
@@ -62,9 +69,6 @@ pub enum CredentialStoreError {
         remove an unused credential or use a smaller token"
     )]
     BlobTooLarge,
-    /// Serializing the blob failed.
-    #[error("failed to serialize credential store: {0}")]
-    Serialize(String),
 }
 
 /// Authentication scheme of a stored credential. v1 stores bearer tokens
@@ -75,14 +79,116 @@ pub enum CredentialScheme {
     Bearer,
 }
 
+/// The principal type of a [`CredentialSubject`]. A value this build does
+/// not know parses as [`SubjectKind::Other`] and round-trips verbatim, so
+/// a read-modify-write by an older binary preserves a newer server's type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum SubjectKind {
+    User,
+    Project,
+    Oidc,
+    /// An unrecognized principal type, preserved verbatim.
+    Other(String),
+}
+
+impl SubjectKind {
+    /// The canonical string form: the wire form and the display form.
+    pub fn as_str(&self) -> &str {
+        match self {
+            SubjectKind::User => "user",
+            SubjectKind::Project => "project",
+            SubjectKind::Oidc => "oidc",
+            SubjectKind::Other(value) => value,
+        }
+    }
+}
+
+impl From<String> for SubjectKind {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "user" => SubjectKind::User,
+            "project" => SubjectKind::Project,
+            "oidc" => SubjectKind::Oidc,
+            _ => SubjectKind::Other(value),
+        }
+    }
+}
+
+impl From<SubjectKind> for String {
+    fn from(kind: SubjectKind) -> Self {
+        match kind {
+            // Moves the unknown value out instead of cloning via `as_str`.
+            SubjectKind::Other(value) => value,
+            known => known.as_str().to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for SubjectKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// An index surface that exercised and accepted a credential at login. A
+/// value this build does not know parses as [`ValidatedSurface::Other`]
+/// and round-trips verbatim, so a surface name written by a newer sysand
+/// neither fails the whole blob closed nor gets dropped on rewrite.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "String", into = "String")]
+pub enum ValidatedSurface {
+    Read,
+    Api,
+    /// An unrecognized surface name, preserved verbatim.
+    Other(String),
+}
+
+impl ValidatedSurface {
+    /// The canonical string form: the wire form and the display form.
+    pub fn as_str(&self) -> &str {
+        match self {
+            ValidatedSurface::Read => "read",
+            ValidatedSurface::Api => "api",
+            ValidatedSurface::Other(value) => value,
+        }
+    }
+}
+
+impl From<String> for ValidatedSurface {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "read" => ValidatedSurface::Read,
+            "api" => ValidatedSurface::Api,
+            _ => ValidatedSurface::Other(value),
+        }
+    }
+}
+
+impl From<ValidatedSurface> for String {
+    fn from(surface: ValidatedSurface) -> Self {
+        match surface {
+            // Moves the unknown value out instead of cloning via `as_str`.
+            ValidatedSurface::Other(value) => value,
+            known => known.as_str().to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for ValidatedSurface {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Identity of the principal a credential authenticates as, learned from
 /// `v1/whoami` by a validating login.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CredentialSubject {
-    /// The principal type: `user`, `project`, or `oidc`. Kept as a plain
-    /// string so a future server-side type survives a round-trip.
+    /// The principal type; unknown types survive a round-trip
+    /// ([`SubjectKind::Other`]).
     #[serde(rename = "type")]
-    pub kind: String,
+    pub kind: SubjectKind,
     /// The principal name: the username for a user token, the project id
     /// for a project token, the publisher identity for an OIDC token.
     pub name: String,
@@ -114,12 +220,11 @@ pub struct CredentialRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_prefix: Option<String>,
     /// The index surfaces that exercised and accepted the credential at
-    /// login, in probe order (`"read"`, `"api"`). Empty means "not
-    /// validated": nothing exercised the
-    /// credential. Plain strings, not an enum, so a surface name written
-    /// by a newer sysand parses instead of failing the whole blob closed.
+    /// login, in probe order (`"read"`, `"api"` on the wire). Empty means
+    /// "not validated": nothing exercised the credential. Unknown surface
+    /// names survive a round-trip ([`ValidatedSurface::Other`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub validated: Vec<String>,
+    pub validated: Vec<ValidatedSurface>,
     #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -154,21 +259,27 @@ impl Default for CredentialBlob {
     }
 }
 
-/// Parse a credential blob. Any parse failure, or an unknown `version`,
-/// fails closed with [`CredentialStoreError::Unreadable`]: a corrupt blob
-/// is never silently treated as empty.
+/// Parse a credential blob. Both failure modes fail closed (the blob is
+/// never silently treated as empty): a parse failure as
+/// [`CredentialStoreError::Unreadable`], an unknown `version` as
+/// [`CredentialStoreError::UnsupportedBlobVersion`].
 pub fn parse_blob(raw: &str) -> Result<CredentialBlob, CredentialStoreError> {
+    // Parse error is ignored here, because it may include secrets
     let blob: CredentialBlob =
         serde_json::from_str(raw).map_err(|_| CredentialStoreError::Unreadable)?;
     if blob.version != BLOB_VERSION {
-        return Err(CredentialStoreError::Unreadable);
+        return Err(CredentialStoreError::UnsupportedBlobVersion {
+            found: blob.version,
+            expected: BLOB_VERSION,
+        });
     }
     Ok(blob)
 }
 
 /// Serialize a credential blob to its JSON wire form.
-pub fn serialize_blob(blob: &CredentialBlob) -> Result<String, CredentialStoreError> {
-    serde_json::to_string(blob).map_err(|err| CredentialStoreError::Serialize(err.to_string()))
+pub fn serialize_blob(blob: &CredentialBlob) -> String {
+    // Serialization failure is a bug
+    serde_json::to_string(blob).unwrap()
 }
 
 /// Normalize an index URL for use as a credential record key, so different

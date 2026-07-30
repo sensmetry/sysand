@@ -26,6 +26,7 @@ use crate::{
     },
     credential_store::{
         CredentialRecord, CredentialScheme, CredentialStoreError, CredentialSubject,
+        ValidatedSurface,
         keyring_store::{BlobBackend, LockedBlobStore},
         normalize_index_key,
     },
@@ -206,6 +207,17 @@ impl std::fmt::Display for ProbeSurface {
     }
 }
 
+/// The persisted form of a probe surface, for the record's `validated`
+/// list.
+impl From<ProbeSurface> for ValidatedSurface {
+    fn from(surface: ProbeSurface) -> Self {
+        match surface {
+            ProbeSurface::Read => ValidatedSurface::Read,
+            ProbeSurface::Api => ValidatedSurface::Api,
+        }
+    }
+}
+
 /// Status of one stored credential, as shown by `auth status`. Never contains
 /// the secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -231,7 +243,7 @@ pub struct StoredCredentialStatus {
     /// The surfaces that exercised and accepted the credential at login
     /// (`"read"`, `"api"`, in probe order). Empty means nothing
     /// exercised the credential ("stored, not validated").
-    pub validated: Vec<String>,
+    pub validated: Vec<ValidatedSurface>,
     /// Labels of `SYSAND_CRED_*` entries that may shadow this login.
     /// Approximate: an entry is listed when its pattern matches this
     /// record's key URL, but precedence is per request URL, so an env
@@ -576,7 +588,9 @@ fn parse_whoami_identity(
     match parsed {
         Ok(body) => Some(WhoamiIdentity {
             subject: CredentialSubject {
-                kind: body.subject.kind,
+                // The wire value stays lenient; unknown types become
+                // `SubjectKind::Other` and round-trip verbatim.
+                kind: body.subject.kind.into(),
                 name: body.subject.name,
             },
             token_name: body.token.name,
@@ -1102,7 +1116,7 @@ pub fn do_auth_login<B: BlobBackend>(
         // (read)" and so on), so `auth status` can show it later.
         validated: validated
             .iter()
-            .map(std::string::ToString::to_string)
+            .map(|surface| ValidatedSurface::from(*surface))
             .collect(),
         extra: serde_json::Map::new(),
     };

@@ -464,6 +464,32 @@ fn auth_status_shows_identity_learned_by_a_validating_login() -> TestResult {
 }
 
 #[test]
+fn auth_status_renders_unknown_subject_and_surface_values_verbatim() -> TestResult {
+    // A newer sysand or server may write subject types and validated
+    // surfaces this build does not know; status must render them as
+    // their stored strings, never fail or drop them.
+    let (_store_dir, store_path) = seam_store()?;
+    fs::write(
+        &store_path,
+        r#"{"version":1,"credentials":[{
+            "key":"https://example.com/",
+            "globs":["https://example.com/**"],
+            "scheme":"bearer",
+            "secret":"sekrit-unknown-tok",
+            "subject":{"type":"robot","name":"bot-7"},
+            "validated":["read","novel-surface"]}]}"#,
+    )?;
+
+    let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &seam_env(&store_path))?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("subject: robot bot-7"))
+        .stdout(predicate::str::contains("validated (read, novel-surface)"))
+        .stdout(predicate::str::contains("sekrit-unknown-tok").not());
+    Ok(())
+}
+
+#[test]
 fn auth_status_renders_one_stored_entry_without_separators_or_negatives() -> TestResult {
     // The single golden-output canary for `auth status`: exact plain
     // piped output (12-column gutter, no blank line around a single

@@ -11,7 +11,9 @@ use crate::credential_store::keyring_store::{BlobBackend, LockedBlobStore};
 use crate::credential_store::test_support::{
     InMemoryBlobBackend, in_memory_store, unique_lock_path,
 };
-use crate::credential_store::{CredentialRecord, CredentialScheme, CredentialStoreError};
+use crate::credential_store::{
+    CredentialRecord, CredentialScheme, CredentialStoreError, SubjectKind, ValidatedSurface,
+};
 
 fn record(key: &str, secret: &str) -> CredentialRecord {
     CredentialRecord {
@@ -110,7 +112,7 @@ fn status_lists_stored_records_and_env_entries() {
     let mut expiring = record("https://example.com/idx/", "tok-1");
     let expiry = Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap();
     expiring.expires_at = Some(expiry);
-    expiring.validated = vec!["read".to_string()];
+    expiring.validated = vec![ValidatedSurface::Read];
     expiring.globs = vec![
         "https://example.com/idx/**".to_string(),
         "https://api.example.com/**".to_string(),
@@ -134,7 +136,7 @@ fn status_lists_stored_records_and_env_entries() {
         ]
     );
     assert_eq!(stored[0].expires_at, Some(expiry));
-    assert_eq!(stored[0].validated, vec!["read".to_string()]);
+    assert_eq!(stored[0].validated, vec![ValidatedSurface::Read]);
     assert_eq!(stored[1].key, "https://other.example/");
     assert_eq!(stored[1].expires_at, None);
     assert!(!stored[1].expired);
@@ -1033,7 +1035,7 @@ mod login {
         assert_eq!(record.subject, None);
         assert_eq!(record.expires_at, None);
         // The scoped claim is persisted for `auth status`.
-        assert_eq!(record.validated, vec!["read".to_string()]);
+        assert_eq!(record.validated, vec![ValidatedSurface::Read]);
     }
 
     #[test]
@@ -1129,7 +1131,7 @@ mod login {
         assert_eq!(
             record.subject,
             Some(crate::credential_store::CredentialSubject {
-                kind: "user".to_string(),
+                kind: SubjectKind::User,
                 name: "alice".to_string(),
             })
         );
@@ -1291,7 +1293,7 @@ mod login {
         assert!(record.subject.is_some());
         assert_eq!(
             record.validated,
-            vec!["read".to_string(), "api".to_string()]
+            vec![ValidatedSurface::Read, ValidatedSurface::Api]
         );
     }
 
@@ -1632,13 +1634,13 @@ mod login {
         let record = &store.list().unwrap()[0];
         assert_eq!(
             record.validated,
-            vec!["read".to_string(), "api".to_string()]
+            vec![ValidatedSurface::Read, ValidatedSurface::Api]
         );
         // The whoami identity fields are persisted on the record.
         assert_eq!(
             record.subject,
             Some(crate::credential_store::CredentialSubject {
-                kind: "user".to_string(),
+                kind: SubjectKind::User,
                 name: "alice".to_string(),
             })
         );

@@ -479,15 +479,17 @@ fn expiry_qualifier(expired: bool, expires_in_days: Option<i64>) -> String {
 /// The per-entry validation claim: the same scoped wording `auth login`
 /// prints, from the surfaces a validating login recorded. Dim when
 /// validated (secondary detail); warn when not (the security-relevant
-/// case: nothing ever exercised this credential).
-fn validation_claim(validated: &[String]) -> String {
+/// case: nothing ever exercised this credential). Unknown surfaces
+/// render as their stored string.
+fn validation_claim(validated: &[sysand_core::credential_store::ValidatedSurface]) -> String {
     let style = sysand_core::style::get_style_config();
     if validated.is_empty() {
         let warn = style.warn;
         format!("{warn}not validated{warn:#}")
     } else {
+        let surfaces: Vec<&str> = validated.iter().map(|surface| surface.as_str()).collect();
         let dim = style.dim;
-        format!("{dim}validated ({}){dim:#}", validated.join(", "))
+        format!("{dim}validated ({}){dim:#}", surfaces.join(", "))
     }
 }
 
