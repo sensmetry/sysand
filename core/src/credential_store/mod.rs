@@ -319,7 +319,8 @@ pub fn normalize_index_key(raw: &str) -> Result<String, CredentialStoreError> {
     }
     url.set_fragment(None);
     url.path_segments_mut()
-        .expect("http(s) URLs always have path segments")
+        // http(s) URLs always have path segments
+        .unwrap()
         .pop_if_empty()
         .push("");
     Ok(url.into())
