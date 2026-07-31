@@ -1958,14 +1958,17 @@ mod whoami {
 
         let err = select_whoami_credential(&env, &[], &whoami_url(), INDEX_KEY).unwrap_err();
 
-        assert!(
-            matches!(
-                &err,
-                AuthCommandError::AmbiguousWhoamiCredential { candidates: 2, .. }
-            ),
-            "unexpected error: {err}"
-        );
-        assert!(err.to_string().contains("SYSAND_CRED_"));
+        match &err {
+            AuthCommandError::AmbiguousWhoamiCredential { candidates, .. } => {
+                assert_eq!(
+                    candidates,
+                    &["SYSAND_CRED_A".to_string(), "SYSAND_CRED_B".to_string()]
+                );
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        let rendered = err.to_string();
+        assert!(rendered.contains("SYSAND_CRED_A, SYSAND_CRED_B"));
     }
 
     #[test]
@@ -1998,14 +2001,22 @@ mod whoami {
 
         let err = select_whoami_credential(&env, &records, &whoami_url(), INDEX_KEY).unwrap_err();
 
+        match &err {
+            AuthCommandError::AmbiguousWhoamiCredential { candidates, .. } => {
+                assert_eq!(
+                    candidates.len(),
+                    2,
+                    "both stored keys named: {candidates:?}"
+                );
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+        let rendered = err.to_string();
+        assert!(rendered.contains("stored credentials"));
         assert!(
-            matches!(
-                &err,
-                AuthCommandError::AmbiguousWhoamiCredential { candidates: 2, .. }
-            ),
-            "unexpected error: {err}"
+            rendered.contains("example.com/api/"),
+            "keys named in the message: {rendered}"
         );
-        assert!(err.to_string().contains("stored credentials"));
     }
 
     #[test]

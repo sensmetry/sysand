@@ -99,16 +99,20 @@ pub enum AuthCommandError {
     NoAdvertisedApi { index: String },
     /// More than one credential from one source matches the `v1/whoami`
     /// URL (after collapsing entries carrying the same token), so no
-    /// single identity question can be asked.
+    /// single identity question can be asked. `candidates` names every
+    /// matching credential (env variable names, or backticked stored
+    /// keys) so the error is actionable.
     #[error(
-        "{candidates} credentials from {source_name} match `{url}`;\n\
-         refine the patterns so exactly one matches"
+        "multiple credentials from {source_name} match `{url}`:\n\
+         {};\n\
+         refine the patterns so exactly one matches",
+        candidates.join(", ")
     )]
     AmbiguousWhoamiCredential {
         url: String,
         // Not `source`: thiserror reserves that name for error chaining.
         source_name: &'static str,
-        candidates: usize,
+        candidates: Vec<String>,
     },
     /// No credential of either source matches the `v1/whoami` URL. The
     /// message states the bare condition; the frontend appends its own
@@ -1238,7 +1242,11 @@ fn select_whoami_credential(
             return Err(AuthCommandError::AmbiguousWhoamiCredential {
                 url: whoami_url.as_str().to_string(),
                 source_name: "`SYSAND_CRED_*` environment variables",
-                candidates: matched.len(),
+                candidates: crate::commands::publish::dedup_in_order(
+                    matched
+                        .iter()
+                        .map(|entry| format!("SYSAND_CRED_{}", entry.label)),
+                ),
             });
         }
         BearerSelection::None => {}
@@ -1256,7 +1264,9 @@ fn select_whoami_credential(
             Err(AuthCommandError::AmbiguousWhoamiCredential {
                 url: whoami_url.as_str().to_string(),
                 source_name: "stored credentials",
-                candidates: matched.len(),
+                candidates: crate::commands::publish::dedup_in_order(
+                    matched.iter().map(|entry| format!("`{}`", entry.key())),
+                ),
             })
         }
         BearerSelection::None => Err(AuthCommandError::NoWhoamiCredential {

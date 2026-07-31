@@ -529,7 +529,7 @@ fn lookup_publish_bearer<'a, T>(
 /// Collect an iterator of candidate names, dropping repeats while keeping
 /// first-seen order (a stored login matching through several of its own
 /// URL patterns still names its key once).
-fn dedup_in_order(names: impl Iterator<Item = String>) -> Vec<String> {
+pub(crate) fn dedup_in_order(names: impl Iterator<Item = String>) -> Vec<String> {
     let mut seen = Vec::new();
     for name in names {
         if !seen.contains(&name) {
