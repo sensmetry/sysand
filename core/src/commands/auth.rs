@@ -380,9 +380,9 @@ impl IndexKey {
             IndexLocation::Root(_) => key.clone(),
             IndexLocation::Template(template) => match template_anchor_root(template.prefix()) {
                 Some((_, anchor)) => anchor.as_str().to_string(),
-                // The raw-input check already rejected unanchorable
-                // templates; this arm just avoids a panic path.
-                None => return Err(AuthCommandError::TemplateWithoutAnchor { url: key }),
+                None => {
+                    unreachable!("BUG: unanchorable template should have been rejected earlier")
+                }
             },
         };
         Ok(Self {
@@ -426,9 +426,12 @@ fn normalized_template_key(index_url: &str) -> Result<String, AuthCommandError> 
             url: index_url.to_string(),
         });
     };
-    // `Display` reproduces the validated template text; the prefix past
-    // its last `/` contains no `/`, so reassembly keeps the anchor as the
-    // key's own anchor (idempotence).
+    // Unlike plain `Display` (which reproduces the template text as
+    // given), the key swaps in the URL-normalized anchor (lowercased
+    // host, default port dropped), so spellings of the same template
+    // collapse to one key. The rest of the prefix and the placeholder
+    // tail are reattached verbatim, and re-validating the result yields
+    // the same key again.
     let tail = location.to_string();
     Ok(format!(
         "{anchor}{}{}",
