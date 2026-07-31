@@ -560,23 +560,26 @@ mod login {
     }
 
     #[test]
-    fn login_skips_an_unanchorable_template_index_root() {
+    fn login_anchors_a_query_only_template_index_root_at_the_host() {
         let mut server = mockito::Server::new();
         let mut files_server = mockito::Server::new();
         let root = format!("{}/", server.url());
-        // Placeholder directly in the query of a path-less URL: the only
-        // `/` in the literal prefix is the one in `://`, so anchoring
-        // would produce a glob matching every URL of the scheme.
+        // Placeholder directly in the query of a path-less URL: template
+        // parsing normalizes the prefix to an explicit `/` path, so the
+        // anchor is the host root (which is exactly the surface such a
+        // template can address).
         let template = format!("{}?f={{path}}", files_server.url());
         let _mock = config_mock(&mut server, format!(r#"{{"index_root": "{template}"}}"#));
-        // The read probe still expands the unanchorable template (only
-        // the glob was skipped), landing on the host root.
-        let _index = files_server
+        // The read probe expands the template, landing on the host root.
+        let index_query = mockito::Matcher::UrlEncoded("f".into(), "index.json".into());
+        let _index_head = files_server
+            .mock("HEAD", "/")
+            .match_query(index_query.clone())
+            .with_status(200)
+            .create();
+        let _index_get = files_server
             .mock("GET", "/")
-            .match_query(mockito::Matcher::UrlEncoded(
-                "f".into(),
-                "index.json".into(),
-            ))
+            .match_query(index_query)
             .with_status(200)
             .create();
         let mut store = in_memory_store();
@@ -584,12 +587,17 @@ mod login {
         let (outcome, notices) = run_login(&mut store, &root, "tok");
 
         let (_, globs) = stored(outcome);
+        assert!(notices.is_empty(), "unexpected notices: {notices:?}");
+        let anchor = format!("{}/", files_server.url());
         assert!(
-            notices
-                .iter()
-                .any(|n| matches!(n, AuthLoginNotice::TemplateIndexRootSkipped { .. })),
-            "expected a skip notice, got {notices:?}"
+            globs.contains(&format!("{}**", globset::escape(&anchor))),
+            "expected a host-root glob for the templated index_root: {globs:?}"
         );
+        // The templated index.json URL (placeholder expansion) matches.
+        let index_json = IndexLocation::parse(&template)
+            .unwrap()
+            .resolve(["index.json"]);
+        assert!(matcher(&globs).is_match(index_json.as_str()));
         assert!(
             !matcher(&globs).is_match("https://attacker.example/x"),
             "no derived glob may cover other hosts: {globs:?}"
@@ -662,17 +670,17 @@ mod login {
     // Template targets: templated login targets are supported, anchored
     // on their literal URL prefix.
 
-    /// The motivating GitLab-shaped target: the key is the template text
-    /// itself (already canonical), with the anchor normalizing only the
-    /// URL-parsed part of the literal prefix.
+    /// The motivating GitLab-shaped target: the key is the template's
+    /// canonical `Display` text, with the literal prefix normalized at
+    /// parse time.
     #[test]
-    fn template_key_is_the_template_with_a_normalized_anchor() {
+    fn template_key_is_the_template_with_a_normalized_prefix() {
         let gitlab =
             "https://gitlab.com/api/v4/projects/84113019/repository/files/{path}/raw?ref=index";
 
         assert_eq!(IndexKey::validate(gitlab).unwrap().as_str(), gitlab);
-        // Scheme/host case and the default port normalize through the
-        // anchor; the placeholder and suffix stay verbatim.
+        // Scheme/host case and the default port normalize into the
+        // prefix; the placeholder and suffix stay verbatim.
         let spelled =
             "HTTPS://GitLab.COM:443/api/v4/projects/84113019/repository/files/{path}/raw?ref=index";
         assert_eq!(IndexKey::validate(spelled).unwrap().as_str(), gitlab);
@@ -818,21 +826,28 @@ mod login {
     }
 
     #[test]
-    fn login_rejects_an_unanchorable_template_target() {
-        // Placeholder directly in the query of a path-less URL: the only
-        // `/` in the literal prefix is the one in `://`.
+    fn login_normalizes_a_query_only_template_target_to_the_host_root() {
+        // Placeholder directly in the query of a path-less URL: the key
+        // gains the explicit root `/` and the glob anchors on the host
+        // root. Port 1 answers nothing, so discovery is unreachable and
+        // the glob set is the anchor-derived fallback.
         let mut store = in_memory_store();
 
-        // Fails in key validation, before any network or store access.
-        let (outcome, notices) = run_login(&mut store, "https://files.example.com?f={path}", "tok");
+        let (outcome, notices) = run_login(&mut store, "http://127.0.0.1:1?f={path}", "tok");
 
-        let err = outcome.unwrap_err();
-        assert!(matches!(
-            &err,
-            AuthCommandError::TemplateWithoutAnchor { .. }
-        ));
-        assert!(err.to_string().contains("SYSAND_CRED_"), "was: {err}");
-        assert!(notices.is_empty());
+        let (key, globs) = stored(outcome);
+        assert_eq!(key, "http://127.0.0.1:1/?f={path}");
+        assert_eq!(
+            globs,
+            vec![format!("{}**", globset::escape("http://127.0.0.1:1/"))]
+        );
+        assert!(
+            notices
+                .iter()
+                .any(|n| matches!(n, AuthLoginNotice::DiscoveryUnreachable { .. }))
+        );
+        // `logout` accepts the normalized key `status` would print.
+        assert_eq!(logout(&mut store, &key).unwrap(), key);
         assert!(store.list().unwrap().is_empty());
     }
 

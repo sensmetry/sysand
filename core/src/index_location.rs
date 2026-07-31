@@ -156,7 +156,11 @@ impl PathEncoding {
 /// A URL template with exactly one `{path}` or `{path_raw}` placeholder,
 /// validated at construction. Stored as the text on either side of the
 /// placeholder rather than as a `url::Url` because `url::Url` percent-encodes
-/// `{` or `}` on parse, which would corrupt the placeholder.
+/// `{` or `}` on parse, which would corrupt the placeholder. The prefix is
+/// normalized at parse to the text `url::Url` serializes it as (lowercase
+/// scheme and host, punycode, default port dropped, explicit root `/`), so
+/// different spellings of one template `Display` identically; the suffix
+/// stays as written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexUrlTemplate {
     prefix: String,
@@ -169,7 +173,8 @@ impl IndexUrlTemplate {
     /// one `{path}` or `{path_raw}` placeholder, no other `{...}` tokens
     /// or stray braces, no fragment, and must expand to an absolute
     /// HTTP(S) URL without userinfo, with the placeholder in the path or
-    /// query.
+    /// query. The literal prefix is normalized to canonical URL text, so
+    /// `Display` renders one canonical spelling per template.
     fn parse(raw: &str) -> Result<Self, IndexLocationError> {
         let boxed_url = || -> Box<str> { raw.into() };
 
@@ -186,7 +191,7 @@ impl IndexUrlTemplate {
         let split = raw
             .find(placeholder)
             .expect("BUG: validate_placeholders guarantees exactly one placeholder");
-        let template = Self {
+        let mut template = Self {
             prefix: raw[..split].to_owned(),
             suffix: raw[split + placeholder.len()..].to_owned(),
             encoding,
@@ -209,6 +214,22 @@ impl IndexUrlTemplate {
         };
         validate_url_shape(raw, &expanded)?;
 
+        // Rewrite the prefix into the text `url::Url` serializes it as
+        // (lowercase scheme and host, punycode, default port dropped,
+        // explicit root `/`), so `Display` output is canonical. The probe
+        // goes on the prefix alone: with the suffix included, literal
+        // probe-like suffix text or a `..` suffix segment could move the
+        // cut. URL serialization keeps the probe's unreserved characters
+        // and `%20` escape verbatim, so the parsed text ends with it.
+        let probe = utf8_percent_encode("pr obe", PATH_ENCODE_SET).to_string();
+        let normalized = url::Url::parse(&format!("{}{probe}", template.prefix))
+            .expect("BUG: the prefix of a validated template followed by the probe parses");
+        template.prefix = normalized
+            .as_str()
+            .strip_suffix(&probe)
+            .expect("BUG: URL serialization preserves the probe text")
+            .to_owned();
+
         Ok(template)
     }
 
@@ -226,10 +247,11 @@ impl IndexUrlTemplate {
         out
     }
 
-    /// The literal template text before the placeholder. Support for
-    /// credential glob derivation (`commands::auth`), not general API: the
-    /// prefix is raw text, not a valid URL on its own. Gated like its only
-    /// consumer so feature subsets stay dead-code-free.
+    /// The literal template text before the placeholder, in normalized
+    /// form. Support for credential glob derivation (`commands::auth`),
+    /// not general API: the prefix is normalized URL text but not a
+    /// complete URL on its own (it can end mid-segment or mid-query).
+    /// Gated like its only consumer so feature subsets stay dead-code-free.
     #[cfg(all(feature = "filesystem", feature = "networking"))]
     pub(crate) fn prefix(&self) -> &str {
         &self.prefix

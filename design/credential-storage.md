@@ -112,11 +112,12 @@ Under a `sysand auth` namespace:
   escape hatch for unusual layouts until `--pattern` / `auth set` land
   (§10). A **templated URL as the login target itself** (a `{path}` /
   `{path_raw}` template, for example a GitLab repository-files URL) is
-  supported: the storage key is the template text with its literal-prefix
-  anchor normalized through `url::Url` serialization (the rest stays
-  verbatim: raw text, not a parsed URL), and the primary glob anchors on
-  that prefix per §8. A template with no safe anchor (at least
-  `scheme://authority/`) is rejected with a pointer to `SYSAND_CRED_*`.
+  supported: template parsing normalizes the literal prefix through
+  `url::Url` serialization (the placeholder and suffix stay verbatim), so
+  the storage key is simply the template's canonical `Display` text, and
+  the primary glob anchors on that prefix per §8. The normalized prefix
+  always carries an explicit path `/`, so every template anchors at least
+  at `scheme://authority/`.
 
 The index URL is normalized (trailing slash, scheme) before use as the
 storage key and for glob derivation, so different spellings do not create
@@ -327,13 +328,11 @@ logout` removes) may fall back to the default index.
   to end in `/` (for example `https://example.com/idx/**`), and both
   derivation and runtime matching use the same serialization
   (`url::Url::as_str()`) so IDN/percent-encoding agree on both sides. Two
-  refinements: a templated root's anchor is the literal prefix cut back
-  to its **last `/`**, and the root is skipped with a notice unless that
-  anchor still parses as `scheme://authority/` or deeper (template
-  parsing already rejects placeholders outside the path or query, so the
-  reachable degenerate case is a template with no `/` after the
-  authority, where the cut would land inside `https://`; the parse check
-  is defense-in-depth for the rest); and within
+  refinements: a templated root's anchor is the normalized literal
+  prefix cut back to its **last `/`** (prefix normalization gives every
+  template an explicit path `/`, so the anchor always parses as
+  `scheme://authority/` or deeper; a placeholder directly after the
+  authority anchors at the host root); and within
   one login's derived set (the login URL plus its resolved `index_root`
   and `api_root`, never other stored records), a newly derived root that
   **subsumes** an already-derived one replaces it, keeping the set

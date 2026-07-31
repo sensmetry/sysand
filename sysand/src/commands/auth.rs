@@ -91,10 +91,6 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
             "could not read the index configuration ({error});\n\
                  scoping the credential to the URL-derived pattern"
         ),
-        AuthLoginNotice::TemplateIndexRootSkipped { template } => log::warn!(
-            "discovery advertises a templated index_root (`{template}`) that\n\
-                 cannot be covered safely; no pattern was derived for it"
-        ),
         AuthLoginNotice::ProbeRedirected { surface, target } => log::warn!(
             "the {} probe was redirected to `{target}`; probes do not follow\n\
                  redirects, so the credential was not validated against that surface",

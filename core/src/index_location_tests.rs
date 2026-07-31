@@ -235,6 +235,72 @@ fn schemeless_template_is_rejected_as_relative() {
 }
 
 #[test]
+fn template_prefix_normalizes_at_parse() {
+    // The literal prefix is rewritten to the text `url::Url` serializes,
+    // so `Display` renders one canonical spelling per template; the
+    // placeholder and suffix stay verbatim.
+    for (spelled, canonical) in [
+        // Host case and the default port.
+        (
+            "HTTPS://GitLab.COM:443/files/{path}/raw?ref=main",
+            "https://gitlab.com/files/{path}/raw?ref=main",
+        ),
+        // A path-less prefix gains the explicit root `/`.
+        (
+            "https://example.com?x={path}",
+            "https://example.com/?x={path}",
+        ),
+        // Mid-segment placeholder: the cut lands exactly where the
+        // substituted text will begin.
+        (
+            "https://Example.com/files/v{path}.json",
+            "https://example.com/files/v{path}.json",
+        ),
+        // IDN host to punycode.
+        (
+            "https://bücher.example/{path_raw}",
+            "https://xn--bcher-kva.example/{path_raw}",
+        ),
+        // Literal text aliasing the internal probe's encoding does not
+        // confuse the cut.
+        (
+            "https://example.com/pr%20obe/{path}?x=pr%20obe",
+            "https://example.com/pr%20obe/{path}?x=pr%20obe",
+        ),
+        // The suffix stays as written, whatever it contains.
+        (
+            "http://EXAMPLE.com:80/a/{path}/../x?Y=Z",
+            "http://example.com/a/{path}/../x?Y=Z",
+        ),
+    ] {
+        let location = IndexLocation::parse(spelled).unwrap();
+        assert_eq!(location.to_string(), canonical, "for `{spelled}`");
+        // Idempotent: parsing the canonical text reproduces it.
+        assert_eq!(
+            IndexLocation::parse(canonical).unwrap().to_string(),
+            canonical,
+            "reparsing the canonical form of `{spelled}`"
+        );
+    }
+}
+
+#[test]
+fn normalized_template_expands_like_the_spelled_one() {
+    // Prefix normalization must not change where requests go: the
+    // spelled and canonical forms expand to the same URL.
+    let spelled = parse_template("HTTPS://Example.COM:443/files/{path}?ref=main");
+    let canonical = parse_template("https://example.com/files/{path}?ref=main");
+    assert_eq!(
+        spelled.expand(["a b", "c.json"]),
+        canonical.expand(["a b", "c.json"])
+    );
+    assert_eq!(
+        spelled.expand(["a b", "c.json"]).as_str(),
+        "https://example.com/files/a%20b%2Fc.json?ref=main"
+    );
+}
+
+#[test]
 fn display_round_trips_templates_and_normalizes_roots() {
     assert_eq!(
         IndexLocation::parse(GITLAB_TEMPLATE).unwrap().to_string(),
