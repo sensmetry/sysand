@@ -625,13 +625,17 @@ fn parse_whoami_identity(
     runtime: &tokio::runtime::Runtime,
     response: reqwest::Response,
 ) -> Option<WhoamiIdentity> {
-    let parsed = runtime
-        .block_on(response.bytes())
-        .map_err(|err| err.to_string())
-        .and_then(|body| {
-            serde_json::from_slice::<WhoamiBody>(&body).map_err(|err| err.to_string())
-        });
-    match parsed {
+    let body = match runtime.block_on(response.bytes()) {
+        Ok(body) => body,
+        Err(err) => {
+            log::debug!(
+                "whoami body was not read: {}",
+                crate::utils::format_err(err)
+            );
+            return None;
+        }
+    };
+    match serde_json::from_slice::<WhoamiBody>(&body) {
         Ok(body) => Some(WhoamiIdentity {
             subject: CredentialSubject {
                 // The wire value stays lenient; unknown types become
@@ -644,7 +648,11 @@ fn parse_whoami_identity(
             expires_at: body.token.expires_at,
         }),
         Err(err) => {
-            log::debug!("whoami body was not read: {err}");
+            // The body is index metadata about the token, never a secret.
+            log::debug!(
+                "whoami body was not parsed: {err};\nbody: {}",
+                String::from_utf8_lossy(&body)
+            );
             None
         }
     }
@@ -695,7 +703,7 @@ fn probe_request(
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
-        request.send().await.map_err(|err| err.to_string())
+        request.send().await.map_err(crate::utils::format_err)
     })
 }
 
@@ -939,7 +947,7 @@ fn fetch_login_endpoints(
         // is sent.
         Err(err) => {
             notify(AuthLoginNotice::DiscoveryUnreachable {
-                error: err.to_string(),
+                error: crate::utils::format_err(err),
             });
             None
         }
@@ -993,7 +1001,7 @@ fn forced_discovery_fetch(
         match raw {
             Ok(raw) => match resolve_index_config(raw, &config_url, location.clone()) {
                 Ok(endpoints) => Some(endpoints),
-                Err(err) => unreachable(err.to_string()),
+                Err(err) => unreachable(crate::utils::format_err(err)),
             },
             Err(error) => unreachable(error),
         }
@@ -1084,7 +1092,7 @@ fn guidance_globs(
             Ok(endpoints) => Some(endpoints),
             Err(err) => {
                 notify(AuthLoginNotice::DiscoveryUnreachable {
-                    error: err.to_string(),
+                    error: crate::utils::format_err(err),
                 });
                 None
             }
@@ -1357,7 +1365,7 @@ pub fn do_auth_whoami<P: HTTPAuthentication>(
         ))
         .map_err(|err| AuthCommandError::WhoamiDiscoveryFailed {
             index: key.clone(),
-            error: err.to_string(),
+            error: crate::utils::format_err(err),
         })?;
     // No advertised `api_root` means the index has no API to ask.
     let Some(api_root) = &endpoints.api_root else {
