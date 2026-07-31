@@ -430,7 +430,7 @@ mod login {
             .expect(2)
             .create();
         // Public read surface: probed, but never exercises the token.
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
@@ -453,7 +453,7 @@ mod login {
         let root = format!("{}/", server.url());
         let api_root = format!("{root}api/");
         let _mock = config_mock(&mut server, format!(r#"{{"api_root": "{api_root}"}}"#));
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let _whoami = whoami_ok(&mut server, "/api/v1/whoami", None);
         let mut store = in_memory_store();
 
@@ -474,7 +474,7 @@ mod login {
         let root = format!("{}/", server.url());
         let api_root = format!("{}/base/", api_server.url());
         let _mock = config_mock(&mut server, format!(r#"{{"api_root": "{api_root}"}}"#));
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let _whoami = whoami_ok(&mut api_server, "/base/v1/whoami", None);
         let mut store = in_memory_store();
 
@@ -509,7 +509,7 @@ mod login {
             format!(r#"{{"index_root": "{index_root}", "api_root": "{api_root}"}}"#),
         );
         let _index = files_server
-            .mock("GET", "/idx/index.json")
+            .mock("HEAD", "/idx/index.json")
             .with_status(200)
             .create();
         let _whoami = whoami_ok(&mut api_server, "/v1/whoami", None);
@@ -537,7 +537,7 @@ mod login {
         );
         // The read probe expands the template exactly like runtime reads.
         let _index = files_server
-            .mock("GET", "/repo/index.json/raw")
+            .mock("HEAD", "/repo/index.json/raw")
             .match_query(mockito::Matcher::UrlEncoded("ref".into(), "main".into()))
             .with_status(200)
             .create();
@@ -708,7 +708,7 @@ mod login {
             .create();
         // Public read surface, so the probe leaves no notice.
         let _index = server
-            .mock("GET", "/repo/files/index.json/raw")
+            .mock("HEAD", "/repo/files/index.json/raw")
             .match_query(mockito::Matcher::UrlEncoded("ref".into(), "index".into()))
             .with_status(200)
             .create();
@@ -851,14 +851,14 @@ mod login {
             .with_status(404)
             .create();
         let unauth = server
-            .mock("GET", "/repo/files/index.json/raw")
+            .mock("HEAD", "/repo/files/index.json/raw")
             .match_query(ref_query.clone())
             .match_header("authorization", mockito::Matcher::Missing)
             .with_status(404)
             .expect(1)
             .create();
         let forced = server
-            .mock("GET", "/repo/files/index.json/raw")
+            .mock("HEAD", "/repo/files/index.json/raw")
             .match_query(ref_query)
             .match_header("authorization", "Bearer tok")
             .with_status(200)
@@ -926,12 +926,12 @@ mod login {
         forced_status: usize,
     ) -> (mockito::Mock, mockito::Mock) {
         let unauth = server
-            .mock("GET", "/index.json")
+            .mock("HEAD", "/index.json")
             .match_header("authorization", mockito::Matcher::Missing)
             .with_status(401)
             .create();
         let forced = server
-            .mock("GET", "/index.json")
+            .mock("HEAD", "/index.json")
             .match_header("authorization", format!("Bearer {token}").as_str())
             .with_status(forced_status)
             .create();
@@ -983,7 +983,7 @@ mod login {
         // the flat/defaulted api_root must never be phantom-probed.
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
         let mut store = in_memory_store();
 
@@ -1003,7 +1003,7 @@ mod login {
         // advertisement: no whoami probe.
         let mut server = mockito::Server::new();
         let _config = config_mock(&mut server, "{}".to_string());
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
         let mut store = in_memory_store();
 
@@ -1071,7 +1071,7 @@ mod login {
         let root = format!("{}/", server.url());
         let _config = no_discovery_mock(&mut server);
         let _index = server
-            .mock("GET", "/index.json")
+            .mock("HEAD", "/index.json")
             .with_status(401)
             .expect(2)
             .create();
@@ -1117,7 +1117,7 @@ mod login {
         let mut server = mockito::Server::new();
         let root = format!("{}/", server.url());
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = whoami_ok(&mut server, "/api/v1/whoami", Some("tok"));
         let mut store = in_memory_store();
 
@@ -1150,7 +1150,7 @@ mod login {
         let mut server = mockito::Server::new();
         let root = format!("{}/", server.url());
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let _whoami = server
             .mock("GET", "/api/v1/whoami")
             .with_status(401)
@@ -1181,7 +1181,7 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let _index = server
-            .mock("GET", "/index.json")
+            .mock("HEAD", "/index.json")
             .with_status(404)
             .expect(2)
             .create();
@@ -1303,7 +1303,7 @@ mod login {
         // nothing else exercised the login stores as not validated.
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
-        let _index = server.mock("GET", "/index.json").with_status(500).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(500).create();
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
@@ -1331,7 +1331,7 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let _index = server
-            .mock("GET", "/index.json")
+            .mock("HEAD", "/index.json")
             .with_status(302)
             .with_header("location", target)
             .create();
@@ -1361,7 +1361,7 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let _index = server
-            .mock("GET", "/index.json")
+            .mock("HEAD", "/index.json")
             .with_status(401)
             .with_header("www-authenticate", r#"Basic realm="idx""#)
             .expect(2)
@@ -1393,7 +1393,7 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let _index = server
-            .mock("GET", "/index.json")
+            .mock("HEAD", "/index.json")
             .with_status(401)
             .with_header("www-authenticate", r#"Bearer realm="Basic migration""#)
             .expect(2)
@@ -1418,7 +1418,7 @@ mod login {
         let mut server = mockito::Server::new();
         let root = format!("{}/", server.url());
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let _whoami = server
             .mock("GET", "/api/v1/whoami")
             .with_status(200)
@@ -1447,13 +1447,13 @@ mod login {
         let mut server = mockito::Server::new();
         let _config = no_discovery_mock(&mut server);
         let baseline = server
-            .mock("GET", "/index.json")
+            .mock("HEAD", "/index.json")
             .match_header("authorization", mockito::Matcher::Missing)
             .with_status(429)
             .expect(1)
             .create();
         let forced = server
-            .mock("GET", "/index.json")
+            .mock("HEAD", "/index.json")
             .match_header("authorization", "Bearer tok")
             .expect(0)
             .create();
@@ -1508,7 +1508,7 @@ mod login {
         let mut server = mockito::Server::new();
         let root = format!("{}/", server.url());
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = server
             .mock("GET", "/api/v1/whoami")
             .with_status(429)
@@ -1537,7 +1537,7 @@ mod login {
         let mut server = mockito::Server::new();
         let root = format!("{}/", server.url());
         let _config = config_mock(&mut server, format!(r#"{{"api_root": "{root}api/"}}"#));
-        let _index = server.mock("GET", "/index.json").with_status(429).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(429).create();
         let _whoami = whoami_ok(&mut server, "/api/v1/whoami", Some("tok"));
         let mut store = in_memory_store();
 
@@ -1661,7 +1661,7 @@ mod login {
             200,
             &format!(r#"{{"api_root": "{root}api/"}}"#),
         );
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = whoami_ok(&mut server, "/api/v1/whoami", Some("tok"));
         let mut store = in_memory_store();
 
@@ -1687,7 +1687,7 @@ mod login {
             .with_status(404)
             .expect(2)
             .create();
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
         let mut store = in_memory_store();
 
@@ -1713,7 +1713,7 @@ mod login {
             .expect(2)
             .create();
         let index = server
-            .mock("GET", "/index.json")
+            .mock("HEAD", "/index.json")
             .with_status(401)
             .expect(2)
             .create();
@@ -1747,7 +1747,7 @@ mod login {
         let root = format!("{}/", server.url());
         let unauth_config = unauth_config_mock(&mut server, 401);
         let forced_config = forced_config_mock(&mut server, "tok", 429, "");
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
         let mut store = in_memory_store();
 
@@ -1806,7 +1806,7 @@ mod login {
             .expect(1)
             .create();
         let forced = no_authed_config_mock(&mut server);
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
@@ -1837,7 +1837,7 @@ mod login {
             .expect(1)
             .create();
         let forced = no_authed_config_mock(&mut server);
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let mut store = in_memory_store();
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
@@ -1872,7 +1872,7 @@ mod login {
             .expect(1)
             .create();
         let forced = no_authed_config_mock(&mut server);
-        let _index = server.mock("GET", "/index.json").with_status(200).create();
+        let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let _whoami = whoami_ok(&mut server, "/api/v1/whoami", None);
         let mut store = in_memory_store();
 

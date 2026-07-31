@@ -632,17 +632,19 @@ fn probe_client() -> Result<reqwest::Client, reqwest::Error> {
         .build()
 }
 
-/// Send one probe GET, optionally with a forced bearer credential.
+/// Send one probe request, optionally with a forced bearer credential.
 /// Returns the response unread (probes never consume bodies; the whoami
-/// body is read separately on a 200).
-fn probe_get(
+/// body is read separately on a 200). The read surface probes with HEAD
+/// since only the status matters there; body-consuming probes use GET.
+fn probe_request(
     runtime: &tokio::runtime::Runtime,
     client: &reqwest::Client,
+    method: reqwest::Method,
     url: &Url,
     bearer: Option<&str>,
 ) -> Result<reqwest::Response, String> {
     runtime.block_on(async {
-        let mut request = client.get(url.clone());
+        let mut request = client.request(method, url.clone());
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
@@ -710,7 +712,8 @@ fn probe_read_surface(
     notify: &mut impl FnMut(AuthLoginNotice),
 ) {
     let surface = ProbeSurface::Read;
-    let baseline = match probe_get(runtime, client, index_json_url, None) {
+    let baseline = match probe_request(runtime, client, reqwest::Method::HEAD, index_json_url, None)
+    {
         Ok(response) => response,
         Err(error) => {
             notify(AuthLoginNotice::ProbeUnreachable { surface, error });
@@ -745,7 +748,13 @@ fn probe_read_surface(
         return;
     }
     let basic_challenge = offers_basic_challenge(baseline.headers());
-    let forced = match probe_get(runtime, client, index_json_url, Some(secret)) {
+    let forced = match probe_request(
+        runtime,
+        client,
+        reqwest::Method::HEAD,
+        index_json_url,
+        Some(secret),
+    ) {
         Ok(response) => response,
         Err(error) => {
             notify(AuthLoginNotice::ProbeUnreachable { surface, error });
@@ -802,7 +811,13 @@ fn probe_api_surface(
             return;
         }
     };
-    let response = match probe_get(runtime, client, &whoami_url, Some(secret)) {
+    let response = match probe_request(
+        runtime,
+        client,
+        reqwest::Method::GET,
+        &whoami_url,
+        Some(secret),
+    ) {
         Ok(response) => response,
         Err(error) => {
             notify(AuthLoginNotice::ProbeUnreachable { surface, error });
@@ -898,7 +913,13 @@ fn forced_discovery_fetch(
             return unreachable(format!("could not build the probe HTTP client: {err}"));
         }
     };
-    let response = match probe_get(runtime, &client, &config_url, Some(secret)) {
+    let response = match probe_request(
+        runtime,
+        &client,
+        reqwest::Method::GET,
+        &config_url,
+        Some(secret),
+    ) {
         Ok(response) => response,
         Err(error) => {
             return unreachable(format!("HTTP request to `{config_url}` failed: {error}"));
@@ -1297,7 +1318,13 @@ pub fn do_auth_whoami<P: HTTPAuthentication>(
         Err(err) => WhoamiVerdict::Unreachable {
             detail: format!("could not build the probe HTTP client: {err}"),
         },
-        Ok(probe) => match probe_get(runtime, &probe, &whoami_url, Some(&token)) {
+        Ok(probe) => match probe_request(
+            runtime,
+            &probe,
+            reqwest::Method::GET,
+            &whoami_url,
+            Some(&token),
+        ) {
             Err(error) => WhoamiVerdict::Unreachable { detail: error },
             Ok(response) => {
                 let status = response.status();

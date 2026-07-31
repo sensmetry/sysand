@@ -334,7 +334,7 @@ fn auth_login_covers_a_disjoint_api_root_from_discovery() -> TestResult {
         .with_header("content-type", "application/json")
         .with_body(format!(r#"{{"api_root": "{api_root}"}}"#))
         .create();
-    let _index = server.mock("GET", "/index.json").with_status(200).create();
+    let _index = server.mock("HEAD", "/index.json").with_status(200).create();
     let _whoami = api_server
         .mock("GET", "/base/v1/whoami")
         .match_header("authorization", "Bearer tok")
@@ -372,7 +372,7 @@ fn auth_login_refuses_a_credential_every_exercised_surface_rejected() -> TestRes
     // Unauth baseline 401, forced bearer retry 401: rejected everywhere
     // it was exercised, so the login must refuse and store nothing.
     let _index = server
-        .mock("GET", "/index.json")
+        .mock("HEAD", "/index.json")
         .with_status(401)
         .expect(2)
         .create();
@@ -404,12 +404,12 @@ fn auth_login_validates_the_read_surface_of_a_private_index() -> TestResult {
         .with_status(404)
         .create();
     let _unauth = server
-        .mock("GET", "/index.json")
+        .mock("HEAD", "/index.json")
         .match_header("authorization", mockito::Matcher::Missing)
         .with_status(401)
         .create();
     let _forced = server
-        .mock("GET", "/index.json")
+        .mock("HEAD", "/index.json")
         .match_header("authorization", "Bearer sekrit-tok")
         .with_status(200)
         .create();
