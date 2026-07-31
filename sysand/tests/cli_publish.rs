@@ -842,6 +842,9 @@ fn publish_rejects_ambiguous_bearer_credentials() -> TestResult {
         .stderr(predicate::str::contains(
             "multiple bearer token credentials from `SYSAND_CRED_*` environment variables configured for publish URL",
         ))
+        // The error names every conflicting `SYSAND_CRED_<LABEL>` variable.
+        .stderr(predicate::str::contains("SYSAND_CRED_A"))
+        .stderr(predicate::str::contains("SYSAND_CRED_B"))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     publish_mock.assert();

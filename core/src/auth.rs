@@ -354,15 +354,15 @@ pub(crate) enum BearerSelection<'a, T> {
     /// several matching patterns all carrying the identical token,
     /// collapsed to the first so any later hint names that entry.
     Unique(&'a T),
-    /// Matching patterns carry distinct tokens. `candidates` is the full
-    /// pre-collapse match count (what ambiguity errors report), `deduped`
-    /// the distinct-token entries in map order (what try-all consumers
-    /// walk); it always holds at least two entries.
+    /// Matching patterns carry distinct tokens. `matched` is the full
+    /// pre-collapse match list in map order (what ambiguity errors name),
+    /// `deduped` the distinct-token entries in map order (what try-all
+    /// consumers walk); it always holds at least two entries.
     Ambiguous {
         // Read only by whoami and publish; without `filesystem` those
         // consumers are compiled out and only `deduped` is used.
         #[cfg_attr(not(feature = "filesystem"), allow(dead_code))]
-        candidates: usize,
+        matched: Vec<&'a T>,
         deduped: Vec<&'a T>,
     },
 }
@@ -392,7 +392,7 @@ pub(crate) fn select_bearer<'a, T>(
                 BearerSelection::Unique(deduped[0])
             } else {
                 BearerSelection::Ambiguous {
-                    candidates: candidates.len(),
+                    matched: candidates.into_iter().map(|(_, entry)| entry).collect(),
                     deduped,
                 }
             }
@@ -704,7 +704,7 @@ impl StoredBearerAuth {
             return None;
         }
         Some(format!(
-            "credential for `{key}` may be expired or revoked; \
+            "credential for `{key}` may be expired or revoked;\n\
              re-authenticate to store a fresh credential",
             key = self.key
         ))
@@ -826,7 +826,7 @@ where
                     Ok(map) => map,
                     Err(err) => {
                         log::warn!(
-                            "credential store read failed: {err}; \
+                            "credential store read failed: {err};\n\
                              continuing without stored credentials"
                         );
                         GlobMap::default()
@@ -863,16 +863,15 @@ fn read_stored_bearer_map<B: BlobBackend>(store: &LockedBlobStore<B>) -> GlobMap
         Ok(records) => records,
         Err(CredentialStoreError::BackendAbsent { source }) => {
             log::debug!(
-                "no OS keyring backend ({source}); \
+                "no OS keyring backend ({source});\n\
                  using `SYSAND_CRED_*` credentials only"
             );
             return GlobMap::default();
         }
         Err(err) => {
             log::warn!(
-                "could not read stored credentials: {err}; \
-                 unlock your OS keyring, or provide credentials via \
-                 `SYSAND_CRED_*` environment variables; \
+                "could not read stored credentials: {err};\n\
+                 unlock your OS keyring, or provide credentials via `SYSAND_CRED_*` environment variables;\n\
                  continuing without stored credentials"
             );
             return GlobMap::default();
@@ -905,7 +904,7 @@ pub(crate) fn stored_bearer_map_from_records(
             // only itself, not every stored credential.
             if let Err(err) = GlobBuilder::new(glob).literal_separator(true).build() {
                 log::warn!(
-                    "ignoring invalid stored credential URL pattern `{glob}` for `{}`: {err}",
+                    "ignoring invalid stored credential URL pattern `{glob}` for `{}`:\n{err}",
                     record.key
                 );
                 continue;
@@ -917,7 +916,7 @@ pub(crate) fn stored_bearer_map_from_records(
         Ok(map) => map,
         Err(err) => {
             log::warn!(
-                "could not build stored credential URL patterns: {err}; \
+                "could not build stored credential URL patterns: {err};\n\
                  continuing without stored credentials"
             );
             GlobMap::default()

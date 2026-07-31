@@ -120,7 +120,7 @@ fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
             }
             if *status == 403 {
                 lines.push(
-                    "run `sysand auth status` to see which subject the credential \
+                    "run `sysand auth status` to see which subject the credential\n\
                      authenticates as"
                         .to_string(),
                 );

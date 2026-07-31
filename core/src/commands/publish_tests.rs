@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::{
-    AllowedMetamodelKind, PublishBearerProvenance, PublishBearerSource, PublishError,
+    AllowedMetamodelKind, PublishBearerConflict, PublishBearerProvenance, PublishError,
     PublishPreparation, SelectedPublishBearer, TrustedPublishingEnvironment, TrustedPublishingMode,
     build_upload_url, check_metamodel, check_usage, do_publish, error_body_to_string,
     map_publish_response, resolve_publish_bearer, resolve_publish_bearer_from_config,
@@ -36,13 +36,22 @@ fn empty_sources() -> GlobMap<EnvBearerAuth> {
 }
 
 fn env_sources(entries: &[(&str, &str)]) -> GlobMap<EnvBearerAuth> {
+    env_sources_labeled(
+        &entries
+            .iter()
+            .map(|(pattern, token)| (*pattern, *token, "ENVIDX"))
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn env_sources_labeled(entries: &[(&str, &str, &str)]) -> GlobMap<EnvBearerAuth> {
     let mut builder = GlobMapBuilder::new();
-    for (pattern, token) in entries {
+    for (pattern, token, label) in entries {
         builder.add(
             *pattern,
             EnvBearerAuth {
                 auth: ForceBearerAuth::new(*token),
-                label: "ENVIDX".to_string(),
+                label: (*label).to_string(),
             },
         );
     }
@@ -68,6 +77,17 @@ fn stored_sources_expiring(
                 STORED_KEY.to_string(),
                 expires_at,
             ),
+        );
+    }
+    builder.build().unwrap()
+}
+
+fn stored_sources_keyed(entries: &[(&str, &str, &str)]) -> GlobMap<StoredBearerAuth> {
+    let mut builder = GlobMapBuilder::new();
+    for (pattern, token, key) in entries {
+        builder.add(
+            *pattern,
+            StoredBearerAuth::new(ForceBearerAuth::new(*token), (*key).to_string(), None),
         );
     }
     builder.build().unwrap()
@@ -149,13 +169,14 @@ fn resolve_publish_bearer_never_rejects_ambiguous_bearer() {
     )
     .unwrap_err();
 
+    // Both entries share the ENVIDX label, so the conflict names the one
+    // variable once.
     assert_matches!(
         err,
         PublishError::AmbiguousPublishBearer {
-            bearer_source: PublishBearerSource::Env,
-            candidates: 2,
+            conflict: PublishBearerConflict::Env { ref variables },
             ..
-        }
+        } if variables == &["SYSAND_CRED_ENVIDX"]
     );
 }
 
@@ -234,22 +255,25 @@ fn publish_bearer_env_ambiguity_errors_without_keyring_fallback() {
     // An ambiguous env match must error, not fall back to a unique
     // keyring match, and must not read the stored credentials at all.
     let upload_url = Url::parse("https://example.org/api/v1/upload").unwrap();
-    let env = env_sources(&[
-        ("https://example.org/**", "broad-env-token"),
-        ("https://example.org/api/**", "specific-env-token"),
+    let env = env_sources_labeled(&[
+        ("https://example.org/**", "broad-env-token", "BROAD"),
+        ("https://example.org/api/**", "specific-env-token", "NARROW"),
     ]);
 
     let err = resolve_publish_bearer_from_config(&env, stored_unreached, &upload_url).unwrap_err();
 
+    // The conflict names every matching `SYSAND_CRED_<LABEL>` variable.
     assert_matches!(
         err,
         PublishError::AmbiguousPublishBearer {
-            bearer_source: PublishBearerSource::Env,
-            candidates: 2,
+            conflict: PublishBearerConflict::Env { ref variables },
             ref upload_url,
-            ..
-        } if upload_url.as_ref() == "https://example.org/api/v1/upload"
+        } if variables == &["SYSAND_CRED_BROAD", "SYSAND_CRED_NARROW"]
+            && upload_url.as_ref() == "https://example.org/api/v1/upload"
     );
+    let message = err.to_string();
+    assert!(message.contains("SYSAND_CRED_BROAD"), "message: {message}");
+    assert!(message.contains("SYSAND_CRED_NARROW"), "message: {message}");
 }
 
 #[test]
@@ -259,23 +283,37 @@ fn publish_bearer_keyring_ambiguity_errors() {
     let err = resolve_publish_bearer_from_config(
         &empty_sources(),
         || {
-            stored_sources(&[
-                ("https://example.org/**", "broad-keyring-token"),
-                ("https://example.org/api/**", "specific-keyring-token"),
+            stored_sources_keyed(&[
+                (
+                    "https://example.org/**",
+                    "broad-keyring-token",
+                    "https://example.org/",
+                ),
+                (
+                    "https://example.org/api/**",
+                    "specific-keyring-token",
+                    "https://example.org/api/",
+                ),
             ])
         },
         &upload_url,
     )
     .unwrap_err();
 
+    // The conflict names every matching stored login by its key.
     assert_matches!(
         err,
         PublishError::AmbiguousPublishBearer {
-            bearer_source: PublishBearerSource::Keyring,
-            candidates: 2,
+            conflict: PublishBearerConflict::Stored { ref keys },
             ref upload_url,
-            ..
-        } if upload_url.as_ref() == "https://example.org/api/v1/upload"
+        } if keys == &["https://example.org/", "https://example.org/api/"]
+            && upload_url.as_ref() == "https://example.org/api/v1/upload"
+    );
+    let message = err.to_string();
+    assert!(
+        message.contains("`https://example.org/`")
+            && message.contains("`https://example.org/api/`"),
+        "message: {message}"
     );
 }
 

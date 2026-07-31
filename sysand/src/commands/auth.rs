@@ -26,7 +26,7 @@ use chrono::{DateTime, Utc};
 
 use crate::{CliAuthPolicy, DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
 
-const KEYRING_LOCKED_HINT: &str = "unlock your OS keyring and retry, or provide credentials via \
+const KEYRING_LOCKED_HINT: &str = "unlock your OS keyring and retry, or provide credentials via\n\
      `SYSAND_CRED_*` environment variables";
 
 /// Resolve the single index a bare `sysand auth login` / `auth logout`
@@ -88,25 +88,25 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
             );
         }
         AuthLoginNotice::DiscoveryUnreachable { error } => log::warn!(
-            "could not read the index configuration ({error}); \
+            "could not read the index configuration ({error});\n\
                  scoping the credential to the URL-derived pattern"
         ),
         AuthLoginNotice::TemplateIndexRootSkipped { template } => log::warn!(
-            "discovery advertises a templated index_root (`{template}`) that \
+            "discovery advertises a templated index_root (`{template}`) that\n\
                  cannot be covered safely; no pattern was derived for it"
         ),
         AuthLoginNotice::ProbeRedirected { surface, target } => log::warn!(
-            "the {} probe was redirected to `{target}`; probes do not follow \
+            "the {} probe was redirected to `{target}`; probes do not follow\n\
                  redirects, so the credential was not validated against that surface",
             surface_name(surface)
         ),
         AuthLoginNotice::ProbeUnreachable { surface, error } => log::warn!(
-            "could not probe the {} ({error}); the credential was not \
+            "could not probe the {} ({error}); the credential was not\n\
                  validated against it",
             surface_name(surface)
         ),
         AuthLoginNotice::ProbeRateLimited { surface } => log::warn!(
-            "the {} probe was rate limited (HTTP 429); the credential was \
+            "the {} probe was rate limited (HTTP 429); the credential was\n\
                  not validated against it",
             surface_name(surface)
         ),
@@ -122,7 +122,7 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
                 ""
             };
             log::warn!(
-                "the {} rejected the credential{hedge}; it was stored anyway \
+                "the {} rejected the credential{hedge}; it was stored anyway\n\
                      because another surface accepted it",
                 surface_name(surface)
             );
@@ -132,8 +132,8 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
                 // refusal-path variant in core/src/commands/auth.rs
                 // (validation_rejected_message).
                 log::warn!(
-                    "this index uses username/password (HTTP basic) authentication; \
-                         configure `SYSAND_CRED_{stem}_BASIC_USER` / \
+                    "this index uses username/password (HTTP basic) authentication;\n\
+                         configure `SYSAND_CRED_{stem}_BASIC_USER` /\n\
                          `SYSAND_CRED_{stem}_BASIC_PASS` environment variables instead"
                 );
             }
@@ -168,7 +168,7 @@ pub fn command_auth_login(
     // entered so the user can abort.
     if key.as_str().starts_with("http://") {
         log::warn!(
-            "`{key}` uses an unencrypted (http) connection; the token will be \
+            "`{key}` uses an unencrypted (http) connection; the token will be\n\
              sent in cleartext. Prefer an https:// index."
         );
     }
@@ -211,11 +211,11 @@ pub fn command_auth_login(
             // `SYSAND_CRED_*` lines to set instead. The secret is never
             // echoed: stdout here typically lands in CI job logs.
             println!(
-                "No OS keyring backend is available ({reason}), so the credential \
+                "No OS keyring backend is available ({reason}), so the credential\n\
                  was not stored."
             );
             println!(
-                "To authenticate on this host, set these environment variables \
+                "To authenticate on this host, set these environment variables\n\
                  instead, replacing `<token>` with the token you entered:"
             );
             let stem = cred_env_var_stem(&key);
@@ -258,12 +258,12 @@ fn blob_full_message(stored: &[(&str, Option<DateTime<Utc>>)], now: DateTime<Utc
         .map(|(key, _)| *key)
         .collect();
     let mut message = if stored.is_empty() {
-        "the token is too large for this platform's credential store \
+        "the token is too large for this platform's credential store\n\
          (Windows ~2.5 KB limit); use a smaller token"
             .to_string()
     } else {
-        "the credential store is full (Windows ~2.5 KB limit); remove a login with \
-         `sysand auth logout <index>` (run `sysand auth status` to list them) or use \
+        "the credential store is full (Windows ~2.5 KB limit); remove a login with\n\
+         `sysand auth logout <index>` (run `sysand auth status` to list them) or use\n\
          a smaller token"
             .to_string()
     };
@@ -362,8 +362,8 @@ pub fn command_auth_logout(index_url: Option<String>, config: &Config) -> Result
             Ok(())
         }
         Err(AuthCommandError::Store(CredentialStoreError::BackendAbsent { source })) => bail!(
-            "no OS keyring backend is available ({source}), so this host has no \
-             stored credentials; credentials here come from `SYSAND_CRED_*` \
+            "no OS keyring backend is available ({source}), so this host has no\n\
+             stored credentials; credentials here come from `SYSAND_CRED_*`\n\
              environment variables"
         ),
         Err(AuthCommandError::Store(err @ CredentialStoreError::BackendDenied { .. })) => {
@@ -393,7 +393,7 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
         Err(_) => {
             let note = sysand_core::style::get_style_config().note;
             println!(
-                "{note}note:{note:#} more than one default index is configured; no entry \
+                "{note}note:{note:#} more than one default index is configured; no entry\n\
                  is marked as the default index"
             );
             None
@@ -523,7 +523,7 @@ fn render_auth_status(status: &AuthStatus) {
         StoredCredentialsStatus::BackendUnavailable { reason } => {
             let note = style.note;
             println!(
-                "{note}note:{note:#} no OS keyring backend is available ({reason}); showing \
+                "{note}note:{note:#} no OS keyring backend is available ({reason}); showing\n\
                  `SYSAND_CRED_*` environment credentials only"
             );
             &none
@@ -675,7 +675,7 @@ pub fn command_auth_whoami(
                 unreachable!()
             };
             return Err(anyhow::anyhow!(
-                "{err}\nrun `sysand auth login {index}` to store a credential; \
+                "{err}\nrun `sysand auth login {index}` to store a credential;\n\
                  in CI, set `SYSAND_CRED_*` environment variables instead"
             ));
         }
@@ -724,7 +724,7 @@ pub fn command_auth_whoami(
                     }
                 }
                 None => println!(
-                    "The credential was accepted, but the identity response \
+                    "The credential was accepted, but the identity response\n\
                      could not be parsed."
                 ),
             }

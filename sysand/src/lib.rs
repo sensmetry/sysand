@@ -243,8 +243,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     // otherwise read as the pattern of a nonsense `BASIC_PASS` group.
     if let Some(name) = missing_label.first() {
         anyhow::bail!(
-            "{name} has no label; env credentials need one, as in SYSAND_CRED_MYINDEX \
-             with SYSAND_CRED_MYINDEX_BASIC_USER/SYSAND_CRED_MYINDEX_BASIC_PASS or \
+            "{name} has no label; env credentials need one, as in SYSAND_CRED_MYINDEX\n\
+             with SYSAND_CRED_MYINDEX_BASIC_USER/SYSAND_CRED_MYINDEX_BASIC_PASS or\n\
              SYSAND_CRED_MYINDEX_BEARER_TOKEN"
         );
     }
@@ -274,7 +274,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             // misnamed variable can put a secret in any position.
             (Some(_), None, None, None) => {
                 anyhow::bail!(
-                    "SYSAND_CRED_{k} has no matching authentication scheme, please specify SYSAND_CRED_{k}_BASIC_USER/SYSAND_CRED_{k}_BASIC_PASS or SYSAND_CRED_{k}_BEARER_TOKEN"
+                    "SYSAND_CRED_{k} has no matching authentication scheme, please specify\n\
+                     SYSAND_CRED_{k}_BASIC_USER/SYSAND_CRED_{k}_BASIC_PASS or\n\
+                     SYSAND_CRED_{k}_BEARER_TOKEN"
                 );
             }
             (Some(pattern), maybe_username, maybe_password, maybe_token) => {
@@ -319,7 +321,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         Ok(store) => CliAuthPolicy::new(env_auth_policy, store),
         Err(err) => {
             log::warn!(
-                "credential store unavailable: {err}; \
+                "credential store unavailable: {err};\n\
                  continuing with `SYSAND_CRED_*` credentials only"
             );
             CliAuthPolicy::without_store(env_auth_policy)

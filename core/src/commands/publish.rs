@@ -333,16 +333,52 @@ pub fn build_upload_url(api_root: &Url) -> Url {
     api_root.join(UPLOAD_ENDPOINT_PATH).unwrap()
 }
 
-/// Where a configured publish bearer credential came from. Selection tries
-/// sources in precedence order (env before keyring), and ambiguity errors
-/// name the source so the remediation can be accurate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PublishBearerSource {
-    /// `SYSAND_CRED_*` environment variables.
-    Env,
-    /// Stored logins (the credential store), read lazily and only when no
-    /// env bearer matches the upload URL.
-    Keyring,
+/// The conflicting candidates behind an ambiguous publish bearer
+/// selection, per source (selection tries env before keyring, and never
+/// mixes the two). Each variant names every matching credential so the
+/// error tells the user exactly what to reconcile, and the remediation can
+/// be source-accurate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PublishBearerConflict {
+    /// Conflicting `SYSAND_CRED_*` environment credentials; each entry is
+    /// a full `SYSAND_CRED_<LABEL>` variable name.
+    Env { variables: Vec<String> },
+    /// Conflicting stored logins (the credential store, read lazily and
+    /// only when no env bearer matches the upload URL), by index key.
+    Stored { keys: Vec<String> },
+}
+
+impl PublishBearerConflict {
+    fn source_name(&self) -> &'static str {
+        match self {
+            PublishBearerConflict::Env { .. } => "`SYSAND_CRED_*` environment variables",
+            PublishBearerConflict::Stored { .. } => "stored credentials",
+        }
+    }
+
+    /// The matching credentials, comma-separated: bare variable names for
+    /// env, backticked index keys for stored logins.
+    fn candidate_list(&self) -> String {
+        match self {
+            PublishBearerConflict::Env { variables } => variables.join(", "),
+            PublishBearerConflict::Stored { keys } => keys
+                .iter()
+                .map(|key| format!("`{key}`"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        }
+    }
+
+    fn hint(&self) -> &'static str {
+        match self {
+            PublishBearerConflict::Env { .. } => {
+                "refine `SYSAND_CRED_<X>` URL patterns so exactly one bearer token matches"
+            }
+            PublishBearerConflict::Stored { .. } => {
+                "remove or narrow overlapping stored credentials so exactly one bearer token matches"
+            }
+        }
+    }
 }
 
 /// The bearer credential publish selected for the upload, with the
@@ -376,26 +412,6 @@ pub enum PublishBearerProvenance {
     },
     /// A short-lived token acquired via CI trusted publishing.
     TrustedPublishing,
-}
-
-impl PublishBearerSource {
-    fn name(self) -> &'static str {
-        match self {
-            PublishBearerSource::Env => "`SYSAND_CRED_*` environment variables",
-            PublishBearerSource::Keyring => "stored credentials",
-        }
-    }
-
-    fn ambiguity_hint(self) -> &'static str {
-        match self {
-            PublishBearerSource::Env => {
-                "refine `SYSAND_CRED_<X>` URL patterns so exactly one bearer token matches"
-            }
-            PublishBearerSource::Keyring => {
-                "remove or narrow overlapping stored credentials so exactly one bearer token matches"
-            }
-        }
-    }
 }
 
 /// Resolve the bearer token used for publishing.
@@ -447,11 +463,18 @@ fn resolve_publish_bearer_from_config(
     stored_bearers: impl FnOnce() -> GlobMap<StoredBearerAuth>,
     upload_url: &Url,
 ) -> Result<SelectedPublishBearer, PublishError> {
-    if let Some(entry) =
-        lookup_publish_bearer(env_bearers, PublishBearerSource::Env, upload_url, |entry| {
-            entry.auth.token()
-        })?
-    {
+    if let Some(entry) = lookup_publish_bearer(
+        env_bearers,
+        upload_url,
+        |entry| entry.auth.token(),
+        |matched| PublishBearerConflict::Env {
+            variables: dedup_in_order(
+                matched
+                    .iter()
+                    .map(|entry| format!("SYSAND_CRED_{}", entry.label)),
+            ),
+        },
+    )? {
         return Ok(SelectedPublishBearer {
             auth: entry.auth.clone(),
             provenance: PublishBearerProvenance::Env {
@@ -460,11 +483,14 @@ fn resolve_publish_bearer_from_config(
         });
     }
     let stored = stored_bearers();
-    if let Some(entry) =
-        lookup_publish_bearer(&stored, PublishBearerSource::Keyring, upload_url, |entry| {
-            entry.auth().token()
-        })?
-    {
+    if let Some(entry) = lookup_publish_bearer(
+        &stored,
+        upload_url,
+        |entry| entry.auth().token(),
+        |matched| PublishBearerConflict::Stored {
+            keys: dedup_in_order(matched.iter().map(|entry| entry.key().to_string())),
+        },
+    )? {
         return Ok(SelectedPublishBearer {
             auth: entry.auth().clone(),
             provenance: PublishBearerProvenance::Stored {
@@ -480,25 +506,37 @@ fn resolve_publish_bearer_from_config(
 
 /// Look `upload_url` up in one source's bearer map: a unique match wins
 /// (candidates carrying the identical token collapse to one,
-/// [`select_bearer`]), an ambiguous match errors naming the source, and no
-/// match returns `None` so the caller can fall through to the next source.
+/// [`select_bearer`]), an ambiguous match errors naming every matching
+/// credential (`conflict` builds the per-source naming from the matched
+/// entries), and no match returns `None` so the caller can fall through to
+/// the next source.
 fn lookup_publish_bearer<'a, T>(
     map: &'a GlobMap<T>,
-    source: PublishBearerSource,
     upload_url: &Url,
     token: impl Fn(&T) -> &str,
+    conflict: impl FnOnce(&[&T]) -> PublishBearerConflict,
 ) -> Result<Option<&'a T>, PublishError> {
     match select_bearer(map, upload_url.as_str(), token) {
         BearerSelection::Unique(entry) => Ok(Some(entry)),
-        BearerSelection::Ambiguous { candidates, .. } => {
-            Err(PublishError::AmbiguousPublishBearer {
-                upload_url: upload_url.as_str().into(),
-                bearer_source: source,
-                candidates,
-            })
-        }
+        BearerSelection::Ambiguous { matched, .. } => Err(PublishError::AmbiguousPublishBearer {
+            upload_url: upload_url.as_str().into(),
+            conflict: conflict(&matched),
+        }),
         BearerSelection::None => Ok(None),
     }
+}
+
+/// Collect an iterator of candidate names, dropping repeats while keeping
+/// first-seen order (a stored login matching through several of its own
+/// URL patterns still names its key once).
+fn dedup_in_order(names: impl Iterator<Item = String>) -> Vec<String> {
+    let mut seen = Vec::new();
+    for name in names {
+        if !seen.contains(&name) {
+            seen.push(name);
+        }
+    }
+    seen
 }
 
 fn acquire_trusted_publishing_bearer(
@@ -876,17 +914,16 @@ pub enum PublishError {
     NoPublishBearer { upload_url: Box<str> },
 
     #[error(
-        "multiple bearer token credentials from {} configured for publish URL `{upload_url}`;\n\
-         {} ({candidates} candidates found)",
-        bearer_source.name(),
-        bearer_source.ambiguity_hint()
+        "multiple bearer token credentials from {} configured for publish URL `{upload_url}`:\n\
+         {};\n\
+         {}",
+        conflict.source_name(),
+        conflict.candidate_list(),
+        conflict.hint()
     )]
-    // The field is `bearer_source`, not `source`, because thiserror gives a
-    // field named `source` error-chaining semantics.
     AmbiguousPublishBearer {
         upload_url: Box<str>,
-        bearer_source: PublishBearerSource,
-        candidates: usize,
+        conflict: PublishBearerConflict,
     },
 
     #[error(

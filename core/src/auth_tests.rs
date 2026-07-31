@@ -159,9 +159,9 @@ mod select_bearer {
     }
 
     #[test]
-    fn mixed_candidates_dedupe_in_map_order_and_count_all_matches() {
+    fn mixed_candidates_dedupe_in_map_order_and_keep_all_matches() {
         // Two patterns of one credential plus a distinct one: the error
-        // count reports all three matches, while try-all consumers walk
+        // naming sees all three matches, while try-all consumers walk
         // the two distinct tokens in map order.
         let map = map(&[
             ("https://example.com/**", "tok-a"),
@@ -169,10 +169,9 @@ mod select_bearer {
             ("https://example.com/api/v1/**", "tok-b"),
         ]);
         match select(&map) {
-            BearerSelection::Ambiguous {
-                candidates: 3,
-                deduped,
-            } => {
+            BearerSelection::Ambiguous { matched, deduped } => {
+                let all: Vec<&str> = matched.iter().map(|token| token.as_str()).collect();
+                assert_eq!(all, ["tok-a", "tok-a", "tok-b"]);
                 let tokens: Vec<&str> = deduped.iter().map(|token| token.as_str()).collect();
                 assert_eq!(tokens, ["tok-a", "tok-b"]);
             }

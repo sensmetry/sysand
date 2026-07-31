@@ -46,7 +46,7 @@ pub enum AuthCommandError {
     NoStoredCredential { index: String },
     /// The target is not an HTTP(S) index (for example a `file://` URL).
     #[error(
-        "`{url}`: not an HTTP(S) index; nothing to authenticate to \
+        "`{url}`: not an HTTP(S) index; nothing to authenticate to\n\
          (use an https:// index URL)"
     )]
     NotHttpIndex { url: String },
@@ -101,7 +101,7 @@ pub enum AuthCommandError {
     /// URL (after collapsing entries carrying the same token), so no
     /// single identity question can be asked.
     #[error(
-        "{candidates} credentials from {source_name} match `{url}`; \
+        "{candidates} credentials from {source_name} match `{url}`;\n\
          refine the patterns so exactly one matches"
     )]
     AmbiguousWhoamiCredential {
@@ -141,7 +141,7 @@ fn validation_rejected_message(
                 ""
             };
             format!(
-                "the index rejected the token for `{index}` \
+                "the index rejected the token for `{index}`\n\
                  (`{endpoint}` answered HTTP {status}){hedge}; nothing was stored"
             )
         }
@@ -154,7 +154,7 @@ fn validation_rejected_message(
                 })
                 .collect();
             format!(
-                "credential for `{index}` was rejected by {} and accepted by no surface; \
+                "credential for `{index}` was rejected by {} and accepted by no surface;\n\
                  nothing was stored",
                 surfaces.join(" and ")
             )
@@ -165,8 +165,8 @@ fn validation_rejected_message(
         // stored-anyway variant in sysand/src/commands/auth.rs
         // (render_login_notice).
         message.push_str(
-            "\nthis index uses username/password (HTTP basic) authentication; configure \
-             `SYSAND_CRED_<X>_BASIC_USER` / `SYSAND_CRED_<X>_BASIC_PASS` environment \
+            "\nthis index uses username/password (HTTP basic) authentication; configure\n\
+             `SYSAND_CRED_<X>_BASIC_USER` / `SYSAND_CRED_<X>_BASIC_PASS` environment\n\
              variables instead",
         );
     }
@@ -1213,11 +1213,11 @@ fn select_whoami_credential(
                 entry.auth.token().to_string(),
             ));
         }
-        BearerSelection::Ambiguous { candidates, .. } => {
+        BearerSelection::Ambiguous { matched, .. } => {
             return Err(AuthCommandError::AmbiguousWhoamiCredential {
                 url: whoami_url.as_str().to_string(),
                 source_name: "`SYSAND_CRED_*` environment variables",
-                candidates,
+                candidates: matched.len(),
             });
         }
         BearerSelection::None => {}
@@ -1231,11 +1231,11 @@ fn select_whoami_credential(
             },
             entry.auth().token().to_string(),
         )),
-        BearerSelection::Ambiguous { candidates, .. } => {
+        BearerSelection::Ambiguous { matched, .. } => {
             Err(AuthCommandError::AmbiguousWhoamiCredential {
                 url: whoami_url.as_str().to_string(),
                 source_name: "stored credentials",
-                candidates,
+                candidates: matched.len(),
             })
         }
         BearerSelection::None => Err(AuthCommandError::NoWhoamiCredential {

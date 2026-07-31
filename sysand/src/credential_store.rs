@@ -134,7 +134,7 @@ pub fn open_cli_credential_store() -> Result<CliCredentialStore, CredentialStore
     if std::env::var_os(TEST_STORE_ENV_VAR).is_some() {
         return Err(CredentialStoreError::BackendDenied {
             source: format!(
-                "{TEST_STORE_ENV_VAR} is set, but this build does not support the \
+                "{TEST_STORE_ENV_VAR} is set, but this build does not support the\n\
                  test credential store"
             )
             .into(),
