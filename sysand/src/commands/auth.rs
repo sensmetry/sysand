@@ -112,18 +112,18 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
         ),
         AuthLoginNotice::SurfaceRejected {
             surface,
-            read_status,
+            status,
             basic_challenge,
         } => {
             // Same read-404 hedge as the refusal message.
-            let hedge = if read_status == Some(404) {
-                " (HTTP 404, which can also mean no index exists at this URL)"
+            let hedge = if surface == ProbeSurface::Read && status == 404 {
+                ", which can also mean no index exists at this URL"
             } else {
                 ""
             };
             log::warn!(
-                "the {} rejected the credential{hedge}; it was stored anyway\n\
-                     because another surface accepted it",
+                "the {} rejected the credential (HTTP {status}{hedge});\n\
+                     it was stored anyway because another surface accepted it",
                 surface_name(surface)
             );
             if basic_challenge {

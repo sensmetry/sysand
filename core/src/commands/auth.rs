@@ -64,16 +64,15 @@ pub enum AuthCommandError {
     TemplateWithoutAnchor { url: String },
     /// Every exercised surface rejected the credential and none accepted
     /// it, so nothing was stored.
-    #[error("{}", validation_rejected_message(.index, .rejected, *.read_status, *.basic_challenge))]
+    #[error("{}", validation_rejected_message(.index, .rejected, *.basic_challenge))]
     ValidationRejected {
         /// The normalized index key the login targeted.
         index: String,
-        /// The surfaces that exercised and rejected the credential.
-        rejected: Vec<ProbeSurface>,
-        /// The HTTP status of the read surface's rejection, when the read
-        /// surface rejected. A 404 hedges the message: it can mean a
-        /// rejected token, but also a URL with no index at all.
-        read_status: Option<u16>,
+        /// The surfaces that exercised and rejected the credential, each
+        /// with the HTTP status it answered. A read-surface 404 hedges
+        /// the message: it can mean a rejected token, but also a URL with
+        /// no index at all.
+        rejected: Vec<(ProbeSurface, u16)>,
         /// Whether the read surface answered with a `WWW-Authenticate:
         /// Basic` challenge: the index wants username/password, not a
         /// bearer token, and the message routes the user to
@@ -126,20 +125,18 @@ pub enum AuthCommandError {
 
 fn validation_rejected_message(
     index: &str,
-    rejected: &[ProbeSurface],
-    read_status: Option<u16>,
+    rejected: &[(ProbeSurface, u16)],
     basic_challenge: bool,
 ) -> String {
     let mut message = match rejected {
         // A read-surface 404 is hedged: it can also mean there is simply
         // no index at this URL, so the token must not be blamed outright.
-        [surface] => {
-            let (endpoint, status) = match surface {
-                ProbeSurface::Read => ("index.json", read_status.unwrap_or(401)),
-                // The API surface rejects only on 401.
-                ProbeSurface::Api => ("v1/whoami", 401),
+        [(surface, status)] => {
+            let endpoint = match surface {
+                ProbeSurface::Read => "index.json",
+                ProbeSurface::Api => "v1/whoami",
             };
-            let hedge = if *surface == ProbeSurface::Read && status == 404 {
+            let hedge = if *surface == ProbeSurface::Read && *status == 404 {
                 ", or no index exists at this URL"
             } else {
                 ""
@@ -150,11 +147,13 @@ fn validation_rejected_message(
             )
         }
         _ => {
-            let surfaces: Vec<&str> = rejected
+            let surfaces: Vec<String> = rejected
                 .iter()
-                .map(|surface| match surface {
-                    ProbeSurface::Read => "the index read surface (`index.json`)",
-                    ProbeSurface::Api => "the index API (`v1/whoami`)",
+                .map(|(surface, status)| match surface {
+                    ProbeSurface::Read => {
+                        format!("the index read surface (`index.json`, HTTP {status})")
+                    }
+                    ProbeSurface::Api => format!("the index API (`v1/whoami`, HTTP {status})"),
                 })
                 .collect();
             format!(
@@ -434,13 +433,13 @@ pub enum AuthLoginNotice {
     /// limiting can never refuse a credential.
     ProbeRateLimited { surface: ProbeSurface },
     /// A surface rejected the credential but another accepted it, so it
-    /// was stored anyway. `read_status` is the read surface's rejection
-    /// status (a 404 hedges the warning: possibly no `index.json` at that
-    /// URL); `basic_challenge` means the read surface answered with a
-    /// `WWW-Authenticate: Basic` challenge.
+    /// was stored anyway. `status` is the HTTP status the surface
+    /// answered (a read-surface 404 hedges the warning: possibly no
+    /// `index.json` at that URL); `basic_challenge` means the read
+    /// surface answered with a `WWW-Authenticate: Basic` challenge.
     SurfaceRejected {
         surface: ProbeSurface,
-        read_status: Option<u16>,
+        status: u16,
         basic_challenge: bool,
     },
 }
@@ -616,9 +615,8 @@ fn parse_whoami_identity(
 #[derive(Default)]
 struct ProbeOutcome {
     accepted: Vec<ProbeSurface>,
-    rejected: Vec<ProbeSurface>,
-    /// The HTTP status of the read surface's rejection, when it rejected.
-    read_status: Option<u16>,
+    /// Each rejecting surface with the HTTP status it answered.
+    rejected: Vec<(ProbeSurface, u16)>,
     basic_challenge: bool,
     identity: Option<WhoamiIdentity>,
 }
@@ -778,8 +776,7 @@ fn probe_read_surface(
     } else if forced_status.is_success() {
         outcome.accepted.push(surface);
     } else if forced_status.is_client_error() {
-        outcome.rejected.push(surface);
-        outcome.read_status = Some(forced_status.as_u16());
+        outcome.rejected.push((surface, forced_status.as_u16()));
         outcome.basic_challenge = basic_challenge || offers_basic_challenge(forced.headers());
     } else {
         notify(AuthLoginNotice::ProbeUnreachable {
@@ -838,7 +835,7 @@ fn probe_api_surface(
         outcome.accepted.push(surface);
         outcome.identity = parse_whoami_identity(runtime, response);
     } else if status == reqwest::StatusCode::UNAUTHORIZED {
-        outcome.rejected.push(surface);
+        outcome.rejected.push((surface, status.as_u16()));
     } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         // 429 is never a verdict; the protocol explicitly
         // allows rate limiting on `v1/whoami`.
@@ -1096,19 +1093,14 @@ pub fn do_auth_login<B: BlobBackend>(
         return Err(AuthCommandError::ValidationRejected {
             index: key,
             rejected: outcome.rejected,
-            read_status: outcome.read_status,
             basic_challenge: outcome.basic_challenge,
         });
     }
     // Stored anyway: warn about each surface that rejected.
-    for surface in &outcome.rejected {
+    for (surface, status) in &outcome.rejected {
         notify(AuthLoginNotice::SurfaceRejected {
             surface: *surface,
-            read_status: if *surface == ProbeSurface::Read {
-                outcome.read_status
-            } else {
-                None
-            },
+            status: *status,
             basic_challenge: outcome.basic_challenge && *surface == ProbeSurface::Read,
         });
     }

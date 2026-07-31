@@ -422,6 +422,8 @@ fn auth_login_refuses_a_credential_every_exercised_surface_rejected() -> TestRes
     out.assert()
         .failure()
         .stderr(predicate::str::contains("rejected"))
+        // The refusal names the status the rejecting surface answered.
+        .stderr(predicate::str::contains("answered HTTP 401"))
         .stderr(predicate::str::contains("nothing was stored"));
     assert!(
         !store_path.exists(),

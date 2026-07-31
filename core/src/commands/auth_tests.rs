@@ -1085,9 +1085,8 @@ mod login {
             AuthCommandError::ValidationRejected {
                 index,
                 rejected,
-                read_status: Some(401),
                 basic_challenge: false,
-            } if index == &root && rejected == &vec![ProbeSurface::Read]
+            } if index == &root && rejected == &vec![(ProbeSurface::Read, 401)]
         ));
         // Single rejecting surface: the wording names the endpoint and
         // its answer.
@@ -1163,7 +1162,7 @@ mod login {
         assert!(matches!(
             &err,
             AuthCommandError::ValidationRejected { rejected, .. }
-                if rejected == &vec![ProbeSurface::Api]
+                if rejected == &vec![(ProbeSurface::Api, 401)]
         ));
         let message = err.to_string();
         assert!(
@@ -1192,16 +1191,47 @@ mod login {
         let err = outcome.unwrap_err();
         assert!(matches!(
             &err,
-            AuthCommandError::ValidationRejected {
-                rejected,
-                read_status: Some(404),
-                ..
-            } if rejected == &vec![ProbeSurface::Read]
+            AuthCommandError::ValidationRejected { rejected, .. }
+                if rejected == &vec![(ProbeSurface::Read, 404)]
         ));
         let message = err.to_string();
         assert!(
+            message.contains("`index.json` answered HTTP 404"),
+            "was: {message}"
+        );
+        assert!(
             message.contains("or no index exists at this URL"),
             "was: {message}"
+        );
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn validated_login_refusal_reports_the_actual_read_rejection_status() {
+        // The read surface rejects on any non-429 4xx, not just 401; the
+        // refusal must report the status the surface actually answered
+        // (a 403 here), and only a 404 gets the no-index hedge.
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let (_unauth, _forced) = private_index_json(&mut server, "tok", 403);
+        let mut store = in_memory_store();
+
+        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+
+        let err = outcome.unwrap_err();
+        assert!(matches!(
+            &err,
+            AuthCommandError::ValidationRejected { rejected, .. }
+                if rejected == &vec![(ProbeSurface::Read, 403)]
+        ));
+        let message = err.to_string();
+        assert!(
+            message.contains("`index.json` answered HTTP 403"),
+            "was: {message}"
+        );
+        assert!(
+            !message.contains("no index exists"),
+            "a 403 must not be hedged: {message}"
         );
         assert!(store.list().unwrap().is_empty());
     }
@@ -1229,7 +1259,7 @@ mod login {
                 n,
                 AuthLoginNotice::SurfaceRejected {
                     surface: ProbeSurface::Api,
-                    read_status: None,
+                    status: 401,
                     basic_challenge: false,
                 }
             )),
@@ -1260,10 +1290,10 @@ mod login {
                 n,
                 AuthLoginNotice::SurfaceRejected {
                     surface: ProbeSurface::Read,
-                    // The read surface carries its rejection status so
-                    // hosts can hedge a 404 (which can also mean no
-                    // `index.json` at all).
-                    read_status: Some(401),
+                    // The surface carries its rejection status so hosts
+                    // can report it and hedge a read 404 (which can also
+                    // mean no `index.json` at all).
+                    status: 401,
                     basic_challenge: false,
                 }
             )),
@@ -1573,13 +1603,16 @@ mod login {
         assert!(matches!(
             &err,
             AuthCommandError::ValidationRejected { rejected, .. }
-                if rejected == &vec![ProbeSurface::Read, ProbeSurface::Api]
+                if rejected == &vec![(ProbeSurface::Read, 404), (ProbeSurface::Api, 401)]
         ));
         let message = err.to_string();
         assert!(
             message.contains("and accepted by no surface"),
             "was: {message}"
         );
+        // The enumeration names each surface's own answer.
+        assert!(message.contains("`index.json`, HTTP 404"), "was: {message}");
+        assert!(message.contains("`v1/whoami`, HTTP 401"), "was: {message}");
         assert!(!message.contains("no index exists"), "was: {message}");
         assert!(store.list().unwrap().is_empty());
     }
@@ -1724,7 +1757,7 @@ mod login {
         assert!(matches!(
             outcome.unwrap_err(),
             AuthCommandError::ValidationRejected { rejected, .. }
-                if rejected == vec![ProbeSurface::Read]
+                if rejected == vec![(ProbeSurface::Read, 401)]
         ));
         assert!(
             notices.iter().any(|n| matches!(
