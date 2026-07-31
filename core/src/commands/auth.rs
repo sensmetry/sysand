@@ -64,7 +64,7 @@ pub enum AuthCommandError {
     TemplateWithoutAnchor { url: String },
     /// Every exercised surface rejected the credential and none accepted
     /// it, so nothing was stored.
-    #[error("{}", validation_rejected_message(.index, .rejected, *.basic_challenge))]
+    #[error("{}", validation_rejected_message(.index, .rejected, .challenge_schemes))]
     ValidationRejected {
         /// The normalized index key the login targeted.
         index: String,
@@ -73,11 +73,12 @@ pub enum AuthCommandError {
         /// the message: it can mean a rejected token, but also a URL with
         /// no index at all.
         rejected: Vec<(ProbeSurface, u16)>,
-        /// Whether the read surface answered with a `WWW-Authenticate:
-        /// Basic` challenge: the index wants username/password, not a
-        /// bearer token, and the message routes the user to
-        /// `SYSAND_CRED_*` basic credentials.
-        basic_challenge: bool,
+        /// The scheme tokens the read surface offered in its
+        /// `WWW-Authenticate` challenges, verbatim in first-seen order
+        /// (deduplicated case-insensitively). `Basic` routes the message
+        /// to `SYSAND_CRED_*` basic credentials; schemes other than
+        /// `Basic`/`Bearer` are named as unsupported.
+        challenge_schemes: Vec<String>,
     },
     /// `whoami` could not read the index configuration, so the API root
     /// (and with it the `v1/whoami` URL) could not be resolved.
@@ -126,7 +127,7 @@ pub enum AuthCommandError {
 fn validation_rejected_message(
     index: &str,
     rejected: &[(ProbeSurface, u16)],
-    basic_challenge: bool,
+    challenge_schemes: &[String],
 ) -> String {
     let mut message = match rejected {
         // A read-surface 404 is hedged: it can also mean there is simply
@@ -163,7 +164,7 @@ fn validation_rejected_message(
             )
         }
     };
-    if basic_challenge {
+    if schemes_include_basic(challenge_schemes) {
         // Keep this basic-auth routing hint consistent with the
         // stored-anyway variant in sysand/src/commands/auth.rs
         // (render_login_notice).
@@ -173,7 +174,45 @@ fn validation_rejected_message(
              variables instead",
         );
     }
+    if let Some(followup) = unsupported_schemes_followup(challenge_schemes) {
+        message.push('\n');
+        message.push_str(&followup);
+    }
     message
+}
+
+/// Whether the collected challenge schemes include HTTP `Basic`
+/// (case-insensitive): the index wants username/password, not a bearer
+/// token, and messages route the user to `SYSAND_CRED_*` basic
+/// credentials.
+pub fn schemes_include_basic(schemes: &[String]) -> bool {
+    schemes.iter().any(|s| s.eq_ignore_ascii_case("basic"))
+}
+
+/// The follow-up line naming, verbatim, the offered challenge schemes
+/// sysand does not support (anything other than `Basic` and `Bearer`),
+/// or `None` when every offered scheme is supported. Shared by the
+/// refusal message and the stored-anyway warning so both name the same
+/// schemes.
+pub fn unsupported_schemes_followup(schemes: &[String]) -> Option<String> {
+    let unsupported: Vec<String> = schemes
+        .iter()
+        .filter(|s| !s.eq_ignore_ascii_case("basic") && !s.eq_ignore_ascii_case("bearer"))
+        .map(|s| format!("`{s}`"))
+        .collect();
+    if unsupported.is_empty() {
+        return None;
+    }
+    let noun = if unsupported.len() == 1 {
+        "scheme"
+    } else {
+        "schemes"
+    };
+    Some(format!(
+        "the index requests the authentication {noun} {} in its challenge,\n\
+         which sysand does not support",
+        unsupported.join(", ")
+    ))
 }
 
 /// One `SYSAND_CRED_*` environment credential, as seen by `auth status`:
@@ -435,12 +474,13 @@ pub enum AuthLoginNotice {
     /// A surface rejected the credential but another accepted it, so it
     /// was stored anyway. `status` is the HTTP status the surface
     /// answered (a read-surface 404 hedges the warning: possibly no
-    /// `index.json` at that URL); `basic_challenge` means the read
-    /// surface answered with a `WWW-Authenticate: Basic` challenge.
+    /// `index.json` at that URL); `challenge_schemes` carries the
+    /// scheme tokens the read surface offered in `WWW-Authenticate`
+    /// (always empty for the API surface).
     SurfaceRejected {
         surface: ProbeSurface,
         status: u16,
-        basic_challenge: bool,
+        challenge_schemes: Vec<String>,
     },
 }
 
@@ -617,7 +657,9 @@ struct ProbeOutcome {
     accepted: Vec<ProbeSurface>,
     /// Each rejecting surface with the HTTP status it answered.
     rejected: Vec<(ProbeSurface, u16)>,
-    basic_challenge: bool,
+    /// The scheme tokens the read surface offered in `WWW-Authenticate`
+    /// across both probe legs, verbatim in first-seen order.
+    challenge_schemes: Vec<String>,
     identity: Option<WhoamiIdentity>,
 }
 
@@ -666,38 +708,46 @@ fn redirect_target(response: &reqwest::Response) -> String {
         .unwrap_or_else(|| "(no Location header)".to_string())
 }
 
-/// Whether any `WWW-Authenticate` challenge on the response offers the
-/// `Basic` scheme (case-insensitive, RFC 7235). Splits on top-level
-/// commas only and checks each challenge's leading scheme token, because
-/// both a substring check and a naive comma split false-positive on
-/// quoted realm values. (A quoted `\"` is not handled; this only tunes a
-/// hint message.)
-fn offers_basic_challenge(headers: &reqwest::header::HeaderMap) -> bool {
-    headers
-        .get_all(reqwest::header::WWW_AUTHENTICATE)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .any(header_offers_basic)
-}
-
-fn header_offers_basic(value: &str) -> bool {
-    // Split into challenges on commas outside double quotes.
-    let mut in_quotes = false;
-    value
-        .split(|c: char| {
+/// Collect into `schemes` the scheme token of every `WWW-Authenticate`
+/// challenge on the response, verbatim (original casing) in first-seen
+/// order, deduplicated case-insensitively. Splits challenges on
+/// top-level commas only, because a naive comma split false-positives
+/// on quoted realm values; a comma-continued auth-param
+/// (`charset="UTF-8"`) is not a challenge, so a leading token counts as
+/// a scheme only when it is a valid HTTP token. (A quoted `\"` is not
+/// handled; this only tunes hint messages.)
+fn collect_challenge_schemes(headers: &reqwest::header::HeaderMap, schemes: &mut Vec<String>) {
+    for value in headers.get_all(reqwest::header::WWW_AUTHENTICATE).iter() {
+        let Ok(value) = value.to_str() else { continue };
+        // Split into challenges on commas outside double quotes.
+        let mut in_quotes = false;
+        let challenges = value.split(|c: char| {
             if c == '"' {
                 in_quotes = !in_quotes;
             }
             c == ',' && !in_quotes
-        })
-        .any(|challenge| {
+        });
+        for challenge in challenges {
             let token = challenge
                 .trim_start()
                 .split([' ', '\t'])
                 .next()
                 .unwrap_or("");
-            token.eq_ignore_ascii_case("basic")
-        })
+            if token.is_empty() || !token.chars().all(is_tchar) {
+                continue;
+            }
+            if !schemes.iter().any(|s| s.eq_ignore_ascii_case(token)) {
+                schemes.push(token.to_string());
+            }
+        }
+    }
+}
+
+/// An RFC 9110 `token` character. An auth-param continuation
+/// (`charset="UTF-8"`) contains `=`/`"`, which are not tchars, so it is
+/// never mistaken for a scheme.
+fn is_tchar(c: char) -> bool {
+    c.is_ascii_alphanumeric() || "!#$%&'*+-.^_`|~".contains(c)
 }
 
 /// Probe the read surface (`index_root/index.json`): an unauthenticated
@@ -749,7 +799,8 @@ fn probe_read_surface(
         });
         return;
     }
-    let basic_challenge = offers_basic_challenge(baseline.headers());
+    let mut challenge_schemes = Vec::new();
+    collect_challenge_schemes(baseline.headers(), &mut challenge_schemes);
     let forced = match probe_request(
         runtime,
         client,
@@ -777,7 +828,8 @@ fn probe_read_surface(
         outcome.accepted.push(surface);
     } else if forced_status.is_client_error() {
         outcome.rejected.push((surface, forced_status.as_u16()));
-        outcome.basic_challenge = basic_challenge || offers_basic_challenge(forced.headers());
+        collect_challenge_schemes(forced.headers(), &mut challenge_schemes);
+        outcome.challenge_schemes = challenge_schemes;
     } else {
         notify(AuthLoginNotice::ProbeUnreachable {
             surface,
@@ -1093,7 +1145,7 @@ pub fn do_auth_login<B: BlobBackend>(
         return Err(AuthCommandError::ValidationRejected {
             index: key,
             rejected: outcome.rejected,
-            basic_challenge: outcome.basic_challenge,
+            challenge_schemes: outcome.challenge_schemes,
         });
     }
     // Stored anyway: warn about each surface that rejected.
@@ -1101,7 +1153,11 @@ pub fn do_auth_login<B: BlobBackend>(
         notify(AuthLoginNotice::SurfaceRejected {
             surface: *surface,
             status: *status,
-            basic_challenge: outcome.basic_challenge && *surface == ProbeSurface::Read,
+            challenge_schemes: if *surface == ProbeSurface::Read {
+                outcome.challenge_schemes.clone()
+            } else {
+                Vec::new()
+            },
         });
     }
     let validated = outcome.accepted;

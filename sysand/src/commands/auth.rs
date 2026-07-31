@@ -16,7 +16,7 @@ use sysand_core::{
         AuthCommandError, AuthLoginNotice, AuthLoginOutcome, AuthStatus, EnvCredentialEntry,
         IndexKey, ProbeSurface, StoredCredentialStatus, StoredCredentialsStatus,
         WhoamiCredentialSource, WhoamiVerdict, assemble_auth_status, do_auth_login, do_auth_logout,
-        do_auth_status, do_auth_whoami,
+        do_auth_status, do_auth_whoami, schemes_include_basic, unsupported_schemes_followup,
     },
     config::Config,
     credential_store::CredentialStoreError,
@@ -113,7 +113,7 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
         AuthLoginNotice::SurfaceRejected {
             surface,
             status,
-            basic_challenge,
+            challenge_schemes,
         } => {
             // Same read-404 hedge as the refusal message.
             let hedge = if surface == ProbeSurface::Read && status == 404 {
@@ -126,7 +126,7 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
                      it was stored anyway because another surface accepted it",
                 surface_name(surface)
             );
-            if basic_challenge {
+            if schemes_include_basic(&challenge_schemes) {
                 let stem = cred_env_var_stem(index_key);
                 // Keep this basic-auth routing hint consistent with the
                 // refusal-path variant in core/src/commands/auth.rs
@@ -136,6 +136,9 @@ fn render_login_notice(notice: AuthLoginNotice, index_key: &str) {
                          configure `SYSAND_CRED_{stem}_BASIC_USER` /\n\
                          `SYSAND_CRED_{stem}_BASIC_PASS` environment variables instead"
                 );
+            }
+            if let Some(followup) = unsupported_schemes_followup(&challenge_schemes) {
+                log::warn!("{followup}");
             }
         }
     }

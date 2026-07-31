@@ -1085,8 +1085,10 @@ mod login {
             AuthCommandError::ValidationRejected {
                 index,
                 rejected,
-                basic_challenge: false,
-            } if index == &root && rejected == &vec![(ProbeSurface::Read, 401)]
+                challenge_schemes,
+            } if index == &root
+                && rejected == &vec![(ProbeSurface::Read, 401)]
+                && challenge_schemes.is_empty()
         ));
         // Single rejecting surface: the wording names the endpoint and
         // its answer.
@@ -1260,8 +1262,8 @@ mod login {
                 AuthLoginNotice::SurfaceRejected {
                     surface: ProbeSurface::Api,
                     status: 401,
-                    basic_challenge: false,
-                }
+                    challenge_schemes,
+                } if challenge_schemes.is_empty()
             )),
             "expected an api rejection notice, got {notices:?}"
         );
@@ -1294,8 +1296,8 @@ mod login {
                     // can report it and hedge a read 404 (which can also
                     // mean no `index.json` at all).
                     status: 401,
-                    basic_challenge: false,
-                }
+                    challenge_schemes,
+                } if challenge_schemes.is_empty()
             )),
             "expected a read rejection notice, got {notices:?}"
         );
@@ -1404,14 +1406,18 @@ mod login {
         assert!(matches!(
             &err,
             AuthCommandError::ValidationRejected {
-                basic_challenge: true,
+                challenge_schemes,
                 ..
-            }
+            } if challenge_schemes == &vec!["Basic".to_string()]
         ));
         let message = err.to_string();
         assert!(
             message.contains("SYSAND_CRED_<X>_BASIC_USER"),
             "was: {message}"
+        );
+        assert!(
+            !message.contains("does not support"),
+            "Basic is routed, not reported as unsupported: {message}"
         );
         assert!(store.list().unwrap().is_empty());
     }
@@ -1432,13 +1438,128 @@ mod login {
 
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
+        let err = outcome.unwrap_err();
         assert!(matches!(
-            outcome.unwrap_err(),
+            &err,
             AuthCommandError::ValidationRejected {
-                basic_challenge: false,
+                challenge_schemes,
                 ..
-            }
+            } if challenge_schemes == &vec!["Bearer".to_string()]
         ));
+        // Bearer is the expected scheme: no basic routing and no
+        // unsupported-scheme follow-up.
+        let message = err.to_string();
+        assert!(!message.contains("BASIC_USER"), "was: {message}");
+        assert!(!message.contains("does not support"), "was: {message}");
+    }
+
+    #[test]
+    fn validated_login_refusal_names_an_unsupported_scheme_verbatim() {
+        // A scheme sysand cannot satisfy (neither Basic nor Bearer) must
+        // be reported to the user verbatim, not silently dropped.
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let _index = server
+            .mock("HEAD", "/index.json")
+            .with_status(401)
+            .with_header("www-authenticate", r#"Negotiate"#)
+            .expect(2)
+            .create();
+        let mut store = in_memory_store();
+
+        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+
+        let err = outcome.unwrap_err();
+        assert!(matches!(
+            &err,
+            AuthCommandError::ValidationRejected {
+                challenge_schemes,
+                ..
+            } if challenge_schemes == &vec!["Negotiate".to_string()]
+        ));
+        let message = err.to_string();
+        assert!(
+            message.contains("the authentication scheme `Negotiate`"),
+            "was: {message}"
+        );
+        assert!(message.contains("does not support"), "was: {message}");
+        assert!(
+            !message.contains("BASIC_USER"),
+            "no basic routing without a Basic challenge: {message}"
+        );
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn validated_login_refusal_reports_basic_and_unsupported_schemes_together() {
+        // A mixed challenge gets both follow-ups: the basic routing hint
+        // and the unsupported scheme named verbatim. The top-level comma
+        // split separates the two challenges in one header.
+        let mut server = mockito::Server::new();
+        let _config = no_discovery_mock(&mut server);
+        let _index = server
+            .mock("HEAD", "/index.json")
+            .with_status(401)
+            .with_header("www-authenticate", r#"Negotiate, Basic realm="idx""#)
+            .expect(2)
+            .create();
+        let mut store = in_memory_store();
+
+        let (outcome, _) = run_login(&mut store, &server.url(), "tok");
+
+        let err = outcome.unwrap_err();
+        assert!(matches!(
+            &err,
+            AuthCommandError::ValidationRejected {
+                challenge_schemes,
+                ..
+            } if challenge_schemes == &vec!["Negotiate".to_string(), "Basic".to_string()]
+        ));
+        let message = err.to_string();
+        assert!(
+            message.contains("SYSAND_CRED_<X>_BASIC_USER"),
+            "was: {message}"
+        );
+        assert!(
+            message.contains("the authentication scheme `Negotiate`"),
+            "was: {message}"
+        );
+        assert!(store.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn challenge_scheme_collection_handles_quoting_params_and_casing() {
+        // Behavior matrix for the header parsing: top-level comma split,
+        // auth-param continuations filtered, casing preserved verbatim
+        // but deduplicated case-insensitively across headers.
+        let cases: &[(&[&str], &[&str])] = &[
+            // A quoted realm containing a comma and a scheme name is
+            // neither a split point nor a scheme.
+            (&[r#"Bearer realm="Basic, or not""#], &["Bearer"]),
+            // A comma-continued auth-param is not a new challenge.
+            (&[r#"Basic realm="idx", charset="UTF-8""#], &["Basic"]),
+            (&["Basic realm=idx, foo=bar"], &["Basic"]),
+            // Two challenges in one header, one bare and one with params.
+            (
+                &[r#"Negotiate, Bearer realm="a""#],
+                &["Negotiate", "Bearer"],
+            ),
+            // Across headers: first-seen casing wins, dedup is
+            // case-insensitive.
+            (
+                &["basic", r#"Basic realm="idx", Negotiate"#],
+                &["basic", "Negotiate"],
+            ),
+        ];
+        for (values, expected) in cases {
+            let mut headers = reqwest::header::HeaderMap::new();
+            for value in *values {
+                headers.append(reqwest::header::WWW_AUTHENTICATE, value.parse().unwrap());
+            }
+            let mut schemes = Vec::new();
+            super::super::collect_challenge_schemes(&headers, &mut schemes);
+            assert_eq!(schemes, *expected, "headers: {values:?}");
+        }
     }
 
     #[test]
