@@ -136,6 +136,43 @@ fn auth_status_lists_env_credentials_and_never_secrets() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn auth_status_errors_on_a_label_less_env_credential() -> TestResult {
+    // Status applies the same strict `SYSAND_CRED_*` validation as every
+    // credential-using command, with the identical message.
+    let (_store_dir, store_path) = seam_store()?;
+    let mut env = seam_env(&store_path);
+    env.insert("SYSAND_CRED".to_string(), "https://a.org".to_string());
+
+    let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert().failure().stderr(predicate::str::contains(
+        "SYSAND_CRED has no label; env credentials need one, as in SYSAND_CRED_MYINDEX",
+    ));
+    Ok(())
+}
+
+#[test]
+fn auth_status_errors_on_an_env_pattern_without_a_scheme() -> TestResult {
+    // A pattern with no secret companion is rejected, and its value is
+    // never echoed: a misnamed variable can put a secret in any position.
+    let (_store_dir, store_path) = seam_store()?;
+    let mut env = seam_env(&store_path);
+    env.insert(
+        "SYSAND_CRED_TEST".to_string(),
+        "accidental-secret-value".to_string(),
+    );
+
+    let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &env)?;
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "SYSAND_CRED_TEST has no matching authentication scheme",
+        ))
+        .stderr(predicate::str::contains("accidental-secret-value").not())
+        .stdout(predicate::str::contains("accidental-secret-value").not());
+    Ok(())
+}
+
 // `sysand auth login`
 
 const SEAM_ENV_VAR: &str = "SYSAND_TEST_CREDENTIAL_STORE";

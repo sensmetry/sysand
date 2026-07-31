@@ -400,7 +400,7 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
         }
     };
     let default_key = default_key.as_ref().map(IndexKey::as_str);
-    let env = collect_env_credential_entries();
+    let env = collect_env_credential_entries()?;
     let status = match open_cli_credential_store() {
         Ok(store) => match do_auth_status(&store, env, default_key) {
             Ok(status) => status,
@@ -423,31 +423,26 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Collect `SYSAND_CRED_*` URL-pattern variables as status entries.
-/// Deliberately tolerant, unlike the eager auth-policy build: `auth
-/// status` diagnoses credential configuration, so an incomplete group is
-/// listed rather than rejected. Only pattern variables are shown; the
-/// companion variables hold secrets.
-fn collect_env_credential_entries() -> Vec<EnvCredentialEntry> {
-    let mut entries: Vec<EnvCredentialEntry> = std::env::vars()
-        .filter(|(key, _)| {
-            matches!(
-                crate::cred_env::classify(key),
-                Some(crate::cred_env::CredEnvName::Grouped(
-                    _,
-                    crate::cred_env::CredEnvRole::Pattern
-                ))
-            )
-        })
-        .map(|(key, value)| EnvCredentialEntry {
-            label: key,
-            pattern: value,
+/// Collect `SYSAND_CRED_*` URL-pattern variables as status entries,
+/// applying the same strict validation as the eager auth-policy build:
+/// a malformed configuration (label-less name, incomplete group) is an
+/// error here too, with the identical message, so `auth status` never
+/// reports less than any credential-using command would reject. Only
+/// pattern variables are shown; the companion variables hold secrets.
+fn collect_env_credential_entries() -> Result<Vec<EnvCredentialEntry>> {
+    let groups = crate::cred_env::validated_env_groups()?;
+    let mut entries: Vec<EnvCredentialEntry> = groups
+        .patterns
+        .into_iter()
+        .map(|(stem, pattern)| EnvCredentialEntry {
+            label: format!("{}{stem}", crate::cred_env::ENV_PREFIX),
+            pattern,
             // Set by status assembly when a default index is known.
             applies_to_default: false,
         })
         .collect();
     entries.sort_by(|a, b| a.label.cmp(&b.label));
-    entries
+    Ok(entries)
 }
 
 /// Days-to-expiry at or under which the `expires in N days` qualifier is
@@ -584,9 +579,10 @@ fn render_auth_status(status: &AuthStatus) {
 }
 
 /// Build the read auth policy for `auth whoami`'s discovery fetch (and
-/// its env bearer map), tolerantly: unlike the eager build in `run_cli`,
-/// a malformed `SYSAND_CRED_*` group is skipped with a debug log, because
-/// the `auth` commands must stay usable to diagnose exactly those.
+/// its env bearer map), tolerantly: unlike the strict validation shared
+/// by `run_cli` and `auth status`, a malformed `SYSAND_CRED_*` group is
+/// skipped with a debug log, because `whoami` must stay usable against a
+/// private index even when an unrelated group is malformed.
 fn lenient_env_auth_policy() -> Result<StandardHTTPAuthentication> {
     let groups = crate::cred_env::collect_env_groups();
 
@@ -755,96 +751,5 @@ pub fn command_auth_whoami(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{blob_full_message, cred_env_var_stem};
-    use chrono::{Duration, Utc};
-
-    #[test]
-    fn cred_env_var_stem_uses_the_uppercased_host() {
-        assert_eq!(
-            cred_env_var_stem("https://sysand.example/idx/"),
-            "SYSAND_EXAMPLE"
-        );
-    }
-
-    #[test]
-    fn cred_env_var_stem_includes_a_non_default_port() {
-        // Two indexes on different ports of one host must not suggest the
-        // same variable names.
-        assert_eq!(
-            cred_env_var_stem("https://sysand.example:8443/"),
-            "SYSAND_EXAMPLE_8443"
-        );
-        assert_ne!(
-            cred_env_var_stem("https://sysand.example:8443/"),
-            cred_env_var_stem("https://sysand.example:9000/")
-        );
-    }
-
-    #[test]
-    fn cred_env_var_stem_omits_a_scheme_default_port() {
-        assert_eq!(
-            cred_env_var_stem("https://sysand.example:443/"),
-            "SYSAND_EXAMPLE"
-        );
-        assert_eq!(
-            cred_env_var_stem("http://sysand.example:80/"),
-            "SYSAND_EXAMPLE"
-        );
-    }
-
-    #[test]
-    fn cred_env_var_stem_never_produces_a_reserved_suffix() {
-        // Host characters map to alphanumerics or `_`, and a port adds
-        // only digits, so no stem can end in a reserved secret suffix.
-        for key in [
-            "https://basic.user/",
-            "https://x.example:1234/",
-            "https://bearer-token.example/",
-        ] {
-            let stem = cred_env_var_stem(key);
-            for suffix in ["_BASIC_USER", "_BASIC_PASS", "_BEARER_TOKEN"] {
-                assert!(!stem.ends_with(suffix), "stem {stem} ends in {suffix}");
-            }
-        }
-    }
-
-    #[test]
-    fn blob_full_first_login_does_not_suggest_removing_a_login() {
-        let message = blob_full_message(&[], Utc::now());
-        assert!(message.contains("use a smaller token"), "{message}");
-        assert!(!message.contains("logout"), "{message}");
-    }
-
-    #[test]
-    fn blob_full_names_the_status_and_logout_commands() {
-        let now = Utc::now();
-        let stored = [("https://a.example/", None), ("https://b.example/", None)];
-        let message = blob_full_message(&stored, now);
-        assert!(message.contains("sysand auth status"), "{message}");
-        assert!(message.contains("sysand auth logout <index>"), "{message}");
-    }
-
-    #[test]
-    fn blob_full_lists_expired_logins_as_drop_candidates() {
-        let now = Utc::now();
-        let stored = [
-            ("https://live.example/", Some(now + Duration::days(30))),
-            ("https://dead.example/", Some(now - Duration::days(1))),
-            ("https://unknown.example/", None),
-        ];
-        let message = blob_full_message(&stored, now);
-        assert!(
-            message.contains("sysand auth logout https://dead.example/"),
-            "{message}"
-        );
-        assert!(
-            !message.contains("logout https://live.example/"),
-            "{message}"
-        );
-        assert!(
-            !message.contains("logout https://unknown.example/"),
-            "{message}"
-        );
-    }
-}
+#[path = "./auth_tests.rs"]
+mod tests;

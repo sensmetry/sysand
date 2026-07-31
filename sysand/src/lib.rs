@@ -206,11 +206,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     let _runtime_keep_alive = runtime.clone();
 
-    // The `auth` commands manage credentials rather than use them: they
-    // must work even when `SYSAND_CRED_*` variables are malformed (the
-    // eager env-policy build below fails hard on those, and `auth status`
-    // exists to diagnose them), so they dispatch before that policy is
-    // built. `login` still gets the shared client and runtime: core
+    // The `auth` commands manage credentials rather than use them, so
+    // they dispatch before the eager env-policy build below. `status`
+    // applies the same strict `SYSAND_CRED_*` validation on its own;
+    // `login`, `logout`, and `whoami` must keep working even when those
+    // variables are malformed. `login` still gets the shared client and
+    // runtime: core
     // handles its discovery fetch itself (an unauthenticated baseline
     // with a forced-bearer retry carrying the just-entered secret), so
     // no ambient auth policy is needed.
@@ -231,86 +232,23 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         command => command,
     };
 
-    let cred_env::CredEnvGroups {
-        patterns: auth_patterns,
-        basic_users: basic_auth_users,
-        basic_passwords: basic_auth_passwords,
-        bearer_tokens: bearer_auth_tokens,
-        missing_label,
-    } = cred_env::collect_env_groups();
-
-    // Reject label-less names up front: `SYSAND_CRED_BASIC_PASS` would
-    // otherwise read as the pattern of a nonsense `BASIC_PASS` group.
-    if let Some(name) = missing_label.first() {
-        anyhow::bail!(
-            "{name} has no label; env credentials need one, as in SYSAND_CRED_MYINDEX\n\
-             with SYSAND_CRED_MYINDEX_BASIC_USER/SYSAND_CRED_MYINDEX_BASIC_PASS or\n\
-             SYSAND_CRED_MYINDEX_BEARER_TOKEN"
-        );
-    }
-
-    let mut basic_auth_pattern_names = HashSet::new();
-    for x in [
-        &auth_patterns,
-        &basic_auth_users,
-        &basic_auth_passwords,
-        &bearer_auth_tokens,
-    ] {
-        for k in x.keys() {
-            basic_auth_pattern_names.insert(k);
-        }
-    }
-
+    // Validation guarantees every group has a pattern and at least one
+    // complete scheme, so iterating the patterns covers every group.
+    let groups = cred_env::validated_env_groups()?;
     let mut auths_builder: StandardHTTPAuthenticationBuilder =
         StandardHTTPAuthenticationBuilder::new();
-    for k in basic_auth_pattern_names {
-        match (
-            auth_patterns.get(k),
-            basic_auth_users.get(k),
-            basic_auth_passwords.get(k),
-            bearer_auth_tokens.get(k),
-        ) {
-            // Never interpolate variable values into these messages: a
-            // misnamed variable can put a secret in any position.
-            (Some(_), None, None, None) => {
-                anyhow::bail!(
-                    "SYSAND_CRED_{k} has no matching authentication scheme, please specify\n\
-                     SYSAND_CRED_{k}_BASIC_USER/SYSAND_CRED_{k}_BASIC_PASS or\n\
-                     SYSAND_CRED_{k}_BEARER_TOKEN"
-                );
-            }
-            (Some(pattern), maybe_username, maybe_password, maybe_token) => {
-                let mut matched_schemes = 0;
-
-                match (maybe_username, maybe_password) {
-                    (Some(username), Some(password)) => {
-                        matched_schemes += 1;
-                        log::debug!("auth: env vars specify HTTP basic for URL glob `{pattern}`");
-                        auths_builder.add_basic_auth(pattern, username, password)
-                    }
-                    (None, None) => {}
-                    (_, _) => {
-                        anyhow::bail!(
-                            "please specify both (or neither) of SYSAND_CRED_{k}_BASIC_USER and SYSAND_CRED_{k}_BASIC_PASS"
-                        );
-                    }
-                }
-
-                if let Some(token) = maybe_token {
-                    matched_schemes += 1;
-                    log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
-                    // The label lets a publish auth failure name the
-                    // `SYSAND_CRED_<LABEL>` variable to fix.
-                    auths_builder.add_bearer_auth(pattern, token, k);
-                }
-
-                if matched_schemes > 1 {
-                    log::warn!("SYSAND_CRED_{k} has multiple authentication schemes!");
-                }
-            }
-            (None, _, _, _) => {
-                anyhow::bail!("please specify URL pattern SYSAND_CRED_{k} for credential");
-            }
+    for (k, pattern) in &groups.patterns {
+        if let (Some(username), Some(password)) =
+            (groups.basic_users.get(k), groups.basic_passwords.get(k))
+        {
+            log::debug!("auth: env vars specify HTTP basic for URL glob `{pattern}`");
+            auths_builder.add_basic_auth(pattern, username, password);
+        }
+        if let Some(token) = groups.bearer_tokens.get(k) {
+            log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
+            // The label lets a publish auth failure name the
+            // `SYSAND_CRED_<LABEL>` variable to fix.
+            auths_builder.add_bearer_auth(pattern, token, k);
         }
     }
     let env_auth_policy = auths_builder.build()?;

@@ -7,9 +7,11 @@
 //! `run_cli`, the lenient policy for `auth whoami`, and the `auth status`
 //! listing) must agree on which suffixes are reserved for secrets and how
 //! the group stem is derived. This module is the single place that
-//! knowledge lives: a new suffix is added here and nowhere else. What each
-//! consumer does with a malformed or incomplete group (fail hard, skip
-//! with a diagnostic, list anyway) stays with the consumer.
+//! knowledge lives: a new suffix is added here and nowhere else. The
+//! strict group validation shared by the eager policy build and `auth
+//! status` lives here too ([`validated_env_groups`]); only `auth whoami`
+//! keeps its own lenient reading, so it stays usable against a private
+//! index even when an unrelated group is malformed.
 
 use std::collections::HashMap;
 
@@ -88,8 +90,8 @@ pub(crate) struct CredEnvGroups {
     pub(crate) basic_passwords: HashMap<String, String>,
     pub(crate) bearer_tokens: HashMap<String, String>,
     /// Variable names in the namespace but with no label, sorted. Never
-    /// part of any group; the strict consumer rejects them, the lenient
-    /// ones skip them.
+    /// part of any group; the strict consumers reject them, the lenient
+    /// one skips them.
     pub(crate) missing_label: Vec<String>,
 }
 
@@ -116,6 +118,77 @@ pub(crate) fn collect_env_groups() -> CredEnvGroups {
     }
     groups.missing_label.sort();
     groups
+}
+
+/// Validate collected groups the way every credential-using command
+/// does: reject label-less names, secret variables without a URL
+/// pattern, patterns with no complete authentication scheme, and half of
+/// a basic pair. A group carrying both schemes passes with a warning.
+/// Stems are checked in sorted order so the reported error is
+/// deterministic when several groups are malformed. Never interpolate
+/// variable values into these messages: a misnamed variable can put a
+/// secret in any position.
+pub(crate) fn validate_env_groups(groups: &CredEnvGroups) -> anyhow::Result<()> {
+    // Reject label-less names up front: `SYSAND_CRED_BASIC_PASS` would
+    // otherwise read as the pattern of a nonsense `BASIC_PASS` group.
+    if let Some(name) = groups.missing_label.first() {
+        anyhow::bail!(
+            "{name} has no label; env credentials need one, as in SYSAND_CRED_MYINDEX\n\
+             with SYSAND_CRED_MYINDEX_BASIC_USER/SYSAND_CRED_MYINDEX_BASIC_PASS or\n\
+             SYSAND_CRED_MYINDEX_BEARER_TOKEN"
+        );
+    }
+
+    let mut stems: Vec<&String> = [
+        &groups.patterns,
+        &groups.basic_users,
+        &groups.basic_passwords,
+        &groups.bearer_tokens,
+    ]
+    .into_iter()
+    .flat_map(HashMap::keys)
+    .collect();
+    stems.sort();
+    stems.dedup();
+
+    for k in stems {
+        if !groups.patterns.contains_key(k) {
+            anyhow::bail!("please specify URL pattern SYSAND_CRED_{k} for credential");
+        }
+        let has_basic = match (groups.basic_users.get(k), groups.basic_passwords.get(k)) {
+            (Some(_), Some(_)) => true,
+            (None, None) => false,
+            (_, _) => {
+                anyhow::bail!(
+                    "please specify both (or neither) of SYSAND_CRED_{k}_BASIC_USER and SYSAND_CRED_{k}_BASIC_PASS"
+                );
+            }
+        };
+        match (has_basic, groups.bearer_tokens.contains_key(k)) {
+            (false, false) => {
+                anyhow::bail!(
+                    "SYSAND_CRED_{k} has no matching authentication scheme, please specify\n\
+                     SYSAND_CRED_{k}_BASIC_USER/SYSAND_CRED_{k}_BASIC_PASS or\n\
+                     SYSAND_CRED_{k}_BEARER_TOKEN"
+                );
+            }
+            (true, true) => {
+                log::warn!("SYSAND_CRED_{k} has multiple authentication schemes!");
+            }
+            (_, _) => {}
+        }
+    }
+    Ok(())
+}
+
+/// Collect and strictly validate the `SYSAND_CRED_*` environment. The
+/// shared entry point for every consumer that must fail on a malformed
+/// credential configuration (the eager policy build in `run_cli` and
+/// `auth status`).
+pub(crate) fn validated_env_groups() -> anyhow::Result<CredEnvGroups> {
+    let groups = collect_env_groups();
+    validate_env_groups(&groups)?;
+    Ok(groups)
 }
 
 #[cfg(test)]
