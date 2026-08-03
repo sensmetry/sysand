@@ -217,10 +217,13 @@ impl IndexUrlTemplate {
         // Rewrite the prefix into the text `url::Url` serializes it as
         // (lowercase scheme and host, punycode, default port dropped,
         // explicit root `/`), so `Display` output is canonical. The probe
-        // goes on the prefix alone: with the suffix included, literal
-        // probe-like suffix text or a `..` suffix segment could move the
-        // cut. URL serialization keeps the probe's unreserved characters
-        // and `%20` escape verbatim, so the parsed text ends with it.
+        // keeps the prefix's end mid-segment, where it sits in every
+        // expansion: parsed bare, a prefix ending in `.`, `..`, or a
+        // space hits end-of-URL rules (dot-segment resolution, trailing
+        // whitespace trimming) that never apply to the template. The
+        // probe goes on the prefix alone so suffix text cannot move the
+        // cut, and URL serialization keeps the probe's unreserved
+        // characters and `%20` escape verbatim.
         let probe = utf8_percent_encode("pr obe", PATH_ENCODE_SET).to_string();
         let normalized = url::Url::parse(&format!("{}{probe}", template.prefix))
             .expect("BUG: the prefix of a validated template followed by the probe parses");

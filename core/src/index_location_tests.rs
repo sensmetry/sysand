@@ -272,6 +272,24 @@ fn template_prefix_normalizes_at_parse() {
             "http://EXAMPLE.com:80/a/{path}/../x?Y=Z",
             "http://example.com/a/{path}/../x?Y=Z",
         ),
+        // A prefix ending in `..` or `.` is mid-segment text in every
+        // expansion (`..{path}` names a `..foo` segment), so it must
+        // survive normalization instead of resolving as a dot segment.
+        (
+            "https://example.com/a/..{path}",
+            "https://example.com/a/..{path}",
+        ),
+        (
+            "https://example.com/a/.{path}.json",
+            "https://example.com/a/.{path}.json",
+        ),
+        // A space before the placeholder is likewise mid-segment: it
+        // normalizes to `%20` rather than being trimmed as trailing
+        // whitespace.
+        (
+            "https://example.com/a {path}",
+            "https://example.com/a%20{path}",
+        ),
     ] {
         let location = IndexLocation::parse(spelled).unwrap();
         assert_eq!(location.to_string(), canonical, "for `{spelled}`");
