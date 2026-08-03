@@ -480,7 +480,7 @@ fn validate_url_shape(reported: &str, url: &url::Url) -> Result<(), IndexLocatio
 }
 
 /// Whether `s` uses index URL template syntax (contains a brace).
-pub(crate) fn is_template_syntax(s: &str) -> bool {
+fn is_template_syntax(s: &str) -> bool {
     s.contains(['{', '}'])
 }
 
