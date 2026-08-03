@@ -344,10 +344,7 @@ impl IndexKey {
             // re-prefixing.
             other => AuthCommandError::InvalidIndexUrl(other.to_string()),
         })?;
-        let glob_root = match &location {
-            IndexLocation::Root(url) => root_anchor(url).into(),
-            IndexLocation::Template(template) => template_anchor_root(template).into(),
-        };
+        let glob_root = location_glob_root(&location);
         Ok(Self {
             key: location.to_string(),
             location,
@@ -468,12 +465,7 @@ fn derive_credential_globs(
     };
 
     if let Some(endpoints) = endpoints {
-        match &endpoints.index_root {
-            IndexLocation::Root(url) => push_if_uncovered(&mut roots, root_anchor(url).into()),
-            IndexLocation::Template(template) => {
-                push_if_uncovered(&mut roots, template_anchor_root(template).into())
-            }
-        }
+        push_if_uncovered(&mut roots, location_glob_root(&endpoints.index_root));
         if let Some(api_root) = &endpoints.api_root {
             push_if_uncovered(&mut roots, root_anchor(api_root).into());
         }
@@ -508,6 +500,16 @@ fn template_anchor_root(template: &IndexUrlTemplate) -> Url {
         .expect("BUG: a normalized template prefix has an explicit path `/`");
     Url::parse(&prefix[..=cut])
         .expect("BUG: a normalized template prefix cut at a `/` parses as a URL")
+}
+
+/// The URL root credential globs anchor on for `location`: the
+/// query-stripped URL for a plain root, the literal-prefix anchor for a
+/// template.
+fn location_glob_root(location: &IndexLocation) -> String {
+    match location {
+        IndexLocation::Root(url) => root_anchor(url).into(),
+        IndexLocation::Template(template) => template_anchor_root(template).into(),
+    }
 }
 
 /// Identity fields parsed from a successful `v1/whoami` response:
@@ -1359,14 +1361,11 @@ pub fn do_auth_whoami<P: HTTPAuthentication>(
     })
 }
 
-/// The URL-glob match target of a validated index key: the key itself for
-/// a plain URL (it is normalized and ends in `/`), the literal-prefix
-/// anchor for a template key. `None` when the key does not parse.
+/// The URL-glob match target of a validated index key
+/// ([`location_glob_root`] of its parsed location). `None` when the key
+/// does not parse.
 fn index_key_glob_root(key: &str) -> Option<String> {
-    match IndexLocation::parse(key).ok()? {
-        IndexLocation::Root(url) => Some(url.into()),
-        IndexLocation::Template(template) => Some(template_anchor_root(&template).into()),
-    }
+    Some(location_glob_root(&IndexLocation::parse(key).ok()?))
 }
 
 /// Whether `pattern` matches `target`, compiled the same way runtime
