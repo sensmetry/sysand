@@ -225,6 +225,11 @@ pub enum Command {
         )]
         trusted_publishing: TrustedPublishingMode,
     },
+    /// Manage stored credentials for package indexes
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommand,
+    },
     /// Create or update lockfile
     Lock {
         #[command(flatten)]
@@ -1431,6 +1436,56 @@ impl InfoCommand {
             } => *numbered,
         }
     }
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum AuthCommand {
+    /// Show the credentials sysand will authenticate with: stored index
+    /// logins and `SYSAND_CRED_*` environment credentials, marking the
+    /// entries that apply to the default index. For stored logins,
+    /// `validated (read, api)` names the index endpoints that accepted
+    /// the token at login; `not validated` means no endpoint exercised
+    /// it. Never shows secrets
+    #[clap(verbatim_doc_comment)]
+    Status,
+    /// Store a bearer token for an index. The token is read from a hidden
+    /// prompt, or from standard input with `--token-stdin`, never from a
+    /// command-line argument. The token is validated against the index
+    /// before it is stored; a token the index rejects is not stored
+    #[clap(verbatim_doc_comment)]
+    Login {
+        /// Index URL to log in to (e.g. https://sysand.com).
+        /// URL templates are accepted (see `--index` in `sysand add
+        /// --help`); the credential is scoped to the template's literal
+        /// prefix. Defaults to the default index
+        #[clap(verbatim_doc_comment)]
+        index_url: Option<String>,
+        /// Read the token from standard input (trimming one trailing
+        /// newline) instead of prompting
+        #[arg(long, verbatim_doc_comment)]
+        token_stdin: bool,
+    },
+    /// Show who the index API identifies you as: sends one authenticated
+    /// request to the index API (`v1/whoami`) with the credential sysand
+    /// would use (`SYSAND_CRED_*` environment credentials take precedence
+    /// over stored credentials). Query-only: nothing is stored or refreshed
+    #[clap(verbatim_doc_comment)]
+    Whoami {
+        /// Index URL to query (e.g. https://sysand.com).
+        /// URL templates are accepted (see `--index` in `sysand add
+        /// --help`); the index must advertise an API in its discovery
+        /// configuration. Defaults to the default index
+        #[clap(verbatim_doc_comment)]
+        index_url: Option<String>,
+    },
+    /// Remove a stored index login
+    Logout {
+        /// Index URL to log out from (e.g. https://sysand.com).
+        /// URL templates are accepted (see `--index` in `sysand add
+        /// --help`). Defaults to the default index
+        #[clap(verbatim_doc_comment)]
+        index_url: Option<String>,
+    },
 }
 
 #[derive(clap::Subcommand, Debug, Clone)]

@@ -27,10 +27,11 @@ camino.workspace = true
 camino-tempfile = "1.4"
 anstream = "1.0.0"
 anyhow = "1.0.102"
+chrono = { version = "0.4.44", default-features = false, features = ["now"] }
 clap = { version = "4.5.60", default-features = false, features = ["derive", "unicode", "help", "cargo", "color", "env", "suggestions", "usage"] }
 env_logger = "0.11.9"
 log.workspace = true
-sysand-core = { path = "../core", features = ["std", "filesystem", "networking"] }
+sysand-core = { path = "../core", features = ["std", "filesystem", "networking", "keyring"] }
 thiserror = "2.0.18"
 toml = { version = "1.0.6", features = ["fast_hash"] }
 semver = "1.0.27"
@@ -43,6 +44,7 @@ pubgrub = { version = "0.4.0", default-features = false }
 indexmap = "2.13.0"
 tokio = { version = "1.50.0", default-features = false }
 reqwest-middleware = { version = "0.5.1", features = ["multipart"] }
+rpassword = "7.5.4"
 reqwest = { version = "0.13.2", features = ["rustls", "blocking"] }
 
 [dev-dependencies]

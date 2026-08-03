@@ -118,8 +118,8 @@ pub enum IndexLocationError {
     )]
     Userinfo { url: Box<str> },
     #[error(
-        "index URL template `{url}` includes a `#` fragment;\n\
-         fragments are never sent to the server and are not allowed in templates"
+        "index URL `{url}` includes a `#` fragment;\n\
+         fragments are never sent to the server and are not allowed in index locations"
     )]
     Fragment { url: Box<str> },
 }
@@ -156,7 +156,11 @@ impl PathEncoding {
 /// A URL template with exactly one `{path}` or `{path_raw}` placeholder,
 /// validated at construction. Stored as the text on either side of the
 /// placeholder rather than as a `url::Url` because `url::Url` percent-encodes
-/// `{` or `}` on parse, which would corrupt the placeholder.
+/// `{` or `}` on parse, which would corrupt the placeholder. The prefix is
+/// normalized at parse to the text `url::Url` serializes it as (lowercase
+/// scheme and host, punycode, default port dropped, explicit root `/`), so
+/// different spellings of one template `Display` identically; the suffix
+/// stays as written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IndexUrlTemplate {
     prefix: String,
@@ -169,9 +173,10 @@ impl IndexUrlTemplate {
     /// one `{path}` or `{path_raw}` placeholder, no other `{...}` tokens
     /// or stray braces, no fragment, and must expand to an absolute
     /// HTTP(S) URL without userinfo, with the placeholder in the path or
-    /// query.
+    /// query. The literal prefix is normalized to canonical URL text, so
+    /// `Display` renders one canonical spelling per template.
     fn parse(raw: &str) -> Result<Self, IndexLocationError> {
-        let boxed_url = || -> Box<str> { raw.into() };
+        let boxed_url = || redact_userinfo(raw);
 
         let encoding = validate_placeholders(raw)?;
 
@@ -186,7 +191,7 @@ impl IndexUrlTemplate {
         let split = raw
             .find(placeholder)
             .expect("BUG: validate_placeholders guarantees exactly one placeholder");
-        let template = Self {
+        let mut template = Self {
             prefix: raw[..split].to_owned(),
             suffix: raw[split + placeholder.len()..].to_owned(),
             encoding,
@@ -209,6 +214,28 @@ impl IndexUrlTemplate {
         };
         validate_url_shape(raw, &expanded)?;
 
+        // Rewrite the prefix into the text `url::Url` serializes it as
+        // (lowercase scheme and host, punycode, default port dropped,
+        // explicit root `/`), so `Display` output is canonical. The probe
+        // keeps the prefix's end mid-segment, where it sits in every
+        // expansion: parsed bare, a prefix ending in `.`, `..`, or a
+        // space hits end-of-URL rules (dot-segment resolution, trailing
+        // whitespace trimming) that never apply to the template. The
+        // probe goes on the prefix alone so suffix text cannot move the
+        // cut, and URL serialization keeps the probe's unreserved
+        // characters and `%20` escape verbatim.
+        let probe = "pr%20obe";
+        let normalized = url::Url::parse(&format!("{}{probe}", template.prefix))
+            .expect("BUG: the prefix of a validated template followed by the probe parses");
+        template.prefix = normalized.into();
+        debug_assert!(
+            template.prefix.ends_with(probe),
+            "BUG: URL serialization preserves the probe text"
+        );
+        template
+            .prefix
+            .truncate(template.prefix.len() - probe.len());
+
         Ok(template)
     }
 
@@ -224,6 +251,16 @@ impl IndexUrlTemplate {
         }
         out.push_str(&self.suffix);
         out
+    }
+
+    /// The literal template text before the placeholder, in normalized
+    /// form. Support for credential glob derivation (`commands::auth`),
+    /// not general API: the prefix is normalized URL text but not a
+    /// complete URL on its own (it can end mid-segment or mid-query).
+    /// Gated like its only consumer so feature subsets stay dead-code-free.
+    #[cfg(all(feature = "filesystem", feature = "networking"))]
+    pub(crate) fn prefix(&self) -> &str {
+        &self.prefix
     }
 
     /// Substitute the relative index path `segments` (each percent-encoded
@@ -272,8 +309,8 @@ impl IndexLocation {
     /// URLs are now template-syntax errors.)
     ///
     /// Both variants enforce the same validity invariants at construction:
-    /// an absolute HTTP(S) URL without userinfo. Later resolution is thus
-    /// infallible.
+    /// an absolute HTTP(S) URL without userinfo or fragment. Later
+    /// resolution is thus infallible.
     ///
     /// [RFC 3986 §2]: https://www.rfc-editor.org/rfc/rfc3986#section-2
     pub fn parse(s: &str) -> Result<Self, IndexLocationError> {
@@ -289,17 +326,21 @@ impl IndexLocation {
         if s.contains('%') {
             let lower = s.to_ascii_lowercase();
             if lower.contains("%7bpath%7d") || lower.contains("%7bpath_raw%7d") {
-                return Err(IndexLocationError::PreEncodedPlaceholder { url: s.into() });
+                return Err(IndexLocationError::PreEncodedPlaceholder {
+                    url: redact_userinfo(s),
+                });
             }
         }
         let url = match url::Url::parse(s) {
             Ok(url) => url,
             Err(url::ParseError::RelativeUrlWithoutBase) => {
-                return Err(IndexLocationError::RelativeUrl { url: s.into() });
+                return Err(IndexLocationError::RelativeUrl {
+                    url: redact_userinfo(s),
+                });
             }
             Err(source) => {
                 return Err(IndexLocationError::InvalidUrl {
-                    url: s.into(),
+                    url: redact_userinfo(s),
                     source,
                 });
             }
@@ -367,7 +408,7 @@ impl FromStr for IndexLocation {
 /// that braces are balanced and non-nested, and that exactly one
 /// placeholder occurs. Returns the encoding the placeholder selects.
 fn validate_placeholders(raw: &str) -> Result<PathEncoding, IndexLocationError> {
-    let boxed_url = || -> Box<str> { raw.into() };
+    let boxed_url = || redact_userinfo(raw);
     let mut found: Vec<PathEncoding> = Vec::new();
     let mut rest = raw;
     while let Some(open) = rest.find(['{', '}']) {
@@ -412,18 +453,27 @@ fn validate_placeholders(raw: &str) -> Result<PathEncoding, IndexLocationError> 
 }
 
 /// Enforce the shared index-location invariant on `url`: an absolute
-/// HTTP(S) URL without userinfo. `reported` is the string named in any
-/// error (the template text for a template, the URL itself for a root).
+/// HTTP(S) URL without userinfo or fragment. `reported` is the string
+/// named in any error (the template text for a template, the URL itself
+/// for a root).
 fn validate_url_shape(reported: &str, url: &url::Url) -> Result<(), IndexLocationError> {
     if !matches!(url.scheme(), "http" | "https") {
         return Err(IndexLocationError::UnsupportedScheme {
-            url: reported.into(),
+            url: redact_userinfo(reported),
             scheme: url.scheme().into(),
         });
     }
     if !url.username().is_empty() || url.password().is_some() {
         return Err(IndexLocationError::Userinfo {
-            url: reported.into(),
+            url: redact_userinfo(reported),
+        });
+    }
+    // Fragments are never sent to the server; on an index location one
+    // is always a mistake. Templates reject `#` before parsing (it would
+    // swallow the placeholder), so this arm fires for roots.
+    if url.fragment().is_some() {
+        return Err(IndexLocationError::Fragment {
+            url: redact_userinfo(reported),
         });
     }
     Ok(())
@@ -432,6 +482,28 @@ fn validate_url_shape(reported: &str, url: &url::Url) -> Result<(), IndexLocatio
 /// Whether `s` uses index URL template syntax (contains a brace).
 fn is_template_syntax(s: &str) -> bool {
     s.contains(['{', '}'])
+}
+
+/// Render a possibly malformed URL for an error message with any userinfo
+/// replaced by `<redacted>`, so an embedded password never reaches stderr
+/// or CI logs. String-based on purpose: it must work for inputs
+/// `url::Url::parse` rejected.
+fn redact_userinfo(raw: &str) -> Box<str> {
+    // The authority runs from after any scheme separator to the first
+    // `/`, `?`, or `#`; userinfo is everything up to the last `@` in it.
+    let authority_start = raw.find("://").map_or(0, |idx| idx + 3);
+    let authority_end = raw[authority_start..]
+        .find(['/', '?', '#'])
+        .map_or(raw.len(), |idx| authority_start + idx);
+    match raw[authority_start..authority_end].rfind('@') {
+        Some(at) => format!(
+            "{}<redacted>@{}",
+            &raw[..authority_start],
+            &raw[authority_start + at + 1..]
+        )
+        .into(),
+        None => raw.into(),
+    }
 }
 
 /// Return `url` with a guaranteed trailing slash on its path so that

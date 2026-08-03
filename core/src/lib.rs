@@ -15,6 +15,7 @@ pub mod model;
 pub mod auth;
 pub mod config;
 pub mod context;
+pub mod credential_store;
 pub mod env;
 #[cfg(feature = "filesystem")]
 pub mod index;

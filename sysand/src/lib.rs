@@ -22,7 +22,7 @@ use fluent_uri::Iri;
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
 use sysand_core::{
-    auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder},
+    auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder, StandardLazyHTTPAuthentication},
     commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{
         Config,
@@ -48,9 +48,10 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, Command, ExpCommand},
+    cli::{Args, AuthCommand, Command, ExpCommand},
     commands::{
         add::{ExpAddArgs, command_add, exp_command_add},
+        auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
         build::{command_build_for_project, command_build_for_workspace},
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
@@ -72,8 +73,15 @@ use crate::{
 
 pub const DEFAULT_INDEX_URL: &str = "https://sysand.com";
 
+/// The CLI's composed authentication policy: eager `SYSAND_CRED_*`
+/// credentials first, then lazily read stored credentials from the OS
+/// keyring.
+pub type CliAuthPolicy = StandardLazyHTTPAuthentication<credential_store::CliBlobBackend>;
+
 pub mod cli;
 pub mod commands;
+pub(crate) mod cred_env;
+pub mod credential_store;
 pub mod env_vars;
 pub mod logger;
 pub mod style;
@@ -198,91 +206,67 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
     let _runtime_keep_alive = runtime.clone();
 
-    // FIXME: This is a temporary implementation to provide credentials until
-    //        https://github.com/sensmetry/sysand/pull/157
-    //        gets merged.
-    let mut auth_patterns = HashMap::new();
-    let mut basic_auth_users = HashMap::new();
-    let mut basic_auth_passwords = HashMap::new();
-    let mut bearer_auth_tokens = HashMap::new();
-
-    for (key, value) in std::env::vars() {
-        if let Some(key_rest) = key.strip_prefix("SYSAND_CRED_") {
-            if let Some(key_name) = key_rest.strip_suffix("_BASIC_USER") {
-                basic_auth_users.insert(key_name.to_owned(), value);
-            } else if let Some(key_name) = key_rest.strip_suffix("_BASIC_PASS") {
-                basic_auth_passwords.insert(key_name.to_owned(), value);
-            } else if let Some(key_name) = key_rest.strip_suffix("_BEARER_TOKEN") {
-                bearer_auth_tokens.insert(key_name.to_owned(), value);
-            } else {
-                auth_patterns.insert(key_rest.to_owned(), value);
-            }
+    // The `auth` commands manage credentials rather than use them, so
+    // they dispatch before the eager env-policy build below. `status`
+    // applies the same strict `SYSAND_CRED_*` validation on its own;
+    // `login`, `logout`, and `whoami` must keep working even when those
+    // variables are malformed. `login` still gets the shared client and
+    // runtime: core
+    // handles its discovery fetch itself (an unauthenticated baseline
+    // with a forced-bearer retry carrying the just-entered secret), so
+    // no ambient auth policy is needed.
+    let command = match args.command {
+        Command::Auth { command } => {
+            return match command {
+                AuthCommand::Status => command_auth_status(&config),
+                AuthCommand::Login {
+                    index_url,
+                    token_stdin,
+                } => command_auth_login(index_url, token_stdin, &config, &client, runtime),
+                AuthCommand::Whoami { index_url } => {
+                    command_auth_whoami(index_url, &config, &client, &runtime)
+                }
+                AuthCommand::Logout { index_url } => command_auth_logout(index_url, &config),
+            };
         }
-    }
+        command => command,
+    };
 
-    let mut basic_auth_pattern_names = HashSet::new();
-    for x in [
-        &auth_patterns,
-        &basic_auth_users,
-        &basic_auth_passwords,
-        &bearer_auth_tokens,
-    ] {
-        for k in x.keys() {
-            basic_auth_pattern_names.insert(k);
-        }
-    }
-
+    // Validation guarantees every group has a pattern and at least one
+    // complete scheme, so iterating the patterns covers every group.
+    let groups = cred_env::validated_env_groups()?;
     let mut auths_builder: StandardHTTPAuthenticationBuilder =
         StandardHTTPAuthenticationBuilder::new();
-    for k in basic_auth_pattern_names {
-        match (
-            auth_patterns.get(k),
-            basic_auth_users.get(k),
-            basic_auth_passwords.get(k),
-            bearer_auth_tokens.get(k),
-        ) {
-            (Some(pattern), None, None, None) => {
-                anyhow::bail!(
-                    "SYSAND_CRED_{k} (`{pattern}`) has no matching authentication scheme, please specify SYSAND_CRED_{k}_BASIC_USER/SYSAND_CRED_{k}_BASIC_PASS or SYSAND_CRED_{k}_BEARER_TOKEN"
-                );
-            }
-            (Some(pattern), maybe_username, maybe_password, maybe_token) => {
-                let mut matched_schemes = 0;
-
-                match (maybe_username, maybe_password) {
-                    (Some(username), Some(password)) => {
-                        matched_schemes += 1;
-                        log::debug!("auth: env vars specify HTTP basic for URL glob `{pattern}`");
-                        auths_builder.add_basic_auth(pattern, username, password)
-                    }
-                    (None, None) => {}
-                    (_, _) => {
-                        anyhow::bail!(
-                            "please specify both (or neither) of SYSAND_CRED_{k}_BASIC_USER and SYSAND_CRED_{k}_BASIC_PASS"
-                        );
-                    }
-                }
-
-                if let Some(token) = maybe_token {
-                    matched_schemes += 1;
-                    log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
-                    auths_builder.add_bearer_auth(pattern, token);
-                }
-
-                if matched_schemes > 1 {
-                    log::warn!(
-                        "SYSAND_CRED_{k} (`{pattern}`) has multiple authentication schemes!"
-                    );
-                }
-            }
-            (None, _, _, _) => {
-                anyhow::bail!("please specify URL pattern SYSAND_CRED_{k} for credential");
-            }
+    for (k, pattern) in &groups.patterns {
+        if let (Some(username), Some(password)) =
+            (groups.basic_users.get(k), groups.basic_passwords.get(k))
+        {
+            log::debug!("auth: env vars specify HTTP basic for URL glob `{pattern}`");
+            auths_builder.add_basic_auth(pattern, username, password);
+        }
+        if let Some(token) = groups.bearer_tokens.get(k) {
+            log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
+            // The label lets a publish auth failure name the
+            // `SYSAND_CRED_<LABEL>` variable to fix.
+            auths_builder.add_bearer_auth(pattern, token, k);
         }
     }
-    let auth_policy = Arc::new(auths_builder.build()?);
+    let env_auth_policy = auths_builder.build()?;
+    // Compose the eager env policy with the lazily read OS keyring store.
+    // Opening the store only resolves a lock file path; no keychain access
+    // happens until a request actually needs a stored credential.
+    let auth_policy = Arc::new(match credential_store::open_cli_credential_store() {
+        Ok(store) => CliAuthPolicy::new(env_auth_policy, store),
+        Err(err) => {
+            log::warn!(
+                "credential store unavailable: {err};\n\
+                 continuing with `SYSAND_CRED_*` credentials only"
+            );
+            CliAuthPolicy::without_store(env_auth_policy)
+        }
+    });
 
-    match args.command {
+    match command {
         Command::Init {
             path,
             name,
@@ -456,6 +440,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 auth_policy,
                 ctx.current_workspace.as_ref(),
             )
+        }
+        Command::Auth { .. } => {
+            unreachable!("`auth` is dispatched before the auth policy is built")
         }
         Command::PrintRoot => command_print_root(ctx.current_directory),
         Command::Info {

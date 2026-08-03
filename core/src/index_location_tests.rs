@@ -203,6 +203,48 @@ fn template_fragment_is_rejected() {
 }
 
 #[test]
+fn root_fragment_is_rejected() {
+    // Same invariant as templates: a fragment is never sent to the
+    // server, so on an index location it is always a mistake.
+    assert!(matches!(
+        IndexLocation::parse("https://example.org/idx#frag"),
+        Err(IndexLocationError::Fragment { .. })
+    ));
+}
+
+#[test]
+fn root_userinfo_is_rejected() {
+    assert!(matches!(
+        IndexLocation::parse("https://user:pass@example.org/idx"),
+        Err(IndexLocationError::Userinfo { .. })
+    ));
+}
+
+#[test]
+fn parse_errors_never_echo_an_embedded_password() {
+    // One URL per error branch that can carry userinfo: the userinfo
+    // rejection, the scheme rejection, the parse failure (a space in
+    // the host), and the template expansion failure. These messages
+    // reach stderr and CI logs, so the password must never appear.
+    for url in [
+        "https://user:hunter2@example.com/idx",
+        "ftp://user:hunter2@example.com/idx",
+        "https://user:hunter2@exa mple.com/idx",
+        "https://user:hunter2@example.com/files/{path}",
+    ] {
+        let message = IndexLocation::parse(url).unwrap_err().to_string();
+        assert!(
+            !message.contains("hunter2") && !message.contains("user:"),
+            "url {url:?} leaked userinfo: {message}"
+        );
+        assert!(
+            message.contains("<redacted>@"),
+            "url {url:?} must show the redaction marker: {message}"
+        );
+    }
+}
+
+#[test]
 fn template_in_host_is_rejected() {
     assert!(matches!(
         IndexLocation::parse("https://{path}.example.org/files"),
@@ -235,6 +277,90 @@ fn schemeless_template_is_rejected_as_relative() {
 }
 
 #[test]
+fn template_prefix_normalizes_at_parse() {
+    // The literal prefix is rewritten to the text `url::Url` serializes,
+    // so `Display` renders one canonical spelling per template; the
+    // placeholder and suffix stay verbatim.
+    for (spelled, canonical) in [
+        // Host case and the default port.
+        (
+            "HTTPS://GitLab.COM:443/files/{path}/raw?ref=main",
+            "https://gitlab.com/files/{path}/raw?ref=main",
+        ),
+        // A path-less prefix gains the explicit root `/`.
+        (
+            "https://example.com?x={path}",
+            "https://example.com/?x={path}",
+        ),
+        // Mid-segment placeholder: the cut lands exactly where the
+        // substituted text will begin.
+        (
+            "https://Example.com/files/v{path}.json",
+            "https://example.com/files/v{path}.json",
+        ),
+        // IDN host to punycode.
+        (
+            "https://bücher.example/{path_raw}",
+            "https://xn--bcher-kva.example/{path_raw}",
+        ),
+        // Literal text aliasing the internal probe's encoding does not
+        // confuse the cut.
+        (
+            "https://example.com/pr%20obe/{path}?x=pr%20obe",
+            "https://example.com/pr%20obe/{path}?x=pr%20obe",
+        ),
+        // The suffix stays as written, whatever it contains.
+        (
+            "http://EXAMPLE.com:80/a/{path}/../x?Y=Z",
+            "http://example.com/a/{path}/../x?Y=Z",
+        ),
+        // A prefix ending in `..` or `.` is mid-segment text in every
+        // expansion (`..{path}` names a `..foo` segment), so it must
+        // survive normalization instead of resolving as a dot segment.
+        (
+            "https://example.com/a/..{path}",
+            "https://example.com/a/..{path}",
+        ),
+        (
+            "https://example.com/a/.{path}.json",
+            "https://example.com/a/.{path}.json",
+        ),
+        // A space before the placeholder is likewise mid-segment: it
+        // normalizes to `%20` rather than being trimmed as trailing
+        // whitespace.
+        (
+            "https://example.com/a {path}",
+            "https://example.com/a%20{path}",
+        ),
+    ] {
+        let location = IndexLocation::parse(spelled).unwrap();
+        assert_eq!(location.to_string(), canonical, "for `{spelled}`");
+        // Idempotent: parsing the canonical text reproduces it.
+        assert_eq!(
+            IndexLocation::parse(canonical).unwrap().to_string(),
+            canonical,
+            "reparsing the canonical form of `{spelled}`"
+        );
+    }
+}
+
+#[test]
+fn normalized_template_expands_like_the_spelled_one() {
+    // Prefix normalization must not change where requests go: the
+    // spelled and canonical forms expand to the same URL.
+    let spelled = parse_template("HTTPS://Example.COM:443/files/{path}?ref=main");
+    let canonical = parse_template("https://example.com/files/{path}?ref=main");
+    assert_eq!(
+        spelled.expand(["a b", "c.json"]),
+        canonical.expand(["a b", "c.json"])
+    );
+    assert_eq!(
+        spelled.expand(["a b", "c.json"]).as_str(),
+        "https://example.com/files/a%20b%2Fc.json?ref=main"
+    );
+}
+
+#[test]
 fn display_round_trips_templates_and_normalizes_roots() {
     assert_eq!(
         IndexLocation::parse(GITLAB_TEMPLATE).unwrap().to_string(),
@@ -245,5 +371,13 @@ fn display_round_trips_templates_and_normalizes_roots() {
             .unwrap()
             .to_string(),
         "https://example.org/index/"
+    );
+    // A root query is kept; the trailing slash lands on the path, so
+    // resolved index paths append before the query.
+    assert_eq!(
+        IndexLocation::parse("HTTPS://Example.ORG:443/index?ref=main")
+            .unwrap()
+            .to_string(),
+        "https://example.org/index/?ref=main"
     );
 }

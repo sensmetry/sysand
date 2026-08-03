@@ -77,6 +77,9 @@ impl Display for ReqwestClientBuildError {
 }
 impl Error for ReqwestClientBuildError {}
 
+/// sysand HTTP user agent
+pub(crate) const USER_AGENT: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
+
 /// Create a reqwest client. This must be used where possible.
 /// Note that gix manages its own HTTP client, so logs may indicate
 /// duplicate initialization.
@@ -86,9 +89,7 @@ impl Error for ReqwestClientBuildError {}
 /// on the index URL discovery fetch and on every index resource.
 pub fn create_reqwest_client()
 -> Result<reqwest_middleware::ClientWithMiddleware, ReqwestClientBuildError> {
-    const UA: &str = concat!("sysand/", env!("CARGO_PKG_VERSION"));
-
-    let client = reqwest::Client::builder().user_agent(UA).build()?;
+    let client = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
 
     Ok(reqwest_middleware::ClientBuilder::new(client).build())
 }

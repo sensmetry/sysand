@@ -363,6 +363,67 @@ fn publish_malformed_explicit_credentials_abort_before_trusted_publishing() -> T
 }
 
 #[test]
+fn env_credentials_without_a_label_get_a_labels_are_required_error() -> TestResult {
+    // Label-less names must not be misread as a pattern for a nonsense
+    // group; the error explains the label grammar instead.
+    let (_temp_dir, cwd) = setup_built_project("publish-label-less-creds")?;
+    let mut env = IndexMap::new();
+    env.insert("SYSAND_CRED".to_string(), "https://a.org".to_string());
+    env.insert("SYSAND_CRED_BASIC_USER".to_string(), "user-a".to_string());
+    env.insert(
+        "SYSAND_CRED_BASIC_PASS".to_string(),
+        "secret-pass-b".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", "http://localhost:1"],
+        None,
+        &env,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "SYSAND_CRED has no label; env credentials need one, as in SYSAND_CRED_MYINDEX",
+        ))
+        .stderr(predicate::str::contains("no matching authentication scheme").not())
+        // Never any variable's value, in particular not the password.
+        .stderr(predicate::str::contains("secret-pass-b").not())
+        .stderr(predicate::str::contains("user-a").not());
+
+    Ok(())
+}
+
+#[test]
+fn env_credential_scheme_errors_never_print_the_variable_values() -> TestResult {
+    // A pattern variable with no secret companion errors without echoing
+    // its value: a misnamed variable can put a secret in any position.
+    let (_temp_dir, cwd) = setup_built_project("publish-pattern-value-secrecy")?;
+    let mut env = IndexMap::new();
+    env.insert(
+        "SYSAND_CRED_TEST".to_string(),
+        "accidental-secret-value".to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", "http://localhost:1"],
+        None,
+        &env,
+    )?;
+
+    out.assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "SYSAND_CRED_TEST has no matching authentication scheme",
+        ))
+        .stderr(predicate::str::contains("accidental-secret-value").not());
+
+    Ok(())
+}
+
+#[test]
 fn publish_with_explicit_index_succeeds() -> TestResult {
     let (_temp_dir, cwd) = setup_built_project("test-publish")?;
     let mut server = Server::new();
@@ -691,8 +752,63 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
         .stderr(predicate::str::contains(
             "no bearer token credentials configured for publish URL",
         ))
+        // The CLI adds the `sysand auth login` remediation the core message
+        // deliberately omits (core/CLI message split), naming the actual
+        // index URL so the hint is copy-pasteable.
+        .stderr(predicate::str::contains(format!(
+            "run `sysand auth login {}",
+            server.url()
+        )))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
+    publish_mock.assert();
+    config_mock.assert();
+
+    Ok(())
+}
+
+#[test]
+fn publish_uses_stored_credential_when_no_env_bearer_matches() -> TestResult {
+    // A stored login (seeded through the debug-only file-backed store
+    // seam, see cli_auth.rs) must reach the upload's Authorization header
+    // when no `SYSAND_CRED_*` bearer matches: publish reads the store
+    // directly, exactly once, during credential selection.
+    let (_temp_dir, cwd) = setup_built_project("publish-stored-credential")?;
+
+    let mut server = Server::new();
+    let config_mock = mock_index_config_api_at_api(&mut server);
+    let publish_mock = mock_publish_with_bearer(&mut server, "stored-tok");
+
+    let store_dir = camino_tempfile::Utf8TempDir::with_prefix("sysand_cred_seam_")?;
+    let store_path = store_dir.path().join("creds.json");
+    // The blob as `sysand auth login` persists it, covering the whole
+    // index host, so the derived glob matches the upload URL.
+    fs::write(
+        &store_path,
+        format!(
+            r#"{{"version":1,"credentials":[{{
+                "key":"{url}/",
+                "globs":["{url}/**"],
+                "scheme":"bearer",
+                "secret":"stored-tok",
+                "validated":["publish"]}}]}}"#,
+            url = server.url()
+        ),
+    )?;
+
+    let mut env = IndexMap::new();
+    env.insert(
+        "SYSAND_TEST_CREDENTIAL_STORE".to_string(),
+        store_path.to_string(),
+    );
+
+    let out = run_sysand_in_with(
+        &cwd,
+        ["publish", "--index", server.url().as_str()],
+        None,
+        &env,
+    )?;
+    out.assert().success();
     publish_mock.assert();
     config_mock.assert();
 
@@ -724,8 +840,11 @@ fn publish_rejects_ambiguous_bearer_credentials() -> TestResult {
     out.assert()
         .failure()
         .stderr(predicate::str::contains(
-            "multiple bearer token credentials configured for publish URL",
+            "multiple bearer token credentials from `SYSAND_CRED_*` environment variables configured for publish URL",
         ))
+        // The error names every conflicting `SYSAND_CRED_<LABEL>` variable.
+        .stderr(predicate::str::contains("SYSAND_CRED_A"))
+        .stderr(predicate::str::contains("SYSAND_CRED_B"))
         .stderr(predicate::str::contains("HTTP request failed").not());
 
     publish_mock.assert();
@@ -776,23 +895,39 @@ fn assert_publish_error_status(
 
 #[test]
 fn publish_401_maps_to_auth_error() -> TestResult {
+    // The bearer came from the `SYSAND_CRED_TEST` environment credential,
+    // so the failure names that source with the env remediation
+    // (design/credential-storage.md section 7).
     assert_publish_error_status(
         "publish-auth-401",
         401,
         "unauthorized",
         None,
-        &["authentication failed", "unauthorized"],
+        &[
+            "authentication failed",
+            "unauthorized",
+            "came from `SYSAND_CRED_TEST`",
+            "SYSAND_CRED_TEST_BEARER_TOKEN",
+        ],
     )
 }
 
 #[test]
 fn publish_403_maps_to_auth_error() -> TestResult {
+    // 403 additionally points at `sysand auth status` (added by the CLI, per
+    // the core/CLI message split: core states the condition, the frontend
+    // names the command).
     assert_publish_error_status(
         "publish-auth-403",
         403,
         "forbidden",
         None,
-        &["authentication failed", "forbidden"],
+        &[
+            "authorization failed",
+            "forbidden",
+            "came from `SYSAND_CRED_TEST`",
+            "run `sysand auth status`",
+        ],
     )
 }
 

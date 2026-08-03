@@ -3,6 +3,21 @@
 Sysand is free and open source software, and as such welcomes contributions from
 everyone. This text intends to document the practicalities of doing so.
 
+## Conventions
+
+### Error messages: core states conditions, the frontend names commands
+
+`sysand-core` is a library with more than one frontend (the `sysand` CLI and
+the js / java / py bindings). Its error and warning messages must describe
+the condition only. They may reference the `SYSAND_CRED_*` environment
+variables (that credential mechanism is core's own, read directly by the
+library), but must not name `sysand <command>` subcommands: that vocabulary
+belongs to the frontend. When a core error warrants a CLI remediation, the
+`sysand` crate matches the error variant and appends the `sysand auth ...`
+hint from the error's fields (see `publish_error_with_hint` and the
+`sysand auth` command handlers). This keeps the library reusable and each
+frontend's hints correct.
+
 ## Developer's Certificate of Origin (DCO)
 
 Sysand is distributed under free software licenses (MIT and Apache-2.0).

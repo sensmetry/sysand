@@ -16,6 +16,9 @@ pub struct Config {
     pub good: Style,
     pub valid: Style,
     pub invalid: Style,
+    /// De-emphasis for secondary text (for example the sublabels of an
+    /// `auth status` entry).
+    pub dim: Style,
 }
 
 impl Default for Config {
@@ -31,6 +34,7 @@ impl Default for Config {
             good: Style::new(),
             valid: Style::new(),
             invalid: Style::new(),
+            dim: Style::new(),
         }
     }
 }

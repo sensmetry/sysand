@@ -6,11 +6,10 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 use camino::Utf8PathBuf;
 use sysand_core::{
-    auth::StandardHTTPAuthentication,
     build::default_kpar_path,
     commands::publish::{
-        TrustedPublishingEnvironment, do_publish, prepare_publish_payload, resolve_publish_bearer,
-        validate_api_root_url_shape,
+        PublishBearerProvenance, PublishError, TrustedPublishingEnvironment, do_publish,
+        prepare_publish_payload, resolve_publish_bearer, validate_api_root_url_shape,
     },
     context::ProjectContext,
     env::discovery::{ResolvedEndpoints, fetch_index_config},
@@ -18,14 +17,14 @@ use sysand_core::{
     project::utils::wrapfs,
 };
 
-use crate::{CliError, cli::TrustedPublishingMode};
+use crate::{CliAuthPolicy, CliError, cli::TrustedPublishingMode};
 
 pub fn command_publish(
     path: Option<Utf8PathBuf>,
     index: IndexLocation,
     trusted_publishing: TrustedPublishingMode,
     ctx: &ProjectContext,
-    auth_policy: Arc<StandardHTTPAuthentication>,
+    auth_policy: Arc<CliAuthPolicy>,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
 ) -> Result<()> {
@@ -33,27 +32,18 @@ pub fn command_publish(
     if !wrapfs::is_file(&kpar_path)? {
         bail!("KPAR file not found at `{kpar_path}`, run `sysand build` first");
     }
-    // `index` is an `IndexLocation`, so its shape invariants (absolute
-    // HTTP(S), no userinfo) were already enforced when it was parsed. The
-    // `v1/upload` guard still applies to the resolved `api_root` in
-    // `build_upload_url`.
-    //
-    // Validate and prepare the kpar payload before any network work,
-    // so that kpar-content errors (bad semver, invalid publisher/name,
-    // oversized archive) surface before discovery or credential
-    // matching does.
+    // Validate and prepare the kpar payload before any network work, so
+    // kpar-content errors surface before discovery or credential matching.
     let prepared = prepare_publish_payload(&kpar_path)?;
 
     // Resolve `api_root` before credential matching so publish credentials
-    // are matched against the actual upload URL. Discovery uses the full auth
-    // policy because the discovery document may itself be auth-gated.
+    // are matched against the actual upload URL. Discovery uses the full
+    // auth policy because the discovery document may itself be auth-gated.
     let endpoints = runtime.block_on(fetch_index_config(&client, &*auth_policy, &index))?;
     let ResolvedEndpoints { api_root, .. } = endpoints;
-    // Publishing needs an API, which exists only when the discovery
-    // document advertises `api_root`. An index that does not advertise one
-    // serves files only, so there is nothing to upload to. Check before
-    // credential handling so this clearer error is not masked by
-    // credential problems.
+    // No advertised `api_root` means a files-only index with nothing to
+    // upload to; check before credential handling so this clearer error
+    // is not masked by credential problems.
     let Some(api_root) = api_root else {
         bail!(
             "index `{index}` does not advertise a publish endpoint,\n\
@@ -65,22 +55,27 @@ pub fn command_publish(
     // Validate the resolved `api_root` shape once here; both credential
     // resolution and the upload build the upload URL from it afterwards.
     validate_api_root_url_shape(&api_root)?;
-    // Only now — after discovery has had access to the full policy —
-    // do we consume the Arc to extract the publish-specific
-    // bearer-credential map. Upload is bearer-only; basic-auth entries
-    // are intentionally dropped at this step.
-    let bearer_map = Arc::unwrap_or_clone(auth_policy).try_into_publish_bearer_auth_map()?;
+    // Upload is bearer-only, so basic-auth entries are dropped here.
+    // Stored logins are handed over as a lazy provider: the credential
+    // store is read only when no env bearer matches the upload URL.
+    let env_bearers = auth_policy.env_policy().publish_bearer_auth_map()?;
     let trusted_publishing_env = TrustedPublishingEnvironment::from_env();
+    // Captured before `index` moves into `do_publish`, so both hint sites
+    // can name the index the user actually targeted.
+    let index_display = index.to_string();
     let bearer = resolve_publish_bearer(
-        &bearer_map,
+        &env_bearers,
+        || auth_policy.read_stored_bearer_map_direct(),
         &api_root,
         trusted_publishing.into(),
         &trusted_publishing_env,
         &client,
         &runtime,
-    )?;
+    )
+    .map_err(|err| publish_error_with_hint(err, &index_display))?;
 
-    let response = do_publish(prepared, index, api_root, bearer, client, runtime)?;
+    let response = do_publish(prepared, index, api_root, bearer, client, runtime)
+        .map_err(|err| publish_error_with_hint(err, &index_display))?;
 
     let header = sysand_core::style::get_style_config().header;
     if response.is_new_project {
@@ -96,6 +91,48 @@ pub fn command_publish(
     }
 
     Ok(())
+}
+
+/// Add the CLI-specific `sysand auth` remediation to a publish error whose
+/// core message deliberately names no CLI command: the library states the
+/// condition (and the `SYSAND_CRED_*` fallback), and the frontend owns the
+/// command vocabulary. `index` is the index the user targeted, so the
+/// login hint is copy-pasteable.
+fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
+    let hint = match &err {
+        PublishError::NoPublishBearer { .. } => {
+            Some(format!("or run `sysand auth login {index}` to store one"))
+        }
+        PublishError::StoredCredentialExpired { key, .. } => Some(format!(
+            "re-run `sysand auth login {key}` to store a fresh token"
+        )),
+        PublishError::PublishAuthFailed {
+            status, provenance, ..
+        } => {
+            // Re-login refreshes a stored credential but not an env one
+            // (the core message explains the shadowing). A 403 is
+            // authorization: point at the credential's subject.
+            let mut lines = Vec::new();
+            if let PublishBearerProvenance::Stored { key, .. } = provenance {
+                lines.push(format!(
+                    "re-run `sysand auth login {key}` to store a fresh token"
+                ));
+            }
+            if *status == 403 {
+                lines.push(
+                    "run `sysand auth status` to see which subject the credential\n\
+                     authenticates as"
+                        .to_string(),
+                );
+            }
+            (!lines.is_empty()).then(|| lines.join("\n"))
+        }
+        _ => None,
+    };
+    match hint {
+        Some(hint) => anyhow::anyhow!("{err}\n{hint}"),
+        None => err.into(),
+    }
 }
 
 fn resolve_publish_kpar_path(

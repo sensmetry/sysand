@@ -15,6 +15,7 @@ pub const NOTE: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
 pub const GOOD: Style = AnsiColor::Green.on_default().effects(Effects::BOLD);
 pub const VALID: Style = AnsiColor::Cyan.on_default().effects(Effects::BOLD);
 pub const INVALID: Style = AnsiColor::Yellow.on_default().effects(Effects::BOLD);
+pub const DIM: Style = Style::new().effects(Effects::DIMMED);
 
 pub const STYLING: Styles = Styles::styled()
     .header(HEADER)
@@ -36,4 +37,5 @@ pub const CONFIG: Config = Config {
     good: GOOD,
     valid: VALID,
     invalid: INVALID,
+    dim: DIM,
 };

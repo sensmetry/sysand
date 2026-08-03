@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
 pub mod add;
+pub mod auth;
 pub mod build;
 pub mod clone;
 pub mod env;
