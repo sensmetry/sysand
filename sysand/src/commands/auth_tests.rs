@@ -39,18 +39,20 @@ fn cred_env_var_stem_omits_a_scheme_default_port() {
 }
 
 #[test]
-fn cred_env_var_stem_never_produces_a_reserved_suffix() {
-    // Host characters map to alphanumerics or `_`, and a port adds
-    // only digits, so no stem can end in a reserved secret suffix.
-    for key in [
-        "https://basic.user/",
-        "https://x.example:1234/",
-        "https://bearer-token.example/",
+fn cred_env_var_stem_escapes_reserved_and_labelless_spellings() {
+    // A `_`-mapped host can spell a reserved secret suffix or a bare
+    // role name; the suggested pattern variable `SYSAND_CRED_<stem>`
+    // would then classify as a secret or as label-less. Such stems get
+    // a `_0` tail; ordinary hosts stay untouched.
+    for (key, expected) in [
+        ("http://_basic.pass/", "_BASIC_PASS_0"),
+        ("http://_bearer.token/", "_BEARER_TOKEN_0"),
+        ("https://basic.user/", "BASIC_USER_0"),
+        ("https://x-basic.pass/", "X_BASIC_PASS_0"),
+        ("https://bearer-token.example/", "BEARER_TOKEN_EXAMPLE"),
+        ("https://x.example:1234/", "X_EXAMPLE_1234"),
     ] {
-        let stem = cred_env_var_stem(key);
-        for suffix in ["_BASIC_USER", "_BASIC_PASS", "_BEARER_TOKEN"] {
-            assert!(!stem.ends_with(suffix), "stem {stem} ends in {suffix}");
-        }
+        assert_eq!(cred_env_var_stem(key), expected, "for {key}");
     }
 }
 

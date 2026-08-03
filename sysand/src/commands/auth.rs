@@ -305,8 +305,9 @@ fn read_token(key: &str, token_stdin: bool) -> Result<String> {
 /// Derive the `SYSAND_CRED_<NAME>` stem suggested on a no-keyring host
 /// from the index host plus any non-default port: two indexes on
 /// different ports of one host must not suggest the same variable names.
-/// Hostnames and ports cannot produce the reserved `_BASIC_USER` /
-/// `_BASIC_PASS` / `_BEARER_TOKEN` suffixes (a port is all digits).
+/// A stem whose `_`-mapped host text spells a reserved secret suffix or
+/// a bare role name (`_basic.pass`, `basic.user`) gets a `_0` tail so
+/// every suggested variable classifies back to the intended group.
 fn cred_env_var_stem(key: &str) -> String {
     let url = url::Url::parse(key).ok();
     let host = url
@@ -328,6 +329,11 @@ fn cred_env_var_stem(key: &str) -> String {
     if let Some(port) = url.as_ref().and_then(url::Url::port) {
         stem.push('_');
         stem.push_str(&port.to_string());
+    }
+    if !crate::cred_env::stem_is_unambiguous(&stem) {
+        // Appended digits can never re-create a reserved suffix or a
+        // bare role name.
+        stem.push_str("_0");
     }
     stem
 }

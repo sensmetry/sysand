@@ -81,6 +81,17 @@ pub(crate) fn classify(name: &str) -> Option<CredEnvName> {
     Some(CredEnvName::Grouped(rest.to_owned(), CredEnvRole::Pattern))
 }
 
+/// Whether `stem` is safe to suggest as a `SYSAND_CRED_<stem>` group
+/// label: the bare pattern variable must classify back to this group.
+/// Host-derived stems can spell a reserved secret suffix (`_basic.pass`
+/// maps to `_BASIC_PASS`, making the pattern variable read as a secret)
+/// or a bare role name (`basic.user` maps to `BASIC_USER`, which is
+/// label-less).
+pub(crate) fn stem_is_unambiguous(stem: &str) -> bool {
+    classify(&format!("{ENV_PREFIX}{stem}"))
+        == Some(CredEnvName::Grouped(stem.to_owned(), CredEnvRole::Pattern))
+}
+
 /// `SYSAND_CRED_*` variables read from the process environment, grouped
 /// by role and keyed by group stem.
 #[derive(Debug, Default)]
