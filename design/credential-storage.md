@@ -119,9 +119,13 @@ Under a `sysand auth` namespace:
   always carries an explicit path `/`, so every template anchors at least
   at `scheme://authority/`.
 
-The index URL is normalized (trailing slash, scheme) before use as the
-storage key and for glob derivation, so different spellings do not create
-duplicate entries.
+The index URL is validated and normalized by the shared index-location
+parser (absolute HTTP(S), no userinfo, no fragment; lowercased host,
+default port dropped, trailing path slash) before use as the storage key,
+so different spellings do not create duplicate entries. A query string is
+allowed on plain roots just as in templates and stays part of the key;
+glob derivation anchors on the query-stripped root (§8), because resolved
+request URLs continue the path before the query.
 
 ## 5. Validation
 
@@ -328,7 +332,10 @@ logout` removes) may fall back to the default index.
   to end in `/` (for example `https://example.com/idx/**`), and both
   derivation and runtime matching use the same serialization
   (`url::Url::as_str()`) so IDN/percent-encoding agree on both sides. Two
-  refinements: a templated root's anchor is the normalized literal
+  refinements: a plain root's anchor is the **query-stripped** URL
+  (resolved request URLs continue the path before any query, so a query
+  in the anchor would match nothing); a templated root's anchor is the
+  normalized literal
   prefix cut back to its **last `/`** (prefix normalization gives every
   template an explicit path `/`, so the anchor always parses as
   `scheme://authority/` or deeper; a placeholder directly after the

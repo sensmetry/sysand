@@ -5,8 +5,7 @@ use chrono::{TimeZone, Utc};
 
 use super::{
     BLOB_VERSION, CredentialBlob, CredentialRecord, CredentialScheme, CredentialStoreError,
-    CredentialSubject, SubjectKind, ValidatedSurface, normalize_index_key, parse_blob,
-    serialize_blob,
+    CredentialSubject, SubjectKind, ValidatedSurface, parse_blob, serialize_blob,
 };
 
 fn record(key: &str, secret: &str) -> CredentialRecord {
@@ -183,70 +182,6 @@ fn parse_fails_closed_on_garbage() {
             err.to_string()
                 .contains("remove the `sysand` keyring entry"),
             "message must point at the reset: {err}"
-        );
-    }
-}
-
-#[test]
-fn normalize_canonicalizes_accepted_urls() {
-    // Trailing slash added/kept, host lowercased, default port stripped,
-    // explicit port and IPv6 literal kept, fragment dropped.
-    for (url, expected) in [
-        ("https://example.com/idx", "https://example.com/idx/"),
-        ("https://example.com", "https://example.com/"),
-        ("https://example.com/idx/", "https://example.com/idx/"),
-        ("HTTPS://EXAMPLE.com:443/Idx", "https://example.com/Idx/"),
-        ("https://[::1]:8000/idx", "https://[::1]:8000/idx/"),
-        ("https://example.com/idx#frag", "https://example.com/idx/"),
-    ] {
-        assert_eq!(
-            normalize_index_key(url).unwrap(),
-            expected,
-            "url {url:?} must normalize to {expected:?}"
-        );
-    }
-}
-
-#[test]
-fn normalize_rejects_non_http_query_and_userinfo() {
-    for url in [
-        "file:///tmp/idx",
-        "ftp://example.com/idx",
-        "not a url",
-        "https://example.com/idx?token=x",
-        "https://user:pass@example.com/idx",
-        "https://user@example.com/idx",
-    ] {
-        assert!(
-            matches!(
-                normalize_index_key(url),
-                Err(CredentialStoreError::InvalidIndexUrl(_))
-            ),
-            "url {url:?} must be rejected"
-        );
-    }
-}
-
-#[test]
-fn normalize_errors_never_echo_an_embedded_password() {
-    // One URL per error branch that can carry userinfo: the userinfo
-    // rejection, the scheme rejection, and the parse failure (a space in
-    // the host). These messages reach stderr and CI logs, so the password
-    // must never appear in them.
-    for url in [
-        "https://user:hunter2@example.com/idx",
-        "ftp://user:hunter2@example.com/idx",
-        "https://user:hunter2@exa mple.com/idx",
-    ] {
-        let err = normalize_index_key(url).unwrap_err();
-        let message = err.to_string();
-        assert!(
-            !message.contains("hunter2") && !message.contains("user:"),
-            "url {url:?} leaked userinfo: {message}"
-        );
-        assert!(
-            message.contains("<redacted>@"),
-            "url {url:?} must show the redaction marker: {message}"
         );
     }
 }

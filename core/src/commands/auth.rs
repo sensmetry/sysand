@@ -28,14 +28,13 @@ use crate::{
         CredentialRecord, CredentialScheme, CredentialStoreError, CredentialSubject,
         ValidatedSurface,
         keyring_store::{BlobBackend, LockedBlobStore},
-        normalize_index_key,
     },
     env::discovery::{
         DiscoveryError, INDEX_CONFIG_PATH, IndexConfigRaw, ResolvedEndpoints, fetch_index_config,
         fetch_index_config_strict, resolve_index_config,
     },
     env::index::HttpFetchError,
-    index_location::{IndexLocation, IndexLocationError, IndexUrlTemplate, is_template_syntax},
+    index_location::{IndexLocation, IndexLocationError, IndexUrlTemplate},
 };
 
 /// Errors from the `sysand auth` commands.
@@ -319,8 +318,8 @@ pub struct IndexKey {
     /// The key parsed as an index location (plain root or template), so
     /// commands need not reparse the key.
     location: IndexLocation,
-    /// The URL root credential globs anchor on: the key itself for a
-    /// plain URL, the literal-prefix anchor for a template key.
+    /// The URL root credential globs anchor on: the query-stripped URL
+    /// for a plain key, the literal-prefix anchor for a template key.
     glob_root: String,
 }
 
@@ -329,61 +328,30 @@ impl IndexKey {
     /// plain URL or a `{path}`/`{path_raw}` URL template) and normalize it
     /// to its credential store key form.
     ///
-    /// A plain URL normalizes via [`normalize_index_key`]. A template
-    /// normalizes inside [`IndexLocation::parse`], which canonicalizes the
-    /// literal prefix (lowercase host, default port dropped, explicit root
-    /// `/`) and keeps the placeholder and suffix verbatim; its `Display`
-    /// text is the key. Both forms are idempotent and round-trip through
-    /// [`IndexLocation::parse`] / `Display`, so `auth status` prints template
-    /// keys in the exact form `auth logout` accepts.
+    /// All index-location invariants and normalization live in
+    /// [`IndexLocation::parse`]; the key is its `Display` text. Both forms
+    /// are idempotent and round-trip through parse / `Display`, so
+    /// `auth status` prints keys in the exact form `auth logout` accepts.
     ///
     /// This is the only validation path; the CLI calls it once, before
     /// reading a secret.
     pub fn validate(index_url: &str) -> Result<Self, AuthCommandError> {
-        // Template syntax dispatches before `Url::parse`: it would
-        // percent-encode the braces into a mangled `%7Bpath%7D` key.
-        let (key, location) = if is_template_syntax(index_url) {
-            let location = IndexLocation::parse(index_url).map_err(|err| match err {
-                IndexLocationError::UnsupportedScheme { .. } => AuthCommandError::NotHttpIndex {
-                    url: index_url.to_string(),
-                },
-                // The index-location errors already name the URL; no
-                // re-prefixing.
-                other => AuthCommandError::InvalidIndexUrl(other.to_string()),
-            })?;
-            (location.to_string(), location)
-        } else {
-            // Scheme check first, so a non-HTTP(S) location gets the
-            // dedicated message instead of a generic normalization error.
-            let url = Url::parse(index_url).map_err(|err| {
-                AuthCommandError::InvalidIndexUrl(format!("`{index_url}`: {err}"))
-            })?;
-            match url.scheme() {
-                "http" | "https" => {}
-                _ => {
-                    return Err(AuthCommandError::NotHttpIndex {
-                        url: index_url.to_string(),
-                    });
-                }
-            }
-            let key = normalize_index_key(index_url).map_err(|err| match err {
-                CredentialStoreError::InvalidIndexUrl(msg) => {
-                    AuthCommandError::InvalidIndexUrl(msg)
-                }
-                other => AuthCommandError::Store(other),
-            })?;
-            let location = IndexLocation::parse(&key)
-                .map_err(|err| AuthCommandError::InvalidIndexUrl(format!("`{key}`: {err}")))?;
-            (key, location)
-        };
+        let location = IndexLocation::parse(index_url).map_err(|err| match err {
+            IndexLocationError::UnsupportedScheme { .. } => AuthCommandError::NotHttpIndex {
+                url: index_url.to_string(),
+            },
+            // The index-location errors already name the URL; no
+            // re-prefixing.
+            other => AuthCommandError::InvalidIndexUrl(other.to_string()),
+        })?;
         let glob_root = match &location {
-            IndexLocation::Root(_) => key.clone(),
+            IndexLocation::Root(url) => root_anchor(url).as_str().to_string(),
             IndexLocation::Template(template) => {
                 template_anchor_root(template).as_str().to_string()
             }
         };
         Ok(Self {
-            key,
+            key: location.to_string(),
             location,
             glob_root,
         })
@@ -503,13 +471,13 @@ fn derive_credential_globs(
 
     if let Some(endpoints) = endpoints {
         match &endpoints.index_root {
-            IndexLocation::Root(url) => push_if_uncovered(&mut roots, url.as_str()),
+            IndexLocation::Root(url) => push_if_uncovered(&mut roots, root_anchor(url).as_str()),
             IndexLocation::Template(template) => {
                 push_if_uncovered(&mut roots, template_anchor_root(template).as_str())
             }
         }
         if let Some(api_root) = &endpoints.api_root {
-            push_if_uncovered(&mut roots, api_root.as_str());
+            push_if_uncovered(&mut roots, root_anchor(api_root).as_str());
         }
     }
 
@@ -517,6 +485,16 @@ fn derive_credential_globs(
         .into_iter()
         .map(|root| format!("{}**", globset::escape(&root)))
         .collect()
+}
+
+/// Anchor a plain root URL for glob derivation: the URL without its
+/// query. `resolve` appends path segments before the query, so request
+/// URLs continue the path text, not the query text; a query in the
+/// anchor would make the glob match nothing.
+fn root_anchor(url: &Url) -> Url {
+    let mut anchor = url.clone();
+    anchor.set_query(None);
+    anchor
 }
 
 /// Anchor a URL template's literal prefix at a safe URL boundary: the

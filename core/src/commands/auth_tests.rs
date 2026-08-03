@@ -806,6 +806,32 @@ mod login {
     }
 
     #[test]
+    fn login_with_a_query_root_target_anchors_without_the_query() {
+        // A plain root may carry a query (`?ref=main` on a raw-file
+        // host). Resolved request URLs continue the path before the
+        // query, so the glob anchors on the query-stripped root while
+        // the key keeps the query.
+        let mut store = in_memory_store();
+
+        let (outcome, _) = run_login(&mut store, "http://127.0.0.1:1/idx?ref=main", "tok");
+
+        let (key, globs) = stored(outcome);
+        assert_eq!(key, "http://127.0.0.1:1/idx/?ref=main");
+        assert_eq!(
+            globs,
+            vec![format!("{}**", globset::escape("http://127.0.0.1:1/idx/"))]
+        );
+        let expanded = IndexLocation::parse(&key).unwrap().resolve(["index.json"]);
+        assert_eq!(
+            expanded.as_str(),
+            "http://127.0.0.1:1/idx/index.json?ref=main"
+        );
+        assert!(matcher(&globs).is_match(expanded.as_str()));
+        // `logout` accepts the normalized key `status` would print.
+        assert_eq!(logout(&mut store, &key).unwrap(), key);
+    }
+
+    #[test]
     fn login_with_a_path_raw_template_target_round_trips() {
         let template = "http://127.0.0.1:1/raw/{path_raw}?ref=main";
         let mut store = in_memory_store();

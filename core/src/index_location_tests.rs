@@ -203,6 +203,48 @@ fn template_fragment_is_rejected() {
 }
 
 #[test]
+fn root_fragment_is_rejected() {
+    // Same invariant as templates: a fragment is never sent to the
+    // server, so on an index location it is always a mistake.
+    assert!(matches!(
+        IndexLocation::parse("https://example.org/idx#frag"),
+        Err(IndexLocationError::Fragment { .. })
+    ));
+}
+
+#[test]
+fn root_userinfo_is_rejected() {
+    assert!(matches!(
+        IndexLocation::parse("https://user:pass@example.org/idx"),
+        Err(IndexLocationError::Userinfo { .. })
+    ));
+}
+
+#[test]
+fn parse_errors_never_echo_an_embedded_password() {
+    // One URL per error branch that can carry userinfo: the userinfo
+    // rejection, the scheme rejection, the parse failure (a space in
+    // the host), and the template expansion failure. These messages
+    // reach stderr and CI logs, so the password must never appear.
+    for url in [
+        "https://user:hunter2@example.com/idx",
+        "ftp://user:hunter2@example.com/idx",
+        "https://user:hunter2@exa mple.com/idx",
+        "https://user:hunter2@example.com/files/{path}",
+    ] {
+        let message = IndexLocation::parse(url).unwrap_err().to_string();
+        assert!(
+            !message.contains("hunter2") && !message.contains("user:"),
+            "url {url:?} leaked userinfo: {message}"
+        );
+        assert!(
+            message.contains("<redacted>@"),
+            "url {url:?} must show the redaction marker: {message}"
+        );
+    }
+}
+
+#[test]
 fn template_in_host_is_rejected() {
     assert!(matches!(
         IndexLocation::parse("https://{path}.example.org/files"),
@@ -329,5 +371,13 @@ fn display_round_trips_templates_and_normalizes_roots() {
             .unwrap()
             .to_string(),
         "https://example.org/index/"
+    );
+    // A root query is kept; the trailing slash lands on the path, so
+    // resolved index paths append before the query.
+    assert_eq!(
+        IndexLocation::parse("HTTPS://Example.ORG:443/index?ref=main")
+            .unwrap()
+            .to_string(),
+        "https://example.org/index/?ref=main"
     );
 }
