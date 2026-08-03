@@ -345,10 +345,8 @@ impl IndexKey {
             other => AuthCommandError::InvalidIndexUrl(other.to_string()),
         })?;
         let glob_root = match &location {
-            IndexLocation::Root(url) => root_anchor(url).as_str().to_string(),
-            IndexLocation::Template(template) => {
-                template_anchor_root(template).as_str().to_string()
-            }
+            IndexLocation::Root(url) => root_anchor(url).into(),
+            IndexLocation::Template(template) => template_anchor_root(template).into(),
         };
         Ok(Self {
             key: location.to_string(),
@@ -458,26 +456,26 @@ fn derive_credential_globs(
     // matches every URL under the candidate.
     let mut roots: Vec<String> = vec![primary_root.to_string()];
 
-    let push_if_uncovered = |roots: &mut Vec<String>, candidate: &str| {
+    let push_if_uncovered = |roots: &mut Vec<String>, candidate: String| {
         if !roots
             .iter()
             .any(|root| candidate.starts_with(root.as_str()))
         {
             // A candidate that prefixes an existing root subsumes it.
-            roots.retain(|root| !root.starts_with(candidate));
-            roots.push(candidate.to_string());
+            roots.retain(|root| !root.starts_with(&candidate));
+            roots.push(candidate);
         }
     };
 
     if let Some(endpoints) = endpoints {
         match &endpoints.index_root {
-            IndexLocation::Root(url) => push_if_uncovered(&mut roots, root_anchor(url).as_str()),
+            IndexLocation::Root(url) => push_if_uncovered(&mut roots, root_anchor(url).into()),
             IndexLocation::Template(template) => {
-                push_if_uncovered(&mut roots, template_anchor_root(template).as_str())
+                push_if_uncovered(&mut roots, template_anchor_root(template).into())
             }
         }
         if let Some(api_root) = &endpoints.api_root {
-            push_if_uncovered(&mut roots, root_anchor(api_root).as_str());
+            push_if_uncovered(&mut roots, root_anchor(api_root).into());
         }
     }
 
@@ -1366,10 +1364,8 @@ pub fn do_auth_whoami<P: HTTPAuthentication>(
 /// anchor for a template key. `None` when the key does not parse.
 fn index_key_glob_root(key: &str) -> Option<String> {
     match IndexLocation::parse(key).ok()? {
-        IndexLocation::Root(url) => Some(url.as_str().to_string()),
-        IndexLocation::Template(template) => {
-            Some(template_anchor_root(&template).as_str().to_string())
-        }
+        IndexLocation::Root(url) => Some(url.into()),
+        IndexLocation::Template(template) => Some(template_anchor_root(&template).into()),
     }
 }
 
