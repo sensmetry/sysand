@@ -224,14 +224,17 @@ impl IndexUrlTemplate {
         // probe goes on the prefix alone so suffix text cannot move the
         // cut, and URL serialization keeps the probe's unreserved
         // characters and `%20` escape verbatim.
-        let probe = utf8_percent_encode("pr obe", PATH_ENCODE_SET).to_string();
+        let probe = "pr%20obe";
         let normalized = url::Url::parse(&format!("{}{probe}", template.prefix))
             .expect("BUG: the prefix of a validated template followed by the probe parses");
-        template.prefix = normalized
-            .as_str()
-            .strip_suffix(&probe)
-            .expect("BUG: URL serialization preserves the probe text")
-            .to_owned();
+        template.prefix = normalized.into();
+        debug_assert!(
+            template.prefix.ends_with(probe),
+            "BUG: URL serialization preserves the probe text"
+        );
+        template
+            .prefix
+            .truncate(template.prefix.len() - probe.len());
 
         Ok(template)
     }
