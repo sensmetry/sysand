@@ -106,7 +106,7 @@ impl GixDownloadedProject {
         Ok(GixDownloadedProject {
             // TODO: gix::url::parse() accepts bare local paths; we should verify before that
             // it's URL or path as we expected instead of relying on gix::url::Parse to error out
-            url: gix::url::parse(url.as_ref().into())
+            url: gix::url::parse(url.as_ref())
                 .map_err(|e| GixDownloadedError::UrlParse(url.as_ref().into(), Box::new(e)))?,
             inner: LocalSrcProject::new_access(wrapfs::canonicalize(tmp_dir.path())?, None),
             tmp_dir,
