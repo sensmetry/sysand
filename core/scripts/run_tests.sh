@@ -11,7 +11,7 @@ PACKAGE_DIR=$(dirname "$SCRIPT_DIR")
 
 cd "$PACKAGE_DIR"
 
-cargo test --features filesystem,networking,alltests $@
+cargo test --features filesystem,networking,keyring,alltests $@
 # Currently these features don't enable any tests
 # cargo test --features js $@
 # cargo test --features python $@

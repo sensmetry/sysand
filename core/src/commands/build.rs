@@ -343,10 +343,16 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     let archive_file = wrapfs::File::create(&path)?;
     let mut zip = zip::ZipWriter::new(archive_file);
 
+    // Keep ZIPs reproducible
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(compression.into())
         .system(zip::System::Unix)
-        .last_modified_time(zip::DateTime::DEFAULT);
+        // Previously used `zip::DateTime::DEFAULT` (earliest allowed
+        // zip date: 1980-01-01), but some extractors try to convert that time
+        // to local (somehow) when extracting, which can result in time earlier
+        // than that, which results in the tool (incorrectly) complaining about
+        // date being too old for zip
+        .last_modified_time(zip::DateTime::from_date_and_time(1980, 1, 2, 0, 0, 0).unwrap());
 
     let source_paths = meta.source_paths(true);
     let mut checksums = if let Some(mut checksum) = meta.checksum.take() {

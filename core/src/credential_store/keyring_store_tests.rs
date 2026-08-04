@@ -205,7 +205,10 @@ fn exclusive_lock_blocks_reads() {
     assert!(store.list().unwrap().is_empty());
 }
 
-#[cfg(not(all(target_os = "linux", target_env = "musl")))]
+#[cfg(all(
+    feature = "keyring",
+    not(all(target_os = "linux", target_env = "musl"))
+))]
 #[test]
 fn map_keyring_error_covers_the_taxonomy() {
     use super::map_keyring_error;
