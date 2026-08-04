@@ -287,13 +287,14 @@ pub fn serialize_blob(blob: &CredentialBlob) -> String {
 /// file. Test-only so they never reach the library's public API.
 #[cfg(test)]
 pub(crate) mod test_support {
-    use std::sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
-    };
+    #[cfg(feature = "networking")]
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
 
     use super::CredentialStoreError;
-    use super::keyring_store::{BlobBackend, LockedBlobStore};
+    use super::keyring_store::BlobBackend;
+    #[cfg(all(feature = "networking", feature = "filesystem"))]
+    use super::keyring_store::LockedBlobStore;
 
     /// In-memory [`BlobBackend`] sharing its contents across clones,
     /// standing in for the single OS keyring entry.
@@ -332,6 +333,7 @@ pub(crate) mod test_support {
 
     /// A lock-file path no other store in this test process shares, so
     /// parallel tests never contend on the cross-process lock.
+    #[cfg(feature = "networking")]
     pub(crate) fn unique_lock_path() -> camino::Utf8PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         camino::Utf8PathBuf::from_path_buf(std::env::temp_dir())
@@ -344,6 +346,7 @@ pub(crate) mod test_support {
     }
 
     /// An empty in-memory store, the test stand-in for the keyring store.
+    #[cfg(all(feature = "networking", feature = "filesystem"))]
     pub(crate) fn in_memory_store() -> LockedBlobStore<InMemoryBlobBackend> {
         LockedBlobStore::new(InMemoryBlobBackend::default(), unique_lock_path())
     }
