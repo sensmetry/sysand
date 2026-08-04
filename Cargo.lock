@@ -4090,7 +4090,7 @@ dependencies = [
 
 [[package]]
 name = "sysand"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "anstream",
  "anyhow",
@@ -4126,7 +4126,7 @@ dependencies = [
 
 [[package]]
 name = "sysand-core"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "anstyle",
  "assert_cmd",
@@ -4178,7 +4178,7 @@ dependencies = [
 
 [[package]]
 name = "sysand-java"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "camino",
  "fluent-uri",
@@ -4195,7 +4195,7 @@ dependencies = [
 
 [[package]]
 name = "sysand-js"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "camino",
  "console_log",
@@ -4214,7 +4214,7 @@ dependencies = [
 
 [[package]]
 name = "sysand-macros"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "itertools",
  "proc-macro2",
@@ -4224,7 +4224,7 @@ dependencies = [
 
 [[package]]
 name = "sysand-py"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "camino",
  "camino-tempfile",
