@@ -5529,6 +5529,7 @@ checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
 dependencies = [
  "aes 0.9.1",
  "bzip2",
+ "chrono",
  "constant_time_eq",
  "crc32fast",
  "deflate64",

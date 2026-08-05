@@ -62,7 +62,7 @@ typed-path = { version = "0.12.3", default-features = false }
 walkdir = "2.5.0"
 # unicode-normalization = { version = "0.1.24", default-features = false }
 wasm-bindgen = { version = "0.2.114", default-features = false, optional = true }
-zip = { version = "8.0.0", default-features = false, optional = true, features = ["deflate"] }
+zip = { version = "8.0.0", default-features = false, optional = true, features = ["deflate", "chrono"] }
 url = { version = "2.5.8", default-features = false }
 percent-encoding = { version = "2.3.2", default-features = false, features = ["alloc"] }
 gix = { version = "0.86.0", default-features = false, optional = true, features = ["blocking-http-transport-reqwest", "blocking-network-client", "worktree-mutation", "sha1"] }
