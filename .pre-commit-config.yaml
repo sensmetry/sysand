@@ -71,6 +71,11 @@ repos:
         description: Checks all packages in the workspace to catch common mistakes and improve your Rust code.
         language: rust
         language_version: "1.97.1"
+        # Isolate this from all other invocations of any `run_tests.sh`
+        # file/manual cargo build/check/clippy, since these run with different
+        # features enabled, which causes constant build cache invalidation
+        env:
+          CARGO_TARGET_DIR: target/prek
         types: [rust]
         args:
           - --workspace

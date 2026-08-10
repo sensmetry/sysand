@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::sync::Arc;
+use std::{ffi::c_void, sync::Arc};
 
 use camino::Utf8PathBuf;
 use fluent_uri::Iri;
 use jni::{
-    JNIEnv,
-    errors::Error,
+    Env, JNIVersion, NativeMethod,
+    errors::Result as JniResult,
+    jni_str, native_method,
     objects::{JClass, JObject, JObjectArray, JString},
+    sys::{JNI_ERR, jint},
+    vm::JavaVM,
 };
 use sysand_core::{
     auth::Unauthenticated,
-    build::{KParBuildError, KparCompressionMethod},
     commands,
     env::{DEFAULT_ENV_NAME, local_directory::LocalWriteError},
     init::InitError,
@@ -28,7 +30,8 @@ use sysand_core::{
 
 use crate::{
     conversion::{
-        ToJObject, ToJObjectArray, java_info_to_raw, java_map_to_index_map, java_metadata_to_raw,
+        ToJObject, ToJStringArray, compression_from_java_string, handle_build_error,
+        java_info_to_raw, java_map_to_index_map, java_metadata_to_raw,
     },
     exceptions::{ExceptionKind, JniExt, StdlibExceptionKind},
 };
@@ -36,40 +39,58 @@ use crate::{
 mod conversion;
 mod exceptions;
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
-    mut env: JNIEnv<'local>,
+macro_rules! ret {
+    () => {
+        return Ok(())
+    };
+}
+
+macro_rules! ret_null {
+    () => {
+        return Ok(Default::default())
+    };
+}
+
+// Using `native_method!` requires that function returns `Result<T, jni::errors::Error>`,
+// but we already throw our own exceptions, and changing to return errors instead would
+// lose all error context. So the return type matches what is required, but we never
+// actually return `Err()`
+const SYSAND_INIT: NativeMethod = native_method!(
+    static fn init(name: JString, publisher: JString, version: JString, license: JString, path: JString)
+);
+fn init<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     name: JString<'local>,
     publisher: JString<'local>,
     version: JString<'local>,
     license: JString<'local>,
     path: JString<'local>,
-) {
+) -> JniResult<()> {
     let Some(name) = env.get_str(&name, "name") else {
-        return;
+        ret!()
     };
     let Some(publisher) = env.get_str(&publisher, "publisher") else {
-        return;
+        ret!()
     };
     let Some(version) = env.get_str(&version, "version") else {
-        return;
+        ret!()
     };
     let Some(path) = env.get_str(&path, "path") else {
-        return;
+        ret!()
     };
 
     // If `license` is `null`, no license is specified
-    let license: Option<String> = match env.get_string(&license) {
+    let license: Option<String> = match license.mutf8_chars(env) {
         Ok(s) => Some(s.into()),
         Err(e) => match e {
-            Error::NullPtr(_) => None,
+            jni::errors::Error::NullPtr(_) => None,
             _ => {
                 env.throw_runtime_exception(format!(
                     "failed to get argument `license`: {}",
                     format_err(e)
                 ));
-                return;
+                ret!()
             }
         },
     };
@@ -77,7 +98,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
     let command_result =
         commands::init::do_init_local_file(name, publisher, version, license, path.into());
     match command_result {
-        Ok(_) => {}
+        Ok(_) => Ok(()),
         Err(error) => {
             let e = format_err(&error);
             match error {
@@ -111,36 +132,43 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_init<'local>(
                     }
                 },
             }
+            Ok(())
         }
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_defaultEnvName<'local>(
-    mut env: JNIEnv<'local>,
+const SYSAND_DEFAULT_ENV_NAME: NativeMethod = native_method!(
+    static fn default_env_name() -> JString
+);
+fn default_env_name<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
-) -> JString<'local> {
+) -> JniResult<JString<'local>> {
     match env.new_string(DEFAULT_ENV_NAME) {
-        Ok(s) => s,
+        Ok(s) => Ok(s),
         Err(e) => {
             env.throw_runtime_exception(format!("Failed to create String: {}", format_err(e)));
-            JString::default()
+            ret_null!()
         }
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
-    mut env: JNIEnv<'local>,
+const SYSAND_ENV: NativeMethod = native_method!(
+    static fn create_env(path: JString),
+    name = "env"
+);
+// Not `env` because of name clashes inside `native_method!`. Export name still `env`
+fn create_env<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     path: JString<'local>,
-) {
+) -> JniResult<()> {
     let Some(path) = env.get_str(&path, "path") else {
-        return;
+        ret!()
     };
     let command_result = commands::env::do_env_local_dir(path);
     match command_result {
-        Ok(_) => {}
+        Ok(_) => Ok(()),
         Err(error) => {
             let e = format_err(&error);
             match error {
@@ -176,46 +204,55 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_env<'local>(
                     }
                 },
             }
+            Ok(())
         }
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_infoPath<'local>(
-    mut env: JNIEnv<'local>,
+const SYSAND_INFO_PATH: NativeMethod = native_method!(
+    static fn info_path(path: JString) -> com.sensmetry.sysand.model.InterchangeProject
+);
+fn info_path<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     path: JString<'local>,
-) -> JObject<'local> {
+) -> JniResult<JObject<'local>> {
     let Some(path) = env.get_str(&path, "path") else {
-        return JObject::default();
+        ret_null!()
     };
     let project = LocalSrcProject::new_access(Utf8PathBuf::from(&path), None);
 
     let command_result = commands::info::do_info_project(&project);
     match command_result {
-        Ok(info_metadata) => info_metadata.to_jobject(&mut env).unwrap_or_default(),
+        Ok(info_metadata) => {
+            if let Some(project) = info_metadata.to_jobject(env) {
+                return Ok(project);
+            }
+        }
         Err(e) => {
             env.throw_exception(ExceptionKind::SysandException, format_err(e));
-            JObject::default()
         }
     }
+    ret_null!()
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
-    mut env: JNIEnv<'local>,
+const SYSAND_INFO: NativeMethod = native_method!(
+    static fn info(uri: JString, index_url: JString) -> com.sensmetry.sysand.model.InterchangeProject
+);
+fn info<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     uri: JString<'local>,
     index_url: JString<'local>,
-) -> JObject<'local> {
+) -> JniResult<JObject<'local>> {
     let Some(uri) = env.get_str(&uri, "uri") else {
-        return JObject::default();
+        ret_null!()
     };
     let client = match create_reqwest_client() {
         Ok(c) => c,
         Err(e) => {
             env.throw_exception(ExceptionKind::SysandException, format_err(e));
-            return JObject::default();
+            ret_null!()
         }
     };
 
@@ -230,7 +267,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
                     ExceptionKind::IOError,
                     format!("Failed to build tokio runtime: {e}"),
                 );
-                return JObject::default();
+                ret_null!()
             }
         };
         Arc::new(r)
@@ -240,7 +277,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
         None
     } else {
         let Some(index_url) = env.get_str(&index_url, "indexUrl") else {
-            return JObject::default();
+            ret_null!()
         };
         match sysand_core::index_location::IndexLocation::parse(&index_url) {
             Ok(location) => Some(location),
@@ -249,7 +286,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
                     StdlibExceptionKind::UnsupportedOperationException,
                     format!("Failed to parse index URL `{}`: {}", index_url, error),
                 );
-                return JObject::default();
+                ret_null!()
             }
         }
     };
@@ -268,7 +305,7 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
                 ExceptionKind::ResolutionError,
                 format!("Failed to discover index endpoints: {}", format_err(error)),
             );
-            return JObject::default();
+            ret_null!()
         }
     };
 
@@ -279,34 +316,36 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_info<'local>(
                 ExceptionKind::ResolutionError,
                 format!("Provided IRI `{input}` is invalid: {error}"),
             );
-            return JObject::default();
+            ret_null!()
         }
     };
     let info_meta = match commands::info::do_info(&uri, &combined_resolver) {
         Ok(info_meta) => info_meta,
         Err(e) => {
             env.throw_exception(ExceptionKind::ResolutionError, format_err(e));
-            return JObject::default();
+            ret_null!()
         }
     };
 
-    info_meta.to_jobject(&mut env).unwrap_or_default()
+    Ok(info_meta.to_jobject(env).unwrap_or_default())
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_workspaceProjectPaths<'local>(
-    mut env: JNIEnv<'local>,
+const SYSAND_WORKSPACE_PROJECT_PATHS: NativeMethod = native_method!(
+    static fn workspace_project_paths(workspace_path: JString) -> JString[]
+);
+fn workspace_project_paths<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     workspace_path: JString<'local>,
-) -> JObjectArray<'local> {
+) -> JniResult<JObjectArray<'local, JString<'local>>> {
     let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
-        return JObjectArray::default();
+        ret_null!()
     };
     let workspace = match Workspace::new(workspace_path.into()) {
         Ok(w) => w,
         Err(e) => {
             env.throw_exception(ExceptionKind::InvalidWorkspace, format_err(e));
-            return JObjectArray::default();
+            ret_null!()
         }
     };
     let paths: Vec<String> = workspace
@@ -314,182 +353,97 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_workspaceProjectPaths<'l
         .into_iter()
         .map(|p| p.into_string())
         .collect();
-    paths.to_jobject_array(&mut env).unwrap_or_default()
+    Ok(paths.to_jstring_array(env).unwrap_or_default())
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectIndex<'local>(
-    mut env: JNIEnv<'local>,
+const SYSAND_SET_PROJECT_INDEX: NativeMethod = native_method!(
+    static fn set_project_index(project_path: JString, index: java.util.LinkedHashMap)
+);
+fn set_project_index<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     project_path: JString<'local>,
     index: JObject<'local>,
-) {
+) -> JniResult<()> {
     let Some(project_path) = env.get_str(&project_path, "projectPath") else {
-        return;
+        ret!()
     };
-    let rust_index = match java_map_to_index_map(&mut env, &index) {
-        Ok(index) => index,
-        Err(jni::errors::Error::JavaException) => {
-            // Exception already thrown by get_str
-            return;
-        }
-        Err(e) => {
-            env.throw_runtime_exception(format!("Failed to convert index map: {}", format_err(e)));
-            return;
-        }
+    let Some(rust_index) = java_map_to_index_map(env, index) else {
+        ret!()
     };
     let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
     let _ = project
         .set_index(rust_index)
         .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
+    Ok(())
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectInfo<'local>(
-    mut env: JNIEnv<'local>,
+const SYSAND_SET_PROJECT_INFO: NativeMethod = native_method!(
+    static fn set_project_info(project_path: JString, info: com.sensmetry.sysand.model.InterchangeProjectInfo)
+);
+fn set_project_info<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     project_path: JString<'local>,
     info: JObject<'local>,
-) {
+) -> JniResult<()> {
     let Some(project_path) = env.get_str(&project_path, "projectPath") else {
-        return;
+        ret!()
     };
-    let Some(info_raw) = java_info_to_raw(&mut env, &info) else {
-        return;
+    let Some(info_raw) = java_info_to_raw(env, &info) else {
+        ret!()
     };
     let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
     let _ = project
         .put_info(&info_raw, true)
         .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
+    Ok(())
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_setProjectMetadata<'local>(
-    mut env: JNIEnv<'local>,
+const SYSAND_SET_PROJECT_METADATA: NativeMethod = native_method!(
+    static fn set_project_metadata(project_path: JString, metadata: com.sensmetry.sysand.model.InterchangeProjectMetadata)
+);
+fn set_project_metadata<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     project_path: JString<'local>,
     metadata: JObject<'local>,
-) {
+) -> JniResult<()> {
     let Some(project_path) = env.get_str(&project_path, "projectPath") else {
-        return;
+        ret!()
     };
-    let Some(metadata_raw) = java_metadata_to_raw(&mut env, &metadata) else {
-        return;
+    let Some(metadata_raw) = java_metadata_to_raw(env, &metadata) else {
+        ret!()
     };
     let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
     let _ = project
         .put_meta(&metadata_raw, true)
         .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
+    Ok(())
 }
 
-fn handle_build_error(env: &mut JNIEnv<'_>, error: KParBuildError<LocalSrcError>) {
-    let e = format_err(&error);
-    match error {
-        KParBuildError::ProjectRead(_) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Project read error: {e}"),
-            );
-        }
-        KParBuildError::Io(_) => {
-            env.throw_exception(ExceptionKind::SysandException, format!("IO error: {e}"));
-        }
-        KParBuildError::Validation { .. } => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Validation error: {e}"),
-            );
-        }
-        KParBuildError::Extract(_) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Extract error: {e}"),
-            );
-        }
-        KParBuildError::UnknownFormat(_) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Unknown format error: {e}"),
-            );
-        }
-        KParBuildError::MissingInfo => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                "Missing project information",
-            );
-        }
-        KParBuildError::MissingMeta => {
-            env.throw_exception(ExceptionKind::SysandException, "Missing project metadata");
-        }
-        KParBuildError::MissingInfoMeta => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                "Missing project information and metadata",
-            );
-        }
-        KParBuildError::Zip(_) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Zip write error: {e}"),
-            );
-        }
-        KParBuildError::Serialize(..) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Project serialization error: {e}"),
-            );
-        }
-        KParBuildError::WorkspaceRead(_) => {
-            env.throw_exception(
-                ExceptionKind::SysandException,
-                format!("Workspace read error: {e}"),
-            );
-        }
-        KParBuildError::PathUsage(_) => {
-            env.throw_exception(ExceptionKind::SysandException, e);
-        }
-        KParBuildError::WorkspaceMetamodelConflict { .. } => {
-            env.throw_exception(ExceptionKind::SysandException, e);
-        }
-        KParBuildError::MissingIndexSymbol(_, _) => {
-            env.throw_exception(ExceptionKind::InvalidValue, e)
-        }
-    }
-}
-
-fn compression_from_java_string(
-    env: &mut JNIEnv<'_>,
-    compression: String,
-) -> Option<KparCompressionMethod> {
-    match KparCompressionMethod::try_from(compression) {
-        Ok(compression) => Some(compression),
-        Err(err) => {
-            env.throw_exception(ExceptionKind::SysandException, format_err(err));
-            None
-        }
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
-    mut env: JNIEnv<'local>,
+const SYSAND_BUILD_PROJECT: NativeMethod = native_method!(
+    static fn build_project(output_path: JString, project_path: JString, compression: JString)
+);
+fn build_project<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     output_path: JString<'local>,
     project_path: JString<'local>,
     compression: JString<'local>,
-) {
+) -> JniResult<()> {
     let Some(output_path) = env.get_str(&output_path, "outputPath") else {
-        return;
+        ret!()
     };
     let Some(project_path) = env.get_str(&project_path, "projectPath") else {
-        return;
+        ret!()
     };
     let project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
     let Some(compression) = env.get_str(&compression, "compression") else {
-        return;
+        ret!()
     };
-    let Some(compression) = compression_from_java_string(&mut env, compression) else {
-        return;
+    let Some(compression) = compression_from_java_string(env, compression) else {
+        ret!()
     };
     let command_result = sysand_core::commands::build::do_build_kpar(
         &project,
@@ -502,43 +456,46 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildProject<'local>(
         true,
     );
     match command_result {
-        Ok(_) => {}
-        Err(error) => handle_build_error(&mut env, error),
+        Ok(_) => (),
+        Err(error) => handle_build_error(env, error),
     }
+    Ok(())
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
-    mut env: JNIEnv<'local>,
+const SYSAND_BUILD_WORKSPACE: NativeMethod = native_method!(
+    static fn build_workspace(output_path: JString, workspace_path: JString, compression: JString)
+);
+fn build_workspace<'local>(
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     output_path: JString<'local>,
     workspace_path: JString<'local>,
     compression: JString<'local>,
-) {
+) -> JniResult<()> {
     let Some(output_path) = env.get_str(&output_path, "outputPath") else {
-        return;
+        ret!()
     };
     let Some(workspace_path) = env.get_str(&workspace_path, "workspacePath") else {
-        return;
+        ret!()
     };
     let workspace = match Workspace::new(workspace_path.into()) {
         Ok(w) => w,
         Err(e) => {
             env.throw_exception(ExceptionKind::InvalidWorkspace, format_err(e));
-            return;
+            ret!()
         }
     };
     let Some(compression) = env.get_str(&compression, "compression") else {
-        return;
+        ret!()
     };
-    let Some(compression) = compression_from_java_string(&mut env, compression) else {
-        return;
+    let Some(compression) = compression_from_java_string(env, compression) else {
+        ret!()
     };
     match wrapfs::create_dir_all(&output_path) {
         Ok(_) => {}
         Err(e) => {
             env.throw_exception(ExceptionKind::IOError, format_err(e));
-            return;
+            ret!()
         }
     }
 
@@ -554,6 +511,64 @@ pub extern "system" fn Java_com_sensmetry_sysand_Sysand_buildWorkspace<'local>(
     );
     match command_result {
         Ok(_) => {}
-        Err(error) => handle_build_error(&mut env, error),
+        Err(error) => handle_build_error(env, error),
+    }
+    Ok(())
+}
+
+/// `JNI_OnLoad` is automatically called by the JVM when the library
+/// is loaded. Do not call this manually.
+///
+/// # Safety
+///
+/// `vm_ptr` must be a pointer to a valid initialized JVM
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn JNI_OnLoad(
+    vm_ptr: *mut jni::sys::JavaVM,
+    _reserved: *mut c_void,
+) -> jint {
+    // SAFETY: Caller is responsible for providing a valid pointer
+    let vm = unsafe { JavaVM::from_raw(vm_ptr) };
+
+    let registration_result = vm.attach_current_thread(|env| {
+        let class = env.load_class(jni_str!("com.sensmetry.sysand.Sysand"))?;
+        // SAFETY: `native_method!()` checks signatures to match intended on the Rust side,
+        //         and also checks that `class`/`this` arguments are correct.
+        //         Function names/args might not match those in Java, these will be checked
+        //         and error out on mismatch.
+        unsafe {
+            env.register_native_methods(
+                class,
+                &[
+                    SYSAND_INIT,
+                    SYSAND_BUILD_PROJECT,
+                    SYSAND_BUILD_WORKSPACE,
+                    SYSAND_DEFAULT_ENV_NAME,
+                    SYSAND_ENV,
+                    SYSAND_INFO,
+                    SYSAND_INFO_PATH,
+                    SYSAND_SET_PROJECT_INDEX,
+                    SYSAND_SET_PROJECT_INFO,
+                    SYSAND_SET_PROJECT_METADATA,
+                    SYSAND_WORKSPACE_PROJECT_PATHS,
+                ],
+            )?;
+        }
+        JniResult::Ok(())
+    });
+
+    match registration_result {
+        Ok(()) => {
+            env_logger::init();
+            JNIVersion::V1_8.into()
+        }
+        Err(e) => {
+            eprintln!(
+                "failed to attach to Java VM or register native methods: {}",
+                format_err(e)
+            );
+            // Registration failed, return JNI_ERR to abort library loading
+            JNI_ERR
+        }
     }
 }
