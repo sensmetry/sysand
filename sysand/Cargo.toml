@@ -29,7 +29,7 @@ anstream = "1.0.0"
 anyhow = "1.0.102"
 chrono = { version = "0.4.44", default-features = false, features = ["now"] }
 clap = { version = "4.5.60", default-features = false, features = ["derive", "unicode", "help", "cargo", "color", "env", "suggestions", "usage"] }
-env_logger = "0.11.9"
+env_logger.workspace = true
 log.workspace = true
 sysand-core = { path = "../core", features = ["std", "filesystem", "networking", "keyring"] }
 thiserror = "2.0.18"

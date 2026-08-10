@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::fmt;
+use std::fmt::{self, Display};
 
-use jni::{JNIEnv, objects::JString};
+use jni::{
+    jni_str,
+    objects::JString,
+    strings::{JNIStr, JNIString},
+};
 use sysand_core::utils::format_err;
 
 pub(crate) trait JniExt {
@@ -14,16 +18,15 @@ pub(crate) trait JniExt {
         message: impl AsRef<str>,
     );
     fn throw_runtime_exception(&mut self, message: impl AsRef<str>);
-    fn get_str(&mut self, string: &JString, variable_name: &str) -> Option<String>;
+    fn get_str(&mut self, string: &JString, variable_name: impl Display) -> Option<String>;
 }
 
-impl JniExt for JNIEnv<'_> {
+impl JniExt for jni::Env<'_> {
     fn throw_exception(&mut self, exception_kind: ExceptionKind, message: impl AsRef<str>) {
-        self.throw_new(
-            format!("com/sensmetry/sysand/exceptions/{}", exception_kind),
-            &message,
+        handle_exception_throw_result(
+            self.throw_new(exception_kind.java_type(), JNIString::new(&message)),
+            message,
         )
-        .expect("failed to throw the exception");
     }
 
     fn throw_stdlib_exception(
@@ -31,131 +34,35 @@ impl JniExt for JNIEnv<'_> {
         exception_kind: StdlibExceptionKind,
         message: impl AsRef<str>,
     ) {
-        self.throw_new(format!("java/lang/{}", exception_kind), message)
-            .expect("failed to throw the exception");
+        handle_exception_throw_result(
+            self.throw_new(exception_kind.java_type(), JNIString::new(&message)),
+            message,
+        )
     }
 
     fn throw_runtime_exception(&mut self, message: impl AsRef<str>) {
-        self.throw_new("java/lang/RuntimeException", message)
-            .expect("failed to throw the exception");
+        handle_exception_throw_result(
+            self.throw_new(
+                jni_str!("java.lang.RuntimeException"),
+                JNIString::new(&message),
+            ),
+            message,
+        )
     }
 
-    fn get_str(&mut self, string: &JString, variable_name: &str) -> Option<String> {
-        match self.get_string(string) {
+    fn get_str(&mut self, string: &JString, variable_name: impl Display) -> Option<String> {
+        match string.mutf8_chars(self) {
             Ok(string) => Some(string.into()),
-            Err(error) => match error {
-                jni::errors::Error::WrongJValueType(expected, actual) => {
-                    self.throw_stdlib_exception(
-                        StdlibExceptionKind::IllegalArgumentException,
-                        format!(
-                            "`{}`: wrong JValue type, expected `{}`, got `{}`",
-                            variable_name, expected, actual
-                        ),
-                    );
-                    None
+            Err(error) => {
+                let message = format!("failed to read `{variable_name}`: {}", format_err(&error));
+                match error {
+                    jni::errors::Error::NullPtr(_) => self
+                        .throw_stdlib_exception(StdlibExceptionKind::NullPointerException, message),
+                    _ => self.throw_runtime_exception(message),
                 }
-                jni::errors::Error::InvalidCtorReturn => {
-                    self.throw_stdlib_exception(
-                        StdlibExceptionKind::IllegalStateException,
-                        format!(
-                            "`{}`: invalid constructor return (type must be void)",
-                            variable_name
-                        ),
-                    );
-                    None
-                }
-                jni::errors::Error::InvalidArgList(type_signature) => {
-                    self.throw_stdlib_exception(
-                        StdlibExceptionKind::IllegalArgumentException,
-                        format!(
-                            "`{}`: invalid argument list, type signature: `{}`",
-                            variable_name, type_signature
-                        ),
-                    );
-                    None
-                }
-                jni::errors::Error::MethodNotFound { name, sig } => {
-                    self.throw_stdlib_exception(
-                        StdlibExceptionKind::UnsupportedOperationException,
-                        format!(
-                            "`{}`: method not found: `{}` with signature `{}`",
-                            variable_name, name, sig
-                        ),
-                    );
-                    None
-                }
-                jni::errors::Error::FieldNotFound { name, sig } => {
-                    self.throw_stdlib_exception(
-                        StdlibExceptionKind::UnsupportedOperationException,
-                        format!(
-                            "`{}`: field not found: `{}` with signature `{}`",
-                            variable_name, name, sig
-                        ),
-                    );
-                    None
-                }
-                jni::errors::Error::JavaException => {
-                    // A Java exception was already thrown, let it propagate
-                    None
-                }
-                jni::errors::Error::JNIEnvMethodNotFound(method_name) => {
-                    self.throw_runtime_exception(format!(
-                        "`{}`: JNI environment method not found: `{}`",
-                        variable_name, method_name
-                    ));
-                    None
-                }
-                jni::errors::Error::NullPtr(_) | jni::errors::Error::NullDeref(_) => {
-                    self.throw_stdlib_exception(
-                        StdlibExceptionKind::NullPointerException,
-                        format!("`{}` is null", variable_name),
-                    );
-                    None
-                }
-                jni::errors::Error::TryLock => {
-                    self.throw_stdlib_exception(
-                        StdlibExceptionKind::IllegalStateException,
-                        format!("`{}`: failed to acquire lock", variable_name),
-                    );
-                    None
-                }
-                jni::errors::Error::JavaVMMethodNotFound(method_name) => {
-                    self.throw_runtime_exception(format!(
-                        "`{}`: Java VM method not found: `{}`",
-                        variable_name, method_name
-                    ));
-                    None
-                }
-                jni::errors::Error::FieldAlreadySet(field_name) => {
-                    self.throw_stdlib_exception(
-                        StdlibExceptionKind::IllegalStateException,
-                        format!("`{}`: field already set: `{}`", variable_name, field_name),
-                    );
-                    None
-                }
-                jni::errors::Error::ThrowFailed(_) => {
-                    self.throw_runtime_exception(format!(
-                        "`{variable_name}`: {}",
-                        format_err(error)
-                    ));
-                    None
-                }
-                jni::errors::Error::ParseFailed(string_stream_error, _) => {
-                    self.throw_stdlib_exception(
-                        StdlibExceptionKind::IllegalArgumentException,
-                        format!("`{}`: parse failed: {}", variable_name, string_stream_error),
-                    );
-                    None
-                }
-                jni::errors::Error::JniCall(jni_error) => {
-                    self.throw_runtime_exception(format!(
-                        "`{}`: JNI call failed: {}",
-                        variable_name,
-                        format_err(jni_error)
-                    ));
-                    None
-                }
-            },
+
+                None
+            }
         }
     }
 }
@@ -163,7 +70,7 @@ impl JniExt for JNIEnv<'_> {
 /// Lists all possible exceptions to be thrown, i.e.
 /// all exception types defined in
 /// `java/src/main/java/org/sysand/exceptions/*.java`
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum ExceptionKind {
     IOError,
     PathError,
@@ -177,6 +84,40 @@ pub(crate) enum ExceptionKind {
     SysandException,
 }
 
+impl ExceptionKind {
+    pub const fn java_type(self) -> &'static JNIStr {
+        match self {
+            // Any of jni_str!()/jni_sig!() with dot (java.lang.Exception) or slash (java/lang/Exception)
+            // notation can be used (due to normalization in `jni` and the JVM), they will all be
+            // treated as "java.lang.Exception"
+            ExceptionKind::IOError => jni_str!("com.sensmetry.sysand.exceptions.IOError"),
+            ExceptionKind::PathError => jni_str!("com.sensmetry.sysand.exceptions.PathError"),
+            ExceptionKind::ProjectAlreadyExists => {
+                jni_str!("com.sensmetry.sysand.exceptions.ProjectAlreadyExists")
+            }
+            ExceptionKind::InvalidWorkspace => {
+                jni_str!("com.sensmetry.sysand.exceptions.InvalidWorkspace")
+            }
+            ExceptionKind::InvalidSemanticVersion => {
+                jni_str!("com.sensmetry.sysand.exceptions.InvalidSemanticVersion")
+            }
+            ExceptionKind::InvalidSPDXLicense => {
+                jni_str!("com.sensmetry.sysand.exceptions.InvalidSPDXLicense")
+            }
+            ExceptionKind::InvalidValue => jni_str!("com.sensmetry.sysand.exceptions.InvalidValue"),
+            ExceptionKind::SerializationError => {
+                jni_str!("com.sensmetry.sysand.exceptions.SerializationError")
+            }
+            ExceptionKind::ResolutionError => {
+                jni_str!("com.sensmetry.sysand.exceptions.ResolutionError")
+            }
+            ExceptionKind::SysandException => {
+                jni_str!("com.sensmetry.sysand.exceptions.SysandException")
+            }
+        }
+    }
+}
+
 impl fmt::Display for ExceptionKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // derive(Debug) prints enum variant name, which is exactly what we need
@@ -187,18 +128,45 @@ impl fmt::Display for ExceptionKind {
 /// Lists all possible standard library exceptions to be thrown, i.e.
 /// all exception types defined in `java.lang` package.
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum StdlibExceptionKind {
     NullPointerException,
-    IllegalArgumentException,
-    IllegalStateException,
     UnsupportedOperationException,
+}
+
+impl StdlibExceptionKind {
+    pub const fn java_type(self) -> &'static JNIStr {
+        match self {
+            StdlibExceptionKind::NullPointerException => jni_str!("java.lang.NullPointerException"),
+            StdlibExceptionKind::UnsupportedOperationException => {
+                jni_str!("java.lang.UnsupportedOperationException")
+            }
+        }
+    }
 }
 
 impl fmt::Display for StdlibExceptionKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // derive(Debug) prints enum variant name, which is exactly what we need
         fmt::Debug::fmt(self, f)
+    }
+}
+
+fn handle_exception_throw_result(
+    res: Result<(), jni::errors::Error>,
+    original_msg: impl AsRef<str>,
+) {
+    // `jni` always returns `Err` when throwing an exception, to accommodate
+    // usage with `?`
+    match res.unwrap_err() {
+        jni::errors::Error::JavaException => (),
+        // Failing to throw an exception has no recovery
+        other => panic!(
+            "failed to throw the exception: {}\n\
+            original exception message:\n{}",
+            format_err(other),
+            original_msg.as_ref()
+        ),
     }
 }
 

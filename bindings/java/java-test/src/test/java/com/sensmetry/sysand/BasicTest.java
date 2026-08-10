@@ -42,6 +42,20 @@ public class BasicTest {
     }
 
     @Test
+    public void testInitWithNullNameThrowsNullPointerException() throws Exception {
+        java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init-null-name");
+        assertThrows(NullPointerException.class,
+                () -> com.sensmetry.sysand.Sysand.init(null, "a", "1.0.0", null, tempDir));
+    }
+
+    @Test
+    public void testInitWithInvalidVersionThrowsInvalidSemanticVersion() throws Exception {
+        java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-init-bad-version");
+        assertThrows(com.sensmetry.sysand.exceptions.InvalidSemanticVersion.class,
+                () -> com.sensmetry.sysand.Sysand.init("test", "a", "not-a-version", null, tempDir));
+    }
+
+    @Test
     public void testBasicEnv() {
         try {
             java.nio.file.Path tempDir = java.nio.file.Files.createTempDirectory("sysand-test-env");
