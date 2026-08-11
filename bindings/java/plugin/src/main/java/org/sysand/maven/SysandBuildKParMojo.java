@@ -13,6 +13,10 @@ import org.apache.maven.plugins.annotations.Parameter;
 
 import com.sensmetry.sysand.model.CompressionMethod;
 
+/**
+ * Mojo that calls {@code Sysand.buildProject} or {@code Sysand.buildWorkspace}
+ * during the package phase.
+ */
 @Mojo(name = "build-kpar", defaultPhase = LifecyclePhase.PACKAGE, threadSafe = false)
 public class SysandBuildKParMojo extends AbstractMojo {
 

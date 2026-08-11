@@ -7,10 +7,9 @@ use crate::project::{
 };
 #[test]
 fn project_reference_is_cloneable() {
-    let kpar = ProjectReference::new(LocalKParProject::new(
+    let kpar = ProjectReference::new(LocalKParProject::new_access(
         "path",
         KparInnerPath::Known("root".into()),
-        None,
         None,
     ));
     let _clone = kpar.clone();

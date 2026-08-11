@@ -314,6 +314,11 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
                 publisher: _,
                 name: _,
             } => Some(dir),
+            InterchangeProjectUsageRaw::KparPath {
+                kpar_path,
+                publisher: _,
+                name: _,
+            } => Some(kpar_path),
         }
     }) {
         if allow_path_usage {

@@ -15,7 +15,7 @@ use sysand_core::{
     add::expand_sysand_purl_shorthand,
     build::KparCompressionMethod,
     index_location::IndexLocation,
-    model::{KERML_METAMODEL_PREFIX, SYSML_METAMODEL_PREFIX},
+    model::{KERML_SPEC_PREFIX, SYSML_SPEC_PREFIX},
     sources::Dependencies,
 };
 
@@ -328,12 +328,16 @@ pub enum ExpCommand {
 }
 
 #[derive(clap::Args, Debug, Clone)]
+#[group(required = true, multiple = false)]
 pub struct ExpAddProjectLocatorArgs {
-    /// Add a project from a local directory path
-    /// Path to the project. Can be relative or absolute, and point
-    /// to a project directory
+    /// Add a project from a given directory path. Path can be relative
+    /// or absolute
     #[arg(long, verbatim_doc_comment)]
-    pub dir: Utf8PathBuf,
+    pub dir: Option<Utf8PathBuf>,
+    /// Add a project from a KPAR at a given path. Path can be relative
+    /// or absolute
+    #[arg(long, verbatim_doc_comment)]
+    pub kpar_path: Option<Utf8PathBuf>,
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -1812,8 +1816,8 @@ pub enum MetamodelKind {
 impl From<&MetamodelKind> for &'static str {
     fn from(value: &MetamodelKind) -> Self {
         match value {
-            MetamodelKind::SysML => SYSML_METAMODEL_PREFIX,
-            MetamodelKind::KerML => KERML_METAMODEL_PREFIX,
+            MetamodelKind::SysML => SYSML_SPEC_PREFIX,
+            MetamodelKind::KerML => KERML_SPEC_PREFIX,
         }
     }
 }

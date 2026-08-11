@@ -2,6 +2,9 @@
 # SPDX-FileCopyrightText: © 2025-2026 Sysand contributors <opensource@sensmetry.com>
 
 from ._model import (
+    InterchangeProjectUsageResource,
+    InterchangeProjectUsageDirectory,
+    InterchangeProjectUsageKparPath,
     InterchangeProjectUsage,
     InterchangeProjectInfo,
     InterchangeProjectChecksum,
@@ -47,6 +50,9 @@ from ._root import (
 )
 
 __all__ = [
+    "InterchangeProjectUsageResource",
+    "InterchangeProjectUsageDirectory",
+    "InterchangeProjectUsageKparPath",
     "InterchangeProjectUsage",
     "InterchangeProjectInfo",
     "InterchangeProjectChecksum",

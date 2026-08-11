@@ -10,7 +10,11 @@ use predicates::prelude::*;
 use reqwest::header;
 use sysand_core::{
     commands::lock::DEFAULT_LOCKFILE_NAME,
-    env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH},
+    env::{
+        DEFAULT_ENV_NAME,
+        local_directory::{LocalDirectoryEnvironment, METADATA_PATH},
+    },
+    lock::{Lock, Source},
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -606,6 +610,110 @@ fn sync_env_toml_with_editable_and_non_editable() -> Result<(), Box<dyn std::err
     out.assert()
         .success()
         .stderr(predicate::str::contains("env is already up to date"));
+
+    Ok(())
+}
+
+/// A transitive `kpar_path` usage must resolve relative to the directory of
+/// the project that declares it, not relative to the top-level project being
+/// synced
+#[test]
+fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "app", "1.2.3")?;
+    out.assert().success().stdout(predicate::str::is_empty());
+
+    let deps_dir = cwd.join("deps");
+    std::fs::create_dir_all(&deps_dir)?;
+
+    // `gadget`: a leaf KPAR, built elsewhere and placed at `deps/gadget.kpar`.
+    let gadget_src = cwd.join("gadget_src");
+    std::fs::create_dir_all(&gadget_src)?;
+    cli_init_project_in(&gadget_src, None, "c", Some("gadget"), Some("2.0.0"), None)?
+        .assert()
+        .success();
+    run_sysand_in(&gadget_src, ["build", "../deps/gadget.kpar"], None)?
+        .assert()
+        .success();
+
+    // `widget`: a source directory declaring `../gadget.kpar`, resolved (and
+    // stored) relative to `widget`'s own directory.
+    let widget_dir = deps_dir.join("widget");
+    std::fs::create_dir_all(&widget_dir)?;
+    cli_init_project_in(&widget_dir, None, "b", Some("widget"), Some("1.0.0"), None)?
+        .assert()
+        .success();
+    run_sysand_in(
+        &widget_dir,
+        [
+            "experimental",
+            "add",
+            "--no-lock",
+            "--kpar-path",
+            "../gadget.kpar",
+        ],
+        None,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(
+        &cwd,
+        ["experimental", "add", "--no-lock", "--dir", "deps/widget"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    let out = run_sysand_in(&cwd, ["lock"], None)?;
+    out.assert().success();
+
+    let lock_file: Lock =
+        toml::from_str(&std::fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?)?;
+    let projects = lock_file.projects;
+
+    assert_eq!(
+        projects.len(),
+        3,
+        "expected app, widget and gadget in the lockfile, got: {projects:#?}"
+    );
+
+    // Resolved paths are relativized back against the top-level project
+    // root when recorded in the lockfile.
+    let widget = projects
+        .iter()
+        .find(|p| p.name == "widget")
+        .unwrap_or_else(|| panic!("`widget` missing from lockfile: {projects:#?}"));
+    assert_eq!(widget.version, "1.0.0");
+    let [Source::LocalSrc { src_path, .. }] = widget.sources.as_slice() else {
+        panic!("expected a single local src source for `widget`, got: {widget:#?}");
+    };
+    assert_eq!(src_path.as_str(), "deps/widget");
+
+    let gadget = projects
+        .iter()
+        .find(|p| p.name == "gadget")
+        .unwrap_or_else(|| panic!("`gadget` missing from lockfile: {projects:#?}"));
+    assert_eq!(gadget.version, "2.0.0");
+    let [Source::LocalKpar { kpar_path, .. }] = gadget.sources.as_slice() else {
+        panic!("expected a single local kpar source for `gadget`, got: {gadget:#?}");
+    };
+    assert_eq!(kpar_path.as_str(), "deps/gadget.kpar");
+
+    let out = run_sysand_in(&cwd, ["sync"], None)?;
+    out.assert().success();
+
+    let env_projects = LocalDirectoryEnvironment::read(cwd.join(DEFAULT_ENV_NAME))?
+        .projects()
+        .to_vec();
+
+    for (name, version) in [("widget", "1.0.0"), ("gadget", "2.0.0")] {
+        assert!(
+            env_projects
+                .iter()
+                .any(|p| p.name == name && p.version == version),
+            "`{name}` {version} missing from synced env: {env_projects:#?}"
+        );
+    }
 
     Ok(())
 }

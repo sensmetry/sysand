@@ -28,8 +28,8 @@ use crate::{
     include::{IncludeError, extract_symbols},
     index_location::IndexLocation,
     model::{
-        InterchangeProjectUsageRaw, InterchangeProjectValidationError, KERML_METAMODEL_PREFIX,
-        KerMlChecksumAlg, SYSML_METAMODEL_PREFIX,
+        InterchangeProjectUsageRaw, InterchangeProjectValidationError, KERML_SPEC_PREFIX,
+        KerMlChecksumAlg, SYSML_SPEC_PREFIX,
     },
     project::{
         ProjectRead,
@@ -1386,8 +1386,8 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
 /// `Err` - invalid SysML/KerML or other
 fn check_metamodel(metamodel: &str) -> Result<AllowedMetamodelKind, PublishError> {
     for (prefix, kind) in [
-        (SYSML_METAMODEL_PREFIX, AllowedMetamodelKind::SysML),
-        (KERML_METAMODEL_PREFIX, AllowedMetamodelKind::KerML),
+        (SYSML_SPEC_PREFIX, AllowedMetamodelKind::SysML),
+        (KERML_SPEC_PREFIX, AllowedMetamodelKind::KerML),
     ] {
         if let Some(metamodel_version) = metamodel.strip_prefix(prefix) {
             if is_valid_metamodel_version(metamodel_version) {
@@ -1533,15 +1533,9 @@ const SYSML_STD_LIB_SUFFIXES: [&str; 7] = [
 /// A resource usage can be either `pkg:sysand/` or an std lib
 // TODO: be case insensitive
 fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
-    if check_std_libs(
-        usage,
-        &SYSML_STD_LIB_SUFFIXES,
-        "https://www.omg.org/spec/SysML/",
-    )? || check_std_libs(
-        usage,
-        &KERML_STD_LIB_SUFFIXES,
-        "https://www.omg.org/spec/KerML/",
-    )? {
+    if check_std_libs(usage, &SYSML_STD_LIB_SUFFIXES, SYSML_SPEC_PREFIX)?
+        || check_std_libs(usage, &KERML_STD_LIB_SUFFIXES, KERML_SPEC_PREFIX)?
+    {
         return Ok(());
     }
 
@@ -1560,6 +1554,9 @@ fn check_usage(usage: &InterchangeProjectUsageRaw) -> Result<(), PublishError> {
         }
         InterchangeProjectUsageRaw::Directory { dir, .. } => Err(PublishError::PathUsage {
             path: dir.as_str().into(),
+        }),
+        InterchangeProjectUsageRaw::KparPath { kpar_path, .. } => Err(PublishError::PathUsage {
+            path: kpar_path.as_str().into(),
         }),
     }
 }
@@ -1602,7 +1599,8 @@ fn check_std_libs(
             }
             Ok(false)
         }
-        InterchangeProjectUsageRaw::Directory { .. } => Ok(false),
+        InterchangeProjectUsageRaw::Directory { .. }
+        | InterchangeProjectUsageRaw::KparPath { .. } => Ok(false),
     }
 }
 

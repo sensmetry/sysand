@@ -3,15 +3,37 @@
 
 from enum import Enum, auto
 import typing
-import datetime
+
+# Use raw types for components, as these classes are converted
+# to/from Rust `*Raw` model type variants
 
 
-class InterchangeProjectUsage(typing.TypedDict):
+class InterchangeProjectUsageResource(typing.TypedDict):
     resource: str
     version_constraint: typing.Optional[str]
 
 
+class InterchangeProjectUsageDirectory(typing.TypedDict):
+    dir: str
+    publisher: str
+    name: str
+
+
+class InterchangeProjectUsageKparPath(typing.TypedDict):
+    kpar_path: str
+    publisher: str
+    name: str
+
+
+InterchangeProjectUsage = typing.Union[
+    InterchangeProjectUsageResource,
+    InterchangeProjectUsageDirectory,
+    InterchangeProjectUsageKparPath,
+]
+
+
 class InterchangeProjectInfo(typing.TypedDict):
+    publisher: typing.Optional[str]
     name: str
     description: typing.Optional[str]
     version: str
@@ -29,11 +51,11 @@ class InterchangeProjectChecksum(typing.TypedDict):
 
 class InterchangeProjectMetadata(typing.TypedDict):
     index: typing.Dict[str, str]
-    created: datetime.datetime
+    created: str
     metamodel: typing.Optional[str]
     includes_derived: typing.Optional[bool]
     includes_implied: typing.Optional[bool]
-    checksum: typing.Optional[typing.List[InterchangeProjectChecksum]]
+    checksum: typing.Optional[typing.Dict[str, InterchangeProjectChecksum]]
 
 
 class Dependencies(Enum):
@@ -63,6 +85,9 @@ class CompressionMethod(Enum):
 
 
 __all__ = [
+    "InterchangeProjectUsageResource",
+    "InterchangeProjectUsageDirectory",
+    "InterchangeProjectUsageKparPath",
     "InterchangeProjectUsage",
     "InterchangeProjectInfo",
     "InterchangeProjectChecksum",

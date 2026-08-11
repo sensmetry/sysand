@@ -69,6 +69,40 @@ pub fn do_add_guess<P: ProjectMut>(
     do_add(project, &usage_raw)
 }
 
+/// Common merge logic for path-like usages (`Directory`, `KparPath`): if an
+/// existing usage matches `new_publisher`/`new_name`, update its path; if it
+/// matches `new_path` instead, overwrite its publisher/name. Returns `true`
+/// if a match was found and merged (and thus the new usage should not be
+/// added separately), or `false` if there was no match.
+fn try_merge_path_usage(
+    noun: &str,
+    path: &mut String,
+    publisher: &mut String,
+    name: &mut String,
+    new_path: &str,
+    new_publisher: &str,
+    new_name: &str,
+) -> bool {
+    if publisher == new_publisher && name == new_name {
+        log::warn!(
+            "usage `{publisher}`/`{name}` is already present;\n\
+            {SP:>8} it will be updated to point to `{new_path}`"
+        );
+        *path = new_path.to_owned();
+        true
+    } else if path == new_path {
+        log::warn!(
+            "existing usage `{publisher}`/`{name}` already points to {noun}
+            {SP:>8} `{path}`; existing usage will be overwritten"
+        );
+        *publisher = new_publisher.to_owned();
+        *name = new_name.to_owned();
+        true
+    } else {
+        false
+    }
+}
+
 /// Ok(true) => usage added to project info
 /// Ok(false) => usage already present in project info
 pub fn do_add<P: ProjectMut>(
@@ -150,31 +184,54 @@ pub fn do_add<P: ProjectMut>(
                 publisher: new_publisher,
                 name: new_name,
             } => {
+                // It might be desirable to merge different path-like usages
+                // (`file:`, dir, kpar_path) or alternatively error out if
+                // a path-like usage of that path already exists, but it is not
+                // currently done.
                 for u in info.usage.iter_mut() {
                     if let InterchangeProjectUsageRaw::Directory {
                         dir,
                         publisher,
                         name,
                     } = u
+                        && try_merge_path_usage(
+                            "path",
+                            dir,
+                            publisher,
+                            name,
+                            new_dir,
+                            new_publisher,
+                            new_name,
+                        )
                     {
-                        if publisher == new_publisher && name == new_name {
-                            log::warn!(
-                                "usage `{publisher}`/`{name}` is already present;\n\
-                                {SP:>8} it will be updated to point to `{new_dir}`"
-                            );
-                            *dir = new_dir.to_owned();
-                            dont_add = true;
-                            break;
-                        } else if dir == new_dir {
-                            log::warn!(
-                                "existing usage `{publisher}`/`{name}` already points to path
-                                {SP:>8} `{dir}`; existing usage will be overwritten"
-                            );
-                            *publisher = new_publisher.to_owned();
-                            *name = new_name.to_owned();
-                            dont_add = true;
-                            break;
-                        }
+                        dont_add = true;
+                        break;
+                    }
+                }
+            }
+            InterchangeProjectUsageRaw::KparPath {
+                kpar_path: new_kpar_path,
+                publisher: new_publisher,
+                name: new_name,
+            } => {
+                for u in info.usage.iter_mut() {
+                    if let InterchangeProjectUsageRaw::KparPath {
+                        kpar_path,
+                        publisher,
+                        name,
+                    } = u
+                        && try_merge_path_usage(
+                            "file",
+                            kpar_path,
+                            publisher,
+                            name,
+                            new_kpar_path,
+                            new_publisher,
+                            new_name,
+                        )
+                    {
+                        dont_add = true;
+                        break;
                     }
                 }
             }

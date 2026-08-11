@@ -8,6 +8,7 @@ use fluent_uri::Iri;
 use pyo3::{
     exceptions::{PyFileExistsError, PyFileNotFoundError, PyIOError, PyRuntimeError, PyValueError},
     prelude::*,
+    types::PyAny,
 };
 use semver::{Version, VersionReq};
 use sysand_core::{
@@ -30,7 +31,10 @@ use sysand_core::{
     index_location::IndexLocation,
     info::{InfoProjectError, do_info, do_info_project},
     init::InitError,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsage},
+    model::{
+        InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsage, InterchangeProjectUsageRaw,
+    },
     project::{
         ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
@@ -541,7 +545,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
     let metadata =
         wrapfs::metadata(&location).map_err(|e| PyErr::new::<PyIOError, _>(format_err(e)))?;
     if metadata.is_file() {
-        let project = LocalKParProject::new(&location, KparInnerPath::Guess, None, None);
+        let project = LocalKParProject::new_access(&location, KparInnerPath::Guess, None);
 
         let Some(version) = project
             .version()
@@ -595,6 +599,7 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_init_py_local_file, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_py_local_dir, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py_path, m)?)?;
+    m.add_function(wrap_pyfunction!(do_model_roundtrip_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_root_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_build_py, m)?)?;
@@ -617,4 +622,78 @@ fn env_read_to_pyerr(err: EnvMetadataError) -> PyErr {
         "failed to read environment metadata: {}",
         format_err(err)
     ))
+}
+
+// Test-only helper: converts the python dicts to the Rust model types and
+// back, so tests can verify that the typed dicts in `_model.py` stay in sync
+// with `core/src/model.rs`. It cannot be compiled out of
+// release wheels because CI runs pytest against the wheels it ships.
+#[pyfunction(name = "_do_model_roundtrip_py")]
+#[pyo3(
+    signature = (info, metadata),
+)]
+fn do_model_roundtrip_py(
+    info: &Bound<'_, PyAny>,
+    metadata: &Bound<'_, PyAny>,
+) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
+    Ok((info.extract()?, metadata.extract()?))
+}
+
+// Break the build when core types gain, lose, or rename a field/variant,
+// since the typed dicts in `_model.py` cannot catch that on their own and
+// must be updated together with this match.
+// If this breaks, look if types in other bindings also need to be updated.
+#[expect(unused)]
+fn info_and_metadata_fields_guard(
+    info: InterchangeProjectInfoRaw,
+    meta: InterchangeProjectMetadataRaw,
+) {
+    let InterchangeProjectInfoRaw {
+        name,
+        publisher,
+        description,
+        version,
+        license,
+        maintainer,
+        website,
+        topic,
+        usage,
+    } = info;
+
+    for usage in usage {
+        match usage {
+            InterchangeProjectUsageRaw::Resource {
+                resource,
+                version_constraint,
+            } => {}
+            InterchangeProjectUsageRaw::Directory {
+                dir,
+                publisher,
+                name,
+            } => {}
+            InterchangeProjectUsageRaw::KparPath {
+                kpar_path,
+                publisher,
+                name,
+            } => {}
+        }
+    }
+
+    let InterchangeProjectMetadataRaw {
+        index,
+        created,
+        metamodel,
+        includes_derived,
+        includes_implied,
+        checksum,
+    } = meta;
+
+    match checksum {
+        Some(c) => {
+            for (path, cksum) in c {
+                let InterchangeProjectChecksumRaw { value, algorithm } = cksum;
+            }
+        }
+        None => todo!(),
+    }
 }

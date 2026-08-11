@@ -21,7 +21,7 @@ use crate::{
 /// The logic is as follows:
 /// 1. Do not resolve any further if file_resolver is successful, or rejected the usage
 ///    (i.e. it is a path). NotFound allows fallthrough to other resolvers mainly to
-///    accomodate environment resolver, which may resolve the usage by its identifier only
+///    accommodate environment resolver, which may resolve the usage by its identifier only
 ///    (no other resolvers should resolve such a usage, environment is special here).
 ///    Otherwise go to step 2.
 /// 2. If remote_resolver produces any results, discard any that do not point to a valid

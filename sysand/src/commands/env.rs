@@ -235,11 +235,10 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             Some(Utf8UnixPathBuf::new()),
         ))
     } else if metadata.is_file() {
-        FileResolverProject::LocalKParProject(LocalKParProject::new(
+        FileResolverProject::LocalKParProject(LocalKParProject::new_access(
             &path,
             KparInnerPath::Guess,
             Some(path.as_str().into()),
-            None,
         ))
     } else {
         bail!("path `{path}` is neither a directory nor a file");

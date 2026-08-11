@@ -75,11 +75,16 @@ fn print_removed(usages: &[InterchangeProjectUsageRaw]) {
                 }
             },
             InterchangeProjectUsageRaw::Directory {
-                dir,
+                dir: path,
+                publisher,
+                name,
+            }
+            | InterchangeProjectUsageRaw::KparPath {
+                kpar_path: path,
                 publisher,
                 name,
             } => {
-                log::info!("{header}{removed:>12}{header:#} `{publisher}/{name}` (path `{dir}`)");
+                log::info!("{header}{removed:>12}{header:#} `{publisher}/{name}` (path `{path}`)");
             }
         }
     }

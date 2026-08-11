@@ -123,7 +123,8 @@ where
     SrcPathStorage: ProjectRead,
     CreateRemoteSrcStorage: Fn(String, String) -> Result<RemoteSrcStorage, UrlParseError>,
     RemoteSrcStorage: ProjectRead,
-    CreateKParPathStorage: Fn(String, NonZeroU64, String) -> KParPathStorage,
+    CreateKParPathStorage:
+        Fn(Utf8UnixPathBuf, NonZeroU64, String, Option<String>, String) -> KParPathStorage,
     KParPathStorage: ProjectRead,
     CreateRemoteKParStorage:
         Fn(String, NonZeroU64, String) -> Result<RemoteKParStorage, UrlParseError>,
@@ -257,9 +258,11 @@ where
                         SyncError::MissingLocalKparStorage(kpar_path.as_str().into())
                     })?;
                     let storage = kpar_path_storage(
-                        kpar_path.as_str().to_owned(),
+                        kpar_path.clone(),
                         *kpar_size,
                         kpar_digest.to_owned(),
+                        project.publisher.clone(),
+                        project.name.clone(),
                     );
                     log::debug!("trying to install `{uri}` from kpar_path: {kpar_path}");
                     try_install(

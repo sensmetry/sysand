@@ -19,6 +19,7 @@ use sysand_core::{
     model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
     project::{
         ProjectRead,
+        local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
         utils::{relativize_path, wrapfs},
     },
@@ -255,6 +256,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
 
 pub enum ExpAddArgs {
     Dir { dir: Utf8PathBuf },
+    KparPath { kpar_path: Utf8PathBuf },
 }
 
 // TODO: Collect common arguments
@@ -275,7 +277,7 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
         .clone()
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
-    match add {
+    let usage = match add {
         ExpAddArgs::Dir { dir } => {
             let abs_path = wrapfs::canonicalize(dir)?;
             let relative = relativize_path(&abs_path, current_project.root_path())?;
@@ -286,60 +288,76 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
             let publisher = info.publisher.ok_or_else(|| {
                 CliError::MissingPublisherForUsage(project.root_path().to_string())
             })?;
-            let usage = InterchangeProjectUsage::Directory {
+            InterchangeProjectUsage::Directory {
                 dir: relative,
                 publisher,
                 name: info.name,
-            };
-
-            if !no_lock {
-                let info_path = current_project.info_path();
-                let info_backup = wrapfs::read_to_string(&info_path)?;
-                let added = do_add(&mut current_project, &usage.into())?;
-                if !added {
-                    return Ok(());
-                }
-
-                let alias_iris = if let Some(w) = &ctx.current_workspace {
-                    w.projects()
-                        .iter()
-                        .find(|p| Path::new(&p.path) == current_project.root_path())
-                        .map(|p| p.iris.to_owned())
-                } else {
-                    None
-                };
-
-                let provided_iris = if !resolution_opts.include_std {
-                    // Don't warn; std libs are all `https://`, so they can't match this usage
-                    crate::known_std_libs()
-                } else {
-                    HashMap::default()
-                };
-
-                match resolve_deps(
-                    no_sync,
-                    resolution_opts,
-                    &config,
-                    client,
-                    runtime,
-                    auth_policy,
-                    current_project.root_path(),
-                    alias_iris,
-                    provided_iris,
-                    ctx,
-                ) {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        // Restore old info
-                        wrapfs::write(&info_path, info_backup)?;
-                        Err(e)
-                    }
-                }
-            } else {
-                do_add(&mut current_project, &usage.into())?;
-                Ok(())
             }
         }
+        ExpAddArgs::KparPath { kpar_path } => {
+            let abs_path = wrapfs::canonicalize(kpar_path)?;
+            let relative = relativize_path(&abs_path, current_project.root_path())?;
+            let project = LocalKParProject::new_access(abs_path.clone(), KparInnerPath::Root, None);
+            let info = project
+                .get_info()?
+                .ok_or_else(|| CliError::MissingProject(abs_path.to_string()))?;
+            let publisher = info
+                .publisher
+                .ok_or_else(|| CliError::MissingPublisherForUsage(abs_path.to_string()))?;
+            InterchangeProjectUsage::KparPath {
+                kpar_path: relative,
+                publisher,
+                name: info.name,
+            }
+        }
+    };
+
+    if !no_lock {
+        let info_path = current_project.info_path();
+        let info_backup = wrapfs::read_to_string(&info_path)?;
+        let added = do_add(&mut current_project, &usage.into())?;
+        if !added {
+            return Ok(());
+        }
+
+        let alias_iris = if let Some(w) = &ctx.current_workspace {
+            w.projects()
+                .iter()
+                .find(|p| Path::new(&p.path) == current_project.root_path())
+                .map(|p| p.iris.to_owned())
+        } else {
+            None
+        };
+
+        let provided_iris = if !resolution_opts.include_std {
+            // Don't warn; std libs are all `https://`, so they can't match this usage
+            crate::known_std_libs()
+        } else {
+            HashMap::default()
+        };
+
+        match resolve_deps(
+            no_sync,
+            resolution_opts,
+            &config,
+            client,
+            runtime,
+            auth_policy,
+            current_project.root_path(),
+            alias_iris,
+            provided_iris,
+            ctx,
+        ) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Restore old info
+                wrapfs::write(&info_path, info_backup)?;
+                Err(e)
+            }
+        }
+    } else {
+        do_add(&mut current_project, &usage.into())?;
+        Ok(())
     }
 }
 

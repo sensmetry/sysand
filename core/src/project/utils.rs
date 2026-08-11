@@ -553,6 +553,9 @@ impl From<&InterchangeProjectUsage> for Identifier {
             }
             InterchangeProjectUsage::Directory {
                 publisher, name, ..
+            }
+            | InterchangeProjectUsage::KparPath {
+                publisher, name, ..
             } => (publisher, name),
         };
         Self::make_identifier_iri(publisher, name)
@@ -566,6 +569,9 @@ impl From<InterchangeProjectUsage> for Identifier {
                 return Self(resource.into_string());
             }
             InterchangeProjectUsage::Directory {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsage::KparPath {
                 publisher, name, ..
             } => (publisher, name),
         };
@@ -584,6 +590,9 @@ impl Identifier {
                 return Self(resource.to_string());
             }
             InterchangeProjectUsageRaw::Directory {
+                publisher, name, ..
+            }
+            | InterchangeProjectUsageRaw::KparPath {
                 publisher, name, ..
             } => (publisher, name),
         };

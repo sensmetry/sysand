@@ -50,6 +50,61 @@ fn info_basic_in_cwd() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[test]
+fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd, out_init) =
+        cli_init_project_basic("pub1", "info_all_usage_types", "1.2.3")?;
+    out_init.assert().success();
+
+    // One usage of each shape: legacy `resource` (with and without a version
+    // constraint), `dir`, and `kpar_path`.
+    std::fs::write(
+        cwd.join(".project.json"),
+        r#"{
+  "name": "info_all_usage_types",
+  "version": "1.2.3",
+  "usage": [
+    {
+      "resource": "urn:kpar:constrained_dep",
+      "versionConstraint": "^1.0.0"
+    },
+    {
+      "resource": "urn:kpar:unconstrained_dep"
+    },
+    {
+      "dir": "deps/dir_dep",
+      "publisher": "acme",
+      "name": "dir_dep"
+    },
+    {
+      "kpar_path": "deps/kpar_dep.kpar",
+      "publisher": "acme",
+      "name": "kpar_dep"
+    }
+  ]
+}
+"#,
+    )?;
+
+    let out = run_sysand_in(&cwd, ["info"], None)?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Usages:"))
+        .stdout(predicate::str::contains(
+            "IRI `urn:kpar:constrained_dep` (^1.0.0)",
+        ))
+        .stdout(predicate::str::contains("IRI `urn:kpar:unconstrained_dep`"))
+        .stdout(predicate::str::contains(
+            "`acme/dir_dep` from `deps/dir_dep`",
+        ))
+        .stdout(predicate::str::contains(
+            "`acme/kpar_dep` in `deps/kpar_dep.kpar`",
+        ));
+
+    Ok(())
+}
+
 fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
     let (_temp_dir, cwd, out_init) =
         cli_init_project(Some("info_basic"), "a", None, Some("1.2.3"), None)?;
