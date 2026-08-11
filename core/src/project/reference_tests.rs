@@ -12,5 +12,5 @@ fn project_reference_is_cloneable() {
         KparInnerPath::Known("root".into()),
         None,
     ));
-    let _clone = kpar.clone();
+    let _clone = kpar;
 }

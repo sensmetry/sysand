@@ -38,11 +38,11 @@ pub fn discover_workspace<P: AsRef<Utf8Path>>(
         "trying to discover workspace in `{}`",
         working_directory.as_ref()
     );
-    let path = match discover(working_directory, |path| {
+    let Some(path) = discover(working_directory, |path| {
         wrapfs::is_file(path.join(".workspace.json"))
-    })? {
-        Some(p) => p,
-        None => return Ok(None),
+    })?
+    else {
+        return Ok(None);
     };
     Some(Workspace::new(path)).transpose()
 }

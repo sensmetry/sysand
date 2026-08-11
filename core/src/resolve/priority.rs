@@ -29,7 +29,7 @@ pub struct PriorityResolver<Higher, Lower> {
 
 impl<Higher, Lower> PriorityResolver<Higher, Lower> {
     pub fn new(higher: Higher, lower: Lower) -> Self {
-        PriorityResolver { higher, lower }
+        Self { higher, lower }
     }
 }
 
@@ -82,11 +82,11 @@ impl<Higher: ResolveRead, Lower: ResolveRead> Iterator for PriorityIterator<High
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            PriorityIterator::HigherIterator(project) => project.next().map(|x| {
+            Self::HigherIterator(project) => project.next().map(|x| {
                 x.map(PriorityProject::HigherProject)
                     .map_err(PriorityError::Higher)
             }),
-            PriorityIterator::LowerIterator(project) => project.next().map(|x| {
+            Self::LowerIterator(project) => project.next().map(|x| {
                 x.map(PriorityProject::LowerProject)
                     .map_err(PriorityError::Lower)
             }),
@@ -97,8 +97,8 @@ impl<Higher: ResolveRead, Lower: ResolveRead> Iterator for PriorityIterator<High
 impl<HigherReader: Read, LowerReader: Read> Read for PriorityReader<HigherReader, LowerReader> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
-            PriorityReader::HigherReader(reader) => reader.read(buf),
-            PriorityReader::LowerReader(reader) => reader.read(buf),
+            Self::HigherReader(reader) => reader.read(buf),
+            Self::LowerReader(reader) => reader.read(buf),
         }
     }
 }
@@ -118,12 +118,8 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         Self::Error,
     > {
         match self {
-            PriorityProject::HigherProject(project) => {
-                project.get_project().map_err(PriorityError::Higher)
-            }
-            PriorityProject::LowerProject(project) => {
-                project.get_project().map_err(PriorityError::Lower)
-            }
+            Self::HigherProject(project) => project.get_project().map_err(PriorityError::Higher),
+            Self::LowerProject(project) => project.get_project().map_err(PriorityError::Lower),
         }
     }
 
@@ -137,11 +133,11 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self {
-            PriorityProject::HigherProject(project) => project
+            Self::HigherProject(project) => project
                 .read_source(path)
                 .map(PriorityReader::HigherReader)
                 .map_err(PriorityError::Higher),
-            PriorityProject::LowerProject(project) => project
+            Self::LowerProject(project) => project
                 .read_source(path)
                 .map(PriorityReader::LowerReader)
                 .map_err(PriorityError::Lower),
@@ -150,70 +146,52 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
 
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            PriorityProject::HigherProject(project) => {
-                project.sources(ctx).map_err(PriorityError::Higher)
-            }
-            PriorityProject::LowerProject(project) => {
-                project.sources(ctx).map_err(PriorityError::Lower)
-            }
+            Self::HigherProject(project) => project.sources(ctx).map_err(PriorityError::Higher),
+            Self::LowerProject(project) => project.sources(ctx).map_err(PriorityError::Lower),
         }
     }
 
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         match self {
-            PriorityProject::HigherProject(project) => {
-                project.get_info().map_err(PriorityError::Higher)
-            }
-            PriorityProject::LowerProject(project) => {
-                project.get_info().map_err(PriorityError::Lower)
-            }
+            Self::HigherProject(project) => project.get_info().map_err(PriorityError::Higher),
+            Self::LowerProject(project) => project.get_info().map_err(PriorityError::Lower),
         }
     }
 
     fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
         match self {
-            PriorityProject::HigherProject(project) => {
-                project.get_meta().map_err(PriorityError::Higher)
-            }
-            PriorityProject::LowerProject(project) => {
-                project.get_meta().map_err(PriorityError::Lower)
-            }
+            Self::HigherProject(project) => project.get_meta().map_err(PriorityError::Higher),
+            Self::LowerProject(project) => project.get_meta().map_err(PriorityError::Lower),
         }
     }
 
     fn version(&self) -> Result<Option<String>, Self::Error> {
         match self {
-            PriorityProject::HigherProject(project) => {
-                project.version().map_err(PriorityError::Higher)
-            }
-            PriorityProject::LowerProject(project) => {
-                project.version().map_err(PriorityError::Lower)
-            }
+            Self::HigherProject(project) => project.version().map_err(PriorityError::Higher),
+            Self::LowerProject(project) => project.version().map_err(PriorityError::Lower),
         }
     }
 
     fn usage(&self) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
         match self {
-            PriorityProject::HigherProject(project) => {
-                project.usage().map_err(PriorityError::Higher)
-            }
-            PriorityProject::LowerProject(project) => project.usage().map_err(PriorityError::Lower),
+            Self::HigherProject(project) => project.usage().map_err(PriorityError::Higher),
+            Self::LowerProject(project) => project.usage().map_err(PriorityError::Lower),
         }
     }
 
     fn is_definitely_invalid(&self) -> bool {
         match self {
-            PriorityProject::HigherProject(project) => project.is_definitely_invalid(),
-            PriorityProject::LowerProject(project) => project.is_definitely_invalid(),
+            Self::HigherProject(project) => project.is_definitely_invalid(),
+            Self::LowerProject(project) => project.is_definitely_invalid(),
         }
     }
 
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         match self {
-            PriorityProject::HigherProject(project) => project
+            Self::HigherProject(project) => project
                 .checksum_canonical_hex()
                 .map_err(|e| e.map_project_read(PriorityError::Higher)),
-            PriorityProject::LowerProject(project) => project
+            Self::LowerProject(project) => project
                 .checksum_canonical_hex()
                 .map_err(|e| e.map_project_read(PriorityError::Lower)),
         }
@@ -221,10 +199,10 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
 
     fn checksum_canonical_variant(&self) -> Result<crate::project::ProjectChecksum, Self::Error> {
         match self {
-            PriorityProject::HigherProject(project) => project
+            Self::HigherProject(project) => project
                 .checksum_canonical_variant()
                 .map_err(PriorityError::Higher),
-            PriorityProject::LowerProject(project) => project
+            Self::LowerProject(project) => project
                 .checksum_canonical_variant()
                 .map_err(PriorityError::Lower),
         }
@@ -232,8 +210,8 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
 
     fn project_root(&self) -> Option<&camino::Utf8Path> {
         match self {
-            PriorityProject::HigherProject(project) => project.project_root(),
-            PriorityProject::LowerProject(project) => project.project_root(),
+            Self::HigherProject(project) => project.project_root(),
+            Self::LowerProject(project) => project.project_root(),
         }
     }
 }

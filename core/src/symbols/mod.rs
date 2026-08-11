@@ -26,19 +26,19 @@ pub enum Language {
 }
 
 impl Language {
-    pub fn from_suffix<S: AsRef<str>>(suffix: S) -> Option<Language> {
+    pub fn from_suffix<S: AsRef<str>>(suffix: S) -> Option<Self> {
         let suffix = suffix.as_ref();
         if suffix.eq_ignore_ascii_case("sysml") {
-            Some(Language::SysML)
+            Some(Self::SysML)
         } else if suffix.eq_ignore_ascii_case("kerml") {
-            Some(Language::KerML)
+            Some(Self::KerML)
         } else {
             None
         }
     }
 
-    pub fn guess_from_path<P: AsRef<Utf8UnixPath>>(path: P) -> Option<Language> {
-        path.as_ref().extension().and_then(Language::from_suffix)
+    pub fn guess_from_path<P: AsRef<Utf8UnixPath>>(path: P) -> Option<Self> {
+        path.as_ref().extension().and_then(Self::from_suffix)
     }
 }
 
@@ -48,9 +48,9 @@ fn parse_name<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
     match token_iter.next() {
         None => Err(ParseError {
             span: None,
-            msg: "empty name".to_string(),
+            msg: "empty name".to_owned(),
         }),
-        Some((Token::Quoted, original, _)) => Ok(original.trim_matches('\'').to_string()),
+        Some((Token::Quoted, original, _)) => Ok(original.trim_matches('\'').to_owned()),
         Some((Token::OtherIdentifier, original, _)) => Ok(original.to_string()),
         Some((invalid_token, original, sp)) => Err(ParseError {
             span: Some(sp.clone()),
@@ -73,7 +73,7 @@ fn parse_reference_or_chain<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::
         result.push(name_component);
 
         match token_iter.peek() {
-            Some((Token::DoubleColon, ..)) | Some((Token::Period, ..)) => {
+            Some((Token::DoubleColon | Token::Period, ..)) => {
                 token_iter.next();
             }
             _ => {
@@ -188,20 +188,18 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
             Token::Comma => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected comma (`,`)".to_string(),
+                    msg: "unexpected comma (`,`)".to_owned(),
                 });
             }
             Token::OtherIdentifier | Token::Quoted => {
                 match keywords.get(&**original) {
                     Some(KeywordType::Simple) => {
                         token_iter.next();
-                        continue;
                     }
                     Some(KeywordType::MultiReferences) => {
                         token_iter.next();
                         skip_whitespace(token_iter);
                         skip_list_of_refs(token_iter)?;
-                        continue;
                     }
                     Some(KeywordType::MultiReferencesWithMultiplicity) => {
                         token_iter.next();
@@ -209,7 +207,6 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                         maybe_skip_multiplicity(token_iter)?;
                         skip_whitespace(token_iter);
                         skip_list_of_refs(token_iter)?;
-                        continue;
                     }
                     Some(KeywordType::SkipRest) => {
                         break;
@@ -251,27 +248,27 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
             Token::String => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected string".to_string(),
+                    msg: "unexpected string".to_owned(),
                 });
             }
             Token::OpenParen => skip_nested(token_iter, Token::OpenParen, Token::CloseParen)?,
             Token::CloseParen => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected `)`".to_string(),
+                    msg: "unexpected `)`".to_owned(),
                 });
             }
             Token::OpenSquare => skip_nested(token_iter, Token::OpenSquare, Token::CloseSquare)?,
             Token::CloseSquare => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected `]`".to_string(),
+                    msg: "unexpected `]`".to_owned(),
                 });
             }
             Token::DoubleColon => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected `::`".to_string(),
+                    msg: "unexpected `::`".to_owned(),
                 });
             }
             Token::LT => {
@@ -292,7 +289,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                     None => {
                         return Err(ParseError {
                             span: Some(sp.clone()),
-                            msg: "unclosed short-name `<`".to_string(),
+                            msg: "unclosed short-name `<`".to_owned(),
                         });
                     }
                     Some((Token::GT, ..)) => {}
@@ -310,7 +307,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
             Token::GT => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected `<`".to_string(),
+                    msg: "unexpected `<`".to_owned(),
                 });
             }
             Token::Equals => {
@@ -319,19 +316,17 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
             Token::Period => {
                 return Err(ParseError {
                     span: Some(sp.clone()),
-                    msg: "unexpected period (`.`)".to_string(),
+                    msg: "unexpected period (`.`)".to_owned(),
                 });
             }
             Token::OtherSymbol => match keywords.get(&**original) {
                 Some(KeywordType::Simple) => {
                     token_iter.next();
-                    continue;
                 }
                 Some(KeywordType::MultiReferences) => {
                     token_iter.next();
                     skip_whitespace(token_iter);
                     skip_list_of_refs(token_iter)?;
-                    continue;
                 }
                 Some(KeywordType::MultiReferencesWithMultiplicity) => {
                     token_iter.next();
@@ -339,7 +334,6 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                     maybe_skip_multiplicity(token_iter)?;
                     skip_whitespace(token_iter);
                     skip_list_of_refs(token_iter)?;
-                    continue;
                 }
                 Some(KeywordType::SkipRest) => {
                     break;
@@ -598,6 +592,7 @@ pub fn top_level_kerml<S: AsRef<str>>(source: S) -> Result<Vec<String>, ExtractE
 }
 
 // Returns: (line, byte), both 1-indexed
+#[expect(clippy::cast_possible_truncation, clippy::naive_bytecount)]
 fn line_byte(source: &str, span: logos::Span) -> (u32, u32) {
     let range = &source.as_bytes()[..span.start];
     let line = range.iter().filter(|x| **x == b'\n').count() as u32 + 1;

@@ -25,9 +25,9 @@ pub struct EditableProject<P: ProjectRead> {
 }
 
 impl<P: ProjectRead> EditableProject<P> {
-    pub fn new(nominal_path: Utf8UnixPathBuf, project: P) -> EditableProject<P> {
+    pub fn new(nominal_path: Utf8UnixPathBuf, project: P) -> Self {
         debug_assert!(nominal_path.is_relative());
-        EditableProject {
+        Self {
             inner: project,
             nominal_path,
             include_original_sources: false,

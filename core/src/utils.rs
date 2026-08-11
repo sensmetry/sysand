@@ -43,6 +43,7 @@ pub(crate) mod scheme {
 /// Should be used in all cases where an error is turned into
 /// a string and `source()` is not checked
 pub fn format_err(error: impl Error) -> String {
+    #[expect(clippy::shadow_same)]
     let mut error: &dyn Error = &error;
     let mut message = error.to_string();
     while let Some(source) = error.source() {
@@ -84,14 +85,14 @@ pub(crate) fn license_file_stems(expression: &spdx::Expression) -> IndexSet<Stri
     let mut stems: IndexSet<String> = IndexSet::new();
     for req in expression.requirements() {
         let license_name = match &req.req.license {
-            spdx::LicenseItem::Spdx { id, .. } => id.name.to_string(),
+            spdx::LicenseItem::Spdx { id, .. } => id.name.to_owned(),
             spdx::LicenseItem::Other(license_ref) => license_ref.to_string(),
         };
         stems.insert(license_name);
 
         if let Some(addition) = &req.req.addition {
             let addition_name = match addition {
-                spdx::AdditionItem::Spdx(id) => id.name.to_string(),
+                spdx::AdditionItem::Spdx(id) => id.name.to_owned(),
                 spdx::AdditionItem::Other(add_ref) => add_ref.to_string(),
             };
             stems.insert(addition_name);
@@ -165,15 +166,15 @@ pub enum RelativePathKind {
 impl RelativePathKind {
     fn is_file(self) -> bool {
         match self {
-            RelativePathKind::SubFile | RelativePathKind::File => true,
-            RelativePathKind::SubDirectory | RelativePathKind::Directory => false,
+            Self::SubFile | Self::File => true,
+            Self::SubDirectory | Self::Directory => false,
         }
     }
 
     fn allow_relative_components(self) -> bool {
         match self {
-            RelativePathKind::SubFile | RelativePathKind::SubDirectory => false,
-            RelativePathKind::File | RelativePathKind::Directory => true,
+            Self::SubFile | Self::SubDirectory => false,
+            Self::File | Self::Directory => true,
         }
     }
 }

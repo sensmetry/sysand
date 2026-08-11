@@ -48,7 +48,7 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, AuthCommand, Command, ExpCommand},
+    cli::{Args, AuthCommand, Command, ExpCommand, InfoCommand},
     commands::{
         add::{ExpAddArgs, command_add, exp_command_add},
         auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
@@ -118,6 +118,8 @@ where
         }
         Err(err) => {
             err.print().expect("failed to write Clap error");
+            // `exit_code()` is non-negative and within u8
+            #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
             return ExitCode::from(err.exit_code() as u8);
         }
     }
@@ -235,8 +237,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     // Validation guarantees every group has a pattern and at least one
     // complete scheme, so iterating the patterns covers every group.
     let groups = cred_env::validated_env_groups()?;
-    let mut auths_builder: StandardHTTPAuthenticationBuilder =
-        StandardHTTPAuthenticationBuilder::new();
+    let mut auths_builder = StandardHTTPAuthenticationBuilder::new();
     for (k, pattern) in &groups.patterns {
         if let (Some(username), Some(password)) =
             (groups.basic_users.get(k), groups.basic_passwords.get(k))
@@ -393,10 +394,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             }
         }
         Command::Sync { resolution_opts } => {
-            let provided_iris = if !resolution_opts.include_std {
-                known_std_libs()
-            } else {
+            let provided_iris = if resolution_opts.include_std {
                 HashMap::default()
+            } else {
+                known_std_libs()
             };
 
             let project_root = project_root.unwrap_or(ctx.current_directory.clone());
@@ -462,16 +463,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             let index_urls = if no_index {
                 None
             } else {
-                Some(config.index_urls(
-                    index,
-                    vec![DEFAULT_INDEX_URL.to_string()],
-                    default_index,
-                )?)
+                Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
             };
-            let excluded_usages: HashSet<_> = if !include_std {
-                known_std_libs().into_keys().collect()
-            } else {
+            let excluded_usages: HashSet<_> = if include_std {
                 HashSet::default()
+            } else {
+                known_std_libs().into_keys().collect()
             };
 
             let project_root = project_root.as_ref().unwrap_or(&ctx.current_directory);
@@ -517,10 +514,8 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     if let Some(current_project) = ctx.current_project {
                         match subcommand {
                             Some(subcommand) => {
-                                match subcommand {
-                                    cli::InfoCommand::Version {
-                                        ref set, no_semver, ..
-                                    } => {
+                                match &subcommand {
+                                    InfoCommand::Version { set, no_semver, .. } => {
                                         if !no_semver && let Some(v) = set {
                                             semver::Version::parse(v).map_err(|e| {
                                                 InitError::<std::convert::Infallible>::SemVerParse(
@@ -530,9 +525,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                                             })?;
                                         }
                                     }
-                                    cli::InfoCommand::License {
-                                        ref set, no_spdx, ..
-                                    } => {
+                                    InfoCommand::License { set, no_spdx, .. } => {
                                         if !no_spdx && let Some(l) = set {
                                             spdx::Expression::parse(l).map_err(|e| {
                                                 InitError::<std::convert::Infallible>::SPDXLicenseParse(l.as_str().into(), e)

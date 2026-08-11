@@ -177,6 +177,9 @@ fn misc_iris() -> Result<(), Box<dyn Error>> {
             "https://aaa.example.org/project.kpar",
             "aaa.example.org-project",
         ),
+        ("file:///a/b/c/project.KpAr", "a.b.c.project"),
+        // is_char_boundary check
+        ("file:///öööö", "öööö"),
         // Properly preserves non-ASCII
         (
             "ssh://example.org/Mekanïk/Kommandöh",

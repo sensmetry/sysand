@@ -54,10 +54,7 @@ pub struct LocalSrcProject {
 impl LocalSrcProject {
     /// Access the project. No invariants will be checked. If `nominal_path` is provided,
     /// `sources()` will work.
-    pub fn new_access(
-        path: impl Into<Utf8PathBuf>,
-        nominal_path: Option<Utf8UnixPathBuf>,
-    ) -> LocalSrcProject {
+    pub fn new_access(path: impl Into<Utf8PathBuf>, nominal_path: Option<Utf8UnixPathBuf>) -> Self {
         Self {
             nominal_path,
             project_path: path.into(),
@@ -72,7 +69,7 @@ impl LocalSrcProject {
         nominal_path: Option<Utf8UnixPathBuf>,
         publisher: Option<String>,
         name: String,
-    ) -> LocalSrcProject {
+    ) -> Self {
         Self {
             nominal_path,
             project_path: path.into(),
@@ -89,7 +86,7 @@ impl LocalSrcProject {
         publisher: Option<String>,
         name: String,
         checksum: String,
-    ) -> LocalSrcProject {
+    ) -> Self {
         Self {
             nominal_path,
             project_path: path.into(),
@@ -121,14 +118,6 @@ impl LocalSrcProject {
 
     pub fn meta_path(&self) -> Utf8PathBuf {
         self.project_path.join(".meta.json")
-    }
-
-    pub fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, LocalSrcError> {
-        Ok(self.get_project()?.0)
-    }
-
-    pub fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, LocalSrcError> {
-        Ok(self.get_project()?.1)
     }
 
     pub fn get_unix_path<P: AsRef<Utf8Path>>(
@@ -244,7 +233,7 @@ impl ProjectMut for LocalSrcProject {
 
         if !overwrite && project_json_path.exists() {
             return Err(LocalSrcError::AlreadyExists(
-                "`.project.json` already exists".to_string(),
+                "`.project.json` already exists".to_owned(),
             ));
         }
 
@@ -272,7 +261,7 @@ impl ProjectMut for LocalSrcProject {
         let meta_json_path = self.meta_path();
         if !overwrite && meta_json_path.exists() {
             return Err(LocalSrcError::AlreadyExists(
-                "'.meta.json' already exists".to_string(),
+                "'.meta.json' already exists".to_owned(),
             ));
         }
 
@@ -527,16 +516,16 @@ fn relativize_path_in<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     path: P,
     relative_to: Q,
 ) -> Option<Utf8PathBuf> {
-    let path = if !path.as_ref().is_absolute() {
-        let path = camino::absolute_utf8(path.as_ref()).ok()?;
+    let path = if path.as_ref().is_absolute() {
         canonicalize_prefix(path)
     } else {
+        let path = camino::absolute_utf8(path.as_ref()).ok()?;
         canonicalize_prefix(path)
     };
 
     path.strip_prefix(canonicalize_prefix(relative_to))
         .ok()
-        .map(|x| x.to_path_buf())
+        .map(camino::Utf8Path::to_path_buf)
 }
 
 #[cfg(test)]

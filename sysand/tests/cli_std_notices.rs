@@ -158,7 +158,7 @@ fn env_install_transitive_std_deps_note() -> Result<(), Box<dyn std::error::Erro
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec!["urn:kpar:env_install_std_dep".to_string()],
+            identifiers: vec!["urn:kpar:env_install_std_dep".to_owned()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: cwd_dep.as_str().into(),
             }],

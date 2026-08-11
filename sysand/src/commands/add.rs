@@ -35,7 +35,7 @@ use crate::{
 };
 
 // TODO: Collect common arguments
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn command_add<Policy: HTTPAuthentication>(
     iri: Iri<String>,
     version_constraint: Option<String>,
@@ -57,7 +57,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         .clone()
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
-    #[allow(clippy::manual_map)] // For readability and compactness
+    #[expect(clippy::manual_map)] // For readability and compactness
     let source = if let Some(path) = source_opts.from_path {
         let metadata = wrapfs::metadata(&path)?;
         if metadata.is_dir() {
@@ -86,7 +86,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
         let index_urls = if no_index {
             None
         } else {
-            Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
+            Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
         };
         let std_resolver = standard_resolver(
             // TODO: why not use env here?
@@ -196,7 +196,10 @@ pub fn command_add<Policy: HTTPAuthentication>(
         version_constraint,
     };
 
-    if !no_lock {
+    if no_lock {
+        do_add(&mut current_project, &usage_raw)?;
+        Ok(())
+    } else {
         let info_path = current_project.info_path();
         let info_backup = wrapfs::read_to_string(&info_path)?;
         let added = do_add(&mut current_project, &usage_raw)?;
@@ -204,7 +207,9 @@ pub fn command_add<Policy: HTTPAuthentication>(
             return Ok(());
         }
 
-        let provided_iris = if !resolution_opts.include_std {
+        let provided_iris = if resolution_opts.include_std {
+            HashMap::default()
+        } else {
             let sysml_std = crate::known_std_libs();
             if sysml_std.contains_key(iri) {
                 log::info!(
@@ -216,8 +221,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
                 // newer version)
             }
             sysml_std
-        } else {
-            HashMap::default()
         };
 
         let alias_iris = if let Some(w) = &ctx.current_workspace {
@@ -248,9 +251,6 @@ pub fn command_add<Policy: HTTPAuthentication>(
                 Err(e)
             }
         }
-    } else {
-        do_add(&mut current_project, &usage_raw)?;
-        Ok(())
     }
 }
 
@@ -260,7 +260,7 @@ pub enum ExpAddArgs {
 }
 
 // TODO: Collect common arguments
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn exp_command_add<Policy: HTTPAuthentication>(
     add: ExpAddArgs,
     no_lock: bool,
@@ -312,7 +312,10 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
         }
     };
 
-    if !no_lock {
+    if no_lock {
+        do_add(&mut current_project, &usage.into())?;
+        Ok(())
+    } else {
         let info_path = current_project.info_path();
         let info_backup = wrapfs::read_to_string(&info_path)?;
         let added = do_add(&mut current_project, &usage.into())?;
@@ -329,11 +332,11 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
             None
         };
 
-        let provided_iris = if !resolution_opts.include_std {
+        let provided_iris = if resolution_opts.include_std {
+            HashMap::default()
+        } else {
             // Don't warn; std libs are all `https://`, so they can't match this usage
             crate::known_std_libs()
-        } else {
-            HashMap::default()
         };
 
         match resolve_deps(
@@ -355,9 +358,6 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
                 Err(e)
             }
         }
-    } else {
-        do_add(&mut current_project, &usage.into())?;
-        Ok(())
     }
 }
 

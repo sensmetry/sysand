@@ -9,24 +9,22 @@ license = "MIT OR Apache-2.0"
 dynamic = ["version"]
 requires-python = ">= 3.10"
 classifiers = [
-    "Programming Language :: Python",
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-    "Intended Audience :: Developers",
-    "Topic :: Scientific/Engineering",
+  "Programming Language :: Python",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Intended Audience :: Developers",
+  "Topic :: Scientific/Engineering",
 ]
 # TODO: create a proper readme and/or docs to document
 # what is available in bindings
 readme = "README.md"
-maintainers = [
-    { name = "Sensmetry", email = "opensource@sensmetry.com" }
-]
+maintainers = [{ name = "Sensmetry", email = "opensource@sensmetry.com" }]
 import-names = ["sysand"]
 
 [project.urls]
@@ -41,9 +39,9 @@ sysand = "sysand.__main__:main"
 
 [dependency-groups]
 dev = [
-    "maturin>=1.13.1,<2",
-    "pytest>=9.0.2,<10",
-    "pytest-httpserver>=1.1.3,<2",
+  "maturin>=1.13.1,<2",
+  "pytest>=9.0.2,<10",
+  "pytest-httpserver>=1.1.3,<2",
 ]
 
 [tool.maturin]

@@ -12,7 +12,8 @@ impl TryFrom<u8> for ExceptionKind {
         use super::ExceptionKind::*;
 
         // This is just a reminder to cover all enum variants
-        match ExceptionKind::IOError {
+        #[expect(clippy::match_same_arms)]
+        match Self::IOError {
             IOError => (),
             PathError => (),
             ProjectAlreadyExists => (),
@@ -54,7 +55,7 @@ fn exceptions_all_exist() {
                 );
                 assert!(exists(&p).unwrap(), "exception `{p}` not found");
             }
-            Err(_) => break,
+            Err(()) => break,
         }
     }
 }
@@ -65,7 +66,7 @@ fn exceptions_all_listed() {
     let known_exceptions: Vec<String> = (0..)
         .map_while(|x| match ExceptionKind::try_from(x) {
             Ok(exc) => Some(exc.to_string()),
-            Err(_) => None,
+            Err(()) => None,
         })
         .collect();
     for file in fs::read_dir("java/src/main/java/com/sensmetry/sysand/exceptions/").unwrap() {

@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 use anstyle::Style;
 
+#[derive(Debug)]
 pub struct Config {
     pub header: Style,
     pub usage: Style,
@@ -42,7 +43,9 @@ impl Default for Config {
 static STYLE_CONFIG: OnceLock<Config> = OnceLock::new();
 
 pub fn set_style_config(config: Config) {
-    let _ = STYLE_CONFIG.set(config);
+    STYLE_CONFIG
+        .set(config)
+        .expect("BUG: attempting to set output style twice");
 }
 
 pub fn get_style_config() -> &'static Config {

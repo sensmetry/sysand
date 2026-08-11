@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct NullResolver {}
+pub struct NullResolver;
 
 impl ResolveRead for NullResolver {
     type Error = Infallible;

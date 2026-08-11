@@ -74,12 +74,12 @@ impl From<FsIoError> for Error {
 impl From<LocalStorageError> for Error {
     fn from(value: LocalStorageError) -> Self {
         match value {
-            LocalStorageError::NoWindow => Error::NoWindow,
-            LocalStorageError::NoLocalStorage => Error::NoLocalStorage,
-            LocalStorageError::Js(js_value) => Error::Js(js_value),
-            LocalStorageError::Io(error) => Error::Io(error),
-            LocalStorageError::Serialize(error) => Error::SerializeHandle(error),
-            LocalStorageError::KeyNotFound(key) => Error::KeyNotFound(key),
+            LocalStorageError::NoWindow => Self::NoWindow,
+            LocalStorageError::NoLocalStorage => Self::NoLocalStorage,
+            LocalStorageError::Js(js_value) => Self::Js(js_value),
+            LocalStorageError::Io(error) => Self::Io(error),
+            LocalStorageError::Serialize(error) => Self::SerializeHandle(error),
+            LocalStorageError::KeyNotFound(key) => Self::KeyNotFound(key),
         }
     }
 }

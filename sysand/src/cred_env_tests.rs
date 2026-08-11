@@ -3,8 +3,9 @@
 
 use crate::cred_env::{CredEnvName, CredEnvRole, classify};
 
+#[expect(clippy::unnecessary_wraps)]
 fn grouped(stem: &str, role: CredEnvRole) -> Option<CredEnvName> {
-    Some(CredEnvName::Grouped(stem.to_string(), role))
+    Some(CredEnvName::Grouped(stem.to_owned(), role))
 }
 
 #[test]
@@ -64,7 +65,7 @@ fn classify_flags_names_with_no_label() {
 use crate::cred_env::{CredEnvGroups, validate_env_groups};
 
 fn add(map: &mut std::collections::HashMap<String, String>, stem: &str, value: &str) {
-    map.insert(stem.to_string(), value.to_string());
+    map.insert(stem.to_owned(), value.to_owned());
 }
 
 #[test]
@@ -79,13 +80,13 @@ fn validate_accepts_complete_groups_of_either_or_both_schemes() {
     add(&mut groups.bearer_tokens, "BOTH", "tok");
     add(&mut groups.basic_users, "BOTH", "user");
     add(&mut groups.basic_passwords, "BOTH", "pass");
-    assert!(validate_env_groups(&groups).is_ok());
+    validate_env_groups(&groups).unwrap();
 }
 
 #[test]
 fn validate_rejects_label_less_names_before_group_checks() {
     let mut groups = CredEnvGroups::default();
-    groups.missing_label.push("SYSAND_CRED".to_string());
+    groups.missing_label.push("SYSAND_CRED".to_owned());
     // Also scheme-less; the label error must win.
     add(&mut groups.patterns, "A", "https://a.example/**");
     let err = validate_env_groups(&groups).unwrap_err().to_string();

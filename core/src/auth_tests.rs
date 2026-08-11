@@ -56,17 +56,23 @@ fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
         panic!("Expected unambiguous result.");
     }
 
-    if let GlobMapResultMut::NotFound = globmap.lookup_mut("axx.com") {
+    if matches!(globmap.lookup_mut("axx.com"), GlobMapResultMut::NotFound) {
     } else {
         panic!("Expected no result.");
     }
 
-    if let GlobMapResultMut::NotFound = globmap.lookup_mut("bxx.com/xxx") {
+    if matches!(
+        globmap.lookup_mut("bxx.com/xxx"),
+        GlobMapResultMut::NotFound
+    ) {
     } else {
         panic!("Expected no result.");
     }
 
-    if let GlobMapResultMut::NotFound = globmap.lookup_mut("cxx.com/xxx") {
+    if matches!(
+        globmap.lookup_mut("cxx.com/xxx"),
+        GlobMapResultMut::NotFound
+    ) {
     } else {
         panic!("Expected no result.");
     }
@@ -128,7 +134,7 @@ mod select_bearer {
     fn map(entries: &[(&str, &str)]) -> GlobMap<String> {
         let mut builder = GlobMapBuilder::new();
         for (pattern, token) in entries {
-            builder.add(*pattern, (*token).to_string());
+            builder.add(*pattern, (*token).to_owned());
         }
         builder.build().unwrap()
     }
@@ -192,7 +198,7 @@ fn publish_bearer_auth_map_keeps_bearer_drops_basic_and_carries_labels()
     // By-ref extraction: the policy stays usable afterwards.
     let bearer_map = policy.publish_bearer_auth_map()?;
 
-    if let crate::auth::GlobMapResult::Found(_, entry) =
+    if let crate::auth::GlobMapResult::Found(entry) =
         bearer_map.lookup("https://bearer.example.com/upload")
     {
         assert_eq!(&*entry.auth.0, "tok");
@@ -201,7 +207,7 @@ fn publish_bearer_auth_map_keeps_bearer_drops_basic_and_carries_labels()
         panic!("expected bearer entry to be extracted");
     }
 
-    if let crate::auth::GlobMapResult::Found(_, entry) =
+    if let crate::auth::GlobMapResult::Found(entry) =
         bearer_map.lookup("https://labeled.example.com/upload")
     {
         assert_eq!(&*entry.auth.0, "tok2");
@@ -311,10 +317,10 @@ fn failing_store(absent: bool) -> (LockedBlobStore<FailingBackend>, Arc<AtomicUs
 
 fn bearer_record(globs: &[String], secret: &str) -> CredentialRecord {
     CredentialRecord {
-        key: "https://example.com/".to_string(),
+        key: "https://example.com/".to_owned(),
         globs: globs.to_vec(),
         scheme: CredentialScheme::Bearer,
-        secret: secret.to_string(),
+        secret: secret.to_owned(),
         expires_at: None,
         subject: None,
         token_name: None,
@@ -343,7 +349,7 @@ fn get<P: HTTPAuthentication>(
     url: &str,
 ) -> reqwest::Response {
     let client = create_reqwest_client().unwrap();
-    let url = url.to_string();
+    let url = url.to_owned();
     let renew = move |c: &reqwest_middleware::ClientWithMiddleware| c.get(&url);
     runtime
         .block_on(policy.with_authentication(&client, &renew))
@@ -389,7 +395,7 @@ fn lazy_layer_never_reads_store_on_success_server_error_or_rate_limiting() {
     // rate budget).
     for status in [200, 500, 429] {
         let mut server = mockito::Server::new();
-        let mock = versions_mock(&mut server, None, status, 1);
+        let mock = versions_mock(&mut server, None, status as usize, 1);
 
         let (store, lists) = counting_store(vec![bearer_record(
             &[format!("{}/**", server.url())],
@@ -404,7 +410,7 @@ fn lazy_layer_never_reads_store_on_success_server_error_or_rate_limiting() {
             &format!("{}/pkg/versions.json", server.url()),
         );
 
-        assert_eq!(response.status().as_u16(), status as u16);
+        assert_eq!(response.status().as_u16(), status);
         assert_eq!(lists.load(Ordering::SeqCst), 0, "status = {status}");
         mock.assert();
     }
@@ -440,7 +446,7 @@ fn lazy_layer_reads_store_once_and_returns_original_response_on_no_match() {
     let mock = versions_mock(&mut server, None, 404, 2);
 
     let (store, lists) = counting_store(vec![bearer_record(
-        &["https://other.example.com/**".to_string()],
+        &["https://other.example.com/**".to_owned()],
         "stored-token",
     )]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
@@ -558,9 +564,9 @@ fn lazy_layer_ambiguous_distinct_records_try_all_in_order() {
     let accepted_mock = versions_mock(&mut server, Some("narrow-token"), 200, 1);
 
     let mut broad = bearer_record(&[format!("{}/**", server.url())], "broad-token");
-    broad.key = "https://example.com/broad/".to_string();
+    broad.key = "https://example.com/broad/".to_owned();
     let mut narrow = bearer_record(&[format!("{}/pkg/*", server.url())], "narrow-token");
-    narrow.key = "https://example.com/narrow/".to_string();
+    narrow.key = "https://example.com/narrow/".to_owned();
     let (store, _lists) = counting_store(vec![broad, narrow]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
     let runtime = runtime();
@@ -580,7 +586,7 @@ fn lazy_layer_invalid_stored_glob_skips_only_that_pattern() {
     let bearer_mock = versions_mock(&mut server, Some("stored-token"), 200, 1);
 
     let (store, _lists) = counting_store(vec![bearer_record(
-        &["[invalid".to_string(), format!("{}/**", server.url())],
+        &["[invalid".to_owned(), format!("{}/**", server.url())],
         "stored-token",
     )]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
@@ -634,7 +640,7 @@ fn lazy_layer_without_store_returns_original_response() {
 #[test]
 fn direct_stored_bearer_read_does_exactly_one_store_read_per_call() {
     let (store, lists) = counting_store(vec![bearer_record(
-        &["https://other.example.com/**".to_string()],
+        &["https://other.example.com/**".to_owned()],
         "stored-token",
     )]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
@@ -643,7 +649,7 @@ fn direct_stored_bearer_read_does_exactly_one_store_read_per_call() {
     let map = policy.read_stored_bearer_map_direct();
     assert!(matches!(
         map.lookup("https://other.example.com/upload"),
-        crate::auth::GlobMapResult::Found(_, _)
+        crate::auth::GlobMapResult::Found(_)
     ));
     assert_eq!(lists.load(Ordering::SeqCst), 1);
 }
@@ -686,7 +692,7 @@ fn debug_never_renders_secrets() {
     assert!(!rendered.contains("basic-secret"), "rendered: {rendered}");
     let env = crate::auth::EnvBearerAuth {
         auth: crate::auth::ForceBearerAuth::new("env-secret"),
-        label: "TEAMIDX".to_string(),
+        label: "TEAMIDX".to_owned(),
     };
     let rendered = format!("{env:?}");
     assert!(rendered.contains("TEAMIDX"), "rendered: {rendered}");
@@ -694,7 +700,7 @@ fn debug_never_renders_secrets() {
 
     let stored = crate::auth::StoredBearerAuth::new(
         crate::auth::ForceBearerAuth::new("stored-secret"),
-        "https://example.com/".to_string(),
+        "https://example.com/".to_owned(),
         None,
     );
     let rendered = format!("{stored:?}");
@@ -709,7 +715,7 @@ fn debug_never_renders_secrets() {
     let mut env_builder = StandardHTTPAuthenticationBuilder::new();
     env_builder.add_bearer_auth("https://bearer.example.com/**", "env-secret", "ENVIDX");
     let (store, _lists) = counting_store(vec![bearer_record(
-        &["https://other.example.com/**".to_string()],
+        &["https://other.example.com/**".to_owned()],
         "stored-secret",
     )]);
     let policy = CredentialStoreAuthentication::new(env_builder.build().unwrap(), store);
@@ -731,7 +737,7 @@ fn stored_bearer_expiry_warning_fires_at_most_once() {
     let now = Utc::now();
     let bearer = StoredBearerAuth::new(
         ForceBearerAuth::new("tok"),
-        "https://example.com/".to_string(),
+        "https://example.com/".to_owned(),
         Some(now - Duration::hours(1)),
     );
 
@@ -757,7 +763,7 @@ fn stored_bearer_expiry_warning_skips_unexpired_and_unknown_expiry() {
     let now = Utc::now();
     let unexpired = StoredBearerAuth::new(
         ForceBearerAuth::new("tok"),
-        "https://example.com/".to_string(),
+        "https://example.com/".to_owned(),
         Some(now + Duration::hours(1)),
     );
     assert_eq!(unexpired.take_expiry_warning(now), None);
@@ -765,7 +771,7 @@ fn stored_bearer_expiry_warning_skips_unexpired_and_unknown_expiry() {
 
     let unknown = StoredBearerAuth::new(
         ForceBearerAuth::new("tok"),
-        "https://example.com/".to_string(),
+        "https://example.com/".to_owned(),
         None,
     );
     assert_eq!(unknown.take_expiry_warning(now), None);
@@ -786,7 +792,7 @@ where
     B: BlobBackend + Send + Sync + 'static,
 {
     match runtime.block_on(policy.stored_bearer_map()).lookup(url) {
-        crate::auth::GlobMapResult::Found(_, bearer) => bearer.clone(),
+        crate::auth::GlobMapResult::Found(bearer) => bearer.clone(),
         other => panic!("expected a stored bearer for `{url}`, got {other:?}"),
     }
 }

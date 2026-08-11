@@ -108,7 +108,7 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
         .or_insert(Item::ArrayOfTables(ArrayOfTables::new()))
         .as_array_of_tables_mut()
         .ok_or(ConfigProjectSourceError::InvalidProjects(
-            "`project` should always be an array of tables".to_string(),
+            "`project` should always be an array of tables".to_owned(),
         ))?;
 
     if let Some(project) = projects.iter_mut().find(|table| {

@@ -100,10 +100,10 @@ impl From<LocalSrcError> for GixDownloadedError {
 }
 
 impl GixDownloadedProject {
-    pub fn new<S: AsRef<str>>(url: S) -> Result<GixDownloadedProject, GixDownloadedError> {
+    pub fn new<S: AsRef<str>>(url: S) -> Result<Self, GixDownloadedError> {
         let tmp_dir = camino_tempfile::tempdir().map_err(FsIoError::MkTempDir)?;
 
-        Ok(GixDownloadedProject {
+        Ok(Self {
             // TODO: gix::url::parse() accepts bare local paths; we should verify before that
             // it's URL or path as we expected instead of relying on gix::url::Parse to error out
             url: gix::url::parse(url.as_ref())

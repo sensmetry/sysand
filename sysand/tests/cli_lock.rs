@@ -69,7 +69,7 @@ fn lock_local_source() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec!["urn:kpar:local_dep".to_string()],
+            identifiers: vec!["urn:kpar:local_dep".to_owned()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: "local_dep".into(),
             }],
@@ -116,7 +116,7 @@ fn lock_std_lib() -> Result<(), Box<dyn std::error::Error>> {
     let cfg = toml::to_string(&config::Config {
         indexes: vec![],
         projects: vec![sysand_core::config::ConfigProject {
-            identifiers: vec!["urn:kpar:local_dep".to_string()],
+            identifiers: vec!["urn:kpar:local_dep".to_owned()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: cwd.join("local_dep").as_str().into(),
             }],
@@ -235,8 +235,8 @@ fn inject_usages_versions<
 
     for (usage, version_req) in usages {
         info.usage.push(InterchangeProjectUsageRaw::Resource {
-            resource: usage.as_ref().to_string(),
-            version_constraint: version_req.map(|x| x.as_ref().to_string()),
+            resource: usage.as_ref().to_owned(),
+            version_constraint: version_req.map(|x| x.as_ref().to_owned()),
         });
     }
 
@@ -300,10 +300,10 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
         .map(|project| project.name)
         .collect();
 
-    assert!(project_names.contains(&"lock_basic_http_deps".to_string()));
-    assert!(project_names.contains(&"lock_basic_http_deps_a".to_string()));
-    assert!(project_names.contains(&"lock_basic_http_deps_b".to_string()));
-    assert!(project_names.contains(&"lock_basic_http_deps_c".to_string()));
+    assert!(project_names.contains(&"lock_basic_http_deps".to_owned()));
+    assert!(project_names.contains(&"lock_basic_http_deps_a".to_owned()));
+    assert!(project_names.contains(&"lock_basic_http_deps_b".to_owned()));
+    assert!(project_names.contains(&"lock_basic_http_deps_c".to_owned()));
 
     run_sysand_in(&cwd, ["env"], None)?
         .assert()

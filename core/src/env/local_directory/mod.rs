@@ -26,6 +26,7 @@ use crate::{
     iri_normalize::IriVersionFilename,
     lock::{Lock, Source},
     project::{
+        ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
         utils::{
             FsIoError, Identifier, ProjectDeserializationError, ProjectSerializationError,
@@ -122,16 +123,19 @@ impl LocalDirectoryEnvironment {
                     .map(|usage| usage.to_string())
                     .collect();
 
-                let workspace_member = ws
-                    .map(|w| w.projects().iter().any(|p| p.path.as_str() == editable))
-                    .unwrap_or_default();
+                let workspace_member =
+                    ws.is_some_and(|w| w.projects().iter().any(|p| p.path.as_str() == editable));
 
                 self.metadata.projects.push(EnvProject {
                     publisher: project.publisher.to_owned(),
                     name: project.name.to_owned(),
                     version: project.version.to_owned(),
                     path: editable.as_str().into(),
-                    identifiers: project.identifiers.iter().map(|i| i.to_string()).collect(),
+                    identifiers: project
+                        .identifiers
+                        .iter()
+                        .map(std::string::ToString::to_string)
+                        .collect(),
                     usages,
                     editable: true,
                     workspace: workspace_member,
@@ -171,10 +175,10 @@ impl LocalDirectoryEnvironment {
         match fs::create_dir(&lib_dir) {
             Ok(()) => Ok(()),
             Err(e) => {
-                if e.kind() != ErrorKind::AlreadyExists {
-                    Err(FsIoError::MkDir(lib_dir, e).into())
-                } else {
+                if e.kind() == ErrorKind::AlreadyExists {
                     Ok(())
+                } else {
+                    Err(FsIoError::MkDir(lib_dir, e).into())
                 }
             }
         }
@@ -406,14 +410,14 @@ impl From<LocalReadError> for LocalWriteError {
 impl From<LocalSrcError> for LocalWriteError {
     fn from(value: LocalSrcError) -> Self {
         match value {
-            LocalSrcError::Deserialize(error) => LocalWriteError::Deserialize(error),
-            LocalSrcError::Path(path_error) => LocalWriteError::Path(path_error),
-            LocalSrcError::AlreadyExists(msg) => LocalWriteError::AlreadyExists(msg),
-            LocalSrcError::Io(e) => LocalWriteError::Io(e),
+            LocalSrcError::Deserialize(error) => Self::Deserialize(error),
+            LocalSrcError::Path(path_error) => Self::Path(path_error),
+            LocalSrcError::AlreadyExists(msg) => Self::AlreadyExists(msg),
+            LocalSrcError::Io(e) => Self::Io(e),
             LocalSrcError::Serialize(error) => Self::Serialize(error),
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
-            LocalSrcError::MissingMeta => LocalWriteError::MissingMeta,
-            LocalSrcError::MissingInfoMeta => LocalWriteError::MissingInfoMeta,
+            LocalSrcError::MissingMeta => Self::MissingMeta,
+            LocalSrcError::MissingInfoMeta => Self::MissingInfoMeta,
             LocalSrcError::PublisherMismatch { expected, actual } => {
                 Self::PublisherMismatch { expected, actual }
             }
@@ -479,10 +483,6 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 .map(|u| Identifier::from_interchange_usage_unchecked(&u).into_string())
                 .collect();
             existing.checksum = checksum.map(Into::into);
-
-            self.write().map_err(LocalWriteError::from)?;
-
-            Ok(tentative_project)
         } else {
             // TODO: try writing to the target directly (we manage it exclusively) and on failure revert.
             write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
@@ -516,11 +516,9 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                     checksum,
                 )
                 .map_err(LocalWriteError::from)?;
-
-            self.write().map_err(LocalWriteError::from)?;
-
-            Ok(tentative_project)
         }
+        self.write().map_err(LocalWriteError::from)?;
+        Ok(tentative_project)
     }
 
     fn del_project_version<S: AsRef<str>, T: AsRef<str>>(
@@ -538,8 +536,9 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 // TODO: maybe surface IO errors?
                 let project_dir = self.root_dir.join(project.path.as_str());
                 clean_dir(&project_dir);
-                let _ = fs::remove_dir(&project_dir)
-                    .map_err(|e| log::warn!("failed to remove empty dir `{project_dir}`: {e}"));
+                if let Err(e) = fs::remove_dir(&project_dir) {
+                    log::warn!("failed to remove empty dir `{project_dir}`: {e}");
+                }
             }
             self.metadata.projects.swap_remove(idx);
             self.write()?;
@@ -558,8 +557,9 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
                 // TODO: maybe surface IO errors?
                 let project_dir = self.root_dir.join(p.path.as_str());
                 clean_dir(&project_dir);
-                let _ = fs::remove_dir(&project_dir)
-                    .map_err(|e| log::warn!("failed to remove empty dir `{project_dir}`: {e}"));
+                if let Err(e) = fs::remove_dir(&project_dir) {
+                    log::warn!("failed to remove empty dir `{project_dir}`: {e}");
+                }
             }
             indices_to_remove.push(idx);
         }

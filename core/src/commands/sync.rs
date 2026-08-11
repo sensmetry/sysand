@@ -89,7 +89,7 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
 
 // TODO: take `lock` by value
 // TODO: Use AnyProject::try_from_source to avoid having so many arguments
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn do_sync<
     Environment,
     CreateSrcPathStorage,

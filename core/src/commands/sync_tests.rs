@@ -27,7 +27,7 @@ fn storage_example() -> InMemoryProject {
     storage
         .put_project(
             &InterchangeProjectInfo {
-                name: "install_test".to_string(),
+                name: "install_test".to_owned(),
                 publisher: None,
                 description: None,
                 version: Version::new(1, 2, 3),

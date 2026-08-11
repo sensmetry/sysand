@@ -76,12 +76,13 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                     project_root.as_ref().join(editable.as_str()),
                     Some(editable.to_string().into()),
                 );
-                Ok(AnyProject::Editable(
-                    EditableProject::<LocalSrcProject>::new(editable.as_str().into(), project),
-                ))
+                Ok(Self::Editable(EditableProject::<LocalSrcProject>::new(
+                    editable.as_str().into(),
+                    project,
+                )))
             }
             OverrideSource::LocalKpar { kpar_path } => {
-                Ok(AnyProject::LocalKpar(LocalKParProject::new_access(
+                Ok(Self::LocalKpar(LocalKParProject::new_access(
                     project_root.as_ref().join(kpar_path.as_str()),
                     KparInnerPath::Guess,
                     Some(kpar_path),
@@ -89,13 +90,13 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
             }
             OverrideSource::LocalSrc { src_path } => {
                 let project_path = project_root.as_ref().join(src_path.as_str());
-                Ok(AnyProject::LocalSrc(LocalSrcProject::new_access(
+                Ok(Self::LocalSrc(LocalSrcProject::new_access(
                     project_path,
                     Some(src_path),
                 )))
             }
             // TODO: use expected size
-            OverrideSource::RemoteKpar { remote_kpar } => Ok(AnyProject::RemoteKpar(
+            OverrideSource::RemoteKpar { remote_kpar } => Ok(Self::RemoteKpar(
                 ReqwestRemoteKparDownloadedProject::<Policy>::new_guess_root(
                     remote_kpar,
                     client,
@@ -105,7 +106,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 .map_err(TryFromSourceError::RemoteKpar)?
                 .to_tokio_sync(runtime),
             )),
-            OverrideSource::RemoteSrc { remote_src } => Ok(AnyProject::RemoteSrc(
+            OverrideSource::RemoteSrc { remote_src } => Ok(Self::RemoteSrc(
                 ReqwestSrcProjectAsync::<Policy> {
                     client,
                     url: reqwest::Url::parse(&remote_src)
@@ -115,7 +116,7 @@ impl<Policy: HTTPAuthentication> AnyProject<Policy> {
                 }
                 .to_tokio_sync(runtime),
             )),
-            OverrideSource::RemoteGit { remote_git } => Ok(AnyProject::RemoteGit(
+            OverrideSource::RemoteGit { remote_git } => Ok(Self::RemoteGit(
                 GixDownloadedProject::new(remote_git).map_err(TryFromSourceError::RemoteGit)?,
             )),
         }

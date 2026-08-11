@@ -47,14 +47,14 @@ pub fn pprint_interchange_project(
     if let Some(publisher) = &info.publisher {
         println!("{header}Publisher:{header:#} {}", publisher);
     }
-    if let Some(ref description) = info.description {
+    if let Some(description) = &info.description {
         println!("{header}Description:{header:#} {}", description);
     }
     println!("{header}Version:{header:#} {}", info.version);
-    if let Some(ref license) = info.license {
+    if let Some(license) = &info.license {
         println!("{header}License:{header:#} {}", license);
     }
-    if let Some(ref website) = info.website {
+    if let Some(website) = &info.website {
         println!("{header}Website:{header:#} {}", website);
     }
     if !info.maintainer.is_empty() {
@@ -140,7 +140,7 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn command_info_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     _normalise: bool,
@@ -209,7 +209,7 @@ pub fn command_info_verb_path<P: AsRef<Utf8Path>>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     verb: InfoCommandVerb,
@@ -231,11 +231,11 @@ pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
             match get_verb {
                 crate::cli::GetVerb::GetInfoVerb(get_info_verb) => {
                     let (info, _meta) = do_info(&uri, &combined_resolver)?;
-                    apply_get_info(&get_info_verb, info, numbered)?;
+                    apply_get_info(&get_info_verb, info, numbered)
                 }
                 crate::cli::GetVerb::GetMetaVerb(get_meta_verb) => {
                     let (_info, meta) = do_info(&uri, &combined_resolver)?;
-                    apply_get_meta(&get_meta_verb, meta, numbered)?;
+                    apply_get_meta(&get_meta_verb, meta, numbered)
                 }
             }
         }
@@ -319,13 +319,10 @@ fn apply_get<Project: ProjectRead>(
             apply_get_meta(get_meta_verb, get_meta_or_bail(project)?, numbered)
         }
     }
+    Ok(())
 }
 
-fn apply_get_info(
-    get_info_verb: &GetInfoVerb,
-    info: InterchangeProjectInfoRaw,
-    numbered: bool,
-) -> Result<()> {
+fn apply_get_info(get_info_verb: &GetInfoVerb, info: InterchangeProjectInfoRaw, numbered: bool) {
     match get_info_verb {
         GetInfoVerb::GetName => print_output(Some(vec![info.name]), numbered),
         GetInfoVerb::GetPublisher => print_output(info.publisher.map(|x| vec![x]), numbered),
@@ -340,15 +337,13 @@ fn apply_get_info(
             numbered,
         ),
     }
-
-    Ok(())
 }
 
 fn apply_get_meta(
     get_meta_verb: &GetMetaVerb,
     meta: InterchangeProjectMetadataRaw,
     numbered: bool,
-) -> Result<()> {
+) {
     match get_meta_verb {
         GetMetaVerb::GetIndex => print_output(
             Some(
@@ -382,8 +377,6 @@ fn apply_get_meta(
             numbered,
         ),
     }
-
-    Ok(())
 }
 
 fn apply_set<Project: ProjectRead + ProjectMut>(
@@ -392,12 +385,12 @@ fn apply_set<Project: ProjectRead + ProjectMut>(
 ) -> Result<()> {
     match set_verb {
         crate::cli::SetVerb::SetInfoVerb(set_info_verb) => {
-            let new_info = set_info(set_info_verb, get_info_or_bail(project)?)?;
+            let new_info = set_info(set_info_verb, get_info_or_bail(project)?);
 
             set_info_or_bail(project, &new_info)
         }
         crate::cli::SetVerb::SetMetaVerb(set_meta_verb) => {
-            let new_meta = set_meta(set_meta_verb, get_meta_or_bail(project)?)?;
+            let new_meta = set_meta(set_meta_verb, get_meta_or_bail(project)?);
 
             set_meta_or_bail(project, &new_meta)
         }
@@ -407,7 +400,7 @@ fn apply_set<Project: ProjectRead + ProjectMut>(
 fn set_info(
     set_info_verb: &SetInfoVerb,
     mut info: InterchangeProjectInfoRaw,
-) -> Result<InterchangeProjectInfoRaw> {
+) -> InterchangeProjectInfoRaw {
     match set_info_verb {
         SetInfoVerb::SetName(value) => {
             info.name = value.clone();
@@ -444,13 +437,13 @@ fn set_info(
         }
     }
 
-    Ok(info)
+    info
 }
 
 fn set_meta(
     set_meta_verb: &SetMetaVerb,
     mut meta: InterchangeProjectMetadataRaw,
-) -> Result<InterchangeProjectMetadataRaw> {
+) -> InterchangeProjectMetadataRaw {
     match set_meta_verb {
         SetMetaVerb::SetMetamodel(value) => {
             meta.metamodel = Some(value.into());
@@ -463,7 +456,7 @@ fn set_meta(
         }
     }
 
-    Ok(meta)
+    meta
 }
 
 fn apply_clear<Project: ProjectRead + ProjectMut>(
@@ -472,12 +465,12 @@ fn apply_clear<Project: ProjectRead + ProjectMut>(
 ) -> Result<()> {
     match clear_verb {
         crate::cli::ClearVerb::ClearInfoVerb(clear_info_verb) => {
-            let new_info = clear_info(clear_info_verb, get_info_or_bail(project)?)?;
+            let new_info = clear_info(clear_info_verb, get_info_or_bail(project)?);
 
             set_info_or_bail(project, &new_info)
         }
         crate::cli::ClearVerb::ClearMetaVerb(clear_meta_verb) => {
-            let new_meta = clear_meta(clear_meta_verb, get_meta_or_bail(project)?)?;
+            let new_meta = clear_meta(clear_meta_verb, get_meta_or_bail(project)?);
 
             set_meta_or_bail(project, &new_meta)
         }
@@ -487,7 +480,7 @@ fn apply_clear<Project: ProjectRead + ProjectMut>(
 fn clear_info(
     clear_info_verb: &ClearInfoVerb,
     mut info: InterchangeProjectInfoRaw,
-) -> Result<InterchangeProjectInfoRaw> {
+) -> InterchangeProjectInfoRaw {
     match clear_info_verb {
         ClearInfoVerb::ClearPublisher => {
             info.publisher = None;
@@ -509,13 +502,13 @@ fn clear_info(
         }
     }
 
-    Ok(info)
+    info
 }
 
 fn clear_meta(
     clear_meta_verb: &ClearMetaVerb,
     mut meta: InterchangeProjectMetadataRaw,
-) -> Result<InterchangeProjectMetadataRaw> {
+) -> InterchangeProjectMetadataRaw {
     match clear_meta_verb {
         ClearMetaVerb::ClearMetamodel => {
             meta.metamodel = None;
@@ -528,7 +521,7 @@ fn clear_meta(
         }
     }
 
-    Ok(meta)
+    meta
 }
 
 fn apply_add<Project: ProjectRead + ProjectMut>(
@@ -537,12 +530,12 @@ fn apply_add<Project: ProjectRead + ProjectMut>(
 ) -> Result<()> {
     match add_verb {
         crate::cli::AddVerb::AddInfoVerb(add_info_verb) => {
-            let new_info = add_info(add_info_verb, get_info_or_bail(project)?)?;
+            let new_info = add_info(add_info_verb, get_info_or_bail(project)?);
 
             set_info_or_bail(project, &new_info)
         }
         crate::cli::AddVerb::AddMetaVerb(add_meta_verb) => {
-            let new_meta = add_meta(add_meta_verb, get_meta_or_bail(project)?)?;
+            let new_meta = add_meta(add_meta_verb, get_meta_or_bail(project)?);
 
             set_meta_or_bail(project, &new_meta)
         }
@@ -552,7 +545,7 @@ fn apply_add<Project: ProjectRead + ProjectMut>(
 fn add_info(
     add_info_verb: &AddInfoVerb,
     mut info: InterchangeProjectInfoRaw,
-) -> Result<InterchangeProjectInfoRaw> {
+) -> InterchangeProjectInfoRaw {
     match add_info_verb {
         AddInfoVerb::AddMaintainer(items) => {
             info.maintainer.extend(items.iter().cloned());
@@ -562,13 +555,13 @@ fn add_info(
         }
     }
 
-    Ok(info)
+    info
 }
 
 fn add_meta(
     add_meta_verb: &AddMetaVerb,
     _meta: InterchangeProjectMetadataRaw,
-) -> Result<InterchangeProjectMetadataRaw> {
+) -> InterchangeProjectMetadataRaw {
     match *add_meta_verb {}
 }
 

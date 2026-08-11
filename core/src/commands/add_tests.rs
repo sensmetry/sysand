@@ -58,8 +58,8 @@ fn add_accepts_normalized_sysand_shorthand() {
     assert_eq!(
         info.usage[0],
         InterchangeProjectUsageRaw::Resource {
-            resource: "pkg:sysand/acme-labs/my.project".to_string(),
-            version_constraint: Some("^1.2.3".to_string())
+            resource: "pkg:sysand/acme-labs/my.project".to_owned(),
+            version_constraint: Some("^1.2.3".to_owned())
         }
     );
 }
@@ -80,7 +80,7 @@ fn add_keeps_iri_resource() {
     assert_eq!(
         info.usage[0],
         InterchangeProjectUsageRaw::Resource {
-            resource: "https://example.com/acme-labs/my.project".to_string(),
+            resource: "https://example.com/acme-labs/my.project".to_owned(),
             version_constraint: None
         }
     );

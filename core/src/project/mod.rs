@@ -155,8 +155,8 @@ pub enum ProjectChecksum {
 impl Display for ProjectChecksum {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProjectChecksum::Project(c) => write!(f, "kpar:{c}"),
-            ProjectChecksum::Kpar(c) => write!(f, "src:{c}"),
+            Self::Project(c) => write!(f, "kpar:{c}"),
+            Self::Kpar(c) => write!(f, "src:{c}"),
         }
     }
 }
@@ -263,7 +263,9 @@ pub trait ProjectRead {
             .flat_map(|index| index.iter_mut())
         {
             let sha256: &str = KerMlChecksumAlg::Sha256.into();
-            if checksum.algorithm != sha256 {
+            if checksum.algorithm == sha256 {
+                checksum.value = checksum.value.to_lowercase();
+            } else {
                 checksum.algorithm = sha256.to_owned();
 
                 let mut src = self
@@ -273,8 +275,6 @@ pub trait ProjectRead {
                     hash_reader(&mut src)
                         .map_err(|e| CanonicalizationError::FileRead(path.as_str().into(), e))?,
                 );
-            } else {
-                checksum.value = checksum.value.to_lowercase();
             }
         }
 
@@ -592,7 +592,9 @@ pub trait ProjectReadAsync {
             if let Some(mut checksums) = meta.checksum {
                 let future_checksums = checksums.drain(..).map(|(path, mut checksum)| async move {
                     let sha256: &str = KerMlChecksumAlg::Sha256.into();
-                    if checksum.algorithm != sha256 {
+                    if checksum.algorithm == sha256 {
+                        checksum.value = checksum.value.to_lowercase();
+                    } else {
                         checksum.algorithm = sha256.to_owned();
 
                         let mut src = self
@@ -603,8 +605,6 @@ pub trait ProjectReadAsync {
                             lowercase_hex(hash_reader_async(&mut src).await.map_err(|e| {
                                 CanonicalizationError::FileRead(path.clone().into(), e)
                             })?);
-                    } else {
-                        checksum.value = checksum.value.to_lowercase();
                     }
 
                     Ok((path, checksum))

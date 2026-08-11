@@ -45,9 +45,9 @@ impl<Variant1: Read, Variant2: Read, Variant3: Read> Read
 {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
-            GenericProjectSourceReader::Variant1(reader) => reader.read(buf),
-            GenericProjectSourceReader::Variant2(reader) => reader.read(buf),
-            GenericProjectSourceReader::Variant3(reader) => reader.read(buf),
+            Self::Variant1(reader) => reader.read(buf),
+            Self::Variant2(reader) => reader.read(buf),
+            Self::Variant3(reader) => reader.read(buf),
         }
     }
 }
@@ -73,15 +73,9 @@ where
         Self::Error,
     > {
         match self {
-            GenericProject::Variant1(project) => {
-                project.get_project().map_err(GenericProjectError::Variant1)
-            }
-            GenericProject::Variant2(project) => {
-                project.get_project().map_err(GenericProjectError::Variant2)
-            }
-            GenericProject::Variant3(project) => {
-                project.get_project().map_err(GenericProjectError::Variant3)
-            }
+            Self::Variant1(project) => project.get_project().map_err(GenericProjectError::Variant1),
+            Self::Variant2(project) => project.get_project().map_err(GenericProjectError::Variant2),
+            Self::Variant3(project) => project.get_project().map_err(GenericProjectError::Variant3),
         }
     }
 
@@ -99,15 +93,15 @@ where
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self {
-            GenericProject::Variant1(project) => project
+            Self::Variant1(project) => project
                 .read_source(path)
                 .map(GenericProjectSourceReader::Variant1)
                 .map_err(GenericProjectError::Variant1),
-            GenericProject::Variant2(project) => project
+            Self::Variant2(project) => project
                 .read_source(path)
                 .map(GenericProjectSourceReader::Variant2)
                 .map_err(GenericProjectError::Variant2),
-            GenericProject::Variant3(project) => project
+            Self::Variant3(project) => project
                 .read_source(path)
                 .map(GenericProjectSourceReader::Variant3)
                 .map_err(GenericProjectError::Variant3),
@@ -116,27 +110,21 @@ where
 
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            GenericProject::Variant1(project) => {
-                project.sources(ctx).map_err(GenericProjectError::Variant1)
-            }
-            GenericProject::Variant2(project) => {
-                project.sources(ctx).map_err(GenericProjectError::Variant2)
-            }
-            GenericProject::Variant3(project) => {
-                project.sources(ctx).map_err(GenericProjectError::Variant3)
-            }
+            Self::Variant1(project) => project.sources(ctx).map_err(GenericProjectError::Variant1),
+            Self::Variant2(project) => project.sources(ctx).map_err(GenericProjectError::Variant2),
+            Self::Variant3(project) => project.sources(ctx).map_err(GenericProjectError::Variant3),
         }
     }
 
     fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
         match self {
-            GenericProject::Variant1(project) => project
+            Self::Variant1(project) => project
                 .checksum_canonical_variant()
                 .map_err(GenericProjectError::Variant1),
-            GenericProject::Variant2(project) => project
+            Self::Variant2(project) => project
                 .checksum_canonical_variant()
                 .map_err(GenericProjectError::Variant2),
-            GenericProject::Variant3(project) => project
+            Self::Variant3(project) => project
                 .checksum_canonical_variant()
                 .map_err(GenericProjectError::Variant3),
         }
@@ -144,9 +132,9 @@ where
 
     fn project_root(&self) -> Option<&camino::Utf8Path> {
         match self {
-            GenericProject::Variant1(project) => project.project_root(),
-            GenericProject::Variant2(project) => project.project_root(),
-            GenericProject::Variant3(project) => project.project_root(),
+            Self::Variant1(project) => project.project_root(),
+            Self::Variant2(project) => project.project_root(),
+            Self::Variant3(project) => project.project_root(),
         }
     }
 }
@@ -162,13 +150,13 @@ where
         overwrite: bool,
     ) -> Result<(), Self::Error> {
         match self {
-            GenericProject::Variant1(project) => project
+            Self::Variant1(project) => project
                 .put_info(info, overwrite)
                 .map_err(GenericProjectError::Variant1),
-            GenericProject::Variant2(project) => project
+            Self::Variant2(project) => project
                 .put_info(info, overwrite)
                 .map_err(GenericProjectError::Variant2),
-            GenericProject::Variant3(project) => project
+            Self::Variant3(project) => project
                 .put_info(info, overwrite)
                 .map_err(GenericProjectError::Variant3),
         }
@@ -179,13 +167,13 @@ where
         overwrite: bool,
     ) -> Result<(), Self::Error> {
         match self {
-            GenericProject::Variant1(project) => project
+            Self::Variant1(project) => project
                 .put_meta(meta, overwrite)
                 .map_err(GenericProjectError::Variant1),
-            GenericProject::Variant2(project) => project
+            Self::Variant2(project) => project
                 .put_meta(meta, overwrite)
                 .map_err(GenericProjectError::Variant2),
-            GenericProject::Variant3(project) => project
+            Self::Variant3(project) => project
                 .put_meta(meta, overwrite)
                 .map_err(GenericProjectError::Variant3),
         }
@@ -197,13 +185,13 @@ where
         overwrite: bool,
     ) -> Result<(), Self::Error> {
         match self {
-            GenericProject::Variant1(project) => project
+            Self::Variant1(project) => project
                 .write_source(path, source, overwrite)
                 .map_err(GenericProjectError::Variant1),
-            GenericProject::Variant2(project) => project
+            Self::Variant2(project) => project
                 .write_source(path, source, overwrite)
                 .map_err(GenericProjectError::Variant2),
-            GenericProject::Variant3(project) => project
+            Self::Variant3(project) => project
                 .write_source(path, source, overwrite)
                 .map_err(GenericProjectError::Variant3),
         }

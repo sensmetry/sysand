@@ -13,6 +13,8 @@
 //! keeps its own lenient reading, so it stays usable against a private
 //! index even when an unrelated group is malformed.
 
+#![expect(clippy::field_scoped_visibility_modifiers)]
+
 use std::collections::HashMap;
 
 /// Prefix shared by all credential environment variables.

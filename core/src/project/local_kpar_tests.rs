@@ -28,7 +28,7 @@ fn basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
         zip.start_file(".meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
         zip.start_file("test.sysml", options)?;
-        zip.write_all(br#"package Test;"#)?;
+        zip.write_all(b"package Test;")?;
 
         zip.finish().unwrap();
     }
@@ -71,7 +71,7 @@ fn nested_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {
         zip.start_file("some_root_dir/.meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
         zip.start_file("some_root_dir/test.sysml", options)?;
-        zip.write_all(br#"package Test;"#)?;
+        zip.write_all(b"package Test;")?;
 
         zip.finish().unwrap();
     }

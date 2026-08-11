@@ -74,7 +74,7 @@ fn relativize_path_error_relative_path() {
     } else {
         Utf8Path::new("/a/b/c")
     };
-    let _ = relativize_path(path, root);
+    let _unreachable = relativize_path(path, root);
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn relativize_path_error_relative_root() {
     } else {
         Utf8Path::new("a/b/c")
     };
-    let _ = relativize_path(path, root);
+    let _unreachable = relativize_path(path, root);
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn relativize_path_error_non_canonical() {
     } else {
         Utf8Path::new("/a/b/c")
     };
-    let _ = relativize_path(path, root);
+    let _unreachable = relativize_path(path, root);
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn relativize_path_error_non_canonical_root() {
     } else {
         Utf8Path::new("/a/../c")
     };
-    let _ = relativize_path(path, root);
+    let _unreachable = relativize_path(path, root);
 }
 
 #[cfg(target_os = "windows")]

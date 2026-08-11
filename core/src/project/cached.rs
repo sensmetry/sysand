@@ -21,7 +21,7 @@ pub struct CachedProject<Local: ProjectRead, Remote: ProjectRead> {
 impl<Local: ProjectRead, Remote: ProjectRead> CachedProject<Local, Remote> {
     /// Create a new CachedProject. Assume that `local` is a cached version of remote.
     pub fn new(local: Local, remote: Remote) -> Self {
-        CachedProject::<Local, Remote> { local, remote }
+        Self { local, remote }
     }
 }
 

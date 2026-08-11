@@ -21,10 +21,10 @@ use crate::{
 fn minimal_project<S: AsRef<str>, T: AsRef<str>>(name: S, version: T) -> InMemoryProject {
     InMemoryProject {
         info: Some(InterchangeProjectInfoRaw {
-            name: name.as_ref().to_string(),
+            name: name.as_ref().to_owned(),
             publisher: None,
             description: None,
-            version: version.as_ref().to_string(),
+            version: version.as_ref().to_owned(),
             license: None,
             maintainer: vec![],
             website: None,
@@ -33,7 +33,7 @@ fn minimal_project<S: AsRef<str>, T: AsRef<str>>(name: S, version: T) -> InMemor
         }),
         meta: Some(InterchangeProjectMetadataRaw {
             index: IndexMap::new(),
-            created: "1970-01-01T00:00:00.000000000Z".to_string(),
+            created: "1970-01-01T00:00:00.000000000Z".to_owned(),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,
@@ -92,10 +92,10 @@ fn prefer_file_resolver_when_successful() {
     let project_b = minimal_project("b", "3.2.1");
 
     let resolver = CombinedResolver {
-        file_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        file_resolver: single_project_any_resolver(&example_uri, project_a),
         remote_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
         local_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
-        index_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_b),
     };
 
     let (info, _) = do_info(&example_uri, &resolver).unwrap();
@@ -143,7 +143,7 @@ fn skip_file_resolver_if_unsupported_iri() {
         file_resolver: NO_RESOLVER,
         remote_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
         local_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
-        index_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_b),
     };
 
     let (info, _) = do_info(&example_uri, &resolver).unwrap();
@@ -161,8 +161,8 @@ fn prefer_remote_over_index_if_valid_cached() {
     let resolver = CombinedResolver {
         file_resolver: NO_RESOLVER,
         remote_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
-        local_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
-        index_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
+        local_resolver: single_project_any_resolver(&example_uri, project_a),
+        index_resolver: single_project_any_resolver(&example_uri, project_b),
     };
 
     let (info, _) = do_info(&example_uri, &resolver).unwrap();
@@ -180,9 +180,9 @@ fn prefer_remote_over_index_if_valid_uncached() {
 
     let resolver = CombinedResolver {
         file_resolver: NO_RESOLVER,
-        remote_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
-        local_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
-        index_resolver: single_project_any_resolver(&example_uri, project_c.clone()),
+        remote_resolver: single_project_any_resolver(&example_uri, project_a),
+        local_resolver: single_project_any_resolver(&example_uri, project_b),
+        index_resolver: single_project_any_resolver(&example_uri, project_c),
     };
 
     let (info, _) = do_info(&example_uri, &resolver).unwrap();
@@ -200,8 +200,8 @@ fn skip_remote_if_unsupported_uncached() {
     let resolver = CombinedResolver {
         file_resolver: NO_RESOLVER,
         remote_resolver: NO_RESOLVER,
-        local_resolver: single_project_any_resolver(&example_uri, project_b.clone()),
-        index_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        local_resolver: single_project_any_resolver(&example_uri, project_b),
+        index_resolver: single_project_any_resolver(&example_uri, project_a),
     };
 
     let (info, _) = do_info(&example_uri, &resolver).unwrap();
@@ -219,7 +219,7 @@ fn skip_remote_if_unsupported_cached() {
         file_resolver: NO_RESOLVER,
         remote_resolver: NO_RESOLVER,
         local_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
-        index_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_a),
     };
 
     let (info, _) = do_info(&example_uri, &resolver).unwrap();
@@ -237,7 +237,7 @@ fn skip_remote_if_unresolved_cached() {
         file_resolver: NO_RESOLVER,
         remote_resolver: empty_any_resolver(),
         local_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
-        index_resolver: single_project_any_resolver(&example_uri, project_a.clone()),
+        index_resolver: single_project_any_resolver(&example_uri, project_a),
     };
 
     let (info, _) = do_info(&example_uri, &resolver).unwrap();
@@ -296,10 +296,7 @@ fn skip_non_semantic_versions() {
     let project_b = minimal_project("b", "3.2.1.H");
 
     let resolver = CombinedResolver {
-        file_resolver: multiple_projects_any_resolver(
-            &example_uri,
-            vec![project_a.clone(), project_b.clone()],
-        ),
+        file_resolver: multiple_projects_any_resolver(&example_uri, vec![project_a, project_b]),
         remote_resolver: empty_any_resolver(),
         local_resolver: empty_any_resolver(),
         index_resolver: empty_any_resolver(),
@@ -328,11 +325,11 @@ fn directory_usage_missing_path_falls_back_to_env_resolver() {
     };
 
     let mut widget = minimal_project("widget", "1.0.0");
-    widget.info.as_mut().unwrap().publisher = Some("acme".to_string());
+    widget.info.as_mut().unwrap().publisher = Some("acme".to_owned());
 
     let env = MemoryStorageEnvironment::from([(
-        "pkg:sysand/acme/widget".to_string(),
-        "1.0.0".to_string(),
+        "pkg:sysand/acme/widget".to_owned(),
+        "1.0.0".to_owned(),
         widget,
     )]);
 
@@ -353,8 +350,8 @@ fn directory_usage_missing_path_falls_back_to_env_resolver() {
 
     let usage = InterchangeProjectUsage::Directory {
         dir: "../widget".into(),
-        publisher: "acme".to_string(),
-        name: "widget".to_string(),
+        publisher: "acme".to_owned(),
+        name: "widget".to_owned(),
     };
     let resolution = ResolutionInfo::new(usage, Some(base));
 
@@ -382,10 +379,7 @@ fn no_semantic_versions_error() {
     let project_b = minimal_project("b", "3.2.1.H");
 
     let resolver = CombinedResolver {
-        file_resolver: multiple_projects_any_resolver(
-            &example_uri,
-            vec![project_a.clone(), project_b.clone()],
-        ),
+        file_resolver: multiple_projects_any_resolver(&example_uri, vec![project_a, project_b]),
         remote_resolver: empty_any_resolver(),
         local_resolver: empty_any_resolver(),
         index_resolver: empty_any_resolver(),

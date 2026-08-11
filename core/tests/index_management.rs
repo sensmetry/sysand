@@ -67,7 +67,7 @@ fn command_test() {
         assert_error_contains(add_err, "is yanked");
     }
 
-    do_index_remove(iri, RemoveTarget::Version("1.2.3".to_string()), &cwd).unwrap();
+    do_index_remove(iri, RemoveTarget::Version("1.2.3".to_owned()), &cwd).unwrap();
     {
         let add_result = do_index_add::<&str, _, _>(None, &kpar_path1, &cwd).unwrap_err();
         assert_error_contains(add_result, "is removed");

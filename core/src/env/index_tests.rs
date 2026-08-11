@@ -389,7 +389,7 @@ mod uris {
 
         assert_eq!(uris.len(), 2);
         assert!(uris.contains(&purl("admin/proj0")));
-        assert!(uris.contains(&"urn:kpar:b".to_string()));
+        assert!(uris.contains(&"urn:kpar:b".to_owned()));
 
         index_mock.assert();
 
@@ -527,7 +527,7 @@ mod uris {
             .expect(1)
             .create();
 
-        assert!(env.uris().is_err());
+        env.uris().unwrap_err();
         index_mock.assert();
 
         Ok(())
@@ -601,8 +601,8 @@ mod versions {
         let pkg_versions = pkg_versions?;
 
         assert_eq!(pkg_versions.len(), 2);
-        assert!(pkg_versions.contains(&"0.3.0".to_string()));
-        assert!(pkg_versions.contains(&"0.2.0".to_string()));
+        assert!(pkg_versions.contains(&"0.3.0".to_owned()));
+        assert!(pkg_versions.contains(&"0.2.0".to_owned()));
 
         let iri_versions: Result<Vec<_>, _> = env.versions("urn:kpar:b")?.collect();
         assert_eq!(iri_versions?, vec!["1.0.0"]);
@@ -1346,7 +1346,7 @@ mod get_project {
             info.usage[0],
             InterchangeProjectUsageRaw::Resource {
                 resource: purl("admin/dep"),
-                version_constraint: Some("<2".to_string())
+                version_constraint: Some("<2".to_owned())
             }
         );
         assert_eq!(
@@ -1459,7 +1459,7 @@ mod get_project {
             info.usage[0],
             InterchangeProjectUsageRaw::Resource {
                 resource: purl("x/y"),
-                version_constraint: Some(">=1".to_string())
+                version_constraint: Some(">=1".to_owned())
             }
         );
         assert_eq!(
@@ -1991,11 +1991,11 @@ mod caching {
         let vs1: Vec<_> = env.versions(purl("nope/nope"))?.collect();
         let vs2: Vec<_> = env.versions(purl("nope/nope"))?.collect();
         assert!(
-            vs1.into_iter().filter_map(Result::ok).next().is_none(),
+            vs1.into_iter().find_map(Result::ok).is_none(),
             "first call must yield empty stream"
         );
         assert!(
-            vs2.into_iter().filter_map(Result::ok).next().is_none(),
+            vs2.into_iter().find_map(Result::ok).is_none(),
             "retry must yield empty stream (404 not cached)"
         );
 
@@ -2387,7 +2387,7 @@ mod discovery {
         // likewise leaves it unset. Only an advertised `api_root` creates
         // an API surface.
         let mut server = mockito::Server::new();
-        let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", r#"{}"#);
+        let config_mock = mock_json_get(&mut server, "/sysand-index-config.json", "{}");
 
         let runtime = make_runtime()?;
         let client = create_reqwest_client()?;
@@ -2574,7 +2574,7 @@ mod discovery {
             .expect(1)
             .create();
 
-        let target_mock = mock_json_get(&mut server, "/actual-index-config.json", r#"{}"#);
+        let target_mock = mock_json_get(&mut server, "/actual-index-config.json", "{}");
 
         let versions_mock = mock_json_get(
             &mut server,

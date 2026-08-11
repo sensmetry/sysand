@@ -29,11 +29,11 @@ fn merge() {
     let mut defaults = Config::default();
     let config = Config {
         indexes: vec![Index {
-            url: "http://www.example.com".to_string(),
+            url: "http://www.example.com".to_owned(),
             ..Default::default()
         }],
         projects: vec![ConfigProject {
-            identifiers: vec!["urn:kpar:test".to_string()],
+            identifiers: vec!["urn:kpar:test".to_owned()],
             sources: vec![OverrideSource::LocalSrc {
                 src_path: "./path/to project".into(),
             }],
@@ -49,13 +49,13 @@ fn merge() {
 fn index_urls_without_default() {
     let config = Config {
         indexes: vec![Index {
-            url: "http://www.index.com".to_string(),
+            url: "http://www.index.com".to_owned(),
             ..Default::default()
         }],
         ..Default::default()
     };
-    let index = vec!["http://www.extra-index.com".to_string()];
-    let default_urls = vec!["http://www.default.com".to_string()];
+    let index = vec!["http://www.extra-index.com".to_owned()];
+    let default_urls = vec!["http://www.default.com".to_owned()];
     let default_override_urls = vec![];
 
     let index_urls = config
@@ -77,19 +77,19 @@ fn index_urls_with_default() {
     let config = Config {
         indexes: vec![
             Index {
-                url: "http://www.config-default.com".to_string(),
+                url: "http://www.config-default.com".to_owned(),
                 default: Some(true),
                 ..Default::default()
             },
             Index {
-                url: "http://www.index.com".to_string(),
+                url: "http://www.index.com".to_owned(),
                 ..Default::default()
             },
         ],
         ..Default::default()
     };
-    let index = vec!["http://www.extra-index.com".to_string()];
-    let default_urls = vec!["http://www.default.com".to_string()];
+    let index = vec!["http://www.extra-index.com".to_owned()];
+    let default_urls = vec!["http://www.default.com".to_owned()];
     let default_override_urls = vec![];
 
     let index_urls = config
@@ -111,20 +111,20 @@ fn index_urls_with_override() {
     let config = Config {
         indexes: vec![
             Index {
-                url: "http://www.config-default.com".to_string(),
+                url: "http://www.config-default.com".to_owned(),
                 default: Some(true),
                 ..Default::default()
             },
             Index {
-                url: "http://www.index.com".to_string(),
+                url: "http://www.index.com".to_owned(),
                 ..Default::default()
             },
         ],
         ..Default::default()
     };
-    let index = vec!["http://www.extra-index.com".to_string()];
-    let default_urls = vec!["http://www.default.com".to_string()];
-    let default_override_urls = vec!["http://www.new-default.com".to_string()];
+    let index = vec!["http://www.extra-index.com".to_owned()];
+    let default_urls = vec!["http://www.default.com".to_owned()];
+    let default_override_urls = vec!["http://www.new-default.com".to_owned()];
 
     let index_urls = config
         .index_urls(index, default_urls, default_override_urls)
@@ -148,14 +148,14 @@ fn index_urls_accepts_templates_everywhere() {
     let config = Config {
         indexes: vec![Index {
             url: "https://gitlab.com/api/v4/projects/123/repository/files/{path}/raw?ref=main"
-                .to_string(),
+                .to_owned(),
             ..Default::default()
         }],
         ..Default::default()
     };
-    let index = vec!["https://example.org/raw/{path_raw}?ref=main".to_string()];
+    let index = vec!["https://example.org/raw/{path_raw}?ref=main".to_owned()];
     let default_urls = vec![];
-    let default_override_urls = vec!["https://other.example/files/{path}/x".to_string()];
+    let default_override_urls = vec!["https://other.example/files/{path}/x".to_owned()];
 
     let index_urls = config
         .index_urls(index, default_urls, default_override_urls)
@@ -184,7 +184,7 @@ fn index_urls_rejects_bad_template() {
     let config = Config::default();
     let err = config
         .index_urls(
-            vec!["https://example.org/files/{file}/raw".to_string()],
+            vec!["https://example.org/files/{file}/raw".to_owned()],
             vec![],
             vec![],
         )

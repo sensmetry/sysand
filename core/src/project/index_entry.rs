@@ -22,6 +22,8 @@
 //!   which verifies the archive against the advertised `kpar_digest` before
 //!   exposing source bytes.
 
+#![expect(clippy::field_scoped_visibility_modifiers)]
+
 use std::sync::Arc;
 
 use thiserror::Error;
@@ -169,7 +171,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
         Ok(vec![Source::IndexKpar {
             index_kpar: self.archive.url().to_string(),
             kpar_size: self.advertised.kpar_size,
-            kpar_digest: self.advertised.kpar_digest.as_hex().to_string(),
+            kpar_digest: self.advertised.kpar_digest.as_hex().to_owned(),
         }])
     }
 
@@ -195,7 +197,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
     // against a lockfile, or verifying that the correct ones are installed in env
     async fn checksum_canonical_variant_async(&self) -> Result<ProjectChecksum, Self::Error> {
         Ok(ProjectChecksum::Kpar(
-            self.advertised.kpar_digest.as_hex().to_string(),
+            self.advertised.kpar_digest.as_hex().to_owned(),
         ))
     }
 

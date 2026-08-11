@@ -31,16 +31,16 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         meta.index,
-        IndexMap::from([("P".to_string(), "test.sysml".to_string()),])
+        IndexMap::from([("P".to_owned(), "test.sysml".to_owned()),])
     );
 
     assert_eq!(
         meta.checksum.unwrap(),
         IndexMap::from([(
-            "test.sysml".to_string(),
+            "test.sysml".to_owned(),
             InterchangeProjectChecksumRaw {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
-                    .to_string(),
+                    .to_owned(),
                 algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         ),])
@@ -56,7 +56,7 @@ fn include_and_exclude_simple() -> Result<(), Box<dyn std::error::Error>> {
     // let meta = meta.validate()?;
 
     assert!(meta.index.is_empty());
-    assert!(meta.checksum.map(|x| x.is_empty()).unwrap_or(true));
+    assert!(meta.checksum.is_none_or(|x| x.is_empty()));
 
     Ok(())
 }
@@ -78,15 +78,15 @@ fn include_no_checksum() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         meta.index,
-        IndexMap::from([("P".to_string(), "test.sysml".to_string()),])
+        IndexMap::from([("P".to_owned(), "test.sysml".to_owned()),])
     );
 
     assert_eq!(
         meta.checksum.unwrap(),
         IndexMap::from([(
-            "test.sysml".to_string(),
+            "test.sysml".to_owned(),
             InterchangeProjectChecksumRaw {
-                value: "".to_string(),
+                value: String::new(),
                 algorithm: KerMlChecksumAlg::None.into(),
             }
         ),])
@@ -124,10 +124,10 @@ fn include_no_index() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         meta.checksum.unwrap(),
         IndexMap::from([(
-            "test.sysml".to_string(),
+            "test.sysml".to_owned(),
             InterchangeProjectChecksumRaw {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
-                    .to_string(),
+                    .to_owned(),
                 algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         ),])
@@ -157,10 +157,10 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         meta.checksum.unwrap(),
         IndexMap::from([(
-            "test.sysml".to_string(),
+            "test.sysml".to_owned(),
             InterchangeProjectChecksumRaw {
                 value: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-                    .to_string(),
+                    .to_owned(),
                 algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         ),])
@@ -178,16 +178,16 @@ fn include_empty_and_update() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         meta.index,
-        IndexMap::from([("P".to_string(), "test.sysml".to_string()),])
+        IndexMap::from([("P".to_owned(), "test.sysml".to_owned()),])
     );
 
     assert_eq!(
         meta.checksum.unwrap(),
         IndexMap::from([(
-            "test.sysml".to_string(),
+            "test.sysml".to_owned(),
             InterchangeProjectChecksumRaw {
                 value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
-                    .to_string(),
+                    .to_owned(),
                 algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         ),])
@@ -215,8 +215,8 @@ fn include_same_file_replaces_old_symbols() -> Result<(), Box<dyn std::error::Er
     assert_eq!(
         meta.index,
         IndexMap::from([
-            ("A".to_string(), "test.sysml".to_string()),
-            ("B".to_string(), "test.sysml".to_string()),
+            ("A".to_owned(), "test.sysml".to_owned()),
+            ("B".to_owned(), "test.sysml".to_owned()),
         ])
     );
 
@@ -231,7 +231,7 @@ fn include_same_file_replaces_old_symbols() -> Result<(), Box<dyn std::error::Er
 
     assert_eq!(
         meta.index,
-        IndexMap::from([("C".to_string(), "test.sysml".to_string()),])
+        IndexMap::from([("C".to_owned(), "test.sysml".to_owned()),])
     );
 
     Ok(())
@@ -268,8 +268,8 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         meta.index,
         IndexMap::from([
-            ("Extra".to_string(), "extra/test.sysml".to_string()),
-            ("P".to_string(), "test.sysml".to_string()),
+            ("Extra".to_owned(), "extra/test.sysml".to_owned()),
+            ("P".to_owned(), "test.sysml".to_owned()),
         ])
     );
 
@@ -277,18 +277,18 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
         meta.checksum.unwrap(),
         IndexMap::from([
             (
-                "extra/test.sysml".to_string(),
+                "extra/test.sysml".to_owned(),
                 InterchangeProjectChecksumRaw {
                     value: "d9c23ead98b668976f69c19b0500b89ba1acd0da4d78789f97195781ee02e6fc"
-                        .to_string(),
+                        .to_owned(),
                     algorithm: KerMlChecksumAlg::Sha256.into(),
                 }
             ),
             (
-                "test.sysml".to_string(),
+                "test.sysml".to_owned(),
                 InterchangeProjectChecksumRaw {
                     value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
-                        .to_string(),
+                        .to_owned(),
                     algorithm: KerMlChecksumAlg::Sha256.into(),
                 }
             ),
@@ -305,7 +305,7 @@ fn include_and_exclude_both_nested() -> Result<(), Box<dyn std::error::Error>> {
     // let meta = meta.validate()?;
 
     assert!(meta.index.is_empty());
-    assert!(meta.checksum.map(|x| x.is_empty()).unwrap_or(true));
+    assert!(meta.checksum.is_none_or(|x| x.is_empty()));
 
     Ok(())
 }
@@ -344,8 +344,8 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
     assert_eq!(
         meta.index,
         IndexMap::from([
-            ("Extra".to_string(), "extra/test.sysml".to_string()),
-            ("P".to_string(), "test.sysml".to_string()),
+            ("Extra".to_owned(), "extra/test.sysml".to_owned()),
+            ("P".to_owned(), "test.sysml".to_owned()),
         ])
     );
 
@@ -353,18 +353,18 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
         meta.checksum.unwrap(),
         IndexMap::from([
             (
-                "extra/test.sysml".to_string(),
+                "extra/test.sysml".to_owned(),
                 InterchangeProjectChecksumRaw {
                     value: "d9c23ead98b668976f69c19b0500b89ba1acd0da4d78789f97195781ee02e6fc"
-                        .to_string(),
+                        .to_owned(),
                     algorithm: KerMlChecksumAlg::Sha256.into(),
                 }
             ),
             (
-                "test.sysml".to_string(),
+                "test.sysml".to_owned(),
                 InterchangeProjectChecksumRaw {
                     value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8"
-                        .to_string(),
+                        .to_owned(),
                     algorithm: KerMlChecksumAlg::Sha256.into(),
                 }
             ),
@@ -382,16 +382,16 @@ fn include_and_exclude_single_nested() -> Result<(), Box<dyn std::error::Error>>
 
     assert_eq!(
         meta.index,
-        IndexMap::from([("Extra".to_string(), "extra/test.sysml".to_string()),])
+        IndexMap::from([("Extra".to_owned(), "extra/test.sysml".to_owned()),])
     );
 
     assert_eq!(
         meta.checksum.unwrap(),
         IndexMap::from([(
-            "extra/test.sysml".to_string(),
+            "extra/test.sysml".to_owned(),
             InterchangeProjectChecksumRaw {
                 value: "d9c23ead98b668976f69c19b0500b89ba1acd0da4d78789f97195781ee02e6fc"
-                    .to_string(),
+                    .to_owned(),
                 algorithm: KerMlChecksumAlg::Sha256.into(),
             }
         ),])
@@ -418,7 +418,7 @@ fn include_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     // let meta = meta.validate()?;
 
     assert!(meta.index.is_empty());
-    assert!(meta.checksum.map(|x| x.is_empty()).unwrap_or(true));
+    assert!(meta.checksum.is_none_or(|x| x.is_empty()));
 
     Ok(())
 }
@@ -441,7 +441,7 @@ fn exclude_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
     // let meta = meta.validate()?;
 
     assert!(meta.index.is_empty());
-    assert!(meta.checksum.map(|x| x.is_empty()).unwrap_or(true));
+    assert!(meta.checksum.is_none_or(|x| x.is_empty()));
 
     Ok(())
 }

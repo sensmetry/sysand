@@ -91,10 +91,11 @@ fn punycode_host(iri: &Iri<String>) -> Result<String, IriNormalizeError> {
     if !needs_idn {
         return Ok(s.to_owned());
     }
-    let ascii_host =
-        idna::domain_to_ascii(raw_host).map_err(|_| IriNormalizeError::IdnConversion {
+    let ascii_host = idna::domain_to_ascii(raw_host).map_err(|_empty_error| {
+        IriNormalizeError::IdnConversion {
             host: raw_host.to_owned(),
-        })?;
+        }
+    })?;
     let host_start = raw_host.as_ptr() as usize - s.as_ptr() as usize;
     let host_end = host_start + raw_host.len();
     Ok(format!(
@@ -192,7 +193,10 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
     // UTF-8 sequences
     extend_decode_strip_invalid(&mut result, canonical.path());
     // Strip `.kpar` suffix to reduce length
-    if result.ends_with(".kpar") {
+    if result.len() >= 5
+        && result.is_char_boundary(result.len() - 5)
+        && result[result.len() - 5..].eq_ignore_ascii_case(".kpar")
+    {
         result.truncate(result.len() - 5);
     }
     if let Some(query) = canonical.query() {
@@ -428,6 +432,7 @@ impl IriVersionFilename {
         let normalized_version = normalize_version(version);
 
         normalized_iri.push('_');
+        #[expect(clippy::cast_possible_truncation)]
         let iri_end_idx = normalized_iri.len() as u32;
 
         Self {

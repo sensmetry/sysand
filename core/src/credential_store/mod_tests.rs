@@ -10,10 +10,10 @@ use super::{
 
 fn record(key: &str, secret: &str) -> CredentialRecord {
     CredentialRecord {
-        key: key.to_string(),
+        key: key.to_owned(),
         globs: vec![format!("{key}**")],
         scheme: CredentialScheme::Bearer,
-        secret: secret.to_string(),
+        secret: secret.to_owned(),
         expires_at: None,
         subject: None,
         token_name: None,
@@ -92,10 +92,10 @@ fn identity_fields_round_trip() {
     let mut with_identity = record("https://example.com/idx/", "tok");
     with_identity.subject = Some(CredentialSubject {
         kind: SubjectKind::User,
-        name: "alice".to_string(),
+        name: "alice".to_owned(),
     });
-    with_identity.token_name = Some("laptop".to_string());
-    with_identity.token_prefix = Some("sysand_u_1a2b3c4d".to_string());
+    with_identity.token_name = Some("laptop".to_owned());
+    with_identity.token_prefix = Some("sysand_u_1a2b3c4d".to_owned());
     with_identity.validated = vec![ValidatedSurface::Read, ValidatedSurface::Api];
     let blob = CredentialBlob::new(vec![with_identity]);
     let raw = serialize_blob(&blob);
@@ -150,15 +150,15 @@ fn unknown_subject_kind_and_surface_round_trip_unchanged() {
     assert_eq!(
         record.subject,
         Some(CredentialSubject {
-            kind: SubjectKind::Other("robot".to_string()),
-            name: "bot-7".to_string(),
+            kind: SubjectKind::Other("robot".to_owned()),
+            name: "bot-7".to_owned(),
         })
     );
     assert_eq!(
         record.validated,
         vec![
             ValidatedSurface::Read,
-            ValidatedSurface::Other("novel-surface".to_string()),
+            ValidatedSurface::Other("novel-surface".to_owned()),
         ]
     );
     // The canonical string form renders unknown values verbatim.

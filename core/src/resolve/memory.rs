@@ -49,7 +49,7 @@ pub trait IRIPredicate {
 }
 
 #[derive(Debug)]
-pub struct AcceptAll {}
+pub struct AcceptAll;
 
 impl IRIPredicate for AcceptAll {
     fn accept(&self, _: &ResolutionInfo) -> bool {

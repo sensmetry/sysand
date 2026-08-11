@@ -83,14 +83,14 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         Self::Error,
     > {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+            Self::HTTPSrcProject(proj) => proj
                 .get_project_async()
                 .await
                 .map_err(HTTPProjectError::SrcProject),
             // HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj
             //     .get_project()
             //     .map_err(HTTPProjectError::KParRanged),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+            Self::HTTPKParProjectDownloaded(proj) => proj
                 .get_project_async()
                 .await
                 .map_err(HTTPProjectError::KparDownloaded),
@@ -107,7 +107,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+            Self::HTTPSrcProject(proj) => proj
                 .read_source_async(path)
                 .await
                 .map_err(HTTPProjectError::SrcProject)
@@ -116,7 +116,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
             //     .read_source_async(path)
             //     .map_err(HTTPProjectError::KParRanged)
             //     .map(HTTPProjectReader::SrcProjectReader),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+            Self::HTTPKParProjectDownloaded(proj) => proj
                 .read_source_async(path)
                 .await
                 .map_err(HTTPProjectError::KparDownloaded)
@@ -126,22 +126,20 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
 
     async fn is_definitely_invalid_async(&self) -> bool {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj.is_definitely_invalid_async().await,
+            Self::HTTPSrcProject(proj) => proj.is_definitely_invalid_async().await,
             //HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj.is_definitely_invalid(),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => {
-                proj.is_definitely_invalid_async().await
-            }
+            Self::HTTPKParProjectDownloaded(proj) => proj.is_definitely_invalid_async().await,
         }
     }
 
     async fn sources_async(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+            Self::HTTPSrcProject(proj) => proj
                 .sources_async(ctx)
                 .await
                 .map_err(HTTPProjectError::SrcProject),
             //HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj.sources(),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+            Self::HTTPKParProjectDownloaded(proj) => proj
                 .sources_async(ctx)
                 .await
                 .map_err(HTTPProjectError::KparDownloaded),
@@ -150,11 +148,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
 
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+            Self::HTTPSrcProject(proj) => proj
                 .get_info_async()
                 .await
                 .map_err(HTTPProjectError::SrcProject),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+            Self::HTTPKParProjectDownloaded(proj) => proj
                 .get_info_async()
                 .await
                 .map_err(HTTPProjectError::KparDownloaded),
@@ -163,11 +161,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
 
     async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+            Self::HTTPSrcProject(proj) => proj
                 .get_meta_async()
                 .await
                 .map_err(HTTPProjectError::SrcProject),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+            Self::HTTPKParProjectDownloaded(proj) => proj
                 .get_meta_async()
                 .await
                 .map_err(HTTPProjectError::KparDownloaded),
@@ -176,11 +174,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
 
     async fn version_async(&self) -> Result<Option<String>, Self::Error> {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+            Self::HTTPSrcProject(proj) => proj
                 .version_async()
                 .await
                 .map_err(HTTPProjectError::SrcProject),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+            Self::HTTPKParProjectDownloaded(proj) => proj
                 .version_async()
                 .await
                 .map_err(HTTPProjectError::KparDownloaded),
@@ -191,11 +189,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         &self,
     ) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+            Self::HTTPSrcProject(proj) => proj
                 .usage_async()
                 .await
                 .map_err(HTTPProjectError::SrcProject),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+            Self::HTTPKParProjectDownloaded(proj) => proj
                 .usage_async()
                 .await
                 .map_err(HTTPProjectError::KparDownloaded),
@@ -206,11 +204,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         &self,
     ) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+            Self::HTTPSrcProject(proj) => proj
                 .checksum_canonical_hex_async()
                 .await
                 .map_err(|e| e.map_project_read(HTTPProjectError::SrcProject)),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+            Self::HTTPKParProjectDownloaded(proj) => proj
                 .checksum_canonical_hex_async()
                 .await
                 .map_err(|e| e.map_project_read(HTTPProjectError::KparDownloaded)),
@@ -221,11 +219,11 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         &self,
     ) -> Result<crate::project::ProjectChecksum, Self::Error> {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj
+            Self::HTTPSrcProject(proj) => proj
                 .checksum_canonical_variant_async()
                 .await
                 .map_err(HTTPProjectError::SrcProject),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj
+            Self::HTTPKParProjectDownloaded(proj) => proj
                 .checksum_canonical_variant_async()
                 .await
                 .map_err(HTTPProjectError::KparDownloaded),
@@ -234,8 +232,8 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
 
     fn project_root(&self) -> Option<&camino::Utf8Path> {
         match self {
-            HTTPProjectAsync::HTTPSrcProject(proj) => proj.project_root(),
-            HTTPProjectAsync::HTTPKParProjectDownloaded(proj) => proj.project_root(),
+            Self::HTTPSrcProject(proj) => proj.project_root(),
+            Self::HTTPKParProjectDownloaded(proj) => proj.project_root(),
         }
     }
 }
@@ -254,12 +252,12 @@ pub struct HTTPProjects<Policy> {
 impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
     pub fn try_resolve_as_kpar(&self) -> Option<HTTPProjectAsync<Policy>> {
         // TODO: Decide a policy for KPar vs Src urls
-        let url = if self.url.path() == "" || !self.url.path().ends_with("/") {
+        let url = if self.url.path() == "" || !self.url.path().ends_with('/') {
             self.url.clone()
         // If the resolver is set to be lax, try forcing the terminal slash
         } else if self.lax {
             let mut lax_url = self.url.clone();
-            let lax_path = lax_url.path().to_string();
+            let lax_path = lax_url.path().to_owned();
             lax_url.set_path(
                 lax_path
                     .strip_suffix('/')
@@ -293,17 +291,17 @@ impl<Policy: HTTPAuthentication> HTTPProjects<Policy> {
         // with a slash, due to the way relative references are treated in HTTP. E.g.:
         // resolving `bar` relative to `http://www.example.com/foo` gives `http://www.example.com/bar`
         // while resolving `bar` relative to `http://www.example.com/foo/` gives `http://www.example.com/foo/bar`
-        if self.url.path() == "" || self.url.path().ends_with("/") {
+        if self.url.path() == "" || self.url.path().ends_with('/') {
             Some(HTTPProjectAsync::HTTPSrcProject(ReqwestSrcProjectAsync {
                 client: self.client.clone(), // Already internally an Rc
                 url: self.url.clone(),
-                auth_policy: auth_policy.clone(),
+                auth_policy,
                 expected_checksum: None,
             }))
         // If the resolver is set to be lax, try forcing the terminal slash
         } else if self.lax {
             let mut lax_url = self.url.clone();
-            let mut lax_path = lax_url.path().to_string();
+            let mut lax_path = lax_url.path().to_owned();
             lax_path.push('/');
             lax_url.set_path(&lax_path);
 

@@ -46,7 +46,7 @@ pub trait HTTPAuthentication: std::fmt::Debug + 'static {
 
 /// Authentication policy that does no authentication
 #[derive(Debug, Clone, Copy)]
-pub struct Unauthenticated {}
+pub struct Unauthenticated;
 
 impl HTTPAuthentication for Unauthenticated {
     async fn request_with_authentication<F>(
@@ -133,7 +133,7 @@ impl std::fmt::Debug for ForceBearerAuth {
 }
 
 impl ForceBearerAuth {
-    pub fn new<S: AsRef<str>>(token: S) -> ForceBearerAuth {
+    pub fn new(token: impl AsRef<str>) -> Self {
         Self(token.as_ref().into())
     }
 
@@ -234,7 +234,7 @@ impl<T> Default for GlobMap<T> {
     /// An empty map: every lookup is `NotFound`. Unlike `GlobMapBuilder::build`,
     /// constructing the empty map cannot fail.
     fn default() -> Self {
-        GlobMap {
+        Self {
             keys: vec![],
             values: vec![],
             globset: globset::GlobSet::empty(),
@@ -244,7 +244,7 @@ impl<T> Default for GlobMap<T> {
 
 impl<T> Default for GlobMapBuilder<T> {
     fn default() -> Self {
-        GlobMapBuilder {
+        Self {
             keys: vec![],
             values: vec![],
         }
@@ -257,7 +257,7 @@ impl<T> GlobMapBuilder<T> {
     }
 
     pub fn add<S: AsRef<str>>(&mut self, globstr: S, value: T) {
-        self.keys.push(globstr.as_ref().to_string());
+        self.keys.push(globstr.as_ref().to_owned());
         self.values.push(value);
     }
 
@@ -277,7 +277,7 @@ impl<T> GlobMapBuilder<T> {
 #[derive(Debug)]
 pub enum GlobMapResult<'a, T> {
     /// A unique matching pattern
-    Found(String, &'a T),
+    Found(&'a T),
     /// No matching pattern
     NotFound,
     /// Multiple matching patterns
@@ -300,7 +300,7 @@ impl<T> GlobMap<T> {
         if outcome.is_empty() {
             GlobMapResult::NotFound
         } else if outcome.len() == 1 {
-            GlobMapResult::Found(key.to_owned(), &self.values[outcome[0]])
+            GlobMapResult::Found(&self.values[outcome[0]])
         } else {
             // Indices are ascending; walk one iterator forward by gaps
             // (`nth` consumes) to match `lookup_mut`, which cannot index
@@ -361,7 +361,11 @@ pub(crate) enum BearerSelection<'a, T> {
     Ambiguous {
         // Read only by whoami and publish; without `filesystem` those
         // consumers are compiled out and only `deduped` is used.
-        #[cfg_attr(not(feature = "filesystem"), allow(dead_code))]
+        #[allow(
+            dead_code,
+            clippy::allow_attributes,
+            reason = "difficult to satisfy all feature combinations with `expect`"
+        )]
         matched: Vec<&'a T>,
         deduped: Vec<&'a T>,
     },
@@ -380,7 +384,7 @@ pub(crate) fn select_bearer<'a, T>(
 ) -> BearerSelection<'a, T> {
     match map.lookup(url) {
         GlobMapResult::NotFound => BearerSelection::None,
-        GlobMapResult::Found(_, entry) => BearerSelection::Unique(entry),
+        GlobMapResult::Found(entry) => BearerSelection::Unique(entry),
         GlobMapResult::Ambiguous(candidates) => {
             let mut deduped: Vec<&T> = Vec::new();
             for (_, entry) in &candidates {
@@ -431,7 +435,7 @@ impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthe
 
         let url = current_request.url();
         match self.restricted.lookup(url.as_str()) {
-            GlobMapResult::Found(_, restricted) => {
+            GlobMapResult::Found(restricted) => {
                 restricted
                     .request_with_authentication(
                         RequestBuilder::from_parts(client.clone(), current_request),
@@ -467,9 +471,7 @@ impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthe
                         renew_request,
                     )
                     .await?;
-                if !first_response.status().is_client_error() {
-                    Ok(first_response)
-                } else {
+                if first_response.status().is_client_error() {
                     for (_, other_restricted) in items {
                         let other_response = other_restricted
                             .with_authentication(&client, renew_request)
@@ -478,8 +480,8 @@ impl<Restricted: HTTPAuthentication, Unrestricted: HTTPAuthentication> HTTPAuthe
                             return Ok(other_response);
                         }
                     }
-                    Ok(first_response)
                 }
+                Ok(first_response)
             }
         }
     }
@@ -506,12 +508,12 @@ impl HTTPAuthentication for StandardInnerAuthentication {
         F: Fn(&ClientWithMiddleware) -> RequestBuilder + 'static,
     {
         match self {
-            StandardInnerAuthentication::HTTPBasicAuth(inner) => {
+            Self::HTTPBasicAuth(inner) => {
                 inner
                     .request_with_authentication(request, renew_request)
                     .await
             }
-            StandardInnerAuthentication::BearerAuth { auth, .. } => {
+            Self::BearerAuth { auth, .. } => {
                 auth.request_with_authentication(request, renew_request)
                     .await
             }
@@ -672,7 +674,7 @@ impl StoredBearerAuth {
         key: String,
         expires_at: Option<DateTime<Utc>>,
     ) -> Self {
-        StoredBearerAuth {
+        Self {
             auth,
             key,
             expires_at,
@@ -776,7 +778,7 @@ where
     B: BlobBackend + Send + Sync + 'static,
 {
     pub fn new(inner: Inner, store: LockedBlobStore<B>) -> Self {
-        CredentialStoreAuthentication {
+        Self {
             inner,
             store: Some(Arc::new(store)),
             cache: tokio::sync::OnceCell::new(),
@@ -786,7 +788,7 @@ where
     /// A policy with no credential store: only `inner` ever answers.
     /// For hosts where opening the store failed.
     pub fn without_store(inner: Inner) -> Self {
-        CredentialStoreAuthentication {
+        Self {
             inner,
             store: None,
             cache: tokio::sync::OnceCell::new(),
@@ -799,7 +801,7 @@ where
     /// policy and their own credential selection (`auth whoami`'s
     /// single-read guarantee).
     pub fn preloaded(inner: Inner, records: &[CredentialRecord]) -> Self {
-        CredentialStoreAuthentication {
+        Self {
             inner,
             store: None,
             cache: tokio::sync::OnceCell::new_with(Some(stored_bearer_map_from_records(records))),
@@ -895,7 +897,7 @@ pub(crate) fn stored_bearer_map_from_records(
         // One `StoredBearerAuth` per record, cloned per glob: the clones
         // share the record's expiry-warned flag.
         let auth = StoredBearerAuth::new(
-            ForceBearerAuth::new(&record.secret),
+            ForceBearerAuth::new(record.secret.as_str()),
             record.key.clone(),
             record.expires_at,
         );

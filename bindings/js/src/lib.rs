@@ -15,7 +15,7 @@ mod local_storage_utils;
 
 #[wasm_bindgen(js_name = init_logger)]
 pub fn init_logger() {
-    let _ = console_log::init_with_level(log::Level::Debug);
+    let _ignored_noncritical_error = console_log::init_with_level(log::Level::Debug);
 }
 
 #[wasm_bindgen(js_name = ensure_debug_hook)]

@@ -1,31 +1,181 @@
 [workspace]
 resolver = "3"
 members = [
-  "sysand",
+  "bindings/java",
+  "bindings/js",
+  "bindings/py",
   "core",
   "macros",
-  "bindings/py",
-  "bindings/js",
-  "bindings/java",
+  "sysand",
 ]
-default-members = ["sysand", "core"]
+default-members = ["core", "sysand"]
 
 [workspace.package]
 version = "0.2.1"
+authors = ["Sensmetry <opensource@sensmetry.com>"]
 edition = "2024"
 rust-version = "1.97"
-publish = false
-authors = ["Sensmetry <opensource@sensmetry.com>"]
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/sensmetry/sysand"
 description = "A package manager for SysML v2 and KerML"
 documentation = "https://docs.sysand.com/client/"
 homepage = "https://sysand.com"
+repository = "https://github.com/sensmetry/sysand"
+license = "MIT OR Apache-2.0"
+publish = false
 
 [workspace.dependencies]
 camino = { version = "1.2", features = ["serde1"] }
-sha2 = { version = "0.11", default-features = false }
-hex = "0.4.3"
-fluent-uri = { version = "0.4.1", features = ["serde", "net"] }
-log = { version = "0.4.29", default-features = false }
 env_logger = "0.11.9"
+fluent-uri = { version = "0.4.1", features = ["net", "serde"] }
+hex = "0.4.3"
+log = { version = "0.4.29", default-features = false }
+sha2 = { version = "0.11", default-features = false }
+
+[workspace.lints.clippy]
+# Enable all lints by default, and disable on a case-by-case
+# basis. This also conveniently enables any new lints that get introduced.
+# Generally a lint should be disabled if it is:
+# - too noisy + no impact on correctness/performance + not fixable with `--fix`
+# - requires style that is not appealing
+# - conflicts with another lint (happens for code style)
+
+all = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+restriction = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+# TODO: enable and fix
+implicit_clone = "allow"
+needless_pass_by_value = "allow"
+# TODO: enable and justify each case
+string_slice = "allow"
+
+# Suspicious
+
+blanket_clippy_restriction_lints = "allow"
+
+# Pedantic
+
+assigning_clones = "allow"
+default_trait_access = "allow"
+doc_markdown = "allow"
+enum_glob_use = "allow"
+ignored_unit_patterns = "allow"
+implicit_hasher = "allow"
+items_after_statements = "allow"
+match_same_arms = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+option_option = "allow"
+redundant_else = "allow"
+semicolon_if_nothing_returned = "allow"
+# consider enabling this
+should_panic_without_expect = "allow"
+similar_names = "allow"
+single_match_else = "allow"
+struct_field_names = "allow"
+too_many_arguments = "allow"
+too_many_lines = "allow"
+type_complexity = "allow"
+uninlined_format_args = "allow"
+unnecessary_semicolon = "allow"
+unreadable_literal = "allow"
+
+# Restriction
+
+absolute_paths = "allow"
+allow_attributes_without_reason = "allow"
+arbitrary_source_item_ordering = "allow"
+arithmetic_side_effects = "allow"
+as_conversions = "allow"
+clone_on_ref_ptr = "allow"
+cognitive_complexity = "allow"
+create_dir = "allow"
+default_numeric_fallback = "allow"
+doc_paragraphs_missing_punctuation = "allow"
+else_if_without_else = "allow"
+error_impl_error = "allow"
+exhaustive_enums = "allow"
+exhaustive_structs = "allow"
+expect_used = "allow"
+explicit_iter_loop = "allow"
+if_then_some_else_none = "allow"
+impl_trait_in_params = "allow"
+implicit_return = "allow"
+indexing_slicing = "allow"
+inline_modules = "allow"
+inline_trait_bounds = "allow"
+integer_division = "allow"
+integer_division_remainder_used = "allow"
+iter_over_hash_type = "allow"
+let_underscore_untyped = "allow"
+min_ident_chars = "allow"
+missing_assert_message = "allow"
+missing_docs_in_private_items = "allow"
+missing_inline_in_public_items = "allow"
+missing_trait_methods = "allow"
+mod_module_files = "allow"
+module_name_repetitions = "allow"
+multiple_inherent_impl = "allow"
+non_ascii_literal = "allow"
+# complains about tests
+panic = "allow"
+panic_in_result_fn = "allow"
+partial_pub_fields = "allow"
+pathbuf_init_then_push = "allow"
+pattern_type_mismatch = "allow"
+print_stderr = "allow"
+print_stdout = "allow"
+pub_use = "allow"
+pub_with_shorthand = "allow"
+question_mark_used = "allow"
+redundant_test_prefix = "allow"
+semicolon_outside_block = "allow"
+shadow_reuse = "allow"
+shadow_same = "allow"
+shadow_unrelated = "allow"  # may want to enable this one
+single_call_fn = "allow"
+single_char_lifetime_names = "allow"
+std_instead_of_alloc = "allow"
+std_instead_of_core = "allow"
+string_add = "allow"
+# complains about integration tests
+tests_outside_test_module = "allow"
+unneeded_field_pattern = "allow"
+unreachable = "allow"
+unseparated_literal_suffix = "allow"
+unused_trait_names = "allow"
+unwrap_in_result = "allow"
+unwrap_used = "allow"
+verbose_file_reads = "allow"
+wildcard_enum_match_arm = "allow"
+
+# Style
+
+inconsistent_digit_grouping = "allow"
+
+# Cargo
+
+# also warns for transitive deps
+multiple_crate_versions = "allow"
+
+# Nursery
+
+redundant_pub_crate = "allow"
+future_not_send = "allow"
+too_long_first_doc_paragraph = "allow"
+missing_const_for_fn = "allow"
+significant_drop_tightening = "allow"
+fallible_impl_from = "allow"
+single_option_map = "allow"
+uninhabited_references = "allow"
+
+# TODO: enable and fix these
+option_if_let_else = "allow"
+or_fun_call = "allow"

@@ -170,8 +170,8 @@ impl LocalKParProject {
         path: impl Into<Utf8PathBuf>,
         root: KparInnerPath,
         nominal_path: Option<Utf8UnixPathBuf>,
-    ) -> LocalKParProject {
-        LocalKParProject {
+    ) -> Self {
+        Self {
             nominal_path,
             root,
             init: OnceCell::new(),
@@ -187,8 +187,8 @@ impl LocalKParProject {
         nominal_path: Option<Utf8UnixPathBuf>,
         publisher: Option<String>,
         name: String,
-    ) -> LocalKParProject {
-        LocalKParProject {
+    ) -> Self {
+        Self {
             nominal_path,
             root: KparInnerPath::Root,
             init: OnceCell::new(),
@@ -206,8 +206,8 @@ impl LocalKParProject {
         publisher: Option<String>,
         name: String,
         expected: Option<KparMeta>,
-    ) -> LocalKParProject {
-        LocalKParProject {
+    ) -> Self {
+        Self {
             nominal_path,
             root,
             init: OnceCell::new(),
@@ -369,13 +369,10 @@ impl LocalKParProjectRaw {
         root: KparInnerPath,
     ) -> Result<(Self, KparMeta), LocalKParError> {
         let path = path.as_ref();
-        let size_bytes = match NonZeroU64::new(wrapfs::metadata(path)?.len()) {
-            Some(n) => n,
-            None => {
-                return Err(LocalKParError::EmptyKpar {
-                    path: path.as_str().into(),
-                });
-            }
+        let Some(size_bytes) = NonZeroU64::new(wrapfs::metadata(path)?.len()) else {
+            return Err(LocalKParError::EmptyKpar {
+                path: path.as_str().into(),
+            });
         };
         let mut archive = wrapfs::File::open(path)?;
         let sha256_hex = match hash_reader(&mut archive) {
@@ -404,7 +401,7 @@ impl LocalKParProjectRaw {
             }
         };
 
-        let project = LocalKParProjectRaw {
+        let project = Self {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
             archive_path: path.to_path_buf(),
             root,
@@ -413,7 +410,7 @@ impl LocalKParProjectRaw {
     }
 
     pub fn new_project_at_root<P: AsRef<Utf8Path>>(path: P) -> Result<Self, Box<FsIoError>> {
-        Ok(LocalKParProjectRaw {
+        Ok(Self {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
             archive_path: path.to_path_buf(),
             root: None,
@@ -428,7 +425,7 @@ impl LocalKParProjectRaw {
             .map_err(|e| ZipArchiveError::ReadArchive(path.into(), e))?;
         let root = Some(guess_root(&mut zip)?);
 
-        Ok(LocalKParProjectRaw {
+        Ok(Self {
             tmp_dir: tempdir().map_err(FsIoError::MkTempDir)?,
             archive_path: path.to_path_buf(),
             root,
@@ -437,7 +434,7 @@ impl LocalKParProjectRaw {
 
     pub fn new_temporary() -> Result<Self, Box<FsIoError>> {
         let tmp_dir = tempdir().map_err(FsIoError::MkTempDir)?;
-        Ok(LocalKParProjectRaw {
+        Ok(Self {
             archive_path: tmp_dir.path().join("project.kpar"),
             tmp_dir,
             root: None,
@@ -461,7 +458,7 @@ impl LocalKParProjectRaw {
                 Some(guess_root(&mut zip)?)
             }
         };
-        Ok(LocalKParProjectRaw {
+        Ok(Self {
             archive_path: path.to_owned(),
             tmp_dir,
             root,

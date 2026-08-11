@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use camino::{Utf8Path, Utf8PathBuf};
+use fluent_uri::Iri;
 use indexmap::IndexMap;
 use thiserror::Error;
 
@@ -51,16 +52,16 @@ pub enum KparCompressionMethod {
 impl From<KparCompressionMethod> for zip::CompressionMethod {
     fn from(value: KparCompressionMethod) -> Self {
         match value {
-            KparCompressionMethod::Stored => zip::CompressionMethod::Stored,
-            KparCompressionMethod::Deflated => zip::CompressionMethod::Deflated,
+            KparCompressionMethod::Stored => Self::Stored,
+            KparCompressionMethod::Deflated => Self::Deflated,
             #[cfg(feature = "kpar-bzip2")]
-            KparCompressionMethod::Bzip2 => zip::CompressionMethod::Bzip2,
+            KparCompressionMethod::Bzip2 => Self::Bzip2,
             #[cfg(feature = "kpar-zstd")]
-            KparCompressionMethod::Zstd => zip::CompressionMethod::Zstd,
+            KparCompressionMethod::Zstd => Self::Zstd,
             #[cfg(feature = "kpar-xz")]
-            KparCompressionMethod::Xz => zip::CompressionMethod::Xz,
+            KparCompressionMethod::Xz => Self::Xz,
             #[cfg(feature = "kpar-ppmd")]
-            KparCompressionMethod::Ppmd => zip::CompressionMethod::Ppmd,
+            KparCompressionMethod::Ppmd => Self::Ppmd,
         }
     }
 }
@@ -88,31 +89,31 @@ impl TryFrom<&str> for KparCompressionMethod {
     type Error = CompressionMethodParseError;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "STORED" => Ok(KparCompressionMethod::Stored),
-            "DEFLATED" => Ok(KparCompressionMethod::Deflated),
+            "STORED" => Ok(Self::Stored),
+            "DEFLATED" => Ok(Self::Deflated),
             #[cfg(feature = "kpar-bzip2")]
-            "BZIP2" => Ok(KparCompressionMethod::Bzip2),
+            "BZIP2" => Ok(Self::Bzip2),
             #[cfg(not(feature = "kpar-bzip2"))]
             "BZIP2" => Err(CompressionMethodParseError::SuggestFeature {
                 compression: value.into(),
                 feature: "kpar-bzip2".into(),
             }),
             #[cfg(feature = "kpar-zstd")]
-            "ZSTD" => Ok(KparCompressionMethod::Zstd),
+            "ZSTD" => Ok(Self::Zstd),
             #[cfg(not(feature = "kpar-zstd"))]
             "ZSTD" => Err(CompressionMethodParseError::SuggestFeature {
                 compression: value.into(),
                 feature: "kpar-zstd".into(),
             }),
             #[cfg(feature = "kpar-xz")]
-            "XZ" => Ok(KparCompressionMethod::Xz),
+            "XZ" => Ok(Self::Xz),
             #[cfg(not(feature = "kpar-xz"))]
             "XZ" => Err(CompressionMethodParseError::SuggestFeature {
                 compression: value.into(),
                 feature: "kpar-xz".into(),
             }),
             #[cfg(feature = "kpar-ppmd")]
-            "PPMD" => Ok(KparCompressionMethod::Ppmd),
+            "PPMD" => Ok(Self::Ppmd),
             #[cfg(not(feature = "kpar-ppmd"))]
             "PPMD" => Err(CompressionMethodParseError::SuggestFeature {
                 compression: value.into(),
@@ -198,8 +199,7 @@ pub fn default_kpar_path<Pr: ProjectRead>(
     project_path: &Utf8Path,
 ) -> Result<Utf8PathBuf, KParBuildError<Pr::Error>> {
     let mut path = workspace
-        .map(Workspace::root_path)
-        .unwrap_or(project_path)
+        .map_or(project_path, Workspace::root_path)
         .join("output");
     path.push(default_kpar_file_name(project)?);
     Ok(path)
@@ -335,13 +335,13 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
         if let Some(proj_metamodel) = &meta.metamodel {
             if proj_metamodel != ws_metamodel {
                 return Err(KParBuildError::WorkspaceMetamodelConflict {
-                    workspace_metamodel: ws_metamodel.to_string(),
+                    workspace_metamodel: ws_metamodel.to_owned(),
                     project_metamodel: proj_metamodel.into(),
                     project_path: path.as_ref().to_string(),
                 });
             }
         } else {
-            meta.metamodel = Some(ws_metamodel.to_string());
+            meta.metamodel = Some(ws_metamodel.to_owned());
         }
     }
 
@@ -434,10 +434,10 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     let mut extra_files: Vec<(String, String)> = Vec::new();
 
     if let Some(content) = read_optional_project_file(project_root, "README.md", "readme")? {
-        extra_files.push(("README.md".to_string(), content));
+        extra_files.push(("README.md".to_owned(), content));
     }
     if let Some(content) = read_optional_project_file(project_root, "CHANGELOG.md", "changelog")? {
-        extra_files.push(("CHANGELOG.md".to_string(), content));
+        extra_files.push(("CHANGELOG.md".to_owned(), content));
     }
     if let Some((license_str, expression)) = license_info.as_ref() {
         for stem in license_file_stems(expression) {
@@ -507,7 +507,7 @@ pub fn do_build_workspace_kpars<P: AsRef<Utf8Path>>(
     update_index: bool,
     allow_path_usage: bool,
 ) -> Result<Vec<LocalKParProjectRaw>, KParBuildError<LocalSrcError>> {
-    let ws_metamodel = workspace.metamodel().map(|iri| iri.as_str());
+    let ws_metamodel = workspace.metamodel().map(Iri::as_str);
 
     let mut result = Vec::new();
     for project_root in workspace.projects() {

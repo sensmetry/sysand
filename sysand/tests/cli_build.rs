@@ -25,11 +25,12 @@ mod common;
 pub use common::*;
 
 // Checksum for file `test.sysml` containing only `package P;`
+#[expect(clippy::unnecessary_wraps)]
 fn expected_checksum() -> Option<IndexMap<String, InterchangeProjectChecksumRaw>> {
     Some(IndexMap::from([(
         "test.sysml".to_owned(),
         InterchangeProjectChecksumRaw {
-            value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8".to_string(),
+            value: "b4ee9d8a3ffb51787bd30ab1a74c2333565fd2b8be1334e827c5937f44d54dd8".to_owned(),
             algorithm: KerMlChecksumAlg::Sha256.into(),
         },
     )]))
@@ -598,7 +599,7 @@ fn workspace_build_metamodel_conflict() -> Result<(), Box<dyn std::error::Error>
     let meta_content = std::fs::read_to_string(&meta_path)?;
     let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
     meta["metamodel"] =
-        serde_json::Value::String("https://www.omg.org/spec/KerML/20250201".to_string());
+        serde_json::Value::String("https://www.omg.org/spec/KerML/20250201".to_owned());
     std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;
@@ -651,7 +652,7 @@ fn workspace_build_metamodel_same_no_conflict() -> Result<(), Box<dyn std::error
     let meta_content = std::fs::read_to_string(&meta_path)?;
     let mut meta: serde_json::Value = serde_json::from_str(&meta_content)?;
     meta["metamodel"] =
-        serde_json::Value::String("https://www.omg.org/spec/SysML/20250201".to_string());
+        serde_json::Value::String("https://www.omg.org/spec/SysML/20250201".to_owned());
     std::fs::write(&meta_path, serde_json::to_string_pretty(&meta)?)?;
 
     let out = run_sysand_in(&cwd, ["build"], None)?;

@@ -34,7 +34,7 @@ pub enum DependencyIdentifier {
 impl Display for DependencyIdentifier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DependencyIdentifier::Requested(_requested) => {
+            Self::Requested(_requested) => {
                 write!(f, "requested project(s)")
                 // if requested.len() == 1 {
                 //     let req = &requested[0];
@@ -63,7 +63,7 @@ impl Display for DependencyIdentifier {
 
                 // write!(f, "]")
             }
-            DependencyIdentifier::Remote(iri) => write!(f, "{}", iri),
+            Self::Remote(iri) => write!(f, "{}", iri),
         }
     }
 }
@@ -80,8 +80,8 @@ pub enum DiscreteHashSet {
 impl Display for DiscreteHashSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let elts = match self {
-            DiscreteHashSet::Finite(hash_set) => {
-                let elts: Vec<usize> = hash_set.iter().cloned().collect();
+            Self::Finite(hash_set) => {
+                let elts: Vec<usize> = hash_set.iter().copied().collect();
 
                 if elts.is_empty() {
                     return write!(f, "no valid alternatives");
@@ -92,8 +92,8 @@ impl Display for DiscreteHashSet {
                 write!(f, "one of alternatives ")?;
                 elts
             }
-            DiscreteHashSet::CoFinite(hash_set) => {
-                let elts: Vec<usize> = hash_set.iter().cloned().collect();
+            Self::CoFinite(hash_set) => {
+                let elts: Vec<usize> = hash_set.iter().copied().collect();
 
                 if elts.is_empty() {
                     return write!(f, "any alternative");
@@ -128,53 +128,53 @@ impl VersionSet for DiscreteHashSet {
     type V = ProjectIndex;
 
     fn empty() -> Self {
-        DiscreteHashSet::Finite(HashSet::new())
+        Self::Finite(HashSet::new())
     }
 
     fn singleton(v: Self::V) -> Self {
-        DiscreteHashSet::Finite(HashSet::from([v]))
+        Self::Finite(HashSet::from([v]))
     }
 
     fn complement(&self) -> Self {
         match self {
-            DiscreteHashSet::Finite(hash_set) => Self::CoFinite(hash_set.clone()),
-            DiscreteHashSet::CoFinite(hash_set) => Self::Finite(hash_set.clone()),
+            Self::Finite(hash_set) => Self::CoFinite(hash_set.clone()),
+            Self::CoFinite(hash_set) => Self::Finite(hash_set.clone()),
         }
     }
 
     fn intersection(&self, other: &Self) -> Self {
         match (self, other) {
-            (DiscreteHashSet::Finite(hash_set), DiscreteHashSet::Finite(other_hash_set)) => {
+            (Self::Finite(hash_set), Self::Finite(other_hash_set)) => {
                 let intersection: HashSet<ProjectIndex> =
-                    hash_set.intersection(other_hash_set).cloned().collect();
+                    hash_set.intersection(other_hash_set).copied().collect();
 
-                DiscreteHashSet::Finite(intersection)
+                Self::Finite(intersection)
             }
-            (DiscreteHashSet::Finite(hash_set), DiscreteHashSet::CoFinite(other_hash_set)) => {
+            (Self::Finite(hash_set), Self::CoFinite(other_hash_set)) => {
                 let difference: HashSet<ProjectIndex> =
-                    hash_set.difference(other_hash_set).cloned().collect();
+                    hash_set.difference(other_hash_set).copied().collect();
 
-                DiscreteHashSet::Finite(difference)
+                Self::Finite(difference)
             }
-            (DiscreteHashSet::CoFinite(hash_set), DiscreteHashSet::Finite(other_hash_set)) => {
+            (Self::CoFinite(hash_set), Self::Finite(other_hash_set)) => {
                 let difference: HashSet<ProjectIndex> =
-                    other_hash_set.difference(hash_set).cloned().collect();
+                    other_hash_set.difference(hash_set).copied().collect();
 
-                DiscreteHashSet::Finite(difference)
+                Self::Finite(difference)
             }
-            (DiscreteHashSet::CoFinite(hash_set), DiscreteHashSet::CoFinite(other_hash_set)) => {
+            (Self::CoFinite(hash_set), Self::CoFinite(other_hash_set)) => {
                 let union: HashSet<ProjectIndex> =
-                    hash_set.union(other_hash_set).cloned().collect();
+                    hash_set.union(other_hash_set).copied().collect();
 
-                DiscreteHashSet::CoFinite(union)
+                Self::CoFinite(union)
             }
         }
     }
 
     fn contains(&self, v: &Self::V) -> bool {
         match self {
-            DiscreteHashSet::Finite(hash_set) => hash_set.contains(v),
-            DiscreteHashSet::CoFinite(hash_set) => !hash_set.contains(v),
+            Self::Finite(hash_set) => hash_set.contains(v),
+            Self::CoFinite(hash_set) => !hash_set.contains(v),
         }
     }
 }
@@ -367,7 +367,8 @@ fn resolve_candidates<R: ResolveRead>(
                                 }
                             }
                         };
-                        let relative_root = project.project_root().map(|p| p.to_path_buf());
+                        let relative_root =
+                            project.project_root().map(camino::Utf8Path::to_path_buf);
                         let usage = usage
                             .into_iter()
                             .map(|u| CoalescingUsage::new_usage(u, relative_root.to_owned()))
@@ -605,7 +606,7 @@ pub enum InternalSolverError<R: ResolveRead> {
 
 impl<R: ResolveRead> ProjectSolver<R> {
     pub fn new(resolver: R) -> Self {
-        ProjectSolver {
+        Self {
             resolved_candidates: RefCell::new(HashMap::new()),
             //dependency_provider: OfflineDependencyProvider::<DependencyIdentifier, DiscreteHashSet>::new(),
             resolver,
@@ -647,7 +648,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
     ) -> Result<Option<Self::V>, Self::Err> {
         match range {
             DiscreteHashSet::Finite(hash_set) => {
-                let res = hash_set.iter().min().cloned();
+                let res = hash_set.iter().min().copied();
                 log::debug!("choosing version for request ({res:?})");
                 Ok(res)
             }

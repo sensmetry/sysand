@@ -440,16 +440,16 @@ pub enum KparCompressionMethodCli {
 impl From<KparCompressionMethodCli> for KparCompressionMethod {
     fn from(value: KparCompressionMethodCli) -> Self {
         match value {
-            KparCompressionMethodCli::Stored => KparCompressionMethod::Stored,
-            KparCompressionMethodCli::Deflated => KparCompressionMethod::Deflated,
+            KparCompressionMethodCli::Stored => Self::Stored,
+            KparCompressionMethodCli::Deflated => Self::Deflated,
             #[cfg(feature = "kpar-bzip2")]
-            KparCompressionMethodCli::Bzip2 => KparCompressionMethod::Bzip2,
+            KparCompressionMethodCli::Bzip2 => Self::Bzip2,
             #[cfg(feature = "kpar-zstd")]
-            KparCompressionMethodCli::Zstd => KparCompressionMethod::Zstd,
+            KparCompressionMethodCli::Zstd => Self::Zstd,
             #[cfg(feature = "kpar-xz")]
-            KparCompressionMethodCli::Xz => KparCompressionMethod::Xz,
+            KparCompressionMethodCli::Xz => Self::Xz,
             #[cfg(feature = "kpar-ppmd")]
-            KparCompressionMethodCli::Ppmd => KparCompressionMethod::Ppmd,
+            KparCompressionMethodCli::Ppmd => Self::Ppmd,
         }
     }
 }
@@ -481,16 +481,16 @@ impl From<TrustedPublishingMode> for sysand_core::commands::publish::TrustedPubl
 impl From<KparCompressionMethod> for KparCompressionMethodCli {
     fn from(value: KparCompressionMethod) -> Self {
         match value {
-            KparCompressionMethod::Stored => KparCompressionMethodCli::Stored,
-            KparCompressionMethod::Deflated => KparCompressionMethodCli::Deflated,
+            KparCompressionMethod::Stored => Self::Stored,
+            KparCompressionMethod::Deflated => Self::Deflated,
             #[cfg(feature = "kpar-bzip2")]
-            KparCompressionMethod::Bzip2 => KparCompressionMethodCli::Bzip2,
+            KparCompressionMethod::Bzip2 => Self::Bzip2,
             #[cfg(feature = "kpar-zstd")]
-            KparCompressionMethod::Zstd => KparCompressionMethodCli::Zstd,
+            KparCompressionMethod::Zstd => Self::Zstd,
             #[cfg(feature = "kpar-xz")]
-            KparCompressionMethod::Xz => KparCompressionMethodCli::Xz,
+            KparCompressionMethod::Xz => Self::Xz,
             #[cfg(feature = "kpar-ppmd")]
-            KparCompressionMethod::Ppmd => KparCompressionMethodCli::Ppmd,
+            KparCompressionMethod::Ppmd => Self::Ppmd,
         }
     }
 }
@@ -502,7 +502,7 @@ struct InvalidCommand {
 
 fn invalid_command<S: AsRef<str>>(message: S) -> InvalidCommand {
     InvalidCommand {
-        message: message.as_ref().to_string(),
+        message: message.as_ref().to_owned(),
     }
 }
 
@@ -1100,7 +1100,7 @@ impl InfoCommand {
         }
 
         match self {
-            InfoCommand::Name {
+            Self::Name {
                 set,
                 clear,
                 add,
@@ -1112,7 +1112,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Publisher {
+            Self::Publisher {
                 set,
                 clear,
                 add,
@@ -1124,7 +1124,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Description {
+            Self::Description {
                 set,
                 clear,
                 add,
@@ -1140,7 +1140,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Version {
+            Self::Version {
                 set,
                 clear,
                 add,
@@ -1153,7 +1153,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::License {
+            Self::License {
                 set,
                 clear,
                 add,
@@ -1170,7 +1170,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Maintainer {
+            Self::Maintainer {
                 set,
                 clear,
                 add,
@@ -1187,7 +1187,7 @@ impl InfoCommand {
                 add.map(|x| AddInfoVerb::AddMaintainer(vec![x])),
                 remove.map(RemoveInfoVerb::RemoveMaintainer),
             ),
-            InfoCommand::Website {
+            Self::Website {
                 set,
                 clear,
                 add,
@@ -1203,7 +1203,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Topic {
+            Self::Topic {
                 set,
                 clear,
                 add,
@@ -1220,7 +1220,7 @@ impl InfoCommand {
                 add.map(|x| AddInfoVerb::AddTopic(vec![x])),
                 remove.map(RemoveInfoVerb::RemoveTopic),
             ),
-            InfoCommand::Usage {
+            Self::Usage {
                 set,
                 clear,
                 add,
@@ -1233,7 +1233,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Index {
+            Self::Index {
                 set,
                 clear,
                 add,
@@ -1246,7 +1246,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Created {
+            Self::Created {
                 set,
                 clear,
                 add,
@@ -1258,7 +1258,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Metamodel {
+            Self::Metamodel {
                 set,
                 release,
                 release_custom,
@@ -1286,7 +1286,7 @@ impl InfoCommand {
                     impossible(remove),
                 )
             }
-            InfoCommand::IncludesDerived {
+            Self::IncludesDerived {
                 set,
                 clear,
                 add,
@@ -1302,7 +1302,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::IncludesImplied {
+            Self::IncludesImplied {
                 set,
                 clear,
                 add,
@@ -1318,7 +1318,7 @@ impl InfoCommand {
                 impossible(add),
                 impossible(remove),
             ),
-            InfoCommand::Checksum {
+            Self::Checksum {
                 set,
                 clear,
                 add,
@@ -1338,79 +1338,79 @@ impl InfoCommand {
         // NOTE: Avoid using { .. } here, in order to not accidentally miss the introduction of
         //       relevant flags in the future.
         match self {
-            InfoCommand::Name {
+            Self::Name {
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::Publisher {
+            Self::Publisher {
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::Description {
+            Self::Description {
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::Version {
+            Self::Version {
                 set: _,
                 no_semver: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::License {
+            Self::License {
                 set: _,
                 no_spdx: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::Maintainer {
+            Self::Maintainer {
                 numbered,
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => *numbered,
-            InfoCommand::Website {
+            Self::Website {
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::Topic {
+            Self::Topic {
                 numbered,
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => *numbered,
-            InfoCommand::Usage {
+            Self::Usage {
                 numbered,
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => *numbered,
-            InfoCommand::Index {
+            Self::Index {
                 numbered,
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => *numbered,
-            InfoCommand::Created {
+            Self::Created {
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::Metamodel {
+            Self::Metamodel {
                 set: _,
                 release: _,
                 release_custom: _,
@@ -1419,19 +1419,19 @@ impl InfoCommand {
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::IncludesDerived {
+            Self::IncludesDerived {
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::IncludesImplied {
+            Self::IncludesImplied {
                 set: _,
                 clear: _,
                 add: _,
                 remove: _,
             } => false,
-            InfoCommand::Checksum {
+            Self::Checksum {
                 numbered,
                 set: _,
                 clear: _,
@@ -1797,7 +1797,7 @@ fn parse_https_iri(s: &str) -> Result<fluent_uri::Iri<String>, fluent_uri::Parse
         https.push_str(scheme);
         https.push_str(s);
         // Return the original error to not confuse the user
-        Iri::parse(https).map_err(|_| original_err)
+        Iri::parse(https).map_err(|_irrelevant| original_err)
     })
 }
 
@@ -1839,7 +1839,7 @@ pub struct Metamodel(pub MetamodelKind, pub MetamodelVersion);
 
 impl From<&Metamodel> for String {
     fn from(value: &Metamodel) -> Self {
-        let mut s = String::new();
+        let mut s = Self::new();
         s.push_str(value.0.into());
         s.push_str(value.1.into());
         s
@@ -1859,7 +1859,7 @@ impl From<Metamodel> for String {
     }
 }
 
-#[allow(non_camel_case_types)]
+#[expect(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetamodelVersion {
     Release_20250201 = 20250201,
@@ -1891,8 +1891,8 @@ impl ValueEnum for MetamodelVersion {
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
         use clap::builder::PossibleValue;
         Some(match self {
-            MetamodelVersion::Release_20250201 => {
-                PossibleValue::new(MetamodelVersion::RELEASE).help("SysMLv2/KerML Release or Beta4")
+            Self::Release_20250201 => {
+                PossibleValue::new(Self::RELEASE).help("SysMLv2/KerML Release or Beta4")
             }
         })
     }

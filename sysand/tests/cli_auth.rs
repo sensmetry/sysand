@@ -29,7 +29,7 @@ const AMBIGUOUS_MESSAGE: &str = "pass an explicit index URL";
 
 fn default_index_env(value: &str) -> IndexMap<String, String> {
     let mut env = IndexMap::new();
-    env.insert("SYSAND_DEFAULT_INDEX".to_string(), value.to_string());
+    env.insert("SYSAND_DEFAULT_INDEX".to_owned(), value.to_owned());
     env
 }
 
@@ -101,24 +101,24 @@ fn auth_status_lists_env_credentials_and_never_secrets() -> TestResult {
     let (_store_dir, store_path) = seam_store()?;
     let mut env = seam_env(&store_path);
     env.insert(
-        "SYSAND_CRED_TEST".to_string(),
-        "https://example.com/**".to_string(),
+        "SYSAND_CRED_TEST".to_owned(),
+        "https://example.com/**".to_owned(),
     );
     env.insert(
-        "SYSAND_CRED_TEST_BEARER_TOKEN".to_string(),
-        "super-secret-token".to_string(),
+        "SYSAND_CRED_TEST_BEARER_TOKEN".to_owned(),
+        "super-secret-token".to_owned(),
     );
     env.insert(
-        "SYSAND_CRED_BSC".to_string(),
-        "https://basic.example/**".to_string(),
+        "SYSAND_CRED_BSC".to_owned(),
+        "https://basic.example/**".to_owned(),
     );
     env.insert(
-        "SYSAND_CRED_BSC_BASIC_USER".to_string(),
-        "secret-user-name".to_string(),
+        "SYSAND_CRED_BSC_BASIC_USER".to_owned(),
+        "secret-user-name".to_owned(),
     );
     env.insert(
-        "SYSAND_CRED_BSC_BASIC_PASS".to_string(),
-        "secret-pass-word".to_string(),
+        "SYSAND_CRED_BSC_BASIC_PASS".to_owned(),
+        "secret-pass-word".to_owned(),
     );
 
     let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &env)?;
@@ -142,7 +142,7 @@ fn auth_status_errors_on_a_label_less_env_credential() -> TestResult {
     // credential-using command, with the identical message.
     let (_store_dir, store_path) = seam_store()?;
     let mut env = seam_env(&store_path);
-    env.insert("SYSAND_CRED".to_string(), "https://a.org".to_string());
+    env.insert("SYSAND_CRED".to_owned(), "https://a.org".to_owned());
 
     let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &env)?;
     out.assert().failure().stderr(predicate::str::contains(
@@ -158,8 +158,8 @@ fn auth_status_errors_on_an_env_pattern_without_a_scheme() -> TestResult {
     let (_store_dir, store_path) = seam_store()?;
     let mut env = seam_env(&store_path);
     env.insert(
-        "SYSAND_CRED_TEST".to_string(),
-        "accidental-secret-value".to_string(),
+        "SYSAND_CRED_TEST".to_owned(),
+        "accidental-secret-value".to_owned(),
     );
 
     let (_temp_dir, _cwd, out) = run_sysand_with(["auth", "status"], None, &env)?;
@@ -181,7 +181,7 @@ const STORED_MESSAGE: &str = "stored, not validated";
 
 fn seam_env(store_path: &camino::Utf8Path) -> IndexMap<String, String> {
     let mut env = IndexMap::new();
-    env.insert(SEAM_ENV_VAR.to_string(), store_path.to_string());
+    env.insert(SEAM_ENV_VAR.to_owned(), store_path.to_string());
     env
 }
 
@@ -573,8 +573,8 @@ fn auth_status_marks_the_entry_for_the_default_index() -> TestResult {
     fs::write(&store_path, one_example_blob())?;
     let mut env = seam_env(&store_path);
     env.insert(
-        "SYSAND_DEFAULT_INDEX".to_string(),
-        "https://one.example".to_string(),
+        "SYSAND_DEFAULT_INDEX".to_owned(),
+        "https://one.example".to_owned(),
     );
 
     let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
@@ -592,8 +592,8 @@ fn auth_status_with_an_ambiguous_default_chain_notes_and_marks_nothing() -> Test
     fs::write(&store_path, one_example_blob())?;
     let mut env = seam_env(&store_path);
     env.insert(
-        "SYSAND_DEFAULT_INDEX".to_string(),
-        "https://one.example,https://two.example".to_string(),
+        "SYSAND_DEFAULT_INDEX".to_owned(),
+        "https://one.example,https://two.example".to_owned(),
     );
 
     let (_t, _c, out) = run_sysand_with(["auth", "status"], None, &env)?;
@@ -655,7 +655,7 @@ fn auth_login_rejects_a_non_http_index_before_reading_a_secret() -> TestResult {
 #[test]
 fn auth_login_without_keyring_backend_prints_env_lines_with_a_placeholder() -> TestResult {
     let mut env = IndexMap::new();
-    env.insert(SEAM_ENV_VAR.to_string(), ":absent:".to_string());
+    env.insert(SEAM_ENV_VAR.to_owned(), ":absent:".to_owned());
 
     let (_t, _c, out) = run_sysand_stdin(
         [
@@ -814,12 +814,12 @@ fn auth_whoami_env_credential_wins_over_a_stored_login() -> TestResult {
     let mut server = mockito::Server::new();
     let mut env = seam_env(&store_path);
     env.insert(
-        "SYSAND_CRED_WTEST".to_string(),
+        "SYSAND_CRED_WTEST".to_owned(),
         format!("{}/**", server.url()),
     );
     env.insert(
-        "SYSAND_CRED_WTEST_BEARER_TOKEN".to_string(),
-        "env-tok".to_string(),
+        "SYSAND_CRED_WTEST_BEARER_TOKEN".to_owned(),
+        "env-tok".to_owned(),
     );
     let _config = mock_api_discovery(&mut server);
     // The mock only matches the env token: a stored-token request would

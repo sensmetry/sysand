@@ -61,8 +61,8 @@ pub enum RemoteSourceReader<HTTPReader, GitReader> {
 impl<HTTPReader: Read, GitReader: Read> Read for RemoteSourceReader<HTTPReader, GitReader> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
-            RemoteSourceReader::HTTPReader(reader) => reader.read(buf),
-            RemoteSourceReader::GitReader(reader) => reader.read(buf),
+            Self::HTTPReader(reader) => reader.read(buf),
+            Self::GitReader(reader) => reader.read(buf),
         }
     }
 }
@@ -82,12 +82,10 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
         Self::Error,
     > {
         match self {
-            RemoteProject::HTTPProject(project) => {
+            Self::HTTPProject(project) => {
                 project.get_project().map_err(RemoteProjectError::HTTPRead)
             }
-            RemoteProject::GitProject(project) => {
-                project.get_project().map_err(RemoteProjectError::GitRead)
-            }
+            Self::GitProject(project) => project.get_project().map_err(RemoteProjectError::GitRead),
         }
     }
 
@@ -101,11 +99,11 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self {
-            RemoteProject::HTTPProject(project) => project
+            Self::HTTPProject(project) => project
                 .read_source(path)
                 .map(RemoteSourceReader::HTTPReader)
                 .map_err(RemoteProjectError::HTTPRead),
-            RemoteProject::GitProject(project) => project
+            Self::GitProject(project) => project
                 .read_source(path)
                 .map(RemoteSourceReader::GitReader)
                 .map_err(RemoteProjectError::GitRead),
@@ -114,72 +112,54 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
 
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            RemoteProject::HTTPProject(project) => {
+            Self::HTTPProject(project) => {
                 project.sources(ctx).map_err(RemoteProjectError::HTTPRead)
             }
-            RemoteProject::GitProject(project) => {
-                project.sources(ctx).map_err(RemoteProjectError::GitRead)
-            }
+            Self::GitProject(project) => project.sources(ctx).map_err(RemoteProjectError::GitRead),
         }
     }
 
     fn is_definitely_invalid(&self) -> bool {
         match self {
-            RemoteProject::HTTPProject(project) => project.is_definitely_invalid(),
-            RemoteProject::GitProject(project) => project.is_definitely_invalid(),
+            Self::HTTPProject(project) => project.is_definitely_invalid(),
+            Self::GitProject(project) => project.is_definitely_invalid(),
         }
     }
 
     fn get_info(&self) -> Result<Option<crate::model::InterchangeProjectInfoRaw>, Self::Error> {
         match self {
-            RemoteProject::HTTPProject(project) => {
-                project.get_info().map_err(RemoteProjectError::HTTPRead)
-            }
-            RemoteProject::GitProject(project) => {
-                project.get_info().map_err(RemoteProjectError::GitRead)
-            }
+            Self::HTTPProject(project) => project.get_info().map_err(RemoteProjectError::HTTPRead),
+            Self::GitProject(project) => project.get_info().map_err(RemoteProjectError::GitRead),
         }
     }
 
     fn get_meta(&self) -> Result<Option<crate::model::InterchangeProjectMetadataRaw>, Self::Error> {
         match self {
-            RemoteProject::HTTPProject(project) => {
-                project.get_meta().map_err(RemoteProjectError::HTTPRead)
-            }
-            RemoteProject::GitProject(project) => {
-                project.get_meta().map_err(RemoteProjectError::GitRead)
-            }
+            Self::HTTPProject(project) => project.get_meta().map_err(RemoteProjectError::HTTPRead),
+            Self::GitProject(project) => project.get_meta().map_err(RemoteProjectError::GitRead),
         }
     }
 
     fn version(&self) -> Result<Option<String>, Self::Error> {
         match self {
-            RemoteProject::HTTPProject(project) => {
-                project.version().map_err(RemoteProjectError::HTTPRead)
-            }
-            RemoteProject::GitProject(project) => {
-                project.version().map_err(RemoteProjectError::GitRead)
-            }
+            Self::HTTPProject(project) => project.version().map_err(RemoteProjectError::HTTPRead),
+            Self::GitProject(project) => project.version().map_err(RemoteProjectError::GitRead),
         }
     }
 
     fn usage(&self) -> Result<Option<Vec<crate::model::InterchangeProjectUsageRaw>>, Self::Error> {
         match self {
-            RemoteProject::HTTPProject(project) => {
-                project.usage().map_err(RemoteProjectError::HTTPRead)
-            }
-            RemoteProject::GitProject(project) => {
-                project.usage().map_err(RemoteProjectError::GitRead)
-            }
+            Self::HTTPProject(project) => project.usage().map_err(RemoteProjectError::HTTPRead),
+            Self::GitProject(project) => project.usage().map_err(RemoteProjectError::GitRead),
         }
     }
 
     fn checksum_canonical_hex(&self) -> Result<Option<String>, CanonicalizationError<Self::Error>> {
         match self {
-            RemoteProject::HTTPProject(project) => project
+            Self::HTTPProject(project) => project
                 .checksum_canonical_hex()
                 .map_err(|e| e.map_project_read(RemoteProjectError::HTTPRead)),
-            RemoteProject::GitProject(project) => project
+            Self::GitProject(project) => project
                 .checksum_canonical_hex()
                 .map_err(|e| e.map_project_read(RemoteProjectError::GitRead)),
         }
@@ -187,10 +167,10 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
 
     fn checksum_canonical_variant(&self) -> Result<crate::project::ProjectChecksum, Self::Error> {
         match self {
-            RemoteProject::HTTPProject(project) => project
+            Self::HTTPProject(project) => project
                 .checksum_canonical_variant()
                 .map_err(RemoteProjectError::HTTPRead),
-            RemoteProject::GitProject(project) => project
+            Self::GitProject(project) => project
                 .checksum_canonical_variant()
                 .map_err(RemoteProjectError::GitRead),
         }
@@ -198,8 +178,8 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
 
     fn project_root(&self) -> Option<&camino::Utf8Path> {
         match self {
-            RemoteProject::HTTPProject(project) => project.project_root(),
-            RemoteProject::GitProject(project) => project.project_root(),
+            Self::HTTPProject(project) => project.project_root(),
+            Self::GitProject(project) => project.project_root(),
         }
     }
 }

@@ -44,7 +44,7 @@ fn make_fixture() -> IndexEntryProject<Unauthenticated> {
         version: semver::Version::parse("1.2.3").unwrap(),
         usage: vec![InterchangeProjectUsageRaw::Resource {
             resource: format!("{PKG_SYSAND_PREFIX}acme/widget"),
-            version_constraint: Some("^1.0".to_string()),
+            version_constraint: Some("^1.0".to_owned()),
         }],
         kpar_size: std::num::NonZeroU64::new(42).unwrap(),
         kpar_digest,
@@ -98,7 +98,7 @@ fn usage_async_returns_advertised_without_fetch() {
         usage[0],
         InterchangeProjectUsageRaw::Resource {
             resource: format!("{PKG_SYSAND_PREFIX}acme/widget"),
-            version_constraint: Some("^1.0".to_string())
+            version_constraint: Some("^1.0".to_owned())
         }
     );
     assert!(!project.archive.is_downloaded_and_verified());

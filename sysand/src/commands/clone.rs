@@ -41,7 +41,7 @@ pub enum ProjectLocator {
 }
 
 /// Clones project from `locator` to `target` directory.
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn command_clone<Policy: HTTPAuthentication>(
     locator: CloneProjectLocatorArgs,
     version: Option<String>,
@@ -111,10 +111,10 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     };
 
     if !no_deps {
-        let provided_usages = if !include_std {
-            crate::known_std_libs()
-        } else {
+        let provided_usages = if include_std {
             HashMap::default()
+        } else {
+            crate::known_std_libs()
         };
 
         let resolver = PriorityResolver::new(
@@ -127,7 +127,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         let project = EditableProject::new(".".into(), local_project);
         let identifiers = match locator {
             ProjectLocator::Iri(iri) => Some(vec![iri]),
-            _ => None,
+            ProjectLocator::Path(_) => None,
         };
         let LockOutcome {
             lock,
@@ -224,7 +224,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
     let index_urls = if no_index {
         None
     } else {
-        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
+        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
     };
     let CloneProjectLocatorArgs {
         auto_location,
@@ -254,7 +254,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
         Some(client.clone()),
         index_urls,
         runtime.clone(),
-        auth_policy.clone(),
+        auth_policy,
     )?;
     match &locator {
         ProjectLocator::Iri(iri) => {
@@ -382,12 +382,9 @@ pub fn get_project_version<R: ResolveRead>(
                         continue;
                     }
                 };
-                let info = match maybe_info {
-                    Some(info) => info,
-                    None => {
-                        log::debug!("skipping candidate project with missing info");
-                        continue;
-                    }
+                let Some(info) = maybe_info else {
+                    log::debug!("skipping candidate project with missing info");
+                    continue;
                 };
                 let candidate_version = match Version::parse(&info.version) {
                     Ok(v) => v,

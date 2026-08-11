@@ -12,6 +12,7 @@ use typed_path::{Utf8UnixComponent, Utf8UnixPathBuf};
 use crate::{
     env::ProjectChecksum,
     project::{
+        ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, Identifier, deserialize_unix_path, wrapfs},
     },
@@ -31,8 +32,8 @@ pub(super) struct EnvMetadata {
 
 impl Default for EnvMetadata {
     fn default() -> Self {
-        EnvMetadata {
-            version: CURRENT_METADATA_VERSION.to_string(),
+        Self {
+            version: CURRENT_METADATA_VERSION.to_owned(),
             projects: vec![],
         }
     }
@@ -63,10 +64,10 @@ impl FromStr for EnvMetadata {
 
     /// Only use this for deserializing the metadata
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let metadata: EnvMetadata = toml::from_str(s)?;
+        let metadata: Self = toml::from_str(s)?;
 
         if !SUPPORTED_METADATA_VERSIONS.contains(&metadata.version.as_str()) {
-            return Err(ParseError::UnsupportedVersion(metadata.version.clone()));
+            return Err(ParseError::UnsupportedVersion(metadata.version));
         }
 
         for project in &metadata.projects {
@@ -337,7 +338,7 @@ impl EnvProject {
     /// Adds identifiers from other project.
     /// Should only be done if the underlying projects are the same.
     /// In particular they must have the same version.
-    pub(super) fn merge_identifiers(&mut self, other: &EnvProject) {
+    pub(super) fn merge_identifiers(&mut self, other: &Self) {
         assert_eq!(
             self.version, other.version,
             "attempting to merge identifiers for projects with different versions"

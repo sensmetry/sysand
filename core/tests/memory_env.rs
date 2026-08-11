@@ -42,7 +42,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
     let iri = Iri::parse("urn:sysand_test:1").unwrap().to_owned();
 
     let info = InterchangeProjectInfo {
-        name: "env_manual_install".to_string(),
+        name: "env_manual_install".to_owned(),
         publisher: None,
         description: None,
         version: Version::new(1, 2, 3),
@@ -56,7 +56,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut index = IndexMap::new();
     index.insert(
-        "SomePackage".to_string(),
+        "SomePackage".to_owned(),
         Utf8UnixPath::new("SomePackage.sysml").to_path_buf(),
     );
 

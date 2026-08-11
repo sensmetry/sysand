@@ -40,8 +40,8 @@ fn add_and_remove_without_lock() -> Result<(), Box<dyn std::error::Error>> {
     let out = run_sysand_in(&cwd, ["remove", "urn:kpar:test"], None)?;
 
     out.assert().success().stderr(predicate::str::contains(
-        r#"Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`"#,
+        "Removing `urn:kpar:test` from usages
+     Removed `urn:kpar:test`",
     ));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -259,8 +259,8 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Removing `{}` from usages
-     Removed `{}`"#,
+            "Removing `{}` from usages
+     Removed `{}`",
             file_url, file_url
         )));
 
@@ -302,9 +302,9 @@ fn add_and_remove_as_editable() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Creating configuration file at `{config_path}`
+            "Creating configuration file at `{config_path}`
       Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"#
+      Adding usage: IRI `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -347,10 +347,10 @@ sources = [
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Removing source for `urn:kpar:test` from configuration file at `{config_path}`
+            "Removing source for `urn:kpar:test` from configuration file at `{config_path}`
     Removing empty configuration file at `{config_path}`
     Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`"#
+     Removed `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -393,9 +393,9 @@ fn add_and_remove_as_local_src() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Creating configuration file at `{config_path}`
+            "Creating configuration file at `{config_path}`
       Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"#
+      Adding usage: IRI `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -438,10 +438,10 @@ sources = [
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Removing source for `urn:kpar:test` from configuration file at `{config_path}`
+            "Removing source for `urn:kpar:test` from configuration file at `{config_path}`
     Removing empty configuration file at `{config_path}`
     Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`"#
+     Removed `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -484,9 +484,9 @@ fn add_and_remove_as_local_kpar() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Creating configuration file at `{config_path}`
+            "Creating configuration file at `{config_path}`
       Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"#
+      Adding usage: IRI `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -529,10 +529,10 @@ sources = [
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Removing source for `urn:kpar:test` from configuration file at `{config_path}`
+            "Removing source for `urn:kpar:test` from configuration file at `{config_path}`
     Removing empty configuration file at `{config_path}`
     Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`"#
+     Removed `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -575,9 +575,9 @@ fn add_and_remove_as_remote_src() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Creating configuration file at `{config_path}`
+            "Creating configuration file at `{config_path}`
       Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"#
+      Adding usage: IRI `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -620,10 +620,10 @@ sources = [
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Removing source for `urn:kpar:test` from configuration file at `{config_path}`
+            "Removing source for `urn:kpar:test` from configuration file at `{config_path}`
     Removing empty configuration file at `{config_path}`
     Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`"#
+     Removed `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -666,9 +666,9 @@ fn add_and_remove_as_remote_kpar() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Creating configuration file at `{config_path}`
+            "Creating configuration file at `{config_path}`
       Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"#
+      Adding usage: IRI `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -711,10 +711,10 @@ sources = [
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Removing source for `urn:kpar:test` from configuration file at `{config_path}`
+            "Removing source for `urn:kpar:test` from configuration file at `{config_path}`
     Removing empty configuration file at `{config_path}`
     Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`"#
+     Removed `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -757,9 +757,9 @@ fn add_and_remove_as_remote_git() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Creating configuration file at `{config_path}`
+            "Creating configuration file at `{config_path}`
       Adding source for `urn:kpar:test` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test`"#
+      Adding usage: IRI `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -802,10 +802,10 @@ sources = [
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Removing source for `urn:kpar:test` from configuration file at `{config_path}`
+            "Removing source for `urn:kpar:test` from configuration file at `{config_path}`
     Removing empty configuration file at `{config_path}`
     Removing `urn:kpar:test` from usages
-     Removed `urn:kpar:test`"#
+     Removed `urn:kpar:test`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -850,9 +850,9 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Creating configuration file at `{config_path}`
+            "Creating configuration file at `{config_path}`
       Adding source for `urn:kpar:test-src` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test-src`"#
+      Adding usage: IRI `urn:kpar:test-src`"
         )));
 
     std::fs::File::create_new(cwd.join("local/test.kpar"))?;
@@ -872,8 +872,8 @@ fn add_and_remove_from_path() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Adding source for `urn:kpar:test-kpar` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:test-kpar`"#
+            "Adding source for `urn:kpar:test-kpar` to configuration file at `{config_path}`
+      Adding usage: IRI `urn:kpar:test-kpar`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -927,9 +927,9 @@ sources = [
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Removing source for `urn:kpar:test-src` from configuration file at `{config_path}`
+            "Removing source for `urn:kpar:test-src` from configuration file at `{config_path}`
     Removing `urn:kpar:test-src` from usages
-     Removed `urn:kpar:test-src`"#
+     Removed `urn:kpar:test-src`"
         )));
 
     let out = run_sysand_in(
@@ -941,10 +941,10 @@ sources = [
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Removing source for `urn:kpar:test-kpar` from configuration file at `{config_path}`
+            "Removing source for `urn:kpar:test-kpar` from configuration file at `{config_path}`
     Removing empty configuration file at `{config_path}`
     Removing `urn:kpar:test-kpar` from usages
-     Removed `urn:kpar:test-kpar`"#
+     Removed `urn:kpar:test-kpar`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -994,9 +994,9 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Creating configuration file at `{config_path}`
+            "Creating configuration file at `{config_path}`
       Adding source for `urn:kpar:add-from-url-dep` to configuration file at `{config_path}`
-      Adding usage: IRI `urn:kpar:add-from-url-dep`"#
+      Adding usage: IRI `urn:kpar:add-from-url-dep`"
         )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -1031,11 +1031,11 @@ fn add_and_remove_from_url() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            r#"Removing source for `urn:kpar:add-from-url-dep` from configuration file at `{config_path}`
+        "Removing source for `urn:kpar:add-from-url-dep` from configuration file at `{config_path}`
     Removing empty configuration file at `{config_path}`
     Removing `urn:kpar:add-from-url-dep` from usages
-     Removed `urn:kpar:add-from-url-dep`"#
-        )));
+     Removed `urn:kpar:add-from-url-dep`"
+    )));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
     assert_eq!(
@@ -1092,8 +1092,8 @@ fn add_and_remove_full_purl_sysand_without_lock() -> Result<(), Box<dyn std::err
     let out = run_sysand_in(&cwd, ["remove", "pkg:sysand/acme-labs/my.project"], None)?;
 
     out.assert().success().stderr(predicate::str::contains(
-        r#"Removing `pkg:sysand/acme-labs/my.project` from usages
-     Removed `pkg:sysand/acme-labs/my.project`"#,
+        "Removing `pkg:sysand/acme-labs/my.project` from usages
+     Removed `pkg:sysand/acme-labs/my.project`",
     ));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;
@@ -1152,8 +1152,8 @@ fn add_and_remove_urn_with_slash_not_treated_as_shorthand() -> Result<(), Box<dy
     let out = run_sysand_in(&cwd, ["remove", "urn:kpar:acme-labs/my.project"], None)?;
 
     out.assert().success().stderr(predicate::str::contains(
-        r#"Removing `urn:kpar:acme-labs/my.project` from usages
-     Removed `urn:kpar:acme-labs/my.project`"#,
+        "Removing `urn:kpar:acme-labs/my.project` from usages
+     Removed `urn:kpar:acme-labs/my.project`",
     ));
 
     let info_json = std::fs::read_to_string(cwd.join(".project.json"))?;

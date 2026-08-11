@@ -49,5 +49,5 @@ fn default_name_from_path<P: AsRef<Utf8Path>>(path: P) -> Result<String> {
         .ok_or_else(|| {
             CliError::InvalidDirectory(format!("path `{}` is not a directory", path.as_ref()))
         })?
-        .to_string())
+        .to_owned())
 }

@@ -47,10 +47,10 @@ impl TryFrom<&str> for Dependencies {
     type Error = DependenciesParseError;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
-            "NONE" => Ok(Dependencies::None),
-            "DEPS" => Ok(Dependencies::Deps),
-            "DEPS_STD" => Ok(Dependencies::DepsStd),
-            "STD" => Ok(Dependencies::Std),
+            "NONE" => Ok(Self::None),
+            "DEPS" => Ok(Self::Deps),
+            "DEPS_STD" => Ok(Self::DepsStd),
+            "STD" => Ok(Self::Std),
             _ => Err(DependenciesParseError(value.to_owned())),
         }
     }
@@ -114,10 +114,8 @@ pub enum LocalSourcesError {
 impl From<SourcesError<LocalSrcError>> for LocalSourcesError {
     fn from(value: SourcesError<LocalSrcError>) -> Self {
         match value {
-            SourcesError::Project(error) => LocalSourcesError::Project(error),
-            SourcesError::Validation { name, source } => {
-                LocalSourcesError::Validation { name, source }
-            }
+            SourcesError::Project(error) => Self::Project(error),
+            SourcesError::Validation { name, source } => Self::Validation { name, source },
         }
     }
 }
@@ -145,7 +143,6 @@ pub fn do_sources_local_src_project_no_deps(
 ///
 /// `provided_usages` are assumed to have been satisfied (including their dependencies)
 /// and are not included in the returned list
-#[allow(clippy::type_complexity)]
 fn solve_dependencies<Env: ReadEnvironment + Debug + 'static>(
     requested: Vec<InterchangeProjectUsage>,
     env: Env,

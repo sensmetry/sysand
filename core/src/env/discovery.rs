@@ -311,7 +311,7 @@ pub(crate) fn resolve_index_config(
     // `IndexLocation::parse`, so a plain and a templated `index_root` are
     // validated in the same place.
     let index_root = match raw.index_root {
-        None => discovery_location.clone(),
+        None => discovery_location,
         Some(s) => IndexLocation::parse(&s).map_err(|source| DiscoveryError::InvalidLocation {
             url: config_url.as_str().into(),
             field: "index_root",

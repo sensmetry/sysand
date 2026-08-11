@@ -163,6 +163,7 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
     let project_path: Utf8PathBuf = cwd.join("info_basic");
     let out_absolute = {
         let mut args = vec!["info"];
+        #[expect(clippy::branches_sharing_code, reason = "does not compile otherwise")]
         if use_iri {
             let project_path_uri = url::Url::from_file_path(project_path).unwrap().to_string();
             add_iri_args(&mut args, use_auto, &project_path_uri);
@@ -383,7 +384,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/")
         .match_header(
             "authorization",
-            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_owned()),
         )
         .with_status(404)
         .expect(2)
@@ -402,7 +403,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("HEAD", "/.project.json")
         .match_header(
             "authorization",
-            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_owned()),
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -423,7 +424,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/.project.json")
         .match_header(
             "authorization",
-            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_owned()),
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -444,7 +445,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("HEAD", "/.meta.json")
         .match_header(
             "authorization",
-            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_owned()),
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -466,7 +467,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .match_header(
             "authorization",
-            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_owned()),
         )
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
@@ -538,7 +539,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/")
         .match_header(
             "authorization",
-            Matcher::Exact("Bearer this_is_a_token".to_string()),
+            Matcher::Exact("Bearer this_is_a_token".to_owned()),
         )
         .with_status(404)
         .expect(2)
@@ -557,7 +558,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("HEAD", "/.project.json")
         .match_header(
             "authorization",
-            Matcher::Exact("Bearer this_is_a_token".to_string()),
+            Matcher::Exact("Bearer this_is_a_token".to_owned()),
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -578,7 +579,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/.project.json")
         .match_header(
             "authorization",
-            Matcher::Exact("Bearer this_is_a_token".to_string()),
+            Matcher::Exact("Bearer this_is_a_token".to_owned()),
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -599,7 +600,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("HEAD", "/.meta.json")
         .match_header(
             "authorization",
-            Matcher::Exact("Bearer this_is_a_token".to_string()),
+            Matcher::Exact("Bearer this_is_a_token".to_owned()),
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -621,7 +622,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .match_header(
             "authorization",
-            Matcher::Exact("Bearer this_is_a_token".to_string()),
+            Matcher::Exact("Bearer this_is_a_token".to_owned()),
         )
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
@@ -898,7 +899,7 @@ fn info_basic_index_url() -> Result<(), Box<dyn Error>> {
     let missing_versions_mock = server
         .mock(
             "GET",
-            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_owned()),
         )
         .with_status(404)
         .expect(1)
@@ -1005,7 +1006,7 @@ fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
     let server_missing_mock = server
         .mock(
             "GET",
-            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_owned()),
         )
         .with_status(404)
         .expect(2)
@@ -1013,7 +1014,7 @@ fn info_multi_index_url_noauth() -> Result<(), Box<dyn Error>> {
     let server_alt_missing_mock = server_alt
         .mock(
             "GET",
-            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_owned()),
         )
         .with_status(404)
         .expect(1)
@@ -1111,7 +1112,7 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
 
     let versions_mock_auth = server
         .mock("GET", format!("{iri_dir}/versions.json").as_str())
-        .match_header("authorization", Matcher::Exact(basic_auth.to_string()))
+        .match_header("authorization", Matcher::Exact(basic_auth.to_owned()))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(&versions_body)
@@ -1129,7 +1130,7 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
 
     let project_json_mock_auth = server
         .mock("GET", format!("{iri_dir}/1.2.3/.project.json").as_str())
-        .match_header("authorization", Matcher::Exact(basic_auth.to_string()))
+        .match_header("authorization", Matcher::Exact(basic_auth.to_owned()))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(&project_body)
@@ -1145,7 +1146,7 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
 
     let meta_json_mock_auth = server
         .mock("GET", format!("{iri_dir}/1.2.3/.meta.json").as_str())
-        .match_header("authorization", Matcher::Exact(basic_auth.to_string()))
+        .match_header("authorization", Matcher::Exact(basic_auth.to_owned()))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(TEST_META_JSON_BODY)
@@ -1195,7 +1196,7 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
     let server_missing_mock = server
         .mock(
             "GET",
-            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_owned()),
         )
         .with_status(404)
         .expect(4)
@@ -1203,7 +1204,7 @@ fn info_multi_index_url_auth() -> Result<(), Box<dyn Error>> {
     let server_alt_missing_mock = server_alt
         .mock(
             "GET",
-            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_owned()),
         )
         .with_status(404)
         .expect(1)
@@ -1368,7 +1369,7 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
     let server_missing_mock = server
         .mock(
             "GET",
-            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_owned()),
         )
         .with_status(404)
         .expect(1)
@@ -1376,7 +1377,7 @@ fn info_multi_index_url_config() -> Result<(), Box<dyn Error>> {
     let server_alt_missing_mock = server_alt
         .mock(
             "GET",
-            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_string()),
+            Matcher::Regex(r"^/_iri/[a-f0-9]+/versions\.json$".to_owned()),
         )
         .with_status(404)
         .expect(1)
@@ -1465,7 +1466,7 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
         let out = run_sysand_in(project_path, ["info", field, "--clear"], None)?;
         if expected {
             out.assert().success();
-            get_field(field, Some("".to_string()))?;
+            get_field(field, Some(String::new()))?;
         } else {
             out.assert()
                 .stderr(predicates::str::contains("unexpected argument"));
@@ -1487,7 +1488,7 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
                 if let Some(dif) = expected_different {
                     dif.to_owned()
                 } else {
-                    value.to_string()
+                    value.to_owned()
                 }
             };
             expected_output.push('\n');
@@ -1544,44 +1545,44 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
             Ok(())
         };
 
-    get_field("name", Some("info_detailed_verbs\n".to_string()))?;
+    get_field("name", Some("info_detailed_verbs\n".to_owned()))?;
     try_set("name", "info_detailed_verbs_alt", true, None)?;
     try_clear("name", false)?;
     try_add("name", "name_1", false)?;
     try_remove("name", "1", false)?;
-    get_field("publisher", Some("a\n".to_string()))?;
+    get_field("publisher", Some("a\n".to_owned()))?;
     try_set("publisher", "a_alt", true, None)?;
     try_clear("publisher", false)?;
     try_add("publisher", "pub_1", false)?;
     try_remove("publisher", "1", false)?;
-    get_field("version", Some("1.2.3\n".to_string()))?;
+    get_field("version", Some("1.2.3\n".to_owned()))?;
     try_set("version", "3.2.1", true, None)?;
     try_clear("version", false)?;
     try_add("version", "version_1", false)?;
     try_remove("version", "1", false)?;
-    get_field("description", Some("".to_string()))?;
+    get_field("description", Some(String::new()))?;
     try_set("description", "description", true, None)?;
     try_clear("description", true)?;
     try_add("description", "description_1", false)?;
     try_remove("description", "1", false)?;
-    get_field("licence", Some("".to_string()))?;
+    get_field("licence", Some(String::new()))?;
     try_set("licence", "BSD-4-Clause", true, None)?;
     try_clear("licence", true)?;
     try_add("licence", "licence_1", false)?;
     try_remove("licence", "1", false)?;
-    get_field("license", Some("".to_string()))?;
+    get_field("license", Some(String::new()))?;
     try_set("license", "BSD-4-Clause", true, None)?;
     try_clear("license", true)?;
     try_add("license", "license_1", false)?;
     try_remove("license", "1", false)?;
-    get_field("maintainer", Some("".to_string()))?;
+    get_field("maintainer", Some(String::new()))?;
     try_set("maintainer", "maintainer", true, None)?;
     try_clear("maintainer", true)?;
     try_add("maintainer", "maintainer_1", true)?;
     try_add("maintainer", "maintainer_2", true)?;
     try_add("maintainer", "maintainer_3", true)?;
     try_remove("maintainer", "2", true)?;
-    get_field("website", Some("".to_string()))?;
+    get_field("website", Some(String::new()))?;
     try_set(
         "website",
         "www.example.com",
@@ -1603,19 +1604,19 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
     try_clear("website", true)?;
     try_add("website", "website_1", false)?;
     try_remove("website", "1", false)?;
-    get_field("topic", Some("".to_string()))?;
+    get_field("topic", Some(String::new()))?;
     try_set("topic", "example", true, None)?;
     try_clear("topic", true)?;
     try_add("topic", "topic_1", true)?;
     try_add("topic", "topic_2", true)?;
     try_add("topic", "topic_3", true)?;
     try_remove("topic", "2", true)?;
-    get_field("usage", Some("".to_string()))?;
+    get_field("usage", Some(String::new()))?;
     try_set("usage", "usage", false, None)?;
     try_clear("usage", false)?;
     try_add("usage", "usage_1", false)?;
     try_remove("usage", "1", false)?;
-    get_field("index", Some("".to_string()))?;
+    get_field("index", Some(String::new()))?;
     try_set("index", "index", false, None)?;
     try_clear("index", false)?;
     try_add("index", "index_1", false)?;
@@ -1626,21 +1627,21 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
     try_add("created", "created_1", false)?;
     try_remove("created", "1", false)?;
     // setting the metamodel has its own test
-    get_field("metamodel", Some("".to_string()))?;
+    get_field("metamodel", Some(String::new()))?;
     try_clear("metamodel", true)?;
     try_add("metamodel", "kerml", false)?;
     try_remove("metamodel", "1", false)?;
-    get_field("includes-derived", Some("".to_string()))?;
+    get_field("includes-derived", Some(String::new()))?;
     try_set("includes-derived", "true", true, None)?;
     try_clear("includes-derived", true)?;
     try_add("includes-derived", "includes_1", false)?;
     try_remove("includes-derived", "1", false)?;
-    get_field("includes-implied", Some("".to_string()))?;
+    get_field("includes-implied", Some(String::new()))?;
     try_set("includes-implied", "false", true, None)?;
     try_clear("includes-implied", true)?;
     try_add("includes-implied", "includes_1", false)?;
     try_remove("includes-implied", "1", false)?;
-    get_field("checksum", Some("".to_string()))?;
+    get_field("checksum", Some(String::new()))?;
     try_set("checksum", "checksum", false, None)?;
     try_clear("checksum", false)?;
     try_add("checksum", "checksum_1", false)?;
@@ -1651,8 +1652,6 @@ fn info_detailed_verbs() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
-    let _ = env_logger::try_init();
-
     let (_tmp, cwd, out) = cli_init_project(
         Some("info_custom_metamodel"),
         "a",
@@ -1688,7 +1687,7 @@ fn info_set_metamodel() -> Result<(), Box<dyn Error>> {
         match expected_value_err {
             Ok(v) => {
                 out.assert().success();
-                let mut expected_output = v.to_string();
+                let mut expected_output = v.to_owned();
                 expected_output.push('\n');
                 get_metamodel(Some(expected_output))?;
             }

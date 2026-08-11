@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+#![expect(clippy::needless_pass_by_value)]
+
 use std::{ffi::c_void, sync::Arc};
 
 use camino::Utf8PathBuf;
@@ -177,24 +179,21 @@ fn create_env<'local>(
                     format!("Path already exists: {path}"),
                 ),
                 commands::env::EnvError::Write(suberror) => match suberror {
-                    LocalWriteError::Io(_) => env.throw_exception(ExceptionKind::IOError, e),
                     LocalWriteError::Deserialize(_) => {
                         env.throw_exception(ExceptionKind::InvalidValue, e)
                     }
-                    LocalWriteError::Path(_) => env.throw_exception(ExceptionKind::PathError, e),
-                    LocalWriteError::AlreadyExists(_) => {
+                    LocalWriteError::ImpossibleRelativePath(_) | LocalWriteError::Path(_) => {
+                        env.throw_exception(ExceptionKind::PathError, e)
+                    }
+                    LocalWriteError::Io(_)
+                    | LocalWriteError::TryMove(_)
+                    | LocalWriteError::LocalRead(_)
+                    | LocalWriteError::AlreadyExists(_)
+                    | LocalWriteError::AddProject(_) => {
                         env.throw_exception(ExceptionKind::IOError, e)
                     }
                     LocalWriteError::Serialize(_) => {
                         env.throw_exception(ExceptionKind::SerializationError, e)
-                    }
-                    LocalWriteError::TryMove(_) => env.throw_exception(ExceptionKind::IOError, e),
-                    LocalWriteError::LocalRead(_) => env.throw_exception(ExceptionKind::IOError, e),
-                    LocalWriteError::ImpossibleRelativePath(_) => {
-                        env.throw_exception(ExceptionKind::PathError, e)
-                    }
-                    LocalWriteError::AddProject(_) => {
-                        env.throw_exception(ExceptionKind::IOError, e)
                     }
                     LocalWriteError::MissingMeta
                     | LocalWriteError::MissingInfoMeta
@@ -351,7 +350,7 @@ fn workspace_project_paths<'local>(
     let paths: Vec<String> = workspace
         .absolute_project_paths()
         .into_iter()
-        .map(|p| p.into_string())
+        .map(Utf8PathBuf::into_string)
         .collect();
     Ok(paths.to_jstring_array(env).unwrap_or_default())
 }
@@ -372,9 +371,9 @@ fn set_project_index<'local>(
         ret!()
     };
     let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
-    let _ = project
-        .set_index(rust_index)
-        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
+    if let Err(e) = project.set_index(rust_index) {
+        env.throw_exception(ExceptionKind::SysandException, format_err(e));
+    }
     Ok(())
 }
 
@@ -394,9 +393,9 @@ fn set_project_info<'local>(
         ret!()
     };
     let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
-    let _ = project
-        .put_info(&info_raw, true)
-        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
+    if let Err(e) = project.put_info(&info_raw, true) {
+        env.throw_exception(ExceptionKind::SysandException, format_err(e));
+    }
     Ok(())
 }
 
@@ -416,9 +415,9 @@ fn set_project_metadata<'local>(
         ret!()
     };
     let mut project = LocalSrcProject::new_access(Utf8PathBuf::from(project_path), None);
-    let _ = project
-        .put_meta(&metadata_raw, true)
-        .inspect_err(|e| env.throw_exception(ExceptionKind::SysandException, format_err(e)));
+    if let Err(e) = project.put_meta(&metadata_raw, true) {
+        env.throw_exception(ExceptionKind::SysandException, format_err(e));
+    }
     Ok(())
 }
 
@@ -457,7 +456,7 @@ fn build_project<'local>(
     );
     match command_result {
         Ok(_) => (),
-        Err(error) => handle_build_error(env, error),
+        Err(error) => handle_build_error(env, &error),
     }
     Ok(())
 }
@@ -491,12 +490,9 @@ fn build_workspace<'local>(
     let Some(compression) = compression_from_java_string(env, compression) else {
         ret!()
     };
-    match wrapfs::create_dir_all(&output_path) {
-        Ok(_) => {}
-        Err(e) => {
-            env.throw_exception(ExceptionKind::IOError, format_err(e));
-            ret!()
-        }
+    if let Err(e) = wrapfs::create_dir_all(&output_path) {
+        env.throw_exception(ExceptionKind::IOError, format_err(e));
+        ret!()
     }
 
     let command_result = sysand_core::commands::build::do_build_workspace_kpars(
@@ -509,9 +505,8 @@ fn build_workspace<'local>(
         false,
         true,
     );
-    match command_result {
-        Ok(_) => {}
-        Err(error) => handle_build_error(env, error),
+    if let Err(e) = command_result {
+        handle_build_error(env, &e);
     }
     Ok(())
 }

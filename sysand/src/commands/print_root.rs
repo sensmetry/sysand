@@ -15,7 +15,7 @@ pub fn command_print_root<P: AsRef<Utf8Path>>(path: P) -> Result<()> {
             Ok(())
         }
         None => Err(anyhow!(CliError::InvalidDirectory(
-            "not inside a project".to_string(),
+            "not inside a project".to_owned(),
         ))),
     }
 }

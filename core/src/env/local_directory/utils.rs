@@ -37,11 +37,11 @@ pub fn clean_dir<P: AsRef<Utf8Path>>(path: P) {
             Ok(entry_type) => {
                 if entry_type.is_dir() {
                     clean_dir(path);
-                    let _ = fs::remove_dir(path)
-                        .map_err(|e| log::warn!("failed to remove empty dir `{path}`: {e}"));
-                } else {
-                    let _ = fs::remove_file(path)
-                        .map_err(|e| log::warn!("failed to remove file/symlink `{path}`: {e}"));
+                    if let Err(e) = fs::remove_dir(path) {
+                        log::warn!("failed to remove empty dir `{path}`: {e}");
+                    }
+                } else if let Err(e) = fs::remove_file(path) {
+                    log::warn!("failed to remove file/symlink `{path}`: {e}");
                 };
             }
             Err(e) => {
@@ -106,7 +106,7 @@ pub(crate) fn move_fs_item<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
             }
             Ok(())
         }
-        Err(e) => Err(FsIoError::Move(src.to_path_buf(), dst.to_path_buf(), e))?,
+        Err(e) => Err(FsIoError::Move(src.to_path_buf(), dst.to_path_buf(), e).into()),
     }
 }
 

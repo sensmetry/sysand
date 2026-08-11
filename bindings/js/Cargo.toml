@@ -34,3 +34,6 @@ wasm-bindgen-test = "0.3.64"
 [features]
 default = ["browser"]
 browser = ["dep:web-sys"]
+
+[lints]
+workspace = true

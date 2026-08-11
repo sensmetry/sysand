@@ -32,8 +32,8 @@ pub enum ParseIriError {
 pub(crate) fn parse_iri(iri: &str) -> Result<ParsedIri, ParseIriError> {
     match parse_sysand_purl(iri) {
         Ok(Some((publisher, name))) => Ok(ParsedIri::Sysand {
-            publisher: publisher.to_string(),
-            name: name.to_string(),
+            publisher: publisher.to_owned(),
+            name: name.to_owned(),
         }),
         Ok(None) => {
             let malformed = |source| ParseIriError::MalformedIri {
@@ -67,8 +67,8 @@ impl ParsedIri {
     /// path) so callers can encode each independently.
     pub(crate) fn get_path_segments(&self) -> [String; 2] {
         match self {
-            ParsedIri::Sysand { publisher, name } => [publisher.clone(), name.clone()],
-            ParsedIri::Other { normalized_iri } => [
+            Self::Sysand { publisher, name } => [publisher.clone(), name.clone()],
+            Self::Other { normalized_iri } => [
                 IRI_HASH_SEGMENT.to_owned(),
                 sha256_lowercase_hex(normalized_iri),
             ],
@@ -81,10 +81,10 @@ impl ParsedIri {
 
     pub(crate) fn get_iri(&self) -> String {
         match self {
-            ParsedIri::Sysand { publisher, name } => {
+            Self::Sysand { publisher, name } => {
                 format!("{}{}/{}", PKG_SYSAND_PREFIX, publisher, name)
             }
-            ParsedIri::Other { normalized_iri } => normalized_iri.clone(),
+            Self::Other { normalized_iri } => normalized_iri.clone(),
         }
     }
 }

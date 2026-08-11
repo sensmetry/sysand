@@ -233,8 +233,8 @@ pub enum ProbeSurface {
 impl std::fmt::Display for ProbeSurface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProbeSurface::Read => write!(f, "read"),
-            ProbeSurface::Api => write!(f, "api"),
+            Self::Read => write!(f, "read"),
+            Self::Api => write!(f, "api"),
         }
     }
 }
@@ -244,8 +244,8 @@ impl std::fmt::Display for ProbeSurface {
 impl From<ProbeSurface> for ValidatedSurface {
     fn from(surface: ProbeSurface) -> Self {
         match surface {
-            ProbeSurface::Read => ValidatedSurface::Read,
-            ProbeSurface::Api => ValidatedSurface::Api,
+            ProbeSurface::Read => Self::Read,
+            ProbeSurface::Api => Self::Api,
         }
     }
 }
@@ -338,7 +338,7 @@ impl IndexKey {
     pub fn validate(index_url: &str) -> Result<Self, AuthCommandError> {
         let location = IndexLocation::parse(index_url).map_err(|err| match err {
             IndexLocationError::UnsupportedScheme { .. } => AuthCommandError::NotHttpIndex {
-                url: index_url.to_string(),
+                url: index_url.to_owned(),
             },
             // The index-location errors already name the URL; no
             // re-prefixing.
@@ -451,7 +451,7 @@ fn derive_credential_globs(
     // Roots already covered, each ending in `/`. A candidate whose string
     // prefix is an existing root is covered: that root's `**` glob
     // matches every URL under the candidate.
-    let mut roots: Vec<String> = vec![primary_root.to_string()];
+    let mut roots: Vec<String> = vec![primary_root.to_owned()];
 
     let push_if_uncovered = |roots: &mut Vec<String>, candidate: String| {
         if !roots
@@ -498,6 +498,7 @@ fn template_anchor_root(template: &IndexUrlTemplate) -> Url {
     let cut = prefix
         .rfind('/')
         .expect("BUG: a normalized template prefix has an explicit path `/`");
+    #[expect(clippy::string_slice)]
     Url::parse(&prefix[..=cut])
         .expect("BUG: a normalized template prefix cut at a `/` parses as a URL")
 }
@@ -642,13 +643,12 @@ fn probe_request(
 /// The redirect target for a 3xx probe response, for the "not tested"
 /// warning. Kept verbatim (possibly relative); a missing `Location`
 /// header is named as such rather than printed empty.
-fn redirect_target(response: &reqwest::Response) -> String {
+fn redirect_target(response: &reqwest::Response) -> &str {
     response
         .headers()
         .get(reqwest::header::LOCATION)
         .and_then(|value| value.to_str().ok())
-        .map(str::to_string)
-        .unwrap_or_else(|| "(no Location header)".to_string())
+        .unwrap_or("(no Location header)")
 }
 
 /// Collect into `schemes` the scheme token of every `WWW-Authenticate`
@@ -680,7 +680,7 @@ fn collect_challenge_schemes(headers: &reqwest::header::HeaderMap, schemes: &mut
                 continue;
             }
             if !schemes.iter().any(|s| s.eq_ignore_ascii_case(token)) {
-                schemes.push(token.to_string());
+                schemes.push(token.to_owned());
             }
         }
     }
@@ -719,7 +719,7 @@ fn probe_read_surface(
     if status.is_redirection() {
         notify(AuthLoginNotice::ProbeRedirected {
             surface,
-            target: redirect_target(&baseline),
+            target: redirect_target(&baseline).to_owned(),
         });
         return;
     }
@@ -761,7 +761,7 @@ fn probe_read_surface(
     if forced_status.is_redirection() {
         notify(AuthLoginNotice::ProbeRedirected {
             surface,
-            target: redirect_target(&forced),
+            target: redirect_target(&forced).to_owned(),
         });
     } else if forced_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         // 429 is never a verdict: counting it as rejected
@@ -824,7 +824,7 @@ fn probe_api_surface(
     if status.is_redirection() {
         notify(AuthLoginNotice::ProbeRedirected {
             surface,
-            target: redirect_target(&response),
+            target: redirect_target(&response).to_owned(),
         });
     } else if status == reqwest::StatusCode::OK {
         outcome.accepted.push(surface);
@@ -1055,7 +1055,7 @@ pub fn do_auth_login<B: BlobBackend>(
     runtime: &tokio::runtime::Runtime,
     mut notify: impl FnMut(AuthLoginNotice),
 ) -> Result<AuthLoginOutcome, AuthCommandError> {
-    let key = index_key.as_str().to_string();
+    let key = index_key.as_str().to_owned();
     let location = &index_key.location;
     let primary_root = index_key.glob_root.clone();
 
@@ -1162,7 +1162,7 @@ pub fn do_auth_logout<B: BlobBackend>(
     store: &mut LockedBlobStore<B>,
     index_key: &IndexKey,
 ) -> Result<String, AuthCommandError> {
-    let key = index_key.as_str().to_string();
+    let key = index_key.as_str().to_owned();
     if store.remove(&key)? {
         Ok(key)
     } else {
@@ -1226,12 +1226,12 @@ fn select_whoami_credential(
                 WhoamiCredentialSource::Env {
                     label: entry.label.clone(),
                 },
-                entry.auth.token().to_string(),
+                entry.auth.token().to_owned(),
             ));
         }
         BearerSelection::Ambiguous { matched, .. } => {
             return Err(AuthCommandError::AmbiguousWhoamiCredential {
-                url: whoami_url.as_str().to_string(),
+                url: whoami_url.as_str().to_owned(),
                 source_name: "`SYSAND_CRED_*` environment variables",
                 candidates: crate::commands::publish::dedup_in_order(
                     matched
@@ -1247,13 +1247,13 @@ fn select_whoami_credential(
     match select_bearer(&stored, whoami_url.as_str(), |entry| entry.auth().token()) {
         BearerSelection::Unique(entry) => Ok((
             WhoamiCredentialSource::Stored {
-                key: entry.key().to_string(),
+                key: entry.key().to_owned(),
             },
-            entry.auth().token().to_string(),
+            entry.auth().token().to_owned(),
         )),
         BearerSelection::Ambiguous { matched, .. } => {
             Err(AuthCommandError::AmbiguousWhoamiCredential {
-                url: whoami_url.as_str().to_string(),
+                url: whoami_url.as_str().to_owned(),
                 source_name: "stored credentials",
                 candidates: crate::commands::publish::dedup_in_order(
                     matched.iter().map(|entry| format!("`{}`", entry.key())),
@@ -1261,8 +1261,8 @@ fn select_whoami_credential(
             })
         }
         BearerSelection::None => Err(AuthCommandError::NoWhoamiCredential {
-            url: whoami_url.as_str().to_string(),
-            index: index_key.to_string(),
+            url: whoami_url.as_str().to_owned(),
+            index: index_key.to_owned(),
         }),
     }
 }
@@ -1287,7 +1287,7 @@ pub fn do_auth_whoami<P: HTTPAuthentication>(
     client: &reqwest_middleware::ClientWithMiddleware,
     runtime: &tokio::runtime::Runtime,
 ) -> Result<AuthWhoamiOutcome, AuthCommandError> {
-    let key = index_key.as_str().to_string();
+    let key = index_key.as_str().to_owned();
 
     let endpoints = runtime
         .block_on(fetch_index_config(
@@ -1343,7 +1343,7 @@ pub fn do_auth_whoami<P: HTTPAuthentication>(
                     }
                 } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
                     WhoamiVerdict::Unreachable {
-                        detail: "rate limited (HTTP 429)".to_string(),
+                        detail: "rate limited (HTTP 429)".to_owned(),
                     }
                 } else {
                     WhoamiVerdict::Unreachable {
@@ -1376,8 +1376,7 @@ fn lenient_glob_matches(pattern: &str, target: &str) -> bool {
     GlobBuilder::new(pattern)
         .literal_separator(true)
         .build()
-        .map(|glob| glob.compile_matcher().is_match(target))
-        .unwrap_or(false)
+        .is_ok_and(|glob| glob.compile_matcher().is_match(target))
 }
 
 /// Assemble the `auth status` view from stored records and environment
@@ -1390,7 +1389,7 @@ fn lenient_glob_matches(pattern: &str, target: &str) -> bool {
 /// use". Purely diagnostic: `None` simply marks nothing.
 pub fn assemble_auth_status(
     records: Vec<CredentialRecord>,
-    env: Vec<EnvCredentialEntry>,
+    mut env: Vec<EnvCredentialEntry>,
     now: DateTime<Utc>,
     default_key: Option<&str>,
 ) -> AuthStatus {
@@ -1400,7 +1399,6 @@ pub fn assemble_auth_status(
             .as_deref()
             .is_some_and(|root| globs.iter().any(|glob| lenient_glob_matches(glob, root)))
     };
-    let mut env = env;
     for entry in &mut env {
         entry.applies_to_default = default_applies(std::slice::from_ref(&entry.pattern));
     }
@@ -1423,7 +1421,7 @@ pub fn assemble_auth_status(
             let shadowed_by = env_matchers
                 .iter()
                 .filter(|(_, matcher)| matcher.is_match(&record.key))
-                .map(|(label, _)| (*label).to_string())
+                .map(|(label, _)| (*label).to_owned())
                 .collect();
             StoredCredentialStatus {
                 expired: record.expires_at.is_some_and(|expiry| expiry < now),

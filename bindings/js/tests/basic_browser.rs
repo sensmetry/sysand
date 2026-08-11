@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+#![expect(clippy::tests_outside_test_module)]
+
 #[cfg(feature = "browser")]
 mod browser_tests {
     use std::error::Error;
@@ -22,12 +24,12 @@ mod browser_tests {
     #[wasm_bindgen_test(unsupported = test)]
     fn basic_init() -> Result<(), Box<dyn Error>> {
         do_init_js_local_storage(
-            "basic_init".to_string(),
+            "basic_init".to_owned(),
             "a".into(),
-            "1.2.3".to_string(),
+            "1.2.3".to_owned(),
             "sysand_storage",
             "/",
-            Some("MIT OR Apache-2.0".to_string()),
+            Some("MIT OR Apache-2.0".to_owned()),
         )
         .unwrap();
 
@@ -37,7 +39,7 @@ mod browser_tests {
             local_storage
                 .get_item("sysand_storage/.project.json")
                 .unwrap(),
-            Some(r#"{"name":"basic_init","publisher":"a","version":"1.2.3","license":"MIT OR Apache-2.0"}"#.to_string())
+            Some(r#"{"name":"basic_init","publisher":"a","version":"1.2.3","license":"MIT OR Apache-2.0"}"#.to_owned())
         );
 
         let re = Regex::new(r#"\{"index":\{\},"created":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"}"#)
@@ -59,11 +61,11 @@ mod browser_tests {
         assert_eq!(
             info,
             InterchangeProjectInfo {
-                name: "basic_init".to_string(),
+                name: "basic_init".to_owned(),
                 publisher: Some(String::from("a")),
                 description: None,
                 version: Version::parse("1.2.3")?,
-                license: Some("MIT OR Apache-2.0".to_string()),
+                license: Some("MIT OR Apache-2.0".to_owned()),
                 maintainer: vec![],
                 website: None,
                 topic: vec![],
@@ -85,14 +87,14 @@ mod browser_tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
-    fn basic_env() -> Result<(), Box<dyn Error>> {
+    fn basic_env() {
         do_env_js_local_storage("sysand_storage", "/").unwrap();
 
         let local_storage = web_sys::window().unwrap().local_storage().unwrap().unwrap();
 
         assert_eq!(
             local_storage.key(0),
-            Ok(Some("sysand_storage/.sysand/entries.txt".to_string()))
+            Ok(Some("sysand_storage/.sysand/entries.txt".to_owned()))
         );
         assert_eq!(local_storage.key(1), Ok(None));
 
@@ -100,12 +102,10 @@ mod browser_tests {
             local_storage
                 .get_item("sysand_storage/.sysand/entries.txt")
                 .unwrap(),
-            Some("".to_string())
+            Some(String::new())
         );
 
         // Local storage is not automatically cleared between tests.
         local_storage.clear().unwrap();
-
-        Ok(())
     }
 }

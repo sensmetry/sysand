@@ -94,3 +94,6 @@ mockito = "1.7.2"
 port_check = "0.3.0"
 predicates = "3.1.4"
 camino-tempfile = "1.4"
+
+[lints]
+workspace = true

@@ -154,7 +154,8 @@ impl Workspace {
     }
 
     pub fn metamodel(&self) -> Option<&Iri<String>> {
-        self.info.meta.as_ref().and_then(|m| m.metamodel.as_ref())
+        let m = self.info.meta.as_ref()?;
+        m.metamodel.as_ref()
     }
 
     pub fn absolute_project_paths(&self) -> Vec<Utf8PathBuf> {

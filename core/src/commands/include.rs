@@ -36,8 +36,8 @@ impl<ProjectError> From<FsIoError> for IncludeError<ProjectError> {
 impl<ProjectError> From<ProjectOrIOError<ProjectError>> for IncludeError<ProjectError> {
     fn from(value: ProjectOrIOError<ProjectError>) -> Self {
         match value {
-            ProjectOrIOError::Project(error) => IncludeError::Project(error),
-            ProjectOrIOError::Io(error) => IncludeError::Io(error),
+            ProjectOrIOError::Project(error) => Self::Project(error),
+            ProjectOrIOError::Io(error) => Self::Io(error),
         }
     }
 }

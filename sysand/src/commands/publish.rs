@@ -122,7 +122,7 @@ fn publish_error_with_hint(err: PublishError, index: &str) -> anyhow::Error {
                 lines.push(
                     "run `sysand auth status` to see which subject the credential\n\
                      authenticates as"
-                        .to_string(),
+                        .to_owned(),
                 );
             }
             (!lines.is_empty()).then(|| lines.join("\n"))

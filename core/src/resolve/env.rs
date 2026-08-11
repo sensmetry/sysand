@@ -49,14 +49,15 @@ impl<Env: ReadEnvironmentAsync> ResolveReadAsync for EnvResolver<Env> {
 
     type ProjectStorage = Env::InterchangeProjectRead;
 
-    type ResolvedStorages = futures::stream::Iter<
-        <Vec<
-            Result<
-                <EnvResolver<Env> as ResolveReadAsync>::ProjectStorage,
-                <EnvResolver<Env> as ResolveReadAsync>::Error,
-            >,
-        > as IntoIterator>::IntoIter,
-    >;
+    type ResolvedStorages =
+        futures::stream::Iter<
+            <Vec<
+                Result<
+                    <Self as ResolveReadAsync>::ProjectStorage,
+                    <Self as ResolveReadAsync>::Error,
+                >,
+            > as IntoIterator>::IntoIter,
+        >;
 
     async fn resolve_read_async(
         &self,
