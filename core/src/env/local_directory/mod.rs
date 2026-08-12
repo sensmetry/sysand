@@ -127,9 +127,9 @@ impl LocalDirectoryEnvironment {
                     ws.is_some_and(|w| w.projects().iter().any(|p| p.path.as_str() == editable));
 
                 self.metadata.projects.push(EnvProject {
-                    publisher: project.publisher.to_owned(),
-                    name: project.name.to_owned(),
-                    version: project.version.to_owned(),
+                    publisher: project.publisher.clone(),
+                    name: project.name.clone(),
+                    version: project.version.clone(),
                     path: editable.as_str().into(),
                     identifiers: project
                         .identifiers
@@ -294,7 +294,7 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
             .metadata
             .projects
             .iter()
-            .flat_map(|p| p.identifiers.iter().map(|i| Ok(i.to_string())))
+            .flat_map(|p| p.identifiers.iter().map(|i| Ok(i.clone())))
             .collect())
     }
 
@@ -305,7 +305,7 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
         Ok(self
             .metadata
             .find_project_versions(identifier)
-            .map(|p| Ok(p.version.to_owned()))
+            .map(|p| Ok(p.version.clone()))
             .collect())
     }
 

@@ -286,7 +286,7 @@ pub fn do_lock_extend<
         let lock_project = Project {
             name: info.name,
             publisher: info.publisher,
-            version: info.version.to_string(),
+            version: info.version.clone(),
             exports: meta.index.into_keys().collect(),
             identifiers: vec![identifier.to_string()],
             sources,

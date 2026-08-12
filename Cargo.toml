@@ -31,12 +31,13 @@ log = { version = "0.4.29", default-features = false }
 sha2 = { version = "0.11", default-features = false }
 
 [workspace.lints.clippy]
-# Enable all lints by default, and disable on a case-by-case
-# basis. This also conveniently enables any new lints that get introduced.
-# Generally a lint should be disabled if it is:
-# - too noisy + no impact on correctness/performance + not fixable with `--fix`
+# Enable all lints by default, and disable individually.
+# This also conveniently enables any new lints that get introduced.
+# Feel free to disable lints in code if they don't improve it.
+# Generally a lint should be disabled here if it is:
+# - noisy + no impact on correctness/performance + not fixable with `--fix`
 # - requires style that is not appealing
-# - conflicts with another lint (happens for code style)
+# - conflicts with another lint
 
 all = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
@@ -50,10 +51,7 @@ suspicious = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 
 # TODO: enable and fix
-implicit_clone = "allow"
 needless_pass_by_value = "allow"
-# TODO: enable and justify each case
-string_slice = "allow"
 
 # Suspicious
 
@@ -89,6 +87,7 @@ unreadable_literal = "allow"
 
 # Restriction
 
+string_slice = "allow"
 absolute_paths = "allow"
 allow_attributes_without_reason = "allow"
 arbitrary_source_item_ordering = "allow"
@@ -175,7 +174,4 @@ significant_drop_tightening = "allow"
 fallible_impl_from = "allow"
 single_option_map = "allow"
 uninhabited_references = "allow"
-
-# TODO: enable and fix these
 option_if_let_else = "allow"
-or_fun_call = "allow"

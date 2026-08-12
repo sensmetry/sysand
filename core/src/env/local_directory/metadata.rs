@@ -77,12 +77,10 @@ impl FromStr for EnvMetadata {
                     match c {
                         Utf8UnixComponent::Normal(_) => (),
                         Utf8UnixComponent::RootDir => {
-                            return Err(ParseError::AbsoluteProjectPath(project.path.to_owned()));
+                            return Err(ParseError::AbsoluteProjectPath(project.path.clone()));
                         }
                         Utf8UnixComponent::CurDir | Utf8UnixComponent::ParentDir => {
-                            return Err(ParseError::NonNormalizedProjectPath(
-                                project.path.to_owned(),
-                            ));
+                            return Err(ParseError::NonNormalizedProjectPath(project.path.clone()));
                         }
                     }
                 }
@@ -214,7 +212,7 @@ impl EnvMetadata {
     ) -> Result<(), AddProjectError> {
         let info = project
             .get_info()?
-            .ok_or(AddProjectError::MissingInfo(project.root_path().to_owned()))?;
+            .ok_or_else(|| AddProjectError::MissingInfo(project.root_path().to_owned()))?;
         let project = EnvProject {
             publisher: info.publisher,
             name: info.name,

@@ -59,7 +59,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     mut ctx: ProjectContext,
 ) -> Result<()> {
-    let project_root = project_root.unwrap_or(ctx.current_directory.clone());
+    let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
     let env = crate::get_or_create_env(
         ctx.env,
         ctx.current_workspace.as_ref(),
@@ -205,7 +205,7 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     mut ctx: ProjectContext,
 ) -> Result<()> {
-    let project_root = project_root.unwrap_or(ctx.current_directory.clone());
+    let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
     let env = crate::get_or_create_env(
         ctx.env,
         ctx.current_workspace.as_ref(),

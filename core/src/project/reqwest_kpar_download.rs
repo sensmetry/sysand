@@ -271,7 +271,7 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
             } else {
                 Err(ReqwestKparDownloadedError::DigestMismatch {
                     url: self.url.as_str().into(),
-                    expected: expected.sha256_hex.to_owned(),
+                    expected: expected.sha256_hex.clone(),
                     computed: computed_hash,
                 })
             }
@@ -353,12 +353,12 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloade
 
     async fn sources_async(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         let (kpar_size, kpar_digest) = if let Some(expected) = &self.expected {
-            (expected.size_bytes, expected.sha256_hex.to_owned())
+            (expected.size_bytes, expected.sha256_hex.clone())
         } else {
             // If expected is not present, download populates the cell with actual
             let (_, maybe_meta) = self.ensure_downloaded_verified().await?;
             let actual_meta = maybe_meta.as_ref().unwrap();
-            (actual_meta.size_bytes, actual_meta.sha256_hex.to_owned())
+            (actual_meta.size_bytes, actual_meta.sha256_hex.clone())
         };
         Ok(vec![Source::RemoteKpar {
             remote_kpar: self.url.to_string(),
@@ -385,7 +385,7 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestRemoteKparDownloade
                     Some(m) => m,
                     None => self.expected.as_ref().unwrap(),
                 };
-                Ok(ProjectChecksum::Kpar(meta.sha256_hex.to_owned()))
+                Ok(ProjectChecksum::Kpar(meta.sha256_hex.clone()))
             }
             Err(e) => Err(e),
         }
@@ -524,7 +524,7 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
         } else {
             Err(ReqwestKparDownloadedError::DigestMismatch {
                 url: self.url.as_str().into(),
-                expected: self.expected_kpar_sha256.to_owned(),
+                expected: self.expected_kpar_sha256.clone(),
                 computed: computed_hash,
             })
         }

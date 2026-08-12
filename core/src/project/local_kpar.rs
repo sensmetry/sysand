@@ -229,7 +229,7 @@ impl LocalKParProject {
             Some(val) => Ok(val),
             None => {
                 let (inner, meta) =
-                    LocalKParProjectRaw::new_hash(&self.archive_path, self.root.to_owned())?;
+                    LocalKParProjectRaw::new_hash(&self.archive_path, self.root.clone())?;
                 // TODO: move these sorts of checks out of this type
                 if let Some(expected) = &self.expected {
                     if meta.size_bytes != expected.size_bytes {
@@ -241,7 +241,7 @@ impl LocalKParProject {
                     } else if meta.sha256_hex != expected.sha256_hex {
                         return Err(LocalKParError::DigestMismatch {
                             path: self.archive_path.as_str().into(),
-                            expected: expected.sha256_hex.to_owned(),
+                            expected: expected.sha256_hex.clone(),
                             computed: meta.sha256_hex,
                         });
                     }
@@ -342,7 +342,7 @@ impl ProjectRead for LocalKParProject {
                 Ok(vec![Source::LocalKpar {
                     kpar_path,
                     kpar_size: meta.size_bytes,
-                    kpar_digest: meta.sha256_hex.to_owned(),
+                    kpar_digest: meta.sha256_hex.clone(),
                 }])
             }
             Err(e) => Err(e),

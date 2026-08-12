@@ -142,7 +142,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         override_resolver,
         standard_resolver(
             // TODO: borrow?
-            ctx.env.to_owned(),
+            ctx.env.clone(),
             Some(client),
             index_urls,
             runtime,

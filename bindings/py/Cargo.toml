@@ -29,7 +29,7 @@ pyo3 = { version = "0.29.0", default-features = false, features = ["macros"] }
 pyo3-log = "0.13.3"
 log.workspace = true
 semver = { version = "1.0.27", default-features = false }
-typed-path = { version = "0.12.3", default-features = false, features= ["std"] }
+typed-path = { version = "0.12.3", default-features = false, features = ["std"] }
 url = { version = "2.5.8", default-features = false }
 tokio = { version = "1.50.0", default-features = false, features = ["rt"] }
 reqwest-middleware = "0.5.1"
