@@ -28,7 +28,16 @@ camino-tempfile = "1.4"
 anstream = "1.0.0"
 anyhow = "1.0.102"
 chrono = { version = "0.4.44", default-features = false, features = ["now"] }
-clap = { version = "4.5.60", default-features = false, features = ["derive", "unicode", "help", "cargo", "color", "env", "suggestions", "usage"] }
+clap = { version = "4.5.60", default-features = false, features = [
+  "derive",
+  "unicode",
+  "help",
+  "cargo",
+  "color",
+  "env",
+  "suggestions",
+  "usage"
+] }
 env_logger.workspace = true
 log.workspace = true
 sysand-core = { path = "../core", features = ["std", "filesystem", "networking", "keyring"] }
@@ -56,7 +65,7 @@ camino-tempfile = "1.4"
 url = "2.5.8"
 zip = "8.0.0"
 
-[target.'cfg(not(windows))'.dev-dependencies]
+[target."cfg(not(windows))".dev-dependencies]
 rexpect = "0.7.0"
 nix = { version = "0.31.2", features = ["process"] }
 

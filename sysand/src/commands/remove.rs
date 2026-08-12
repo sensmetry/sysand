@@ -27,7 +27,7 @@ pub fn command_remove(
 
     let config_path = config_file
         .map(Utf8PathBuf::from)
-        .or((!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
+        .or_else(|| (!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
 
     if let Some(path) = config_path {
         remove_project_source_from_config(path, &iri)?;

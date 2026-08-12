@@ -177,7 +177,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
     if let Some(source) = source {
         let config_path = config_file
             .map(Utf8PathBuf::from)
-            .or((!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
+            .or_else(|| (!no_config).then(|| current_project.root_path().join(CONFIG_FILE)));
 
         if let Some(path) = config_path {
             add_project_source_to_config(&path, iri, &source)?;
@@ -227,7 +227,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             w.projects()
                 .iter()
                 .find(|p| Path::new(&p.path) == current_project.root_path())
-                .map(|p| p.iris.to_owned())
+                .map(|p| p.iris.clone())
         } else {
             None
         };
@@ -327,7 +327,7 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
             w.projects()
                 .iter()
                 .find(|p| Path::new(&p.path) == current_project.root_path())
-                .map(|p| p.iris.to_owned())
+                .map(|p| p.iris.clone())
         } else {
             None
         };

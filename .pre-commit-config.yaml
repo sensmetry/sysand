@@ -88,6 +88,12 @@ repos:
           - warnings
         pass_filenames: false
 
+  # Autoformat: toml
+  - repo: https://github.com/tombi-toml/tombi-pre-commit
+    rev: v1.3.1
+    hooks:
+      - id: tombi-format
+
   # Autoformat: python
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.4

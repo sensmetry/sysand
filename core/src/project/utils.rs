@@ -586,7 +586,7 @@ impl Identifier {
     pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Self {
         let (publisher, name) = match usage {
             InterchangeProjectUsageRaw::Resource { resource, .. } => {
-                return Self(resource.to_string());
+                return Self(resource.clone());
             }
             InterchangeProjectUsageRaw::Directory {
                 publisher, name, ..

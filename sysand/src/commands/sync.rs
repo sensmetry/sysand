@@ -37,6 +37,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     ws: Option<&Workspace>,
 ) -> Result<()> {
+    #[expect(clippy::or_fun_call, reason = "cheap")]
     let relative_root = ws.map_or(project_root.as_ref(), Workspace::root_path);
     sysand_core::commands::sync::do_sync(
         lock,

@@ -185,6 +185,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
     let auto_config = if args.global_opts.no_config {
         Config::default()
     } else {
+        #[expect(clippy::or_fun_call, reason = "cheap")]
         load_configs(project_root.as_deref().unwrap_or(Utf8Path::new(".")))?
     };
 
@@ -400,7 +401,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 known_std_libs()
             };
 
-            let project_root = project_root.unwrap_or(ctx.current_directory.clone());
+            let project_root = project_root.unwrap_or_else(|| ctx.current_directory.clone());
             let lockfile = project_root.join(DEFAULT_LOCKFILE_NAME);
             let lock = match fs::read_to_string(&lockfile) {
                 Ok(l) => match Lock::from_str(&l) {

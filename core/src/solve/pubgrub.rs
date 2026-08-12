@@ -371,7 +371,7 @@ fn resolve_candidates<R: ResolveRead>(
                             project.project_root().map(camino::Utf8Path::to_path_buf);
                         let usage = usage
                             .into_iter()
-                            .map(|u| CoalescingUsage::new_usage(u, relative_root.to_owned()))
+                            .map(|u| CoalescingUsage::new_usage(u, relative_root.clone()))
                             .collect();
 
                         found.push(Candidate {
