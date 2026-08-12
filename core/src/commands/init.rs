@@ -55,10 +55,10 @@ pub fn do_init_ext<P: ProjectMut>(
 
     storage.put_project(
         &InterchangeProjectInfoRaw {
-            name: name.to_owned(),
+            name,
             publisher: Some(publisher),
             description: None,
-            version: version.to_owned(),
+            version,
             license,
             maintainer: vec![],
             topic: vec![],

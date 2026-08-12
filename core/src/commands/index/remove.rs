@@ -96,7 +96,7 @@ pub fn do_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
             // since if the project with invalid semver got in there somehow, it should
             // be possible to remove
             log::info!("{header}{removing:>12}{header:#} {iri} version {version}");
-            let mut version_found: bool = false;
+            let mut version_found = false;
             remove_versions(
                 &project_path,
                 &versions_path,
@@ -143,10 +143,10 @@ pub fn do_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
 impl From<JsonFileError> for IndexRemoveError {
     fn from(value: JsonFileError) -> Self {
         match value {
-            JsonFileError::FileDoesNotExist(e) => IndexRemoveError::Io(e),
-            JsonFileError::Io(e) => IndexRemoveError::Io(e),
+            JsonFileError::FileDoesNotExist(e) => Self::Io(e),
+            JsonFileError::Io(e) => Self::Io(e),
             JsonFileError::InvalidJsonFile { path, source } => {
-                IndexRemoveError::InvalidJsonFile { path, source }
+                Self::InvalidJsonFile { path, source }
             }
         }
     }

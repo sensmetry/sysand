@@ -96,10 +96,10 @@ impl SubjectKind {
     /// The canonical string form: the wire form and the display form.
     pub fn as_str(&self) -> &str {
         match self {
-            SubjectKind::User => "user",
-            SubjectKind::Project => "project",
-            SubjectKind::Oidc => "oidc",
-            SubjectKind::Other(value) => value,
+            Self::User => "user",
+            Self::Project => "project",
+            Self::Oidc => "oidc",
+            Self::Other(value) => value,
         }
     }
 }
@@ -107,10 +107,10 @@ impl SubjectKind {
 impl From<String> for SubjectKind {
     fn from(value: String) -> Self {
         match value.as_str() {
-            "user" => SubjectKind::User,
-            "project" => SubjectKind::Project,
-            "oidc" => SubjectKind::Oidc,
-            _ => SubjectKind::Other(value),
+            "user" => Self::User,
+            "project" => Self::Project,
+            "oidc" => Self::Oidc,
+            _ => Self::Other(value),
         }
     }
 }
@@ -120,7 +120,7 @@ impl From<SubjectKind> for String {
         match kind {
             // Moves the unknown value out instead of cloning via `as_str`.
             SubjectKind::Other(value) => value,
-            known => known.as_str().to_string(),
+            known => known.as_str().to_owned(),
         }
     }
 }
@@ -148,9 +148,9 @@ impl ValidatedSurface {
     /// The canonical string form: the wire form and the display form.
     pub fn as_str(&self) -> &str {
         match self {
-            ValidatedSurface::Read => "read",
-            ValidatedSurface::Api => "api",
-            ValidatedSurface::Other(value) => value,
+            Self::Read => "read",
+            Self::Api => "api",
+            Self::Other(value) => value,
         }
     }
 }
@@ -158,9 +158,9 @@ impl ValidatedSurface {
 impl From<String> for ValidatedSurface {
     fn from(value: String) -> Self {
         match value.as_str() {
-            "read" => ValidatedSurface::Read,
-            "api" => ValidatedSurface::Api,
-            _ => ValidatedSurface::Other(value),
+            "read" => Self::Read,
+            "api" => Self::Api,
+            _ => Self::Other(value),
         }
     }
 }
@@ -170,7 +170,7 @@ impl From<ValidatedSurface> for String {
         match surface {
             // Moves the unknown value out instead of cloning via `as_str`.
             ValidatedSurface::Other(value) => value,
-            known => known.as_str().to_string(),
+            known => known.as_str().to_owned(),
         }
     }
 }
@@ -241,7 +241,7 @@ pub struct CredentialBlob {
 
 impl CredentialBlob {
     pub fn new(credentials: Vec<CredentialRecord>) -> Self {
-        CredentialBlob {
+        Self {
             version: BLOB_VERSION,
             credentials,
             extra: serde_json::Map::new(),
@@ -249,13 +249,13 @@ impl CredentialBlob {
     }
 
     pub fn empty() -> Self {
-        CredentialBlob::new(Vec::new())
+        Self::new(Vec::new())
     }
 }
 
 impl Default for CredentialBlob {
     fn default() -> Self {
-        CredentialBlob::empty()
+        Self::empty()
     }
 }
 
@@ -264,9 +264,8 @@ impl Default for CredentialBlob {
 /// [`CredentialStoreError::Unreadable`], an unknown `version` as
 /// [`CredentialStoreError::UnsupportedBlobVersion`].
 pub fn parse_blob(raw: &str) -> Result<CredentialBlob, CredentialStoreError> {
-    // Parse error is ignored here, because it may include secrets
-    let blob: CredentialBlob =
-        serde_json::from_str(raw).map_err(|_| CredentialStoreError::Unreadable)?;
+    let blob: CredentialBlob = serde_json::from_str(raw)
+        .map_err(|_ignored_because_may_include_secrets| CredentialStoreError::Unreadable)?;
     if blob.version != BLOB_VERSION {
         return Err(CredentialStoreError::UnsupportedBlobVersion {
             found: blob.version,
@@ -305,8 +304,8 @@ pub(crate) mod test_support {
 
     impl InMemoryBlobBackend {
         pub(crate) fn with_contents(raw: &str) -> Self {
-            InMemoryBlobBackend {
-                blob: Arc::new(Mutex::new(Some(raw.to_string()))),
+            Self {
+                blob: Arc::new(Mutex::new(Some(raw.to_owned()))),
             }
         }
 
@@ -321,7 +320,7 @@ pub(crate) mod test_support {
         }
 
         fn write(&self, raw: &str) -> Result<(), CredentialStoreError> {
-            *self.blob.lock().unwrap() = Some(raw.to_string());
+            *self.blob.lock().unwrap() = Some(raw.to_owned());
             Ok(())
         }
 

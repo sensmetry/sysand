@@ -16,10 +16,10 @@ use crate::credential_store::{CredentialRecord, CredentialScheme, CredentialStor
 
 fn record(key: &str, secret: &str) -> CredentialRecord {
     CredentialRecord {
-        key: key.to_string(),
+        key: key.to_owned(),
         globs: vec![format!("{key}**")],
         scheme: CredentialScheme::Bearer,
-        secret: secret.to_string(),
+        secret: secret.to_owned(),
         expires_at: None,
         subject: None,
         token_name: None,
@@ -135,7 +135,7 @@ fn lock_path_prefers_state_then_data_local_then_home() {
     let home = Some(std::path::PathBuf::from("/home/user"));
 
     assert_eq!(
-        lock_path_from_dirs(state.clone(), data_local.clone(), home.clone()).unwrap(),
+        lock_path_from_dirs(state, data_local.clone(), home.clone()).unwrap(),
         Utf8PathBuf::from("/xdg/state/sysand/credentials.lock")
     );
     assert_eq!(
@@ -226,7 +226,7 @@ fn map_keyring_error_covers_the_taxonomy() {
     ));
     // The platform size backstop maps to the same error as the size gate.
     assert!(matches!(
-        map_keyring_error(keyring::Error::TooLong("secret".to_string(), 2560)),
+        map_keyring_error(keyring::Error::TooLong("secret".to_owned(), 2560)),
         CredentialStoreError::BlobTooLarge
     ));
     // Corrupt or ambiguous entries read as an unreadable store.

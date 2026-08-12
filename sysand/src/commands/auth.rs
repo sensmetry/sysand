@@ -57,8 +57,8 @@ pub fn resolve_default_index(config: &Config) -> Result<String> {
     candidates.retain(|url| seen.insert(*url));
 
     match candidates.as_slice() {
-        [] => Ok(DEFAULT_INDEX_URL.to_string()),
-        [single] => Ok((*single).to_string()),
+        [] => Ok(DEFAULT_INDEX_URL.to_owned()),
+        [single] => Ok((*single).to_owned()),
         many => bail!(
             "more than one default index is configured ({}); pass an explicit index URL",
             many.join(", ")
@@ -188,7 +188,7 @@ pub fn command_auth_login(
             // The claim is scoped to the surfaces that accepted; never a
             // bare "validated".
             let claim = if validated.is_empty() {
-                "stored, not validated".to_string()
+                "stored, not validated".to_owned()
             } else {
                 let surfaces: Vec<String> = validated
                     .iter()
@@ -259,17 +259,18 @@ fn blob_full_message(stored: &[(&str, Option<DateTime<Utc>>)], now: DateTime<Utc
     let mut message = if stored.is_empty() {
         "the token is too large for this platform's credential store\n\
          (Windows ~2.5 KB limit); use a smaller token"
-            .to_string()
+            .to_owned()
     } else {
         "the credential store is full (Windows ~2.5 KB limit); remove a login with\n\
          `sysand auth logout <index>` (run `sysand auth status` to list them) or use\n\
          a smaller token"
-            .to_string()
+            .to_owned()
     };
     if !expired.is_empty() {
         message.push_str("\nthese stored credentials have expired and are safe to remove:");
         for key in expired {
-            message.push_str(&format!("\n  sysand auth logout {key}"));
+            message.push_str("\n  sysand auth logout ");
+            message.push_str(key);
         }
     }
     message
@@ -289,7 +290,7 @@ fn read_token(key: &str, token_stdin: bool) -> Result<String> {
             Some(rest) => rest.strip_suffix('\r').unwrap_or(rest),
             None => raw.as_str(),
         };
-        trimmed.to_string()
+        trimmed.to_owned()
     } else if std::io::stdin().is_terminal() {
         rpassword::prompt_password(format!("Enter token for `{key}`:"))
             .context("could not read the token from the terminal")?
@@ -466,8 +467,8 @@ fn expiry_qualifier(expired: bool, expires_in_days: Option<i64>) -> String {
     let text = match expires_in_days {
         // `num_days` truncates, so a not-yet-expired token with under a day
         // left reports 0; do not render "expires in 0 days".
-        Some(0) => "(expires in less than a day)".to_string(),
-        Some(1) => "(expires in 1 day)".to_string(),
+        Some(0) => "(expires in less than a day)".to_owned(),
+        Some(1) => "(expires in 1 day)".to_owned(),
         Some(days) => format!("(expires in {days} days)"),
         None => return String::new(),
     };
@@ -490,7 +491,10 @@ fn validation_claim(validated: &[sysand_core::credential_store::ValidatedSurface
         let warn = style.warn;
         format!("{warn}not validated{warn:#}")
     } else {
-        let surfaces: Vec<&str> = validated.iter().map(|surface| surface.as_str()).collect();
+        let surfaces: Vec<&str> = validated
+            .iter()
+            .map(sysand_core::credential_store::ValidatedSurface::as_str)
+            .collect();
         let dim = style.dim;
         format!("{dim}validated ({}){dim:#}", surfaces.join(", "))
     }

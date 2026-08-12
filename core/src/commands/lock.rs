@@ -40,9 +40,9 @@ pub enum IncompleteField {
 impl fmt::Display for IncompleteField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IncompleteField::Info => f.write_str("info"),
-            IncompleteField::Meta => f.write_str("meta"),
-            IncompleteField::CanonicalDigest => f.write_str("canonical digest"),
+            Self::Info => f.write_str("info"),
+            Self::Meta => f.write_str("meta"),
+            Self::CanonicalDigest => f.write_str("canonical digest"),
         }
     }
 }
@@ -150,7 +150,7 @@ pub fn do_lock_projects<
     for (identifiers, project) in projects {
         let input_project_label = || match identifiers.as_ref().and_then(|ids| ids.first()) {
             Some(iri) => format!("`{iri}`"),
-            None => "<unknown input project>".to_string(),
+            None => "<unknown input project>".to_owned(),
         };
 
         let info = project
@@ -275,12 +275,12 @@ pub fn do_lock_extend<
                 field: IncompleteField::Meta,
             })?;
 
-        let sources = if !provided_usages.contains_key(&identifier) {
+        let sources = if provided_usages.contains_key(&identifier) {
+            Vec::new()
+        } else {
             let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;
             debug_assert!(!sources.is_empty());
             sources
-        } else {
-            Vec::new()
         };
 
         let lock_project = Project {

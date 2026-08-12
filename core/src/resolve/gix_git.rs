@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct GitResolver {}
+pub struct GitResolver;
 
 #[derive(Error, Debug)]
 pub enum GitResolverError {
@@ -67,7 +67,7 @@ impl ResolveRead for GitResolver {
                             .strip_prefix("git+")
                             .unwrap_or(resource.as_str()),
                     )
-                    .map_err(|e| e.into()),
+                    .map_err(std::convert::Into::into),
                 )))
             }
             InterchangeProjectUsage::Directory { .. }

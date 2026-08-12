@@ -35,7 +35,7 @@ pub const SUPPORTED_LOCK_VERSIONS: &[&str] = &[CURRENT_LOCK_VERSION];
 
 pub const LOCKFILE_ENTRIES: &[&str] = &["lock_version", "project"];
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 pub struct Lock {
     pub lock_version: String,
     #[serde(rename = "project", skip_serializing_if = "Vec::is_empty", default)]
@@ -44,8 +44,8 @@ pub struct Lock {
 
 impl Default for Lock {
     fn default() -> Self {
-        Lock {
-            lock_version: CURRENT_LOCK_VERSION.to_string(),
+        Self {
+            lock_version: CURRENT_LOCK_VERSION.to_owned(),
             projects: vec![],
         }
     }
@@ -118,8 +118,8 @@ impl FromStr for Lock {
                     .into_iter()
                     .flat_map(|sources| sources.iter())
                     .map(|source| source.as_inline_table())
-                    .flat_map(|s| s.into_iter())
-                    .flat_map(|s| s.into_iter())
+                    .flat_map(std::iter::IntoIterator::into_iter)
+                    .flat_map(std::iter::IntoIterator::into_iter)
                 {
                     if !SOURCE_ENTRIES.contains(&field) {
                         log::warn!(
@@ -133,7 +133,7 @@ impl FromStr for Lock {
         }
 
         // TODO: find a way to not reparse
-        let lock: Lock = toml::from_str(s)?;
+        let lock: Self = toml::from_str(s)?;
         lock.validate()?;
         Ok(lock)
     }
@@ -143,7 +143,7 @@ fn project_with<D: Display>(name: Option<D>) -> String {
     if let Some(name) = name {
         format!("project with name `{}`", name)
     } else {
-        "project without name".to_string()
+        "project without name".to_owned()
     }
 }
 
@@ -235,11 +235,8 @@ impl Lock {
         let mut seen_exports = HashSet::new();
         for project in &self.projects {
             if !seen_projects.insert(project.identifiers.first()) {
-                let id = match project.identifiers.first() {
-                    Some(id) => id,
-                    None => {
-                        return Err(ValidationError::ProjectWithoutId(project.name.clone()));
-                    }
+                let Some(id) = project.identifiers.first() else {
+                    return Err(ValidationError::ProjectWithoutId(project.name.clone()));
                 };
                 return Err(ValidationError::ProjectIdCollision(id.to_owned()));
             }
@@ -255,16 +252,15 @@ impl Lock {
     fn validate_usages(&self) -> Result<(), ValidationError> {
         let mut identifier_versions = HashSet::new();
         for project in &self.projects {
-            let _ = Version::parse(&project.version).inspect_err(|err| {
+            if let Err(e) = Version::parse(&project.version) {
                 log::warn!(
                     "invalid semantic version `{}` for project `{}`\n\
-                        {:>8} {}",
+                        {:>8} {e}",
                     project.version,
                     project.name,
                     ' ',
-                    err
                 );
-            });
+            };
             for id in &project.identifiers {
                 identifier_versions.insert(id.clone());
             }
@@ -358,6 +354,7 @@ impl Lock {
     /// - canonicalizes recorded digest fields
     ///
     /// Does not change contents or semantics.
+    #[must_use]
     pub fn canonicalize(mut self) -> Self {
         self.sort();
         self.canonicalize_checksums();
@@ -507,11 +504,11 @@ impl Project {
         if !identifiers.is_empty() {
             table.insert("identifiers", value(identifiers));
         }
-        let usages = multiline_array(self.usages.iter().map(|u| u.to_toml()));
+        let usages = multiline_array(self.usages.iter().map(Usage::to_toml));
         if !usages.is_empty() {
             table.insert("usages", value(usages));
         }
-        let sources = multiline_array(self.sources.iter().map(|s| s.to_toml()));
+        let sources = multiline_array(self.sources.iter().map(Source::to_toml));
         if !sources.is_empty() {
             table.insert("sources", value(sources));
         }
@@ -589,14 +586,14 @@ impl Source {
     pub fn to_toml(&self) -> InlineTable {
         let mut table = InlineTable::new();
         match self {
-            Source::Editable { editable } => {
+            Self::Editable { editable } => {
                 debug_assert!(
                     editable.is_relative(),
                     "editable project path is absolute: `{editable}`"
                 );
                 table.insert("editable", Value::from(editable.as_str()));
             }
-            Source::LocalKpar {
+            Self::LocalKpar {
                 kpar_path,
                 kpar_size,
                 kpar_digest,
@@ -606,14 +603,14 @@ impl Source {
                 table.insert("kpar_size", Value::Integer(Formatted::new(size)));
                 table.insert("kpar_digest", Value::from(kpar_digest));
             }
-            Source::LocalSrc { src_path, checksum } => {
+            Self::LocalSrc { src_path, checksum } => {
                 table.insert("src_path", Value::from(src_path.as_str()));
                 table.insert("checksum", Value::from(checksum));
             }
-            Source::RemoteGit { remote_git } => {
+            Self::RemoteGit { remote_git } => {
                 table.insert("remote_git", Value::from(remote_git));
             }
-            Source::RemoteKpar {
+            Self::RemoteKpar {
                 remote_kpar,
                 kpar_size,
                 kpar_digest,
@@ -623,7 +620,7 @@ impl Source {
                 table.insert("kpar_size", Value::Integer(Formatted::new(size)));
                 table.insert("kpar_digest", Value::from(kpar_digest));
             }
-            Source::IndexKpar {
+            Self::IndexKpar {
                 index_kpar,
                 kpar_size,
                 kpar_digest,
@@ -633,7 +630,7 @@ impl Source {
                 table.insert("kpar_size", Value::Integer(Formatted::new(size)));
                 table.insert("kpar_digest", Value::from(kpar_digest));
             }
-            Source::RemoteSrc {
+            Self::RemoteSrc {
                 remote_src,
                 checksum,
             } => {
@@ -646,30 +643,30 @@ impl Source {
 
     pub fn to_override(&self) -> OverrideSource {
         match self {
-            Source::Editable { editable } => OverrideSource::Editable {
+            Self::Editable { editable } => OverrideSource::Editable {
                 editable: editable.to_owned(),
             },
-            Source::LocalSrc {
+            Self::LocalSrc {
                 src_path,
                 checksum: _,
             } => OverrideSource::LocalSrc {
                 src_path: src_path.to_owned(),
             },
-            Source::LocalKpar {
+            Self::LocalKpar {
                 kpar_path,
                 kpar_size: _,
                 kpar_digest: _,
             } => OverrideSource::LocalKpar {
                 kpar_path: kpar_path.to_owned(),
             },
-            Source::RemoteKpar {
+            Self::RemoteKpar {
                 remote_kpar,
                 kpar_size: _,
                 kpar_digest: _,
             } => OverrideSource::RemoteKpar {
                 remote_kpar: remote_kpar.to_owned(),
             },
-            Source::IndexKpar {
+            Self::IndexKpar {
                 index_kpar,
                 kpar_size: _,
                 kpar_digest: _,
@@ -680,13 +677,13 @@ impl Source {
                     remote_kpar: index_kpar.to_owned(),
                 }
             }
-            Source::RemoteSrc {
+            Self::RemoteSrc {
                 remote_src,
                 checksum: _,
             } => OverrideSource::RemoteSrc {
                 remote_src: remote_src.to_owned(),
             },
-            Source::RemoteGit { remote_git } => OverrideSource::RemoteGit {
+            Self::RemoteGit { remote_git } => OverrideSource::RemoteGit {
                 remote_git: remote_git.to_owned(),
             },
         }
@@ -694,26 +691,26 @@ impl Source {
 
     pub fn to_checksum(&self) -> Option<ProjectChecksum> {
         match self {
-            Source::Editable { editable: _ } | Source::RemoteGit { remote_git: _ } => None,
-            Source::RemoteSrc {
+            Self::Editable { editable: _ } | Self::RemoteGit { remote_git: _ } => None,
+            Self::RemoteSrc {
                 remote_src: _,
                 checksum,
             }
-            | Source::LocalSrc {
+            | Self::LocalSrc {
                 src_path: _,
                 checksum,
             } => Some(ProjectChecksum::Project(checksum.clone())),
-            Source::LocalKpar {
+            Self::LocalKpar {
                 kpar_path: _,
                 kpar_size: _,
                 kpar_digest,
             }
-            | Source::RemoteKpar {
+            | Self::RemoteKpar {
                 remote_kpar: _,
                 kpar_size: _,
                 kpar_digest,
             }
-            | Source::IndexKpar {
+            | Self::IndexKpar {
                 index_kpar: _,
                 kpar_size: _,
                 kpar_digest,
@@ -755,7 +752,7 @@ impl Usage {
     }
 
     /// This should not be used where possible
-    pub fn from_str_unchecked(u: &str) -> Usage {
+    pub fn from_str_unchecked(u: &str) -> Self {
         Self(u.to_owned())
     }
 

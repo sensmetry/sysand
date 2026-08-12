@@ -39,7 +39,7 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         zip.start_file("some_root_dir/.meta.json", options)?;
         zip.write_all(br#"{"index":{},"created":"123"}"#)?;
         zip.start_file("some_root_dir/test.sysml", options)?;
-        zip.write_all(br#"package Test;"#)?;
+        zip.write_all(b"package Test;")?;
 
         zip.finish().unwrap();
 
@@ -61,7 +61,7 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         .create();
 
     let project = ReqwestRemoteKparDownloadedProject::new_guess_root(
-        format!("{}basic_download_request.kpar", url,),
+        format!("{}basic_download_request.kpar", url),
         create_reqwest_client()?,
         Arc::new(Unauthenticated {}),
         None,
@@ -262,7 +262,7 @@ fn index_kpar_source_roundtrips_digest_and_size() -> Result<(), Box<dyn std::err
     assert_eq!(
         sources,
         vec![Source::IndexKpar {
-            index_kpar: index_kpar.to_string(),
+            index_kpar: index_kpar.to_owned(),
             kpar_size: index_kpar_size,
             kpar_digest: index_kpar_digest,
         }]

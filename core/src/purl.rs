@@ -30,7 +30,7 @@ enum FieldKind {
 
 impl FieldKind {
     fn allows_dot_separator(self) -> bool {
-        self == FieldKind::Name
+        self == Self::Name
     }
 }
 

@@ -177,7 +177,7 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
         });
     }
     let Some(info) = local_project.get_info()? else {
-        return Err(IndexAddError::MissingInfo(kpar_path_abs.clone()));
+        return Err(IndexAddError::MissingInfo(kpar_path_abs));
     };
     let Some(meta) = local_project.get_meta()? else {
         return Err(IndexAddError::MissingMeta(kpar_path_abs));
@@ -252,7 +252,7 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
     let is_project_new = match project_entries[..] {
         [] => {
             index_value.projects.push(IndexProject {
-                iri: iri.to_string(),
+                iri: iri.clone(),
                 status: ProjectStatus::Available,
             });
             true
@@ -275,7 +275,7 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
     let (mut versions_file, mut versions_value) =
         open_json_file::<VersionsJson>(&versions_path, true)?;
 
-    // Use Reverse so that the highest versions go first when
+    // Use Reverse so that the highest versions go first
     let str_to_semver: HashMap<String, Reverse<Version>> = versions_value
         .versions
         .iter()
@@ -288,7 +288,9 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
             }),
         })
         .collect::<Result<_, _>>()?;
-    let version_key = |v: &VersionEntry| str_to_semver.get(&v.version).unwrap();
+    // This is only used for `versions_values`, which contains
+    // all the same items
+    let version_key = |v: &VersionEntry| &str_to_semver[&v.version];
 
     versions_value.versions.sort_by_key(version_key);
 
@@ -328,12 +330,12 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
     versions_value.versions.insert(
         insert_ind,
         VersionEntry {
-            version: version.to_string(),
+            version: version.to_owned(),
             usage: info.usage,
             // The zip file does contain .project.json and .meta.json at this point
             // so it cannot be empty
             kpar_size: NonZero::new(local_project.file_size()?).unwrap(),
-            kpar_digest: to_explicit_digest(local_project.digest_sha256()?),
+            kpar_digest: to_explicit_digest(&local_project.digest_sha256()?),
             status: VersionStatus::Available,
         },
     );
@@ -371,16 +373,16 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
 impl From<JsonFileError> for IndexAddError {
     fn from(value: JsonFileError) -> Self {
         match value {
-            JsonFileError::FileDoesNotExist(e) => IndexAddError::Io(e),
-            JsonFileError::Io(e) => IndexAddError::Io(e),
+            JsonFileError::FileDoesNotExist(e) => Self::Io(e),
+            JsonFileError::Io(e) => Self::Io(e),
             JsonFileError::InvalidJsonFile { path, source } => {
-                IndexAddError::InvalidJsonFile { path, source }
+                Self::InvalidJsonFile { path, source }
             }
         }
     }
 }
 
-fn to_explicit_digest(digest: String) -> String {
+fn to_explicit_digest(digest: &str) -> String {
     format!("sha256:{digest}")
 }
 

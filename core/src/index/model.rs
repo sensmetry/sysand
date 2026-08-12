@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+#![expect(clippy::field_scoped_visibility_modifiers)]
+
 use std::num::NonZeroU64;
 
 use serde::{Deserialize, Serialize};
@@ -68,15 +70,6 @@ pub(crate) struct VersionEntry {
     /// deserializes as [`VersionStatus::Available`].
     #[serde(default, skip_serializing_if = "is_default")]
     pub(crate) status: VersionStatus,
-}
-
-impl VersionStatus {
-    /// Predicate for `#[serde(skip_serializing_if = "...")]` so emitters
-    /// drop `status` when it would round-trip as the default.
-    #[allow(dead_code)]
-    pub(crate) fn is_available(&self) -> bool {
-        matches!(self, VersionStatus::Available)
-    }
 }
 
 fn is_default<T: Default + PartialEq>(t: &T) -> bool {

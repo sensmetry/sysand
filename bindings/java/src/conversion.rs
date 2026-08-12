@@ -209,7 +209,7 @@ fn get_nullable_boolean_field<'local>(
 fn try_instance_of<'local>(
     env: &mut Env<'local>,
     elem: &JObject<'local>,
-    class: FieldSignature,
+    class: &FieldSignature,
     label: &str,
 ) -> Option<bool> {
     let is = unwrap_throw!(
@@ -246,7 +246,12 @@ fn get_usage_array_field<'local>(
             i
         );
         let label = format!("usage[{i}]");
-        if try_instance_of(env, &elem, INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS, &label)? {
+        if try_instance_of(
+            env,
+            &elem,
+            &INTERCHANGE_PROJECT_USAGE_RESOURCE_CLASS,
+            &label,
+        )? {
             let resource = get_string_field(env, &elem, jni_str!("resource"))?;
             let version_constraint =
                 get_nullable_string_field(env, &elem, jni_str!("versionConstraint"))?;
@@ -257,7 +262,7 @@ fn get_usage_array_field<'local>(
         } else if try_instance_of(
             env,
             &elem,
-            INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS,
+            &INTERCHANGE_PROJECT_USAGE_DIRECTORY_CLASS,
             &label,
         )? {
             let dir = get_string_field(env, &elem, jni_str!("directory"))?;
@@ -271,7 +276,7 @@ fn get_usage_array_field<'local>(
         } else if try_instance_of(
             env,
             &elem,
-            INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS,
+            &INTERCHANGE_PROJECT_USAGE_KPAR_PATH_CLASS,
             &label,
         )? {
             let kpar_path = get_string_field(env, &elem, jni_str!("kparPath"))?;
@@ -576,7 +581,7 @@ impl ToJObject for InterchangeProjectChecksumRaw {
 impl ToJObject for InterchangeProjectUsageRaw {
     fn to_jobject<'local>(&self, env: &mut Env<'local>) -> Option<JObject<'local>> {
         let usage = match self {
-            InterchangeProjectUsageRaw::Resource {
+            Self::Resource {
                 resource,
                 version_constraint,
             } => {
@@ -592,7 +597,7 @@ impl ToJObject for InterchangeProjectUsageRaw {
                     "Failed to create InterchangeProjectUsageResource"
                 )
             }
-            InterchangeProjectUsageRaw::Directory {
+            Self::Directory {
                 dir,
                 publisher,
                 name,
@@ -614,7 +619,7 @@ impl ToJObject for InterchangeProjectUsageRaw {
                     "Failed to create InterchangeProjectUsageDirectory"
                 )
             }
-            InterchangeProjectUsageRaw::KparPath {
+            Self::KparPath {
                 kpar_path,
                 publisher,
                 name,
@@ -668,7 +673,7 @@ impl ToJObjectArray for Vec<InterchangeProjectUsageRaw> {
 
 impl ToJObject for Vec<InterchangeProjectUsageRaw> {
     fn to_jobject<'local>(&self, env: &mut Env<'local>) -> Option<JObject<'local>> {
-        self.to_jobject_array(env).map(|v| v.into())
+        self.to_jobject_array(env).map(Into::into)
     }
 }
 
@@ -806,8 +811,8 @@ impl ToJObject for (InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw) {
     }
 }
 
-pub(crate) fn handle_build_error(env: &mut Env<'_>, error: KParBuildError<LocalSrcError>) {
-    let e = format_err(&error);
+pub(crate) fn handle_build_error(env: &mut Env<'_>, error: &KParBuildError<LocalSrcError>) {
+    let e = format_err(error);
     match error {
         KParBuildError::ProjectRead(_) => {
             env.throw_exception(
@@ -869,10 +874,7 @@ pub(crate) fn handle_build_error(env: &mut Env<'_>, error: KParBuildError<LocalS
                 format!("Workspace read error: {e}"),
             );
         }
-        KParBuildError::PathUsage(_) => {
-            env.throw_exception(ExceptionKind::SysandException, e);
-        }
-        KParBuildError::WorkspaceMetamodelConflict { .. } => {
+        KParBuildError::PathUsage(_) | KParBuildError::WorkspaceMetamodelConflict { .. } => {
             env.throw_exception(ExceptionKind::SysandException, e);
         }
         KParBuildError::MissingIndexSymbol(_, _) => {

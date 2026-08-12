@@ -48,7 +48,7 @@ fn macro_two_variants() {
 #[test]
 fn error_to_string() {
     let error = <OneVariantProjectRead as ProjectRead>::Error::Variant(
-        <InMemoryProject as ProjectRead>::Error::AlreadyExists("project".to_string()),
+        <InMemoryProject as ProjectRead>::Error::AlreadyExists("project".to_owned()),
     );
     let _string = error.to_string();
 }
@@ -56,10 +56,10 @@ fn error_to_string() {
 #[test]
 fn macro_get_project() {
     let info = InterchangeProjectInfoRaw {
-        name: "get_project".to_string(),
+        name: "get_project".to_owned(),
         publisher: None,
         description: None,
-        version: "1.2.3".to_string(),
+        version: "1.2.3".to_owned(),
         license: None,
         maintainer: vec![],
         website: None,
@@ -68,7 +68,7 @@ fn macro_get_project() {
     };
     let meta = InterchangeProjectMetadataRaw {
         index: indexmap::IndexMap::new(),
-        created: "0000-00-00T00:00:00.123456789Z".to_string(),
+        created: "0000-00-00T00:00:00.123456789Z".to_owned(),
         metamodel: None,
         includes_derived: None,
         includes_implied: None,
@@ -88,7 +88,7 @@ fn macro_get_project() {
 fn macro_read_source() {
     let mut files = HashMap::new();
     let path = "path";
-    let file_content = "file content".to_string();
+    let file_content = "file content".to_owned();
     files.insert(path.into(), file_content.clone());
     let project = OneVariantProjectRead::Variant(InMemoryProject {
         info: None,
@@ -119,10 +119,10 @@ fn macro_sources() {
 #[test]
 fn macro_put_info() {
     let info = InterchangeProjectInfoRaw {
-        name: "single_get_info".to_string(),
+        name: "single_get_info".to_owned(),
         publisher: None,
         description: None,
-        version: "1.2.3".to_string(),
+        version: "1.2.3".to_owned(),
         license: None,
         maintainer: vec![],
         website: None,
@@ -142,7 +142,7 @@ fn macro_put_info() {
 fn macro_put_meta() {
     let meta = InterchangeProjectMetadataRaw {
         index: indexmap::IndexMap::new(),
-        created: "0000-00-00T00:00:00.123456789Z".to_string(),
+        created: "0000-00-00T00:00:00.123456789Z".to_owned(),
         metamodel: None,
         includes_derived: None,
         includes_implied: None,
@@ -160,7 +160,7 @@ fn macro_put_meta() {
 #[test]
 fn macro_write_source() {
     let path = "path";
-    let file_content = "file content".to_string();
+    let file_content = "file content".to_owned();
     let mut project = OneVariantProjectMut::Variant(InMemoryProject {
         info: None,
         meta: None,
@@ -261,7 +261,7 @@ fn derive_forwards_checksum_canonical_hex() {
     // (like the remote-index project after versions.json lands) would be
     // bypassed by the trait default's info+canonical_meta fallback.
     let leaf = FixedDigestProject {
-        digest: "deadbeef".to_string(),
+        digest: "deadbeef".to_owned(),
     };
     let wrapped = WrappingEnum::Variant(leaf);
     let got = wrapped

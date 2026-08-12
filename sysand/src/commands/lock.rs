@@ -37,10 +37,10 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
 ) -> Result<sysand_core::lock::Lock> {
-    let provided_iris = if !resolution_opts.include_std {
-        known_std_libs()
-    } else {
+    let provided_iris = if resolution_opts.include_std {
         HashMap::default()
+    } else {
+        known_std_libs()
     };
     let wrapped_resolver = create_resolver(
         resolution_opts,
@@ -120,7 +120,7 @@ pub fn create_resolver<R: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     let index_urls = if no_index {
         None
     } else {
-        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
+        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
     };
 
     let overrides = get_overrides(

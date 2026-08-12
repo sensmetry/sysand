@@ -12,5 +12,5 @@
 # Increase the stack size to 8MiB, since Windows default 1 MiB causes a stack
 # overflow on almost any CLI operation. Likely related to
 # https://github.com/clap-rs/clap/issues/5134
-[target.'cfg(windows)']
+[target."cfg(windows)"]
 rustflags = ["-Ctarget-feature=+crt-static", "-Clink-args=/STACK:8388608"]

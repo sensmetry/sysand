@@ -18,6 +18,8 @@
 //!   does not use `#[serde(deny_unknown_fields)]` so new optional fields are
 //!   ignored by default.
 
+#![expect(clippy::field_scoped_visibility_modifiers)]
+
 use std::{
     collections::{HashMap, hash_map::Entry},
     num::NonZeroU64,
@@ -170,7 +172,7 @@ impl TryFrom<&str> for Sha256HexDigest {
         {
             return Err(());
         }
-        Ok(Sha256HexDigest(hex.to_string()))
+        Ok(Self(hex.to_owned()))
     }
 }
 
@@ -384,6 +386,7 @@ impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {
         iri: S,
     ) -> Result<Option<Rc<[AdvertisedVersion]>>, IndexEnvironmentError> {
         let iri_key = iri.as_ref();
+        #[expect(clippy::significant_drop_in_scrutinee, reason = "returns immediately")]
         if let Some(cached) = self.versions_cache.lock().await.get(iri_key).cloned() {
             return Ok(Some(cached));
         }
@@ -443,11 +446,11 @@ fn validate_versions(
             if !version.build.is_empty() {
                 return Err(IndexEnvironmentError::VersionHasBuildMetadata {
                     url: url.as_str().into(),
-                    value: entry.version.clone(),
+                    value: entry.version,
                 });
             }
             let kpar_digest =
-                Sha256HexDigest::try_from(entry.kpar_digest.as_str()).map_err(|_| {
+                Sha256HexDigest::try_from(entry.kpar_digest.as_str()).map_err(|()| {
                     IndexEnvironmentError::InvalidVersionEntry {
                         url: url.as_str().into(),
                         version: entry.version.clone(),
@@ -563,6 +566,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         uri: S,
         version: T,
     ) -> Result<Self::InterchangeProjectRead, Self::ReadError> {
+        let version = version.as_ref();
         // Validate the requested version against the advertised set
         // before constructing per-version leaf URLs. We only fetch
         // versions the index has explicitly listed in `versions.json`.
@@ -578,16 +582,20 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
             .await?
             .ok_or_else(|| IndexEnvironmentError::ProjectNotInIndex {
                 url: versions_url.as_str().into(),
-                iri: uri.as_ref().to_string(),
+                iri: uri.as_ref().to_owned(),
             })?;
         // Compare parsed `semver::Version` values rather than raw strings.
         // Invalid SemVer input surfaces as `VersionNotInIndex`; validated
         // `versions.json` entries cannot contain non-SemVer versions by
         // construction.
-        let requested = Version::parse(version.as_ref()).map_err(|_| {
+        let requested = Version::parse(version).map_err(|e| {
+            log::debug!(
+                "index: failed to parse version `{version}`:\n{e};\n\
+                treating as not present in index"
+            );
             IndexEnvironmentError::VersionNotInIndex {
                 url: versions_url.as_str().into(),
-                version: version.as_ref().to_string(),
+                version: version.to_owned(),
             }
         })?;
         let advertised = versions
@@ -596,7 +604,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
             .cloned()
             .ok_or_else(|| IndexEnvironmentError::VersionNotInIndex {
                 url: versions_url.as_str().into(),
-                version: version.as_ref().to_string(),
+                version: version.to_owned(),
             })?;
 
         // A `removed` entry's per-version files are intentionally absent.
@@ -605,7 +613,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         if advertised.status == VersionStatus::Removed {
             return Err(IndexEnvironmentError::VersionRemoved {
                 url: versions_url.as_str().into(),
-                iri: uri.as_ref().to_string(),
+                iri: uri.as_ref().to_owned(),
                 version: advertised.version.to_string(),
             });
         }

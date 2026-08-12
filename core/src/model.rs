@@ -96,7 +96,7 @@ impl InterchangeProjectUsageRaw {
     /// Caller is responsible for identifying the project when reporting the error
     pub fn validate(&self) -> Result<InterchangeProjectUsage, InterchangeProjectValidationError> {
         match self {
-            InterchangeProjectUsageRaw::Resource {
+            Self::Resource {
                 resource,
                 version_constraint,
             } => {
@@ -132,7 +132,7 @@ impl InterchangeProjectUsageRaw {
                         .transpose()?,
                 })
             }
-            InterchangeProjectUsageRaw::Directory {
+            Self::Directory {
                 dir: path,
                 publisher,
                 name,
@@ -148,7 +148,7 @@ impl InterchangeProjectUsageRaw {
                     source: e,
                 }),
             },
-            InterchangeProjectUsageRaw::KparPath {
+            Self::KparPath {
                 kpar_path,
                 publisher,
                 name,
@@ -172,17 +172,17 @@ impl<Iri, VersionReq, Path> InterchangeProjectUsageG<Iri, VersionReq, Path> {
     /// Typed usages (all non-`Resource`) are treated specially in some places,
     /// as e.g. if they resolve to invalid projects, it can't be ignored
     pub fn is_typed(&self) -> bool {
-        !matches!(self, InterchangeProjectUsageG::Resource { .. })
+        !matches!(self, Self::Resource { .. })
     }
 }
 
 impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
-    fn from(value: InterchangeProjectUsage) -> InterchangeProjectUsageRaw {
+    fn from(value: InterchangeProjectUsage) -> Self {
         match value {
             InterchangeProjectUsage::Resource {
                 resource,
                 version_constraint,
-            } => InterchangeProjectUsageRaw::Resource {
+            } => Self::Resource {
                 resource: resource.into_string(),
                 version_constraint: version_constraint.map(|x| x.to_string()),
             },
@@ -190,7 +190,7 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
                 dir,
                 publisher,
                 name,
-            } => InterchangeProjectUsageRaw::Directory {
+            } => Self::Directory {
                 dir: dir.into_string(),
                 publisher,
                 name,
@@ -199,7 +199,7 @@ impl From<InterchangeProjectUsage> for InterchangeProjectUsageRaw {
                 kpar_path,
                 publisher,
                 name,
-            } => InterchangeProjectUsageRaw::KparPath {
+            } => Self::KparPath {
                 kpar_path: kpar_path.into_string(),
                 publisher,
                 name,
@@ -222,7 +222,7 @@ impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq, 
             InterchangeProjectUsageG::Resource {
                 resource,
                 version_constraint,
-            } => InterchangeProjectUsageG::Resource {
+            } => Self::Resource {
                 resource: resource.into_string(),
                 version_constraint,
             },
@@ -230,7 +230,7 @@ impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq, 
                 dir,
                 publisher,
                 name,
-            } => InterchangeProjectUsageG::Directory {
+            } => Self::Directory {
                 dir,
                 publisher,
                 name,
@@ -239,7 +239,7 @@ impl From<InterchangeProjectUsageG<fluent_uri::Iri<String>, semver::VersionReq, 
                 kpar_path,
                 publisher,
                 name,
-            } => InterchangeProjectUsageG::KparPath {
+            } => Self::KparPath {
                 kpar_path,
                 publisher,
                 name,
@@ -253,7 +253,7 @@ impl<Iri: Display, VersionReq: Display, Path: Display> Display
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InterchangeProjectUsageG::Resource {
+            Self::Resource {
                 resource,
                 version_constraint,
             } => {
@@ -262,14 +262,14 @@ impl<Iri: Display, VersionReq: Display, Path: Display> Display
                     write!(f, " ({vc})")?;
                 }
             }
-            InterchangeProjectUsageG::Directory {
+            Self::Directory {
                 dir,
                 publisher,
                 name,
             } => {
                 write!(f, "`{publisher}/{name}` from `{dir}`")?;
             }
-            InterchangeProjectUsageG::KparPath {
+            Self::KparPath {
                 kpar_path,
                 publisher,
                 name,
@@ -350,7 +350,7 @@ impl<Iri: PartialEq + Clone, Version, VersionReq: Clone, Path>
     InterchangeProjectInfoG<Iri, Version, VersionReq, Path>
 {
     pub fn minimal(name: String, version: Version) -> Self {
-        InterchangeProjectInfoG {
+        Self {
             name,
             publisher: None,
             description: None,
@@ -444,7 +444,11 @@ impl InterchangeProjectInfoRaw {
 // TODO: why is SHA512 missing? Also SHA256 vs SHA-384
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(try_from = "String", into = "&str")]
-#[cfg_attr(feature = "python", pyclass(eq, eq_int, from_py_object))]
+#[cfg_attr(
+    feature = "python",
+    pyclass(eq, eq_int, from_py_object),
+    expect(clippy::unsafe_derive_deserialize)
+)]
 pub enum KerMlChecksumAlg {
     /// No checksum. Non-standard, must not be used in published
     /// versions of a project.
@@ -520,7 +524,7 @@ impl TryFrom<&str> for KerMlChecksumAlg {
 impl From<KerMlChecksumAlg> for String {
     fn from(val: KerMlChecksumAlg) -> Self {
         let val: &str = val.into();
-        val.to_string()
+        val.to_owned()
     }
 }
 
@@ -659,7 +663,7 @@ pub fn format_created_now() -> String {
 }
 
 impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
-    fn from(value: InterchangeProjectMetadata) -> InterchangeProjectMetadataRaw {
+    fn from(value: InterchangeProjectMetadata) -> Self {
         InterchangeProjectMetadataRaw {
             index: value
                 .index
@@ -667,7 +671,7 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
                 .map(|(k, v)| (k, v.into_string()))
                 .collect(),
             created: format_created(&value.created),
-            metamodel: value.metamodel.map(|iri| iri.into_string()),
+            metamodel: value.metamodel.map(fluent_uri::Iri::into_string),
             includes_derived: value.includes_derived,
             includes_implied: value.includes_implied,
             checksum: value.checksum.map(|m| {
@@ -778,7 +782,7 @@ impl InterchangeProjectMetadataRaw {
                     .map_err(InterchangeProjectValidationError::InvalidPathInChecksum)?
                     .to_path_buf();
                 let algorithm: KerMlChecksumAlg =
-                    v.algorithm.as_str().try_into().map_err(|_| {
+                    v.algorithm.as_str().try_into().map_err(|_empty_err| {
                         InterchangeProjectValidationError::InvalidChecksumAlg(
                             v.algorithm.as_str().into(),
                         )
@@ -872,7 +876,7 @@ impl InterchangeProjectMetadataRaw {
         match checksum.entry(path.as_ref().to_string()) {
             indexmap::map::Entry::Occupied(mut occupied_entry) => Some(if overwrite {
                 occupied_entry.insert(InterchangeProjectChecksumRaw {
-                    value: value.as_ref().to_string(),
+                    value: value.as_ref().to_owned(),
                     algorithm: algorithm.to_string(),
                 })
             } else {
@@ -880,7 +884,7 @@ impl InterchangeProjectMetadataRaw {
             }),
             indexmap::map::Entry::Vacant(vacant_entry) => {
                 vacant_entry.insert(InterchangeProjectChecksumRaw {
-                    value: value.as_ref().to_string(),
+                    value: value.as_ref().to_owned(),
                     algorithm: algorithm.to_string(),
                 });
 
@@ -914,7 +918,7 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
     InterchangeProjectMetadataG<Iri, Path, DateTime, IPC>
 {
     pub fn minimal(created: DateTime) -> Self {
-        InterchangeProjectMetadataG {
+        Self {
             index: IndexMap::default(),
             created,
             metamodel: None,

@@ -46,7 +46,7 @@ pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironm
 }
 
 // TODO: Factor out provided_iris logic
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn command_env_install<Policy: HTTPAuthentication>(
     iri: Iri<String>,
     version: Option<String>,
@@ -81,21 +81,21 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
     } = resolution_opts;
 
     // TODO: should probably first check that current project exists
-    let provided_usages = if !include_std {
+    let provided_usages = if include_std {
+        HashMap::default()
+    } else {
         let sysml_std = crate::known_std_libs();
         if sysml_std.contains_key(iri.as_ref()) {
             warn_std_install(iri.as_ref());
             return Ok(());
         }
         sysml_std
-    } else {
-        HashMap::default()
     };
 
     let index_urls = if no_index {
         None
     } else {
-        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
+        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
     };
 
     let overrides = get_overrides(
@@ -191,7 +191,7 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
 }
 
 // TODO: Collect common arguments
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub fn command_env_install_path<Policy: HTTPAuthentication>(
     iri: Iri<String>,
     version: Option<String>,
@@ -244,21 +244,21 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
         bail!("path `{path}` is neither a directory nor a file");
     };
 
-    let provided_usages = if !include_std {
+    let provided_usages = if include_std {
+        HashMap::default()
+    } else {
         let sysml_std = crate::known_std_libs();
         if sysml_std.contains_key(iri.as_ref()) {
             warn_std_install(&iri);
             return Ok(());
         }
         sysml_std
-    } else {
-        HashMap::default()
     };
 
     let index_urls = if no_index {
         None
     } else {
-        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_string()], default_index)?)
+        Some(config.index_urls(index, vec![DEFAULT_INDEX_URL.to_owned()], default_index)?)
     };
 
     let project_version = project
@@ -354,8 +354,8 @@ pub fn command_env_list(env: Option<LocalDirectoryEnvironment>) -> Result<()> {
         bail!("unable to identify environment to list");
     };
 
-    for (uri, version) in sysand_core::commands::env::do_env_list(env)? {
-        println!("`{uri}` {}", version.unwrap_or("".to_string()));
+    for (uri, version) in sysand_core::commands::env::do_env_list(&env)? {
+        println!("`{uri}` {}", version.unwrap_or_default());
     }
     Ok(())
 }

@@ -22,9 +22,9 @@ fn new_env() -> MemoryStorageEnvironment<InMemoryProject> {
 
 #[test]
 fn write_environment() {
-    let uri1 = "urn:kpar:first".to_string();
-    let uri2 = "urn:kpar:second".to_string();
-    let version = "0.0.1".to_string();
+    let uri1 = "urn:kpar:first".to_owned();
+    let uri2 = "urn:kpar:second".to_owned();
+    let version = "0.0.1".to_owned();
     let project1 = do_init_memory("First", "a", &version, None).unwrap();
     let c1 = project1.checksum_canonical_variant().unwrap();
     let project2 = do_init_memory("Second", "b", &version, None).unwrap();
@@ -39,10 +39,7 @@ fn write_environment() {
     .unwrap();
 
     assert_eq!(env.projects.len(), 1);
-    assert_eq!(
-        &project1,
-        env.projects.get(&uri1).unwrap().get(&version).unwrap()
-    );
+    assert_eq!(&project1, &env.projects[&uri1][&version]);
 
     env.put_project(&uri2, &version, Some(c2), |p| {
         clone_project(&project2, p, true)?;
@@ -52,10 +49,7 @@ fn write_environment() {
     .unwrap();
 
     assert_eq!(env.projects.len(), 2);
-    assert_eq!(
-        &project2,
-        env.projects.get(&uri2).unwrap().get(&version).unwrap()
-    );
+    assert_eq!(&project2, &env.projects[&uri2][&version]);
 
     env.del_project_version(&uri1, version).unwrap();
 
@@ -70,8 +64,8 @@ fn write_environment() {
 
 #[test]
 fn read_environment() {
-    let iri = "urn:kpar:first".to_string();
-    let version = "0.0.1".to_string();
+    let iri = "urn:kpar:first".to_owned();
+    let version = "0.0.1".to_owned();
     let project = do_init_memory("First", "a", &version, None).unwrap();
     let env = MemoryStorageEnvironment {
         projects: HashMap::from([(
@@ -103,9 +97,9 @@ fn read_environment() {
 
 #[test]
 fn from() {
-    let version1 = "0.0.1".to_string();
-    let version2 = "0.1.0".to_string();
-    let version3 = "0.0.1".to_string();
+    let version1 = "0.0.1".to_owned();
+    let version2 = "0.1.0".to_owned();
+    let version3 = "0.0.1".to_owned();
     let project1 = do_init_memory("First 0.0.1", "a", &version1, None).unwrap();
     let project2 = do_init_memory("First 0.1.0", "a", &version2, None).unwrap();
     let project3 = do_init_memory("Second", "a", &version3, None).unwrap();
@@ -128,7 +122,7 @@ fn from() {
         env.get_project("urn:kpar:second", version3).unwrap()
     );
     assert_eq!(env.projects.len(), 2);
-    assert_eq!(env.projects.get("urn:kpar:first").unwrap().len(), 2);
+    assert_eq!(env.projects["urn:kpar:first"].len(), 2);
 }
 
 #[test]
@@ -156,5 +150,5 @@ fn try_from() {
         env.get_project("urn:kpar:second", "0.0.1").unwrap()
     );
     assert_eq!(env.projects.len(), 2);
-    assert_eq!(env.projects.get("urn:kpar:first").unwrap().len(), 2);
+    assert_eq!(env.projects["urn:kpar:first"].len(), 2);
 }

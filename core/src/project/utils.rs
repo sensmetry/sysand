@@ -158,7 +158,7 @@ pub mod wrapfs {
 
     use super::FsIoError;
 
-    #[allow(non_snake_case)]
+    #[expect(non_snake_case)]
     pub mod File {
 
         use std::fs;
@@ -259,11 +259,10 @@ pub mod wrapfs {
 
     /// Same as `canonicalize`, but does not wrap the error
     pub fn canonicalize_raw<P: AsRef<Utf8Path>>(path: P) -> Result<Utf8PathBuf, io::Error> {
-        dunce::canonicalize(path.as_ref()).and_then(|path| {
-            Utf8PathBuf::from_path_buf(path)
-                // error is just original `path`
-                .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
-        })
+        let path = dunce::canonicalize(path.as_ref())?;
+        Utf8PathBuf::from_path_buf(path)
+            // error is just original `path`
+            .map_err(|_path| io::Error::from(io::ErrorKind::InvalidData))
     }
 
     /// see `std::path::absolute()`
@@ -279,7 +278,7 @@ pub mod wrapfs {
             .and_then(|d| {
                 Utf8PathBuf::from_path_buf(d)
                     // error is just original `path`
-                    .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+                    .map_err(|_path| io::Error::from(io::ErrorKind::InvalidData))
             })
             .map_err(|e| Box::new(FsIoError::CurrentDir(e)))
     }
@@ -529,7 +528,7 @@ pub struct Identifier(String);
 
 impl From<&Identifier> for toml_edit::Value {
     fn from(val: &Identifier) -> Self {
-        toml_edit::Value::from(&val.0)
+        Self::from(&val.0)
     }
 }
 
@@ -580,11 +579,11 @@ impl From<InterchangeProjectUsage> for Identifier {
 }
 
 impl Identifier {
-    pub fn from_pub_name(publisher: &str, name: &str) -> Identifier {
+    pub fn from_pub_name(publisher: &str, name: &str) -> Self {
         Self::make_identifier_iri(publisher, name)
     }
 
-    pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Identifier {
+    pub fn from_interchange_usage_unchecked(usage: &InterchangeProjectUsageRaw) -> Self {
         let (publisher, name) = match usage {
             InterchangeProjectUsageRaw::Resource { resource, .. } => {
                 return Self(resource.to_string());
@@ -599,11 +598,11 @@ impl Identifier {
         Self::make_identifier_iri(publisher, name)
     }
 
-    pub fn from_iri_owned(iri: Iri<String>) -> Identifier {
+    pub fn from_iri_owned(iri: Iri<String>) -> Self {
         Self(iri.into_string())
     }
 
-    pub fn from_iri(iri: &Iri<&str>) -> Identifier {
+    pub fn from_iri(iri: &Iri<&str>) -> Self {
         Self(iri.to_string())
     }
 
@@ -616,16 +615,16 @@ impl Identifier {
     }
 
     /// Construct `Identifier` from a String, assuming it's a valid IRI
-    pub fn from_iri_unchecked(iri: String) -> Identifier {
+    pub fn from_iri_unchecked(iri: String) -> Self {
         Self(iri)
     }
 
     /// Construct `Identifier` from `&str`, assuming it's a valid IRI
-    pub fn from_iri_unchecked_str(iri: &str) -> Identifier {
+    pub fn from_iri_unchecked_str(iri: &str) -> Self {
         Self(iri.to_owned())
     }
 
-    fn make_identifier_iri(publisher: impl AsRef<str>, name: impl AsRef<str>) -> Identifier {
+    fn make_identifier_iri(publisher: impl AsRef<str>, name: impl AsRef<str>) -> Self {
         let publisher = publisher.as_ref();
         let name = name.as_ref();
         debug_assert!(!publisher.is_empty());
@@ -671,7 +670,7 @@ impl From<Iri<String>> for Identifier {
 impl From<Identifier> for Iri<String> {
     fn from(value: Identifier) -> Self {
         // Identifier is always valid IRI
-        Iri::parse(value.0).unwrap()
+        Self::parse(value.0).unwrap()
     }
 }
 

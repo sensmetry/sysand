@@ -34,8 +34,8 @@ fn trivial_memory_project<'a>(
         usage
             .into_iter()
             .map(|(d, dv)| InterchangeProjectUsageRaw::Resource {
-                resource: d.to_string(),
-                version_constraint: dv.map(|x| x.to_string()),
+                resource: d.to_owned(),
+                version_constraint: dv.map(std::borrow::ToOwned::to_owned),
             })
             .collect(),
     )
@@ -48,10 +48,10 @@ fn memory_project(
 ) -> InMemoryProject {
     InMemoryProject {
         info: Some(InterchangeProjectInfoRaw {
-            name: name.to_string(),
+            name: name.to_owned(),
             publisher: None,
             description: None,
-            version: version.to_string(),
+            version: version.to_owned(),
             license: None,
             maintainer: vec![],
             website: None,
@@ -60,7 +60,7 @@ fn memory_project(
         }),
         meta: Some(InterchangeProjectMetadataRaw {
             index: IndexMap::default(),
-            created: "123".to_string(),
+            created: "123".to_owned(),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,
@@ -95,8 +95,8 @@ impl IRIPredicate for Serves {
     fn accept(&self, usage: &ResolutionInfo) -> bool {
         #[expect(clippy::match_like_matches_macro)]
         match (self, usage.usage()) {
-            (Serves::DirectoryUsages, InterchangeProjectUsage::Directory { .. }) => true,
-            (Serves::ResourceUsages, InterchangeProjectUsage::Resource { .. }) => true,
+            (Self::DirectoryUsages, InterchangeProjectUsage::Directory { .. }) => true,
+            (Self::ResourceUsages, InterchangeProjectUsage::Resource { .. }) => true,
             _ => false,
         }
     }
@@ -177,11 +177,7 @@ fn version_selection() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(solution.len(), 1);
 
-    let install = solution
-        .get(&Identifier::from_iri_unchecked_str(
-            "urn:kpar:version_selection",
-        ))
-        .unwrap();
+    let install = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:version_selection")];
 
     assert_eq!(install.version()?.unwrap(), "2.0.1");
 
@@ -211,8 +207,8 @@ fn directory_usage_env_single_version() -> Result<(), Box<dyn std::error::Error>
     let solution = super::solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
-            publisher: "acme".to_string(),
-            name: "widget".to_string(),
+            publisher: "acme".to_owned(),
+            name: "widget".to_owned(),
         }],
         None,
         resolver,
@@ -220,9 +216,7 @@ fn directory_usage_env_single_version() -> Result<(), Box<dyn std::error::Error>
 
     assert_eq!(solution.len(), 1);
 
-    let install = solution
-        .get(&Identifier::from_pub_name("acme", "widget"))
-        .unwrap();
+    let install = &solution[&Identifier::from_pub_name("acme", "widget")];
     assert_eq!(install.version()?.unwrap(), "1.0.0");
 
     Ok(())
@@ -242,8 +236,8 @@ fn directory_usage_env_multiple_versions_selects_highest() -> Result<(), Box<dyn
     let solution = super::solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
-            publisher: "acme".to_string(),
-            name: "widget".to_string(),
+            publisher: "acme".to_owned(),
+            name: "widget".to_owned(),
         }],
         None,
         resolver,
@@ -251,9 +245,7 @@ fn directory_usage_env_multiple_versions_selects_highest() -> Result<(), Box<dyn
 
     assert_eq!(solution.len(), 1);
 
-    let install = solution
-        .get(&Identifier::from_pub_name("acme", "widget"))
-        .unwrap();
+    let install = &solution[&Identifier::from_pub_name("acme", "widget")];
     assert_eq!(install.version()?.unwrap(), "2.0.0");
 
     Ok(())
@@ -268,9 +260,9 @@ fn directory_usage_env_transitive() -> Result<(), Box<dyn std::error::Error>> {
         "app",
         "1.0.0",
         vec![InterchangeProjectUsageRaw::Directory {
-            dir: "../widget".to_string(),
-            publisher: "acme".to_string(),
-            name: "widget".to_string(),
+            dir: "../widget".to_owned(),
+            publisher: "acme".to_owned(),
+            name: "widget".to_owned(),
         }],
     );
     let widget_v1 = trivial_memory_project("widget", "1.0.0", vec![]);
@@ -292,9 +284,7 @@ fn directory_usage_env_transitive() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(solution.len(), 2);
 
-    let install = solution
-        .get(&Identifier::from_pub_name("acme", "widget"))
-        .unwrap();
+    let install = &solution[&Identifier::from_pub_name("acme", "widget")];
     assert_eq!(install.version()?.unwrap(), "2.0.0");
 
     Ok(())
@@ -309,7 +299,7 @@ fn directory_and_resource_usage_same_project() -> Result<(), Box<dyn std::error:
         "app",
         "1.0.0",
         vec![InterchangeProjectUsageRaw::Resource {
-            resource: "pkg:sysand/acme/widget".to_string(),
+            resource: "pkg:sysand/acme/widget".to_owned(),
             version_constraint: None,
         }],
     );
@@ -329,8 +319,8 @@ fn directory_and_resource_usage_same_project() -> Result<(), Box<dyn std::error:
             // Same project as `app` uses via its resource IRI
             InterchangeProjectUsage::Directory {
                 dir: "some/dir".into(),
-                publisher: "acme".to_string(),
-                name: "widget".to_string(),
+                publisher: "acme".to_owned(),
+                name: "widget".to_owned(),
             },
         ],
         None,
@@ -339,9 +329,7 @@ fn directory_and_resource_usage_same_project() -> Result<(), Box<dyn std::error:
 
     assert_eq!(solution.len(), 2);
 
-    let install = solution
-        .get(&Identifier::from_pub_name("acme", "widget"))
-        .unwrap();
+    let install = &solution[&Identifier::from_pub_name("acme", "widget")];
     assert_eq!(install.version()?.unwrap(), "1.0.0");
 
     Ok(())
@@ -390,25 +378,13 @@ fn diamond_selection() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(solution.len(), 3);
 
-    let install_a = solution
-        .get(&Identifier::from_iri_unchecked_str(
-            "urn:kpar:diamond_selection_a",
-        ))
-        .unwrap();
+    let install_a = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:diamond_selection_a")];
     assert_eq!(install_a.version()?.unwrap(), "1.0.1");
 
-    let install_b = solution
-        .get(&Identifier::from_iri_unchecked_str(
-            "urn:kpar:diamond_selection_b",
-        ))
-        .unwrap();
+    let install_b = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:diamond_selection_b")];
     assert_eq!(install_b.version()?.unwrap(), "1.0.2");
 
-    let install_c = solution
-        .get(&Identifier::from_iri_unchecked_str(
-            "urn:kpar:diamond_selection_c",
-        ))
-        .unwrap();
+    let install_c = &solution[&Identifier::from_iri_unchecked_str("urn:kpar:diamond_selection_c")];
     assert_eq!(install_c.version()?.unwrap(), "2.0.3");
 
     Ok(())
@@ -491,7 +467,7 @@ fn single_version_single_project() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(
         solution_projects(&solution),
-        vec![("widget".to_string(), "1.0.0".to_string())]
+        vec![("widget".to_owned(), "1.0.0".to_owned())]
     );
 
     Ok(())
@@ -634,7 +610,7 @@ impl ResolveRead for ErrorCandidateResolver {
         _resolve: &ResolutionInfo,
     ) -> Result<ResolutionOutcome<Self::ResolvedStorages>, Self::Error> {
         Ok(ResolutionOutcome::Resolved(vec![Err(StubError(
-            "candidate exploded".to_string(),
+            "candidate exploded".to_owned(),
         ))]))
     }
 }
@@ -649,8 +625,8 @@ where
     let result = super::solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "some/dir".into(),
-            publisher: "acme".to_string(),
-            name: "widget".to_string(),
+            publisher: "acme".to_owned(),
+            name: "widget".to_owned(),
         }],
         None,
         resolver,
@@ -704,7 +680,7 @@ fn typed_usage_missing_version_fails_resolution() {
 #[test]
 fn typed_usage_version_read_error_fails_resolution() {
     let msg = directory_usage_solve_err(stub_resolver(StubProject {
-        version: Err("cannot read version".to_string()),
+        version: Err("cannot read version".to_owned()),
         usage: Ok(Some(vec![])),
     }));
     assert!(msg.contains("VersionObtain"), "got: {msg}");
@@ -719,7 +695,7 @@ fn typed_usage_invalid_usages_fail_resolution() {
         "widget",
         "1.0.0",
         vec![InterchangeProjectUsageRaw::Resource {
-            resource: "not a valid iri".to_string(),
+            resource: "not a valid iri".to_owned(),
             version_constraint: None,
         }],
     );
@@ -734,7 +710,7 @@ fn typed_usage_invalid_usages_fail_resolution() {
 #[test]
 fn typed_usage_missing_usages_fails_resolution() {
     let msg = directory_usage_solve_err(stub_resolver(StubProject {
-        version: Ok(Some("1.0.0".to_string())),
+        version: Ok(Some("1.0.0".to_owned())),
         usage: Ok(None),
     }));
     assert!(msg.contains("MissingUsage"), "got: {msg}");
@@ -745,8 +721,8 @@ fn typed_usage_missing_usages_fails_resolution() {
 #[test]
 fn typed_usage_usages_read_error_fails_resolution() {
     let msg = directory_usage_solve_err(stub_resolver(StubProject {
-        version: Ok(Some("1.0.0".to_string())),
-        usage: Err("cannot read usages".to_string()),
+        version: Ok(Some("1.0.0".to_owned())),
+        usage: Err("cannot read usages".to_owned()),
     }));
     assert!(msg.contains("UsageObtain"), "got: {msg}");
     assert!(msg.contains("cannot read usages"), "got: {msg}");
@@ -767,7 +743,7 @@ fn directory_usage_candidate_rejection_reason_is_reported() -> Result<(), Box<dy
     // the usage expects
     let tmp = camino_tempfile::tempdir()?;
     let mut info = memory_project("widget", "1.0.0", vec![]).info.unwrap();
-    info.publisher = Some("someone-else".to_string());
+    info.publisher = Some("someone-else".to_owned());
     std::fs::write(
         tmp.path().join(".project.json"),
         serde_json::to_string(&info)?,
@@ -776,8 +752,8 @@ fn directory_usage_candidate_rejection_reason_is_reported() -> Result<(), Box<dy
     let project = LocalSrcProject::new_for_solve(
         tmp.path().to_owned(),
         None,
-        Some("acme".to_string()),
-        "widget".to_string(),
+        Some("acme".to_owned()),
+        "widget".to_owned(),
     );
 
     let resolver = MemoryResolver {
@@ -788,8 +764,8 @@ fn directory_usage_candidate_rejection_reason_is_reported() -> Result<(), Box<dy
     let result = super::solve(
         vec![InterchangeProjectUsage::Directory {
             dir: "widget".into(),
-            publisher: "acme".to_string(),
-            name: "widget".to_string(),
+            publisher: "acme".to_owned(),
+            name: "widget".to_owned(),
         }],
         None,
         resolver,
@@ -836,8 +812,8 @@ fn directory_usage_copy_satisfies_constraints_of_other_dependents()
         vec![
             InterchangeProjectUsage::Directory {
                 dir: "some/dir".into(),
-                publisher: "acme".to_string(),
-                name: "widget".to_string(),
+                publisher: "acme".to_owned(),
+                name: "widget".to_owned(),
             },
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("pkg:sysand/acme/app")?.into(),
@@ -855,7 +831,7 @@ fn directory_usage_copy_satisfies_constraints_of_other_dependents()
         .filter(|(name, _)| name == "widget")
         .map(|(_, version)| version)
         .collect();
-    assert_eq!(widget_versions, vec!["1.3.0".to_string()]);
+    assert_eq!(widget_versions, vec!["1.3.0".to_owned()]);
 
     Ok(())
 }
@@ -891,8 +867,8 @@ fn directory_usage_copy_violating_constraints_is_an_error() -> Result<(), Box<dy
         vec![
             InterchangeProjectUsage::Directory {
                 dir: "some/dir".into(),
-                publisher: "acme".to_string(),
-                name: "widget".to_string(),
+                publisher: "acme".to_owned(),
+                name: "widget".to_owned(),
             },
             InterchangeProjectUsage::Resource {
                 resource: Iri::parse("pkg:sysand/acme/app")?.into(),
@@ -933,8 +909,8 @@ fn same_project_version_from_different_storages_and_usage_forms_installs_once()
             // The same project, used via a directory usage
             InterchangeProjectUsage::Directory {
                 dir: "some/dir".into(),
-                publisher: "acme".to_string(),
-                name: "widget".to_string(),
+                publisher: "acme".to_owned(),
+                name: "widget".to_owned(),
             },
         ],
         None,
@@ -943,7 +919,7 @@ fn same_project_version_from_different_storages_and_usage_forms_installs_once()
 
     assert_eq!(
         solution_projects(&solution),
-        vec![("widget".to_string(), "1.0.0".to_string())]
+        vec![("widget".to_owned(), "1.0.0".to_owned())]
     );
 
     Ok(())

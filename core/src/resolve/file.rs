@@ -210,10 +210,10 @@ impl Read for FileResolverProjectReader<'_> {
 impl From<LocalKParError> for FileResolverProjectError {
     fn from(value: LocalKParError) -> Self {
         match value {
-            LocalKParError::NotFound(err) => FileResolverProjectError::NotFound(err),
-            LocalKParError::Deserialize(error) => FileResolverProjectError::Deserialize(error),
-            LocalKParError::Io(error) => FileResolverProjectError::Io(error),
-            LocalKParError::Zip(err) => FileResolverProjectError::Zip(err),
+            LocalKParError::NotFound(err) => Self::NotFound(err),
+            LocalKParError::Deserialize(error) => Self::Deserialize(error),
+            LocalKParError::Io(error) => Self::Io(error),
+            LocalKParError::Zip(err) => Self::Zip(err),
             LocalKParError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalKParError::DigestMismatch {
                 path,
@@ -248,12 +248,12 @@ impl From<LocalKParError> for FileResolverProjectError {
 impl From<LocalSrcError> for FileResolverProjectError {
     fn from(value: LocalSrcError) -> Self {
         match value {
-            LocalSrcError::Deserialize(error) => FileResolverProjectError::Deserialize(error),
-            LocalSrcError::Path(path_error) => FileResolverProjectError::Path(path_error),
+            LocalSrcError::Deserialize(error) => Self::Deserialize(error),
+            LocalSrcError::Path(path_error) => Self::Path(path_error),
             LocalSrcError::AlreadyExists(msg) => {
-                FileResolverProjectError::Other(format!("unexpected internal error: {}", msg))
+                Self::Other(format!("unexpected internal error: {}", msg))
             }
-            e => FileResolverProjectError::LocalSrc(e),
+            e => Self::LocalSrc(e),
         }
     }
 }
@@ -271,12 +271,8 @@ impl ProjectRead for FileResolverProject {
         Self::Error,
     > {
         match self {
-            FileResolverProject::LocalSrcProject(local_src_project) => {
-                Ok(local_src_project.get_project()?)
-            }
-            FileResolverProject::LocalKParProject(local_kpar_project) => {
-                Ok(local_kpar_project.get_project()?)
-            }
+            Self::LocalSrcProject(local_src_project) => Ok(local_src_project.get_project()?),
+            Self::LocalKParProject(local_kpar_project) => Ok(local_kpar_project.get_project()?),
         }
     }
 
@@ -290,44 +286,44 @@ impl ProjectRead for FileResolverProject {
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self {
-            FileResolverProject::LocalSrcProject(local_src_project) => Ok(
-                FileResolverProjectReader::File(local_src_project.read_source(path)?),
-            ),
-            FileResolverProject::LocalKParProject(local_kpar_project) => Ok(
-                FileResolverProjectReader::Archive(local_kpar_project.read_source(path)?),
-            ),
+            Self::LocalSrcProject(local_src_project) => Ok(FileResolverProjectReader::File(
+                local_src_project.read_source(path)?,
+            )),
+            Self::LocalKParProject(local_kpar_project) => Ok(FileResolverProjectReader::Archive(
+                local_kpar_project.read_source(path)?,
+            )),
         }
     }
 
     fn is_definitely_invalid(&self) -> bool {
         match self {
-            FileResolverProject::LocalSrcProject(proj) => proj.is_definitely_invalid(),
-            FileResolverProject::LocalKParProject(proj) => proj.is_definitely_invalid(),
+            Self::LocalSrcProject(proj) => proj.is_definitely_invalid(),
+            Self::LocalKParProject(proj) => proj.is_definitely_invalid(),
         }
     }
 
     fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
         match self {
-            FileResolverProject::LocalSrcProject(proj) => proj
+            Self::LocalSrcProject(proj) => proj
                 .sources(ctx)
                 .map_err(FileResolverProjectError::LocalSrc),
-            FileResolverProject::LocalKParProject(proj) => Ok(proj.sources(ctx)?),
+            Self::LocalKParProject(proj) => Ok(proj.sources(ctx)?),
         }
     }
 
     fn checksum_canonical_variant(&self) -> Result<project::ProjectChecksum, Self::Error> {
         match self {
-            FileResolverProject::LocalSrcProject(proj) => proj
+            Self::LocalSrcProject(proj) => proj
                 .checksum_canonical_variant()
                 .map_err(FileResolverProjectError::LocalSrc),
-            FileResolverProject::LocalKParProject(proj) => Ok(proj.checksum_canonical_variant()?),
+            Self::LocalKParProject(proj) => Ok(proj.checksum_canonical_variant()?),
         }
     }
 
     fn project_root(&self) -> Option<&Utf8Path> {
         match self {
-            FileResolverProject::LocalSrcProject(proj) => proj.project_root(),
-            FileResolverProject::LocalKParProject(proj) => proj.project_root(),
+            Self::LocalSrcProject(proj) => proj.project_root(),
+            Self::LocalKParProject(proj) => proj.project_root(),
         }
     }
 }

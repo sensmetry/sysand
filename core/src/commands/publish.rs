@@ -4,6 +4,7 @@
 use std::{
     collections::{HashMap, hash_map::Entry},
     env,
+    fmt::Write,
     io::{self, Read as _},
     sync::Arc,
 };
@@ -191,8 +192,8 @@ pub enum TrustedPublishingProvider {
 impl TrustedPublishingProvider {
     fn name(self) -> &'static str {
         match self {
-            TrustedPublishingProvider::Github => "github",
-            TrustedPublishingProvider::Gitlab => "gitlab",
+            Self::Github => "github",
+            Self::Gitlab => "gitlab",
         }
     }
 }
@@ -313,13 +314,13 @@ pub fn validate_api_root_url_shape(url: &Url) -> Result<(), PublishError> {
             HttpBaseUrlShapeError::UnsupportedScheme => "URL scheme must be http or https",
             HttpBaseUrlShapeError::Userinfo => "URL must not include username or password",
         }
-        .to_string())
+        .to_owned())
     })?;
     if url.query().is_some() {
-        return Err(err("URL must not include a query component".to_string()));
+        return Err(err("URL must not include a query component".to_owned()));
     }
     if url.fragment().is_some() {
-        return Err(err("URL must not include a fragment component".to_string()));
+        return Err(err("URL must not include a fragment component".to_owned()));
     }
     Ok(())
 }
@@ -351,8 +352,8 @@ pub enum PublishBearerConflict {
 impl PublishBearerConflict {
     fn source_name(&self) -> &'static str {
         match self {
-            PublishBearerConflict::Env { .. } => "`SYSAND_CRED_*` environment variables",
-            PublishBearerConflict::Stored { .. } => "stored credentials",
+            Self::Env { .. } => "`SYSAND_CRED_*` environment variables",
+            Self::Stored { .. } => "stored credentials",
         }
     }
 
@@ -360,8 +361,8 @@ impl PublishBearerConflict {
     /// env, backticked index keys for stored logins.
     fn candidate_list(&self) -> String {
         match self {
-            PublishBearerConflict::Env { variables } => variables.join(", "),
-            PublishBearerConflict::Stored { keys } => keys
+            Self::Env { variables } => variables.join(", "),
+            Self::Stored { keys } => keys
                 .iter()
                 .map(|key| format!("`{key}`"))
                 .collect::<Vec<_>>()
@@ -371,10 +372,10 @@ impl PublishBearerConflict {
 
     fn hint(&self) -> &'static str {
         match self {
-            PublishBearerConflict::Env { .. } => {
+            Self::Env { .. } => {
                 "refine `SYSAND_CRED_<X>` URL patterns so exactly one bearer token matches"
             }
-            PublishBearerConflict::Stored { .. } => {
+            Self::Stored { .. } => {
                 "remove or narrow overlapping stored credentials so exactly one bearer token matches"
             }
         }
@@ -488,13 +489,13 @@ fn resolve_publish_bearer_from_config(
         upload_url,
         |entry| entry.auth().token(),
         |matched| PublishBearerConflict::Stored {
-            keys: dedup_in_order(matched.iter().map(|entry| entry.key().to_string())),
+            keys: dedup_in_order(matched.iter().map(|entry| entry.key().to_owned())),
         },
     )? {
         return Ok(SelectedPublishBearer {
             auth: entry.auth().clone(),
             provenance: PublishBearerProvenance::Stored {
-                key: entry.key().to_string(),
+                key: entry.key().to_owned(),
                 expires_at: entry.expires_at(),
             },
         });
@@ -1473,16 +1474,20 @@ fn publish_auth_failed_message(
     };
     match provenance {
         PublishBearerProvenance::Env { label } => {
-            message.push_str(&format!(
+            write!(
+                message,
                 "\nthe publish credential came from `SYSAND_CRED_{label}`; unset it or rotate\n\
                  `SYSAND_CRED_{label}_BEARER_TOKEN` (environment credentials take precedence\n\
                  over stored credentials, so re-authenticating alone cannot replace it)"
-            ));
+            )
+            .unwrap();
         }
         PublishBearerProvenance::Stored { key, .. } => {
-            message.push_str(&format!(
+            write!(
+                message,
                 "\nthe publish credential came from the stored credential for `{key}`"
-            ));
+            )
+            .unwrap();
         }
         // `publish_auth_error` never routes trusted publishing here.
         PublishBearerProvenance::TrustedPublishing => {}
@@ -1503,12 +1508,11 @@ fn error_body_to_string(body_bytes: &[u8]) -> String {
     let trimmed = text.trim();
 
     if trimmed.is_empty() {
-        return "no error details provided".to_string();
+        return "no error details provided".to_owned();
     }
 
     serde_json::from_str::<ErrorResponse>(trimmed)
-        .map(|error| error.error)
-        .unwrap_or_else(|_| trimmed.to_string())
+        .map_or_else(|_| trimmed.to_owned(), |error| error.error)
 }
 
 const KERML_STD_LIB_SUFFIXES: [&str; 3] = [
@@ -1632,24 +1636,24 @@ pub enum AllowedMetamodelKind {
 }
 
 impl AllowedMetamodelKind {
-    fn file_ext(&self) -> &'static str {
+    fn file_ext(self) -> &'static str {
         match self {
-            AllowedMetamodelKind::SysML => ".sysml",
-            AllowedMetamodelKind::KerML => ".kerml",
+            Self::SysML => ".sysml",
+            Self::KerML => ".kerml",
         }
     }
 
-    fn lang(&self) -> &'static str {
+    fn lang(self) -> &'static str {
         match self {
-            AllowedMetamodelKind::SysML => "SysMLv2",
-            AllowedMetamodelKind::KerML => "KerML",
+            Self::SysML => "SysMLv2",
+            Self::KerML => "KerML",
         }
     }
 
-    fn lang_kind(&self) -> Language {
+    fn lang_kind(self) -> Language {
         match self {
-            AllowedMetamodelKind::SysML => Language::SysML,
-            AllowedMetamodelKind::KerML => Language::KerML,
+            Self::SysML => Language::SysML,
+            Self::KerML => Language::KerML,
         }
     }
 }

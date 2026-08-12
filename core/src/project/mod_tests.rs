@@ -32,10 +32,10 @@ fn sanity_check_hasher() -> Result<(), Box<dyn std::error::Error>> {
 fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
     let project = InMemoryProject {
         info: Some(InterchangeProjectInfoRaw {
-            name: "canonicalization".to_string(),
+            name: "canonicalization".to_owned(),
             publisher: None,
             description: None,
-            version: "1.2.3".to_string(),
+            version: "1.2.3".to_owned(),
             license: None,
             maintainer: vec![],
             website: None,
@@ -44,21 +44,21 @@ fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
         }),
         meta: Some(InterchangeProjectMetadataRaw {
             index: IndexMap::default(),
-            created: "123".to_string(),
+            created: "123".to_owned(),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,
             checksum: Some(IndexMap::from([(
-                "MyFile.txt".to_string(),
+                "MyFile.txt".to_owned(),
                 InterchangeProjectChecksumRaw {
                     algorithm: KerMlChecksumAlg::None.to_string(),
-                    value: "".to_string(),
+                    value: String::new(),
                 },
             )])),
         }),
         files: HashMap::from([(
             Utf8UnixPath::new("MyFile.txt").to_path_buf(),
-            "FooBarBaz".to_string(),
+            "FooBarBaz".to_owned(),
         )]),
         nominal_sources: vec![],
     };
@@ -75,7 +75,7 @@ fn canonicalization_no_checksums() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(
         checksums.get("MyFile.txt"),
         Some(&InterchangeProjectChecksumRaw {
-            value: "4da8b89a905445e96dd0ab6c9be9a72c8b0ffc686a57a3cc6808a8952a3560ed".to_string(),
+            value: "4da8b89a905445e96dd0ab6c9be9a72c8b0ffc686a57a3cc6808a8952a3560ed".to_owned(),
             algorithm: KerMlChecksumAlg::Sha256.to_string()
         })
     );

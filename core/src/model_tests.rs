@@ -22,10 +22,10 @@ fn str_hash_agrees_with_shell() {
 #[test]
 fn json_hash_agrees_with_shell() {
     let info = InterchangeProjectInfoRaw {
-        name: "json_hash_agrees_with_shell".to_string(),
+        name: "json_hash_agrees_with_shell".to_owned(),
         publisher: None,
         description: None,
-        version: "1.2.3".to_string(),
+        version: "1.2.3".to_owned(),
         license: None,
         maintainer: vec![],
         website: None,
@@ -35,7 +35,7 @@ fn json_hash_agrees_with_shell() {
 
     let meta = InterchangeProjectMetadataRaw {
         index: IndexMap::new(),
-        created: "0000-00-00T00:00:00.123456789Z".to_string(),
+        created: "0000-00-00T00:00:00.123456789Z".to_owned(),
         metamodel: None,
         includes_derived: None,
         includes_implied: None,

@@ -4,7 +4,7 @@
 use logos::{Lexer, Logos};
 use thiserror::Error;
 
-#[derive(Default, Debug, Clone, PartialEq, Error)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Error)]
 pub enum LexingError {
     #[error("unterminated `{0}`")]
     Unterminated(&'static str),
@@ -36,11 +36,11 @@ fn lex_block_comment(lex: &mut Lexer<'_, Token>) -> Result<(), LexingError> {
 
 fn lex_string(lex: &mut Lexer<'_, Token>) -> Result<(), LexingError> {
     let rem = lex.remainder();
-    let mut close_pos = rem.find("\"").ok_or(LexingError::Unterminated("\""))?;
+    let mut close_pos = rem.find('"').ok_or(LexingError::Unterminated("\""))?;
 
-    while rem[..close_pos + 1].ends_with("\\\"") {
+    while rem[..=close_pos].ends_with("\\\"") {
         close_pos += rem[close_pos + 1..]
-            .find("\"")
+            .find('"')
             .ok_or(LexingError::Unterminated("\""))?
             + 1;
     }
@@ -52,11 +52,11 @@ fn lex_string(lex: &mut Lexer<'_, Token>) -> Result<(), LexingError> {
 
 fn lex_quoted(lex: &mut Lexer<'_, Token>) -> Result<(), LexingError> {
     let rem = lex.remainder();
-    let mut close_pos = rem.find("'").ok_or(LexingError::Unterminated("'"))?;
+    let mut close_pos = rem.find('\'').ok_or(LexingError::Unterminated("'"))?;
 
-    while rem[..close_pos + 1].ends_with("\\'") {
+    while rem[..=close_pos].ends_with("\\'") {
         close_pos += rem[close_pos + 1..]
-            .find("'")
+            .find('\'')
             .ok_or(LexingError::Unterminated("'"))?
             + 1;
     }
@@ -101,7 +101,7 @@ fn lex_symbol(lex: &mut Lexer<'_, Token>) -> Result<Token, LexingError> {
         return Ok(Token::LT);
     } else if this_char.starts_with('>') {
         return Ok(Token::GT);
-    } else if this_char.starts_with(':') && rem.starts_with(":") {
+    } else if this_char.starts_with(':') && rem.starts_with(':') {
         lex.bump(1);
         return Ok(Token::DoubleColon);
     } else if this_char.starts_with('=') {
@@ -125,7 +125,7 @@ fn lex_symbol(lex: &mut Lexer<'_, Token>) -> Result<Token, LexingError> {
     // Ok(lex.slice())
 }
 
-#[derive(Logos, Debug, PartialEq)]
+#[derive(Logos, Debug, PartialEq, Eq)]
 #[logos(error = LexingError)]
 pub enum Token {
     #[regex(r"\s+")]

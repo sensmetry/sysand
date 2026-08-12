@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+#![expect(clippy::needless_pass_by_value)]
+
 use std::{iter, process::ExitCode, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -51,9 +53,9 @@ use sysand_core::{
 use typed_path::Utf8UnixPathBuf;
 
 #[pyfunction(name = "_run_cli")]
-fn run_cli(args: Vec<String>) -> PyResult<bool> {
+fn run_cli(args: Vec<String>) -> bool {
     let exit_code = sysand::lib_main(args);
-    Ok(exit_code == ExitCode::SUCCESS)
+    exit_code == ExitCode::SUCCESS
 }
 
 #[pyfunction(name = "do_init_py_local_file")]
@@ -71,25 +73,26 @@ fn do_init_py_local_file(
     // logger before `run_cli()` is called (CLI sets up its own logger). This
     // can't be put into pymodule definition, since importing any part of the
     // library from python runs it
-    let _ = pyo3_log::try_init();
+    common_init();
 
     do_init_local_file(name, publisher, version, license, Utf8PathBuf::from(path)).map_err(
         |err| {
             let e = format_err(&err);
             match err {
-                InitError::SemVerParse(..) => PyValueError::new_err(e),
-                InitError::SPDXLicenseParse(..) => PyValueError::new_err(e),
+                InitError::SemVerParse(..) | InitError::SPDXLicenseParse(..) => {
+                    PyValueError::new_err(e)
+                }
                 InitError::Project(err) => match err {
                     LocalSrcError::AlreadyExists(_) => PyFileExistsError::new_err(e),
-                    LocalSrcError::Deserialize(_) => PyValueError::new_err(e),
-                    LocalSrcError::Io(_) => PyIOError::new_err(e),
-                    LocalSrcError::Path(_) => PyIOError::new_err(e),
-                    LocalSrcError::Serialize(_) => PyValueError::new_err(e),
-                    LocalSrcError::ImpossibleRelativePath(_) => PyValueError::new_err(e),
-                    LocalSrcError::MissingMeta => PyFileNotFoundError::new_err(e),
-                    LocalSrcError::MissingInfoMeta => PyFileNotFoundError::new_err(e),
-                    LocalSrcError::PublisherMismatch { .. }
+                    LocalSrcError::Io(_) | LocalSrcError::Path(_) => PyIOError::new_err(e),
+                    LocalSrcError::Serialize(_)
+                    | LocalSrcError::ImpossibleRelativePath(_)
+                    | LocalSrcError::Deserialize(_)
+                    | LocalSrcError::PublisherMismatch { .. }
                     | LocalSrcError::NameMismatch { .. } => PyValueError::new_err(e),
+                    LocalSrcError::MissingMeta | LocalSrcError::MissingInfoMeta => {
+                        PyFileNotFoundError::new_err(e)
+                    }
                 },
             }
         },
@@ -103,24 +106,24 @@ fn do_init_py_local_file(
     signature = (path),
 )]
 fn do_env_py_local_dir(path: String) -> PyResult<()> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     do_env_local_dir(Utf8Path::new(&path)).map_err(|err| {
         let e = format_err(&err);
         match err {
             EnvError::AlreadyExists(_) => PyFileExistsError::new_err(e),
             EnvError::Write(werr) => match werr {
-                LocalWriteError::Io(_) => PyIOError::new_err(e),
-                LocalWriteError::Deserialize(_) => PyValueError::new_err(e),
-                LocalWriteError::Path(_) => PyValueError::new_err(e),
                 LocalWriteError::AlreadyExists(_) => PyFileExistsError::new_err(e),
-                LocalWriteError::Serialize(_) => PyValueError::new_err(e),
-                LocalWriteError::TryMove(_) => PyIOError::new_err(e),
-                LocalWriteError::LocalRead(_) => PyIOError::new_err(e),
-                LocalWriteError::ImpossibleRelativePath(_)
+                LocalWriteError::Deserialize(_)
+                | LocalWriteError::Path(_)
+                | LocalWriteError::Serialize(_)
+                | LocalWriteError::ImpossibleRelativePath(_)
                 | LocalWriteError::PublisherMismatch { .. }
                 | LocalWriteError::NameMismatch { .. } => PyValueError::new_err(e),
-                LocalWriteError::AddProject(_) => PyIOError::new_err(e),
+                LocalWriteError::Io(_)
+                | LocalWriteError::TryMove(_)
+                | LocalWriteError::LocalRead(_)
+                | LocalWriteError::AddProject(_) => PyIOError::new_err(e),
                 LocalWriteError::MissingMeta | LocalWriteError::MissingInfoMeta => {
                     PyFileNotFoundError::new_err(e)
                 }
@@ -138,7 +141,7 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
 fn do_info_py_path(
     path: String,
 ) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     let project = LocalSrcProject::new_access(path, None);
 
@@ -162,7 +165,7 @@ fn do_info_py(
     uri: String,
     index_urls: Option<Vec<String>>,
 ) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     py.detach(|| {
         let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
@@ -207,7 +210,7 @@ fn do_info_py(
     signature = (path),
 )]
 fn do_root_py(path: String) -> PyResult<Option<String>> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     let root = do_root(Utf8PathBuf::from(path)).map_err(|e| PyIOError::new_err(format_err(e)))?;
     Ok(root.map(Utf8PathBuf::into_string))
@@ -222,7 +225,7 @@ fn do_build_py(
     project_path: Option<String>,
     compression: Option<String>,
 ) -> PyResult<()> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     let Some(current_project_path) = project_path else {
         return Err(pyo3::exceptions::PyNotImplementedError::new_err("TODO"));
@@ -242,20 +245,20 @@ fn do_build_py(
         .map_err(|err| {
             let e = format_err(&err);
             match err {
-                KParBuildError::ProjectRead(_) => PyRuntimeError::new_err(e),
-                KParBuildError::Io(_) => PyIOError::new_err(e),
-                KParBuildError::Validation { .. } => PyValueError::new_err(e),
-                KParBuildError::Extract(_) => PyValueError::new_err(e),
-                KParBuildError::UnknownFormat(_) => PyValueError::new_err(e),
-                KParBuildError::MissingInfo => PyValueError::new_err(e),
-                KParBuildError::MissingMeta => PyValueError::new_err(e),
-                KParBuildError::MissingInfoMeta => PyValueError::new_err(e),
-                KParBuildError::Zip(_) => PyIOError::new_err(e),
-                KParBuildError::Serialize(..) => PyValueError::new_err(e),
-                KParBuildError::WorkspaceRead(_) => PyRuntimeError::new_err(e),
-                KParBuildError::PathUsage(_) => PyValueError::new_err(e),
-                KParBuildError::WorkspaceMetamodelConflict { .. } => PyValueError::new_err(e),
-                KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(e),
+                KParBuildError::Validation { .. }
+                | KParBuildError::Extract(_)
+                | KParBuildError::UnknownFormat(_)
+                | KParBuildError::MissingInfo
+                | KParBuildError::MissingMeta
+                | KParBuildError::MissingInfoMeta
+                | KParBuildError::Serialize(..)
+                | KParBuildError::PathUsage(_)
+                | KParBuildError::WorkspaceMetamodelConflict { .. }
+                | KParBuildError::MissingIndexSymbol(_, _) => PyValueError::new_err(e),
+                KParBuildError::Io(_) | KParBuildError::Zip(_) => PyIOError::new_err(e),
+                KParBuildError::ProjectRead(_) | KParBuildError::WorkspaceRead(_) => {
+                    PyRuntimeError::new_err(e)
+                }
             }
         })
 }
@@ -291,7 +294,7 @@ pub fn do_sources_env_py(
     no_own: bool,
     dependencies: String,
 ) -> PyResult<Vec<String>> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     let dependencies = Dependencies::try_from(dependencies.as_str())
         .map_err(|e| PyValueError::new_err(format_err(e)))?;
@@ -398,7 +401,7 @@ pub fn do_sources_project_py(
     dependencies: String,
     env_path: Option<String>,
 ) -> PyResult<Vec<String>> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     let dependencies = Dependencies::try_from(dependencies.as_str())
         .map_err(|e| PyValueError::new_err(format_err(e)))?;
@@ -450,7 +453,7 @@ pub fn do_sources_project_py(
     signature = (path, iri, version),
 )]
 fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     let mut project = LocalSrcProject::new_access(path, None);
 
@@ -466,7 +469,7 @@ fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()>
     signature = (path, iri),
 )]
 fn do_remove_py(path: String, iri: String) -> PyResult<()> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     let mut project = LocalSrcProject::new_access(path, None);
 
@@ -488,7 +491,7 @@ fn do_include_py(
     index_symbols: bool,
     force_format: Option<String>,
 ) -> PyResult<()> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     let mut project = LocalSrcProject::new_access(path, None);
     let force_format = match force_format {
@@ -521,7 +524,7 @@ fn do_include_py(
     signature = (path, src_path),
 )]
 fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     let mut project = LocalSrcProject::new_access(path, None);
     // TODO: print the whole error chain
@@ -536,7 +539,7 @@ fn do_exclude_py(path: String, src_path: String) -> PyResult<()> {
     signature = (env_path, iri, location),
 )]
 fn do_env_install_path_py(env_path: String, iri: String, location: String) -> PyResult<()> {
-    let _ = pyo3_log::try_init();
+    common_init();
 
     let location: Utf8PathBuf = location.into();
 
@@ -643,7 +646,7 @@ fn do_model_roundtrip_py(
 // since the typed dicts in `_model.py` cannot catch that on their own and
 // must be updated together with this match.
 // If this breaks, look if types in other bindings also need to be updated.
-#[expect(unused)]
+#[expect(unused, clippy::single_match)]
 fn info_and_metadata_fields_guard(
     info: InterchangeProjectInfoRaw,
     meta: InterchangeProjectMetadataRaw,
@@ -694,6 +697,10 @@ fn info_and_metadata_fields_guard(
                 let InterchangeProjectChecksumRaw { value, algorithm } = cksum;
             }
         }
-        None => todo!(),
+        None => (),
     }
+}
+
+fn common_init() {
+    let _ignored_noncritical_error = pyo3_log::try_init();
 }

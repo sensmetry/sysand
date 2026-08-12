@@ -17,10 +17,10 @@ use crate::credential_store::{
 
 fn record(key: &str, secret: &str) -> CredentialRecord {
     CredentialRecord {
-        key: key.to_string(),
+        key: key.to_owned(),
         globs: vec![format!("{key}**")],
         scheme: CredentialScheme::Bearer,
-        secret: secret.to_string(),
+        secret: secret.to_owned(),
         expires_at: None,
         subject: None,
         token_name: None,
@@ -48,8 +48,8 @@ fn logout<B: BlobBackend>(
 
 fn env_entry(label: &str, pattern: &str) -> EnvCredentialEntry {
     EnvCredentialEntry {
-        label: label.to_string(),
-        pattern: pattern.to_string(),
+        label: label.to_owned(),
+        pattern: pattern.to_owned(),
         applies_to_default: false,
     }
 }
@@ -114,8 +114,8 @@ fn status_lists_stored_records_and_env_entries() {
     expiring.expires_at = Some(expiry);
     expiring.validated = vec![ValidatedSurface::Read];
     expiring.globs = vec![
-        "https://example.com/idx/**".to_string(),
-        "https://api.example.com/**".to_string(),
+        "https://example.com/idx/**".to_owned(),
+        "https://api.example.com/**".to_owned(),
     ];
     let store = store_with(&[expiring, record("https://other.example/", "tok-2")]);
     let env = vec![env_entry("SYSAND_CRED_CI", "https://ci.example/**")];
@@ -131,8 +131,8 @@ fn status_lists_stored_records_and_env_entries() {
     assert_eq!(
         stored[0].globs,
         vec![
-            "https://example.com/idx/**".to_string(),
-            "https://api.example.com/**".to_string(),
+            "https://example.com/idx/**".to_owned(),
+            "https://api.example.com/**".to_owned(),
         ]
     );
     assert_eq!(stored[0].expires_at, Some(expiry));
@@ -190,7 +190,7 @@ fn status_reports_env_entries_shadowing_a_stored_key() {
     let StoredCredentialsStatus::Available(stored) = status.stored else {
         panic!("expected stored credentials");
     };
-    assert_eq!(stored[0].shadowed_by, vec!["SYSAND_CRED_TEAM".to_string()]);
+    assert_eq!(stored[0].shadowed_by, vec!["SYSAND_CRED_TEAM".to_owned()]);
     assert!(stored[1].shadowed_by.is_empty());
 }
 
@@ -199,13 +199,13 @@ fn status_marks_entries_applying_to_the_default_index() {
     let mut by_key = record("https://sysand.com/", "tok-1");
     // One invalid glob must not break marking (or status); key equality
     // still applies.
-    by_key.globs = vec!["https://sysand.com/[invalid".to_string()];
+    by_key.globs = vec!["https://sysand.com/[invalid".to_owned()];
     let mut by_glob = record("https://other.example/", "tok-2");
     // Keyed elsewhere, but a disjoint glob (the `api_root` shape) covers
     // the default index root.
     by_glob.globs = vec![
-        "https://other.example/**".to_string(),
-        "https://sysand.com/**".to_string(),
+        "https://other.example/**".to_owned(),
+        "https://sysand.com/**".to_owned(),
     ];
     let records = vec![
         by_key,
@@ -235,9 +235,9 @@ fn status_marks_entries_for_a_template_default_index() {
     // template's literal-prefix anchor (`https://git.example/repo/files/`).
     let template_key = "https://git.example/repo/files/{path}/raw?ref=index";
     let mut template_entry = record(template_key, "tok-1");
-    template_entry.globs = vec!["https://git.example/repo/files/**".to_string()];
+    template_entry.globs = vec!["https://git.example/repo/files/**".to_owned()];
     let mut host_entry = record("https://git.example/", "tok-2");
-    host_entry.globs = vec!["https://git.example/**".to_string()];
+    host_entry.globs = vec!["https://git.example/**".to_owned()];
     let env = vec![env_entry("SYSAND_CRED_GIT", "https://git.example/**")];
 
     let status = assemble_auth_status(
@@ -351,7 +351,7 @@ mod login {
         let outcome = do_auth_login(
             store,
             &index_key,
-            secret.to_string(),
+            secret.to_owned(),
             &client,
             &make_runtime(),
             |notice| notices.push(notice),
@@ -388,7 +388,9 @@ mod login {
                 globs,
                 validated,
             } => (key, globs, validated),
-            other => panic!("expected Stored, got {other:?}"),
+            other @ AuthLoginOutcome::BackendUnavailable { .. } => {
+                panic!("expected Stored, got {other:?}")
+            }
         }
     }
 
@@ -663,7 +665,9 @@ mod login {
                 assert_eq!(globs, vec![format!("{}**", globset::escape(&key))]);
                 assert_eq!(reason, "no secret service");
             }
-            other => panic!("expected BackendUnavailable, got {other:?}"),
+            other @ AuthLoginOutcome::Stored { .. } => {
+                panic!("expected BackendUnavailable, got {other:?}")
+            }
         }
     }
 
@@ -906,7 +910,7 @@ mod login {
             .expect(1)
             .create();
         let whoami = server
-            .mock("GET", mockito::Matcher::Regex("whoami".to_string()))
+            .mock("GET", mockito::Matcher::Regex("whoami".to_owned()))
             .expect(0)
             .create();
         let mut store = in_memory_store();
@@ -1013,7 +1017,7 @@ mod login {
     fn no_authed_config_mock(server: &mut mockito::Server) -> mockito::Mock {
         server
             .mock("GET", "/sysand-index-config.json")
-            .match_header("authorization", mockito::Matcher::Regex(".+".to_string()))
+            .match_header("authorization", mockito::Matcher::Regex(".+".to_owned()))
             .expect(0)
             .create()
     }
@@ -1043,7 +1047,7 @@ mod login {
         // discovery root at runtime, but that default is not an
         // advertisement: no whoami probe.
         let mut server = mockito::Server::new();
-        let _config = config_mock(&mut server, "{}".to_string());
+        let _config = config_mock(&mut server, "{}".to_owned());
         let _index = server.mock("HEAD", "/index.json").with_status(200).create();
         let whoami = server.mock("GET", "/v1/whoami").expect(0).create();
         let mut store = in_memory_store();
@@ -1174,7 +1178,7 @@ mod login {
             record.subject,
             Some(crate::credential_store::CredentialSubject {
                 kind: SubjectKind::User,
-                name: "alice".to_string(),
+                name: "alice".to_owned(),
             })
         );
         assert_eq!(record.token_name.as_deref(), Some("laptop"));
@@ -1449,7 +1453,7 @@ mod login {
             AuthCommandError::ValidationRejected {
                 challenge_schemes,
                 ..
-            } if challenge_schemes == &vec!["Basic".to_string()]
+            } if challenge_schemes == &vec!["Basic".to_owned()]
         ));
         let message = err.to_string();
         assert!(
@@ -1485,7 +1489,7 @@ mod login {
             AuthCommandError::ValidationRejected {
                 challenge_schemes,
                 ..
-            } if challenge_schemes == &vec!["Bearer".to_string()]
+            } if challenge_schemes == &vec!["Bearer".to_owned()]
         ));
         // Bearer is the expected scheme: no basic routing and no
         // unsupported-scheme follow-up.
@@ -1503,7 +1507,7 @@ mod login {
         let _index = server
             .mock("HEAD", "/index.json")
             .with_status(401)
-            .with_header("www-authenticate", r#"Negotiate"#)
+            .with_header("www-authenticate", "Negotiate")
             .expect(2)
             .create();
         let mut store = in_memory_store();
@@ -1516,7 +1520,7 @@ mod login {
             AuthCommandError::ValidationRejected {
                 challenge_schemes,
                 ..
-            } if challenge_schemes == &vec!["Negotiate".to_string()]
+            } if challenge_schemes == &vec!["Negotiate".to_owned()]
         ));
         let message = err.to_string();
         assert!(
@@ -1554,7 +1558,7 @@ mod login {
             AuthCommandError::ValidationRejected {
                 challenge_schemes,
                 ..
-            } if challenge_schemes == &vec!["Negotiate".to_string(), "Basic".to_string()]
+            } if challenge_schemes == &vec!["Negotiate".to_owned(), "Basic".to_owned()]
         ));
         let message = err.to_string();
         assert!(
@@ -1836,7 +1840,7 @@ mod login {
             record.subject,
             Some(crate::credential_store::CredentialSubject {
                 kind: SubjectKind::User,
-                name: "alice".to_string(),
+                name: "alice".to_owned(),
             })
         );
         assert_eq!(record.token_prefix.as_deref(), Some("sysand_u_1a2b3c4d"));
@@ -2103,7 +2107,7 @@ mod whoami {
                 pattern,
                 EnvBearerAuth {
                     auth: ForceBearerAuth::new(token),
-                    label: (*label).to_string(),
+                    label: (*label).to_owned(),
                 },
             );
         }
@@ -2121,7 +2125,7 @@ mod whoami {
         assert_eq!(
             source,
             WhoamiCredentialSource::Env {
-                label: "TEAM".to_string()
+                label: "TEAM".to_owned()
             }
         );
         assert_eq!(token, "env-tok");
@@ -2138,7 +2142,7 @@ mod whoami {
         assert_eq!(
             source,
             WhoamiCredentialSource::Stored {
-                key: INDEX_KEY.to_string()
+                key: INDEX_KEY.to_owned()
             }
         );
         assert_eq!(token, "stored-tok");
@@ -2157,7 +2161,7 @@ mod whoami {
             AuthCommandError::AmbiguousWhoamiCredential { candidates, .. } => {
                 assert_eq!(
                     candidates,
-                    &["SYSAND_CRED_A".to_string(), "SYSAND_CRED_B".to_string()]
+                    &["SYSAND_CRED_A".to_owned(), "SYSAND_CRED_B".to_owned()]
                 );
             }
             other => panic!("unexpected error: {other}"),
@@ -2181,7 +2185,7 @@ mod whoami {
         assert_eq!(
             source,
             WhoamiCredentialSource::Env {
-                label: "A".to_string()
+                label: "A".to_owned()
             }
         );
         assert_eq!(token, "same-tok");
@@ -2191,7 +2195,7 @@ mod whoami {
     fn distinct_ambiguous_stored_logins_are_refused() {
         let env = env_map(&[]);
         let mut narrower = record("https://example.com/api/", "tok-b");
-        narrower.globs = vec!["https://example.com/api/**".to_string()];
+        narrower.globs = vec!["https://example.com/api/**".to_owned()];
         let records = [record(INDEX_KEY, "tok-a"), narrower];
 
         let err = select_whoami_credential(&env, &records, &whoami_url(), INDEX_KEY).unwrap_err();
@@ -2220,7 +2224,7 @@ mod whoami {
         // the other records): each glob is compiled individually.
         let env = env_map(&[]);
         let mut broken = record(INDEX_KEY, "stored-tok");
-        broken.globs = vec!["[invalid".to_string(), "https://example.com/**".to_string()];
+        broken.globs = vec!["[invalid".to_owned(), "https://example.com/**".to_owned()];
 
         let (source, token) =
             select_whoami_credential(&env, &[broken], &whoami_url(), INDEX_KEY).unwrap();
@@ -2228,7 +2232,7 @@ mod whoami {
         assert_eq!(
             source,
             WhoamiCredentialSource::Stored {
-                key: INDEX_KEY.to_string()
+                key: INDEX_KEY.to_owned()
             }
         );
         assert_eq!(token, "stored-tok");

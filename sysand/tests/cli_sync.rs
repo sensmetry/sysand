@@ -324,7 +324,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.project.json")
         .match_header(
             "authorization",
-            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_owned()),
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -345,7 +345,7 @@ fn sync_to_remote_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.meta.json")
         .match_header(
             "authorization",
-            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_owned()),
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -431,7 +431,7 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.project.json")
         .match_header(
             "authorization",
-            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_owned()),
         )
         .with_status(200)
         .with_header("content-type", "application/json")
@@ -450,7 +450,7 @@ fn sync_to_remote_incorrect_auth() -> Result<(), Box<dyn std::error::Error>> {
         .mock("GET", "/.meta.json")
         .match_header(
             "authorization",
-            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_string()),
+            Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_owned()),
         )
         .with_status(200)
         .with_header("content-type", "application/json")

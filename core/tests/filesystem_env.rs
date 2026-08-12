@@ -33,7 +33,7 @@ version = \"0.1\"
 ";
 
     fn ls_dir<P: AsRef<Path>>(path: P) -> Vec<String> {
-        let path = path.as_ref().to_path_buf().clone();
+        let path = path.as_ref().to_path_buf();
 
         let mut files: Vec<String> = std::fs::read_dir(&path)
             .unwrap()
@@ -98,7 +98,7 @@ version = \"0.1\"
 
         for version_str in ["1.0.0", "2.0.0"] {
             let info = InterchangeProjectInfoRaw {
-                name: "multi_version_project".to_string(),
+                name: "multi_version_project".to_owned(),
                 publisher: None,
                 description: None,
                 version: version_str.to_owned(),
@@ -110,7 +110,7 @@ version = \"0.1\"
             };
 
             let mut index = IndexMap::new();
-            index.insert("Pkg".to_string(), String::from("Pkg.sysml"));
+            index.insert("Pkg".to_owned(), String::from("Pkg.sysml"));
 
             let meta = InterchangeProjectMetadataRaw {
                 index,
@@ -155,12 +155,12 @@ version = \"0.1\"
         let versions: Vec<String> = env.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
         assert_eq!(versions, vec!["2.0.0"]);
 
-        assert!(env.get_project(uri, "1.0.0").is_err());
-        assert!(env.get_project(uri, "2.0.0").is_ok());
+        env.get_project(uri, "1.0.0").unwrap_err();
+        env.get_project(uri, "2.0.0").unwrap();
 
         // URI still listed
         let uris: Vec<String> = env.uris()?.into_iter().collect::<Result<_, _>>()?;
-        assert!(uris.contains(&uri.to_string()));
+        assert!(uris.contains(&uri.to_owned()));
 
         // v1 project dir is fully removed
         let v1_dir = cwd.path().join(".sysand/lib/sysand_test.multi_1.0.0");
@@ -188,7 +188,7 @@ version = \"0.1\"
         // Add an unrelated project to verify it is unaffected
         {
             let info = InterchangeProjectInfoRaw {
-                name: "other_project".to_string(),
+                name: "other_project".to_owned(),
                 publisher: None,
                 description: None,
                 version: "1.0.0".to_owned(),
@@ -199,7 +199,7 @@ version = \"0.1\"
                 usage: vec![],
             };
             let mut index = IndexMap::new();
-            index.insert("Other".to_string(), String::from("Other.sysml"));
+            index.insert("Other".to_owned(), String::from("Other.sysml"));
             let meta = InterchangeProjectMetadataRaw {
                 index,
                 created: format_created_now(),
@@ -229,11 +229,11 @@ version = \"0.1\"
 
         // URI is gone from the listing
         let uris: Vec<String> = env.uris()?.into_iter().collect::<Result<_, _>>()?;
-        assert!(!uris.contains(&uri.to_string()));
+        assert!(!uris.contains(&uri.to_owned()));
 
         // The other URI is unaffected
-        assert!(uris.contains(&other_uri.to_string()));
-        assert!(env.get_project(other_uri, "1.0.0").is_ok());
+        assert!(uris.contains(&other_uri.to_owned()));
+        env.get_project(other_uri, "1.0.0").unwrap();
 
         // Both project dirs are fully removed
         let v1_dir = cwd.path().join(".sysand/lib/sysand_test.multi_1.0.0");
@@ -256,7 +256,7 @@ version = \"0.1\"
         let iri = Iri::parse("urn:sysand_test:1").unwrap().to_owned();
 
         let info = InterchangeProjectInfoRaw {
-            name: "env_manual_install".to_string(),
+            name: "env_manual_install".to_owned(),
             publisher: None,
             description: None,
             version: "1.2.3".to_owned(),
@@ -268,7 +268,7 @@ version = \"0.1\"
         };
 
         let mut index = IndexMap::new();
-        index.insert("SomePackage".to_string(), String::from("SomePackage.sysml"));
+        index.insert("SomePackage".to_owned(), String::from("SomePackage.sysml"));
 
         let meta = InterchangeProjectMetadataRaw {
             index,

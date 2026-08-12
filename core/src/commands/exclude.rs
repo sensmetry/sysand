@@ -24,8 +24,8 @@ pub enum ExcludeError<ProjectError> {
 impl<ProjectError> From<ProjectOrIOError<ProjectError>> for ExcludeError<ProjectError> {
     fn from(value: ProjectOrIOError<ProjectError>) -> Self {
         match value {
-            ProjectOrIOError::Project(error) => ExcludeError::Project(error),
-            ProjectOrIOError::Io(error) => ExcludeError::from(error),
+            ProjectOrIOError::Project(error) => Self::Project(error),
+            ProjectOrIOError::Io(error) => Self::from(error),
         }
     }
 }
@@ -34,9 +34,8 @@ pub fn do_exclude<Pr: ProjectMut, P: AsRef<Utf8UnixPath>, I: Iterator<Item = P>>
     project: &mut Pr,
     paths: I,
 ) -> Result<Vec<SourceExclusionOutcome>, ExcludeError<Pr::Error>> {
-    let mut meta = match project.get_meta().map_err(ProjectOrIOError::Project)? {
-        Some(m) => m,
-        None => return Err(ExcludeError::MissingMeta),
+    let Some(mut meta) = project.get_meta().map_err(ProjectOrIOError::Project)? else {
+        return Err(ExcludeError::MissingMeta);
     };
 
     let mut outcomes = Vec::new();

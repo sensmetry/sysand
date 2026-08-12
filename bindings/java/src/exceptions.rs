@@ -90,28 +90,28 @@ impl ExceptionKind {
             // Any of jni_str!()/jni_sig!() with dot (java.lang.Exception) or slash (java/lang/Exception)
             // notation can be used (due to normalization in `jni` and the JVM), they will all be
             // treated as "java.lang.Exception"
-            ExceptionKind::IOError => jni_str!("com.sensmetry.sysand.exceptions.IOError"),
-            ExceptionKind::PathError => jni_str!("com.sensmetry.sysand.exceptions.PathError"),
-            ExceptionKind::ProjectAlreadyExists => {
+            Self::IOError => jni_str!("com.sensmetry.sysand.exceptions.IOError"),
+            Self::PathError => jni_str!("com.sensmetry.sysand.exceptions.PathError"),
+            Self::ProjectAlreadyExists => {
                 jni_str!("com.sensmetry.sysand.exceptions.ProjectAlreadyExists")
             }
-            ExceptionKind::InvalidWorkspace => {
+            Self::InvalidWorkspace => {
                 jni_str!("com.sensmetry.sysand.exceptions.InvalidWorkspace")
             }
-            ExceptionKind::InvalidSemanticVersion => {
+            Self::InvalidSemanticVersion => {
                 jni_str!("com.sensmetry.sysand.exceptions.InvalidSemanticVersion")
             }
-            ExceptionKind::InvalidSPDXLicense => {
+            Self::InvalidSPDXLicense => {
                 jni_str!("com.sensmetry.sysand.exceptions.InvalidSPDXLicense")
             }
-            ExceptionKind::InvalidValue => jni_str!("com.sensmetry.sysand.exceptions.InvalidValue"),
-            ExceptionKind::SerializationError => {
+            Self::InvalidValue => jni_str!("com.sensmetry.sysand.exceptions.InvalidValue"),
+            Self::SerializationError => {
                 jni_str!("com.sensmetry.sysand.exceptions.SerializationError")
             }
-            ExceptionKind::ResolutionError => {
+            Self::ResolutionError => {
                 jni_str!("com.sensmetry.sysand.exceptions.ResolutionError")
             }
-            ExceptionKind::SysandException => {
+            Self::SysandException => {
                 jni_str!("com.sensmetry.sysand.exceptions.SysandException")
             }
         }
@@ -127,7 +127,6 @@ impl fmt::Display for ExceptionKind {
 
 /// Lists all possible standard library exceptions to be thrown, i.e.
 /// all exception types defined in `java.lang` package.
-#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum StdlibExceptionKind {
     NullPointerException,
@@ -137,8 +136,8 @@ pub(crate) enum StdlibExceptionKind {
 impl StdlibExceptionKind {
     pub const fn java_type(self) -> &'static JNIStr {
         match self {
-            StdlibExceptionKind::NullPointerException => jni_str!("java.lang.NullPointerException"),
-            StdlibExceptionKind::UnsupportedOperationException => {
+            Self::NullPointerException => jni_str!("java.lang.NullPointerException"),
+            Self::UnsupportedOperationException => {
                 jni_str!("java.lang.UnsupportedOperationException")
             }
         }
@@ -161,6 +160,7 @@ fn handle_exception_throw_result(
     match res.unwrap_err() {
         jni::errors::Error::JavaException => (),
         // Failing to throw an exception has no recovery
+        #[expect(clippy::panic)]
         other => panic!(
             "failed to throw the exception: {}\n\
             original exception message:\n{}",

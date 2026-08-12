@@ -36,7 +36,7 @@ fn format(buf: &mut Formatter, record: &Record<'_>) -> Result<(), io::Error> {
             let style = style::PLACEHOLDER;
             writeln!(buf, "{style}trace{style:#}: {}", record.args())
         }
-        _ => {
+        log::Level::Info => {
             writeln!(buf, "{}", record.args())
         }
     }

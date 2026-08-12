@@ -9,6 +9,7 @@ use semver::{Version, VersionReq};
 use sysand_core::{
     context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
+    project::ProjectRead,
     sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
 };
 

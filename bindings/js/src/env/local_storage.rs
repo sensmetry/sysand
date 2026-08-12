@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
+use std::fmt::Write;
+use thiserror::Error;
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
+
 use sysand_core::{
     env::{ProjectChecksumResult, PutProjectError, ReadEnvironment, WriteEnvironment},
     project::ProjectChecksum,
     utils::sha256_lowercase_hex,
 };
-use thiserror::Error;
-use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use crate::{
     io::local_storage::ProjectLocalBrowserStorage,
@@ -45,7 +47,7 @@ pub fn open_environment_local_storage<S: AsRef<str>, P: AsRef<Utf8UnixPath>>(
 
     if !result.vfs.exists(result.entries_path())? {
         return Err(Error::InvalidEnvironment(
-            "missing `entries.txt`".to_string(),
+            "missing `entries.txt`".to_owned(),
         ));
     }
 
@@ -97,7 +99,7 @@ impl ReadEnvironment for LocalBrowserStorageEnvironment {
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError> {
         let entries = self.vfs.read_string(self.entries_path())?;
 
-        Ok(entries.lines().map(|s| Ok(s.to_string())).collect())
+        Ok(entries.lines().map(|s| Ok(s.to_owned())).collect())
     }
 
     type VersionIter = Vec<Result<String, Error>>;
@@ -105,7 +107,7 @@ impl ReadEnvironment for LocalBrowserStorageEnvironment {
     fn versions<S: AsRef<str>>(&self, uri: S) -> Result<Self::VersionIter, Self::ReadError> {
         let versions = self.vfs.read_string(self.versions_path(uri))?;
 
-        Ok(versions.lines().map(|s| Ok(s.to_string())).collect())
+        Ok(versions.lines().map(|s| Ok(s.to_owned())).collect())
     }
 
     type InterchangeProjectRead = ProjectLocalBrowserStorage;
@@ -171,7 +173,7 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
         }
 
         if !found {
-            current_versions.push_str(&format!("\n{}", version.as_ref()));
+            write!(current_versions, "\n{}", version.as_ref()).unwrap();
         }
 
         self.vfs
@@ -196,10 +198,11 @@ impl WriteEnvironment for LocalBrowserStorageEnvironment {
 
         let mut found = false;
         for current_version in current_versions.lines() {
-            if current_version != version.as_ref() {
-                kept_versions.push_str(&format!("\n{}", current_version));
-            } else {
+            if current_version == version.as_ref() {
                 found = true;
+            } else {
+                kept_versions.push('\n');
+                kept_versions.push_str(current_version);
             }
         }
 

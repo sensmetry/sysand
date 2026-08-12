@@ -179,7 +179,7 @@ fn lock_path_from_dirs(
 ) -> Result<Utf8PathBuf, CredentialStoreError> {
     // A non-UTF-8 candidate directory is exceedingly unlikely (these come
     // from the `dirs` crate); treat one like an unset candidate.
-    let utf8 = |dir: Option<PathBuf>| dir.and_then(|d| Utf8PathBuf::from_path_buf(d).ok());
+    let utf8 = |dir: Option<PathBuf>| Utf8PathBuf::from_path_buf(dir?).ok();
     if let Some(base) = utf8(state_dir).or_else(|| utf8(data_local_dir)) {
         return Ok(base.join("sysand").join("credentials.lock"));
     }
@@ -210,13 +210,13 @@ pub type KeyringCredentialStore = LockedBlobStore<OsKeyringBackend>;
 impl KeyringCredentialStore {
     /// The OS keyring store with the default per-user lock path.
     pub fn open_default() -> Result<Self, CredentialStoreError> {
-        Ok(LockedBlobStore::new(OsKeyringBackend, default_lock_path()?))
+        Ok(Self::new(OsKeyringBackend, default_lock_path()?))
     }
 }
 
 impl<B: BlobBackend> LockedBlobStore<B> {
     pub fn new(backend: B, lock_path: Utf8PathBuf) -> Self {
-        LockedBlobStore {
+        Self {
             backend,
             lock_path,
             lock_timeout: DEFAULT_LOCK_TIMEOUT,
@@ -225,6 +225,7 @@ impl<B: BlobBackend> LockedBlobStore<B> {
     }
 
     /// Override the bounded lock wait (mainly for tests).
+    #[must_use]
     pub fn with_lock_timing(mut self, timeout: Duration, poll_interval: Duration) -> Self {
         self.lock_timeout = timeout;
         self.lock_poll_interval = poll_interval;
@@ -267,7 +268,9 @@ impl<B: BlobBackend> LockedBlobStore<B> {
                 Ok(()) => {
                     let result = body(&self.backend);
                     // Release explicitly (it would also unlock on `file` drop)
-                    let _ = file.unlock();
+                    if let Err(e) = file.unlock() {
+                        log::debug!("failed to unlock lock file `{}`: {e}", self.lock_path);
+                    }
                     return result;
                 }
                 Err(fs::TryLockError::WouldBlock) => {

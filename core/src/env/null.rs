@@ -33,7 +33,7 @@ pub enum EmptyEnvironmentError {
 
 impl<Pr> NullEnvironment<Pr> {
     pub fn new() -> Self {
-        NullEnvironment::default()
+        Self::default()
     }
 }
 

@@ -17,7 +17,7 @@ fn load_configs() -> Result<(), Box<dyn Error>> {
     let mut config_file = wrapfs::File::create(config_path)?;
     let config = Config {
         indexes: vec![Index {
-            url: "http://www.example.com".to_string(),
+            url: "http://www.example.com".to_owned(),
             ..Default::default()
         }],
         projects: vec![],
@@ -41,7 +41,7 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
     let user_path = user_dir.path().join(local_fs::CONFIG_FILE);
     let user_config = Config {
         indexes: vec![Index {
-            url: "http://user.example.com".to_string(),
+            url: "http://user.example.com".to_owned(),
             ..Default::default()
         }],
         projects: vec![],
@@ -51,7 +51,7 @@ fn load_configs_merges_user_config_before_working_dir() -> Result<(), Box<dyn Er
     let working_dir = tempdir()?;
     let working_config = Config {
         indexes: vec![Index {
-            url: "http://working.example.com".to_string(),
+            url: "http://working.example.com".to_owned(),
             ..Default::default()
         }],
         projects: vec![],
@@ -84,7 +84,7 @@ fn add_project_source_to_config() -> Result<(), Box<dyn Error>> {
     let config = Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec![iri.to_string()],
+            identifiers: vec![iri.to_owned()],
             sources: vec![source],
         }],
     };
@@ -109,7 +109,7 @@ fn remove_project_source_from_config() -> Result<(), Box<dyn Error>> {
     let config = Config {
         indexes: vec![],
         projects: vec![ConfigProject {
-            identifiers: vec![iri.to_string()],
+            identifiers: vec![iri.to_owned()],
             sources: vec![source],
         }],
     };

@@ -72,10 +72,10 @@ fn set_project_field(cwd: &Utf8Path, field: &str, value: &str) -> TestResult {
 
 fn bearer_env_for_url(url: &str) -> IndexMap<String, String> {
     let mut env = IndexMap::new();
-    env.insert("SYSAND_CRED_TEST".to_string(), format!("{url}/**"));
+    env.insert("SYSAND_CRED_TEST".to_owned(), format!("{url}/**"));
     env.insert(
-        "SYSAND_CRED_TEST_BEARER_TOKEN".to_string(),
-        "test-token".to_string(),
+        "SYSAND_CRED_TEST_BEARER_TOKEN".to_owned(),
+        "test-token".to_owned(),
     );
     env
 }
@@ -257,8 +257,8 @@ fn publish_auto_uses_gitlab_trusted_publishing() -> TestResult {
 
     let mut env = IndexMap::new();
     env.insert(
-        "GITLAB_OIDC_TOKEN".to_string(),
-        "gitlab-oidc-token".to_string(),
+        "GITLAB_OIDC_TOKEN".to_owned(),
+        "gitlab-oidc-token".to_owned(),
     );
 
     let out = run_sysand_in_with(
@@ -307,8 +307,8 @@ fn publish_trusted_publishing_always_uses_gitlab_trusted_publishing() -> TestRes
 
     let mut env = IndexMap::new();
     env.insert(
-        "GITLAB_OIDC_TOKEN".to_string(),
-        "gitlab-oidc-token".to_string(),
+        "GITLAB_OIDC_TOKEN".to_owned(),
+        "gitlab-oidc-token".to_owned(),
     );
 
     let out = run_sysand_in_with(
@@ -337,12 +337,12 @@ fn publish_malformed_explicit_credentials_abort_before_trusted_publishing() -> T
     let (_temp_dir, cwd) = setup_built_project("publish-malformed-explicit-creds")?;
     let mut env = IndexMap::new();
     env.insert(
-        "SYSAND_CRED_TEST_BEARER_TOKEN".to_string(),
-        "test-token".to_string(),
+        "SYSAND_CRED_TEST_BEARER_TOKEN".to_owned(),
+        "test-token".to_owned(),
     );
     env.insert(
-        "GITLAB_OIDC_TOKEN".to_string(),
-        "gitlab-oidc-token".to_string(),
+        "GITLAB_OIDC_TOKEN".to_owned(),
+        "gitlab-oidc-token".to_owned(),
     );
 
     let out = run_sysand_in_with(
@@ -368,11 +368,11 @@ fn env_credentials_without_a_label_get_a_labels_are_required_error() -> TestResu
     // group; the error explains the label grammar instead.
     let (_temp_dir, cwd) = setup_built_project("publish-label-less-creds")?;
     let mut env = IndexMap::new();
-    env.insert("SYSAND_CRED".to_string(), "https://a.org".to_string());
-    env.insert("SYSAND_CRED_BASIC_USER".to_string(), "user-a".to_string());
+    env.insert("SYSAND_CRED".to_owned(), "https://a.org".to_owned());
+    env.insert("SYSAND_CRED_BASIC_USER".to_owned(), "user-a".to_owned());
     env.insert(
-        "SYSAND_CRED_BASIC_PASS".to_string(),
-        "secret-pass-b".to_string(),
+        "SYSAND_CRED_BASIC_PASS".to_owned(),
+        "secret-pass-b".to_owned(),
     );
 
     let out = run_sysand_in_with(
@@ -402,8 +402,8 @@ fn env_credential_scheme_errors_never_print_the_variable_values() -> TestResult 
     let (_temp_dir, cwd) = setup_built_project("publish-pattern-value-secrecy")?;
     let mut env = IndexMap::new();
     env.insert(
-        "SYSAND_CRED_TEST".to_string(),
-        "accidental-secret-value".to_string(),
+        "SYSAND_CRED_TEST".to_owned(),
+        "accidental-secret-value".to_owned(),
     );
 
     let out = run_sysand_in_with(
@@ -433,22 +433,22 @@ fn publish_with_explicit_index_succeeds() -> TestResult {
         .match_header("authorization", "Bearer test-token")
         .match_header(
             "content-type",
-            Matcher::Regex("multipart/form-data; boundary=.*".to_string()),
+            Matcher::Regex("multipart/form-data; boundary=.*".to_owned()),
         )
         .match_header(
             "content-length",
-            Matcher::Regex("^[1-9][0-9]{2,}$".to_string()),
+            Matcher::Regex("^[1-9][0-9]{2,}$".to_owned()),
         )
         .match_body(Matcher::AllOf(vec![
-            Matcher::Regex(r#"name="metadata""#.to_string()),
-            Matcher::Regex(r#"Content-Type: application/json"#.to_string()),
-            Matcher::Regex(r#""kpar_sha256_digest":"[0-9a-f]{64}""#.to_string()),
-            Matcher::Regex(r#""normalized_publisher":"#.to_string()),
-            Matcher::Regex(r#""normalized_name":"#.to_string()),
-            Matcher::Regex(r#""version":"#.to_string()),
-            Matcher::Regex(r#""license":"#.to_string()),
-            Matcher::Regex(r#"name="kpar""#.to_string()),
-            Matcher::Regex(r#"Content-Type: application/zip"#.to_string()),
+            Matcher::Regex(r#"name="metadata""#.to_owned()),
+            Matcher::Regex("Content-Type: application/json".to_owned()),
+            Matcher::Regex(r#""kpar_sha256_digest":"[0-9a-f]{64}""#.to_owned()),
+            Matcher::Regex(r#""normalized_publisher":"#.to_owned()),
+            Matcher::Regex(r#""normalized_name":"#.to_owned()),
+            Matcher::Regex(r#""version":"#.to_owned()),
+            Matcher::Regex(r#""license":"#.to_owned()),
+            Matcher::Regex(r#"name="kpar""#.to_owned()),
+            Matcher::Regex("Content-Type: application/zip".to_owned()),
         ]))
         .with_status(201)
         .with_body("created")
@@ -684,21 +684,21 @@ fn publish_sends_kpar_with_integrity_metadata() -> TestResult {
         .match_header("authorization", "Bearer test-token")
         .match_header(
             "content-type",
-            Matcher::Regex("multipart/form-data; boundary=.*".to_string()),
+            Matcher::Regex("multipart/form-data; boundary=.*".to_owned()),
         )
         .match_header(
             "content-length",
-            Matcher::Regex("^[1-9][0-9]{2,}$".to_string()),
+            Matcher::Regex("^[1-9][0-9]{2,}$".to_owned()),
         )
         .match_body(Matcher::AllOf(vec![
-            Matcher::Regex(r#"name="metadata""#.to_string()),
-            Matcher::Regex(r#""kpar_sha256_digest":"[0-9a-f]{64}""#.to_string()),
-            Matcher::Regex(r#""normalized_publisher":"acme-labs""#.to_string()),
-            Matcher::Regex(r#""normalized_name":"my.project-alpha""#.to_string()),
-            Matcher::Regex(r#""version":"1.0.0""#.to_string()),
-            Matcher::Regex(r#""license":"MIT""#.to_string()),
-            Matcher::Regex(r#"name="kpar""#.to_string()),
-            Matcher::Regex(r#"Content-Type: application/zip"#.to_string()),
+            Matcher::Regex(r#"name="metadata""#.to_owned()),
+            Matcher::Regex(r#""kpar_sha256_digest":"[0-9a-f]{64}""#.to_owned()),
+            Matcher::Regex(r#""normalized_publisher":"acme-labs""#.to_owned()),
+            Matcher::Regex(r#""normalized_name":"my.project-alpha""#.to_owned()),
+            Matcher::Regex(r#""version":"1.0.0""#.to_owned()),
+            Matcher::Regex(r#""license":"MIT""#.to_owned()),
+            Matcher::Regex(r#"name="kpar""#.to_owned()),
+            Matcher::Regex("Content-Type: application/zip".to_owned()),
         ]))
         .with_status(201)
         .with_body("created")
@@ -731,15 +731,9 @@ fn publish_ignores_basic_auth_credentials() -> TestResult {
 
     let pattern = format!("{}/**", server.url());
     let mut env = IndexMap::new();
-    env.insert("SYSAND_CRED_TEST".to_string(), pattern);
-    env.insert(
-        "SYSAND_CRED_TEST_BASIC_USER".to_string(),
-        "user".to_string(),
-    );
-    env.insert(
-        "SYSAND_CRED_TEST_BASIC_PASS".to_string(),
-        "pass".to_string(),
-    );
+    env.insert("SYSAND_CRED_TEST".to_owned(), pattern);
+    env.insert("SYSAND_CRED_TEST_BASIC_USER".to_owned(), "user".to_owned());
+    env.insert("SYSAND_CRED_TEST_BASIC_PASS".to_owned(), "pass".to_owned());
 
     let out = run_sysand_in_with(
         &cwd,
@@ -798,7 +792,7 @@ fn publish_uses_stored_credential_when_no_env_bearer_matches() -> TestResult {
 
     let mut env = IndexMap::new();
     env.insert(
-        "SYSAND_TEST_CREDENTIAL_STORE".to_string(),
+        "SYSAND_TEST_CREDENTIAL_STORE".to_owned(),
         store_path.to_string(),
     );
 
@@ -825,15 +819,15 @@ fn publish_rejects_ambiguous_bearer_credentials() -> TestResult {
 
     let base = server.url();
     let mut env = IndexMap::new();
-    env.insert("SYSAND_CRED_A".to_string(), format!("{base}/**"));
+    env.insert("SYSAND_CRED_A".to_owned(), format!("{base}/**"));
     env.insert(
-        "SYSAND_CRED_A_BEARER_TOKEN".to_string(),
-        "token-a".to_string(),
+        "SYSAND_CRED_A_BEARER_TOKEN".to_owned(),
+        "token-a".to_owned(),
     );
-    env.insert("SYSAND_CRED_B".to_string(), format!("{base}/api/**"));
+    env.insert("SYSAND_CRED_B".to_owned(), format!("{base}/api/**"));
     env.insert(
-        "SYSAND_CRED_B_BEARER_TOKEN".to_string(),
-        "token-b".to_string(),
+        "SYSAND_CRED_B_BEARER_TOKEN".to_owned(),
+        "token-b".to_owned(),
     );
 
     let out = run_sysand_in_with(&cwd, ["publish", "--index", base.as_str()], None, &env)?;

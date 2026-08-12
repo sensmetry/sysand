@@ -4,23 +4,18 @@
 use crate::{env::ReadEnvironment, utils::format_err};
 
 pub fn do_env_list<E: ReadEnvironment>(
-    env: E,
+    env: &E,
 ) -> Result<Vec<(String, Option<String>)>, E::ReadError> {
-    let uris: Vec<String> = env
-        .uris()?
-        .into_iter()
-        .filter_map(|res| match res {
-            Ok(u) => Some(u),
-            Err(e) => {
-                log::warn!("failed to read uri: {}", format_err(e));
-                None
-            }
-        })
-        .collect();
+    let uris = env.uris()?.into_iter().filter_map(|res| match res {
+        Ok(u) => Some(u),
+        Err(e) => {
+            log::warn!("failed to read uri: {}", format_err(e));
+            None
+        }
+    });
 
-    #[allow(clippy::type_complexity)]
+    #[expect(clippy::type_complexity)]
     let nested: Result<Vec<Vec<(String, Option<String>)>>, E::ReadError> = uris
-        .into_iter()
         .map(|uri| {
             let versions: Vec<String> = env
                 .versions(&uri)?

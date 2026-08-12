@@ -12,7 +12,7 @@ use crate::project::utils::{deserialize_unix_path, serialize_unix_path};
 pub mod local_fs;
 
 // TODO: validate IRIs and paths
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(rename = "index", skip_serializing_if = "Vec::is_empty", default)]
     pub indexes: Vec<Index>,
@@ -21,7 +21,7 @@ pub struct Config {
     // pub auth: Option<Vec<AuthSource>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfigProject {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub identifiers: Vec<String>,
@@ -104,8 +104,8 @@ impl OverrideSource {
 }
 
 impl Config {
-    pub fn merge(&mut self, config: Config) {
-        let Config {
+    pub fn merge(&mut self, config: Self) {
+        let Self {
             mut indexes,
             mut projects,
         } = config;
@@ -148,9 +148,9 @@ impl Config {
 
         index_urls
             .iter()
-            .map(|url| url.as_str())
+            .map(String::as_str)
             .chain(indexes.iter().map(|i| i.url.as_str()))
-            .chain(end.iter().map(|url| url.as_str()))
+            .chain(end.iter().map(String::as_str))
             .map(IndexLocation::parse)
             .collect()
     }
@@ -162,20 +162,20 @@ impl Config {
     ) -> Result<Vec<IndexLocation>, IndexLocationError> {
         index_urls
             .iter()
-            .map(|url| url.as_str())
+            .map(String::as_str)
             .chain(
                 self.indexes
                     .iter()
                     .filter(|i| !i.default.unwrap_or(false))
                     .map(|i| i.url.as_str()),
             )
-            .chain(default_urls.iter().map(|url| url.as_str()))
+            .chain(default_urls.iter().map(String::as_str))
             .map(IndexLocation::parse)
             .collect()
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Index {
     pub name: Option<String>,
     pub url: String,
@@ -183,7 +183,7 @@ pub struct Index {
     pub default: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuthSource {
     EnvVar,
     Keyring,

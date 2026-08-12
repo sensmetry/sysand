@@ -55,40 +55,40 @@ pub enum CliBlobBackend {
 impl BlobBackend for CliBlobBackend {
     fn read(&self) -> Result<Option<String>, CredentialStoreError> {
         match self {
-            CliBlobBackend::Keyring(keyring) => keyring.read(),
+            Self::Keyring(keyring) => keyring.read(),
             #[cfg(debug_assertions)]
-            CliBlobBackend::File(path) => match std::fs::read_to_string(path) {
+            Self::File(path) => match std::fs::read_to_string(path) {
                 Ok(raw) => Ok(Some(raw)),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
                 Err(err) => Err(FsIoError::ReadFile(path.clone(), err).into()),
             },
             #[cfg(debug_assertions)]
-            CliBlobBackend::Absent => Err(absent()),
+            Self::Absent => Err(absent()),
         }
     }
 
     fn write(&self, raw: &str) -> Result<(), CredentialStoreError> {
         match self {
-            CliBlobBackend::Keyring(keyring) => keyring.write(raw),
+            Self::Keyring(keyring) => keyring.write(raw),
             #[cfg(debug_assertions)]
-            CliBlobBackend::File(path) => std::fs::write(path, raw)
+            Self::File(path) => std::fs::write(path, raw)
                 .map_err(|err| FsIoError::WriteFile(path.clone(), err).into()),
             #[cfg(debug_assertions)]
-            CliBlobBackend::Absent => Err(absent()),
+            Self::Absent => Err(absent()),
         }
     }
 
     fn delete(&self) -> Result<(), CredentialStoreError> {
         match self {
-            CliBlobBackend::Keyring(keyring) => keyring.delete(),
+            Self::Keyring(keyring) => keyring.delete(),
             #[cfg(debug_assertions)]
-            CliBlobBackend::File(path) => match std::fs::remove_file(path) {
+            Self::File(path) => match std::fs::remove_file(path) {
                 Ok(()) => Ok(()),
                 Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
                 Err(err) => Err(FsIoError::RmFile(path.clone(), err).into()),
             },
             #[cfg(debug_assertions)]
-            CliBlobBackend::Absent => Err(absent()),
+            Self::Absent => Err(absent()),
         }
     }
 }

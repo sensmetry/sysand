@@ -107,7 +107,7 @@ pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
                 VersionStatus::Removed => {
                     return Err(IndexYankError::VersionRemoved {
                         iri: iri.into(),
-                        version: version.to_string(),
+                        version: version.to_owned(),
                     });
                 }
             }
@@ -129,10 +129,10 @@ pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
 impl From<JsonFileError> for IndexYankError {
     fn from(value: JsonFileError) -> Self {
         match value {
-            JsonFileError::FileDoesNotExist(e) => IndexYankError::Io(e),
-            JsonFileError::Io(e) => IndexYankError::Io(e),
+            JsonFileError::FileDoesNotExist(e) => Self::Io(e),
+            JsonFileError::Io(e) => Self::Io(e),
             JsonFileError::InvalidJsonFile { path, source } => {
-                IndexYankError::InvalidJsonFile { path, source }
+                Self::InvalidJsonFile { path, source }
             }
         }
     }

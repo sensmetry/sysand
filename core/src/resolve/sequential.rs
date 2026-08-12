@@ -15,7 +15,7 @@ pub struct SequentialResolver<R> {
 
 impl<R> SequentialResolver<R> {
     pub fn new<I: IntoIterator<Item = R>>(resolvers: I) -> Self {
-        SequentialResolver {
+        Self {
             inner: resolvers.into_iter().collect(),
         }
     }

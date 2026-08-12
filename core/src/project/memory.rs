@@ -47,8 +47,8 @@ impl InMemoryProject {
 
     pub fn from_project<Pr: ProjectRead>(
         from: &Pr,
-    ) -> Result<InMemoryProject, CloneError<<Pr as ProjectRead>::Error, InMemoryError>> {
-        let mut to = InMemoryProject {
+    ) -> Result<Self, CloneError<<Pr as ProjectRead>::Error, InMemoryError>> {
+        let mut to = Self {
             info: None,
             meta: None,
             files: std::collections::HashMap::new(),
@@ -69,7 +69,7 @@ impl ProjectMut for InMemoryProject {
     ) -> Result<(), InMemoryError> {
         if !overwrite && self.info.is_some() {
             return Err(InMemoryError::AlreadyExists(
-                "project already has an information file".to_string(),
+                "project already has an information file".to_owned(),
             ));
         }
 
@@ -85,7 +85,7 @@ impl ProjectMut for InMemoryProject {
     ) -> Result<(), InMemoryError> {
         if !overwrite && self.meta.is_some() {
             return Err(InMemoryError::AlreadyExists(
-                "project already has a meta manifest".to_string(),
+                "project already has a meta manifest".to_owned(),
             ));
         }
 

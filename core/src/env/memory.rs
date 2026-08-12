@@ -270,9 +270,9 @@ impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEn
         write_project(&mut tentative_project).map_err(PutProjectError::Callback)?;
 
         self.projects
-            .entry(uri.as_ref().to_string())
+            .entry(uri.as_ref().to_owned())
             .or_default()
-            .insert(version.as_ref().to_string(), tentative_project.clone());
+            .insert(version.as_ref().to_owned(), tentative_project.clone());
 
         // TODO: Maybe we should not be returning this (so as to avoid clone)?
         Ok(tentative_project)
@@ -283,7 +283,7 @@ impl<Project: ProjectMut + Clone + Default> WriteEnvironment for MemoryStorageEn
         uri: S,
         version: T,
     ) -> Result<(), Self::WriteError> {
-        match &mut self.projects.entry(uri.as_ref().to_string()) {
+        match &mut self.projects.entry(uri.as_ref().to_owned()) {
             Entry::Occupied(occupied_entry) => {
                 occupied_entry.get_mut().remove(version.as_ref());
                 if occupied_entry.get().is_empty() {
@@ -329,7 +329,7 @@ impl<Project: ProjectRead + Clone + Debug> ReadEnvironment for MemoryStorageEnvi
         let version_vec: Vec<Result<String, Self::ReadError>> = self
             .projects
             .get(uri.as_ref())
-            .ok_or_else(|| MemoryReadError::MissingProject(uri.as_ref().to_string()))?
+            .ok_or_else(|| MemoryReadError::MissingProject(uri.as_ref().to_owned()))?
             .keys()
             .map(|x| Ok(x.to_owned()))
             .collect();
@@ -347,12 +347,12 @@ impl<Project: ProjectRead + Clone + Debug> ReadEnvironment for MemoryStorageEnvi
         Ok(self
             .projects
             .get(uri.as_ref())
-            .ok_or_else(|| MemoryReadError::MissingProject(uri.as_ref().to_string()))?
+            .ok_or_else(|| MemoryReadError::MissingProject(uri.as_ref().to_owned()))?
             .get(version.as_ref())
             .ok_or_else(|| {
                 MemoryReadError::MissingVersion(
-                    uri.as_ref().to_string(),
-                    version.as_ref().to_string(),
+                    uri.as_ref().to_owned(),
+                    version.as_ref().to_owned(),
                 )
             })?
             .clone())
@@ -367,9 +367,8 @@ impl<Project: ProjectRead + Clone + Debug> ReadEnvironment for MemoryStorageEnvi
         checksum: &ProjectChecksum,
     ) -> Result<ProjectChecksumResult, Self::ReadError> {
         let version = version.as_ref();
-        let versions = match self.projects.get(uri.as_ref()) {
-            Some(v) => v,
-            None => return Ok(ProjectChecksumResult::VersionNotFound),
+        let Some(versions) = self.projects.get(uri.as_ref()) else {
+            return Ok(ProjectChecksumResult::VersionNotFound);
         };
 
         match versions.iter().find(|p| p.0 == version) {

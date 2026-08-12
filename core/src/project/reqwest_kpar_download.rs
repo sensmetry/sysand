@@ -220,7 +220,7 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
         let mut file = wrapfs::File::create(&archive_path)?;
         let mut bytes_stream = resp.bytes_stream();
         let mut hasher = Sha256::new();
-        let mut written = 0_u64;
+        let mut written = 0u64;
 
         while let Some(bytes) = bytes_stream.next().await {
             let bytes = bytes.map_err(ReqwestKparDownloadedError::Reqwest)?;
@@ -238,9 +238,7 @@ impl<Policy: HTTPAuthentication> ReqwestRemoteKparDownloadedProject<Policy> {
             file.write_all(&bytes)
                 .map_err(|e| FsIoError::WriteFile(archive_path.clone(), e))?;
         }
-        let written = if let Some(w) = NonZeroU64::new(written) {
-            w
-        } else {
+        let Some(written) = NonZeroU64::new(written) else {
             return Err(ReqwestKparDownloadedError::EmptyKpar {
                 url: self.url.as_str().into(),
             });
@@ -475,7 +473,7 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
         let mut file = wrapfs::File::create(&archive_path)?;
         let mut bytes_stream = resp.bytes_stream();
         let mut hasher = Sha256::new();
-        let mut written = 0_u64;
+        let mut written = 0u64;
 
         while let Some(bytes) = bytes_stream.next().await {
             let bytes = bytes.map_err(ReqwestKparDownloadedError::Reqwest)?;
@@ -491,9 +489,7 @@ impl<Policy: HTTPAuthentication> ReqwestIndexKparDownloadedProject<Policy> {
             file.write_all(&bytes)
                 .map_err(|e| FsIoError::WriteFile(archive_path.clone(), e))?;
         }
-        let written = if let Some(w) = NonZeroU64::new(written) {
-            w
-        } else {
+        let Some(written) = NonZeroU64::new(written) else {
             return Err(ReqwestKparDownloadedError::EmptyKpar {
                 url: self.url.as_str().into(),
             });

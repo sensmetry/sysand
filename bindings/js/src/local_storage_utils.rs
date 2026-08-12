@@ -48,7 +48,7 @@ pub fn get_local_browser_storage<S: AsRef<str>>(
     prefix: S,
 ) -> Result<LocalStorageVFS, LocalStorageError> {
     Ok(LocalStorageVFS {
-        prefix: prefix.as_ref().to_string(),
+        prefix: prefix.as_ref().to_owned(),
         local_storage: web_sys::window()
             .ok_or(LocalStorageError::NoWindow)?
             .local_storage()?

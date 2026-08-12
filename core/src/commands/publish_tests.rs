@@ -51,7 +51,7 @@ fn env_sources_labeled(entries: &[(&str, &str, &str)]) -> GlobMap<EnvBearerAuth>
             *pattern,
             EnvBearerAuth {
                 auth: ForceBearerAuth::new(*token),
-                label: (*label).to_string(),
+                label: (*label).to_owned(),
             },
         );
     }
@@ -74,7 +74,7 @@ fn stored_sources_expiring(
             *pattern,
             StoredBearerAuth::new(
                 ForceBearerAuth::new(*token),
-                STORED_KEY.to_string(),
+                STORED_KEY.to_owned(),
                 expires_at,
             ),
         );
@@ -87,7 +87,7 @@ fn stored_sources_keyed(entries: &[(&str, &str, &str)]) -> GlobMap<StoredBearerA
     for (pattern, token, key) in entries {
         builder.add(
             *pattern,
-            StoredBearerAuth::new(ForceBearerAuth::new(*token), (*key).to_string(), None),
+            StoredBearerAuth::new(ForceBearerAuth::new(*token), (*key).to_owned(), None),
         );
     }
     builder.build().unwrap()
@@ -172,9 +172,9 @@ fn resolve_publish_bearer_never_rejects_ambiguous_bearer() {
     // Both entries share the ENVIDX label, so the conflict names the one
     // variable once.
     assert_matches!(
-        err,
+       &err,
         PublishError::AmbiguousPublishBearer {
-            conflict: PublishBearerConflict::Env { ref variables },
+            conflict: PublishBearerConflict::Env { variables },
             ..
         } if variables == &["SYSAND_CRED_ENVIDX"]
     );
@@ -193,7 +193,7 @@ fn publish_bearer_env_match_wins_without_reading_stored_credentials() {
     assert_eq!(
         selected.provenance,
         PublishBearerProvenance::Env {
-            label: "ENVIDX".to_string()
+            label: "ENVIDX".to_owned()
         }
     );
 }
@@ -214,7 +214,7 @@ fn publish_bearer_falls_through_to_keyring_when_env_has_no_match() {
     assert_eq!(
         selected.provenance,
         PublishBearerProvenance::Stored {
-            key: STORED_KEY.to_string(),
+            key: STORED_KEY.to_owned(),
             expires_at: None,
         }
     );
@@ -244,7 +244,7 @@ fn publish_bearer_keyring_identical_token_candidates_collapse() {
     assert_eq!(
         selected.provenance,
         PublishBearerProvenance::Stored {
-            key: STORED_KEY.to_string(),
+            key: STORED_KEY.to_owned(),
             expires_at: None,
         }
     );
@@ -264,10 +264,10 @@ fn publish_bearer_env_ambiguity_errors_without_keyring_fallback() {
 
     // The conflict names every matching `SYSAND_CRED_<LABEL>` variable.
     assert_matches!(
-        err,
+        &err,
         PublishError::AmbiguousPublishBearer {
-            conflict: PublishBearerConflict::Env { ref variables },
-            ref upload_url,
+            conflict: PublishBearerConflict::Env { variables },
+            upload_url,
         } if variables == &["SYSAND_CRED_BROAD", "SYSAND_CRED_NARROW"]
             && upload_url.as_ref() == "https://example.org/api/v1/upload"
     );
@@ -302,10 +302,10 @@ fn publish_bearer_keyring_ambiguity_errors() {
 
     // The conflict names every matching stored login by its key.
     assert_matches!(
-        err,
+        &err,
         PublishError::AmbiguousPublishBearer {
-            conflict: PublishBearerConflict::Stored { ref keys },
-            ref upload_url,
+            conflict: PublishBearerConflict::Stored { keys },
+            upload_url,
         } if keys == &["https://example.org/", "https://example.org/api/"]
             && upload_url.as_ref() == "https://example.org/api/v1/upload"
     );
@@ -691,15 +691,15 @@ fn check_metamodel_rejects_invalid_kerml_version() {
 
 fn usage(resource: &str) -> InterchangeProjectUsageRaw {
     InterchangeProjectUsageRaw::Resource {
-        resource: resource.to_string(),
+        resource: resource.to_owned(),
         version_constraint: None,
     }
 }
 
 fn usage_with_vc(resource: &str, vc: &str) -> InterchangeProjectUsageRaw {
     InterchangeProjectUsageRaw::Resource {
-        resource: resource.to_string(),
-        version_constraint: Some(vc.to_string()),
+        resource: resource.to_owned(),
+        version_constraint: Some(vc.to_owned()),
     }
 }
 
@@ -772,9 +772,9 @@ fn check_usage_rejects_unknown_std_lib() {
 
 fn directory_usage(dir: &str) -> InterchangeProjectUsageRaw {
     InterchangeProjectUsageRaw::Directory {
-        dir: dir.to_string(),
-        publisher: "acme".to_string(),
-        name: "lib".to_string(),
+        dir: dir.to_owned(),
+        publisher: "acme".to_owned(),
+        name: "lib".to_owned(),
     }
 }
 
@@ -789,9 +789,9 @@ fn check_usage_rejects_directory_usage_with_version_constraint() {
     // Directory usages have no version_constraint field, but verify the error
     // is PathUsage regardless of publisher/name values.
     let err = check_usage(&InterchangeProjectUsageRaw::Directory {
-        dir: "libs/sub".to_string(),
-        publisher: "org".to_string(),
-        name: "thing".to_string(),
+        dir: "libs/sub".to_owned(),
+        publisher: "org".to_owned(),
+        name: "thing".to_owned(),
     })
     .unwrap_err();
     assert_matches!(err, PublishError::PathUsage { path } if path.as_ref() == "libs/sub");
@@ -830,10 +830,10 @@ fn map_publish_response_201_is_ok_new_project() {
 
 fn preparation() -> PublishPreparation {
     PublishPreparation {
-        norm_publisher: "acme".to_string(),
-        norm_name: "widgets".to_string(),
-        version: "1.0.0".to_string(),
-        metadata: "{}".to_string(),
+        norm_publisher: "acme".to_owned(),
+        norm_name: "widgets".to_owned(),
+        version: "1.0.0".to_owned(),
+        metadata: "{}".to_owned(),
         kpar_bytes: Bytes::from_static(b"not a real kpar"),
     }
 }
@@ -861,7 +861,7 @@ fn env_bearer(label: &str) -> SelectedPublishBearer {
     SelectedPublishBearer {
         auth: ForceBearerAuth::new("env-token"),
         provenance: PublishBearerProvenance::Env {
-            label: label.to_string(),
+            label: label.to_owned(),
         },
     }
 }
@@ -870,7 +870,7 @@ fn stored_bearer(expires_at: Option<DateTime<Utc>>) -> SelectedPublishBearer {
     SelectedPublishBearer {
         auth: ForceBearerAuth::new("stored-token"),
         provenance: PublishBearerProvenance::Stored {
-            key: STORED_KEY.to_string(),
+            key: STORED_KEY.to_owned(),
             expires_at,
         },
     }

@@ -50,14 +50,14 @@ fn stems(expr: &str) -> Vec<String> {
 
 #[test]
 fn license_stems_single() {
-    assert_eq!(stems("MIT"), vec!["MIT".to_string()]);
+    assert_eq!(stems("MIT"), vec!["MIT".to_owned()]);
 }
 
 #[test]
 fn license_stems_compound_or() {
     assert_eq!(
         stems("MIT OR Apache-2.0"),
-        vec!["MIT".to_string(), "Apache-2.0".to_string()]
+        vec!["MIT".to_owned(), "Apache-2.0".to_owned()]
     );
 }
 
@@ -65,7 +65,7 @@ fn license_stems_compound_or() {
 fn license_stems_compound_and() {
     assert_eq!(
         stems("MIT AND BSD-2-Clause"),
-        vec!["MIT".to_string(), "BSD-2-Clause".to_string()]
+        vec!["MIT".to_owned(), "BSD-2-Clause".to_owned()]
     );
 }
 
@@ -74,8 +74,8 @@ fn license_stems_with_exception() {
     assert_eq!(
         stems("GPL-2.0-only WITH Classpath-exception-2.0"),
         vec![
-            "GPL-2.0-only".to_string(),
-            "Classpath-exception-2.0".to_string(),
+            "GPL-2.0-only".to_owned(),
+            "Classpath-exception-2.0".to_owned(),
         ]
     );
 }
@@ -84,7 +84,7 @@ fn license_stems_with_exception() {
 fn license_stems_license_ref() {
     assert_eq!(
         stems("LicenseRef-MyCustom"),
-        vec!["LicenseRef-MyCustom".to_string()]
+        vec!["LicenseRef-MyCustom".to_owned()]
     );
 }
 
@@ -92,10 +92,10 @@ fn license_stems_license_ref() {
 fn license_stems_or_later_strips_plus() {
     // `MIT+` shares its license file with `MIT` per REUSE conventions —
     // the `+` does not appear in the bundled filename.
-    assert_eq!(stems("MIT+"), vec!["MIT".to_string()]);
+    assert_eq!(stems("MIT+"), vec!["MIT".to_owned()]);
 }
 
 #[test]
 fn license_stems_deduplicates() {
-    assert_eq!(stems("MIT AND MIT"), vec!["MIT".to_string()]);
+    assert_eq!(stems("MIT AND MIT"), vec!["MIT".to_owned()]);
 }

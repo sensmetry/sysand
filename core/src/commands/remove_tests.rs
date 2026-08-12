@@ -42,7 +42,7 @@ fn remove_accepts_normalized_sysand_shorthand() {
     assert_eq!(
         removed[0],
         InterchangeProjectUsageRaw::Resource {
-            resource: "pkg:sysand/acme-labs/my.project".to_string(),
+            resource: "pkg:sysand/acme-labs/my.project".to_owned(),
             version_constraint: None
         }
     );
@@ -63,7 +63,7 @@ fn remove_keeps_iri_resource() {
     assert_eq!(
         removed[0],
         InterchangeProjectUsageRaw::Resource {
-            resource: "https://example.com/acme-labs/my.project".to_string(),
+            resource: "https://example.com/acme-labs/my.project".to_owned(),
             version_constraint: None
         }
     );
