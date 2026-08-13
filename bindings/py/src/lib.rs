@@ -53,10 +53,12 @@ use typed_path::Utf8UnixPathBuf;
 #[pyfunction(name = "_run_cli")]
 fn run_cli(args: Vec<String>) -> bool {
     let exit_code;
-    // Expand glob arguments
+    // Expand glob arguments, CMD/PowerShell don't do it
     #[cfg(windows)]
     {
         use glob::{MatchOptions, glob_with};
+        use std::ffi::OsString;
+
         let options = MatchOptions {
             case_sensitive: false,
             require_literal_separator: true,
@@ -71,15 +73,24 @@ fn run_cli(args: Vec<String>) -> bool {
             // Treat '[' and ']' as literal characters to match Windows behavior
             let escaped = arg.replace('[', "[[]");
 
-            if let Ok(entries) = glob_with(&escaped, options) {
-                let matches: Vec<OsString> = entries
-                    .filter_map(Result::ok)
-                    .map(|p| p.to_owned())
-                    .collect();
+            match glob_with(&escaped, options) {
+                Ok(entries) => {
+                    let matches: Vec<OsString> = entries
+                        .filter_map(|m| match m {
+                            Ok(s) => Some(s.into_os_string()),
+                            Err(e) => {
+                                // can't use log::warn here, since the logger is likely uninitialized
+                                eprintln!("warning: failed to expand pattern: {e}");
+                                None
+                            }
+                        })
+                        .collect();
 
-                if !matches.is_empty() {
-                    return matches;
+                    if !matches.is_empty() {
+                        return matches;
+                    }
                 }
+                Err(e) => eprintln!("warning: invalid pattern `{arg}`: {e}"),
             }
 
             vec![arg.into()]

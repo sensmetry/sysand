@@ -14,30 +14,26 @@ pub fn do_env_list<E: ReadEnvironment>(
         }
     });
 
-    let nested: Result<Vec<Vec<(String, Option<String>)>>, E::ReadError> = uris
-        .map(|uri| {
-            let versions: Vec<String> = env
-                .versions(&uri)?
-                .into_iter()
-                .filter_map(|res| match res {
-                    Ok(u) => Some(u),
-                    Err(e) => {
-                        log::warn!("failed to read one version of `{uri}`: {}", format_err(e));
-                        None
-                    }
-                })
-                .collect();
+    let mut result = Vec::new();
+    for uri in uris {
+        let mut versions = env
+            .versions(&uri)?
+            .into_iter()
+            .filter_map(|res| match res {
+                Ok(u) => Some(u),
+                Err(e) => {
+                    log::warn!("failed to read one version of `{uri}`: {}", format_err(e));
+                    None
+                }
+            })
+            .peekable();
 
-            if versions.is_empty() {
-                Ok(vec![(uri, None)])
-            } else {
-                Ok(versions
-                    .into_iter()
-                    .map(|v| (uri.clone(), Some(v)))
-                    .collect())
-            }
-        })
-        .collect();
+        if versions.peek().is_none() {
+            result.push((uri, None));
+        } else {
+            result.extend(versions.map(|v| (uri.clone(), Some(v))));
+        }
+    }
 
-    nested.map(|v| v.into_iter().flatten().collect())
+    Ok(result)
 }

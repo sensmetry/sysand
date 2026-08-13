@@ -107,12 +107,20 @@ pub enum Command {
         /// guide's `Project information and metadata` section
         #[clap(verbatim_doc_comment)]
         version_constraint: Option<String>,
-        /// Do not automatically resolve dependencies (and generate lockfile)
-        #[arg(long, default_value_t = false)]
+        /// Do not automatically resolve dependencies (and generate
+        /// lockfile). Implies `--no-sync`
+        // TODO: consider enforcing the implication here via e.g. default_value_if(s);
+        // the issue is that it does not work transitively and is verbose. Alternatively,
+        // do so in lib.rs with e.g. fn imply(bools: [&mut bool]), where the first
+        // implies second implies third and so on
+        #[arg(long, verbatim_doc_comment)]
         no_lock: bool,
-        /// Do not automatically install dependencies
-        #[arg(long, default_value_t = false)]
+        /// Do not automatically install dependencies. Implies `--no-prune`
+        #[arg(long)]
         no_sync: bool,
+        /// Don't remove projects that are no longer needed from `.sysand`
+        #[arg(long)]
+        no_prune: bool,
 
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
@@ -124,6 +132,18 @@ pub enum Command {
     Remove {
         #[clap(flatten)]
         locator: RemoveProjectLocatorArgs,
+        /// Do not automatically generate/update the lockfile. Implies `--no-sync`
+        #[arg(long)]
+        no_lock: bool,
+        /// Do not automatically install dependencies. Implies `--no-prune`
+        #[arg(long)]
+        no_sync: bool,
+        /// Don't remove projects that are no longer needed from `.sysand`
+        #[arg(long)]
+        no_prune: bool,
+
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
     },
     /// Clone a project to a specified directory.
     /// Equivalent to manually downloading, extracting the
@@ -158,10 +178,10 @@ pub enum Command {
         /// Compute and add each file's (current) SHA256 checksum
         // TODO: will it ever be automatically updated?
         //       Maybe only when building a kpar?
-        #[arg(long, default_value_t = false)]
+        #[arg(long)]
         compute_checksum: bool,
         /// Do not detect and add top level symbols to index
-        #[arg(long, default_value_t = false)]
+        #[arg(long)]
         no_index_symbols: bool,
     },
     /// Exclude model interchange file from project metadata
@@ -190,12 +210,12 @@ pub enum Command {
         /// Warning: using this makes the project not portable between different
         /// computers, as `file://` URL always contains an absolute path.
         /// For multiple related projects, consider using a workspace instead
-        #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
+        #[arg(long, short, verbatim_doc_comment)]
         allow_path_usage: bool,
         /// Note: this is now the default and kept only for compatibility.
         /// Update project metadata that is written into the kpar. This includes
         /// updating project symbol index and adding/updating source file checksums
-        #[arg(long, short, default_value_t = false, verbatim_doc_comment)]
+        #[arg(long, short, verbatim_doc_comment)]
         update_meta: bool,
         /// Don't update exported symbols index in the built KPAR metadata
         #[arg(long, conflicts_with = "update_meta")]
@@ -249,6 +269,9 @@ pub enum Command {
     Sync {
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
+        /// Don't remove projects that are no longer needed from `.sysand`
+        #[arg(long)]
+        no_prune: bool,
     },
     /// Describe or modify a local project (either the current one
     /// or one at a given path) or resolve and describe a project
@@ -278,7 +301,7 @@ pub enum Command {
         )]
         auto_location: Option<String>,
         /// Do not try to normalise the IRI/URI when resolving
-        #[arg(long, default_value_t = false, visible_alias = "no-normalize")]
+        #[arg(long, visible_alias = "no-normalize")]
         no_normalise: bool,
         // TODO: Add various options, such as whether to take local environment
         //       into consideration
@@ -314,17 +337,37 @@ pub enum ExpCommand {
         #[clap(flatten)]
         locator: ExpAddProjectLocatorArgs,
 
-        /// Do not automatically resolve dependencies (and generate lockfile)
-        #[arg(long, default_value_t = false)]
+        /// Do not automatically resolve dependencies (and generate
+        /// lockfile). Implies `--no-sync`
+        #[arg(long, verbatim_doc_comment)]
         no_lock: bool,
-        /// Do not automatically install dependencies
-        #[arg(long, default_value_t = false)]
+        /// Do not automatically install dependencies. Implies `--no-prune`
+        #[arg(long)]
         no_sync: bool,
+        /// Don't remove projects that are no longer needed from `.sysand`
+        #[arg(long)]
+        no_prune: bool,
         #[command(flatten)]
         resolution_opts: ResolutionOptions,
     },
     /// Remove a usage
-    Remove { publisher: String, name: String },
+    Remove {
+        publisher: String,
+        name: String,
+
+        /// Do not automatically generate/update the lockfile. Implies `--no-sync`
+        #[arg(long)]
+        no_lock: bool,
+        /// Do not automatically install dependencies. Implies `--no-prune`
+        #[arg(long)]
+        no_sync: bool,
+        /// Don't remove projects that are no longer needed from `.sysand`
+        #[arg(long)]
+        no_prune: bool,
+
+        #[command(flatten)]
+        resolution_opts: ResolutionOptions,
+    },
 }
 
 #[derive(clap::Args, Debug, Clone)]
@@ -661,7 +704,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         remove: Option<usize>,
         /// Prints a numbered list
-        #[arg(long, default_value_t = false)]
+        #[arg(long)]
         numbered: bool,
     },
     /// Get or set the website of the project
@@ -695,7 +738,7 @@ pub enum InfoCommand {
         #[arg(long, default_value=None)]
         remove: Option<usize>,
         /// Prints a numbered list
-        #[arg(long, default_value_t = false)]
+        #[arg(long)]
         numbered: bool,
     },
     /// Print project usages
@@ -728,7 +771,7 @@ pub enum InfoCommand {
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
-        #[arg(long, default_value_t = false)]
+        #[arg(long)]
         numbered: bool,
     },
     /// Get project index
@@ -761,7 +804,7 @@ pub enum InfoCommand {
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
-        #[arg(long, default_value_t = false)]
+        #[arg(long)]
         numbered: bool,
     },
     /// Get project metadata manifest creation time
@@ -831,7 +874,7 @@ pub enum InfoCommand {
             default_value=None
         )]
         set_custom: Option<String>,
-        #[arg(long, num_args = 0, default_value_t = false, conflicts_with = "set")]
+        #[arg(long, num_args = 0, conflicts_with = "set")]
         clear: bool,
         // Only for better error messages
         #[arg(hide=true, long, default_value=None, value_parser=invalid_command(
@@ -919,7 +962,7 @@ pub enum InfoCommand {
         ))]
         remove: Option<Infallible>,
         /// Prints a numbered list
-        #[arg(long, default_value_t = false)]
+        #[arg(long)]
         numbered: bool,
     },
 }
@@ -1665,19 +1708,13 @@ pub struct ResolutionOptions {
     // - index
     #[arg(
         long,
-        default_value_t = false,
         conflicts_with_all = ["index", "default_index"],
         global = true,
         help_heading = "Resolution options",
     )]
     pub no_index: bool,
     /// Don't ignore KerML/SysML v2 standard libraries if specified as dependencies
-    #[arg(
-        long,
-        default_value_t = false,
-        global = true,
-        help_heading = "Resolution options"
-    )]
+    #[arg(long, global = true, help_heading = "Resolution options")]
     pub include_std: bool,
 }
 
@@ -1722,13 +1759,13 @@ pub struct ProjectSourceOptions {
 #[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
     /// Do not include sources for dependencies
-    #[arg(long, default_value_t = false, conflicts_with = "include_std")]
+    #[arg(long, conflicts_with = "include_std")]
     pub no_deps: bool,
     /// Only include sources for dependencies, not the project's own sources
-    #[arg(long, default_value_t = false, conflicts_with = "no_deps")]
+    #[arg(long, conflicts_with = "no_deps")]
     pub only_deps: bool,
     /// Include (installed) KerML/SysML v2 standard libraries
-    #[arg(long, default_value_t = false)]
+    #[arg(long)]
     pub include_std: bool,
 }
 

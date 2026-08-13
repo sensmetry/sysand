@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use anyhow::{Result, anyhow, bail};
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use semver::Version;
 
@@ -30,7 +30,7 @@ use sysand_core::{
 use crate::{
     CliError, DEFAULT_INDEX_URL,
     cli::{CloneProjectLocatorArgs, ResolutionOptions},
-    commands::sync::command_sync,
+    commands::{init::warn_parent_project_workspace, sync::command_sync},
     get_or_create_env,
     style::GOOD,
 };
@@ -53,11 +53,11 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
-    let target: Utf8PathBuf = target.unwrap_or_else(|| ".".into());
+    let target = target.as_deref().unwrap_or_else(|| Utf8Path::new("."));
     let project_path = {
         // Canonicalization is performed only for better error messages
-        let canonical = wrapfs::absolute(&target)?;
-        match fs::read_dir(&target) {
+        let canonical = wrapfs::absolute(target)?;
+        match fs::read_dir(target) {
             Ok(mut dir_it) => {
                 if dir_it.next().is_some() {
                     bail!("target directory not empty: `{canonical}`")
@@ -77,6 +77,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         }
         canonical
     };
+    warn_parent_project_workspace(target, &ctx)?;
 
     let (include_std, locator, local_project, std_resolver) = match obtain_project(
         locator,
@@ -87,14 +88,13 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         &runtime,
         auth_policy.clone(),
         project_path,
-        &ctx,
     ) {
         Ok(ret) => ret,
         Err(e) => {
             // Clean up the target dir. This is safe, since we ensured
             // that the dir was initially empty, so no unrelated files
             // will be affected
-            clean_dir(&target);
+            clean_dir(target);
             return Err(e);
         }
     };
@@ -172,6 +172,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
             runtime,
             auth_policy,
             ctx.current_workspace.as_ref(),
+            false,
         )?;
     }
 
@@ -187,7 +188,6 @@ fn obtain_project<Policy: HTTPAuthentication>(
     runtime: &Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     project_path: Utf8PathBuf,
-    ctx: &ProjectContext,
 ) -> Result<
     (
         bool,
@@ -203,22 +203,6 @@ fn obtain_project<Policy: HTTPAuthentication>(
         no_index,
         include_std,
     } = resolution_opts;
-    if let Some(existing_project) = &ctx.current_project {
-        log::warn!(
-            "found an existing project in one of target path's parent\n\
-            {:>8} directories `{}`",
-            ' ',
-            existing_project.root_path()
-        );
-    }
-    if let Some(existing_workspace) = &ctx.current_workspace {
-        log::warn!(
-            "found an existing workspace in one of target path's parent\n\
-            {:>8} directories `{}`",
-            ' ',
-            existing_workspace.root_path()
-        );
-    }
     let index_urls = if no_index {
         None
     } else {

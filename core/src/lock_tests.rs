@@ -835,17 +835,52 @@ fn sort_exports() {
     assert_eq!(projects, vec![project2]);
 }
 
+// `identifiers` must not be sorted by `Lock::sort()`
+// (unlike `exports`, `usages` and `sources`, which are). Other projects'
+// `usages` entries are assumed to reference a project's *first*
+// identifier (see `validate_usages` and `remove_usage`), so
+// reordering `identifiers` would desync that reference
 #[test]
-fn sort_identifiers() {
-    let project1 = make_project("a", None, "0.0.1", &[], &["urn:kpar:b", "urn:kpar:a"], &[]);
-    let project2 = make_project("a", None, "0.0.1", &[], &["urn:kpar:a", "urn:kpar:b"], &[]);
+fn sort_does_not_reorder_identifiers() {
+    let project = make_project("a", None, "0.0.1", &[], &["urn:kpar:b", "urn:kpar:a"], &[]);
     let mut lock = Lock {
         lock_version: CURRENT_LOCK_VERSION.to_owned(),
-        projects: vec![project1],
+        projects: vec![project.clone()],
     };
     lock.sort();
     let Lock { projects, .. } = lock;
-    assert_eq!(projects, vec![project2]);
+    assert_eq!(projects, vec![project]);
+}
+
+// End-to-end test for the same invariant as `sort_does_not_reorder_identifiers`
+#[test]
+fn canonicalize_preserves_first_identifier_used_by_usage() {
+    let dep = make_project(
+        "dep",
+        None,
+        "0.0.1",
+        &[],
+        // Deliberately not alphabetically sorted: "urn:kpar:z-alias" is the
+        // one that `root`'s usage below refers to, and it must stay first.
+        &["urn:kpar:z-alias", "urn:kpar:a-alias"],
+        &[],
+    );
+    let root = make_project(
+        "root",
+        None,
+        "0.0.1",
+        &[],
+        &["urn:kpar:root"],
+        &[Usage::from_str_unchecked("urn:kpar:z-alias")],
+    );
+    let lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![dep, root],
+    }
+    .canonicalize();
+
+    // `validate` checks that projects are referred to by their first identifier
+    assert!(lock.validate().is_ok(), "{:?}", lock.validate());
 }
 
 #[test]
@@ -1232,4 +1267,268 @@ fn source_to_checksum_index_kpar_is_kpar_variant() {
         kpar_digest: digest.clone(),
     };
     assert_eq!(source.to_checksum(), Some(ProjectChecksum::Kpar(digest)));
+}
+
+// ---- `Lock::is_root` and `Lock::remove_usage` ----
+
+fn project_with_sources(sources: Vec<Source>) -> Project {
+    Project {
+        publisher: None,
+        name: "p".to_owned(),
+        version: "1.0.0".to_owned(),
+        exports: vec![],
+        identifiers: vec![],
+        usages: vec![],
+        sources,
+    }
+}
+
+/// A root project (the project being operated on directly), as produced by
+/// `do_lock_local_editable(".", ...)` for an ordinary, non-workspace project.
+fn root_project(publisher: Option<&str>, name: &str, usages: &[&str]) -> Project {
+    workspace_root_project(publisher, name, ".", usages)
+}
+
+/// A root project living at a workspace-relative subpath, as a workspace
+/// member's own lock entry would be represented.
+fn workspace_root_project(
+    publisher: Option<&str>,
+    name: &str,
+    subpath: &str,
+    usages: &[&str],
+) -> Project {
+    Project {
+        publisher: publisher.map(str::to_owned),
+        name: name.to_owned(),
+        version: "1.0.0".to_owned(),
+        exports: vec![],
+        identifiers: vec![],
+        usages: usages
+            .iter()
+            .map(|u| Usage::from_str_unchecked(u))
+            .collect(),
+        sources: vec![Source::Editable {
+            editable: Utf8UnixPathBuf::from(subpath),
+        }],
+    }
+}
+
+/// A non-root (dependency) project, identified by `identifier`.
+fn dep_project(name: &str, identifier: &str, usages: &[&str]) -> Project {
+    Project {
+        publisher: None,
+        name: name.to_owned(),
+        version: "1.0.0".to_owned(),
+        exports: vec![],
+        identifiers: vec![identifier.to_owned()],
+        usages: usages
+            .iter()
+            .map(|u| Usage::from_str_unchecked(u))
+            .collect(),
+        sources: vec![Source::RemoteGit {
+            remote_git: format!("https://example.com/{name}.git"),
+        }],
+    }
+}
+
+fn project_names(lock: &Lock) -> Vec<String> {
+    let mut names: Vec<_> = lock.projects.iter().map(|p| p.name.clone()).collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn is_root_true_for_dot_editable() {
+    // The nominal path used for the current project's own lock entry
+    // (see `EditableProject`/`do_lock_local_editable(".", ...)`).
+    let project = project_with_sources(vec![Source::Editable {
+        editable: Utf8UnixPathBuf::from("."),
+    }]);
+    assert!(Lock::is_root(&project));
+}
+
+#[test]
+fn is_root_true_for_subpath_editable() {
+    // The nominal path used for a workspace member's lock entry.
+    let project = project_with_sources(vec![Source::Editable {
+        editable: Utf8UnixPathBuf::from("packages/foo"),
+    }]);
+    assert!(Lock::is_root(&project));
+}
+
+#[test]
+fn is_root_false_for_parent_relative_editable() {
+    let project = project_with_sources(vec![Source::Editable {
+        editable: Utf8UnixPathBuf::from(".."),
+    }]);
+    assert!(!Lock::is_root(&project));
+}
+
+#[test]
+fn is_root_false_for_non_editable_source() {
+    let project = project_with_sources(vec![Source::RemoteGit {
+        remote_git: "https://example.com/foo.git".to_owned(),
+    }]);
+    assert!(!Lock::is_root(&project));
+}
+
+#[test]
+fn is_root_false_for_multiple_sources() {
+    let project = project_with_sources(vec![
+        Source::Editable {
+            editable: Utf8UnixPathBuf::from("."),
+        },
+        Source::RemoteGit {
+            remote_git: "https://example.com/foo.git".to_owned(),
+        },
+    ]);
+    assert!(!Lock::is_root(&project));
+}
+
+#[test]
+fn is_root_false_for_no_sources() {
+    let project = project_with_sources(vec![]);
+    assert!(!Lock::is_root(&project));
+}
+
+#[test]
+fn remove_usage_prunes_unreachable_dependency() {
+    let mut lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![
+            root_project(Some("me"), "root", &["urn:dep"]),
+            dep_project("dep", "urn:dep", &[]),
+        ],
+    };
+
+    let removed = lock
+        .remove_usage(Some("me"), "root", "urn:dep")
+        .expect("root project should be found");
+
+    assert_eq!(project_names(&lock), vec!["root".to_owned()]);
+    assert!(lock.projects[0].usages.is_empty());
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0].name, "dep");
+}
+
+#[test]
+fn remove_usage_returns_none_when_root_not_found() {
+    let mut lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![
+            root_project(Some("me"), "root", &["urn:dep"]),
+            dep_project("dep", "urn:dep", &[]),
+        ],
+    };
+
+    let removed = lock.remove_usage(Some("someone-else"), "root", "urn:dep");
+
+    assert_eq!(removed, None);
+    assert_eq!(
+        project_names(&lock),
+        vec!["dep".to_owned(), "root".to_owned()]
+    );
+    assert_eq!(lock.projects[0].usages.len(), 1);
+}
+
+#[test]
+fn remove_usage_returns_empty_when_usage_not_present() {
+    let mut lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![
+            root_project(Some("me"), "root", &["urn:dep"]),
+            dep_project("dep", "urn:dep", &[]),
+        ],
+    };
+
+    let removed = lock.remove_usage(Some("me"), "root", "urn:other");
+
+    assert_eq!(removed, Some(Vec::new()));
+    assert_eq!(
+        project_names(&lock),
+        vec!["dep".to_owned(), "root".to_owned()]
+    );
+    assert_eq!(lock.projects[0].usages.len(), 1);
+}
+
+#[test]
+fn remove_usage_keeps_dependency_needed_by_sibling_root() {
+    // Two workspace members (`app`, `lib`) both use `shared`. Removing
+    // `app`'s usage must not prune `shared`, since `lib` still needs it.
+    let mut lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![
+            workspace_root_project(Some("me"), "app", "app", &["urn:shared"]),
+            workspace_root_project(Some("me"), "lib", "lib", &["urn:shared"]),
+            dep_project("shared", "urn:shared", &[]),
+        ],
+    };
+
+    let removed = lock
+        .remove_usage(Some("me"), "app", "urn:shared")
+        .expect("root project should be found");
+
+    assert!(removed.is_empty(), "removed = {removed:?}");
+    assert_eq!(
+        project_names(&lock),
+        vec!["app".to_owned(), "lib".to_owned(), "shared".to_owned()]
+    );
+}
+
+#[test]
+fn remove_usage_prunes_transitive_chain() {
+    // root -> b -> c. Removing root's only usage (`b`) must prune both
+    // `b` and `c`, since `c` is only reachable through `b`.
+    let mut lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![
+            root_project(Some("me"), "root", &["urn:b"]),
+            dep_project("b", "urn:b", &["urn:c"]),
+            dep_project("c", "urn:c", &[]),
+        ],
+    };
+
+    let removed = lock
+        .remove_usage(Some("me"), "root", "urn:b")
+        .expect("root project should be found");
+
+    assert_eq!(project_names(&lock), vec!["root".to_owned()]);
+    let mut removed_names: Vec<_> = removed.iter().map(|p| p.name.clone()).collect();
+    removed_names.sort();
+    assert_eq!(removed_names, vec!["b".to_owned(), "c".to_owned()]);
+}
+
+#[test]
+fn remove_usage_keeps_sibling_usage_and_its_own_subtree() {
+    // root uses both `b` and `c`, each with their own private dependency.
+    // Removing only the `b` usage must prune `b` and its subtree (`onlyb`),
+    // while leaving `c` and its subtree (`onlyc`) alone.
+    let mut lock = Lock {
+        lock_version: CURRENT_LOCK_VERSION.to_owned(),
+        projects: vec![
+            root_project(Some("me"), "root", &["urn:b", "urn:c"]),
+            dep_project("b", "urn:b", &["urn:onlyb"]),
+            dep_project("onlyb", "urn:onlyb", &[]),
+            dep_project("c", "urn:c", &["urn:onlyc"]),
+            dep_project("onlyc", "urn:onlyc", &[]),
+        ],
+    };
+
+    let removed = lock
+        .remove_usage(Some("me"), "root", "urn:b")
+        .expect("root project should be found");
+
+    let mut removed_names: Vec<_> = removed.iter().map(|p| p.name.clone()).collect();
+    removed_names.sort();
+    assert_eq!(removed_names, vec!["b".to_owned(), "onlyb".to_owned()]);
+
+    assert_eq!(
+        project_names(&lock),
+        vec!["c".to_owned(), "onlyc".to_owned(), "root".to_owned()]
+    );
+    let root = lock.projects.iter().find(|p| p.name == "root").unwrap();
+    assert_eq!(
+        root.usages.iter().map(Usage::inner).collect::<Vec<_>>(),
+        vec!["urn:c"]
+    );
 }

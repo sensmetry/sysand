@@ -183,6 +183,8 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
             runtime,
             auth_policy,
             ctx.current_workspace.as_ref(),
+            // Since this explicitly installs into env, it would not make sense to prune
+            true,
         )?;
     }
 
@@ -330,6 +332,8 @@ pub fn command_env_install_path<Policy: HTTPAuthentication>(
             runtime,
             auth_policy,
             ctx.current_workspace.as_ref(),
+            // Since this explicitly installs into env, it would not make sense to prune
+            true,
         )?;
     }
 

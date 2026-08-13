@@ -237,3 +237,68 @@ fn invalid_windows_name() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+#[test]
+fn sysand_purl_and_urn_stripped() -> Result<(), Box<dyn Error>> {
+    for (iri, expected) in [
+        // `pkg:sysand/<publisher>/<name>` is always recognized and the
+        // `pkg:sysand` marker is stripped, keeping publisher and name.
+        ("pkg:sysand/acme-corp/my-lib", "acme-corp-my-lib"),
+        // `urn:sysand:<publisher>/<name>` strips the `sysand:` marker
+        // but keeps publisher and name, even when the publisher/name pair
+        // would not be valid as a `pkg:sysand` PURL (too short here).
+        ("urn:sysand:ab/my-lib", "ab.my-lib"),
+        // Extra path segments beyond publisher/name are not lost.
+        (
+            "urn:sysand:acme-corp/my-lib/extra",
+            "acme-corp.my-lib.extra",
+        ),
+        // The query is preserved too.
+        ("urn:sysand:ab/my-lib?rev=2", "ab.my-lib-rev-2"),
+        // Only an exact `sysand` NID is special-cased: a similarly-named
+        // NID is left alone.
+        ("urn:sysandbox:pub/name", "sysandbox.pub.name"),
+        // The special case is `urn`-specific; other schemes with a
+        // `sysand:...` path are not stripped.
+        ("scheme:sysand:pub/name", "sysand.pub.name"),
+        // With nothing after it, `sysand` is not stripped (there is no
+        // publisher/name pair to preserve).
+        ("urn:sysand", "sysand"),
+    ] {
+        let parsed = Iri::parse(iri)?;
+        let normalized = iri_to_filename_part(parsed);
+        assert_eq!(normalized, expected);
+    }
+    Ok(())
+}
+
+// `iri_to_filename_part` output must never be empty. In all cases
+// "project" fallback must be used
+#[test]
+fn never_empty() -> Result<(), Box<dyn Error>> {
+    for iri in [
+        // No authority, empty path, no query: nothing to work with.
+        "a:",
+        // Authority present but host empty, path empty: host is skipped
+        // (host.is_empty() check) and there's no path/query to fall back on.
+        "file://",
+        // Path is entirely ASCII punctuation, which is trimmed from both ends.
+        "a:-",
+        // Same as above, but the punctuation only appears after percent-decoding.
+        "a:%2D",
+        // Empty path, and a query that is entirely ASCII punctuation.
+        "a:?-",
+        // Path decodes to U+200B ZERO WIDTH SPACE, a Default_Ignorable_Code_Point
+        // character, which is stripped by the leading/trailing trim.
+        "a:%E2%80%8B",
+        // The `urn:sysand:` special case strips the `sysand:` marker; with
+        // nothing after the trailing colon this leaves an empty path, even
+        // though the un-special-cased path ("sysand:") would not be empty.
+        "urn:sysand:",
+    ] {
+        let parsed = Iri::parse(iri)?;
+        let normalized = iri_to_filename_part(parsed);
+        assert_eq!(normalized, "project");
+    }
+    Ok(())
+}

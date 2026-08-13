@@ -187,6 +187,11 @@ pub fn parse_relative_unix_path(
     path: &str,
     kind: RelativePathKind,
 ) -> Result<&Utf8UnixPath, RelativeUnixPathError> {
+    // Path "." is always allowed for directories
+    if !kind.is_file() && path == "." {
+        return Ok(Utf8UnixPath::new(path));
+    }
+
     // Check for Windows and Unix absolute paths
     if Utf8WindowsPath::new(&path).is_absolute() || path.starts_with('/') {
         return Err(RelativeUnixPathError::Absolute {

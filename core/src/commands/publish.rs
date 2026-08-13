@@ -863,7 +863,8 @@ pub enum PublishError {
 
     #[error(
         "missing publisher in project info; publisher has\n\
-        to be set for publishing"
+        to be set for publishing, for more details see\n\
+        https://docs.sysand.com/index/explanation/project-name-and-publisher-fields/#project-name-and-publisher-fields"
     )]
     MissingPublisher,
 

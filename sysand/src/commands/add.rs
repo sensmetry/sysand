@@ -35,11 +35,13 @@ use crate::{
 };
 
 // TODO: Collect common arguments
+#[expect(clippy::fn_params_excessive_bools)]
 pub fn command_add<Policy: HTTPAuthentication>(
     iri: Iri<String>,
     version_constraint: Option<String>,
     no_lock: bool,
     no_sync: bool,
+    no_prune: bool,
     resolution_opts: ResolutionOptions,
     source_opts: Box<ProjectSourceOptions>,
     mut config: Config,
@@ -233,6 +235,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
 
         match resolve_deps(
             no_sync,
+            no_prune,
             resolution_opts,
             &config,
             client,
@@ -263,6 +266,7 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
     add: ExpAddArgs,
     no_lock: bool,
     no_sync: bool,
+    no_prune: bool,
     resolution_opts: ResolutionOptions,
     config: Config,
     ctx: ProjectContext,
@@ -321,6 +325,13 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
             return Ok(());
         }
 
+        let provided_iris = if resolution_opts.include_std {
+            HashMap::default()
+        } else {
+            // Don't warn; std libs are all `https://`, so they can't match this usage
+            crate::known_std_libs()
+        };
+
         let alias_iris = if let Some(w) = &ctx.current_workspace {
             w.projects()
                 .iter()
@@ -330,15 +341,9 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
             None
         };
 
-        let provided_iris = if resolution_opts.include_std {
-            HashMap::default()
-        } else {
-            // Don't warn; std libs are all `https://`, so they can't match this usage
-            crate::known_std_libs()
-        };
-
         match resolve_deps(
             no_sync,
+            no_prune,
             resolution_opts,
             &config,
             client,
@@ -359,8 +364,9 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
     }
 }
 
-fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
+pub fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     no_sync: bool,
+    no_prune: bool,
     resolution_opts: ResolutionOptions,
     config: &Config,
     client: reqwest_middleware::ClientWithMiddleware,
@@ -411,6 +417,7 @@ fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             runtime,
             auth_policy,
             ctx.current_workspace.as_ref(),
+            no_prune,
         )?;
     }
     Ok(())
