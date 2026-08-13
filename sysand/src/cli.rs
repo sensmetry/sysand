@@ -4,7 +4,7 @@
 use std::{
     convert::Infallible,
     ffi::OsStr,
-    fmt::{Display, Write},
+    fmt::{Display, Write as _},
 };
 
 use camino::Utf8PathBuf;

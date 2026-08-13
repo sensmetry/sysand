@@ -5,11 +5,11 @@
 //! resolution, the OS keyring store handoff to core, and user-facing
 //! rendering. Secrets never appear in any output.
 
-use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal as _, Read as _};
 use std::sync::Arc;
 
 use anstream::println;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context as _, Result, bail};
 use sysand_core::{
     auth::{GlobMapBuilder, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder},
     commands::auth::{
@@ -392,18 +392,17 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
     // Status is diagnostic, so default-index resolution is lenient: an
     // ambiguous chain gets a note instead of the hard error bare
     // `login`/`logout` raise, and an invalid default simply marks nothing.
-    let default_key = match resolve_default_index(config) {
-        Ok(url) => IndexKey::validate(&url).ok(),
+    let default_key = if let Ok(url) = resolve_default_index(config) {
+        IndexKey::validate(&url).ok()
+    } else {
         // `resolve_default_index` errors only on an ambiguous chain
         // (more than one distinct default index).
-        Err(_) => {
-            let note = sysand_core::style::get_style_config().note;
-            println!(
-                "{note}note:{note:#} more than one default index is configured; no entry\n\
-                 is marked as the default index"
-            );
-            None
-        }
+        let note = sysand_core::style::get_style_config().note;
+        println!(
+            "{note}note:{note:#} more than one default index is configured; no entry\n\
+             is marked as the default index"
+        );
+        None
     };
     let default_key = default_key.as_ref().map(IndexKey::as_str);
     let env = collect_env_credential_entries()?;

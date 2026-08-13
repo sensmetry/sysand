@@ -9,11 +9,11 @@ use semver::{Version, VersionReq};
 use sysand_core::{
     context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
-    project::ProjectRead,
+    project::ProjectRead as _,
     sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
 };
 
-use sysand_core::env::ReadEnvironment;
+use sysand_core::env::ReadEnvironment as _;
 
 pub fn command_sources_env<S: AsRef<str>>(
     iri: S,
@@ -107,12 +107,11 @@ pub fn command_sources_project(
     }
 
     if dependencies != Dependencies::None {
-        let deps = match ctx.env {
-            Some(env) => resolve_dependencies(info.usage, env, dependencies)?,
-            None => {
-                let env = NullEnvironment::new();
-                resolve_dependencies(info.usage, env, dependencies)?
-            }
+        let deps = if let Some(env) = ctx.env {
+            resolve_dependencies(info.usage, env, dependencies)?
+        } else {
+            let env = NullEnvironment::new();
+            resolve_dependencies(info.usage, env, dependencies)?
         };
 
         for dep in deps {

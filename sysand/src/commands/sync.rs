@@ -13,7 +13,7 @@ use sysand_core::{
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     project::{
-        AsSyncProjectTokio, KparMeta, ProjectReadAsync,
+        AsSyncProjectTokio, KparMeta, ProjectReadAsync as _,
         gix_git_download::{GixDownloadedError, GixDownloadedProject},
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
@@ -26,7 +26,6 @@ use sysand_core::{
     workspace::Workspace,
 };
 
-#[expect(clippy::too_many_arguments)]
 pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     lock: &Lock,
     project_root: P,

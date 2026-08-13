@@ -41,7 +41,6 @@ pub enum ProjectLocator {
 }
 
 /// Clones project from `locator` to `target` directory.
-#[expect(clippy::too_many_arguments)]
 pub fn command_clone<Policy: HTTPAuthentication>(
     locator: CloneProjectLocatorArgs,
     version: Option<String>,
@@ -61,7 +60,7 @@ pub fn command_clone<Policy: HTTPAuthentication>(
         match fs::read_dir(&target) {
             Ok(mut dir_it) => {
                 if dir_it.next().is_some() {
-                    bail!("target directory not empty: `{}`", canonical)
+                    bail!("target directory not empty: `{canonical}`")
                 }
             }
             Err(e) => match e.kind() {
@@ -69,10 +68,10 @@ pub fn command_clone<Policy: HTTPAuthentication>(
                     wrapfs::create_dir_all(&canonical)?;
                 }
                 ErrorKind::NotADirectory => {
-                    bail!("target path `{}` is not a directory", canonical)
+                    bail!("target path `{canonical}` is not a directory")
                 }
                 e => {
-                    bail!("failed to get metadata for `{}`: {}", canonical, e);
+                    bail!("failed to get metadata for `{canonical}`: {e}");
                 }
             },
         }
@@ -179,7 +178,6 @@ pub fn command_clone<Policy: HTTPAuthentication>(
     Ok(())
 }
 
-#[expect(clippy::too_many_arguments)]
 fn obtain_project<Policy: HTTPAuthentication>(
     locator: CloneProjectLocatorArgs,
     version: Option<String>,
@@ -297,7 +295,7 @@ fn obtain_project<Policy: HTTPAuthentication>(
                     path,
                     remote_project,
                 )?;
-            };
+            }
         }
     }
 

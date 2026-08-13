@@ -44,6 +44,7 @@ fn minimal_project<S: AsRef<str>, T: AsRef<str>>(name: S, version: T) -> InMemor
     }
 }
 
+#[expect(clippy::unnecessary_wraps)]
 fn empty_any_resolver() -> Option<MemoryResolver<AcceptAll, InMemoryProject>> {
     Some(MemoryResolver {
         iri_predicate: AcceptAll {},
@@ -51,6 +52,7 @@ fn empty_any_resolver() -> Option<MemoryResolver<AcceptAll, InMemoryProject>> {
     })
 }
 
+#[expect(clippy::unnecessary_wraps)]
 fn single_project_any_resolver<S: AsRef<str>>(
     uri: S,
     project: InMemoryProject,
@@ -67,6 +69,7 @@ fn single_project_any_resolver<S: AsRef<str>>(
     })
 }
 
+#[expect(clippy::unnecessary_wraps)]
 fn multiple_projects_any_resolver<S: AsRef<str>>(
     uri: S,
     projects: Vec<InMemoryProject>,
@@ -321,7 +324,7 @@ fn skip_non_semantic_versions() {
 fn directory_usage_missing_path_falls_back_to_env_resolver() {
     use crate::{
         env::memory::MemoryStorageEnvironment, model::InterchangeProjectUsage,
-        project::ProjectRead, resolve::env::EnvResolver, resolve::file::FileResolver,
+        project::ProjectRead as _, resolve::env::EnvResolver, resolve::file::FileResolver,
     };
 
     let mut widget = minimal_project("widget", "1.0.0");

@@ -160,7 +160,6 @@ fn handle_exception_throw_result(
     match res.unwrap_err() {
         jni::errors::Error::JavaException => (),
         // Failing to throw an exception has no recovery
-        #[expect(clippy::panic)]
         other => panic!(
             "failed to throw the exception: {}\n\
             original exception message:\n{}",

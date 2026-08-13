@@ -5,7 +5,7 @@ use std::{
     cmp::Ordering,
     collections::HashSet,
     fmt::Display,
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::{DefaultHasher, Hash, Hasher as _},
     num::NonZeroU64,
     ops::Deref,
     str::FromStr,
@@ -141,7 +141,7 @@ impl FromStr for Lock {
 
 fn project_with<D: Display>(name: Option<D>) -> String {
     if let Some(name) = name {
-        format!("project with name `{}`", name)
+        format!("project with name `{name}`")
     } else {
         "project without name".to_owned()
     }
@@ -260,7 +260,7 @@ impl Lock {
                     project.name,
                     ' ',
                 );
-            };
+            }
             for id in &project.identifiers {
                 identifier_versions.insert(id.clone());
             }
@@ -359,7 +359,7 @@ impl Lock {
         self.sort();
         self.canonicalize_checksums();
         // Check that we aren't generating invalid lockfiles
-        debug_assert!(self.validate().map(|_| true).unwrap());
+        debug_assert!(self.validate().map(|()| true).unwrap());
         self
     }
 

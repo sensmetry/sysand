@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{fs, io::ErrorKind, str::FromStr};
+use std::{fs, io::ErrorKind, str::FromStr as _};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
@@ -92,10 +92,7 @@ pub fn add_project_source_to_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
         {
             let creating = "Creating";
             let header = crate::style::get_style_config().header;
-            log::info!(
-                "{header}{creating:>12}{header:#} configuration file at `{}`",
-                config_path,
-            );
+            log::info!("{header}{creating:>12}{header:#} configuration file at `{config_path}`");
             String::new()
         }
         Err(err) => return Err(ConfigProjectSourceError::Io(err)),
@@ -196,8 +193,7 @@ pub fn remove_project_source_from_config<P: AsRef<Utf8Path>, S: AsRef<str>>(
         if contents.is_empty() {
             let removing = "Removing";
             log::info!(
-                "{header}{removing:>12}{header:#} empty configuration file at `{}`",
-                config_path,
+                "{header}{removing:>12}{header:#} empty configuration file at `{config_path}`",
             );
             wrapfs::remove_file(config_path)?;
         } else {

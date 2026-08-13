@@ -35,11 +35,11 @@ use std::sync::Arc;
 use crate::{
     auth::Unauthenticated,
     context::ProjectContext,
-    env::{ReadEnvironment, ReadEnvironmentAsync, discovery::ResolvedEndpoints},
+    env::{ReadEnvironment as _, ReadEnvironmentAsync as _, discovery::ResolvedEndpoints},
     index_location::{IndexLocation, with_trailing_slash},
     lock::Source,
     project::{
-        ProjectRead, index_entry::IndexEntryProjectError,
+        ProjectRead as _, index_entry::IndexEntryProjectError,
         reqwest_kpar_download::ReqwestKparDownloadedError,
     },
     purl::PKG_SYSAND_PREFIX,
@@ -1959,9 +1959,9 @@ mod caching {
         // Three independent calls into paths that consult versions.json.
         // `get_project` returns a lazy wrapper, so it must not fetch the
         // per-version documents until the wrapper is forced.
-        let _ = env.versions(purl("admin/proj0"))?.collect::<Vec<_>>();
-        let _ = env.versions(purl("admin/proj0"))?.collect::<Vec<_>>();
-        let _ = env.get_project(purl("admin/proj0"), "0.3.0")?;
+        env.versions(purl("admin/proj0"))?.for_each(drop);
+        env.versions(purl("admin/proj0"))?.for_each(drop);
+        env.get_project(purl("admin/proj0"), "0.3.0")?;
 
         versions_mock.assert();
         project_json_mock.assert();
@@ -2224,7 +2224,7 @@ mod sources {
                 kpar_size: index_kpar_size,
                 ..
             } => assert_eq!(index_kpar_size.get(), 42),
-            other => panic!("expected Source::IndexKpar, got {:?}", other),
+            other => panic!("expected Source::IndexKpar, got {other:?}"),
         }
 
         versions_mock.assert();
@@ -2445,7 +2445,7 @@ mod discovery {
     }
 
     #[test]
-    fn discovery_rejects_relative_index_root() -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_rejects_relative_index_root() {
         // Relative `index_root` -> `RelativeUrl` error. Discovery is
         // resolved at env construction, so the rejection surfaces from
         // `index_env_sync_discovery` rather than from a later
@@ -2466,12 +2466,10 @@ mod discovery {
         );
 
         config_mock.assert();
-
-        Ok(())
     }
 
     #[test]
-    fn discovery_rejects_userinfo_index_root() -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_rejects_userinfo_index_root() {
         let mut server = mockito::Server::new();
 
         let config_mock = mock_json_get(
@@ -2488,12 +2486,10 @@ mod discovery {
         );
 
         config_mock.assert();
-
-        Ok(())
     }
 
     #[test]
-    fn discovery_5xx_is_hard_error() -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_5xx_is_hard_error() {
         // A broken server and a misconfigured base URL are
         // indistinguishable, so anything beyond 200/404 is a hard
         // error. With eager discovery this surfaces from env
@@ -2515,8 +2511,6 @@ mod discovery {
         );
 
         config_mock.assert();
-
-        Ok(())
     }
 
     #[test]
@@ -2731,7 +2725,7 @@ mod discovery {
     }
 
     #[test]
-    fn discovery_rejects_invalid_template_index_root() -> Result<(), Box<dyn std::error::Error>> {
+    fn discovery_rejects_invalid_template_index_root() {
         // An `index_root` template with an unknown placeholder is a
         // discovery error, not a silent literal URL.
         let mut server = mockito::Server::new();
@@ -2750,8 +2744,6 @@ mod discovery {
         );
 
         config_mock.assert();
-
-        Ok(())
     }
 
     #[test]

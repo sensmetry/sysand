@@ -9,9 +9,9 @@ use fluent_uri::Iri;
 
 use crate::{
     auth::Unauthenticated,
-    project::ProjectRead,
+    project::ProjectRead as _,
     resolve::{
-        ResolutionInfo, ResolutionOutcome, ResolveRead, ResolveReadAsync,
+        ResolutionInfo, ResolutionOutcome, ResolveRead, ResolveReadAsync as _,
         net_utils::create_reqwest_client,
     },
 };

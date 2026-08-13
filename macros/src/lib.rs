@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use itertools::Itertools;
+use itertools::Itertools as _;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
@@ -79,22 +79,6 @@ use syn::{Data, DataEnum, DeriveInput, parse_macro_input};
 /// for delegation and wrapping.
 #[proc_macro_derive(ProjectRead)]
 pub fn project_read_derive(input: TokenStream) -> TokenStream {
-    let ast = parse_macro_input!(input as DeriveInput);
-
-    let Data::Enum(DataEnum { variants, .. }) = &ast.data else {
-        return syn::Error::new_spanned(&ast.ident, "ProjectRead can only be derived on an enum")
-            .to_compile_error()
-            .into();
-    };
-
-    let (impl_generics, type_generics, where_clause) = ast.generics.split_for_impl();
-    let enum_ident = &ast.ident;
-    let error_ident = syn::Ident::new(format!("{}Error", enum_ident).as_str(), enum_ident.span());
-    let source_reader_ident = syn::Ident::new(
-        format!("{}SourceReader", enum_ident).as_str(),
-        enum_ident.span(),
-    );
-
     #[derive(Clone)]
     struct VariantParts {
         variant_list_part: TokenStream2,
@@ -115,6 +99,22 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         checksum_canonical_hex_match_part: TokenStream2,
         checksum_canonical_variant_match_part: TokenStream2,
     }
+
+    let ast = parse_macro_input!(input as DeriveInput);
+
+    let Data::Enum(DataEnum { variants, .. }) = &ast.data else {
+        return syn::Error::new_spanned(&ast.ident, "ProjectRead can only be derived on an enum")
+            .to_compile_error()
+            .into();
+    };
+
+    let (impl_generics, type_generics, where_clause) = ast.generics.split_for_impl();
+    let enum_ident = &ast.ident;
+    let error_ident = syn::Ident::new(format!("{enum_ident}Error").as_str(), enum_ident.span());
+    let source_reader_ident = syn::Ident::new(
+        format!("{enum_ident}SourceReader").as_str(),
+        enum_ident.span(),
+    );
 
     let variant_parts: Result<Vec<VariantParts>, _> = variants
         .iter()
@@ -473,7 +473,7 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
 
     let (impl_generics, type_generics, where_clause) = ast.generics.split_for_impl();
     let enum_ident = &ast.ident;
-    let error_ident = syn::Ident::new(format!("{}Error", enum_ident).as_str(), enum_ident.span());
+    let error_ident = syn::Ident::new(format!("{enum_ident}Error").as_str(), enum_ident.span());
 
     let variant_parts: Result<Vec<_>, _> = variants
         .iter()
@@ -493,7 +493,7 @@ pub fn project_mut_derive(input: TokenStream) -> TokenStream {
                         "only tuple variants supported",
                     ));
                 }
-            };
+            }
             Ok((
                 // put_info_match
                 quote! {

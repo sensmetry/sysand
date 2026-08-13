@@ -4,7 +4,7 @@
 use std::{
     cell::OnceCell,
     fs::{self, File},
-    io::{Read, Seek},
+    io::{Read as _, Seek as _},
     num::NonZeroU64,
 };
 
@@ -27,7 +27,7 @@ use crate::{
     utils::{lowercase_hex, sha256_lowercase_hex},
 };
 
-use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf, wrapfs};
+use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf as _, wrapfs};
 
 #[derive(Debug, Clone)]
 pub enum KparInnerPath {
@@ -225,47 +225,46 @@ impl LocalKParProject {
         // TODO: use `OnceCell::get_or_try_init()` once it's stable;
         // using `get_or_init()` directly requires us to always put the error into an `Arc` to
         // allow returning it repeatedly from functions (`io::Error` is not cloneable)
-        match self.init.get() {
-            Some(val) => Ok(val),
-            None => {
-                let (inner, meta) =
-                    LocalKParProjectRaw::new_hash(&self.archive_path, self.root.clone())?;
-                // TODO: move these sorts of checks out of this type
-                if let Some(expected) = &self.expected {
-                    if meta.size_bytes != expected.size_bytes {
-                        return Err(LocalKParError::SizeMismatch {
-                            path: self.archive_path.as_str().into(),
-                            expected: expected.size_bytes.get(),
-                            actual: meta.size_bytes.get(),
-                        });
-                    } else if meta.sha256_hex != expected.sha256_hex {
-                        return Err(LocalKParError::DigestMismatch {
-                            path: self.archive_path.as_str().into(),
-                            expected: expected.sha256_hex.clone(),
-                            computed: meta.sha256_hex,
-                        });
-                    }
+        if let Some(val) = self.init.get() {
+            Ok(val)
+        } else {
+            let (inner, meta) =
+                LocalKParProjectRaw::new_hash(&self.archive_path, self.root.clone())?;
+            // TODO: move these sorts of checks out of this type
+            if let Some(expected) = &self.expected {
+                if meta.size_bytes != expected.size_bytes {
+                    return Err(LocalKParError::SizeMismatch {
+                        path: self.archive_path.as_str().into(),
+                        expected: expected.size_bytes.get(),
+                        actual: meta.size_bytes.get(),
+                    });
+                } else if meta.sha256_hex != expected.sha256_hex {
+                    return Err(LocalKParError::DigestMismatch {
+                        path: self.archive_path.as_str().into(),
+                        expected: expected.sha256_hex.clone(),
+                        computed: meta.sha256_hex,
+                    });
                 }
-                // No need to check publisher/name if checksum is already verified,
-                // but this will ensure that e.g. lockfile is accurate
-                if let Some((expected_publisher, expected_name)) = &self.expected_pub_name {
-                    let Some(info) = inner.get_info()? else {
-                        return Err(LocalKParError::MissingInfo);
-                    };
-                    if expected_publisher != &info.publisher {
-                        return Err(LocalKParError::PublisherMismatch {
-                            expected: expected_publisher.to_owned(),
-                            actual: info.publisher,
-                        });
-                    } else if expected_name != &info.name {
-                        return Err(LocalKParError::NameMismatch {
-                            expected: expected_name.to_owned(),
-                            actual: info.name,
-                        });
-                    }
-                }
-                Ok(self.init.get_or_init(|| (inner, meta)))
             }
+            // No need to check publisher/name if checksum is already verified,
+            // but this will ensure that e.g. lockfile is accurate
+            if let Some((expected_publisher, expected_name)) = &self.expected_pub_name {
+                let Some(info) = inner.get_info()? else {
+                    return Err(LocalKParError::MissingInfo);
+                };
+                if expected_publisher != &info.publisher {
+                    return Err(LocalKParError::PublisherMismatch {
+                        expected: expected_publisher.to_owned(),
+                        actual: info.publisher,
+                    });
+                } else if expected_name != &info.name {
+                    return Err(LocalKParError::NameMismatch {
+                        expected: expected_name.to_owned(),
+                        actual: info.name,
+                    });
+                }
+            }
+            Ok(self.init.get_or_init(|| (inner, meta)))
         }
     }
 }

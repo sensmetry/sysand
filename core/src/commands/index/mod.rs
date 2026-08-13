@@ -3,7 +3,7 @@
 
 use std::{
     fs::File,
-    io::{ErrorKind, Read, Seek, Write as _},
+    io::{ErrorKind, Read as _, Seek as _, Write as _},
 };
 
 use camino::Utf8Path;

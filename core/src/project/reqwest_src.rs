@@ -5,7 +5,7 @@
 
 use std::{io, marker::Send, pin::Pin, sync::Arc};
 
-use futures::{TryStreamExt, join};
+use futures::{TryStreamExt as _, join};
 use thiserror::Error;
 use typed_path::Utf8UnixPath;
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{cmp::Reverse, collections::HashMap, num::NonZero, str::FromStr};
+use std::{cmp::Reverse, collections::HashMap, num::NonZero, str::FromStr as _};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use semver::Version;
@@ -351,7 +351,7 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
     wrapfs::create_dir(&version_path)?;
 
     let attempt_cleanup = |e| match wrapfs::remove_dir(&version_path) {
-        Ok(_) => IndexAddError::IoWithCleanupSuccess { source: e },
+        Ok(()) => IndexAddError::IoWithCleanupSuccess { source: e },
         Err(cleanup_e) => IndexAddError::IoWithCleanupFailure {
             source: e,
             cleanup_error: cleanup_e,

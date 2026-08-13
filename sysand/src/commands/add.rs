@@ -18,12 +18,12 @@ use sysand_core::{
     context::ProjectContext,
     model::{InterchangeProjectUsage, InterchangeProjectUsageRaw},
     project::{
-        ProjectRead,
+        ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
         utils::{relativize_path, wrapfs},
     },
-    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead, standard::standard_resolver},
+    resolve::{ResolutionInfo, ResolutionOutcome, ResolveRead as _, standard::standard_resolver},
     utils::{ProvidedProjects, format_err},
 };
 
@@ -35,7 +35,6 @@ use crate::{
 };
 
 // TODO: Collect common arguments
-#[expect(clippy::too_many_arguments)]
 pub fn command_add<Policy: HTTPAuthentication>(
     iri: Iri<String>,
     version_constraint: Option<String>,
@@ -244,7 +243,7 @@ pub fn command_add<Policy: HTTPAuthentication>(
             provided_iris,
             ctx,
         ) {
-            Ok(_) => Ok(()),
+            Ok(()) => Ok(()),
             Err(e) => {
                 // Restore old info
                 wrapfs::write(&info_path, info_backup)?;
@@ -260,7 +259,6 @@ pub enum ExpAddArgs {
 }
 
 // TODO: Collect common arguments
-#[expect(clippy::too_many_arguments)]
 pub fn exp_command_add<Policy: HTTPAuthentication>(
     add: ExpAddArgs,
     no_lock: bool,
@@ -351,7 +349,7 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
             provided_iris,
             ctx,
         ) {
-            Ok(_) => Ok(()),
+            Ok(()) => Ok(()),
             Err(e) => {
                 // Restore old info
                 wrapfs::write(&info_path, info_backup)?;
@@ -361,7 +359,6 @@ pub fn exp_command_add<Policy: HTTPAuthentication>(
     }
 }
 
-#[expect(clippy::too_many_arguments)]
 fn resolve_deps<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     no_sync: bool,
     resolution_opts: ResolutionOptions,

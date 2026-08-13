@@ -7,7 +7,7 @@
 mod browser_tests {
     use std::error::Error;
 
-    use sysand_core::{model::InterchangeProjectInfo, project::ProjectRead};
+    use sysand_core::{model::InterchangeProjectInfo, project::ProjectRead as _};
 
     use sysand_js::{
         do_env_js_local_storage, do_init_js_local_storage,
@@ -50,7 +50,7 @@ mod browser_tests {
             .unwrap()
             .unwrap();
 
-        assert!(re.is_match_at(&meta_js, 0), "unexpected: {}", meta_js);
+        assert!(re.is_match_at(&meta_js, 0), "unexpected: {meta_js}");
 
         let project = open_project_local_storage("sysand_storage", Utf8UnixPath::new("/"))?;
 

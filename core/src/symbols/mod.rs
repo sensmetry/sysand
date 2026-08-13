@@ -11,7 +11,7 @@ mod lex;
 
 use std::{collections::HashMap, iter::Peekable};
 
-use logos::{Logos, Source};
+use logos::{Logos as _, Source as _};
 use thiserror::Error;
 
 use lex::Token;
@@ -55,8 +55,7 @@ fn parse_name<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
         Some((invalid_token, original, sp)) => Err(ParseError {
             span: Some(sp.clone()),
             msg: format!(
-                "invalid token of type {:?}, expected a name component: `{}`",
-                invalid_token, original
+                "invalid token of type {invalid_token:?}, expected a name component: `{original}`"
             ),
         }),
     }
@@ -107,7 +106,7 @@ fn skip_nested<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
             None => {
                 return Err(ParseError {
                     span: None,
-                    msg: format!("unmatched {:?}", open),
+                    msg: format!("unmatched {open:?}"),
                 });
             }
         }
@@ -129,7 +128,7 @@ fn maybe_skip_multiplicity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::S
 ) -> Result<(), ParseError> {
     if let Some((Token::OpenSquare, ..)) = token_iter.peek() {
         skip_nested(token_iter, Token::OpenSquare, Token::CloseSquare)?;
-    };
+    }
 
     Ok(())
 }
@@ -220,7 +219,7 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                             names => {
                                 return Err(ParseError {
                                     span: None,
-                                    msg: format!("warn: got an unexpected reference: {:?}", names),
+                                    msg: format!("warn: got an unexpected reference: {names:?}"),
                                 });
                             }
                         };
@@ -232,10 +231,10 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                             Some(_) => {
                                 return Err(ParseError {
                                     span: Some(sp.clone()),
-                                    msg: format!("unknown name `{}`", this_name),
+                                    msg: format!("unknown name `{this_name}`"),
                                 });
                             }
-                        };
+                        }
                     }
                 }
             }
@@ -281,10 +280,10 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                     Some(_) => {
                         return Err(ParseError {
                             span: Some(sp.clone()),
-                            msg: format!("unknown name `{}`", this_name),
+                            msg: format!("unknown name `{this_name}`"),
                         });
                     }
-                };
+                }
                 match token_iter.next() {
                     None => {
                         return Err(ParseError {
@@ -297,12 +296,11 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                         return Err(ParseError {
                             span: Some(sp.start..span.end),
                             msg: format!(
-                                "expected `<`, found `{}` (token {:?})",
-                                original, invalid_token
+                                "expected `<`, found `{original}` (token {invalid_token:?})"
                             ),
                         });
                     }
-                };
+                }
             }
             Token::GT => {
                 return Err(ParseError {
@@ -341,11 +339,11 @@ fn parse_entity<'a, I: Iterator<Item = &'a (Token, Box<str>, logos::Span)>>(
                 None => {
                     return Err(ParseError {
                         span: Some(sp.clone()),
-                        msg: format!("unexpected unknown symbol `{}`", original),
+                        msg: format!("unexpected unknown symbol `{original}`"),
                     });
                 }
             },
-        };
+        }
     }
 
     Ok((long_name, short_name))
@@ -415,7 +413,7 @@ fn lex_source(source: &str) -> Result<Vec<TokenList>, ExtractError> {
                         all.push(current);
                     }
                     current = vec![];
-                };
+                }
                 depth -= 1;
             }
             Ok(token) => {
@@ -471,7 +469,7 @@ fn collect_symbols(
                 symbols.push(short_name);
                 symbols.push(long_name);
             }
-        };
+        }
     }
 
     Ok(symbols)

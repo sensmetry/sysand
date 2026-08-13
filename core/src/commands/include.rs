@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::io::Read;
+use std::io::Read as _;
 
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};

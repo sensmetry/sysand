@@ -5,7 +5,7 @@
 mod filesystem_tests {
     use std::{
         error::Error,
-        io::{Cursor, Read},
+        io::{Cursor, Read as _},
         path::Path,
     };
 
@@ -16,12 +16,12 @@ mod filesystem_tests {
     use sysand_core::{
         commands::env::do_env_local_dir,
         env::{
-            DEFAULT_ENV_NAME, ReadEnvironment, WriteEnvironment,
+            DEFAULT_ENV_NAME, ReadEnvironment as _, WriteEnvironment as _,
             local_directory::LocalDirectoryEnvironment, utils::clone_project,
         },
         info::do_info,
         model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, format_created_now},
-        project::{ProjectMut, ProjectRead, memory::InMemoryProject},
+        project::{ProjectMut as _, ProjectRead as _, memory::InMemoryProject},
         resolve::env::EnvResolver,
     };
     use typed_path::Utf8UnixPath;

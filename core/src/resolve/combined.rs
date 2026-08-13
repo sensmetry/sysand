@@ -144,68 +144,84 @@ impl<
 
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.state {
-            CombinedIteratorState::ResolvedFile(iter) => iter.next().map(|r| {
-                r.map(CombinedProjectStorage::FileProject)
-                    .map_err(CombinedResolverError::File)
+            CombinedIteratorState::ResolvedFile(iter) => iter.next().map(|r| match r {
+                Ok(t) => Ok(CombinedProjectStorage::FileProject(t)),
+                Err(e) => Err(CombinedResolverError::File(e)),
             }),
             CombinedIteratorState::Done => self
                 .locals
                 .pop()
                 .map(|v| Ok(CombinedProjectStorage::DanglingLocalProject(v.1))),
-            CombinedIteratorState::ResolvedRemote(iter) => match iter.next() {
-                Some(r) => Some(r.map_err(CombinedResolverError::Remote).map(|project| {
-                    let cached = match project.checksum_canonical_hex() {
-                        Ok(opt) => opt
-                            .and_then(|checksum| self.locals.shift_remove(&checksum)),
-                        Err(err) => {
-                            log::debug!(
-                                "remote-project checksum_canonical_hex failed; skipping local-cache match: {}", format_err(err)
-                            );
-                            None
-                        }
-                    };
+            CombinedIteratorState::ResolvedRemote(iter) => {
+                if let Some(r) = iter.next() {
+                    let next = match r {
+                        Ok(project) => {
+                            let cached = match project.checksum_canonical_hex() {
+                                Ok(opt) => {
+                                    opt.and_then(|checksum| self.locals.shift_remove(&checksum))
+                                }
+                                Err(err) => {
+                                    log::debug!(
+                                        "remote-project checksum_canonical_hex failed; skipping local-cache match: {}",
+                                        format_err(err)
+                                    );
+                                    None
+                                }
+                            };
 
-                    if let Some(local_project) = cached {
-                        CombinedProjectStorage::CachedRemoteProject(CachedProject::new(
-                            local_project,
-                            project,
-                        ))
-                    } else {
-                        CombinedProjectStorage::RemoteProject(project)
-                    }
-                })),
-                None => {
+                            let p = if let Some(local_project) = cached {
+                                CombinedProjectStorage::CachedRemoteProject(CachedProject::new(
+                                    local_project,
+                                    project,
+                                ))
+                            } else {
+                                CombinedProjectStorage::RemoteProject(project)
+                            };
+                            Ok(p)
+                        }
+                        Err(e) => Err(CombinedResolverError::Remote(e)),
+                    };
+                    Some(next)
+                } else {
                     self.state = CombinedIteratorState::Done;
                     self.next()
                 }
-            },
-            CombinedIteratorState::ResolvedIndex(iter) => match iter.next() {
-                Some(r) => Some(r.map_err(CombinedResolverError::Index).map(|project| {
-                    let cached = match project.checksum_canonical_hex() {
-                        Ok(opt) => opt
-                            .and_then(|checksum| self.locals.shift_remove(&checksum)),
-                        Err(err) => {
-                            log::debug!(
-                                "index-project checksum_canonical_hex failed; skipping local-cache match: {}", format_err(err)
-                            );
-                            None
-                        }
-                    };
+            }
+            CombinedIteratorState::ResolvedIndex(iter) => {
+                if let Some(r) = iter.next() {
+                    let next = match r {
+                        Ok(project) => {
+                            let cached = match project.checksum_canonical_hex() {
+                                Ok(opt) => {
+                                    opt.and_then(|checksum| self.locals.shift_remove(&checksum))
+                                }
+                                Err(err) => {
+                                    log::debug!(
+                                        "index-project checksum_canonical_hex failed; skipping local-cache match: {}",
+                                        format_err(err)
+                                    );
+                                    None
+                                }
+                            };
 
-                    if let Some(local_project) = cached {
-                        CombinedProjectStorage::CachedIndexProject(CachedProject::new(
-                            local_project,
-                            project,
-                        ))
-                    } else {
-                        CombinedProjectStorage::IndexProject(project)
-                    }
-                })),
-                None => {
+                            let p = if let Some(local_project) = cached {
+                                CombinedProjectStorage::CachedIndexProject(CachedProject::new(
+                                    local_project,
+                                    project,
+                                ))
+                            } else {
+                                CombinedProjectStorage::IndexProject(project)
+                            };
+                            Ok(p)
+                        }
+                        Err(e) => Err(CombinedResolverError::Index(e)),
+                    };
+                    Some(next)
+                } else {
                     self.state = CombinedIteratorState::Done;
                     self.next()
                 }
-            },
+            }
         }
     }
 }
@@ -322,7 +338,7 @@ impl<
                     at_least_one_supports = true;
                     log::debug!("local resolver rejected {resolve}: {reason}")
                 }
-            };
+            }
         }
 
         // Need in reverse order for pop-ing
@@ -425,7 +441,7 @@ impl<
                     at_least_one_supports = true;
                     log::debug!("index resolver unable to resolve {resolve}: {reason}");
                 }
-            };
+            }
         }
 
         // As a last resort, use only locally cached projects, if any were found

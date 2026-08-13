@@ -82,7 +82,7 @@ impl ParsedIri {
     pub(crate) fn get_iri(&self) -> String {
         match self {
             Self::Sysand { publisher, name } => {
-                format!("{}{}/{}", PKG_SYSAND_PREFIX, publisher, name)
+                format!("{PKG_SYSAND_PREFIX}{publisher}/{name}")
             }
             Self::Other { normalized_iri } => normalized_iri.clone(),
         }

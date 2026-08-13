@@ -1072,7 +1072,7 @@ mod prepare_publish {
     use super::PublishError;
     use camino::Utf8PathBuf;
     use camino_tempfile::NamedUtf8TempFile;
-    use std::io::Write;
+    use std::io::Write as _;
     use zip::write::SimpleFileOptions;
 
     fn deflate() -> SimpleFileOptions {
@@ -1334,7 +1334,7 @@ mod prepare_publish {
 
     #[test]
     fn encrypted_entry() {
-        use zip::unstable::write::FileOptionsExt;
+        use zip::unstable::write::FileOptionsExt as _;
         let (proj, meta) = pre_loop_entries();
         let enc_opts = deflate().with_deprecated_encryption(b"secret").unwrap();
         let tmp = NamedUtf8TempFile::new().unwrap();

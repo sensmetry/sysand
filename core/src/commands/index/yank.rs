@@ -73,7 +73,7 @@ pub fn do_index_yank<R: AsRef<Utf8Path>, I: AsRef<str>, V: AsRef<str>>(
     let iri = parsed_iri.get_iri();
     if index_value.projects.iter().all(|p| p.iri != iri) {
         return Err(IndexYankError::ProjectNotFound { iri: iri.into() });
-    };
+    }
     let project_path = index_root.join(parsed_iri.get_path());
 
     let versions_path = project_path.join(VERSIONS_FILE_NAME);

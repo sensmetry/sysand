@@ -3,13 +3,13 @@
 
 use assert_cmd::prelude::*;
 use camino::Utf8PathBuf;
-use clap::ValueEnum;
+use clap::ValueEnum as _;
 use indexmap::IndexMap;
 use predicates::prelude::*;
 use serde_json::json;
 use std::{
     fs,
-    io::{Read, Write},
+    io::{Read as _, Write as _},
 };
 use sysand::cli::KparCompressionMethodCli;
 use sysand_core::{
@@ -17,7 +17,7 @@ use sysand_core::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         KerMlChecksumAlg,
     },
-    project::{ProjectRead, local_kpar::LocalKParProjectRaw},
+    project::{ProjectRead as _, local_kpar::LocalKParProjectRaw},
 };
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
@@ -357,11 +357,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         let kpar_path = cwd
             .join("output")
             .join(format!("{}-1.2.3.kpar", project.name));
-        assert!(
-            kpar_path.is_file(),
-            "kpar file does not exist: {}",
-            kpar_path
-        );
+        assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
 
         let out = run_sysand_in(&cwd, ["info", "--path", kpar_path.as_str()], None)?;
 
@@ -403,11 +399,7 @@ fn workspace_build() -> Result<(), Box<dyn std::error::Error>> {
         let kpar_path = cwd
             .join("output")
             .join(format!("{}-1.2.3.kpar", project.name));
-        assert!(
-            kpar_path.is_file(),
-            "kpar file does not exist: {}",
-            kpar_path
-        );
+        assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
 
         let out = run_sysand_in(&cwd, ["info", "--path", kpar_path.as_str()], None)?;
 
@@ -478,11 +470,7 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     out.assert().success();
 
     let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
-    assert!(
-        kpar_path.is_file(),
-        "kpar file does not exist: {}",
-        kpar_path
-    );
+    assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
 
     let kpar_project = LocalKParProjectRaw::new_guess_root(kpar_path)?;
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
@@ -539,11 +527,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
         .stderr(predicate::str::contains("unknown metamodel"));
 
     let kpar_path = cwd.join("output").join("project1-1.0.0.kpar");
-    assert!(
-        kpar_path.is_file(),
-        "kpar file does not exist: {}",
-        kpar_path
-    );
+    assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
 
     let kpar_project = LocalKParProjectRaw::new_guess_root(kpar_path)?;
     let (Some(_), Some(meta)) = kpar_project.get_project()? else {
@@ -848,12 +832,8 @@ fn workspace_build_with_readme() -> Result<(), Box<dyn std::error::Error>> {
     {
         let kpar_path = cwd
             .join("output")
-            .join(format!("{}-1.2.3.kpar", project_name));
-        assert!(
-            kpar_path.is_file(),
-            "kpar file does not exist: {}",
-            kpar_path
-        );
+            .join(format!("{project_name}-1.2.3.kpar"));
+        assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
 
         assert_kpar_file(&kpar_path, "README.md", expected_readme);
     }
@@ -965,12 +945,8 @@ fn workspace_build_with_changelog() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         let kpar_path = cwd
             .join("output")
-            .join(format!("{}-1.2.3.kpar", project_name));
-        assert!(
-            kpar_path.is_file(),
-            "kpar file does not exist: {}",
-            kpar_path
-        );
+            .join(format!("{project_name}-1.2.3.kpar"));
+        assert!(kpar_path.is_file(), "kpar file does not exist: {kpar_path}");
 
         assert_kpar_file(&kpar_path, "CHANGELOG.md", expected_changelog);
     }

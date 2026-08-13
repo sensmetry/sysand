@@ -106,13 +106,6 @@ fn info_prints_all_usage_types() -> Result<(), Box<dyn Error>> {
 }
 
 fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
-    let (_temp_dir, cwd, out_init) =
-        cli_init_project(Some("info_basic"), "a", None, Some("1.2.3"), None)?;
-    out_init
-        .assert()
-        .success()
-        .stdout(predicate::str::is_empty());
-
     fn add_iri_args<'a>(args: &mut Vec<&'a str>, use_auto: bool, path: &'a str) {
         if use_auto {
             args.push("--auto-location");
@@ -130,6 +123,13 @@ fn info_basic(use_iri: bool, use_auto: bool) -> Result<(), Box<dyn Error>> {
         }
         args.push(path);
     }
+
+    let (_temp_dir, cwd, out_init) =
+        cli_init_project(Some("info_basic"), "a", None, Some("1.2.3"), None)?;
+    out_init
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
 
     if !use_iri {
         // FIXME: Relative file IRIs are currently not supported because

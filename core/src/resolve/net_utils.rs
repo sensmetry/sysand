@@ -70,7 +70,7 @@ impl Display for ReqwestClientBuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "failed to build reqwest HTTP client: {}", self.inner)?;
         match self.inner.source() {
-            Some(source) => write!(f, "\ncaused by: {}", source),
+            Some(source) => write!(f, "\ncaused by: {source}"),
             None => Ok(()),
         }
     }

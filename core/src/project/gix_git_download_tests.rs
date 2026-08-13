@@ -3,14 +3,14 @@
 
 #![allow(unused_imports)]
 
-use std::{io::Read, process::Command};
+use std::{io::Read as _, process::Command};
 
 use assert_cmd::prelude::*;
 #[cfg(feature = "alltests")]
 use camino::Utf8Path;
 use camino_tempfile::tempdir;
 
-use crate::project::{ProjectRead, gix_git_download::GixDownloadedProject};
+use crate::project::{ProjectRead as _, gix_git_download::GixDownloadedProject};
 //use predicates::prelude::*;
 
 /// Initializes a git repository at `path` with a pre-configured test user.

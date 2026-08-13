@@ -14,7 +14,6 @@ pub fn do_env_list<E: ReadEnvironment>(
         }
     });
 
-    #[expect(clippy::type_complexity)]
     let nested: Result<Vec<Vec<(String, Option<String>)>>, E::ReadError> = uris
         .map(|uri| {
             let versions: Vec<String> = env

@@ -140,7 +140,7 @@ fn disambiguation() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn iri_truncation() -> Result<(), Box<dyn Error>> {
+fn iri_truncation() {
     for len in [1, 10, 100, 116, 117, 118, 119, 120, 121, 122, 123] {
         let (iri, mut expected_normalized) = gen_iri(len);
         let version = "1.0.0";
@@ -150,12 +150,10 @@ fn iri_truncation() -> Result<(), Box<dyn Error>> {
 
         assert_eq!(name.next_candidate(), expected_normalized);
     }
-
-    Ok(())
 }
 
 #[test]
-fn version_truncation() -> Result<(), Box<dyn Error>> {
+fn version_truncation() {
     let base_len = "1.0.0-".len();
     for version_len in [1, 10, 29 - base_len, 30 - base_len, 31 - base_len, 40] {
         let version = format!("1.0.0-{}", "a".repeat(version_len));
@@ -163,8 +161,6 @@ fn version_truncation() -> Result<(), Box<dyn Error>> {
         let normalized = normalize_version(version);
         assert_eq!(normalized.len(), expected_len);
     }
-
-    Ok(())
 }
 
 #[test]
@@ -210,7 +206,7 @@ fn misc_iris() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn misc_versions() -> Result<(), Box<dyn Error>> {
+fn misc_versions() {
     for (version, expected) in [
         ("1.2.3", "1.2.3"),
         ("1.2.3-alpha1", "1.2.3-alpha1"),
@@ -227,7 +223,6 @@ fn misc_versions() -> Result<(), Box<dyn Error>> {
         let normalized = normalize_version(version);
         assert_eq!(normalized, expected);
     }
-    Ok(())
 }
 
 // This should not pass, because name `con.<ext>` is invalid on Windows.

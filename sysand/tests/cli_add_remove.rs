@@ -259,9 +259,8 @@ fn add_and_remove_path() -> Result<(), Box<dyn std::error::Error>> {
     out.assert()
         .success()
         .stderr(predicate::str::contains(format!(
-            "Removing `{}` from usages
-     Removed `{}`",
-            file_url, file_url
+            "Removing `{file_url}` from usages
+     Removed `{file_url}`"
         )));
 
     let info_json = std::fs::read_to_string(cwd1.join(".project.json"))?;

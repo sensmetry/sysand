@@ -10,7 +10,7 @@ use std::{
 use digest::{array::Array, typenum};
 use indexmap::IndexSet;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8WindowsPath};
 
@@ -43,7 +43,6 @@ pub(crate) mod scheme {
 /// Should be used in all cases where an error is turned into
 /// a string and `source()` is not checked
 pub fn format_err(error: impl Error) -> String {
-    #[expect(clippy::shadow_same)]
     let mut error: &dyn Error = &error;
     let mut message = error.to_string();
     while let Some(source) = error.source() {
@@ -157,7 +156,7 @@ pub enum RelativePathKind {
     SubFile,
     /// No trailing slash
     File,
-    /// No relative components
+    /// No relative components, may have trailing slash
     SubDirectory,
     /// No restrictions
     Directory,

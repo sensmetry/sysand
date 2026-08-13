@@ -122,7 +122,7 @@ pub fn do_add<P: ProjectMut>(
                 resource: new_resource,
                 version_constraint: new_vc,
             } => {
-                for u in info.usage.iter_mut() {
+                for u in &mut info.usage {
                     if let InterchangeProjectUsageRaw::Resource {
                         resource,
                         version_constraint,
@@ -188,7 +188,7 @@ pub fn do_add<P: ProjectMut>(
                 // (`file:`, dir, kpar_path) or alternatively error out if
                 // a path-like usage of that path already exists, but it is not
                 // currently done.
-                for u in info.usage.iter_mut() {
+                for u in &mut info.usage {
                     if let InterchangeProjectUsageRaw::Directory {
                         dir,
                         publisher,
@@ -214,7 +214,7 @@ pub fn do_add<P: ProjectMut>(
                 publisher: new_publisher,
                 name: new_name,
             } => {
-                for u in info.usage.iter_mut() {
+                for u in &mut info.usage {
                     if let InterchangeProjectUsageRaw::KparPath {
                         kpar_path,
                         publisher,

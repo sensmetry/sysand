@@ -5,13 +5,13 @@ use std::collections::HashMap;
 
 use crate::{
     env::{
-        ReadEnvironment, WriteEnvironment,
+        ReadEnvironment as _, WriteEnvironment as _,
         memory::MemoryStorageEnvironment,
         utils::{CloneError, clone_project},
     },
     init::do_init_memory,
     project::{
-        ProjectRead,
+        ProjectRead as _,
         memory::{InMemoryError, InMemoryProject},
     },
 };

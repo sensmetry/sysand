@@ -110,7 +110,7 @@ pub fn do_info<R: ResolveRead>(
                     Err(err) => {
                         log::warn!("ignoring a project because: {}", format_err(err));
                     }
-                };
+                }
             }
             match best_version_info_meta {
                 Some((_, info, meta)) => {

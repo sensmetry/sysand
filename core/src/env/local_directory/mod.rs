@@ -3,7 +3,7 @@
 
 use std::{
     fs,
-    io::{ErrorKind, Write},
+    io::{ErrorKind, Write as _},
     vec,
 };
 
@@ -26,7 +26,7 @@ use crate::{
     iri_normalize::IriVersionFilename,
     lock::{Lock, Source},
     project::{
-        ProjectRead,
+        ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
         utils::{
             FsIoError, Identifier, ProjectDeserializationError, ProjectSerializationError,

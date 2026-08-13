@@ -240,7 +240,7 @@ impl<B: BlobBackend> LockedBlobStore<B> {
         options.read(true).write(true).create(true);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::OpenOptionsExt;
+            use std::os::unix::fs::OpenOptionsExt as _;
             options.mode(0o600);
         }
         options
@@ -304,7 +304,7 @@ fn create_private_dir_all(dir: &Utf8Path) -> Result<(), CredentialStoreError> {
     builder.recursive(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::DirBuilderExt;
+        use std::os::unix::fs::DirBuilderExt as _;
         builder.mode(0o700);
     }
     builder

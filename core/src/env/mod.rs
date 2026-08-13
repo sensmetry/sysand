@@ -3,7 +3,7 @@
 
 use std::{fmt::Debug, marker::Unpin, sync::Arc};
 
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use thiserror::Error;
 
 use crate::{

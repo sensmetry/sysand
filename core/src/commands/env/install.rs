@@ -101,7 +101,6 @@ impl<EnvReadError, ProjectReadError, I> From<CheckInstallError<EnvReadError>>
     }
 }
 
-#[expect(clippy::type_complexity)]
 pub fn do_env_install_project<
     S: AsRef<str>,
     P: ProjectRead,

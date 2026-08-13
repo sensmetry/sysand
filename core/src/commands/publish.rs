@@ -4,7 +4,7 @@
 use std::{
     collections::{HashMap, hash_map::Entry},
     env,
-    fmt::Write,
+    fmt::Write as _,
     io::{self, Read as _},
     sync::Arc,
 };
@@ -22,7 +22,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 
 use crate::{
     auth::{
-        BearerSelection, EnvBearerAuth, ForceBearerAuth, GlobMap, HTTPAuthentication,
+        BearerSelection, EnvBearerAuth, ForceBearerAuth, GlobMap, HTTPAuthentication as _,
         StoredBearerAuth, select_bearer,
     },
     env::discovery::{HttpBaseUrlShapeError, validate_http_base_url_shape},
@@ -33,7 +33,7 @@ use crate::{
         KerMlChecksumAlg, SYSML_SPEC_PREFIX,
     },
     project::{
-        ProjectRead,
+        ProjectRead as _,
         local_kpar::{LocalKParError, LocalKParProjectRaw},
         utils::{FsIoError, wrapfs},
     },
@@ -281,10 +281,7 @@ pub fn do_publish(
         .block_on(response.bytes())
         .map_err(PublishError::ResponseBody)?;
     log::debug!(
-        "publish response: request URL `{}`, final URL `{}`, status {}",
-        upload_url_for_log,
-        response_url,
-        status
+        "publish response: request URL `{upload_url_for_log}`, final URL `{response_url}`, status {status}"
     );
 
     map_publish_response(status, &body_bytes, &bearer.provenance)
@@ -1219,7 +1216,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
                     license: license.into(),
                 });
             }
-        };
+        }
     }
 
     let Some(file_checksums) = validated_meta.checksum else {
@@ -1334,7 +1331,7 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
                     path: src_file.as_str().into(),
                 });
             }
-        };
+        }
     }
 
     match kpar_files.get_mut("README.md") {

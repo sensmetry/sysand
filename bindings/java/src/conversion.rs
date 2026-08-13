@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use crate::exceptions::{ExceptionKind, JniExt};
+use crate::exceptions::{ExceptionKind, JniExt as _};
 use indexmap::IndexMap;
 use jni::{
     Env, jni_sig, jni_str,
@@ -523,7 +523,7 @@ impl<K: ToJObject, V: ToJObject> ToJObject for IndexMap<K, V> {
             env.new_object(LINKED_HASH_MAP.sig(), jni_sig!(()), &[],),
             "Failed to create LinkedHashMap",
         );
-        for (key, value) in self.iter() {
+        for (key, value) in self {
             let key_object = key.to_jobject(env)?;
             let value_object = value.to_jobject(env)?;
             unwrap_throw!(

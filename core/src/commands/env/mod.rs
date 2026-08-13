@@ -4,7 +4,7 @@
 #[cfg(feature = "filesystem")]
 use crate::{
     env::local_directory::{LocalDirectoryEnvironment, LocalWriteError},
-    project::utils::{ToPathBuf, wrapfs},
+    project::utils::{ToPathBuf as _, wrapfs},
 };
 use crate::{
     env::{

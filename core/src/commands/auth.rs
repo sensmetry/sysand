@@ -12,6 +12,8 @@
 //! passed in as [`EnvCredentialEntry`] values: this module does not read
 //! the process environment.
 
+use std::fmt::Write as _;
+
 use chrono::{DateTime, Utc};
 use globset::GlobBuilder;
 use thiserror::Error;
@@ -119,40 +121,39 @@ fn validation_rejected_message(
     rejected: &[(ProbeSurface, u16)],
     challenge_schemes: &[String],
 ) -> String {
-    let mut message = match rejected {
+    let mut message = if let [(surface, status)] = rejected {
+        let endpoint = match surface {
+            ProbeSurface::Read => "index.json",
+            ProbeSurface::Api => "v1/whoami",
+        };
         // A read-surface 404 is hedged: it can also mean there is simply
         // no index at this URL, so the token must not be blamed outright.
-        [(surface, status)] => {
-            let endpoint = match surface {
-                ProbeSurface::Read => "index.json",
-                ProbeSurface::Api => "v1/whoami",
-            };
-            let hedge = if *surface == ProbeSurface::Read && *status == 404 {
-                ", or no index exists at this URL"
-            } else {
-                ""
-            };
-            format!(
-                "the index rejected the token for `{index}`\n\
-                 (`{endpoint}` answered HTTP {status}){hedge}; nothing was stored"
-            )
+        let hedge = if *surface == ProbeSurface::Read && *status == 404 {
+            ", or no index exists at this URL"
+        } else {
+            ""
+        };
+        format!(
+            "the index rejected the token for `{index}`\n\
+             (`{endpoint}` answered HTTP {status}){hedge}; nothing was stored"
+        )
+    } else {
+        let mut msg = format!("credential for `{index}` was rejected by ");
+        for (i, (surface, status)) in rejected.iter().enumerate() {
+            if i > 0 {
+                msg.push_str(" and ");
+            }
+            match surface {
+                ProbeSurface::Read => {
+                    write!(msg, "the index read surface (`index.json`, HTTP {status})").unwrap()
+                }
+                ProbeSurface::Api => {
+                    write!(msg, "the index API (`v1/whoami`, HTTP {status})").unwrap()
+                }
+            }
         }
-        _ => {
-            let surfaces: Vec<String> = rejected
-                .iter()
-                .map(|(surface, status)| match surface {
-                    ProbeSurface::Read => {
-                        format!("the index read surface (`index.json`, HTTP {status})")
-                    }
-                    ProbeSurface::Api => format!("the index API (`v1/whoami`, HTTP {status})"),
-                })
-                .collect();
-            format!(
-                "credential for `{index}` was rejected by {} and accepted by no surface;\n\
-                 nothing was stored",
-                surfaces.join(" and ")
-            )
-        }
+        msg.push_str(" and accepted by no surface;\nnothing was stored");
+        msg
     };
     if schemes_include_basic(challenge_schemes) {
         // Keep this basic-auth routing hint consistent with the
@@ -498,7 +499,6 @@ fn template_anchor_root(template: &IndexUrlTemplate) -> Url {
     let cut = prefix
         .rfind('/')
         .expect("BUG: a normalized template prefix has an explicit path `/`");
-    #[expect(clippy::string_slice)]
     Url::parse(&prefix[..=cut])
         .expect("BUG: a normalized template prefix cut at a `/` parses as a URL")
 }
@@ -660,7 +660,7 @@ fn redirect_target(response: &reqwest::Response) -> &str {
 /// a scheme only when it is a valid HTTP token. (A quoted `\"` is not
 /// handled; this only tunes hint messages.)
 fn collect_challenge_schemes(headers: &reqwest::header::HeaderMap, schemes: &mut Vec<String>) {
-    for value in headers.get_all(reqwest::header::WWW_AUTHENTICATE).iter() {
+    for value in &headers.get_all(reqwest::header::WWW_AUTHENTICATE) {
         let Ok(value) = value.to_str() else { continue };
         // Split into challenges on commas outside double quotes.
         let mut in_quotes = false;

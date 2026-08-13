@@ -4,11 +4,10 @@
 use super::*;
 use std::assert_matches;
 
-fn tokens_match(src: &str, tokens: &[Token]) -> Result<(), Box<dyn std::error::Error>> {
+fn tokens_match(src: &str, tokens: &[Token]) {
     let tokenized: Result<Vec<Token>, _> = Token::lexer(src).collect();
     let tokenized = tokenized.unwrap_or_else(|e| panic!("failed to tokenize {src:?}: {e}"));
     assert_eq!(tokenized.as_slice(), tokens);
-    Ok(())
 }
 
 fn unclosed_comment_doesnt_parse(src: &str) {
@@ -17,7 +16,7 @@ fn unclosed_comment_doesnt_parse(src: &str) {
 }
 
 #[test]
-fn lex_line_comment() -> Result<(), Box<dyn std::error::Error>> {
+fn lex_line_comment() {
     let src1 = "//";
     let src2 = "//\n";
     let src3 = "//\r\n";
@@ -46,22 +45,22 @@ fn lex_line_comment() -> Result<(), Box<dyn std::error::Error>> {
     let src38 = "//\n*\n";
     let src39 = "//\r\n*\r\n";
     for s in [src1, src2, src3, src6, src7, src8, src31, src32, src33] {
-        tokens_match(s, &[Token::LineComment])?;
+        tokens_match(s, &[Token::LineComment]);
     }
     for s in [src4, src5, src9, src10, src34, src35] {
-        tokens_match(s, &[Token::LineComment, Token::Space])?;
+        tokens_match(s, &[Token::LineComment, Token::Space]);
     }
     for s in [src22, src23, src27, src28] {
-        tokens_match(s, &[Token::LineComment, Token::OtherIdentifier])?;
+        tokens_match(s, &[Token::LineComment, Token::OtherIdentifier]);
     }
     for s in [src38, src39] {
-        tokens_match(s, &[Token::LineComment, Token::OtherSymbol, Token::Space])?;
+        tokens_match(s, &[Token::LineComment, Token::OtherSymbol, Token::Space]);
     }
     for s in [src24, src25, src29, src30] {
         tokens_match(
             s,
             &[Token::LineComment, Token::Space, Token::OtherIdentifier],
-        )?;
+        );
     }
 
     // None of these must match line comment
@@ -81,5 +80,4 @@ fn lex_line_comment() -> Result<(), Box<dyn std::error::Error>> {
     for s in [src14, src15, src19, src20] {
         unclosed_comment_doesnt_parse(s);
     }
-    Ok(())
 }
