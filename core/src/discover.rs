@@ -7,7 +7,7 @@ use typed_path::Utf8UnixPathBuf;
 use crate::{
     project::{
         local_src::LocalSrcProject,
-        utils::{FsIoError, ToPathBuf, wrapfs},
+        utils::{FsIoError, ToPathBuf as _, wrapfs},
     },
     workspace::{Workspace, WorkspaceReadError},
 };
@@ -60,15 +60,16 @@ fn discover<P: AsRef<Utf8Path>, F: Fn(&Utf8Path) -> Result<bool, Box<FsIoError>>
             Some(parent) if parent.as_str().is_empty() => {
                 log::debug!("discover: hit empty relative path, trying to canonicalize");
                 match wrapfs::canonicalize_raw(&current) {
-                    Ok(current_canonical) => match current_canonical.parent() {
-                        Some(parent_canonical) => current = parent_canonical.to_path_buf(),
-                        None => {
+                    Ok(current_canonical) => {
+                        if let Some(parent_canonical) = current_canonical.parent() {
+                            current = parent_canonical.to_path_buf()
+                        } else {
                             log::debug!(
                                 "discover: canonicalized path `{current_canonical}` has no parent either"
                             );
                             return Ok(None);
                         }
-                    },
+                    }
                     Err(e) => {
                         log::debug!("discover: unable to canonicalize path `{current}`: {e}");
                     }

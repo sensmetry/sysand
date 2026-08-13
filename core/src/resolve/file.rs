@@ -251,7 +251,7 @@ impl From<LocalSrcError> for FileResolverProjectError {
             LocalSrcError::Deserialize(error) => Self::Deserialize(error),
             LocalSrcError::Path(path_error) => Self::Path(path_error),
             LocalSrcError::AlreadyExists(msg) => {
-                Self::Other(format!("unexpected internal error: {}", msg))
+                Self::Other(format!("unexpected internal error: {msg}"))
             }
             e => Self::LocalSrc(e),
         }

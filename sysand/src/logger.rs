@@ -3,7 +3,7 @@
 
 use env_logger::{Builder, Target, fmt::Formatter};
 use log::{LevelFilter, Record, SetLoggerError};
-use std::io::{self, Write};
+use std::io::{self, Write as _};
 use sysand_core::utils::SP;
 
 use crate::style::{self, GOOD};

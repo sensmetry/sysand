@@ -9,11 +9,11 @@ use semver::Version;
 
 use crate::{
     env::{
-        ProjectChecksumResult, ReadEnvironment, WriteEnvironment, memory::MemoryStorageEnvironment,
-        utils::clone_project,
+        ProjectChecksumResult, ReadEnvironment as _, WriteEnvironment as _,
+        memory::MemoryStorageEnvironment, utils::clone_project,
     },
     model::{InterchangeProjectInfo, InterchangeProjectMetadata},
-    project::{ProjectChecksum, ProjectMut, ProjectRead, memory::InMemoryProject},
+    project::{ProjectChecksum, ProjectMut as _, ProjectRead as _, memory::InMemoryProject},
     sync::{SyncError, try_install},
 };
 

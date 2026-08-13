@@ -11,7 +11,7 @@ use crate::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         KerMlChecksumAlg,
     },
-    project::{ProjectRead, hash_reader, memory::InMemoryProject},
+    project::{ProjectRead as _, hash_reader, memory::InMemoryProject},
     utils::lowercase_hex,
 };
 

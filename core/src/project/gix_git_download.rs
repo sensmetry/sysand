@@ -14,7 +14,7 @@ use crate::{
     project::{
         ProjectRead,
         local_src::{LocalSrcError, LocalSrcProject, PathError},
-        utils::{FileWithLifetime, RelativizePathError, ToPathBuf},
+        utils::{FileWithLifetime, RelativizePathError, ToPathBuf as _},
     },
 };
 
@@ -82,7 +82,7 @@ impl From<LocalSrcError> for GixDownloadedError {
             LocalSrcError::Deserialize(error) => Self::Deserialize(error),
             LocalSrcError::Path(error) => Self::Path(error),
             LocalSrcError::AlreadyExists(msg) => {
-                Self::Other(format!("unexpected internal error: {}", msg))
+                Self::Other(format!("unexpected internal error: {msg}"))
             }
             LocalSrcError::Io(e) => Self::Io(e),
             LocalSrcError::Serialize(error) => Self::Serialize(error),

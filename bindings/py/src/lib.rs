@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-#![expect(clippy::needless_pass_by_value)]
-
 use std::{iter, process::ExitCode, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -22,7 +20,7 @@ use sysand_core::{
         init::do_init_local_file,
     },
     env::{
-        DEFAULT_ENV_NAME, ReadEnvironment as _, WriteEnvironment,
+        DEFAULT_ENV_NAME, ReadEnvironment as _, WriteEnvironment as _,
         local_directory::{
             LocalDirectoryEnvironment, LocalReadError, LocalWriteError, metadata::EnvMetadataError,
         },
@@ -294,6 +292,14 @@ pub fn do_sources_env_py(
     no_own: bool,
     dependencies: String,
 ) -> PyResult<Vec<String>> {
+    fn local_read_to_pyerr(err: LocalReadError) -> PyErr {
+        let e = format_err(&err);
+        match err {
+            LocalReadError::Io(_) => PyIOError::new_err(e),
+            LocalReadError::ProjectNotFound(_) => PyValueError::new_err(e),
+        }
+    }
+
     common_init();
 
     let dependencies = Dependencies::try_from(dependencies.as_str())
@@ -309,14 +315,6 @@ pub fn do_sources_env_py(
     let mut result = vec![];
 
     let env = LocalDirectoryEnvironment::read(&env_path).map_err(env_read_to_pyerr)?;
-
-    fn local_read_to_pyerr(err: LocalReadError) -> PyErr {
-        let e = format_err(&err);
-        match err {
-            LocalReadError::Io(_) => PyIOError::new_err(e),
-            LocalReadError::ProjectNotFound(_) => PyValueError::new_err(e),
-        }
-    }
 
     let mut projects = env
         .candidate_projects(&iri)
@@ -349,14 +347,12 @@ pub fn do_sources_env_py(
         match version {
             Some(vr) => {
                 return Err(PyRuntimeError::new_err(format!(
-                    "unable to find project `{}` ({}) in local environment",
-                    iri, vr
+                    "unable to find project `{iri}` ({vr}) in local environment"
                 )));
             }
             None => {
                 return Err(PyRuntimeError::new_err(format!(
-                    "unable to find project `{}` in local environment",
-                    iri
+                    "unable to find project `{iri}` in local environment"
                 )));
             }
         }
@@ -499,8 +495,7 @@ fn do_include_py(
             Some(language) => Some(language),
             None => {
                 return Err(pyo3::exceptions::PyTypeError::new_err(format!(
-                    "invalid language identifier: {}",
-                    language_str
+                    "invalid language identifier: {language_str}"
                 )));
             }
         },
@@ -555,8 +550,7 @@ fn do_env_install_path_py(env_path: String, iri: String, location: String) -> Py
             .map_err(|e| PyRuntimeError::new_err(format_err(e)))?
         else {
             return Err(PyRuntimeError::new_err(format!(
-                "project at `{}` lacks project information",
-                location
+                "project at `{location}` lacks project information"
             )));
         };
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::io::Write;
+use std::io::Write as _;
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use std::assert_matches;
-use std::{fmt::Display, num::NonZeroU64, slice, str::FromStr};
+use std::{fmt::Display, num::NonZeroU64, slice, str::FromStr as _};
 
 use crate::model::InterchangeProjectUsage;
 use fluent_uri::Iri;
@@ -23,7 +23,7 @@ use crate::{
 fn check_current_lock_version() {
     let version = CURRENT_LOCK_VERSION.to_owned();
     let document =
-        DocumentMut::from_str(format!(r#"lock_version = "{}""#, version).as_str()).unwrap();
+        DocumentMut::from_str(format!(r#"lock_version = "{version}""#).as_str()).unwrap();
     check_lock_version(&document).unwrap();
 }
 
@@ -31,11 +31,11 @@ fn check_current_lock_version() {
 fn check_unsupported_lock_version() {
     let version = "X";
     let document =
-        DocumentMut::from_str(format!(r#"lock_version = "{}""#, version).as_str()).unwrap();
+        DocumentMut::from_str(format!(r#"lock_version = "{version}""#).as_str()).unwrap();
     let Err(err) = check_lock_version(&document) else {
         panic!()
     };
-    let VersionError::Unsupported(ref s) = err else {
+    let VersionError::Unsupported(s) = &err else {
         panic!()
     };
     assert_eq!(s, version);
@@ -60,7 +60,7 @@ sources = [{{ registry = "https://example.org" }}]
     let Err(err) = Lock::from_str(&lockfile) else {
         panic!()
     };
-    let crate::lock::ParseError::Version(VersionError::Unsupported(ref s)) = err else {
+    let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
         panic!("expected unsupported version error, got {err:?}")
     };
     assert_eq!(s, "0.3");
@@ -104,10 +104,7 @@ fn to_toml_matches_expected<D: Display>(projects: Vec<Project>, toml: D) {
         lock_version: CURRENT_LOCK_VERSION.to_owned(),
         projects,
     };
-    let expected = format!(
-        "{}lock_version = \"{}\"\n{}",
-        LOCKFILE_PREFIX, CURRENT_LOCK_VERSION, toml
-    );
+    let expected = format!("{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n{toml}");
     assert_eq!(lock.to_string(), expected);
 }
 
@@ -427,10 +424,7 @@ usages = [
 }
 
 fn roundtrip_makes_no_changes<D: Display>(toml: D) {
-    let expected = format!(
-        "{}lock_version = \"{}\"\n{}",
-        LOCKFILE_PREFIX, CURRENT_LOCK_VERSION, toml
-    );
+    let expected = format!("{LOCKFILE_PREFIX}lock_version = \"{CURRENT_LOCK_VERSION}\"\n{toml}");
     let lockfile: Lock = toml::from_str(&expected).unwrap();
     assert_eq!(lockfile.to_string(), expected);
 }
@@ -1159,7 +1153,7 @@ version = "1.0.0"
     let Err(err) = Lock::from_str(&lockfile) else {
         panic!()
     };
-    let crate::lock::ParseError::Version(VersionError::Unsupported(ref s)) = err else {
+    let crate::lock::ParseError::Version(VersionError::Unsupported(s)) = &err else {
         panic!("expected unsupported version error, got {err:?}")
     };
     assert_eq!(s, "0.4");

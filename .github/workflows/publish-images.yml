@@ -14,16 +14,21 @@ on:
         type: boolean
         default: true
 
+# zizmor complains if permissions are set on a workflow,
+# but omitting it also gives a warning about defaults.
+# So set them empty here, and specify them for the job.
 permissions:
-  contents: read
-  id-token: write # for cosign and actions/attest
-  attestations: write # for actions/attest
-  artifact-metadata: write # for actions/attest
-  packages: write
 
 jobs:
   publish-images:
     runs-on: ubuntu-24.04
+    # TODO: break up the job so permissions can be tightened
+    permissions:
+      contents: read
+      id-token: write # for cosign and actions/attest
+      attestations: write # for actions/attest
+      artifact-metadata: write # for actions/attest
+      packages: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:

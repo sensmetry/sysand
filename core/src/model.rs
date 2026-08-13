@@ -406,7 +406,7 @@ impl InterchangeProjectInfoRaw {
     /// Caller is responsible for identifying the project when reporting the error
     pub fn validate(&self) -> Result<InterchangeProjectInfo, InterchangeProjectValidationError> {
         let mut usage = vec![];
-        for a_usage in self.usage.iter() {
+        for a_usage in &self.usage {
             usage.push(a_usage.to_owned().validate()?);
         }
 
@@ -770,7 +770,7 @@ impl InterchangeProjectMetadataRaw {
         let mut index = IndexMap::with_capacity(self.index.len());
         // Spec does not require any specific relationship between `index`
         // and `checksum` files
-        for (symbol, path) in self.index.iter() {
+        for (symbol, path) in &self.index {
             let path = parse_relative_unix_path(path, RelativePathKind::SubFile)
                 .map_err(InterchangeProjectValidationError::InvalidPathInIndex)?;
             index.insert(symbol.to_owned(), path.to_owned());
@@ -814,7 +814,7 @@ impl InterchangeProjectMetadataRaw {
 
         let metamodel = if let Some(m) = &self.metamodel {
             if !KNOWN_METAMODELS.contains(&m.as_str()) {
-                log::warn!("project uses an unknown metamodel `{}`", m);
+                log::warn!("project uses an unknown metamodel `{m}`");
             }
             match fluent_uri::Iri::parse(m.to_owned()) {
                 Ok(i) => Some(i),
@@ -951,7 +951,7 @@ impl<Iri, Path: Eq + Hash + Clone, DateTime, IPC>
 pub type ProjectHash = Array<u8, typenum::U32>;
 
 fn project_hash_str<S: AsRef<str>, T: AsRef<str>>(info: S, meta: T) -> ProjectHash {
-    use digest::Digest;
+    use digest::Digest as _;
     use sha2::Sha256;
     let mut hasher = Sha256::new();
 

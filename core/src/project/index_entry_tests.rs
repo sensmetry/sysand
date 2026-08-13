@@ -21,7 +21,7 @@ use crate::{
     env::index::{AdvertisedVersion, Sha256HexDigest},
     index::model::VersionStatus,
     model::InterchangeProjectUsageRaw,
-    project::{ProjectChecksum, ProjectReadAsync, index_entry::IndexEntryProject},
+    project::{ProjectChecksum, ProjectReadAsync as _, index_entry::IndexEntryProject},
     purl::PKG_SYSAND_PREFIX,
     resolve::net_utils::create_reqwest_client,
 };

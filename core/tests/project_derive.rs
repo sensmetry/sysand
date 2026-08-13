@@ -3,7 +3,7 @@
 
 use std::{
     collections::HashMap,
-    io::{Cursor, Read},
+    io::{Cursor, Read as _},
 };
 
 use sysand_core::{

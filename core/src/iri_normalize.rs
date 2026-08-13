@@ -194,8 +194,8 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
     extend_decode_strip_invalid(&mut result, canonical.path());
     // Strip `.kpar` suffix to reduce length
     if result.len() >= 5
-        && result.is_char_boundary(result.len() - 5)
-        && result[result.len() - 5..].eq_ignore_ascii_case(".kpar")
+        && let Some(end) = result.get(result.len() - 5..)
+        && end.eq_ignore_ascii_case(".kpar")
     {
         result.truncate(result.len() - 5);
     }

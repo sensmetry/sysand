@@ -89,7 +89,6 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
 
 // TODO: take `lock` by value
 // TODO: Use AnyProject::try_from_source to avoid having so many arguments
-#[expect(clippy::too_many_arguments)]
 pub fn do_sync<
     Environment,
     CreateSrcPathStorage,
@@ -142,7 +141,7 @@ where
     // Do `continue 'main_loop` if it becomes clear that no env changes will be made
     // for the current iteration `project`
     let mut updated = false;
-    'main_loop: for project in lockfile.projects.iter() {
+    'main_loop: for project in &lockfile.projects {
         // TODO: We need a proper way to treat multiple IRIs here
         let main_uri = project.identifiers.first();
 

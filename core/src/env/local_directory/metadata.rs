@@ -12,7 +12,7 @@ use typed_path::{Utf8UnixComponent, Utf8UnixPathBuf};
 use crate::{
     env::ProjectChecksum,
     project::{
-        ProjectRead,
+        ProjectRead as _,
         local_src::{LocalSrcError, LocalSrcProject},
         utils::{FsIoError, Identifier, deserialize_unix_path, wrapfs},
     },

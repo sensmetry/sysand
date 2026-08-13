@@ -9,7 +9,7 @@ use std::{
 use camino::Utf8Path;
 use thiserror::Error;
 
-use crate::project::utils::{FsIoError, ToPathBuf, wrapfs};
+use crate::project::utils::{FsIoError, ToPathBuf as _, wrapfs};
 
 /// Removes all files in the directory.
 /// All errors are ignored, but logged with `log::warn!()`.
@@ -42,7 +42,7 @@ pub fn clean_dir<P: AsRef<Utf8Path>>(path: P) {
                     }
                 } else if let Err(e) = fs::remove_file(path) {
                     log::warn!("failed to remove file/symlink `{path}`: {e}");
-                };
+                }
             }
             Err(e) => {
                 log::warn!("failed to get file type of `{path}`: {e}");
@@ -94,7 +94,7 @@ pub(crate) fn move_fs_item<P: AsRef<Utf8Path>, Q: AsRef<Utf8Path>>(
     dst: Q,
 ) -> Result<(), Box<FsIoError>> {
     match fs::rename(src.as_ref(), dst.as_ref()) {
-        Ok(_) => Ok(()),
+        Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
             let metadata = wrapfs::metadata(&src)?;
             if metadata.is_dir() {
@@ -126,7 +126,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
     // move source files out of the way to not overwrite them in case some dest overlaps
     // with any source file
     for (i, (path, _)) in paths.iter().enumerate() {
-        let src_path = tempdir.path().join(format!("src_{}", i));
+        let src_path = tempdir.path().join(format!("src_{i}"));
         if let Err(e) = move_fs_item(path, src_path) {
             last_err = Some(e);
             break;
@@ -136,7 +136,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
     // Recover moved files in case of failure
     if let Some(cause) = last_err {
         for (i, (path, _)) in paths.iter().enumerate() {
-            let src_path = tempdir.path().join(format!("src_{}", i));
+            let src_path = tempdir.path().join(format!("src_{i}"));
 
             if src_path.exists()
                 && let Err(err) = move_fs_item(src_path, path)
@@ -153,7 +153,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
     // Move target files out of the way
     for (i, (_, path)) in paths.iter().enumerate() {
         if path.exists() {
-            let trg_path = tempdir.path().join(format!("trg_{}", i));
+            let trg_path = tempdir.path().join(format!("trg_{i}"));
             if let Err(e) = move_fs_item(path, trg_path) {
                 last_err = Some(e);
                 break;
@@ -164,7 +164,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
     // Recover moved files in case of failure
     if let Some(cause) = last_err {
         for (i, (_, path)) in paths.iter().enumerate() {
-            let trg_path = tempdir.path().join(format!("trg_{}", i));
+            let trg_path = tempdir.path().join(format!("trg_{i}"));
 
             if trg_path.exists()
                 && let Err(err) = move_fs_item(trg_path, path)
@@ -174,7 +174,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
         }
 
         for (i, (path, _)) in paths.iter().enumerate() {
-            let src_path = tempdir.path().join(format!("src_{}", i));
+            let src_path = tempdir.path().join(format!("src_{i}"));
 
             if src_path.exists()
                 && let Err(err) = move_fs_item(src_path, path)
@@ -190,7 +190,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
 
     // Try moving files to destination
     for (i, (_, target)) in paths.iter().enumerate() {
-        let src_path = tempdir.path().join(format!("src_{}", i));
+        let src_path = tempdir.path().join(format!("src_{i}"));
 
         if let Err(e) = move_fs_item(src_path, target) {
             last_err = Some(e);
@@ -201,7 +201,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
     // Recover moved files in case of failure
     if let Some(cause) = last_err {
         for (i, (_, path)) in paths.iter().enumerate() {
-            let src_path = tempdir.path().join(format!("src_{}", i));
+            let src_path = tempdir.path().join(format!("src_{i}"));
 
             if path.exists()
                 && let Err(err) = move_fs_item(path, src_path)
@@ -211,7 +211,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
         }
 
         for (i, (_, path)) in paths.iter().enumerate() {
-            let trg_path = tempdir.path().join(format!("trg_{}", i));
+            let trg_path = tempdir.path().join(format!("trg_{i}"));
 
             if trg_path.exists()
                 && let Err(err) = move_fs_item(trg_path, path)
@@ -221,7 +221,7 @@ pub fn try_move_files(paths: &[(&Utf8Path, &Utf8Path)]) -> Result<(), TryMoveErr
         }
 
         for (i, (path, _)) in paths.iter().enumerate() {
-            let src_path = tempdir.path().join(format!("src_{}", i));
+            let src_path = tempdir.path().join(format!("src_{i}"));
 
             if src_path.exists()
                 && let Err(err) = move_fs_item(src_path, path)

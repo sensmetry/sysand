@@ -598,8 +598,8 @@ fn sync_hard_fails_on_kpar_digest_drift_from_lockfile() -> Result<(), Box<dyn st
     // Drift the server: keep the URL stable but swap the archive bytes. `sync`
     // should now fail on the recorded archive digest before installation.
     server.reset();
-    let (drifted_kpar_bytes, _drifted_info, _drifted_meta) = build_index_kpar_bytes("dep", "0.1.0");
-    let mut drifted_kpar_bytes = drifted_kpar_bytes;
+    let (mut drifted_kpar_bytes, _drifted_info, _drifted_meta) =
+        build_index_kpar_bytes("dep", "0.1.0");
     let first_byte = drifted_kpar_bytes
         .first_mut()
         .expect("test kpar builder should produce non-empty archive bytes");

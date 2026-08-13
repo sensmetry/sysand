@@ -246,7 +246,7 @@ impl<Higher: ResolveRead, Lower: ResolveRead> ResolveRead for PriorityResolver<H
             ResolutionOutcome::Unresolvable { reason } => {
                 log::debug!("cannot resolve usage {resolve}: {reason}")
             }
-        };
+        }
 
         Ok(self
             .lower

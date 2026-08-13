@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{collections::HashMap, str::FromStr as _, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 
@@ -17,7 +17,7 @@ use sysand_core::{
     lock::Lock,
     model::InterchangeProjectUsage,
     project::{
-        ProjectRead,
+        ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::LocalSrcProject,
         utils::wrapfs,
@@ -46,7 +46,6 @@ pub fn command_env<P: AsRef<Utf8Path>>(path: P) -> Result<LocalDirectoryEnvironm
 }
 
 // TODO: Factor out provided_iris logic
-#[expect(clippy::too_many_arguments)]
 pub fn command_env_install<Policy: HTTPAuthentication>(
     iri: Iri<String>,
     version: Option<String>,
@@ -191,7 +190,6 @@ pub fn command_env_install<Policy: HTTPAuthentication>(
 }
 
 // TODO: Collect common arguments
-#[expect(clippy::too_many_arguments)]
 pub fn command_env_install_path<Policy: HTTPAuthentication>(
     iri: Iri<String>,
     version: Option<String>,

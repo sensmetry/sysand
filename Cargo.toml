@@ -59,37 +59,48 @@ blanket_clippy_restriction_lints = "allow"
 
 # Pedantic
 
+# mostly fires for string assignments, where the fix is less readable
 assigning_clones = "allow"
 default_trait_access = "allow"
 doc_markdown = "allow"
 enum_glob_use = "allow"
-ignored_unit_patterns = "allow"
 implicit_hasher = "allow"
-items_after_statements = "allow"
+# good in principle, but annoying
 match_same_arms = "allow"
+# noisy
 missing_errors_doc = "allow"
+# noisy
 missing_panics_doc = "allow"
+# noisy
 must_use_candidate = "allow"
+# too much boilerplate to fix
 option_option = "allow"
+# usually does not improve readability
 redundant_else = "allow"
+# noisy
 semicolon_if_nothing_returned = "allow"
 # consider enabling this
 should_panic_without_expect = "allow"
+# noisy
 similar_names = "allow"
-single_match_else = "allow"
+# not constructive, sometimes repeating is the best choice
 struct_field_names = "allow"
+# not constructive
 too_many_arguments = "allow"
+# not constructive
 too_many_lines = "allow"
+# not constructive
 type_complexity = "allow"
-uninlined_format_args = "allow"
-unnecessary_semicolon = "allow"
 unreadable_literal = "allow"
 
 # Restriction
 
 string_slice = "allow"
+# should enable, but default of 2 segments is too strict,
+# and increasing requires clippy.toml
 absolute_paths = "allow"
 allow_attributes_without_reason = "allow"
+# interesting, may want to enable, but requires clippy.toml
 arbitrary_source_item_ordering = "allow"
 arithmetic_side_effects = "allow"
 as_conversions = "allow"
@@ -103,7 +114,6 @@ error_impl_error = "allow"
 exhaustive_enums = "allow"
 exhaustive_structs = "allow"
 expect_used = "allow"
-explicit_iter_loop = "allow"
 if_then_some_else_none = "allow"
 impl_trait_in_params = "allow"
 implicit_return = "allow"
@@ -127,14 +137,14 @@ non_ascii_literal = "allow"
 panic = "allow"
 panic_in_result_fn = "allow"
 partial_pub_fields = "allow"
-pathbuf_init_then_push = "allow"
+# promotes use of `ref` in pattern matching
 pattern_type_mismatch = "allow"
 print_stderr = "allow"
 print_stdout = "allow"
 pub_use = "allow"
+# alternative style to pub_without_shorthand
 pub_with_shorthand = "allow"
 question_mark_used = "allow"
-redundant_test_prefix = "allow"
 semicolon_outside_block = "allow"
 shadow_reuse = "allow"
 shadow_same = "allow"
@@ -149,7 +159,6 @@ tests_outside_test_module = "allow"
 unneeded_field_pattern = "allow"
 unreachable = "allow"
 unseparated_literal_suffix = "allow"
-unused_trait_names = "allow"
 unwrap_in_result = "allow"
 unwrap_used = "allow"
 verbose_file_reads = "allow"

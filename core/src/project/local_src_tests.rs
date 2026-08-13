@@ -44,10 +44,10 @@ fn publisher_mismatch_returns_error() -> Result<(), Box<dyn std::error::Error>> 
     let err = project.get_project().unwrap_err();
     assert!(
         matches!(
-            err,
+            &err,
             LocalSrcError::PublisherMismatch {
-                ref expected,
-                ref actual,
+                expected,
+                actual,
             } if expected.as_deref() == Some("expected-publisher")
               && actual.as_deref() == Some("actual-publisher")
         ),
@@ -71,10 +71,10 @@ fn expects_no_publisher_but_project_has_one() -> Result<(), Box<dyn std::error::
     let err = project.get_project().unwrap_err();
     assert!(
         matches!(
-            err,
+            &err,
             LocalSrcError::PublisherMismatch {
-                ref expected,
-                ref actual,
+                expected,
+                actual,
             } if expected.is_none() && actual.as_deref() == Some("surprise")
         ),
         "unexpected error: {err}"
@@ -116,10 +116,10 @@ fn name_mismatch_returns_error() -> Result<(), Box<dyn std::error::Error>> {
     let err = project.get_project().unwrap_err();
     assert!(
         matches!(
-            err,
+            &err,
             LocalSrcError::NameMismatch {
-                ref expected,
-                ref actual,
+                expected,
+                actual,
             } if expected == "expected-name" && actual == "actual-name"
         ),
         "unexpected error: {err}"

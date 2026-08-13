@@ -53,6 +53,7 @@ fn mock_iri_resolver<I: IntoIterator<Item = (Iri<String>, InMemoryProject)>>(
 ) -> MemoryResolver<AcceptAll, InMemoryProject> {
     MemoryResolver {
         iri_predicate: AcceptAll {},
+        #[expect(clippy::from_iter_instead_of_collect)]
         projects: HashMap::from_iter(
             projects
                 .into_iter()
@@ -76,7 +77,7 @@ fn expect_to_resolve_iri<R: ResolveRead>(resolver: &R, uri: &str) -> Vec<R::Proj
 }
 
 #[test]
-fn resolution_priority() -> Result<(), Box<dyn std::error::Error>> {
+fn resolution_priority() {
     let higher = mock_iri_resolver([
         mock_project("urn:kpar:foo", "foo", "1.2.3"),
         mock_project("urn:kpar:bar", "bar", "1.2.3"),
@@ -103,6 +104,4 @@ fn resolution_priority() -> Result<(), Box<dyn std::error::Error>> {
 
     assert_eq!(bazs.len(), 1);
     assert_eq!(bazs[0].version().unwrap(), Some("3.2.1".to_owned()));
-
-    Ok(())
 }

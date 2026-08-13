@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use rexpect::session::{PtySession, spawn_command};
 use std::ffi::OsStr;
 #[cfg(not(target_os = "windows"))]
-use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::ExitStatusExt as _;
 use std::{
     error::Error,
     path::Path,

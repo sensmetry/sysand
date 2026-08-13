@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::io::{Read as _, Write};
+use std::io::{Read as _, Write as _};
 
 use camino_tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
 use crate::project::local_kpar::KparInnerPath;
 
-use super::ProjectRead;
+use super::ProjectRead as _;
 
 #[test]
 fn basic_kpar_archive() -> Result<(), Box<dyn std::error::Error>> {

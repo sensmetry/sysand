@@ -11,7 +11,7 @@ use std::{
     io::ErrorKind,
     panic,
     process::ExitCode,
-    str::FromStr,
+    str::FromStr as _,
     sync::Arc,
 };
 
@@ -20,7 +20,7 @@ use anyhow::{Result, anyhow, bail};
 use fluent_uri::Iri;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use clap::Parser;
+use clap::Parser as _;
 use sysand_core::{
     auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder, StandardLazyHTTPAuthentication},
     commands::lock::DEFAULT_LOCKFILE_NAME,
@@ -326,13 +326,14 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     )
                 }
             }
-            Some(cli::EnvCommand::Uninstall { iri, version }) => match ctx.env {
-                Some(local_environment) => command_env_uninstall(iri, version, local_environment),
-                None => {
+            Some(cli::EnvCommand::Uninstall { iri, version }) => {
+                if let Some(local_environment) = ctx.env {
+                    command_env_uninstall(iri, version, local_environment)
+                } else {
                     log::warn!("no environment to uninstall from");
                     Ok(())
                 }
-            },
+            }
             Some(cli::EnvCommand::List) => command_env_list(ctx.env),
             Some(cli::EnvCommand::Sources {
                 iri,
@@ -455,6 +456,12 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             resolution_opts,
             subcommand,
         } => {
+            enum Location {
+                WorkDir,
+                Iri(fluent_uri::Iri<String>),
+                Path(Utf8PathBuf),
+            }
+
             let cli::ResolutionOptions {
                 index,
                 default_index,
@@ -480,12 +487,6 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 runtime.clone(),
                 auth_policy.clone(),
             )?;
-
-            enum Location {
-                WorkDir,
-                Iri(fluent_uri::Iri<String>),
-                Path(Utf8PathBuf),
-            }
 
             let location = if let Some(auto_location) = auto_location {
                 debug_assert!(path.is_none());

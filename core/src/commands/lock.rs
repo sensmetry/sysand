@@ -240,7 +240,7 @@ pub fn do_lock_extend<
             // constraints.
             lock_projects.insert(id.clone());
         }
-        for s in p.exports.iter() {
+        for s in &p.exports {
             if let Some(conflict_idx) = lock_symbols.insert(hash_str(s), i) {
                 return Err(LockError::NameCollision(
                     NameCollisionError {

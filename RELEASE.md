@@ -152,3 +152,10 @@ of dependencies for known vulnerabilities and fix them if possible.
    # and bump minimalistically to address known vulnerabilities
    npm audit fix
    ```
+
+3. Audit the Python package dependencies:
+
+   ```sh
+   cd bindings/py
+   uv audit
+   ```

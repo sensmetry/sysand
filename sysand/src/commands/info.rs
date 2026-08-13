@@ -91,7 +91,7 @@ pub fn pprint_interchange_project(
             );
         } else {
             println!("{header}Usages:{header:#}");
-            for usage in usages_to_print.iter() {
+            for usage in &usages_to_print {
                 println!("    {usage}");
             }
             if has_ignored_usages {
@@ -140,7 +140,6 @@ pub fn command_info_path<P: AsRef<Utf8Path>>(
     }
 }
 
-#[expect(clippy::too_many_arguments)]
 pub fn command_info_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     _normalise: bool,
@@ -209,7 +208,6 @@ pub fn command_info_verb_path<P: AsRef<Utf8Path>>(
     }
 }
 
-#[expect(clippy::too_many_arguments)]
 pub fn command_info_verb_uri<Policy: HTTPAuthentication>(
     uri: Iri<String>,
     verb: InfoCommandVerb,
@@ -349,7 +347,7 @@ fn apply_get_meta(
             Some(
                 meta.index
                     .into_iter()
-                    .map(|(symbol, path)| format!("`{}` in `{}`", symbol, path))
+                    .map(|(symbol, path)| format!("`{symbol}` in `{path}`"))
                     .collect(),
             ),
             numbered,
@@ -369,7 +367,7 @@ fn apply_get_meta(
                 xs.into_iter()
                     .map(
                         |(path, InterchangeProjectChecksumRaw { value, algorithm })| {
-                            format!("{}({}) = {}", algorithm, path, value)
+                            format!("{algorithm}({path}) = {value}")
                         },
                     )
                     .collect()
@@ -621,13 +619,11 @@ fn remove_info(
                         bail!("0 is an invalid index, maintainers are indexed from 1")
                     }
                     RemoveFailure::EmptyFailure(idx) => {
-                        bail!("trying to remove maintainer {}, but project has none", idx)
+                        bail!("trying to remove maintainer {idx}, but project has none")
                     }
-                    RemoveFailure::PluralFailure(idx, len) => bail!(
-                        "trying to remove maintainer {}, but project has only {}",
-                        idx,
-                        len
-                    ),
+                    RemoveFailure::PluralFailure(idx, len) => {
+                        bail!("trying to remove maintainer {idx}, but project has only {len}")
+                    }
                 }
             }
         }
@@ -638,13 +634,11 @@ fn remove_info(
                         bail!("0 is an invalid index, topics are indexed from 1")
                     }
                     RemoveFailure::EmptyFailure(idx) => {
-                        bail!("trying to remove topic {}, but project has none", idx)
+                        bail!("trying to remove topic {idx}, but project has none")
                     }
-                    RemoveFailure::PluralFailure(idx, len) => bail!(
-                        "trying to remove topic {}, but project has only {}",
-                        idx,
-                        len
-                    ),
+                    RemoveFailure::PluralFailure(idx, len) => {
+                        bail!("trying to remove topic {idx}, but project has only {len}")
+                    }
                 }
             }
         }

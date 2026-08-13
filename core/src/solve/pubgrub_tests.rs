@@ -485,6 +485,7 @@ struct StubProject {
     usage: Result<Option<Vec<InterchangeProjectUsageRaw>>, String>,
 }
 
+#[expect(clippy::unimplemented)]
 impl ProjectRead for StubProject {
     type Error = StubError;
 

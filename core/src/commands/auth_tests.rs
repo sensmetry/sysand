@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use chrono::{TimeZone, Utc};
+use chrono::{TimeZone as _, Utc};
 
 use super::{
     AuthCommandError, EnvCredentialEntry, IndexKey, StoredCredentialsStatus, assemble_auth_status,

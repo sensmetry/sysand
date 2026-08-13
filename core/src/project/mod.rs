@@ -5,7 +5,7 @@ use camino::Utf8Path;
 use digest::{array::Array, typenum};
 use futures::io::{AsyncBufReadExt as _, AsyncRead};
 use indexmap::IndexMap;
-use sha2::{Digest, Sha256};
+use sha2::{Digest as _, Sha256};
 use std::{
     fmt::{Debug, Display},
     io::{self, BufRead as _, BufReader, Read},

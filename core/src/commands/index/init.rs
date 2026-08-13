@@ -3,7 +3,7 @@
 
 use std::{
     fs::{self},
-    io::{ErrorKind, Write},
+    io::{ErrorKind, Write as _},
 };
 
 use camino::Utf8Path;

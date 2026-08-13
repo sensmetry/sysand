@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::{io::Read, sync::Arc};
+use std::{io::Read as _, sync::Arc};
 
 use reqwest::header;
 use typed_path::Utf8UnixPath;
 
 use crate::{
     auth::Unauthenticated,
-    project::{ProjectRead, ProjectReadAsync, reqwest_src::ReqwestSrcProjectAsync},
+    project::{ProjectRead as _, ProjectReadAsync as _, reqwest_src::ReqwestSrcProjectAsync},
     resolve::net_utils::create_reqwest_client,
 };
 

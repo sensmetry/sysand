@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{fs, io::Write};
+use std::{fs, io::Write as _};
 
 use assert_cmd::prelude::*;
 use indexmap::IndexMap;

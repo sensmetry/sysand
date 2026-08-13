@@ -21,7 +21,7 @@ use sysand_core::{
     env::{DEFAULT_ENV_NAME, local_directory::LocalWriteError},
     init::InitError,
     project::{
-        ProjectMut,
+        ProjectMut as _,
         local_src::{LocalSrcError, LocalSrcProject},
         utils::wrapfs,
     },
@@ -32,10 +32,10 @@ use sysand_core::{
 
 use crate::{
     conversion::{
-        ToJObject, ToJStringArray, compression_from_java_string, handle_build_error,
+        ToJObject as _, ToJStringArray as _, compression_from_java_string, handle_build_error,
         java_info_to_raw, java_map_to_index_map, java_metadata_to_raw,
     },
-    exceptions::{ExceptionKind, JniExt, StdlibExceptionKind},
+    exceptions::{ExceptionKind, JniExt as _, StdlibExceptionKind},
 };
 
 mod conversion;
@@ -85,16 +85,17 @@ fn init<'local>(
     // If `license` is `null`, no license is specified
     let license: Option<String> = match license.mutf8_chars(env) {
         Ok(s) => Some(s.into()),
-        Err(e) => match e {
-            jni::errors::Error::NullPtr(_) => None,
-            _ => {
+        Err(e) => {
+            if let jni::errors::Error::NullPtr(_) = e {
+                None
+            } else {
                 env.throw_runtime_exception(format!(
                     "failed to get argument `license`: {}",
                     format_err(e)
                 ));
                 ret!()
             }
-        },
+        }
     };
 
     let command_result =
@@ -283,7 +284,7 @@ fn info<'local>(
             Err(error) => {
                 env.throw_stdlib_exception(
                     StdlibExceptionKind::UnsupportedOperationException,
-                    format!("Failed to parse index URL `{}`: {}", index_url, error),
+                    format!("Failed to parse index URL `{index_url}`: {error}"),
                 );
                 ret_null!()
             }

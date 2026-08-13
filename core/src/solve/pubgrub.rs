@@ -3,7 +3,7 @@
 
 use camino::Utf8PathBuf;
 use pubgrub::{
-    DefaultStringReporter, DependencyConstraints, DependencyProvider, Reporter, VersionSet,
+    DefaultStringReporter, DependencyConstraints, DependencyProvider, Reporter as _, VersionSet,
 };
 
 use std::{
@@ -63,7 +63,7 @@ impl Display for DependencyIdentifier {
 
                 // write!(f, "]")
             }
-            Self::Remote(iri) => write!(f, "{}", iri),
+            Self::Remote(iri) => write!(f, "{iri}"),
         }
     }
 }
@@ -115,7 +115,7 @@ impl Display for DiscreteHashSet {
                 write!(f, "and ")?;
             }
 
-            write!(f, "{}", v)?;
+            write!(f, "{v}")?;
         }
 
         write!(f, ")")
@@ -437,7 +437,7 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                         // `found_versions` must contain at least one element
                         write!(versions, "`{}`", found_versions[0]).unwrap();
                         for v in &found_versions[1..] {
-                            write!(versions, ", `{}`", v).unwrap();
+                            write!(versions, ", `{v}`").unwrap();
                         }
                         return Err(InternalSolverError::VersionNotAvailable(format!(
                             "project `{resource}`\n\
@@ -675,7 +675,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                         // calls, as DiscreteHashSet does not save actual versions
                         versions_indexes.sort_unstable_by(|el1, el2| el2.1.cmp(&el1.1));
                         let mut found = None;
-                        for (i, v) in versions_indexes.iter() {
+                        for (i, v) in &versions_indexes {
                             if !hash_set.contains(i) {
                                 found = Some(*i);
                                 log::debug!("chose version for {usage}: {v}");
@@ -716,8 +716,7 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
 
                     if *version >= candidates.len() {
                         return Ok(pubgrub::Dependencies::Unavailable(format!(
-                            "cannot resolve IRI `{}` to valid project",
-                            iri
+                            "cannot resolve IRI `{iri}` to valid project"
                         )));
                     } else {
                         candidates[*version].clone()

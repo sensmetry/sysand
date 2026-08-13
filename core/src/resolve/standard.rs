@@ -13,7 +13,7 @@ use crate::{
     },
     index_location::IndexLocation,
     resolve::{
-        AsSyncResolveTokio, ResolutionInfo, ResolveRead, ResolveReadAsync,
+        AsSyncResolveTokio, ResolutionInfo, ResolveRead, ResolveReadAsync as _,
         combined::CombinedResolver,
         env::EnvResolver,
         file::FileResolver,

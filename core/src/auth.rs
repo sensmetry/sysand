@@ -522,7 +522,7 @@ impl HTTPAuthentication for StandardInnerAuthentication {
 }
 
 /// Standard HTTP authentication policy where a restricted set of domains/paths have
-/// BasicAuth username/password pairs specified, but they are sent only in response to a
+/// Basic Auth username/password pairs specified, but they are sent only in response to a
 /// 4xx status code.
 pub type StandardHTTPAuthentication = RestrictAuthentication<
     SequenceAuthentication<

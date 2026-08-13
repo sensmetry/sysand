@@ -3,7 +3,7 @@
 
 use std::{
     collections::HashMap,
-    io::{Cursor, Read},
+    io::{Cursor, Read as _},
 };
 
 use chrono::DateTime;
@@ -13,13 +13,13 @@ use semver::Version;
 use sysand_core::{
     commands::env::do_env_memory,
     env::{
-        ReadEnvironment, WriteEnvironment,
+        ReadEnvironment as _, WriteEnvironment as _,
         utils::{CloneError, clone_project},
     },
     info::do_info,
     model::{InterchangeProjectInfo, InterchangeProjectMetadata},
     project::{
-        ProjectMut, ProjectRead,
+        ProjectMut as _, ProjectRead as _,
         memory::{InMemoryError, InMemoryProject},
         utils::Identifier,
     },

@@ -20,7 +20,7 @@ use crate::{
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::{
         ProjectMut, ProjectRead,
-        utils::{RelativizePathError, ToPathBuf, ToUnixPathBuf, relativize_path, wrapfs},
+        utils::{RelativizePathError, ToPathBuf as _, ToUnixPathBuf as _, relativize_path, wrapfs},
     },
 };
 
@@ -190,12 +190,11 @@ impl LocalSrcProject {
                 let source_path = self.get_source_path(path)?;
                 result.insert(source_path);
             }
-        };
+        }
 
         Ok(result)
     }
 
-    #[expect(clippy::type_complexity)]
     pub fn temporary_from_project<Pr: ProjectRead>(
         project: &Pr,
     ) -> Result<
@@ -240,10 +239,7 @@ impl ProjectMut for LocalSrcProject {
         let mut file = wrapfs::File::create(&project_json_path)?;
         serde_json::to_writer_pretty(&mut file, info).map_err(|e| {
             ProjectSerializationError::new(
-                format!(
-                    "failed to serialize and write project info to `{}`",
-                    project_json_path
-                ),
+                format!("failed to serialize and write project info to `{project_json_path}`"),
                 e,
             )
         })?;
@@ -268,10 +264,7 @@ impl ProjectMut for LocalSrcProject {
         let mut file = wrapfs::File::create(&meta_json_path)?;
         serde_json::to_writer_pretty(&mut file, meta).map_err(|e| {
             ProjectSerializationError::new(
-                format!(
-                    "failed to serialize and write project metadata to `{}`",
-                    meta_json_path
-                ),
+                format!("failed to serialize and write project metadata to `{meta_json_path}`"),
                 e,
             )
         })?;

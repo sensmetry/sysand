@@ -2,11 +2,9 @@
 // SPDX-FileCopyrightText: © 2018-2021 Rustwasm contributors
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-//! This is copied from the abandoned https://github.com/rustwasm/console_error_panic_hook
+//! This is copied from the abandoned <https://github.com/rustwasm/console_error_panic_hook>
 //! with minor edits and simplifications.
 
-//! # `console_error_panic_hook`
-//!
 //! This module lets you debug panics on `wasm32-unknown-unknown` by providing a
 //! panic hook that forwards panic messages to
 //! [`console.error`](https://developer.mozilla.org/en-US/docs/Web/API/Console/error).
@@ -15,7 +13,7 @@
 //! will typically capture a stack trace and display it with the logged error
 //! message.
 //!
-//! Without `console_error_panic_hook` you just get something like *RuntimeError: Unreachable executed*
+//! Without this hook you just get something like *`RuntimeError: Unreachable executed`*
 //!
 //! With this panic hook installed you will see the full panic message that the
 //! Rust side produced.

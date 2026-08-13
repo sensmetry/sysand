@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use std::{
-    io::{Read, Write as _},
+    io::{Read as _, Write as _},
     num::NonZeroU64,
     sync::Arc,
 };
@@ -14,7 +14,7 @@ use crate::{
     context::ProjectContext,
     lock::Source,
     project::{
-        KparMeta, ProjectRead, ProjectReadAsync,
+        KparMeta, ProjectRead as _, ProjectReadAsync as _,
         reqwest_kpar_download::{ReqwestIndexKparDownloadedProject, ReqwestKparDownloadedError},
     },
     resolve::net_utils::create_reqwest_client,
@@ -61,7 +61,7 @@ fn basic_download_request() -> Result<(), Box<dyn std::error::Error>> {
         .create();
 
     let project = ReqwestRemoteKparDownloadedProject::new_guess_root(
-        format!("{}basic_download_request.kpar", url),
+        format!("{url}basic_download_request.kpar"),
         create_reqwest_client()?,
         Arc::new(Unauthenticated {}),
         None,
