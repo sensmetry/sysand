@@ -17,7 +17,7 @@ on:
 # zizmor complains if permissions are set on a workflow,
 # but omitting it also gives a warning about defaults.
 # So set them empty here, and specify them for the job.
-permissions:
+permissions: {}
 
 jobs:
   publish-images:
