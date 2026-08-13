@@ -238,7 +238,7 @@ jobs:
           - image: alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
             setup: apk add curl python3 tar
           # glibc 2.31, older than the gnu build's 2.35 requirement.
-          - image: debian:13@sha256:1710bde34461551a19a47c787885ec9ad7058d9a5bead2affb8d088fa2f8502b
+          - image: debian:11@sha256:f313b4bd62667092a59b3a664d7d3ab8b5e65f41675f48e81455a15dc5abe792
             setup: apt-get update && apt-get install -y curl python3
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
