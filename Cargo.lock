@@ -4076,7 +4076,6 @@ dependencies = [
  "mockito",
  "nix",
  "predicates",
- "pubgrub",
  "reqwest",
  "reqwest-middleware",
  "rexpect",
@@ -4099,7 +4098,6 @@ version = "0.2.1"
 dependencies = [
  "anstyle",
  "assert_cmd",
- "borrow-or-share",
  "bytes",
  "camino",
  "camino-tempfile",
@@ -4140,8 +4138,6 @@ dependencies = [
  "toml_edit",
  "typed-path",
  "url",
- "walkdir",
- "wasm-bindgen",
  "zip",
 ]
 
@@ -4154,13 +4150,8 @@ dependencies = [
  "fluent-uri",
  "indexmap",
  "jni",
- "reqwest",
- "reqwest-middleware",
- "serde",
- "serde_json",
  "sysand-core",
  "tokio",
- "url",
 ]
 
 [[package]]
@@ -4203,8 +4194,6 @@ dependencies = [
  "predicates",
  "pyo3",
  "pyo3-log",
- "reqwest",
- "reqwest-middleware",
  "semver",
  "sysand",
  "sysand-core",

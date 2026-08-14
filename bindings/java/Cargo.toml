@@ -27,13 +27,8 @@ camino.workspace = true
 fluent-uri.workspace = true
 env_logger.workspace = true
 jni = "0.22.4"
-reqwest-middleware = { version = "0.5.1" }
 indexmap = { version = "2.13.0", default-features = false, features = ["serde"] }
-url = { version = "2.5.8", default-features = false }
 tokio = { version = "1.50.0", default-features = false, features = ["rt"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.149", default-features = false, features = ["preserve_order"] }
-reqwest = { version = "0.13.2", features = ["rustls"] }
 
 [lints]
 workspace = true
