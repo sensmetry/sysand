@@ -43,9 +43,8 @@ impl Default for Config {
 static STYLE_CONFIG: OnceLock<Config> = OnceLock::new();
 
 pub fn set_style_config(config: Config) {
-    STYLE_CONFIG
-        .set(config)
-        .expect("BUG: attempting to set output style twice");
+    // Must not panic on double init, python bindings may trigger it more than once
+    let _unneeded = STYLE_CONFIG.set(config);
 }
 
 pub fn get_style_config() -> &'static Config {

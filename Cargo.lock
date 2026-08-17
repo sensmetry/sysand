@@ -4089,6 +4089,7 @@ dependencies = [
  "toml",
  "typed-path",
  "url",
+ "wild",
  "zip",
 ]
 
@@ -4190,6 +4191,7 @@ dependencies = [
  "camino",
  "camino-tempfile",
  "fluent-uri",
+ "glob",
  "log",
  "predicates",
  "pyo3",
@@ -4827,6 +4829,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f31141ce3fc3e300ae89b78c0dd67f9708061d1d2eda54b8209346fd6be9a92c"
 dependencies = [
  "rustls-pki-types",
+]
+
+[[package]]
+name = "wild"
+version = "2.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3131afc8c575281e1e80f36ed6a092aa502c08b18ed7524e86fbbb12bb410e1"
+dependencies = [
+ "glob",
 ]
 
 [[package]]
