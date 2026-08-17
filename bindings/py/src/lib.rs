@@ -52,7 +52,44 @@ use typed_path::Utf8UnixPathBuf;
 
 #[pyfunction(name = "_run_cli")]
 fn run_cli(args: Vec<String>) -> bool {
-    let exit_code = sysand::lib_main(args);
+    let exit_code;
+    // Expand glob arguments
+    #[cfg(windows)]
+    {
+        use glob::{MatchOptions, glob_with};
+        let options = MatchOptions {
+            case_sensitive: false,
+            require_literal_separator: true,
+            require_literal_leading_dot: false,
+        };
+
+        let args = args.into_iter().flat_map(|arg| {
+            if !arg.contains(['*', '?']) {
+                return vec![arg.into()];
+            }
+
+            // Treat '[' and ']' as literal characters to match Windows behavior
+            let escaped = arg.replace('[', "[[]");
+
+            if let Ok(entries) = glob_with(&escaped, options) {
+                let matches: Vec<OsString> = entries
+                    .filter_map(Result::ok)
+                    .map(|p| p.to_owned())
+                    .collect();
+
+                if !matches.is_empty() {
+                    return matches;
+                }
+            }
+
+            vec![arg.into()]
+        });
+        exit_code = sysand::lib_main(args);
+    }
+    #[cfg(not(windows))]
+    {
+        exit_code = sysand::lib_main(args);
+    }
     exit_code == ExitCode::SUCCESS
 }
 
