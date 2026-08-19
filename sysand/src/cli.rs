@@ -14,9 +14,9 @@ use semver::VersionReq;
 use sysand_core::{
     add::expand_sysand_purl_shorthand,
     build::KparCompressionMethod,
+    commands::sources::Dependencies as CoreDependencies,
     index_location::IndexLocation,
     model::{KERML_SPEC_PREFIX, SYSML_SPEC_PREFIX},
-    sources::Dependencies,
 };
 
 use crate::env_vars;
@@ -1754,35 +1754,34 @@ pub struct ProjectSourceOptions {
 #[derive(clap::Args, Debug, Clone)]
 pub struct SourcesOptions {
     /// Do not include sources for dependencies
-    #[arg(long, conflicts_with = "include_std")]
-    pub no_deps: bool,
+    #[arg(long, default_value = "deps")]
+    pub deps: Dependencies,
     /// Only include sources for dependencies, not the project's own sources
-    #[arg(long, conflicts_with = "no_deps")]
-    pub only_deps: bool,
-    /// Include (installed) KerML/SysML v2 standard libraries
     #[arg(long)]
-    pub include_std: bool,
+    pub only_deps: bool,
 }
 
-impl SourcesOptions {
-    /// Whether the project's own sources should be excluded (`--only-deps`).
-    pub fn no_own(&self) -> bool {
-        self.only_deps
-    }
+/// Selects which dependency sources a sources enumeration should yield. Whether
+/// the project's own sources are listed is controlled separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Dependencies {
+    /// No dependency sources.
+    None,
+    /// Dependency sources, excluding SysML v2/KerML standard libraries.
+    Deps,
+    /// Dependency sources, including SysML v2/KerML standard libraries.
+    DepsStd,
+    /// Only standard-library dependency sources.
+    Std,
+}
 
-    /// Resolve which dependency sources to list from the flags.
-    pub fn dependencies(&self) -> Dependencies {
-        // TODO(0.2.0): the CLI cannot produce `Dependencies::Std` ("only standard
-        // libraries"), which the Python API supports. Exposing it cleanly would
-        // mean reworking the `--no-deps`/`--include-std` flags into an orthogonal
-        // `--no-own` + `--dependencies=<none|deps|deps-std|std>` scheme, which is a
-        // breaking CLI change and is therefore deferred to 0.2.0.
-        if self.no_deps {
-            Dependencies::None
-        } else if self.include_std {
-            Dependencies::DepsStd
-        } else {
-            Dependencies::Deps
+impl From<Dependencies> for CoreDependencies {
+    fn from(val: Dependencies) -> Self {
+        match val {
+            Dependencies::None => Self::None,
+            Dependencies::Deps => Self::Deps,
+            Dependencies::DepsStd => Self::DepsStd,
+            Dependencies::Std => Self::Std,
         }
     }
 }
