@@ -657,13 +657,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         Command::Build {
             path,
             compression,
-            update_meta,
             allow_path_usage,
             keep_index,
         } => {
-            if update_meta {
-                log::warn!("`--update-meta` is now the default behavior and is no longer needed")
-            }
             if let Some(current_project) = ctx.current_project {
                 // Even if we are in a workspace, the project takes precedence.
                 let path = if let Some(path) = path {
