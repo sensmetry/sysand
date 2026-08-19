@@ -6,8 +6,8 @@
 # installation), and ensures that directory is on the user PATH.
 #
 # Configuration is via environment variables:
-#   SYSAND_VERSION           Release version to install, for example 0.1.2 or
-#                            v0.1.2-rc.1. Must be 0.1.2 or later.
+#   SYSAND_VERSION           Release version to install, for example 0.2.1 or
+#                            v0.2.0-rc.1. Must be 0.1.2 or later.
 #                            Default: latest non-prerelease.
 #   SYSAND_INSTALL_BASE_URL  For local tests. It should point at a directory
 #                            containing the release asset files.
@@ -27,8 +27,8 @@ replacing any existing installation, and ensures that directory is on the
 user PATH.
 
 Configuration via environment variables:
-  SYSAND_VERSION   Release version to install, for example 0.1.2 or
-                   0.1.2-dev.1. A leading "v" is also accepted. Must be
+  SYSAND_VERSION   Release version to install, for example 0.2.1 or
+                   0.2.0-dev.1. A leading "v" is also accepted. Must be
                    0.1.2 or later. Default: latest non-prerelease.
 
 Uninstall by deleting %LOCALAPPDATA%\Programs\Sensmetry\Sysand and removing
@@ -72,20 +72,6 @@ if ($Version -eq "latest") {
     $Tag = "v$Version"
 }
 
-# Releases before 0.1.2 do not publish all the assets this installer expects,
-# so only 0.1.2 or later is supported.
-if ($Version -ne "latest") {
-    $Release = $Version.TrimStart("v").Split("-")[0]
-    $Parsed = $null
-    if ($Release -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$' -or
-        -not [System.Version]::TryParse($Release, [ref]$Parsed)) {
-        Fail "could not parse SYSAND_VERSION '$Version' as major.minor.patch"
-    }
-    if ($Parsed -lt [System.Version]"0.1.2") {
-        Fail "this installer only supports sysand 0.1.2 or later (requested $Version)"
-    }
-}
-
 # Detect the CPU architecture name used by Sysand release assets.
 $ProcessorArchitecture = if ($env:PROCESSOR_ARCHITEW6432) {
     $env:PROCESSOR_ARCHITEW6432
@@ -113,7 +99,6 @@ if ($env:SYSAND_INSTALL_BASE_URL) {
 }
 
 $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Sensmetry\Sysand\bin"
-$LegacyDir = Join-Path $env:LOCALAPPDATA "Programs\Sysand"
 
 function Test-SamePathEntry {
     param([string]$A, [string]$B)
@@ -150,24 +135,10 @@ function Install-Binary {
     if ($Old) { Remove-Item -Path $Old -Force -ErrorAction SilentlyContinue }
 }
 
-# Earlier installer versions placed sysand.exe directly in Programs\Sysand;
-# leaving it would keep shadowing or duplicating the new installation.
-function Remove-LegacyInstall {
-    $LegacyBinary = Join-Path $LegacyDir "sysand.exe"
-    if (Test-Path -Path $LegacyBinary) {
-        try {
-            Remove-Item -Path $LegacyBinary -Force
-            Write-Host "Removed previous installation at $LegacyBinary"
-        } catch {
-            Write-Warning "could not remove previous installation at $LegacyBinary; delete it manually"
-        }
-    }
-}
-
 # Add the install directory to the persisted user PATH, editing the registry
 # value directly so a REG_EXPAND_SZ PATH keeps its kind and its unexpanded
 # %VAR% entries (which [Environment]::SetEnvironmentVariable would clobber).
-# Also drops the legacy Programs\Sysand entry. Best effort: warns on failure.
+# Best effort: warns on failure.
 # Returns $true when the install directory was already persisted.
 function Update-UserPath {
     $EnvKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
@@ -182,22 +153,16 @@ function Update-UserPath {
         }
 
         $Entries = @($RawPath -split ";" | Where-Object { $_ -ne "" })
-        $Kept = @($Entries | Where-Object { -not (Test-SamePathEntry $_ $LegacyDir) })
-        $AlreadyPresent = @($Kept | Where-Object { Test-SamePathEntry $_ $InstallDir }).Count -gt 0
+        $AlreadyPresent = @($Entries | Where-Object { Test-SamePathEntry $_ $InstallDir }).Count -gt 0
 
-        if ($AlreadyPresent -and $Kept.Count -eq $Entries.Count) {
-            return $true
-        }
-        if (-not $AlreadyPresent) {
-            $Kept += $InstallDir
-        }
-        $EnvKey.SetValue("Path", ($Kept -join ";"), $Kind)
         if ($AlreadyPresent) {
-            Write-Host "Removed legacy $LegacyDir from your user PATH"
+            return $true
         } else {
+            $Entries += $InstallDir
+            $EnvKey.SetValue("Path", ($Entries -join ";"), $Kind)
             Write-Host "Added $InstallDir to your user PATH (takes effect after you sign out and back in)"
+            return $false
         }
-        return $AlreadyPresent
     } finally {
         $EnvKey.Dispose()
     }
@@ -262,7 +227,6 @@ try {
     $InstalledVersion = & (Join-Path $InstallDir "sysand.exe") --version
     Write-Host "Installed $InstalledVersion"
 
-    Remove-LegacyInstall
     Set-SysandOnPath
 } finally {
     if (Test-Path $TempDir) {

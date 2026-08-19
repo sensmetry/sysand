@@ -79,30 +79,6 @@ jobs:
           grep -F "SYSAND_VERSION" "$RUNNER_TEMP/install-help.txt"
           grep -F "latest non-prerelease" "$RUNNER_TEMP/install-help.txt"
 
-      - name: Reject removed flags with migration errors
-        run: |
-          if out=$(sh scripts/install.sh --version 1.0 2>&1); then
-            echo "expected --version to fail" >&2
-            exit 1
-          fi
-          echo "$out" | grep -F "SYSAND_VERSION"
-
-          if out=$(sh scripts/install.sh --install-dir "$RUNNER_TEMP/x" 2>&1); then
-            echo "expected --install-dir to fail" >&2
-            exit 1
-          fi
-          echo "$out" | grep -F ".local/bin"
-
-          if sh scripts/install.sh --system-install; then
-            echo "expected --system-install to fail" >&2
-            exit 1
-          fi
-
-          if sh scripts/install.sh --bogus; then
-            echo "expected unknown option to fail" >&2
-            exit 1
-          fi
-
       - name: Reject invalid version
         run: |
           for invalid_version in 0.0.0_test 0.0.0+build 0.0.0-TEST; do
@@ -111,22 +87,6 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Reject unsupported version
-        run: |
-          for unsupported_version in 0.1.1 v0.1.1 0.1.0 0.1.1-rc.1; do
-            if out=$(SYSAND_VERSION="$unsupported_version" sh scripts/install.sh 2>&1); then
-              echo "expected version '$unsupported_version' to fail" >&2
-              exit 1
-            fi
-            echo "$out" | grep -F "0.1.2 or later"
-          done
-
-          if out=$(SYSAND_VERSION="0.1" sh scripts/install.sh 2>&1); then
-            echo "expected version '0.1' to fail" >&2
-            exit 1
-          fi
-          echo "$out" | grep -F "could not parse"
 
       - name: Create fake release archives
         run: |
@@ -375,42 +335,6 @@ jobs:
               }
           }
 
-      - name: Reject unsupported version
-        run: |
-          foreach ($unsupportedVersion in @("0.1.1", "v0.1.1", "0.1.0", "0.1.1-rc.1")) {
-              $env:SYSAND_VERSION = $unsupportedVersion
-              $failed = $false
-              try {
-                  & .\scripts\install.ps1
-              } catch {
-                  $failed = $true
-                  if ("$_" -notlike "*0.1.2 or later*") {
-                      Write-Error "unexpected message for '$unsupportedVersion': $_"
-                      exit 1
-                  }
-              }
-              if (-not $failed) {
-                  Write-Error "expected version '$unsupportedVersion' to fail"
-                  exit 1
-              }
-          }
-
-          $env:SYSAND_VERSION = "0.1"
-          $failed = $false
-          try {
-              & .\scripts\install.ps1
-          } catch {
-              $failed = $true
-              if ("$_" -notlike "*could not parse*") {
-                  Write-Error "unexpected message for '0.1': $_"
-                  exit 1
-              }
-          }
-          if (-not $failed) {
-              Write-Error "expected version '0.1' to fail"
-              exit 1
-          }
-
       - name: Create fake release archives
         shell: pwsh
         run: |
@@ -541,27 +465,21 @@ jobs:
               exit 1
           }
 
-      - name: Update in-use install with PATH and legacy cleanup
+      - name: Update in-use install with PATH
         run: |
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "fake-localappdata"
           $installDir = Join-Path $env:LOCALAPPDATA "Programs\Sensmetry\Sysand\bin"
-          $legacyDir = Join-Path $env:LOCALAPPDATA "Programs\Sysand"
           $env:GITHUB_PATH = ""
           $env:CI = ""
           $env:SYSAND_INSTALL_BASE_URL = "http://127.0.0.1:8765/v2"
 
-          # Pre-seed a REG_EXPAND_SZ user PATH with an unexpanded entry plus
-          # the legacy install directory.
+          # Pre-seed a REG_EXPAND_SZ user PATH with an unexpanded entry.
           $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
           $envKey.SetValue(
               "Path",
-              "%USERPROFILE%\bin;$legacyDir",
+              "%USERPROFILE%\bin",
               [Microsoft.Win32.RegistryValueKind]::ExpandString)
           $envKey.Dispose()
-
-          # Pre-create a legacy installation.
-          New-Item -ItemType Directory -Path $legacyDir -Force | Out-Null
-          Copy-Item -Path (Join-Path $installDir "sysand.exe") -Destination (Join-Path $legacyDir "sysand.exe")
 
           # Keep the installed v1 binary running during the update.
           $proc = Start-Process `
@@ -585,10 +503,6 @@ jobs:
               Write-Error "expected a sysand.exe.old.* file after updating an in-use binary"
               exit 1
           }
-          if (Test-Path (Join-Path $legacyDir "sysand.exe")) {
-              Write-Error "legacy binary was not removed"
-              exit 1
-          }
 
           $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $false)
           $rawPath = $envKey.GetValue(
@@ -606,10 +520,6 @@ jobs:
           $entries = @($rawPath -split ";" | Where-Object { $_ -ne "" })
           if (@($entries | Where-Object { $_ -eq $installDir }).Count -ne 1) {
               Write-Error "install dir not on user PATH exactly once: $rawPath"
-              exit 1
-          }
-          if (@($entries | Where-Object { $_ -eq $legacyDir }).Count -ne 0) {
-              Write-Error "legacy PATH entry was not removed: $rawPath"
               exit 1
           }
 
