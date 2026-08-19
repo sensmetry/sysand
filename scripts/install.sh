@@ -8,8 +8,8 @@
 # ensures that directory is on PATH.
 #
 # Configuration is via environment variables:
-#   SYSAND_VERSION           Release version to install, for example 0.1.2 or
-#                            v0.1.2-rc.1. Must be 0.1.2 or later.
+#   SYSAND_VERSION           Release version to install, for example 0.2.1 or
+#                            v0.2.0-rc.1. Must be 0.1.2 or later.
 #                            Default: latest non-prerelease.
 #   SYSAND_INSTALL_BASE_URL  For local tests. It should point at a directory
 #                            containing the release asset files.
@@ -30,8 +30,8 @@ Installs the sysand binary to $HOME/.local/bin, replacing any existing
 installation, and ensures that directory is on PATH.
 
 Configuration via environment variables:
-  SYSAND_VERSION   Release version to install, for example 0.1.2 or
-                   0.1.2-dev.1. A leading "v" is also accepted. Must be
+  SYSAND_VERSION   Release version to install, for example 0.2.1 or
+                   0.2.0-dev.1. A leading "v" is also accepted. Must be
                    0.1.2 or later. Default: latest non-prerelease.
 
 Uninstall by deleting $HOME/.local/bin/sysand and removing the PATH line the
@@ -54,12 +54,6 @@ parse_args() {
       -h|--help)
         print_usage
         exit 0
-        ;;
-      --version)
-        fail "--version was removed; set SYSAND_VERSION=<version> instead"
-        ;;
-      --install-dir|--system-install)
-        fail "$1 was removed; sysand now always installs to \$HOME/.local/bin"
         ;;
       *)
         fail "unknown option: $1 (configuration is via environment variables, see --help)"
@@ -90,36 +84,6 @@ validate_version() {
       fail "SYSAND_VERSION may only contain lowercase letters, numbers, dots, and dashes"
       ;;
   esac
-}
-
-# Releases before 0.1.2 do not publish all the assets this installer expects
-# (for example the musl builds), so only 0.1.2 or later is supported.
-check_version_supported() {
-  [ "$version" != "latest" ] || return 0
-
-  release="${version#v}"
-  release="${release%%-*}"
-  case "$release" in
-    *.*.*) ;;
-    *)
-      fail "could not parse SYSAND_VERSION \`${version}\` as major.minor.patch"
-      ;;
-  esac
-  major="${release%%.*}"
-  rest="${release#*.}"
-  minor="${rest%%.*}"
-  rest="${rest#*.}"
-  patch="${rest%%.*}"
-  case "${major}~${minor}~${patch}" in
-    *[!0-9~]*|*~~*)
-      fail "could not parse SYSAND_VERSION \`${version}\` as major.minor.patch"
-      ;;
-  esac
-
-  if [ "$major" -eq 0 ] &&
-    { [ "$minor" -lt 1 ] || { [ "$minor" -eq 1 ] && [ "$patch" -lt 2 ]; }; }; then
-    fail "this installer only supports sysand 0.1.2 or later (requested ${version})"
-  fi
 }
 
 # Detect the operating system name used by Sysand release assets.
@@ -373,7 +337,6 @@ main() {
   path_line='export PATH="$HOME/.local/bin:$PATH"'
 
   validate_version
-  check_version_supported
   normalize_version
   detect_os
   detect_arch
