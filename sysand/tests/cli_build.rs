@@ -1206,14 +1206,7 @@ fn compression_method(compression: Option<&str>) -> Result<(), Box<dyn std::erro
     let out = match compression {
         Some(compression) => run_sysand_in(
             &cwd,
-            [
-                "build",
-                "--compression",
-                compression,
-                "./test_build.kpar",
-                // Pass `--update-meta` to see that its behaviour is same as default
-                "--update-meta",
-            ],
+            ["build", "--compression", compression, "./test_build.kpar"],
             None,
         )?,
         None => run_sysand_in(&cwd, ["build", "./test_build.kpar"], None)?,

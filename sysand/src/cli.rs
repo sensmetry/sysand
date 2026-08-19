@@ -212,13 +212,8 @@ pub enum Command {
         /// For multiple related projects, consider using a workspace instead
         #[arg(long, short, verbatim_doc_comment)]
         allow_path_usage: bool,
-        /// Note: this is now the default and kept only for compatibility.
-        /// Update project metadata that is written into the kpar. This includes
-        /// updating project symbol index and adding/updating source file checksums
-        #[arg(long, short, verbatim_doc_comment)]
-        update_meta: bool,
         /// Don't update exported symbols index in the built KPAR metadata
-        #[arg(long, conflicts_with = "update_meta")]
+        #[arg(long)]
         keep_index: bool,
     },
     /// Publish a KPAR to a sysand package index
