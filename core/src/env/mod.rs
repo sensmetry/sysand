@@ -47,6 +47,8 @@ pub trait ReadEnvironment {
     type ReadError: ErrorBound;
 
     type UriIter: IntoIterator<Item = Result<String, Self::ReadError>>;
+    /// Get URIs of all projects stored in the environment. If a project
+    /// has multiple URIs, only the first one is returned
     fn uris(&self) -> Result<Self::UriIter, Self::ReadError>;
 
     type VersionIter: IntoIterator<Item = Result<String, Self::ReadError>>;
@@ -126,6 +128,8 @@ pub trait ReadEnvironmentAsync {
     type ReadError: ErrorBound;
 
     type UriStream: futures::Stream<Item = Result<String, Self::ReadError>>;
+    /// Get URIs of all projects stored in the environment. If a project
+    /// has multiple URIs, only the first one is returned
     fn uris_async(&self) -> impl Future<Output = Result<Self::UriStream, Self::ReadError>>;
 
     type VersionStream: futures::Stream<Item = Result<String, Self::ReadError>>;

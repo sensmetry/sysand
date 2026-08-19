@@ -95,7 +95,7 @@ identifiers = [
 
 #[test]
 fn env_project_with_urn_sysand_identifier_is_found() {
-    // urn:sysand: is the non-PURL, non-URL form produced by Directory usages
+    // urn:sysand: is the non-PURL, non-URL form produced by typed usages
     // with publishers/names that cannot be represented as a PURL (e.g. too short)
     let toml = r#"version = "0.1"
 

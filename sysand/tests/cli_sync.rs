@@ -717,3 +717,205 @@ fn sync_kpar_path_usage_transitive() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+/// `sync` must remove a project from `.sysand` once it is no longer present
+/// in the lockfile, while leaving dependencies that are still needed alone.
+#[test]
+fn sync_prunes_unneeded_dependency_by_default() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "prune_app", "1.0.0")?;
+    out.assert().success();
+    fs::write(cwd.join("App.sysml"), "package App;")?;
+    run_sysand_in(&cwd, ["include", "App.sysml"], None)?
+        .assert()
+        .success();
+
+    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("a", "prune_dep_keep", "1.0.0")?;
+    out.assert().success();
+    fs::write(cwd_keep.join("Keep.sysml"), "package Keep;")?;
+    run_sysand_in(&cwd_keep, ["include", "Keep.sysml"], None)?
+        .assert()
+        .success();
+
+    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("a", "prune_dep_drop", "1.0.0")?;
+    out.assert().success();
+    fs::write(cwd_drop.join("Drop.sysml"), "package Drop;")?;
+    run_sysand_in(&cwd_drop, ["include", "Drop.sysml"], None)?
+        .assert()
+        .success();
+
+    let config_path = cwd.join("sysand.toml");
+    let cfg = Some(config_path.as_str());
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "urn:kpar:prune-dep-keep",
+            "--as-local-src",
+            cwd_keep.as_str(),
+        ],
+        cfg,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "urn:kpar:prune-dep-drop",
+            "--as-local-src",
+            cwd_drop.as_str(),
+        ],
+        cfg,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["lock"], cfg)?.assert().success();
+    run_sysand_in(&cwd, ["sync"], cfg)?.assert().success();
+
+    let env_lib = cwd.join(DEFAULT_ENV_NAME).join("lib");
+    assert!(env_lib.join("kpar.prune-dep-keep_1.0.0").is_dir());
+    assert!(env_lib.join("kpar.prune-dep-drop_1.0.0").is_dir());
+
+    // Drop the usage and regenerate the lockfile without touching the env:
+    // `.sysand` still has `prune-dep-drop` installed, but the lockfile no
+    // longer lists it.
+    run_sysand_in(
+        &cwd,
+        ["remove", "--no-lock", "urn:kpar:prune-dep-drop"],
+        cfg,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(&cwd, ["lock"], cfg)?.assert().success();
+
+    let lockfile = fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+    assert!(
+        !lockfile.contains("prune-dep-drop"),
+        "expected relocked lockfile to no longer reference `prune-dep-drop`: {lockfile}"
+    );
+
+    // Default `sync` prunes the now-unneeded dependency from `.sysand`.
+    run_sysand_in(&cwd, ["sync"], cfg)?.assert().success();
+
+    assert!(
+        env_lib.join("kpar.prune-dep-keep_1.0.0").is_dir(),
+        "still-needed dependency must not be pruned"
+    );
+    assert!(
+        !env_lib.join("kpar.prune-dep-drop_1.0.0").exists(),
+        "unneeded dependency must be pruned from `.sysand` by default"
+    );
+
+    let env_toml = fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+    assert!(env_toml.contains("prune-dep-keep"));
+    assert!(!env_toml.contains("prune-dep-drop"));
+
+    // Pruning is idempotent.
+    run_sysand_in(&cwd, ["sync"], cfg)?
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("env is already up to date"));
+
+    Ok(())
+}
+
+/// `sync --no-prune` must leave a dependency that is no longer present in
+/// the lockfile installed in `.sysand`.
+#[test]
+fn sync_no_prune_keeps_unneeded_dependency() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "no_prune_app", "1.0.0")?;
+    out.assert().success();
+    fs::write(cwd.join("App.sysml"), "package App;")?;
+    run_sysand_in(&cwd, ["include", "App.sysml"], None)?
+        .assert()
+        .success();
+
+    let (_tmp_keep, cwd_keep, out) = cli_init_project_basic("a", "no_prune_dep_keep", "1.0.0")?;
+    out.assert().success();
+    fs::write(cwd_keep.join("Keep.sysml"), "package Keep;")?;
+    run_sysand_in(&cwd_keep, ["include", "Keep.sysml"], None)?
+        .assert()
+        .success();
+
+    let (_tmp_drop, cwd_drop, out) = cli_init_project_basic("a", "no_prune_dep_drop", "1.0.0")?;
+    out.assert().success();
+    fs::write(cwd_drop.join("Drop.sysml"), "package Drop;")?;
+    run_sysand_in(&cwd_drop, ["include", "Drop.sysml"], None)?
+        .assert()
+        .success();
+
+    let config_path = cwd.join("sysand.toml");
+    let cfg = Some(config_path.as_str());
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "urn:kpar:no-prune-dep-keep",
+            "--as-local-src",
+            cwd_keep.as_str(),
+        ],
+        cfg,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(
+        &cwd,
+        [
+            "add",
+            "--no-lock",
+            "urn:kpar:no-prune-dep-drop",
+            "--as-local-src",
+            cwd_drop.as_str(),
+        ],
+        cfg,
+    )?
+    .assert()
+    .success();
+
+    run_sysand_in(&cwd, ["lock"], cfg)?.assert().success();
+    run_sysand_in(&cwd, ["sync"], cfg)?.assert().success();
+
+    let env_lib = cwd.join(DEFAULT_ENV_NAME).join("lib");
+    assert!(env_lib.join("kpar.no-prune-dep-keep_1.0.0").is_dir());
+    assert!(env_lib.join("kpar.no-prune-dep-drop_1.0.0").is_dir());
+
+    run_sysand_in(
+        &cwd,
+        ["remove", "--no-lock", "urn:kpar:no-prune-dep-drop"],
+        cfg,
+    )?
+    .assert()
+    .success();
+    run_sysand_in(&cwd, ["lock"], cfg)?.assert().success();
+
+    let lockfile = fs::read_to_string(cwd.join(DEFAULT_LOCKFILE_NAME))?;
+    assert!(!lockfile.contains("no-prune-dep-drop"));
+
+    // `--no-prune` must not remove the now-unneeded dependency from `.sysand`.
+    run_sysand_in(&cwd, ["sync", "--no-prune"], cfg)?
+        .assert()
+        .success();
+
+    assert!(env_lib.join("kpar.no-prune-dep-keep_1.0.0").is_dir());
+    assert!(
+        env_lib.join("kpar.no-prune-dep-drop_1.0.0").is_dir(),
+        "`--no-prune` must leave the unneeded dependency installed in `.sysand`"
+    );
+
+    let env_toml = fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+    assert!(env_toml.contains("no-prune-dep-keep"));
+    assert!(
+        env_toml.contains("no-prune-dep-drop"),
+        "`--no-prune` must leave the unneeded dependency registered in env.toml"
+    );
+
+    Ok(())
+}

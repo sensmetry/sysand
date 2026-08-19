@@ -3,7 +3,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::HashSet,
+    collections::{HashMap, HashSet, VecDeque},
     fmt::Display,
     hash::{DefaultHasher, Hash, Hasher as _},
     num::NonZeroU64,
@@ -206,6 +206,95 @@ impl Lock {
         Ok(())
     }
 
+    /// Remove usage from the root project identified by `root_publisher` and `root_name`,
+    /// and prune all projects not reachable from any of the root projects.
+    /// Root projects are assumed to be those who have `editable = "subpath"` sources.
+    /// Return:
+    /// - None - root project not found
+    /// - Some(false) - usage not present
+    /// - Some(true) - usage removed
+    ///
+    /// Assumes that `self` is well formed, i.e. every usage is satisfied by a project
+    /// whose first identifier matches the usage
+    pub fn remove_usage(
+        &mut self,
+        root_publisher: Option<&str>,
+        root_name: &str,
+        usage_id: &str,
+    ) -> Option<Vec<Project>> {
+        // identifier -> project index mapping
+        let mut project_to_index = HashMap::new();
+        let mut reachable = HashSet::new();
+        // Queue of non-yet-visited reachable projects
+        let mut queue = VecDeque::new();
+        let mut project = None;
+        for (p_idx, p) in self.projects.iter().enumerate() {
+            if let Some(id) = p.identifiers.first() {
+                project_to_index.insert(id.clone(), p_idx);
+            }
+            if Self::is_root(p) {
+                reachable.insert(p_idx);
+                if p.publisher.as_deref() == root_publisher && p.name == root_name {
+                    debug_assert_eq!(project, None);
+                    project = Some((p, p_idx));
+                } else {
+                    // Must not discard dependencies of other roots
+                    queue.push_back(p_idx);
+                }
+            }
+        }
+
+        let (project, project_index) = project?;
+        let mut usage_found = None;
+        for (u_idx, u) in project.usages.iter().enumerate() {
+            if &**u == usage_id {
+                usage_found = Some(u_idx);
+            } else {
+                let p = project_to_index[&**u];
+                if reachable.insert(p) {
+                    queue.push_back(p);
+                }
+            }
+        }
+        if let Some(u_idx) = usage_found {
+            self.projects[project_index].usages.remove(u_idx);
+        } else {
+            return Some(Vec::new());
+        }
+
+        while let Some(idx) = queue.pop_front() {
+            for u in &self.projects[idx].usages {
+                let p = project_to_index[&**u];
+                if reachable.insert(p) {
+                    queue.push_back(p);
+                }
+            }
+        }
+        let mut index = 0;
+        let removed = self
+            .projects
+            .extract_if(.., |_| {
+                let keep = reachable.contains(&index);
+                index += 1;
+                !keep
+            })
+            .collect();
+        Some(removed)
+    }
+
+    /// Root (i.e. belonging to the current workspace) projects are those
+    /// that are editable and live inside the workspace
+    // TODO: be more explicit about what does and does not belong to a
+    // workspace when proper workspaces land
+    fn is_root(project: &Project) -> bool {
+        match project.sources.as_slice() {
+            [Source::Editable { editable }] => {
+                parse_relative_unix_path(editable.as_str(), RelativePathKind::SubDirectory).is_ok()
+            }
+            _ => false,
+        }
+    }
+
     fn to_toml(&self) -> DocumentMut {
         let mut doc = DocumentMut::new();
         doc.decor_mut().set_prefix(LOCKFILE_PREFIX);
@@ -261,7 +350,8 @@ impl Lock {
                     ' ',
                 );
             }
-            for id in &project.identifiers {
+            // Usage must be satisfied by the first identifier of a project
+            if let Some(id) = project.identifiers.first() {
                 identifier_versions.insert(id.clone());
             }
         }
@@ -366,9 +456,11 @@ impl Lock {
     fn sort(&mut self) {
         for project in &mut self.projects {
             project.exports.sort();
-            project.identifiers.sort();
             project.usages.sort();
             project.sources.sort();
+            // Identifiers are deliberately not sorted, since it's assumed
+            // in various places that the first identifier is the one
+            // that other projects depend on
         }
         self.projects.sort();
     }

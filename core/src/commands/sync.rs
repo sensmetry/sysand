@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::num::NonZeroU64;
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    num::NonZeroU64,
+};
 
 use thiserror::Error;
 use typed_path::Utf8UnixPathBuf;
@@ -15,7 +18,11 @@ use crate::{
 };
 
 #[derive(Error, Debug)]
-pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
+pub enum SyncError<
+    UrlParseError: ErrorBound,
+    GitError: ErrorBound,
+    Env: ReadEnvironment + WriteEnvironment,
+> {
     #[error(
         "incorrect checksum for project with `{id}` in lockfile:\n\
         expected `{expected}`, but the actual is\n\
@@ -26,8 +33,6 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
         expected: ProjectChecksum,
         actual: ProjectChecksum,
     },
-    #[error("project with IRI `{0}` is missing `.project.json` or `.meta.json`")]
-    BadProject(String),
     #[error("project with identifiers {0:?} has no known sources in lockfile")]
     MissingSource(Box<[String]>),
     #[error("no IRI given for project with src_path = `{0}` in lockfile")]
@@ -68,8 +73,7 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
     GitDownload(Box<str>, GitError),
     #[error("invalid remote source URL `{0}`:\n{1}")]
     InvalidRemoteSource(Box<str>, UrlParseError),
-    #[error("no supported sources for project {0}")]
-    UnsupportedSources(String),
+    // TODO: type
     #[error("failed to install project `{id}`:\n{cause}")]
     InstallFail { id: String, cause: String },
     #[error(
@@ -85,6 +89,11 @@ pub enum SyncError<UrlParseError: ErrorBound, GitError: ErrorBound> {
     // TODO: preserve error type
     #[error("project read error: {0}")]
     ProjectRead(String),
+    // These can't use `#[from]` due to potentially overlapping impls
+    #[error("environment read error")]
+    EnvRead(Env::ReadError),
+    #[error("environment write error")]
+    EnvWrite(Env::WriteError),
 }
 
 // TODO: take `lock` by value
@@ -115,7 +124,8 @@ pub fn do_sync<
     index_kpar_storage: Option<CreateIndexKParStorage>,
     remote_git_storage: Option<CreateRemoteGitStorage>,
     provided_usages: &ProvidedProjects,
-) -> Result<(), SyncError<UrlParseError, GitError>>
+    no_prune: bool,
+) -> Result<(), SyncError<UrlParseError, GitError, Environment>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
     CreateSrcPathStorage: Fn(Utf8UnixPathBuf, Option<String>, String, String) -> SrcPathStorage,
@@ -183,7 +193,7 @@ where
                 if let Some(checksum) = source.to_checksum()
                     && env
                         .has_version_verified(iri, &project.version, &checksum)
-                        .map_err(|e| SyncError::ProjectRead(format_err(e)))?
+                        .map_err(SyncError::EnvRead)?
                         == ProjectChecksumResult::Match
                 {
                     log::debug!("`{iri}` found in .sysand");
@@ -348,6 +358,54 @@ where
         }
         updated = true;
     }
+
+    // Remove projects/versions that are not in lockfile
+
+    if !no_prune {
+        log::debug!("pruning unneeded projects from env");
+        let mut lock_projects: HashMap<&str, Vec<&str>> = HashMap::new();
+        for p in &lockfile.projects {
+            // Editable projects (which are the only ones that might not have identifiers)
+            // are handled in `LocalDirectoryEnvironment::merge_lock()`
+            if let Some(id) = p.identifiers.first() {
+                match lock_projects.entry(id.as_str()) {
+                    Entry::Occupied(mut ent) => {
+                        ent.get_mut().push(p.version.as_str());
+                    }
+                    Entry::Vacant(ent) => {
+                        ent.insert(vec![p.version.as_str()]);
+                    }
+                }
+            }
+        }
+        for p_id in env.uris().map_err(SyncError::EnvRead)? {
+            let p_id = p_id.map_err(SyncError::EnvRead)?;
+            // TODO: more efficient interface to get uri+version+checksum
+            if let Some(versions) = lock_projects.get(&p_id.as_str()) {
+                // TODO: make sure checksums match; current env trait does not expose them
+                let mut versions_to_remove = Vec::new();
+                for v in env.versions(&p_id).map_err(SyncError::EnvRead)? {
+                    let env_v = v.map_err(SyncError::EnvRead)?;
+                    if !versions.contains(&env_v.as_str()) {
+                        versions_to_remove.push(env_v);
+                    }
+                }
+                for v in versions_to_remove {
+                    log::debug!(
+                        "deleting project `{p_id}` version {v} from env: not present in lock"
+                    );
+                    env.del_project_version(&p_id, &v)
+                        .map_err(SyncError::EnvWrite)?;
+                    updated = true;
+                }
+            } else {
+                log::debug!("deleting project `{p_id}` from env: not present in lock");
+                env.del_uri(&p_id).map_err(SyncError::EnvWrite)?;
+                updated = true;
+            }
+        }
+    }
+
     if !updated {
         log::info!("{:>12} nothing to do: env is already up to date", ' ');
     }
@@ -366,7 +424,7 @@ fn try_install<
     expected_checksum: &ProjectChecksum,
     storage: P,
     env: &mut E,
-) -> Result<(), SyncError<U, G>> {
+) -> Result<(), SyncError<U, G, E>> {
     let id = id.as_ref();
     let actual_checksum = storage
         .checksum_canonical_variant()

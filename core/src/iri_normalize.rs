@@ -151,6 +151,7 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
         result.push_str(name);
         return result;
     }
+
     // Handle authority, leaving only (punycode-decoded) host
     if let Some(domain) = canonical.authority() {
         // TODO: which schemes use Punycode?
@@ -189,9 +190,23 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
         }
     }
 
+    let path = canonical.path();
+    // Special case `urn:sysand:<url-encoded-publisher>/<url-encoded-name>`.
+    // This could be a name given by the user, so cannot assume
+    // its shape without parsing. For now just strip `sysand:` path
+    // segment
+    let path = if canonical.scheme().as_str() == "urn"
+        && let Some((prefix, suffix)) = path.split_once(':')
+        && prefix.as_str() == "sysand"
+    {
+        suffix
+    } else {
+        path
+    };
+
     // Decode percent-encoded octets and strip out bytes that don't form valid
     // UTF-8 sequences
-    extend_decode_strip_invalid(&mut result, canonical.path());
+    extend_decode_strip_invalid(&mut result, path);
     // Strip `.kpar` suffix to reduce length
     if result.len() >= 5
         && let Some(end) = result.get(result.len() - 5..)
@@ -294,14 +309,21 @@ fn iri_to_filename_part(iri: Iri<&str>) -> String {
 
     // Strip all ending non-alphanumeric ASCII and spacing/control
     // non-ASCII characters.
-    truncated
+    let file_name = truncated
         .trim_end_matches(|c: char| {
             (c.is_ascii() && !c.is_ascii_alphanumeric())
                 || c.is_control()
                 || c.is_whitespace()
                 || IGNORABLE.contains(c)
         })
-        .to_owned()
+        .to_owned();
+
+    // Empty names are possible to produce, see test `never_empty()`
+    if file_name.is_empty() {
+        String::from("project")
+    } else {
+        file_name
+    }
 
     // Note: Windows special file names, like CON, LPT, etc. don't need to be handled
     // here, since file names will always have version appended. Only CON and

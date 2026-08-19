@@ -7,7 +7,10 @@ use assert_cmd::prelude::*;
 use camino::Utf8Path;
 use mockito::Server;
 use predicates::prelude::*;
-use sysand_core::env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH};
+use sysand_core::{
+    env::{DEFAULT_ENV_NAME, local_directory::METADATA_PATH},
+    project::utils::relativize_path,
+};
 
 // pub due to https://github.com/rust-lang/rust/issues/46379
 mod common;
@@ -490,6 +493,58 @@ fn env_install_multiple_projects_env_toml() -> Result<(), Box<dyn std::error::Er
         .success()
         .stdout(predicate::str::contains("`urn:kpar:env-multi-a` 1.0.0"))
         .stdout(predicate::str::contains("`urn:kpar:env-multi-b` 2.0.0"));
+
+    Ok(())
+}
+
+/// `env install <IRI>`, resolving the source through a config file override
+/// rather than `--path`, must leave the installed project in place: it must
+/// still be on disk and registered in `env.toml` once the command returns.
+#[test]
+fn env_install_via_config_override_survives() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("t", "env_install_survives_app", "1.0.0")?;
+    out.assert().success();
+
+    let (_tmp_dep, cwd_dep, out) =
+        cli_init_project_basic("a", "env_install_survives_dep", "1.0.0")?;
+    let relative_cwd_dep = relativize_path(&cwd_dep, &cwd).unwrap();
+    out.assert().success();
+
+    let config_path = cwd.join("sysand.toml");
+    std::fs::write(
+        &config_path,
+        format!(
+            r#"[[project]]
+identifiers = ["urn:kpar:env-install-survives-dep"]
+sources = [
+    {{ src_path = "{relative_cwd_dep}" }},
+]
+"#
+        ),
+    )?;
+
+    let out = run_sysand_in(
+        &cwd,
+        ["env", "install", "urn:kpar:env-install-survives-dep"],
+        Some(config_path.as_str()),
+    )?;
+
+    out.assert().success().stderr(predicate::str::contains(
+        "`urn:kpar:env-install-survives-dep` 1.0.0",
+    ));
+
+    assert!(
+        cwd.join(DEFAULT_ENV_NAME)
+            .join("lib/kpar.env-install-survives-dep_1.0.0")
+            .is_dir(),
+        "the project must still be on disk once `env install` returns"
+    );
+
+    let env_toml = std::fs::read_to_string(cwd.join(DEFAULT_ENV_NAME).join(METADATA_PATH))?;
+    assert!(
+        env_toml.contains("env-install-survives-dep"),
+        "the project must still be registered in env.toml once `env install` returns: {env_toml}"
+    );
 
     Ok(())
 }

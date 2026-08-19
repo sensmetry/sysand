@@ -294,7 +294,7 @@ impl ReadEnvironment for LocalDirectoryEnvironment {
             .metadata
             .projects
             .iter()
-            .flat_map(|p| p.identifiers.iter().map(|i| Ok(i.clone())))
+            .filter_map(|p| p.identifiers.first().map(|p| Ok(p.clone())))
             .collect())
     }
 

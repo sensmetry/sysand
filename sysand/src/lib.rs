@@ -9,7 +9,6 @@ use std::{
     ffi::OsString,
     fs,
     io::ErrorKind,
-    panic,
     process::ExitCode,
     str::FromStr as _,
     sync::Arc,
@@ -53,6 +52,7 @@ use crate::{
         add::{ExpAddArgs, command_add, exp_command_add},
         auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
         build::{command_build_for_project, command_build_for_workspace},
+        clone::command_clone,
         env::{
             command_env, command_env_install, command_env_install_path, command_env_list,
             command_env_uninstall,
@@ -94,6 +94,7 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
+    #[cfg(not(debug_assertions))]
     set_panic_hook();
 
     match Args::try_parse_from(args) {
@@ -126,7 +127,10 @@ where
     ExitCode::SUCCESS
 }
 
+// Clutters panic output, so disabled in debug builds
+#[cfg(not(debug_assertions))]
 fn set_panic_hook() {
+    use std::panic;
     // TODO: use `panic::update_hook()` once it's stable
     //       also set backtrace style once it's stable, but take
     //       into account the current level
@@ -277,7 +281,9 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_semver,
             license,
             no_spdx,
-        } => command_init(name, publisher, version, no_semver, license, no_spdx, path),
+        } => command_init(
+            name, publisher, version, no_semver, license, no_spdx, path, ctx,
+        ),
         Command::New { .. } => bail!("use `init` instead of `new`"),
         Command::Env { command } => match command {
             None => {
@@ -395,7 +401,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 )
             }
         }
-        Command::Sync { resolution_opts } => {
+        Command::Sync {
+            resolution_opts,
+            no_prune,
+        } => {
             let provided_iris = if resolution_opts.include_std {
                 HashMap::default()
             } else {
@@ -442,6 +451,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 runtime,
                 auth_policy,
                 ctx.current_workspace.as_ref(),
+                no_prune,
             )
         }
         Command::Auth { .. } => {
@@ -595,6 +605,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             no_sync,
             resolution_opts,
             source_opts,
+            no_prune,
         } => {
             let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
             command_add(
@@ -602,6 +613,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 version_constraint,
                 no_lock,
                 no_sync,
+                no_prune,
                 resolution_opts,
                 source_opts,
                 config,
@@ -613,13 +625,27 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 auth_policy,
             )
         }
-        Command::Remove { locator } => {
+        Command::Remove {
+            locator,
+            no_lock,
+            no_sync,
+            no_prune,
+            resolution_opts,
+        } => {
             let iri = iri_or_path_to_iri(locator.iri, locator.path)?;
             command_remove(
                 iri,
                 ctx,
+                config,
                 args.global_opts.config_file,
                 args.global_opts.no_config,
+                no_lock,
+                no_sync,
+                no_prune,
+                resolution_opts,
+                client,
+                runtime,
+                auth_policy,
             )
         }
         Command::Include {
@@ -705,7 +731,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             target,
             resolution_opts,
             no_deps,
-        } => commands::clone::command_clone(
+        } => command_clone(
             locator,
             version,
             target,
@@ -723,6 +749,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                 resolution_opts,
                 no_lock,
                 no_sync,
+                no_prune,
             } => {
                 let add = if let Some(dir) = locator.dir {
                     ExpAddArgs::Dir { dir }
@@ -735,6 +762,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     add,
                     no_lock,
                     no_sync,
+                    no_prune,
                     resolution_opts,
                     config,
                     ctx,
@@ -743,7 +771,26 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     auth_policy,
                 )
             }
-            ExpCommand::Remove { publisher, name } => exp_command_remove(publisher, name, ctx),
+            ExpCommand::Remove {
+                publisher,
+                name,
+                no_lock,
+                no_sync,
+                no_prune,
+                resolution_opts,
+            } => exp_command_remove(
+                publisher,
+                name,
+                ctx,
+                config,
+                no_lock,
+                no_sync,
+                no_prune,
+                resolution_opts,
+                client,
+                runtime,
+                auth_policy,
+            ),
         },
     }
 }

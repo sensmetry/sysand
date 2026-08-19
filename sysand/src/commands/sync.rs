@@ -35,6 +35,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ws: Option<&Workspace>,
+    no_prune: bool,
 ) -> Result<()> {
     #[expect(clippy::or_fun_call, reason = "cheap")]
     let relative_root = ws.map_or(project_root.as_ref(), Workspace::root_path);
@@ -136,6 +137,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
             },
         ),
         provided_usages,
+        no_prune,
     )?;
 
     env.merge_lock(lock, ws);
