@@ -3,6 +3,8 @@
 
 use camino_tempfile::tempdir;
 
+use std::assert_matches;
+
 use super::{LocalSrcError, LocalSrcProject};
 use crate::project::ProjectRead as _;
 
@@ -42,16 +44,13 @@ fn publisher_mismatch_returns_error() -> Result<(), Box<dyn std::error::Error>> 
     );
 
     let err = project.get_project().unwrap_err();
-    assert!(
-        matches!(
-            &err,
-            LocalSrcError::PublisherMismatch {
-                expected,
-                actual,
-            } if expected.as_deref() == Some("expected-publisher")
-              && actual.as_deref() == Some("actual-publisher")
-        ),
-        "unexpected error: {err}"
+    assert_matches!(
+        &err,
+        LocalSrcError::PublisherMismatch {
+            expected,
+            actual,
+        } if expected.as_deref() == Some("expected-publisher")
+          && actual.as_deref() == Some("actual-publisher")
     );
     Ok(())
 }
@@ -69,15 +68,12 @@ fn expects_no_publisher_but_project_has_one() -> Result<(), Box<dyn std::error::
     let project = LocalSrcProject::new_for_solve(dir.path(), None, None, "my-project".into());
 
     let err = project.get_project().unwrap_err();
-    assert!(
-        matches!(
-            &err,
-            LocalSrcError::PublisherMismatch {
-                expected,
-                actual,
-            } if expected.is_none() && actual.as_deref() == Some("surprise")
-        ),
-        "unexpected error: {err}"
+    assert_matches!(
+        &err,
+        LocalSrcError::PublisherMismatch {
+            expected,
+            actual,
+        } if expected.is_none() && actual.as_deref() == Some("surprise")
     );
     Ok(())
 }
@@ -114,15 +110,12 @@ fn name_mismatch_returns_error() -> Result<(), Box<dyn std::error::Error>> {
     let project = LocalSrcProject::new_for_solve(dir.path(), None, None, "expected-name".into());
 
     let err = project.get_project().unwrap_err();
-    assert!(
-        matches!(
+    assert_matches!(
             &err,
             LocalSrcError::NameMismatch {
                 expected,
                 actual,
             } if expected == "expected-name" && actual == "actual-name"
-        ),
-        "unexpected error: {err}"
     );
     Ok(())
 }

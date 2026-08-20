@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::io::{Read as _, Write as _};
-
 use camino_tempfile::tempdir;
 use zip::write::SimpleFileOptions;
+
+use std::{
+    assert_matches,
+    io::{Read as _, Write as _},
+};
 
 use crate::project::local_kpar::KparInnerPath;
 
@@ -137,10 +140,10 @@ fn expected_pub_name_check() -> Result<(), Box<dyn std::error::Error>> {
         Some("acme".to_owned()),
         "wrong-name".to_owned(),
     );
-    assert!(matches!(
+    assert_matches!(
         mismatched.get_info(),
         Err(super::LocalKParError::NameMismatch { .. })
-    ));
+    );
 
     Ok(())
 }

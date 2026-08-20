@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    assert_matches,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use crate::auth::{
@@ -107,10 +110,10 @@ fn globmap_matches_template_expanded_urls() -> Result<(), Box<dyn std::error::Er
     );
 
     // The raw template does not match the glob...
-    assert!(matches!(
+    assert_matches!(
         globmap.lookup_mut(&template.to_string()),
         GlobMapResultMut::NotFound
-    ));
+    );
     // ...but the expanded request URL does.
     if let GlobMapResultMut::Found(_, val) = globmap.lookup_mut(expanded.as_str()) {
         assert_eq!(*val, 1);
@@ -128,6 +131,7 @@ fn globmap_matches_template_expanded_urls() -> Result<(), Box<dyn std::error::Er
 // the runtime's try-all path can observe.
 mod select_bearer {
     use crate::auth::{BearerSelection, GlobMap, GlobMapBuilder, select_bearer};
+    use std::assert_matches;
 
     const URL: &str = "https://example.com/api/v1/upload";
 
@@ -146,13 +150,13 @@ mod select_bearer {
     #[test]
     fn no_matching_pattern_is_none() {
         let map = map(&[("https://other.example/**", "tok")]);
-        assert!(matches!(select(&map), BearerSelection::None));
+        assert_matches!(select(&map), BearerSelection::None);
     }
 
     #[test]
     fn a_unique_match_is_unique() {
         let map = map(&[("https://example.com/**", "tok")]);
-        assert!(matches!(select(&map), BearerSelection::Unique(tok) if tok == "tok"));
+        assert_matches!(select(&map), BearerSelection::Unique(tok) if tok == "tok");
     }
 
     #[test]
@@ -161,7 +165,7 @@ mod select_bearer {
             ("https://example.com/**", "same"),
             ("https://example.com/api/**", "same"),
         ]);
-        assert!(matches!(select(&map), BearerSelection::Unique(tok) if tok == "same"));
+        assert_matches!(select(&map), BearerSelection::Unique(tok) if tok == "same");
     }
 
     #[test]
@@ -216,14 +220,14 @@ fn publish_bearer_auth_map_keeps_bearer_drops_basic_and_carries_labels()
         panic!("expected labeled bearer entry to be extracted");
     }
 
-    assert!(matches!(
+    assert_matches!(
         bearer_map.lookup("https://basic.example.com/upload"),
         crate::auth::GlobMapResult::NotFound
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         bearer_map.lookup("https://other.example.com/upload"),
         crate::auth::GlobMapResult::NotFound
-    ));
+    );
 
     Ok(())
 }
@@ -647,10 +651,10 @@ fn direct_stored_bearer_read_does_exactly_one_store_read_per_call() {
 
     // Publish-style direct read: one `list` per call, no cache involved.
     let map = policy.read_stored_bearer_map_direct();
-    assert!(matches!(
+    assert_matches!(
         map.lookup("https://other.example.com/upload"),
         crate::auth::GlobMapResult::Found(_)
-    ));
+    );
     assert_eq!(lists.load(Ordering::SeqCst), 1);
 }
 
@@ -661,11 +665,9 @@ fn direct_stored_bearer_read_degrades_store_errors_to_an_empty_map() {
         let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
 
         let map = policy.read_stored_bearer_map_direct();
-        assert!(
-            matches!(
-                map.lookup("https://example.com/upload"),
-                crate::auth::GlobMapResult::NotFound
-            ),
+        assert_matches!(
+            map.lookup("https://example.com/upload"),
+            crate::auth::GlobMapResult::NotFound,
             "absent = {absent}"
         );
         assert_eq!(lists.load(Ordering::SeqCst), 1, "absent = {absent}");

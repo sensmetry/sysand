@@ -9,5 +9,9 @@
 # ast-grep scan
 # Run a specific check:
 # ast-grep scan --rule rules/<rule>.yml
+#
+# Ignore a specific rule in code for a false-positive
+# (put on the preceding or same line):
+# // ast-grep-ignore: <rule-id>
 ruleDirs:
   - rules

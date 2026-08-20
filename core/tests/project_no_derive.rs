@@ -93,18 +93,18 @@ where
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self {
-            Self::Variant1(project) => project
-                .read_source(path)
-                .map(GenericProjectSourceReader::Variant1)
-                .map_err(GenericProjectError::Variant1),
-            Self::Variant2(project) => project
-                .read_source(path)
-                .map(GenericProjectSourceReader::Variant2)
-                .map_err(GenericProjectError::Variant2),
-            Self::Variant3(project) => project
-                .read_source(path)
-                .map(GenericProjectSourceReader::Variant3)
-                .map_err(GenericProjectError::Variant3),
+            Self::Variant1(project) => match project.read_source(path) {
+                Ok(v) => Ok(GenericProjectSourceReader::Variant1(v)),
+                Err(e) => Err(GenericProjectError::Variant1(e)),
+            },
+            Self::Variant2(project) => match project.read_source(path) {
+                Ok(v) => Ok(GenericProjectSourceReader::Variant2(v)),
+                Err(e) => Err(GenericProjectError::Variant2(e)),
+            },
+            Self::Variant3(project) => match project.read_source(path) {
+                Ok(v) => Ok(GenericProjectSourceReader::Variant3(v)),
+                Err(e) => Err(GenericProjectError::Variant3(e)),
+            },
         }
     }
 

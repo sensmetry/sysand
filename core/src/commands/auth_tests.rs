@@ -3,6 +3,8 @@
 
 use chrono::{TimeZone as _, Utc};
 
+use std::assert_matches;
+
 use super::{
     AuthCommandError, EnvCredentialEntry, IndexKey, StoredCredentialsStatus, assemble_auth_status,
     do_auth_logout, do_auth_status,
@@ -84,10 +86,8 @@ fn logout_of_missing_credential_errors() {
 
     let err = logout(&mut store, "https://absent.example/").unwrap_err();
 
-    assert!(matches!(
-        &err,
-        AuthCommandError::NoStoredCredential { index } if index == "https://absent.example/"
-    ));
+    assert_matches!(&err,
+    AuthCommandError::NoStoredCredential { index } if index == "https://absent.example/");
     assert_eq!(store.list().unwrap().len(), 1);
 }
 
@@ -97,7 +97,7 @@ fn logout_of_non_http_url_errors_without_touching_the_store() {
 
     let err = logout(&mut store, "file:///srv/index").unwrap_err();
 
-    assert!(matches!(&err, AuthCommandError::NotHttpIndex { .. }));
+    assert_matches!(&err, AuthCommandError::NotHttpIndex { .. });
     assert!(
         err.to_string().contains("not an HTTP(S) index"),
         "was: {err}"
@@ -293,10 +293,8 @@ fn status_degrades_to_env_only_when_the_backend_is_absent() {
     let status = do_auth_status(&store, env.clone(), None).unwrap();
 
     assert_eq!(status.env, env);
-    assert!(matches!(
-        status.stored,
-        StoredCredentialsStatus::BackendUnavailable { reason } if reason == "no secret service"
-    ));
+    assert_matches!(status.stored,
+    StoredCredentialsStatus::BackendUnavailable { reason } if reason == "no secret service");
 }
 
 #[test]
@@ -307,10 +305,10 @@ fn status_surfaces_a_denied_backend_as_an_error() {
 
     let err = do_auth_status(&store, vec![], None).unwrap_err();
 
-    assert!(matches!(
+    assert_matches!(
         err,
         AuthCommandError::Store(CredentialStoreError::BackendDenied { .. })
-    ));
+    );
 }
 
 // do_auth_login
@@ -701,7 +699,7 @@ mod login {
     fn template_key_keeps_the_non_http_rejection() {
         let err = IndexKey::validate("ftp://files.example.com/{path}").unwrap_err();
 
-        assert!(matches!(&err, AuthCommandError::NotHttpIndex { .. }));
+        assert_matches!(&err, AuthCommandError::NotHttpIndex { .. });
     }
 
     #[test]
@@ -1125,16 +1123,14 @@ mod login {
         let (outcome, notices) = run_login(&mut store, &server.url(), "bad-tok");
 
         let err = outcome.unwrap_err();
-        assert!(matches!(
-            &err,
-            AuthCommandError::ValidationRejected {
-                index,
-                rejected,
-                challenge_schemes,
-            } if index == &root
-                && rejected == &vec![(ProbeSurface::Read, 401)]
-                && challenge_schemes.is_empty()
-        ));
+        assert_matches!(&err,
+        AuthCommandError::ValidationRejected {
+            index,
+            rejected,
+            challenge_schemes,
+        } if index == &root
+            && rejected == &vec![(ProbeSurface::Read, 401)]
+            && challenge_schemes.is_empty());
         // Single rejecting surface: the wording names the endpoint and
         // its answer.
         let message = err.to_string();
@@ -1206,11 +1202,9 @@ mod login {
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
-        assert!(matches!(
-            &err,
-            AuthCommandError::ValidationRejected { rejected, .. }
-                if rejected == &vec![(ProbeSurface::Api, 401)]
-        ));
+        assert_matches!(&err,
+        AuthCommandError::ValidationRejected { rejected, .. }
+            if rejected == &vec![(ProbeSurface::Api, 401)]);
         let message = err.to_string();
         assert!(
             message.contains("`v1/whoami` answered HTTP 401"),
@@ -1236,11 +1230,9 @@ mod login {
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
-        assert!(matches!(
-            &err,
-            AuthCommandError::ValidationRejected { rejected, .. }
-                if rejected == &vec![(ProbeSurface::Read, 404)]
-        ));
+        assert_matches!(&err,
+        AuthCommandError::ValidationRejected { rejected, .. }
+            if rejected == &vec![(ProbeSurface::Read, 404)]);
         let message = err.to_string();
         assert!(
             message.contains("`index.json` answered HTTP 404"),
@@ -1266,11 +1258,9 @@ mod login {
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
-        assert!(matches!(
-            &err,
-            AuthCommandError::ValidationRejected { rejected, .. }
-                if rejected == &vec![(ProbeSurface::Read, 403)]
-        ));
+        assert_matches!(&err,
+        AuthCommandError::ValidationRejected { rejected, .. }
+            if rejected == &vec![(ProbeSurface::Read, 403)]);
         let message = err.to_string();
         assert!(
             message.contains("`index.json` answered HTTP 403"),
@@ -1448,13 +1438,11 @@ mod login {
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
-        assert!(matches!(
-            &err,
-            AuthCommandError::ValidationRejected {
-                challenge_schemes,
-                ..
-            } if challenge_schemes == &vec!["Basic".to_owned()]
-        ));
+        assert_matches!(&err,
+        AuthCommandError::ValidationRejected {
+            challenge_schemes,
+            ..
+        } if challenge_schemes == &vec!["Basic".to_owned()]);
         let message = err.to_string();
         assert!(
             message.contains("SYSAND_CRED_<X>_BASIC_USER"),
@@ -1484,13 +1472,11 @@ mod login {
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
-        assert!(matches!(
-            &err,
-            AuthCommandError::ValidationRejected {
-                challenge_schemes,
-                ..
-            } if challenge_schemes == &vec!["Bearer".to_owned()]
-        ));
+        assert_matches!(&err,
+        AuthCommandError::ValidationRejected {
+            challenge_schemes,
+            ..
+        } if challenge_schemes == &vec!["Bearer".to_owned()]);
         // Bearer is the expected scheme: no basic routing and no
         // unsupported-scheme follow-up.
         let message = err.to_string();
@@ -1515,13 +1501,11 @@ mod login {
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
-        assert!(matches!(
-            &err,
-            AuthCommandError::ValidationRejected {
-                challenge_schemes,
-                ..
-            } if challenge_schemes == &vec!["Negotiate".to_owned()]
-        ));
+        assert_matches!(&err,
+        AuthCommandError::ValidationRejected {
+            challenge_schemes,
+            ..
+        } if challenge_schemes == &vec!["Negotiate".to_owned()]);
         let message = err.to_string();
         assert!(
             message.contains("the authentication scheme `Negotiate`"),
@@ -1553,13 +1537,11 @@ mod login {
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
-        assert!(matches!(
-            &err,
-            AuthCommandError::ValidationRejected {
-                challenge_schemes,
-                ..
-            } if challenge_schemes == &vec!["Negotiate".to_owned(), "Basic".to_owned()]
-        ));
+        assert_matches!(&err,
+        AuthCommandError::ValidationRejected {
+            challenge_schemes,
+            ..
+        } if challenge_schemes == &vec!["Negotiate".to_owned(), "Basic".to_owned()]);
         let message = err.to_string();
         assert!(
             message.contains("SYSAND_CRED_<X>_BASIC_USER"),
@@ -1766,11 +1748,9 @@ mod login {
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
         let err = outcome.unwrap_err();
-        assert!(matches!(
-            &err,
-            AuthCommandError::ValidationRejected { rejected, .. }
-                if rejected == &vec![(ProbeSurface::Read, 404), (ProbeSurface::Api, 401)]
-        ));
+        assert_matches!(&err,
+        AuthCommandError::ValidationRejected { rejected, .. }
+            if rejected == &vec![(ProbeSurface::Read, 404), (ProbeSurface::Api, 401)]);
         let message = err.to_string();
         assert!(
             message.contains("and accepted by no surface"),
@@ -1920,11 +1900,9 @@ mod login {
 
         let (outcome, notices) = run_login(&mut store, &server.url(), "bad-tok");
 
-        assert!(matches!(
-            outcome.unwrap_err(),
-            AuthCommandError::ValidationRejected { rejected, .. }
-                if rejected == vec![(ProbeSurface::Read, 401)]
-        ));
+        assert_matches!(outcome.unwrap_err(),
+        AuthCommandError::ValidationRejected { rejected, .. }
+            if rejected == vec![(ProbeSurface::Read, 401)]);
         assert!(
             notices.iter().any(|n| matches!(
                 n,
@@ -2090,6 +2068,8 @@ mod login {
 mod whoami {
     use url::Url;
 
+    use std::assert_matches;
+
     use super::super::{AuthCommandError, WhoamiCredentialSource, select_whoami_credential};
     use super::record;
     use crate::auth::{EnvBearerAuth, ForceBearerAuth, GlobMap, GlobMapBuilder};
@@ -2244,10 +2224,7 @@ mod whoami {
 
         let err = select_whoami_credential(&env, &[], &whoami_url(), INDEX_KEY).unwrap_err();
 
-        assert!(
-            matches!(&err, AuthCommandError::NoWhoamiCredential { .. }),
-            "unexpected error: {err}"
-        );
+        assert_matches!(&err, AuthCommandError::NoWhoamiCredential { .. });
         // The core message states the bare condition; all remediation
         // (the `sysand auth login` hint and the `SYSAND_CRED_*` CI path)
         // belongs to the frontend.

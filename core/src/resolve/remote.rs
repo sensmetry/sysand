@@ -99,14 +99,14 @@ impl<HTTPProject: ProjectRead, GitProject: ProjectRead> ProjectRead
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self {
-            Self::HTTPProject(project) => project
-                .read_source(path)
-                .map(RemoteSourceReader::HTTPReader)
-                .map_err(RemoteProjectError::HTTPRead),
-            Self::GitProject(project) => project
-                .read_source(path)
-                .map(RemoteSourceReader::GitReader)
-                .map_err(RemoteProjectError::GitRead),
+            Self::HTTPProject(project) => match project.read_source(path) {
+                Ok(v) => Ok(RemoteSourceReader::HTTPReader(v)),
+                Err(e) => Err(RemoteProjectError::HTTPRead(e)),
+            },
+            Self::GitProject(project) => match project.read_source(path) {
+                Ok(v) => Ok(RemoteSourceReader::GitReader(v)),
+                Err(e) => Err(RemoteProjectError::GitRead(e)),
+            },
         }
     }
 
@@ -203,9 +203,10 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> Iterator
             RemotePriority::PreferGit => {
                 if let Some(primary_resolver) = &mut self.resolved_git {
                     if let Some(next_primary) = primary_resolver.next() {
-                        let next = next_primary
-                            .map(RemoteProject::GitProject)
-                            .map_err(RemoteResolverError::GitResolver);
+                        let next = match next_primary {
+                            Ok(v) => Ok(RemoteProject::GitProject(v)),
+                            Err(e) => Err(RemoteResolverError::GitResolver(e)),
+                        };
 
                         return Some(next);
                     } else {
@@ -215,9 +216,10 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> Iterator
 
                 if let Some(secondary_resolver) = &mut self.resolved_http {
                     if let Some(next_secondary) = secondary_resolver.next() {
-                        let next = next_secondary
-                            .map(RemoteProject::HTTPProject)
-                            .map_err(RemoteResolverError::HTTPResolver);
+                        let next = match next_secondary {
+                            Ok(v) => Ok(RemoteProject::HTTPProject(v)),
+                            Err(e) => Err(RemoteResolverError::HTTPResolver(e)),
+                        };
 
                         return Some(next);
                     } else {
@@ -230,9 +232,10 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> Iterator
             RemotePriority::PreferHTTP => {
                 if let Some(primary_resolver) = &mut self.resolved_http {
                     if let Some(next_primary) = primary_resolver.next() {
-                        let next = next_primary
-                            .map(RemoteProject::HTTPProject)
-                            .map_err(RemoteResolverError::HTTPResolver);
+                        let next = match next_primary {
+                            Ok(v) => Ok(RemoteProject::HTTPProject(v)),
+                            Err(e) => Err(RemoteResolverError::HTTPResolver(e)),
+                        };
 
                         return Some(next);
                     } else {
@@ -242,9 +245,10 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> Iterator
 
                 if let Some(secondary_resolver) = &mut self.resolved_git {
                     if let Some(next_secondary) = secondary_resolver.next() {
-                        let next = next_secondary
-                            .map(RemoteProject::GitProject)
-                            .map_err(RemoteResolverError::GitResolver);
+                        let next = match next_secondary {
+                            Ok(v) => Ok(RemoteProject::GitProject(v)),
+                            Err(e) => Err(RemoteResolverError::GitResolver(e)),
+                        };
 
                         return Some(next);
                     } else {

@@ -286,9 +286,9 @@ fn do_build_py(
         None => KparCompressionMethod::default(),
     };
 
-    do_build_kpar(&project, &output_path, compression, true, true)
-        .map(|_| ())
-        .map_err(|err| {
+    match do_build_kpar(&project, &output_path, compression, true, true) {
+        Ok(_) => Ok(()),
+        Err(err) => Err({
             let e = format_err(&err);
             match err {
                 KParBuildError::Validation { .. }
@@ -306,7 +306,8 @@ fn do_build_py(
                     PyRuntimeError::new_err(e)
                 }
             }
-        })
+        }),
+    }
 }
 
 /// Collects the source files of the dependencies of `usages` selected by
