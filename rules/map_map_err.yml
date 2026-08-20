@@ -1,5 +1,139 @@
 # Remove once clippy adds this, see
 # https://github.com/rust-lang/rust-clippy/issues/17469
+#
+# Several rules below cover the same `.map(F).map_err(G)` (in either order)
+# shape, differing only in whether F/G are closures (so their bodies can be
+# inlined into the match arms) or arbitrary expressions (so they're called
+# instead). Rules are made to avoid overlap.
+# Wildcards (`_`) can only be matched literally, so they are separate cases.
+id: map-then-map-err-both-closures
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern: $EXPR.map(|$P1| $B1).map_err(|$P2| $B2)
+    - pattern: $EXPR.map_err(|$P2| $B2).map(|$P1| $B1)
+fix: |-
+  match $EXPR {
+      Ok($P1) => Ok($B1),
+      Err($P2) => Err($B2),
+  }
+message: "`match` makes the intent clearer"
+---
+id: map-then-map-err-wild-map
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern: $EXPR.map(|_| $B1).map_err(|$P2| $B2)
+    - pattern: $EXPR.map_err(|$P2| $B2).map(|_| $B1)
+fix: |-
+  match $EXPR {
+      Ok(_) => Ok($B1),
+      Err($P2) => Err($B2),
+  }
+message: "`match` makes the intent clearer"
+---
+id: map-then-map-err-wild-maperr
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern: $EXPR.map(|$P1| $B1).map_err(|_| $B2)
+    - pattern: $EXPR.map_err(|_| $B2).map(|$P1| $B1)
+fix: |-
+  match $EXPR {
+      Ok($P1) => Ok($B1),
+      Err(_) => Err($B2),
+  }
+message: "`match` makes the intent clearer"
+---
+id: map-then-map-err-both-wild
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern: $EXPR.map(|_| $B1).map_err(|_| $B2)
+    - pattern: $EXPR.map_err(|_| $B2).map(|_| $B1)
+fix: |-
+  match $EXPR {
+      Ok(_) => Ok($B1),
+      Err(_) => Err($B2),
+  }
+message: "`match` makes the intent clearer"
+---
+id: map-then-map-err-f-closure-id
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern: $EXPR.map(|$P1| $B1).map_err($G)
+    - pattern: $EXPR.map_err($G).map(|$P1| $B1)
+constraints:
+  G:
+    not:
+      kind: closure_expression
+fix: |-
+  match $EXPR {
+      Ok($P1) => Ok($B1),
+      Err(e) => Err($G(e)),
+  }
+message: "`match` makes the intent clearer"
+---
+id: map-then-map-err-f-closure-wild
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern: $EXPR.map(|_| $B1).map_err($G)
+    - pattern: $EXPR.map_err($G).map(|_| $B1)
+constraints:
+  G:
+    not:
+      kind: closure_expression
+fix: |-
+  match $EXPR {
+      Ok(_) => Ok($B1),
+      Err(e) => Err($G(e)),
+  }
+message: "`match` makes the intent clearer"
+---
+id: map-then-map-err-g-closure-id
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern: $EXPR.map($F).map_err(|$P2| $B2)
+    - pattern: $EXPR.map_err(|$P2| $B2).map($F)
+constraints:
+  F:
+    not:
+      kind: closure_expression
+fix: |-
+  match $EXPR {
+      Ok(v) => Ok($F(v)),
+      Err($P2) => Err($B2),
+  }
+message: "`match` makes the intent clearer"
+---
+id: map-then-map-err-g-closure-wild
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern: $EXPR.map($F).map_err(|_| $B2)
+    - pattern: $EXPR.map_err(|_| $B2).map($F)
+constraints:
+  F:
+    not:
+      kind: closure_expression
+fix: |-
+  match $EXPR {
+      Ok(v) => Ok($F(v)),
+      Err(_) => Err($B2),
+  }
+message: "`match` makes the intent clearer"
+---
 id: map-then-map-err
 severity: warning
 language: rust
@@ -7,7 +141,14 @@ rule:
   any:
     - pattern: $EXPR.map($F).map_err($G)
     - pattern: $EXPR.map_err($G).map($F)
-fix: |
+constraints:
+  F:
+    not:
+      kind: closure_expression
+  G:
+    not:
+      kind: closure_expression
+fix: |-
   match $EXPR {
       Ok(v) => Ok($F(v)),
       Err(e) => Err($G(e)),

@@ -82,13 +82,13 @@ impl<Higher: ResolveRead, Lower: ResolveRead> Iterator for PriorityIterator<High
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Self::HigherIterator(project) => project.next().map(|x| {
-                x.map(PriorityProject::HigherProject)
-                    .map_err(PriorityError::Higher)
+            Self::HigherIterator(project) => project.next().map(|x| match x {
+                Ok(v) => Ok(PriorityProject::HigherProject(v)),
+                Err(e) => Err(PriorityError::Higher(e)),
             }),
-            Self::LowerIterator(project) => project.next().map(|x| {
-                x.map(PriorityProject::LowerProject)
-                    .map_err(PriorityError::Lower)
+            Self::LowerIterator(project) => project.next().map(|x| match x {
+                Ok(v) => Ok(PriorityProject::LowerProject(v)),
+                Err(e) => Err(PriorityError::Lower(e)),
             }),
         }
     }
@@ -133,14 +133,14 @@ impl<HigherProject: ProjectRead, LowerProject: ProjectRead> ProjectRead
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self {
-            Self::HigherProject(project) => project
-                .read_source(path)
-                .map(PriorityReader::HigherReader)
-                .map_err(PriorityError::Higher),
-            Self::LowerProject(project) => project
-                .read_source(path)
-                .map(PriorityReader::LowerReader)
-                .map_err(PriorityError::Lower),
+            Self::HigherProject(project) => match project.read_source(path) {
+                Ok(v) => Ok(PriorityReader::HigherReader(v)),
+                Err(e) => Err(PriorityError::Higher(e)),
+            },
+            Self::LowerProject(project) => match project.read_source(path) {
+                Ok(v) => Ok(PriorityReader::LowerReader(v)),
+                Err(e) => Err(PriorityError::Lower(e)),
+            },
         }
     }
 

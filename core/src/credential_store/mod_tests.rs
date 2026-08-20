@@ -3,6 +3,8 @@
 
 use chrono::{TimeZone as _, Utc};
 
+use std::assert_matches;
+
 use super::{
     BLOB_VERSION, CredentialBlob, CredentialRecord, CredentialScheme, CredentialStoreError,
     CredentialSubject, SubjectKind, ValidatedSurface, parse_blob, serialize_blob,
@@ -112,13 +114,13 @@ fn parse_fails_closed_on_unknown_version_with_a_dedicated_error() {
     // both versions and never suggests resetting the store.
     let raw = r#"{"version": 2, "credentials": []}"#;
     let err = parse_blob(raw).unwrap_err();
-    assert!(matches!(
+    assert_matches!(
         err,
         CredentialStoreError::UnsupportedBlobVersion {
             found: 2,
             expected: BLOB_VERSION,
         }
-    ));
+    );
     let message = err.to_string();
     assert!(
         message.contains("version 2") && message.contains("supports version 1"),
@@ -174,8 +176,9 @@ fn unknown_subject_kind_and_surface_round_trip_unchanged() {
 fn parse_fails_closed_on_garbage() {
     for garbage in ["", "not json", "{\"version\": \"one\"}", "[]", "{}"] {
         let err = parse_blob(garbage).unwrap_err();
-        assert!(
-            matches!(err, CredentialStoreError::Unreadable),
+        assert_matches!(
+            err,
+            CredentialStoreError::Unreadable,
             "input {garbage:?} must fail closed"
         );
         assert!(

@@ -330,12 +330,13 @@ pub(crate) async fn fetch_json<T: DeserializeOwned, P: HTTPAuthentication>(
             source,
         })?;
 
-    serde_json::from_slice::<T>(&bytes)
-        .map(Some)
-        .map_err(|source| HttpFetchError::JsonParse {
+    match serde_json::from_slice::<T>(&bytes) {
+        Ok(v) => Ok(Some(v)),
+        Err(source) => Err(HttpFetchError::JsonParse {
             url: url.as_str().into(),
             source,
-        })
+        }),
+    }
 }
 
 impl<Policy: HTTPAuthentication> IndexEnvironmentAsync<Policy> {

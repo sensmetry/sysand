@@ -4,11 +4,10 @@
 //! Tests of the locked blob store logic against an in-memory backend, so
 //! they run headlessly without a real OS keyring.
 
-use std::time::Duration;
-
+use camino::Utf8PathBuf;
 use camino_tempfile::tempdir;
 
-use camino::Utf8PathBuf;
+use std::{assert_matches, time::Duration};
 
 use super::{LockedBlobStore, lock_path_from_dirs};
 use crate::credential_store::test_support::InMemoryBlobBackend;
@@ -76,20 +75,17 @@ fn corrupt_blob_fails_closed_and_is_not_clobbered() {
     let backend = InMemoryBlobBackend::with_contents("not json at all");
     let mut store = store_at(backend.clone(), &dir);
 
-    assert!(matches!(
-        store.list().unwrap_err(),
-        CredentialStoreError::Unreadable
-    ));
-    assert!(matches!(
+    assert_matches!(store.list().unwrap_err(), CredentialStoreError::Unreadable);
+    assert_matches!(
         store
             .upsert(record("https://a.example/", "tok"))
             .unwrap_err(),
         CredentialStoreError::Unreadable
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         store.remove("https://a.example/").unwrap_err(),
         CredentialStoreError::Unreadable
-    ));
+    );
     assert_eq!(
         backend.contents().as_deref(),
         Some("not json at all"),
@@ -118,7 +114,7 @@ fn lock_wait_is_bounded() {
     let err = store
         .upsert(record("https://a.example/", "tok"))
         .unwrap_err();
-    assert!(matches!(err, CredentialStoreError::LockTimeout { .. }));
+    assert_matches!(err, CredentialStoreError::LockTimeout { .. });
     file.unlock().unwrap();
 
     // Once released, the operation succeeds.
@@ -146,10 +142,10 @@ fn lock_path_prefers_state_then_data_local_then_home() {
         lock_path_from_dirs(None, None, home).unwrap(),
         Utf8PathBuf::from("/home/user/.sysand/credentials.lock")
     );
-    assert!(matches!(
+    assert_matches!(
         lock_path_from_dirs(None, None, None).unwrap_err(),
         CredentialStoreError::NoLockDir
-    ));
+    );
 }
 
 #[test]
@@ -177,7 +173,7 @@ fn shared_lock_lets_reads_through_but_blocks_writes() {
     let err = store
         .upsert(record("https://b.example/", "tok"))
         .unwrap_err();
-    assert!(matches!(err, CredentialStoreError::LockTimeout { .. }));
+    assert_matches!(err, CredentialStoreError::LockTimeout { .. });
     file.unlock().unwrap();
 }
 
@@ -200,7 +196,7 @@ fn exclusive_lock_blocks_reads() {
     // A writer holds the exclusive lock: the shared read must wait it out
     // (bounded), never read a half-written store.
     let err = store.list().unwrap_err();
-    assert!(matches!(err, CredentialStoreError::LockTimeout { .. }));
+    assert_matches!(err, CredentialStoreError::LockTimeout { .. });
     file.unlock().unwrap();
     assert!(store.list().unwrap().is_empty());
 }
@@ -215,34 +211,34 @@ fn map_keyring_error_covers_the_taxonomy() {
 
     // `PlatformFailure` (for example no Secret Service daemon) means "no
     // usable backend": callers may fall back to `SYSAND_CRED_*`.
-    assert!(matches!(
+    assert_matches!(
         map_keyring_error(keyring::Error::PlatformFailure("no daemon".into())),
         CredentialStoreError::BackendAbsent { .. }
-    ));
+    );
     // A present-but-locked/denied backend must be surfaced.
-    assert!(matches!(
+    assert_matches!(
         map_keyring_error(keyring::Error::NoStorageAccess("locked".into())),
         CredentialStoreError::BackendDenied { .. }
-    ));
+    );
     // The platform size backstop maps to the same error as the size gate.
-    assert!(matches!(
+    assert_matches!(
         map_keyring_error(keyring::Error::TooLong("secret".to_owned(), 2560)),
         CredentialStoreError::BlobTooLarge
-    ));
+    );
     // Corrupt or ambiguous entries read as an unreadable store.
-    assert!(matches!(
+    assert_matches!(
         map_keyring_error(keyring::Error::BadEncoding(vec![0xff])),
         CredentialStoreError::Unreadable
-    ));
-    assert!(matches!(
+    );
+    assert_matches!(
         map_keyring_error(keyring::Error::Ambiguous(Vec::new())),
         CredentialStoreError::Unreadable
-    ));
+    );
     // Anything else is surfaced as a denied backend, never a fallback.
-    assert!(matches!(
+    assert_matches!(
         map_keyring_error(keyring::Error::NoDefaultStore),
         CredentialStoreError::BackendDenied { .. }
-    ));
+    );
 }
 
 #[test]

@@ -107,20 +107,18 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for HTTPProjectAsync<Policy> {
         path: P,
     ) -> Result<Self::SourceReader<'_>, Self::Error> {
         match self {
-            Self::HTTPSrcProject(proj) => proj
-                .read_source_async(path)
-                .await
-                .map_err(HTTPProjectError::SrcProject)
-                .map(HTTPProjectAsyncReader::SrcProjectReader),
+            Self::HTTPSrcProject(proj) => match proj.read_source_async(path).await {
+                Ok(v) => Ok(HTTPProjectAsyncReader::SrcProjectReader(v)),
+                Err(e) => Err(HTTPProjectError::SrcProject(e)),
+            },
             // HTTPProjectAsync::HTTPKParProjectRanged(proj) => proj
             //     .read_source_async(path)
             //     .map_err(HTTPProjectError::KParRanged)
             //     .map(HTTPProjectReader::SrcProjectReader),
-            Self::HTTPKParProjectDownloaded(proj) => proj
-                .read_source_async(path)
-                .await
-                .map_err(HTTPProjectError::KparDownloaded)
-                .map(HTTPProjectAsyncReader::KparDownloadedReader),
+            Self::HTTPKParProjectDownloaded(proj) => match proj.read_source_async(path).await {
+                Ok(v) => Ok(HTTPProjectAsyncReader::KparDownloadedReader(v)),
+                Err(e) => Err(HTTPProjectError::KparDownloaded(e)),
+            },
         }
     }
 
