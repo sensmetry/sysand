@@ -1133,6 +1133,7 @@ impl InfoCommand {
             )
         }
 
+        #[expect(clippy::single_option_map)]
         fn impossible<T>(impossible: Option<Infallible>) -> Option<T> {
             impossible.map(|x| match x {})
         }

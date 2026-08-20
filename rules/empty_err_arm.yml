@@ -1,0 +1,13 @@
+id: empty-err-arm
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern:
+        context: "match x { Err(_) => $EXPR }"
+        selector: match_arm
+    - pattern: if let Err(_) = $EXPR {}
+message: "empty `Err` arm silently discards the error"
+ignores:
+  - "**/tests/**"
+  - "**/*_tests.rs"

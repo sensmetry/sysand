@@ -1,0 +1,15 @@
+# Remove once clippy adds this, see
+# https://github.com/rust-lang/rust-clippy/issues/17469
+id: map-then-map-err
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern: $EXPR.map($F).map_err($G)
+    - pattern: $EXPR.map_err($G).map($F)
+fix: |
+  match $EXPR {
+      Ok(v) => Ok($F(v)),
+      Err(e) => Err($G(e)),
+  }
+message: "`match` makes the intent clearer"

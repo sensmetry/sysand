@@ -667,13 +667,6 @@ impl From<Iri<String>> for Identifier {
     }
 }
 
-impl From<Identifier> for Iri<String> {
-    fn from(value: Identifier) -> Self {
-        // Identifier is always valid IRI
-        Self::parse(value.0).unwrap()
-    }
-}
-
 impl Display for Identifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)

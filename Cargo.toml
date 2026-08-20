@@ -162,6 +162,7 @@ unseparated_literal_suffix = "allow"
 unwrap_in_result = "allow"
 unwrap_used = "allow"
 verbose_file_reads = "allow"
+# may want to enable this
 wildcard_enum_match_arm = "allow"
 
 # Style
@@ -179,8 +180,29 @@ redundant_pub_crate = "allow"
 future_not_send = "allow"
 too_long_first_doc_paragraph = "allow"
 missing_const_for_fn = "allow"
+# false positives (e.g. suggests pointless drop immediately before return)
+# and can't be disabled in integration tests
 significant_drop_tightening = "allow"
-fallible_impl_from = "allow"
-single_option_map = "allow"
+# false positives
 uninhabited_references = "allow"
 option_if_let_else = "allow"
+
+[workspace.metadata.dylint]
+# cargo-dylint (https://github.com/trailofbits/dylint)
+# is for additional lints. Lint providers are configured with
+# `libraries` array. Run all configured lints with:
+# cargo dylint --all -- --all-targets
+#
+# Advisory only: includes lots of opinionated lints. For this
+# reason this is not checked in pre-commit or CI, and is
+# provided here as a reference
+
+libraries = [
+  { git = "https://github.com/trailofbits/dylint", pattern = [
+    "examples/general",
+    "examples/supplementary",
+    "examples/restriction/*",  # * is needed here, but not for others
+  ] },
+  { git = "https://github.com/scarletindustries/mordant" },
+  { git = "https://github.com/KSXGitHub/perfectionist" }
+]

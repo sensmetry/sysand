@@ -1,0 +1,13 @@
+# ast-grep (https://ast-grep.github.io/) is used essentially as a linter
+# for patterns not covered by clippy or dylint.
+#
+# Config reference: https://ast-grep.github.io/reference/sgconfig
+#
+# Advisory only, not run in pre-commit or CI
+#
+# Run all the checks:
+# ast-grep scan
+# Run a specific check:
+# ast-grep scan --rule rules/<rule>.yml
+ruleDirs:
+  - rules
