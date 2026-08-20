@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use crate::CliError;
+use crate::{CliError, cli::Dependencies};
 
 use anstream::println;
 use anyhow::{Result, bail};
@@ -10,7 +10,7 @@ use sysand_core::{
     context::ProjectContext,
     env::{local_directory::LocalDirectoryEnvironment, null::NullEnvironment},
     project::ProjectRead as _,
-    sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
+    sources::{do_sources_local_src_project_no_deps, resolve_dependencies},
 };
 
 use sysand_core::env::ReadEnvironment as _;
@@ -76,7 +76,7 @@ pub fn command_sources_env<S: AsRef<str>>(
             bail!("project is missing project information")
         };
 
-        for dep in resolve_dependencies(info.validate()?.usage, env, dependencies)? {
+        for dep in resolve_dependencies(info.validate()?.usage, env, dependencies.into())? {
             for src_path in do_sources_local_src_project_no_deps(&dep, true)? {
                 println!("{}", src_path);
             }
@@ -107,6 +107,7 @@ pub fn command_sources_project(
     }
 
     if dependencies != Dependencies::None {
+        let dependencies = dependencies.into();
         let deps = if let Some(env) = ctx.env {
             resolve_dependencies(info.usage, env, dependencies)?
         } else {

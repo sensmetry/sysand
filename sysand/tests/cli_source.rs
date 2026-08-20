@@ -65,7 +65,7 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
         .join("dep_src.sysml");
     let combined_path = [&expected_path, &dep_expected_path];
 
-    let out = run_sysand_in(&path, ["sources", "--no-deps"], None)?;
+    let out = run_sysand_in(&path, ["sources", "--deps", "none"], None)?;
 
     let p = String::from_utf8(
         out.assert()
@@ -91,7 +91,13 @@ fn list_sources() -> Result<(), Box<dyn std::error::Error>> {
 
     let out = run_sysand_in(
         &path,
-        ["env", "sources", "urn:kpar:list_sources_dep", "--no-deps"],
+        [
+            "env",
+            "sources",
+            "urn:kpar:list_sources_dep",
+            "--deps",
+            "none",
+        ],
         None,
     )?;
 

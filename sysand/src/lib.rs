@@ -47,7 +47,7 @@ use sysand_core::{
 use url::Url;
 
 use crate::{
-    cli::{Args, AuthCommand, Command, ExpCommand, InfoCommand},
+    cli::{Args, AuthCommand, Command, EnvCommand, ExpCommand, IndexCommand, InfoCommand},
     commands::{
         add::{ExpAddArgs, command_add, exp_command_add},
         auth::{command_auth_login, command_auth_logout, command_auth_status, command_auth_whoami},
@@ -296,7 +296,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
 
                 Ok(())
             }
-            Some(cli::EnvCommand::Install {
+            Some(EnvCommand::Install {
                 iri,
                 version,
                 path,
@@ -332,7 +332,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     )
                 }
             }
-            Some(cli::EnvCommand::Uninstall { iri, version }) => {
+            Some(EnvCommand::Uninstall { iri, version }) => {
                 if let Some(local_environment) = ctx.env {
                     command_env_uninstall(iri, version, local_environment)
                 } else {
@@ -340,16 +340,16 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                     Ok(())
                 }
             }
-            Some(cli::EnvCommand::List) => command_env_list(ctx.env),
-            Some(cli::EnvCommand::Sources {
+            Some(EnvCommand::List) => command_env_list(ctx.env),
+            Some(EnvCommand::Sources {
                 iri,
                 version,
                 sources_opts,
             }) => command_sources_env(
                 iri,
                 version,
-                sources_opts.no_own(),
-                sources_opts.dependencies(),
+                sources_opts.only_deps,
+                sources_opts.deps,
                 ctx.env,
             ),
         },
@@ -357,18 +357,18 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             let root =
                 |index_root: Option<Utf8PathBuf>| index_root.unwrap_or(ctx.current_directory);
             match command {
-                cli::IndexCommand::Init { index_root } => command_index_init(root(index_root)),
-                cli::IndexCommand::Add {
+                IndexCommand::Init { index_root } => command_index_init(root(index_root)),
+                IndexCommand::Add {
                     iri,
                     kpar_path,
                     index_root,
                 } => command_index_add(iri, kpar_path, root(index_root)),
-                cli::IndexCommand::Yank {
+                IndexCommand::Yank {
                     iri,
                     version,
                     index_root,
                 } => command_index_yank(iri, version, root(index_root)),
-                cli::IndexCommand::Remove {
+                IndexCommand::Remove {
                     iri,
                     target,
                     index_root,
@@ -384,7 +384,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         }
         Command::Lock { resolution_opts } => {
             if let Some(project_root) = project_root {
-                crate::commands::lock::command_lock(
+                command_lock(
                     ".",
                     resolution_opts,
                     &config,
@@ -719,7 +719,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             runtime,
         ),
         Command::Sources { sources_opts } => {
-            command_sources_project(sources_opts.no_own(), sources_opts.dependencies(), ctx)
+            command_sources_project(sources_opts.only_deps, sources_opts.deps, ctx)
         }
         Command::Clone {
             locator,
