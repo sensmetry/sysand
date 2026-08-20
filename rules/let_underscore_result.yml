@@ -1,0 +1,14 @@
+# This is likely to produce false positives, as nothing
+# binds it to Result-related identifiers (e.g. Ok/Err/.ok())
+id: let-underscore-result
+severity: warning
+language: rust
+rule:
+  all:
+    - pattern: let _ = $EXPR;
+    - not:
+        pattern: let _ = $A?;
+message: "`let _ = ...` silently discards a potential error"
+ignores:
+  - "**/tests/**"
+  - "**/*_tests.rs"

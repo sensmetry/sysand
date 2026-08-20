@@ -1,0 +1,11 @@
+id: if-let-ok
+severity: warning
+language: rust
+rule:
+  any:
+    - pattern: if let Ok($PAT) = $EXPR { $$$THEN }
+    - pattern: let Ok($PAT) = $EXPR else { $$$ELSE };
+message: "`(if) let Ok()` silently discards the error"
+ignores:
+  - "**/tests/**"
+  - "**/*_tests.rs"

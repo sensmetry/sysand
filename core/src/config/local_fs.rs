@@ -58,7 +58,10 @@ pub(crate) fn load_configs_from<P: AsRef<Utf8Path>>(
     user_config: Option<&Utf8Path>,
     working_dir: P,
 ) -> Result<Config, ConfigReadError> {
-    let mut config = user_config.map_or_else(|| Ok(Config::default()), get_config)?;
+    let mut config = match user_config {
+        Some(path) => get_config(path)?,
+        None => Config::default(),
+    };
     config.merge(get_config(working_dir.as_ref().join(CONFIG_FILE))?);
 
     Ok(config)

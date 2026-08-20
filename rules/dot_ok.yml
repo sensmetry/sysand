@@ -1,0 +1,9 @@
+id: dot-ok
+severity: warning
+language: rust
+rule:
+  pattern: $EXPR.ok()
+message: "`.ok()` silently discards the error"
+ignores:
+  - "**/tests/**"
+  - "**/*_tests.rs"
