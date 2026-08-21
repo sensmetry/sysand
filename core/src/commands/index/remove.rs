@@ -105,7 +105,7 @@ pub fn do_index_remove<I: AsRef<str>, R: AsRef<Utf8Path>>(
                 |v| {
                     if v.version == version {
                         version_found = true;
-                        if matches!(v.status, VersionStatus::Removed) {
+                        if v.status == VersionStatus::Removed {
                             log::warn!("{iri} version {version} is already removed");
                             false
                         } else {

@@ -59,26 +59,15 @@ fn basic_globmap_lookup() -> Result<(), Box<dyn std::error::Error>> {
         panic!("Expected unambiguous result.");
     }
 
-    if matches!(globmap.lookup_mut("axx.com"), GlobMapResultMut::NotFound) {
-    } else {
-        panic!("Expected no result.");
-    }
-
-    if matches!(
+    assert_matches!(globmap.lookup_mut("axx.com"), GlobMapResultMut::NotFound);
+    assert_matches!(
         globmap.lookup_mut("bxx.com/xxx"),
         GlobMapResultMut::NotFound
-    ) {
-    } else {
-        panic!("Expected no result.");
-    }
-
-    if matches!(
+    );
+    assert_matches!(
         globmap.lookup_mut("cxx.com/xxx"),
         GlobMapResultMut::NotFound
-    ) {
-    } else {
-        panic!("Expected no result.");
-    }
+    );
 
     Ok(())
 }

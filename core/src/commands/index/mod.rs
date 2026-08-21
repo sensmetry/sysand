@@ -13,11 +13,10 @@ mod init;
 mod remove;
 mod yank;
 
-pub use add::do_index_add;
-pub use init::do_index_init;
-pub use remove::RemoveTarget;
-pub use remove::do_index_remove;
-pub use yank::do_index_yank;
+pub use add::{IndexAddError, do_index_add};
+pub use init::{IndexInitError, do_index_init};
+pub use remove::{IndexRemoveError, RemoveTarget, do_index_remove};
+pub use yank::{IndexYankError, do_index_yank};
 
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;

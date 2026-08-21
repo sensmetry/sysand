@@ -1,0 +1,42 @@
+id: if-matches
+severity: info
+language: rust
+rule:
+  all:
+    - pattern: if matches!($$$ARGS) { $$$DO }
+    - not:
+        has:
+          field: alternative
+          kind: else_clause
+transform:
+  EXPR:
+    replace:
+      source: $$$ARGS
+      replace: '^((?:[^,()]|\([^()]*\))*),\s*[\s\S]*$'
+      by: $1
+  PAT:
+    replace:
+      source: $$$ARGS
+      replace: '^(?:[^,()]|\([^()]*\))*,\s*([\s\S]*)$'
+      by: $1
+fix: "if let $PAT = $EXPR { $$$DO }"
+message: "consider using `if let` instead"
+---
+id: if-matches-else
+severity: info
+language: rust
+rule:
+  pattern: if matches!($$$ARGS) { $$$THEN } else { $$$ELSE }
+transform:
+  EXPR:
+    replace:
+      source: $$$ARGS
+      replace: '^((?:[^,()]|\([^()]*\))*),\s*[\s\S]*$'
+      by: $1
+  PAT:
+    replace:
+      source: $$$ARGS
+      replace: '^(?:[^,()]|\([^()]*\))*,\s*([\s\S]*)$'
+      by: $1
+fix: "if let $PAT = $EXPR { $$$THEN } else { $$$ELSE }"
+message: "consider using `if let ... else` instead"

@@ -1,9 +1,73 @@
+# Assert
+
 # Fix does not import std::assert_matches
 id: assert-matches
 severity: warning
 language: rust
 rule:
-  pattern: assert!(matches!($$$ARGS))
+  pattern:
+    context: assert!(matches!($$$ARGS))
+    strictness: cst
 fix: |
   assert_matches!($$$ARGS)
 message: "manual `assert_matches!()`"
+---
+# With a comment sitting outside `matches!(...)`'s own arguments
+# (e.g. between `assert!(` and `matches!`, or right before the
+# closing paren), the fix would silently drop it, so this still
+# flags the code but proposes no fix.
+id: assert-matches-with-comment
+severity: warning
+language: rust
+rule:
+  all:
+    - pattern: assert!(matches!($$$ARGS))
+    - not:
+        pattern:
+          context: assert!(matches!($$$ARGS))
+          strictness: cst
+message: "manual `assert_matches!()`; can't be safely auto-fixed due to comment"
+---
+id: assert-matches-msg
+severity: warning
+language: rust
+rule:
+  pattern: assert!(matches!($$$ARGS), $$$MSG)
+message: "manual `assert_matches!()` (custom message, so no fix offered)"
+---
+# Debug assert
+
+# Fix does not import std::debug_assert_matches
+id: debug-assert-matches
+severity: warning
+language: rust
+rule:
+  pattern:
+    context: debug_assert!(matches!($$$ARGS))
+    strictness: cst
+fix: |
+  debug_assert_matches!($$$ARGS)
+message: "manual `debug_assert_matches!()`"
+---
+# With a comment sitting outside `matches!(...)`'s own arguments
+# (e.g. between `assert!(` and `matches!`, or right before the
+# closing paren), the fix would silently drop it, so this still
+# flags the code but proposes no fix.
+id: debug-assert-matches-with-comment
+severity: warning
+language: rust
+rule:
+  all:
+    - pattern: debug_assert!(matches!($$$ARGS))
+    - not:
+        pattern:
+          context: debug_assert!(matches!($$$ARGS))
+          strictness: cst
+message: "manual `debug_assert_matches!()`; a comment near the assertion blocks the automatic fix, convert by hand"
+---
+id: debug-assert-matches-msg
+severity: warning
+language: rust
+rule:
+  pattern: debug_assert!(matches!($$$ARGS), $$$MSG)
+message: "manual `debug_assert_matches!()` (custom message, so no fix offered)"

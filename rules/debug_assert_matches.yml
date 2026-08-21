@@ -1,9 +1,0 @@
-# Fix does not import std::debug_assert_matches
-id: debug-assert-matches
-severity: warning
-language: rust
-rule:
-  pattern: debug_assert!(matches!($$$ARGS))
-fix: |
-  debug_assert_matches!($$$ARGS)
-message: "manual `debug_assert_matches!()`"

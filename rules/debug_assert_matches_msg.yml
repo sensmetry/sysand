@@ -1,6 +1,0 @@
-id: debug-assert-matches-msg
-severity: warning
-language: rust
-rule:
-  pattern: debug_assert!(matches!($$$ARGS), $$$MSG)
-message: "manual `debug_assert_matches!()` (custom message, so no fix offered)"
