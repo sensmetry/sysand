@@ -14,7 +14,7 @@ default-members = ["core", "sysand"]
 version = "0.2.1"
 authors = ["Sensmetry <opensource@sensmetry.com>"]
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.98"
 description = "A package manager for SysML v2 and KerML"
 documentation = "https://docs.sysand.com/client/"
 homepage = "https://sysand.com"
@@ -92,6 +92,9 @@ too_many_lines = "allow"
 # not constructive
 type_complexity = "allow"
 unreadable_literal = "allow"
+# complains about every method of every individual impl,
+# which is most methods of most ProjectReadAsync impls
+unused_async_trait_impl = "allow"
 
 # Restriction
 

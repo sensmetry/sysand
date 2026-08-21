@@ -54,7 +54,6 @@ fn mock_iri_resolver<I: IntoIterator<Item = (Iri<String>, InMemoryProject)>>(
 ) -> MemoryResolver<AcceptAll, InMemoryProject> {
     MemoryResolver {
         iri_predicate: AcceptAll {},
-        #[expect(clippy::from_iter_instead_of_collect)]
         projects: HashMap::from_iter(
             projects
                 .into_iter()
