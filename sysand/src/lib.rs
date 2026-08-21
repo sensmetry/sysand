@@ -357,17 +357,17 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
             let root =
                 |index_root: Option<Utf8PathBuf>| index_root.unwrap_or(ctx.current_directory);
             match command {
-                IndexCommand::Init { index_root } => command_index_init(root(index_root)),
+                IndexCommand::Init { index_root } => command_index_init(root(index_root))?,
                 IndexCommand::Add {
                     iri,
                     kpar_path,
                     index_root,
-                } => command_index_add(iri, kpar_path, root(index_root)),
+                } => command_index_add(iri, kpar_path, root(index_root))?,
                 IndexCommand::Yank {
                     iri,
                     version,
                     index_root,
-                } => command_index_yank(iri, version, root(index_root)),
+                } => command_index_yank(iri, version, root(index_root))?,
                 IndexCommand::Remove {
                     iri,
                     target,
@@ -378,9 +378,10 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
                         (None, true) => RemoveTarget::Project,
                         _ => unreachable!(),
                     };
-                    command_index_remove(iri, target, root(index_root))
+                    command_index_remove(iri, target, root(index_root))?
                 }
             }
+            Ok(())
         }
         Command::Lock { resolution_opts } => {
             if let Some(project_root) = project_root {
@@ -870,3 +871,68 @@ pub fn get_overrides<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     }
     Ok(overrides)
 }
+
+/// Quote a string for a POSIX shell or CMD/PowerShell. CMD and
+/// PowerShell have slightly different semantics, so this uses their
+/// common behaviour only.
+///
+/// Likely to handle edge cases incorrectly, so only suitable for suggestions
+pub fn quote_for_shell(arg: &str) -> String {
+    #[cfg(unix)]
+    {
+        // original length + 2 surrounding quotes
+        let mut out = String::with_capacity(arg.len() + 2);
+        out.push('\'');
+
+        for c in arg.chars() {
+            if c == '\'' {
+                // `\` is not allowed inside '' string, so end the string,
+                // put the escaped `'` and start another string. Strings
+                // without a space between them will be concatenated into a
+                // single arg by the shell
+                out.push_str(r"'\''");
+            } else {
+                out.push(c);
+            }
+        }
+
+        out.push('\'');
+        out
+    }
+
+    #[cfg(windows)]
+    {
+        use std::iter::repeat_n;
+
+        let mut out = String::with_capacity(arg.len() + 2);
+        out.push('"');
+
+        let mut backslashes = 0;
+
+        for c in arg.chars() {
+            // Special `\` handling to work with CommandLineToArgvW
+            // https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-commandlinetoargvw#remarks
+            match c {
+                '\\' => backslashes += 1,
+                '"' => {
+                    out.extend(repeat_n('\\', backslashes * 2 + 1));
+                    out.push('"');
+                    backslashes = 0;
+                }
+                _ => {
+                    out.extend(repeat_n('\\', backslashes));
+                    backslashes = 0;
+                    out.push(c);
+                }
+            }
+        }
+
+        out.extend(repeat_n('\\', backslashes * 2));
+        out.push('"');
+        out
+    }
+}
+
+#[cfg(test)]
+#[path = "./lib_tests.rs"]
+mod tests;
