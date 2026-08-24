@@ -5,6 +5,9 @@
 #
 # Advisory only, not run in pre-commit or CI
 #
+# When adding/editing rules with auto-fixes, make sure they
+# don't remove comments, since by default comments are ignored
+#
 # Run all the checks:
 # ast-grep scan
 # Run a specific check:

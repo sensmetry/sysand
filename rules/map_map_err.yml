@@ -6,13 +6,23 @@
 # inlined into the match arms) or arbitrary expressions (so they're called
 # instead). Rules are made to avoid overlap.
 # Wildcards (`_`) can only be matched literally, so they are separate cases.
+#
+# `strictness: cst` on each pattern ensures a stray comment sitting outside
+# any captured metavariable (e.g. between `.map(...)` and `.map_err(...)`,
+# or right before a non-closure F/G argument) blocks the match instead of
+# being silently dropped by the fix. Comments inside a captured piece (a
+# closure body, or F/G themselves) are unaffected and still preserved.
 id: map-then-map-err-both-closures
 severity: warning
 language: rust
 rule:
   any:
-    - pattern: $EXPR.map(|$P1| $B1).map_err(|$P2| $B2)
-    - pattern: $EXPR.map_err(|$P2| $B2).map(|$P1| $B1)
+    - pattern:
+        context: $EXPR.map(|$P1| $B1).map_err(|$P2| $B2)
+        strictness: cst
+    - pattern:
+        context: $EXPR.map_err(|$P2| $B2).map(|$P1| $B1)
+        strictness: cst
 fix: |-
   match $EXPR {
       Ok($P1) => Ok($B1),
@@ -25,8 +35,12 @@ severity: warning
 language: rust
 rule:
   any:
-    - pattern: $EXPR.map(|_| $B1).map_err(|$P2| $B2)
-    - pattern: $EXPR.map_err(|$P2| $B2).map(|_| $B1)
+    - pattern:
+        context: $EXPR.map(|_| $B1).map_err(|$P2| $B2)
+        strictness: cst
+    - pattern:
+        context: $EXPR.map_err(|$P2| $B2).map(|_| $B1)
+        strictness: cst
 fix: |-
   match $EXPR {
       Ok(_) => Ok($B1),
@@ -39,8 +53,12 @@ severity: warning
 language: rust
 rule:
   any:
-    - pattern: $EXPR.map(|$P1| $B1).map_err(|_| $B2)
-    - pattern: $EXPR.map_err(|_| $B2).map(|$P1| $B1)
+    - pattern:
+        context: $EXPR.map(|$P1| $B1).map_err(|_| $B2)
+        strictness: cst
+    - pattern:
+        context: $EXPR.map_err(|_| $B2).map(|$P1| $B1)
+        strictness: cst
 fix: |-
   match $EXPR {
       Ok($P1) => Ok($B1),
@@ -53,8 +71,12 @@ severity: warning
 language: rust
 rule:
   any:
-    - pattern: $EXPR.map(|_| $B1).map_err(|_| $B2)
-    - pattern: $EXPR.map_err(|_| $B2).map(|_| $B1)
+    - pattern:
+        context: $EXPR.map(|_| $B1).map_err(|_| $B2)
+        strictness: cst
+    - pattern:
+        context: $EXPR.map_err(|_| $B2).map(|_| $B1)
+        strictness: cst
 fix: |-
   match $EXPR {
       Ok(_) => Ok($B1),
@@ -67,8 +89,12 @@ severity: warning
 language: rust
 rule:
   any:
-    - pattern: $EXPR.map(|$P1| $B1).map_err($G)
-    - pattern: $EXPR.map_err($G).map(|$P1| $B1)
+    - pattern:
+        context: $EXPR.map(|$P1| $B1).map_err($G)
+        strictness: cst
+    - pattern:
+        context: $EXPR.map_err($G).map(|$P1| $B1)
+        strictness: cst
 constraints:
   G:
     not:
@@ -85,8 +111,12 @@ severity: warning
 language: rust
 rule:
   any:
-    - pattern: $EXPR.map(|_| $B1).map_err($G)
-    - pattern: $EXPR.map_err($G).map(|_| $B1)
+    - pattern:
+        context: $EXPR.map(|_| $B1).map_err($G)
+        strictness: cst
+    - pattern:
+        context: $EXPR.map_err($G).map(|_| $B1)
+        strictness: cst
 constraints:
   G:
     not:
@@ -103,8 +133,12 @@ severity: warning
 language: rust
 rule:
   any:
-    - pattern: $EXPR.map($F).map_err(|$P2| $B2)
-    - pattern: $EXPR.map_err(|$P2| $B2).map($F)
+    - pattern:
+        context: $EXPR.map($F).map_err(|$P2| $B2)
+        strictness: cst
+    - pattern:
+        context: $EXPR.map_err(|$P2| $B2).map($F)
+        strictness: cst
 constraints:
   F:
     not:
@@ -121,8 +155,12 @@ severity: warning
 language: rust
 rule:
   any:
-    - pattern: $EXPR.map($F).map_err(|_| $B2)
-    - pattern: $EXPR.map_err(|_| $B2).map($F)
+    - pattern:
+        context: $EXPR.map($F).map_err(|_| $B2)
+        strictness: cst
+    - pattern:
+        context: $EXPR.map_err(|_| $B2).map($F)
+        strictness: cst
 constraints:
   F:
     not:
@@ -139,8 +177,12 @@ severity: warning
 language: rust
 rule:
   any:
-    - pattern: $EXPR.map($F).map_err($G)
-    - pattern: $EXPR.map_err($G).map($F)
+    - pattern:
+        context: $EXPR.map($F).map_err($G)
+        strictness: cst
+    - pattern:
+        context: $EXPR.map_err($G).map($F)
+        strictness: cst
 constraints:
   F:
     not:
@@ -154,3 +196,22 @@ fix: |-
       Err(e) => Err($G(e)),
   }
 message: "`match` makes the intent clearer"
+---
+# Catches the stray-comment case for every shape
+id: map-then-map-err-with-comment
+severity: warning
+language: rust
+rule:
+  all:
+    - any:
+        - pattern: $EXPR.map($X).map_err($Y)
+        - pattern: $EXPR.map_err($Y).map($X)
+    - not:
+        any:
+          - pattern:
+              context: $EXPR.map($X).map_err($Y)
+              strictness: cst
+          - pattern:
+              context: $EXPR.map_err($Y).map($X)
+              strictness: cst
+message: "`match` makes the intent clearer; can't be safely auto-fixed due to comment"

@@ -1,0 +1,77 @@
+# No rule here will fire for an empty block which contains a comment,
+# as the fix has no good place to put it, and the comment is likely
+# to explain why the body is empty, giving it meaning
+
+id: empty-if-body-with-else
+severity: warning
+language: rust
+rule:
+  all:
+    - kind: if_expression
+    - has:
+        field: consequence
+        pattern:
+          context: "{}"
+          strictness: cst
+    - not:
+        has:
+          field: condition
+          kind: let_condition
+    - has:
+        field: condition
+        pattern: $COND
+    - has:
+        field: alternative
+        has:
+          kind: block
+          pattern: $ALT
+message: "empty `if` body with `else` present; invert the condition instead"
+fix: "if !($COND) $ALT"
+---
+id: empty-if-body-with-else-if
+severity: warning
+language: rust
+rule:
+  all:
+    - kind: if_expression
+    - has:
+        field: consequence
+        pattern:
+          context: "{}"
+          strictness: cst
+    - not:
+        has:
+          field: condition
+          kind: let_condition
+    - has:
+        field: condition
+        pattern: $COND
+    - has:
+        field: alternative
+        has:
+          kind: if_expression
+          pattern: $ALT
+message: "empty `if` body with `else if` present; invert the condition instead"
+fix: "if !($COND) { $ALT }"
+---
+# `if let` conditions can't be negated with `!(...)`, and rewriting to a
+# `let ... else` statement would change where the pattern bindings are
+# visible, so this case is flagged without an automatic fix.
+id: empty-if-let-body-with-else
+severity: warning
+language: rust
+rule:
+  all:
+    - kind: if_expression
+    - has:
+        field: consequence
+        pattern:
+          context: "{}"
+          strictness: cst
+    - has:
+        field: condition
+        kind: let_condition
+    - has:
+        field: alternative
+        kind: else_clause
+message: "empty `if let` body with `else` present; consider a `let ... else` statement instead"
