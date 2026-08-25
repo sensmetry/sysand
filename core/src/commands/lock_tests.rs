@@ -4,8 +4,11 @@
 use std::assert_matches;
 use std::collections::HashMap;
 
+use indexmap::IndexMap;
+
 use crate::{
     commands::lock::{LockError, do_lock_extend, do_lock_projects},
+    context::ProjectContext,
     lock::{Lock, Project, Source},
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
     project::memory::InMemoryProject,
@@ -44,7 +47,7 @@ fn lock_export_conflict() {
         [],
         NullResolver {},
         &HashMap::new(),
-        &Default::default(),
+        &ProjectContext::default(),
     );
 
     assert_matches!(res, Err(LockError::NameCollision(_)));
@@ -65,7 +68,7 @@ fn lock_preserves_project_publisher() {
             usage: vec![],
         },
         InterchangeProjectMetadataRaw {
-            index: Default::default(),
+            index: IndexMap::default(),
             created: "2026-01-01T00:00:00Z".into(),
             metamodel: None,
             includes_derived: None,
@@ -81,7 +84,7 @@ fn lock_preserves_project_publisher() {
         [(None, &project)],
         NullResolver {},
         &HashMap::new(),
-        &Default::default(),
+        &ProjectContext::default(),
     )
     .unwrap()
     .lock;

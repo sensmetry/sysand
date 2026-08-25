@@ -61,7 +61,6 @@ blanket_clippy_restriction_lints = "allow"
 
 # mostly fires for string assignments, where the fix is less readable
 assigning_clones = "allow"
-default_trait_access = "allow"
 doc_markdown = "allow"
 enum_glob_use = "allow"
 implicit_hasher = "allow"

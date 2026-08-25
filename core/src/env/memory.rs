@@ -29,7 +29,7 @@ impl<Project: Clone> Default for MemoryStorageEnvironment<Project> {
 
 impl<Project: ProjectRead + Clone> MemoryStorageEnvironment<Project> {
     pub fn new() -> Self {
-        Default::default()
+        Self::default()
     }
 
     pub fn try_from_iter<T: IntoIterator<Item = (String, Project)>>(

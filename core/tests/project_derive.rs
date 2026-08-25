@@ -113,7 +113,7 @@ fn macro_read_source() {
 fn macro_sources() {
     let project = OneVariantProjectRead::Variant(InMemoryProject::new());
 
-    project.sources(&Default::default()).unwrap();
+    project.sources(&ProjectContext::default()).unwrap();
 }
 
 #[test]

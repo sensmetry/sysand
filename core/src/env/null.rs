@@ -4,6 +4,7 @@
 use std::{
     fmt::Debug,
     iter::{Empty, empty},
+    marker::PhantomData,
 };
 
 use thiserror::Error;
@@ -20,7 +21,7 @@ pub struct NullEnvironment<Pr> {
 impl<Pr> Default for NullEnvironment<Pr> {
     fn default() -> Self {
         Self {
-            phantom: Default::default(),
+            phantom: PhantomData,
         }
     }
 }
