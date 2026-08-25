@@ -30,6 +30,7 @@ use std::{
 use semver::Version;
 use serde::de::DeserializeOwned;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 use crate::{
     auth::HTTPAuthentication,
@@ -114,7 +115,7 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
             auth_policy,
             discovery_root: None,
             endpoints: endpoints_cell,
-            versions_cache: Default::default(),
+            versions_cache: Mutex::default(),
         }
     }
 
@@ -132,7 +133,7 @@ impl<Policy> IndexEnvironmentAsync<Policy> {
             auth_policy,
             discovery_root: Some(discovery_root),
             endpoints: tokio::sync::OnceCell::new(),
-            versions_cache: Default::default(),
+            versions_cache: Mutex::default(),
         }
     }
 }
