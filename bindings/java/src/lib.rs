@@ -197,6 +197,7 @@ fn create_env<'local>(
                         env.throw_exception(ExceptionKind::SerializationError, e)
                     }
                     LocalWriteError::MissingMeta
+                    | LocalWriteError::ProjectNotFound(_)
                     | LocalWriteError::MissingInfoMeta
                     | LocalWriteError::PublisherMismatch { .. }
                     | LocalWriteError::NameMismatch { .. } => {

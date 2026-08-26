@@ -390,6 +390,8 @@ pub enum LocalWriteError {
     },
     #[error("project name `{actual}` does not match expected `{expected}`")]
     NameMismatch { expected: String, actual: String },
+    #[error("project `{0}` not found in env")]
+    ProjectNotFound(String),
 }
 
 impl From<FsIoError> for LocalWriteError {
@@ -535,6 +537,10 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             if !project.editable {
                 // TODO: maybe surface IO errors?
                 let project_dir = self.root_dir.join(project.path.as_str());
+                log::debug!(
+                    "removing project `{identifier}` ({version}) from env at `{}`",
+                    self.root_dir
+                );
                 clean_dir(&project_dir);
                 if let Err(e) = fs::remove_dir(&project_dir) {
                     log::warn!("failed to remove empty dir `{project_dir}`: {e}");
@@ -542,13 +548,21 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             }
             self.metadata.projects.swap_remove(idx);
             self.write()?;
+        } else {
+            return Err(LocalWriteError::ProjectNotFound(identifier.to_owned()));
         }
 
         Ok(())
     }
 
     fn del_uri<S: AsRef<str>>(&mut self, uri: S) -> Result<(), Self::WriteError> {
-        let project_versions = self.metadata.find_project_versions_idxs(uri.as_ref());
+        let mut project_versions = self
+            .metadata
+            .find_project_versions_idxs(uri.as_ref())
+            .peekable();
+        if project_versions.peek().is_none() {
+            return Err(LocalWriteError::ProjectNotFound(uri.as_ref().to_owned()));
+        }
         let mut indices_to_remove = Vec::new();
         for (idx, p) in project_versions {
             // Doesn't make sense to remove workspace projects
@@ -556,6 +570,12 @@ impl WriteEnvironment for LocalDirectoryEnvironment {
             if !p.editable {
                 // TODO: maybe surface IO errors?
                 let project_dir = self.root_dir.join(p.path.as_str());
+                log::debug!(
+                    "removing project `{}` ({}) from env at `{}`",
+                    uri.as_ref(),
+                    p.version,
+                    self.root_dir
+                );
                 clean_dir(&project_dir);
                 if let Err(e) = fs::remove_dir(&project_dir) {
                     log::warn!("failed to remove empty dir `{project_dir}`: {e}");

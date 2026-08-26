@@ -15,9 +15,12 @@
 //! than silently using the real keyring (which would let a forgotten
 //! variable make tests scribble on a developer's keychain).
 
+#[cfg(debug_assertions)]
 use std::io;
 
+#[cfg(debug_assertions)]
 use camino::Utf8PathBuf;
+#[cfg(debug_assertions)]
 use sysand_core::project::utils::FsIoError;
 
 use sysand_core::credential_store::{

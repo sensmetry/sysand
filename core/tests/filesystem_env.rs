@@ -4,6 +4,7 @@
 #[cfg(feature = "filesystem")]
 mod filesystem_tests {
     use std::{
+        assert_matches,
         error::Error,
         io::{Cursor, Read as _},
         path::Path,
@@ -17,7 +18,8 @@ mod filesystem_tests {
         commands::env::do_env_local_dir,
         env::{
             DEFAULT_ENV_NAME, ReadEnvironment as _, WriteEnvironment as _,
-            local_directory::LocalDirectoryEnvironment, utils::clone_project,
+            local_directory::{LocalDirectoryEnvironment, LocalWriteError},
+            utils::clone_project,
         },
         info::do_info,
         model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, format_created_now},
@@ -245,6 +247,45 @@ version = \"0.1\"
         let env2 = LocalDirectoryEnvironment::read(cwd.path().join(".sysand"))?;
         let versions: Vec<String> = env2.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
         assert!(versions.is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn del_project_version_not_found() -> Result<(), Box<dyn Error>> {
+        let cwd = tempdir()?;
+        let uri = "urn:sysand_test:multi";
+        let mut env = make_two_version_env(&cwd, uri)?;
+
+        let err = env.del_project_version(uri, "9.9.9").unwrap_err();
+        assert_matches!(&err, LocalWriteError::ProjectNotFound(id) if id == uri);
+
+        let err = env
+            .del_project_version("urn:sysand_test:unknown", "1.0.0")
+            .unwrap_err();
+        assert_matches!(&err, LocalWriteError::ProjectNotFound(id) if id == "urn:sysand_test:unknown");
+
+        // Neither version was affected by the failed removals
+        let mut versions: Vec<String> = env.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
+        versions.sort();
+        assert_eq!(versions, vec!["1.0.0", "2.0.0"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn del_uri_not_found() -> Result<(), Box<dyn Error>> {
+        let cwd = tempdir()?;
+        let uri = "urn:sysand_test:multi";
+        let mut env = make_two_version_env(&cwd, uri)?;
+
+        let err = env.del_uri("urn:sysand_test:unknown").unwrap_err();
+        assert_matches!(&err, LocalWriteError::ProjectNotFound(id) if id == "urn:sysand_test:unknown");
+
+        // Existing project is unaffected by the failed removal
+        let mut versions: Vec<String> = env.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
+        versions.sort();
+        assert_eq!(versions, vec!["1.0.0", "2.0.0"]);
 
         Ok(())
     }
