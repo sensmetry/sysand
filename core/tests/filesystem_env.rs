@@ -170,7 +170,7 @@ version = \"0.1\"
 
         // v2 project dir still has its files
         let v2_dir = cwd.path().join(".sysand/lib/sysand_test.multi_2.0.0");
-        assert!(!ls_dir(&v2_dir).is_empty());
+        assert_ne!(ls_dir(&v2_dir), [] as [String; 0]);
 
         // Persisted to disk: re-reading gives same result
         let env2 = LocalDirectoryEnvironment::read(cwd.path().join(".sysand"))?;
@@ -227,7 +227,7 @@ version = \"0.1\"
 
         // No versions for the deleted URI
         let versions: Vec<String> = env.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
-        assert!(versions.is_empty());
+        assert_eq!(versions, [] as [String; 0]);
 
         // URI is gone from the listing
         let uris: Vec<String> = env.uris()?.into_iter().collect::<Result<_, _>>()?;
@@ -246,7 +246,7 @@ version = \"0.1\"
         // Persisted to disk: re-reading gives same result
         let env2 = LocalDirectoryEnvironment::read(cwd.path().join(".sysand"))?;
         let versions: Vec<String> = env2.versions(uri)?.into_iter().collect::<Result<_, _>>()?;
-        assert!(versions.is_empty());
+        assert_eq!(versions, [] as [String; 0]);
 
         Ok(())
     }

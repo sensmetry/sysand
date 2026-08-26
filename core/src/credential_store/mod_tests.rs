@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use chrono::{TimeZone as _, Utc};
-
 use std::assert_matches;
 
 use super::{
@@ -28,7 +26,7 @@ fn record(key: &str, secret: &str) -> CredentialRecord {
 #[test]
 fn blob_round_trip_and_version_field() {
     let mut with_expiry = record("https://example.com/idx/", "tok-1");
-    with_expiry.expires_at = Some(Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap());
+    with_expiry.expires_at = Some("2026-09-01T00:00:00Z".parse().unwrap());
     let blob = CredentialBlob::new(vec![with_expiry, record("https://other.example/", "tok-2")]);
     let raw = serialize_blob(&blob);
     let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
@@ -84,7 +82,7 @@ fn parse_accepts_a_blob_written_before_the_newer_fields() {
     assert_eq!(record.subject, None);
     assert_eq!(record.token_name, None);
     assert_eq!(record.token_prefix, None);
-    assert!(record.validated.is_empty());
+    assert_eq!(record.validated, []);
     assert!(record.expires_at.is_some());
     assert!(record.extra.is_empty());
 }

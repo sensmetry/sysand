@@ -643,7 +643,7 @@ pub type InterchangeProjectMetadataRaw =
 pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
     fluent_uri::Iri<String>,
     Utf8UnixPathBuf,
-    chrono::DateTime<chrono::Utc>,
+    jiff::Timestamp,
     InterchangeProjectChecksum,
 >;
 
@@ -652,14 +652,14 @@ pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
 /// helper so the format stays consistent across producers (default
 /// constructors, conversions, test fixtures) — two documents with the
 /// same instant serialize byte-for-byte the same.
-pub fn format_created(value: &chrono::DateTime<chrono::Utc>) -> String {
-    value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+pub fn format_created(value: &jiff::Timestamp) -> String {
+    format!("{value:.0}")
 }
 
-/// Shorthand for `format_created(&chrono::Utc::now())`, the most common
+/// Shorthand for `format_created(&jiff::Timestamp::now())`, the most common
 /// call site (default constructors and test fixtures all want "now").
 pub fn format_created_now() -> String {
-    format_created(&chrono::Utc::now())
+    format_created(&jiff::Timestamp::now())
 }
 
 impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
@@ -721,7 +721,7 @@ pub enum InterchangeProjectValidationError {
         source: RelativeUnixPathError,
     },
     #[error("failed to parse `{0}` as RFC3339 datetime: {1}")]
-    InvalidCreatedTime(Box<str>, chrono::ParseError),
+    InvalidCreatedTime(Box<str>, jiff::Error),
     #[error(
         "invalid file checksum algorithm `{0}`, expected one of:\n\
         SHA1, SHA224, SHA256, SHA-384, SHA3-256, SHA3-384, SHA3-512\n\
@@ -829,14 +829,12 @@ impl InterchangeProjectMetadataRaw {
         Ok(InterchangeProjectMetadata {
             index,
             // TODO: this is not strictly correct, as RFC3339 only partially overlaps with ISO8601
-            created: chrono::DateTime::parse_from_rfc3339(&self.created)
-                .map_err(|e| {
-                    InterchangeProjectValidationError::InvalidCreatedTime(
-                        self.created.as_str().into(),
-                        e,
-                    )
-                })?
-                .into(),
+            created: self.created.parse::<jiff::Timestamp>().map_err(|e| {
+                InterchangeProjectValidationError::InvalidCreatedTime(
+                    self.created.as_str().into(),
+                    e,
+                )
+            })?,
             metamodel,
             includes_derived: self.includes_derived,
             includes_implied: self.includes_implied,

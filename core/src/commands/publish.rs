@@ -18,7 +18,7 @@ use thiserror::Error;
 use url::Url;
 use zip::result::ZipError;
 
-use chrono::{DateTime, TimeDelta, Utc};
+use jiff::{SignedDuration, Timestamp};
 
 use crate::{
     auth::{
@@ -225,7 +225,7 @@ pub fn do_publish(
         key,
         expires_at: Some(expires_at),
     } = &bearer.provenance
-        && stored_bearer_clearly_expired(*expires_at, Utc::now())
+        && stored_bearer_clearly_expired(*expires_at, Timestamp::now())
     {
         return Err(PublishError::StoredCredentialExpired {
             key: key.clone(),
@@ -291,8 +291,8 @@ pub fn do_publish(
 /// generous clock-skew margin, so a skewed client clock cannot false-trip
 /// the pre-upload stop. The stop is only an optimization; the server's 401
 /// is the real authority, so the margin errs toward attempting.
-fn stored_bearer_clearly_expired(expires_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
-    now.signed_duration_since(expires_at) > TimeDelta::hours(1)
+fn stored_bearer_clearly_expired(expires_at: Timestamp, now: Timestamp) -> bool {
+    now.duration_since(expires_at) > SignedDuration::from_hours(1)
 }
 
 /// Validate the shape of the resolved `api_root` that comes back from
@@ -406,7 +406,7 @@ pub enum PublishBearerProvenance {
     /// A stored credential (`sysand auth login`) for the given index key.
     Stored {
         key: String,
-        expires_at: Option<DateTime<Utc>>,
+        expires_at: Option<Timestamp>,
     },
     /// A short-lived token acquired via CI trusted publishing.
     TrustedPublishing,
@@ -1022,10 +1022,7 @@ pub enum PublishError {
          precedence instead)",
         crate::utils::format_expiry_utc(.expires_at)
     )]
-    StoredCredentialExpired {
-        key: String,
-        expires_at: DateTime<Utc>,
-    },
+    StoredCredentialExpired { key: String, expires_at: Timestamp },
 
     #[error("conflict: package version already exists: {0}")]
     Conflict(String),

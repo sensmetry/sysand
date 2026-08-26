@@ -719,17 +719,17 @@ fn debug_never_renders_secrets() {
 
 // The reactive expiry hint.
 
-use chrono::{Duration, Utc};
+use jiff::{SignedDuration, Timestamp};
 
 use crate::auth::{ForceBearerAuth, StoredBearerAuth};
 
 #[test]
 fn stored_bearer_expiry_warning_fires_at_most_once() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let bearer = StoredBearerAuth::new(
         ForceBearerAuth::new("tok"),
         "https://example.com/".to_owned(),
-        Some(now - Duration::hours(1)),
+        Some(now - SignedDuration::from_hours(1)),
     );
 
     let message = bearer
@@ -751,11 +751,11 @@ fn stored_bearer_expiry_warning_fires_at_most_once() {
 
 #[test]
 fn stored_bearer_expiry_warning_skips_unexpired_and_unknown_expiry() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let unexpired = StoredBearerAuth::new(
         ForceBearerAuth::new("tok"),
         "https://example.com/".to_owned(),
-        Some(now + Duration::hours(1)),
+        Some(now + SignedDuration::from_hours(1)),
     );
     assert_eq!(unexpired.take_expiry_warning(now), None);
     assert!(!unexpired.expiry_warning_emitted());
@@ -798,7 +798,7 @@ fn lazy_layer_warns_once_for_an_expired_record_that_keeps_failing() {
     let forced_mock = versions_mock(&mut server, Some("stored-token"), 404, 2);
 
     let mut record = bearer_record(&[format!("{}/**", server.url())], "stored-token");
-    record.expires_at = Some(Utc::now() - Duration::days(1));
+    record.expires_at = Some(Timestamp::now() - SignedDuration::from_hours(24));
     let (store, _lists) = counting_store(vec![record]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
     let runtime = runtime();
@@ -825,7 +825,7 @@ fn lazy_layer_does_not_warn_for_an_unexpired_record_or_a_successful_retry() {
     let _unauth = versions_mock(&mut server, None, 401, 1);
     let _forced = versions_mock(&mut server, Some("stored-token"), 404, 1);
     let mut record = bearer_record(&[format!("{}/**", server.url())], "stored-token");
-    record.expires_at = Some(Utc::now() + Duration::days(1));
+    record.expires_at = Some(Timestamp::now() + SignedDuration::from_hours(24));
     let (store, _lists) = counting_store(vec![record]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
     let runtime = runtime();
@@ -839,7 +839,7 @@ fn lazy_layer_does_not_warn_for_an_unexpired_record_or_a_successful_retry() {
     let _unauth = versions_mock(&mut server, None, 401, 1);
     let _forced = versions_mock(&mut server, Some("stored-token"), 200, 1);
     let mut record = bearer_record(&[format!("{}/**", server.url())], "stored-token");
-    record.expires_at = Some(Utc::now() - Duration::days(1));
+    record.expires_at = Some(Timestamp::now() - SignedDuration::from_hours(24));
     let (store, _lists) = counting_store(vec![record]);
     let policy = CredentialStoreAuthentication::new(empty_env_policy(), store);
     let url = format!("{}/pkg/versions.json", server.url());

@@ -3,7 +3,6 @@
 
 use std::convert::Infallible;
 
-use chrono::DateTime;
 use indexmap::IndexMap;
 use semver::Version;
 
@@ -40,7 +39,7 @@ fn storage_example() -> InMemoryProject {
             .into(),
             &InterchangeProjectMetadata {
                 index: IndexMap::new(),
-                created: DateTime::from_timestamp(1, 2).unwrap(),
+                created: jiff::Timestamp::new(1, 2).unwrap(),
                 metamodel: None,
                 includes_derived: None,
                 includes_implied: None,

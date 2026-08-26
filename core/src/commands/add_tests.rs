@@ -95,5 +95,5 @@ fn add_rejects_non_normalized_sysand_shorthand() {
     let err = format_err(err);
     assert!(err.contains("`Acme Labs/My.Project`"), "{err}");
     assert!(err.contains("`pkg:sysand/acme-labs/my.project`"), "{err}");
-    assert!(project.info.unwrap().usage.is_empty());
+    assert_eq!(project.info.unwrap().usage, []);
 }

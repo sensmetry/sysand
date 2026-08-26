@@ -8,8 +8,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use chrono::{DateTime, Utc};
 use globset::{GlobBuilder, GlobSetBuilder};
+use jiff::Timestamp;
 use reqwest::{Response, StatusCode, header};
 use reqwest_middleware::{ClientWithMiddleware, RequestBuilder};
 
@@ -647,7 +647,7 @@ impl StandardHTTPAuthenticationBuilder {
 pub struct StoredBearerAuth {
     auth: ForceBearerAuth,
     key: String,
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<Timestamp>,
     /// Whether the reactive expiry hint has already been emitted for this
     /// record. `Arc`d so the flag is shared across the record's globs and
     /// across map clones: together with the once-per-process map cache
@@ -669,11 +669,7 @@ impl std::fmt::Debug for StoredBearerAuth {
 }
 
 impl StoredBearerAuth {
-    pub(crate) fn new(
-        auth: ForceBearerAuth,
-        key: String,
-        expires_at: Option<DateTime<Utc>>,
-    ) -> Self {
+    pub(crate) fn new(auth: ForceBearerAuth, key: String, expires_at: Option<Timestamp>) -> Self {
         Self {
             auth,
             key,
@@ -694,13 +690,13 @@ impl StoredBearerAuth {
     }
 
     /// Expiry, when a validating login learned it.
-    pub fn expires_at(&self) -> Option<DateTime<Utc>> {
+    pub fn expires_at(&self) -> Option<Timestamp> {
         self.expires_at
     }
 
     /// The reactive expiry hint, returned at most once per record: `Some` exactly when the record
     /// carries a past `expires_at` and no hint was emitted before.
-    fn take_expiry_warning(&self, now: DateTime<Utc>) -> Option<String> {
+    fn take_expiry_warning(&self, now: Timestamp) -> Option<String> {
         let expires_at = self.expires_at?;
         if expires_at >= now || self.expiry_warned.swap(true, Ordering::SeqCst) {
             return None;
@@ -716,7 +712,7 @@ impl StoredBearerAuth {
     /// ended in a 4xx. Any 4xx counts, not just 401: GitLab-style hosts
     /// answer 404 on bad auth.
     fn warn_if_expired(&self) {
-        if let Some(message) = self.take_expiry_warning(Utc::now()) {
+        if let Some(message) = self.take_expiry_warning(Timestamp::now()) {
             log::warn!("{message}");
         }
     }

@@ -179,7 +179,7 @@ pub fn do_lock_projects<
         let sources = project
             .sources(ctx)
             .map_err(LockProjectError::InputProjectError)?;
-        debug_assert!(!sources.is_empty());
+        debug_assert_ne!(sources, []);
 
         lock.projects.push(Project {
             name: info.name,
@@ -279,7 +279,7 @@ pub fn do_lock_extend<
             Vec::new()
         } else {
             let sources = project.sources(ctx).map_err(LockError::DependencyProject)?;
-            debug_assert!(!sources.is_empty());
+            debug_assert_ne!(sources, []);
             sources
         };
 

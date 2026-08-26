@@ -47,7 +47,7 @@ pub fn command_remove<Policy: HTTPAuthentication>(
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
 ) -> Result<()> {
-    let mut current_project = ctx
+    let current_project = ctx
         .current_project
         .as_mut()
         .ok_or(CliError::MissingProjectCurrentDir)?;
@@ -62,7 +62,7 @@ pub fn command_remove<Policy: HTTPAuthentication>(
     // (unlike `add`), the failure must be pre-existing or transient
     // (i.e. lock/sync would have also failed even without the `remove`).
     // Therefore lock/sync failures should not revert the removal
-    let usages = do_remove(&mut current_project, iri.into_string())?;
+    let usages = do_remove(current_project, iri.into_string())?;
     print_removed(&usages);
 
     if !no_lock {
@@ -105,14 +105,14 @@ pub fn exp_command_remove<Policy: HTTPAuthentication>(
 ) -> Result<()> {
     let publisher = publisher.as_ref();
     let name = name.as_ref();
-    let mut current_project = ctx
+    let current_project = ctx
         .current_project
         .as_mut()
         .ok_or(CliError::MissingProjectCurrentDir)?;
 
     let project_root = current_project.root_path().to_owned();
 
-    let usages = exp_do_remove(&mut current_project, publisher, name)?;
+    let usages = exp_do_remove(current_project, publisher, name)?;
     print_removed(&usages);
 
     let usage_identifier = Identifier::from_pub_name(publisher, name);

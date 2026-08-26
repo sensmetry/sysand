@@ -226,8 +226,6 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> Iterator
                         self.resolved_http = None;
                     }
                 }
-
-                None
             }
             RemotePriority::PreferHTTP => {
                 if let Some(primary_resolver) = &mut self.resolved_http {
@@ -255,10 +253,9 @@ impl<HTTPResolver: ResolveRead, GitResolver: ResolveRead> Iterator
                         self.resolved_git = None;
                     }
                 }
-
-                None
             }
         }
+        None
     }
 }
 

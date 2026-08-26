@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use chrono::{TimeZone as _, Utc};
+use jiff::Timestamp;
 
 use std::assert_matches;
 
@@ -77,7 +77,7 @@ fn logout_normalizes_url_spellings_to_the_stored_key() {
     let key = logout(&mut store, "HTTPS://Example.COM:443/idx").unwrap();
 
     assert_eq!(key, "https://example.com/idx/");
-    assert!(store.list().unwrap().is_empty());
+    assert_eq!(store.list().unwrap(), []);
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn logout_of_non_http_url_errors_without_touching_the_store() {
 #[test]
 fn status_lists_stored_records_and_env_entries() {
     let mut expiring = record("https://example.com/idx/", "tok-1");
-    let expiry = Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap();
+    let expiry: Timestamp = "2026-09-01T00:00:00Z".parse().unwrap();
     expiring.expires_at = Some(expiry);
     expiring.validated = vec![ValidatedSurface::Read];
     expiring.globs = vec![
@@ -140,25 +140,25 @@ fn status_lists_stored_records_and_env_entries() {
     assert_eq!(stored[1].key, "https://other.example/");
     assert_eq!(stored[1].expires_at, None);
     assert!(!stored[1].expired);
-    assert!(stored[1].validated.is_empty());
+    assert_eq!(stored[1].validated, []);
 }
 
 #[test]
 fn status_marks_expiry_against_the_given_clock() {
     let mut record = record("https://example.com/idx/", "tok");
-    let expiry = Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap();
+    let expiry: Timestamp = "2026-09-01T00:00:00Z".parse().unwrap();
     record.expires_at = Some(expiry);
 
     let before = assemble_auth_status(
         vec![record.clone()],
         vec![],
-        Utc.with_ymd_and_hms(2026, 8, 31, 0, 0, 0).unwrap(),
+        "2026-08-31T00:00:00Z".parse().unwrap(),
         None,
     );
     let after = assemble_auth_status(
         vec![record],
         vec![],
-        Utc.with_ymd_and_hms(2026, 9, 2, 0, 0, 0).unwrap(),
+        "2026-09-02T00:00:00Z".parse().unwrap(),
         None,
     );
 
@@ -185,13 +185,13 @@ fn status_reports_env_entries_shadowing_a_stored_key() {
         env_entry("SYSAND_CRED_BROKEN", "https://example.com/[invalid"),
     ];
 
-    let status = assemble_auth_status(records, env, Utc::now(), None);
+    let status = assemble_auth_status(records, env, Timestamp::now(), None);
 
     let StoredCredentialsStatus::Available(stored) = status.stored else {
         panic!("expected stored credentials");
     };
     assert_eq!(stored[0].shadowed_by, vec!["SYSAND_CRED_TEAM".to_owned()]);
-    assert!(stored[1].shadowed_by.is_empty());
+    assert_eq!(stored[1].shadowed_by, [] as [String; 0]);
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn status_marks_entries_applying_to_the_default_index() {
         env_entry("SYSAND_CRED_MISS", "https://elsewhere.example/**"),
     ];
 
-    let status = assemble_auth_status(records, env, Utc::now(), Some("https://sysand.com/"));
+    let status = assemble_auth_status(records, env, Timestamp::now(), Some("https://sysand.com/"));
 
     let StoredCredentialsStatus::Available(stored) = status.stored else {
         panic!("expected stored credentials");
@@ -243,7 +243,7 @@ fn status_marks_entries_for_a_template_default_index() {
     let status = assemble_auth_status(
         vec![template_entry, host_entry],
         env,
-        Utc::now(),
+        Timestamp::now(),
         Some(template_key),
     );
 
@@ -444,7 +444,7 @@ mod login {
         let record = &store.list().unwrap()[0];
         assert_eq!(record.secret, "tok");
         // Nothing exercised the token: the record carries no claim.
-        assert!(record.validated.is_empty());
+        assert_eq!(record.validated, []);
     }
 
     #[test]
@@ -461,7 +461,7 @@ mod login {
 
         let (_, globs) = stored(outcome);
         assert_eq!(globs.len(), 1, "Case A must not add a glob: {globs:?}");
-        assert!(notices.is_empty());
+        assert_eq!(notices, []);
         assert_surface_coverage(&globs, &root, &root, &api_root);
     }
 
@@ -781,7 +781,7 @@ mod login {
         // A differently-spelled scheme normalizes to the same key.
         let removed = logout(&mut store, "HTTP://127.0.0.1:1/files/{path}/raw?ref=main").unwrap();
         assert_eq!(removed, template);
-        assert!(store.list().unwrap().is_empty());
+        assert_eq!(store.list().unwrap(), []);
     }
 
     #[test]
@@ -876,7 +876,7 @@ mod login {
         );
         // `logout` accepts the normalized key `status` would print.
         assert_eq!(logout(&mut store, &key).unwrap(), key);
-        assert!(store.list().unwrap().is_empty());
+        assert_eq!(store.list().unwrap(), []);
     }
 
     #[test]
@@ -1053,7 +1053,7 @@ mod login {
         let (outcome, _) = run_login(&mut store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
-        assert!(validated.is_empty());
+        assert_eq!(validated, []);
         whoami.assert();
     }
 
@@ -1181,7 +1181,7 @@ mod login {
         assert_eq!(record.token_prefix.as_deref(), Some("sysand_u_1a2b3c4d"));
         assert_eq!(
             record.expires_at,
-            Some(Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap())
+            Some("2026-09-01T00:00:00Z".parse().unwrap())
         );
     }
 
@@ -1210,7 +1210,7 @@ mod login {
             message.contains("`v1/whoami` answered HTTP 401"),
             "was: {message}"
         );
-        assert!(store.list().unwrap().is_empty());
+        assert_eq!(store.list().unwrap(), []);
     }
 
     #[test]
@@ -1242,7 +1242,7 @@ mod login {
             message.contains("or no index exists at this URL"),
             "was: {message}"
         );
-        assert!(store.list().unwrap().is_empty());
+        assert_eq!(store.list().unwrap(), []);
     }
 
     #[test]
@@ -1270,7 +1270,7 @@ mod login {
             !message.contains("no index exists"),
             "a 403 must not be hedged: {message}"
         );
-        assert!(store.list().unwrap().is_empty());
+        assert_eq!(store.list().unwrap(), []);
     }
 
     #[test]
@@ -1376,7 +1376,7 @@ mod login {
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
-        assert!(validated.is_empty());
+        assert_eq!(validated, []);
         assert!(
             notices.iter().any(|n| matches!(
                 n,
@@ -1407,7 +1407,7 @@ mod login {
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
-        assert!(validated.is_empty());
+        assert_eq!(validated, []);
         assert!(
             notices.iter().any(|n| matches!(
                 n,
@@ -1452,7 +1452,7 @@ mod login {
             !message.contains("does not support"),
             "Basic is routed, not reported as unsupported: {message}"
         );
-        assert!(store.list().unwrap().is_empty());
+        assert_eq!(store.list().unwrap(), []);
     }
 
     #[test]
@@ -1516,7 +1516,7 @@ mod login {
             !message.contains("BASIC_USER"),
             "no basic routing without a Basic challenge: {message}"
         );
-        assert!(store.list().unwrap().is_empty());
+        assert_eq!(store.list().unwrap(), []);
     }
 
     #[test]
@@ -1551,7 +1551,7 @@ mod login {
             message.contains("the authentication scheme `Negotiate`"),
             "was: {message}"
         );
-        assert!(store.list().unwrap().is_empty());
+        assert_eq!(store.list().unwrap(), []);
     }
 
     #[test]
@@ -1760,7 +1760,7 @@ mod login {
         assert!(message.contains("`index.json`, HTTP 404"), "was: {message}");
         assert!(message.contains("`v1/whoami`, HTTP 401"), "was: {message}");
         assert!(!message.contains("no index exists"), "was: {message}");
-        assert!(store.list().unwrap().is_empty());
+        assert_eq!(store.list().unwrap(), []);
     }
 
     // Authenticated discovery: the login discovery fetch is an
@@ -1873,7 +1873,7 @@ mod login {
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
         let (_, globs, validated) = stored_validated(outcome);
-        assert!(validated.is_empty());
+        assert_eq!(validated, []);
         assert!(notices.is_empty(), "unexpected notices: {notices:?}");
         assert_eq!(globs, vec![format!("{}**", globset::escape(&root))]);
         config.assert();
@@ -1910,7 +1910,7 @@ mod login {
             )),
             "expected a discovery notice naming the 401, got {notices:?}"
         );
-        assert!(store.list().unwrap().is_empty());
+        assert_eq!(store.list().unwrap(), []);
         config.assert();
         index.assert();
     }
@@ -1931,7 +1931,7 @@ mod login {
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
         let (_, globs, validated) = stored_validated(outcome);
-        assert!(validated.is_empty());
+        assert_eq!(validated, []);
         assert_eq!(globs, vec![format!("{}**", globset::escape(&root))]);
         assert!(
             notices.iter().any(|n| matches!(
@@ -1989,7 +1989,7 @@ mod login {
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
         let (_, _, validated) = stored_validated(outcome);
-        assert!(validated.is_empty());
+        assert_eq!(validated, []);
         assert!(
             notices
                 .iter()
@@ -2020,7 +2020,7 @@ mod login {
         let (outcome, notices) = run_login(&mut store, &server.url(), "tok");
 
         let (_, globs, validated) = stored_validated(outcome);
-        assert!(validated.is_empty());
+        assert_eq!(validated, []);
         assert_eq!(globs, vec![format!("{}**", globset::escape(&root))]);
         assert!(
             notices.iter().any(|n| matches!(

@@ -15,7 +15,7 @@ use crate::{
     resolve::net_utils::create_reqwest_client,
 };
 use bytes::Bytes;
-use chrono::{DateTime, Duration, Utc};
+use jiff::{SignedDuration, Timestamp};
 use mockito::Matcher;
 use std::assert_matches;
 use std::sync::Arc;
@@ -66,7 +66,7 @@ fn stored_sources(entries: &[(&str, &str)]) -> GlobMap<StoredBearerAuth> {
 
 fn stored_sources_expiring(
     entries: &[(&str, &str)],
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<Timestamp>,
 ) -> GlobMap<StoredBearerAuth> {
     let mut builder = GlobMapBuilder::new();
     for (pattern, token) in entries {
@@ -866,7 +866,7 @@ fn env_bearer(label: &str) -> SelectedPublishBearer {
     }
 }
 
-fn stored_bearer(expires_at: Option<DateTime<Utc>>) -> SelectedPublishBearer {
+fn stored_bearer(expires_at: Option<Timestamp>) -> SelectedPublishBearer {
     SelectedPublishBearer {
         auth: ForceBearerAuth::new("stored-token"),
         provenance: PublishBearerProvenance::Stored {
@@ -965,7 +965,7 @@ fn publish_stops_before_upload_when_the_stored_bearer_is_expired() {
     let mut server = mockito::Server::new();
     let mock = server.mock("POST", "/api/v1/upload").expect(0).create();
 
-    let expires_at = Utc::now() - Duration::days(1);
+    let expires_at = Timestamp::now() - SignedDuration::from_hours(24);
     let err = publish_to(&server, stored_bearer(Some(expires_at))).unwrap_err();
 
     assert_matches!(
@@ -995,30 +995,33 @@ fn publish_uploads_normally_without_a_known_expiry() {
 
 #[test]
 fn stored_bearer_clearly_expired_allows_a_skew_margin() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     // Within the one-hour margin: a skewed client clock must not false-trip
     // and refuse a token the server would accept; the server's 401 stays the
     // authority.
     assert!(!stored_bearer_clearly_expired(
-        now - Duration::minutes(30),
+        now - SignedDuration::from_mins(30),
         now
     ));
     // Well past the margin: skip uploading with a known-dead token.
-    assert!(stored_bearer_clearly_expired(now - Duration::hours(2), now));
+    assert!(stored_bearer_clearly_expired(
+        now - SignedDuration::from_hours(2),
+        now
+    ));
     // Not yet expired.
     assert!(!stored_bearer_clearly_expired(
-        now + Duration::hours(1),
+        now + SignedDuration::from_hours(1),
         now
     ));
     // Exactly at the one-hour boundary: the comparison is strict (`>`), so
     // this is still within the margin; one second past it flips to expired.
     // Pins the boundary against an accidental `>=`.
     assert!(!stored_bearer_clearly_expired(
-        now - Duration::hours(1),
+        now - SignedDuration::from_hours(1),
         now
     ));
     assert!(stored_bearer_clearly_expired(
-        now - Duration::hours(1) - Duration::seconds(1),
+        now - SignedDuration::from_hours(1) - SignedDuration::from_secs(1),
         now
     ));
 }

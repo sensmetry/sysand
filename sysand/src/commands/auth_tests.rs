@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::{blob_full_message, cred_env_var_stem};
-use chrono::{Duration, Utc};
+use jiff::{SignedDuration, Timestamp};
 
 #[test]
 fn cred_env_var_stem_uses_the_uppercased_host() {
@@ -58,14 +58,14 @@ fn cred_env_var_stem_escapes_reserved_and_labelless_spellings() {
 
 #[test]
 fn blob_full_first_login_does_not_suggest_removing_a_login() {
-    let message = blob_full_message(&[], Utc::now());
+    let message = blob_full_message(&[], Timestamp::now());
     assert!(message.contains("use a smaller token"), "{message}");
     assert!(!message.contains("logout"), "{message}");
 }
 
 #[test]
 fn blob_full_names_the_status_and_logout_commands() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let stored = [("https://a.example/", None), ("https://b.example/", None)];
     let message = blob_full_message(&stored, now);
     assert!(message.contains("sysand auth status"), "{message}");
@@ -74,10 +74,16 @@ fn blob_full_names_the_status_and_logout_commands() {
 
 #[test]
 fn blob_full_lists_expired_logins_as_drop_candidates() {
-    let now = Utc::now();
+    let now = Timestamp::now();
     let stored = [
-        ("https://live.example/", Some(now + Duration::days(30))),
-        ("https://dead.example/", Some(now - Duration::days(1))),
+        (
+            "https://live.example/",
+            Some(now + SignedDuration::from_hours(30 * 24)),
+        ),
+        (
+            "https://dead.example/",
+            Some(now - SignedDuration::from_hours(24)),
+        ),
         ("https://unknown.example/", None),
     ];
     let message = blob_full_message(&stored, now);
