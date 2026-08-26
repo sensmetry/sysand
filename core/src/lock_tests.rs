@@ -1406,7 +1406,7 @@ fn remove_usage_prunes_unreachable_dependency() {
         .expect("root project should be found");
 
     assert_eq!(project_names(&lock), vec!["root".to_owned()]);
-    assert!(lock.projects[0].usages.is_empty());
+    assert_eq!(lock.projects[0].usages, []);
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0].name, "dep");
 }

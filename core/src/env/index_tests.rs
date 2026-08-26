@@ -508,7 +508,7 @@ mod uris {
             .create();
 
         let uris: Result<Vec<_>, _> = env.uris()?.collect();
-        assert!(uris?.is_empty());
+        assert_eq!(uris?, [] as [String; 0]);
         index_mock.assert();
 
         Ok(())
@@ -1248,7 +1248,7 @@ mod get_project {
         assert_eq!(info.name, "proj0");
         assert_eq!(info.publisher.as_deref(), Some("admin"));
         assert_eq!(info.version, "0.3.0");
-        assert!(info.usage.is_empty());
+        assert_eq!(info.usage, []);
         assert!(meta.is_some());
 
         versions_mock.assert();

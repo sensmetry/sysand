@@ -22,7 +22,7 @@ use sysand_core::{
     credential_store::CredentialStoreError,
 };
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use crate::{CliAuthPolicy, DEFAULT_INDEX_URL, credential_store::open_cli_credential_store};
 
@@ -236,11 +236,11 @@ pub fn command_auth_login(
             // The core store reports only the condition (it must not name
             // CLI commands); the CLI owns the `sysand auth` remediation.
             let stored = store.list().unwrap_or_default();
-            let entries: Vec<(&str, Option<DateTime<Utc>>)> = stored
+            let entries: Vec<(&str, Option<Timestamp>)> = stored
                 .iter()
                 .map(|record| (record.key.as_str(), record.expires_at))
                 .collect();
-            bail!("{}", blob_full_message(&entries, Utc::now()))
+            bail!("{}", blob_full_message(&entries, Timestamp::now()))
         }
         Err(err) => Err(err.into()),
     }
@@ -250,7 +250,7 @@ pub fn command_auth_login(
 /// `auth login` (Windows ~2.5 KB). Naming the `sysand auth` commands
 /// belongs in the CLI, not core. Lists already-expired logins as drop
 /// candidates; with no stored credentials there is nothing to remove.
-fn blob_full_message(stored: &[(&str, Option<DateTime<Utc>>)], now: DateTime<Utc>) -> String {
+fn blob_full_message(stored: &[(&str, Option<Timestamp>)], now: Timestamp) -> String {
     let expired: Vec<&str> = stored
         .iter()
         .filter(|(_, at)| at.is_some_and(|at| at < now))
@@ -417,7 +417,7 @@ pub fn command_auth_status(config: &Config) -> Result<()> {
         // Could not open the store: degrade to the env-only view like an
         // absent backend, keeping the env entries' default-index marking.
         Err(err) => {
-            let mut status = assemble_auth_status(Vec::new(), env, chrono::Utc::now(), default_key);
+            let mut status = assemble_auth_status(Vec::new(), env, Timestamp::now(), default_key);
             status.stored = StoredCredentialsStatus::BackendUnavailable {
                 reason: err.to_string(),
             };
@@ -718,12 +718,15 @@ pub fn command_auth_whoami(
                         println!("{header}{:>12}{header:#} {prefix}", "Token prefix");
                     }
                     if let Some(expires_at) = identity.expires_at {
-                        let now = chrono::Utc::now();
+                        let now = Timestamp::now();
                         println!(
                             "{header}{:>12}{header:#} {}{}",
                             "Expires",
                             sysand_core::utils::format_expiry_utc(&expires_at),
-                            expiry_qualifier(expires_at < now, Some((expires_at - now).num_days()))
+                            expiry_qualifier(
+                                expires_at < now,
+                                Some(expires_at.duration_since(now).as_secs() / 86400),
+                            )
                         );
                     }
                 }

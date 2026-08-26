@@ -6,7 +6,6 @@ use std::{
     io::{Cursor, Read as _},
 };
 
-use chrono::DateTime;
 use fluent_uri::Iri;
 use indexmap::IndexMap;
 use semver::Version;
@@ -62,7 +61,7 @@ fn env_manual_install() -> Result<(), Box<dyn std::error::Error>> {
 
     let meta = InterchangeProjectMetadata {
         index,
-        created: DateTime::from_timestamp(1, 2).unwrap(),
+        created: jiff::Timestamp::new(1, 2).unwrap(),
         metamodel: None,
         includes_derived: None,
         includes_implied: None,

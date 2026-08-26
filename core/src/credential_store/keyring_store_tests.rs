@@ -41,7 +41,7 @@ fn read_modify_write_persists_records() {
     let backend = InMemoryBlobBackend::default();
     let mut store = store_at(backend.clone(), &dir);
 
-    assert!(store.list().unwrap().is_empty());
+    assert_eq!(store.list().unwrap(), []);
     store.upsert(record("https://a.example/", "tok-a")).unwrap();
     store.upsert(record("https://b.example/", "tok-b")).unwrap();
     store
@@ -198,7 +198,7 @@ fn exclusive_lock_blocks_reads() {
     let err = store.list().unwrap_err();
     assert_matches!(err, CredentialStoreError::LockTimeout { .. });
     file.unlock().unwrap();
-    assert!(store.list().unwrap().is_empty());
+    assert_eq!(store.list().unwrap(), []);
 }
 
 #[cfg(all(

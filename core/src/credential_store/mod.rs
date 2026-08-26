@@ -10,7 +10,7 @@
 //! the [`keyring_store::BlobBackend`] storage seam; the OS-keyring backend
 //! lives behind the `keyring` cargo feature.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -208,7 +208,7 @@ pub struct CredentialRecord {
     pub scheme: CredentialScheme,
     pub secret: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Who the credential authenticates as, from `v1/whoami`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<CredentialSubject>,

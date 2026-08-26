@@ -46,7 +46,7 @@ fn remove_accepts_normalized_sysand_shorthand() {
             version_constraint: None
         }
     );
-    assert!(project.info.unwrap().usage.is_empty());
+    assert_eq!(project.info.unwrap().usage, []);
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn remove_keeps_iri_resource() {
             version_constraint: None
         }
     );
-    assert!(project.info.unwrap().usage.is_empty());
+    assert_eq!(project.info.unwrap().usage, []);
 }
 
 #[test]

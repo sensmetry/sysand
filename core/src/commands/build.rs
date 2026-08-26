@@ -4,6 +4,7 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use indexmap::IndexMap;
+use jiff::tz::TimeZone;
 use thiserror::Error;
 
 use std::{collections::HashSet, io::Write as _};
@@ -348,7 +349,7 @@ fn do_build_kpar_inner<P: AsRef<Utf8Path>, Pr: ProjectRead>(
     let archive_file = wrapfs::File::create(&path)?;
     let mut zip = zip::ZipWriter::new(archive_file);
 
-    let time = chrono::Utc::now().naive_utc();
+    let time = jiff::Timestamp::now().to_zoned(TimeZone::UTC).datetime();
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(compression.into())
         .system(zip::System::Unix)

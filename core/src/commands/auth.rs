@@ -14,8 +14,8 @@
 
 use std::fmt::Write as _;
 
-use chrono::{DateTime, Utc};
 use globset::GlobBuilder;
+use jiff::Timestamp;
 use thiserror::Error;
 use url::Url;
 
@@ -261,7 +261,7 @@ pub struct StoredCredentialStatus {
     /// The URL glob patterns the credential applies to.
     pub globs: Vec<String>,
     /// Expiry, when a validating login learned it.
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
     /// Whether `expires_at` is known and in the past.
     pub expired: bool,
     /// Whole days until `expires_at`, against the assembly clock. Present
@@ -521,7 +521,7 @@ pub struct WhoamiIdentity {
     pub subject: CredentialSubject,
     pub token_name: Option<String>,
     pub token_prefix: Option<String>,
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<Timestamp>,
 }
 
 /// Wire shape of a `v1/whoami` 200 body (design/index-api-protocol.md,
@@ -546,9 +546,9 @@ struct WhoamiToken {
     name: Option<String>,
     #[serde(default)]
     prefix: Option<String>,
-    // chrono's serde impl parses the protocol's RFC 3339 timestamp.
+    // jiff's serde impl parses the protocol's RFC 3339 timestamp.
     #[serde(default)]
-    expires_at: Option<DateTime<Utc>>,
+    expires_at: Option<Timestamp>,
 }
 
 /// Read and parse a `v1/whoami` `200` body into the identity fields.
@@ -1390,7 +1390,7 @@ fn lenient_glob_matches(pattern: &str, target: &str) -> bool {
 pub fn assemble_auth_status(
     records: Vec<CredentialRecord>,
     mut env: Vec<EnvCredentialEntry>,
-    now: DateTime<Utc>,
+    now: Timestamp,
     default_key: Option<&str>,
 ) -> AuthStatus {
     let default_glob_root = default_key.and_then(index_key_glob_root);
@@ -1425,7 +1425,9 @@ pub fn assemble_auth_status(
                 .collect();
             StoredCredentialStatus {
                 expired: record.expires_at.is_some_and(|expiry| expiry < now),
-                expires_in_days: record.expires_at.map(|expiry| (expiry - now).num_days()),
+                expires_in_days: record
+                    .expires_at
+                    .map(|expiry| expiry.duration_since(now).as_secs() / 86400),
                 applies_to_default: default_key == Some(record.key.as_str())
                     || default_applies(&record.globs),
                 key: record.key,
@@ -1456,7 +1458,12 @@ pub fn do_auth_status<B: BlobBackend>(
     default_key: Option<&str>,
 ) -> Result<AuthStatus, AuthCommandError> {
     match store.list() {
-        Ok(records) => Ok(assemble_auth_status(records, env, Utc::now(), default_key)),
+        Ok(records) => Ok(assemble_auth_status(
+            records,
+            env,
+            Timestamp::now(),
+            default_key,
+        )),
         Err(CredentialStoreError::BackendAbsent { source }) => Ok(AuthStatus {
             stored: StoredCredentialsStatus::BackendUnavailable {
                 reason: source.to_string(),

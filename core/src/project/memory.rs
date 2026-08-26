@@ -160,7 +160,7 @@ impl ProjectRead for InMemoryProject {
     }
 
     fn sources(&self, _ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
-        debug_assert!(!self.nominal_sources.is_empty());
+        debug_assert_ne!(self.nominal_sources, []);
         Ok(self.nominal_sources.clone())
     }
 

@@ -27,7 +27,7 @@ camino.workspace = true
 fluent-uri.workspace = true
 env_logger.workspace = true
 jni = "0.22.4"
-indexmap = { version = "2.13.0", default-features = false, features = ["serde"] }
+indexmap = { version = "2.13.0", default-features = false }
 tokio = { version = "1.50.0", default-features = false, features = ["rt"] }
 
 [lints]

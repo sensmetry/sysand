@@ -627,8 +627,8 @@ impl Identifier {
     fn make_identifier_iri(publisher: impl AsRef<str>, name: impl AsRef<str>) -> Self {
         let publisher = publisher.as_ref();
         let name = name.as_ref();
-        debug_assert!(!publisher.is_empty());
-        debug_assert!(!name.is_empty());
+        debug_assert_ne!(publisher, "");
+        debug_assert_ne!(name, "");
 
         let normalized_pub = normalize_field(publisher);
         let normalized_name = normalize_field(name);

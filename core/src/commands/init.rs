@@ -67,7 +67,7 @@ pub fn do_init_ext<P: ProjectMut>(
         },
         &InterchangeProjectMetadata {
             index: indexmap::IndexMap::new(),
-            created: chrono::Utc::now(),
+            created: jiff::Timestamp::now(),
             metamodel: None,
             includes_derived: None,
             includes_implied: None,
