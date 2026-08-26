@@ -165,6 +165,7 @@ fn do_env_py_local_dir(path: String) -> PyResult<()> {
                 | LocalWriteError::Serialize(_)
                 | LocalWriteError::ImpossibleRelativePath(_)
                 | LocalWriteError::PublisherMismatch { .. }
+                | LocalWriteError::ProjectNotFound(_)
                 | LocalWriteError::NameMismatch { .. } => PyValueError::new_err(e),
                 LocalWriteError::Io(_)
                 | LocalWriteError::TryMove(_)

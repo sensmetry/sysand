@@ -140,6 +140,66 @@ src_cksum = "c83ef78e3b8d52d622dea6db2e7c6c326801500ae1e99f6a54c39a1f473367b3"
     Ok(())
 }
 
+/// `sysand env uninstall <IRI>` for an IRI that is not installed in the
+/// env should fail with an error, and must not modify `env.toml`
+#[test]
+fn env_uninstall_nonexistent() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
+
+    let env_path = Utf8Path::new(DEFAULT_ENV_NAME);
+    let env_toml_before = std::fs::read_to_string(cwd.join(env_path).join(METADATA_PATH))?;
+
+    let out = run_sysand_in(&cwd, ["env", "uninstall", "urn:kpar:missing"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "project `urn:kpar:missing` not found in env",
+    ));
+
+    assert_eq!(
+        std::fs::read_to_string(cwd.join(env_path).join(METADATA_PATH))?,
+        env_toml_before
+    );
+
+    Ok(())
+}
+
+/// `sysand env uninstall <IRI> <VERSION>` for a version that is not
+/// installed in the env should fail with an error, even if other versions
+/// of the same project are installed
+#[test]
+fn env_uninstall_nonexistent_version() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
+
+    let test_path = fixture_path("test_lib");
+
+    let out = run_sysand_in(
+        &cwd,
+        [
+            "env",
+            "install",
+            "urn:kpar:test",
+            "--path",
+            test_path.as_str(),
+        ],
+        None,
+    )?;
+    out.assert().success();
+
+    let out = run_sysand_in(&cwd, ["env", "uninstall", "urn:kpar:test", "9.9.9"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "project `urn:kpar:test` not found in env",
+    ));
+
+    // The installed version is unaffected
+    let out = run_sysand_in(&cwd, ["env", "list"], None)?;
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("`urn:kpar:test` 0.0.1"));
+
+    Ok(())
+}
+
 #[test]
 fn env_install_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd, _) = run_sysand(["env"], None)?;
