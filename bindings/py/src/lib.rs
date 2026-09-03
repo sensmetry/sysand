@@ -59,6 +59,7 @@ use sysand_core::{
     symbols::Language,
     usage::{ConstraintChange, SetConstraintError, do_set_usage_constraint_local},
     utils::format_err,
+    versions::do_versions,
 };
 use typed_path::Utf8UnixPathBuf;
 
@@ -413,6 +414,32 @@ fn info_error_to_pyerr(
     }
 }
 
+/// The resolver stack every index-reaching call uses: HTTP client, a
+/// current-thread runtime, the configured indexes and the authentication
+/// policy. Must run inside `py.detach` (the stack is `!Send`).
+fn standard_resolver_for(
+    resolution: Option<&ResolutionSpec>,
+    auth: &AuthSpec,
+    project_root: Option<&Utf8Path>,
+) -> PyResult<(StandardResolver<CliAuthPolicy>, Arc<CliAuthPolicy>)> {
+    let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+    let runtime = Arc::new(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?,
+    );
+    let index_urls = index_locations(resolution, project_root)?;
+    let auth_policy = build_auth_policy(auth)?;
+    let resolver = standard_resolver(None, Some(client), index_urls, runtime, auth_policy.clone())
+        .map_err(|err| PyValueError::new_err(format_err(err)))?;
+    Ok((resolver, auth_policy))
+}
+
+fn parse_iri(iri: String) -> PyResult<Iri<String>> {
+    Iri::parse(iri)
+        .map_err(|(e, input)| PyValueError::new_err(format!("invalid IRI `{input}`: {e}")))
+}
+
 #[pyfunction(name = "do_info_py")]
 #[pyo3(
     signature = (uri, resolution, auth),
@@ -427,25 +454,37 @@ fn do_info_py(
 
     py.detach(|| {
         let auth = auth.unwrap_or_default();
-        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
-
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?,
-        );
-
         // Without a `Resolution` no index is consulted
-        let index_urls = index_locations(resolution.as_ref(), None)?;
-        let auth_policy = build_auth_policy(&auth)?;
+        let (resolver, auth_policy) = standard_resolver_for(resolution.as_ref(), &auth, None)?;
+        let uri = parse_iri(uri)?;
+        do_info(&uri, &resolver).map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))
+    })
+}
 
-        let combined_resolver =
-            standard_resolver(None, Some(client), index_urls, runtime, auth_policy.clone())
-                .map_err(|err| PyValueError::new_err(format_err(err)))?;
+/// `(iri, versions highest first, ignored non-semver strings)`.
+#[pyfunction(name = "do_versions_py")]
+#[pyo3(
+    signature = (iri, resolution, auth),
+)]
+fn do_versions_py(
+    py: Python,
+    iri: String,
+    resolution: Option<ResolutionSpec>,
+    auth: Option<AuthSpec>,
+) -> PyResult<(String, Vec<String>, Vec<String>)> {
+    common_init();
 
-        let uri = Iri::parse(uri)
-            .map_err(|(e, input)| PyValueError::new_err(format!("invalid IRI `{input}`: {e}")))?;
-        do_info(&uri, &combined_resolver).map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))
+    py.detach(|| {
+        let auth = auth.unwrap_or_default();
+        let (resolver, auth_policy) = standard_resolver_for(resolution.as_ref(), &auth, None)?;
+        let iri = parse_iri(iri)?;
+        let listing = do_versions(&iri, &resolver)
+            .map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))?;
+        Ok((
+            listing.iri,
+            listing.versions.iter().map(Version::to_string).collect(),
+            listing.ignored,
+        ))
     })
 }
 
@@ -898,6 +937,7 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_info_py_path, m)?)?;
     m.add_function(wrap_pyfunction!(do_model_roundtrip_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py, m)?)?;
+    m.add_function(wrap_pyfunction!(do_versions_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_root_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_build_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_sources_env_py, m)?)?;

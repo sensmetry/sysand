@@ -210,16 +210,16 @@ fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
     let git_mock = server
         .mock("GET", "/info/refs?service=git-upload-pack")
         .with_status(404)
-        .expect(2) // TODO: Reduce this to 1
+        .expect(1)
         .create();
 
     let kpar_range_probe = server.mock("HEAD", "/").with_status(404).expect(0).create();
 
-    // Two calls expected: the resolver tries the URL as a kpar via two
-    // candidate paths (chained through any-resolver). Each path re-issues
-    // the GET on 404 because the failed-download attempt is not recorded.
+    // One call expected: the resolver tries the URL as a kpar once while
+    // resolving it. It is not tried again for the local-cache match, since
+    // with nothing installed there is nothing the candidate could match.
     // Pin the count; further reductions would be a resolver-level change.
-    let kpar_download_try = server.mock("GET", "/").with_status(404).expect(2).create();
+    let kpar_download_try = server.mock("GET", "/").with_status(404).expect(1).create();
 
     let info_mock_head = server
         .mock("HEAD", "/.project.json")
@@ -234,7 +234,7 @@ fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock_head = server
@@ -250,7 +250,7 @@ fn info_basic_http_url_noauth() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let (_, _, out) = run_sysand(["info", "--iri", &server.url()], None)?;
@@ -281,7 +281,7 @@ fn info_basic_http_url_irrelevant_auth() -> Result<(), Box<dyn Error>> {
     let git_mock = server
         .mock("GET", "/info/refs?service=git-upload-pack")
         .with_status(404)
-        .expect(2) // TODO: Reduce this to 1
+        .expect(1)
         .create();
 
     let kpar_range_probe = server.mock("HEAD", "/").with_status(404).expect(0).create();
@@ -290,7 +290,7 @@ fn info_basic_http_url_irrelevant_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/")
         .with_status(404)
         // See the matching comment in `info_basic_http_url_noauth`.
-        .expect(2)
+        .expect(1)
         .create();
 
     let info_mock_head = server
@@ -306,7 +306,7 @@ fn info_basic_http_url_irrelevant_auth() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock_head = server
@@ -322,7 +322,7 @@ fn info_basic_http_url_irrelevant_auth() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let (_, _, out) = run_sysand_with(
@@ -362,7 +362,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/info/refs?service=git-upload-pack")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect(2) // TODO: Reduce this to 1
+        .expect(1)
         .create();
 
     // let kpar_range_probe = server
@@ -377,7 +377,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
         // See the matching comment in `info_basic_http_url_noauth`.
-        .expect(2)
+        .expect(1)
         .create();
 
     let kpar_download_try_auth = server
@@ -387,7 +387,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
             Matcher::Exact("Basic dXNlcl8xMjM0OnBhc3NfNDMyMQ==".to_owned()),
         )
         .with_status(404)
-        .expect(2)
+        .expect(1)
         .create();
 
     let info_mock_head = server
@@ -417,7 +417,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .with_status(404)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let info_mock_auth = server
@@ -429,7 +429,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock_head = server
@@ -459,7 +459,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         .match_header("authorization", Matcher::Missing)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock_auth = server
@@ -471,7 +471,7 @@ fn info_basic_http_url_auth() -> Result<(), Box<dyn Error>> {
         )
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let (_, _, out) = run_sysand_with(
@@ -517,7 +517,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .mock("GET", "/info/refs?service=git-upload-pack")
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
-        .expect(2) // TODO: Reduce this to 1
+        .expect(1)
         .create();
 
     // let kpar_range_probe = server
@@ -532,7 +532,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .match_header("authorization", Matcher::Missing)
         .with_status(404)
         // See the matching comment in `info_basic_http_url_noauth`.
-        .expect(2)
+        .expect(1)
         .create();
 
     let kpar_download_try_auth = server
@@ -542,7 +542,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
             Matcher::Exact("Bearer this_is_a_token".to_owned()),
         )
         .with_status(404)
-        .expect(2)
+        .expect(1)
         .create();
 
     let info_mock_head = server
@@ -572,7 +572,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .with_status(404)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let info_mock_auth = server
@@ -584,7 +584,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"name":"info_basic_http_url","version":"1.2.3"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock_head = server
@@ -614,7 +614,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         .match_header("authorization", Matcher::Missing)
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let meta_mock_auth = server
@@ -626,7 +626,7 @@ fn info_bearer_http_url_auth() -> Result<(), Box<dyn Error>> {
         )
         .with_header("content-type", "application/json")
         .with_body(r#"{"index":{},"created":"0000-00-00T00:00:00.123456789Z"}"#)
-        .expect(3) // TODO: Reduce this to 1
+        .expect(2) // TODO: Reduce this to 1
         .create();
 
     let (_, _, out) = run_sysand_with(

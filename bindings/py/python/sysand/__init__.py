@@ -17,6 +17,7 @@ from ._model import (
     EnvProjectChecksumKpar,
     EnvProjectChecksumSrc,
     Discovery,
+    VersionListing,
 )
 
 from ._errors import (
@@ -37,6 +38,8 @@ from ._auth import (
 )
 
 from ._info import info_path, info
+
+from ._versions import versions
 
 from . import env
 
@@ -96,6 +99,7 @@ __all__ = [
     "EnvProjectChecksumKpar",
     "EnvProjectChecksumSrc",
     "Discovery",
+    "VersionListing",
     ## Errors
     "SysandError",
     "ProjectError",
@@ -120,6 +124,8 @@ __all__ = [
     ## info
     "info_path",
     "info",
+    ## versions
+    "versions",
     ## Init
     "init",
     ## Build

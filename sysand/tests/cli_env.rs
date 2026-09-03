@@ -215,7 +215,7 @@ fn env_install_from_http_kpar() -> Result<(), Box<dyn std::error::Error>> {
     let git_mock = server
         .mock("GET", "/test_lib.kpar/info/refs?service=git-upload-pack")
         .with_status(404)
-        .expect(2) // TODO: Reduce this to 1 after caching
+        .expect(1)
         .create();
 
     let project_mock = server

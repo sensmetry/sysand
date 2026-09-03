@@ -249,6 +249,12 @@ class MockIndex:
         """Make the next request for ``path`` fail with ``status``."""
         self._fail_next[path] = status
 
+    def override(
+        self, path: str, body: bytes, content_type: str = "application/json"
+    ) -> None:
+        """Serve ``body`` for ``path`` from now on, whatever was published."""
+        self._files[path] = (body, content_type)
+
     # -- observation --------------------------------------------------------
 
     def requests(self, path_glob: str = "*") -> list[str]:

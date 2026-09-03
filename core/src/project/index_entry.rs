@@ -11,9 +11,10 @@
 //!
 //! - Advertised-tier reads ([`ProjectReadAsync::version_async`],
 //!   [`ProjectReadAsync::usage_async`]) returning fields from
-//!   [`crate::env::index::AdvertisedVersion`] without I/O. Before the archive
-//!   is verified, [`ProjectReadAsync::checksum_canonical_hex_async`] also
-//!   returns the advertised digest directly.
+//!   [`crate::env::index::AdvertisedVersion`] without I/O.
+//!   `checksum_canonical_hex_async` is *not* among them: it is the canonical
+//!   project digest, computed from the fetched info and metadata, so it goes
+//!   through the lazy fetch below.
 //! - Lazily-fetched reads
 //!   ([`ProjectReadAsync::get_project_async`]/`get_info_async`/`get_meta_async`)
 //!   guarded by `fetched_info_meta`'s `OnceCell`.
@@ -52,9 +53,7 @@ pub struct IndexEntryProject<Policy> {
     /// type name tracks the transport.
     pub(crate) archive: ReqwestIndexKparDownloadedProject<Policy>,
     /// Single source of truth for protocol-advertised per-version metadata.
-    /// `version_async` and `usage_async` return these fields without I/O;
-    /// `checksum_canonical_hex_async` does the same until the archive has been
-    /// verified.
+    /// `version_async` and `usage_async` return these fields without I/O.
     pub(crate) advertised: AdvertisedVersion,
     pub(crate) project_json_url: reqwest::Url,
     pub(crate) meta_json_url: reqwest::Url,
