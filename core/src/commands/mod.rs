@@ -21,3 +21,4 @@ pub mod remove;
 pub mod root;
 pub mod sources;
 pub mod sync;
+pub mod usage;

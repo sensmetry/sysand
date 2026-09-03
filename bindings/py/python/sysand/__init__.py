@@ -11,6 +11,12 @@ from ._model import (
     InterchangeProjectMetadata,
     Dependencies,
     CompressionMethod,
+    UsageConstraintChange,
+)
+
+from ._errors import (
+    SysandError,
+    ProjectError,
 )
 
 from ._info import info_path, info
@@ -23,6 +29,10 @@ from ._init import (
 
 from ._add import (
     add,
+)
+
+from ._usage import (
+    set_usage_constraint,
 )
 
 
@@ -59,8 +69,14 @@ __all__ = [
     "InterchangeProjectMetadata",
     "Dependencies",
     "CompressionMethod",
+    "UsageConstraintChange",
+    ## Errors
+    "SysandError",
+    "ProjectError",
     ## Add
     "add",
+    ## Usage
+    "set_usage_constraint",
     ## Remove
     "remove",
     ## Env

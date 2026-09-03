@@ -32,6 +32,18 @@ InterchangeProjectUsage = typing.Union[
 ]
 
 
+class UsageConstraintChange(typing.TypedDict):
+    """Result of :func:`sysand.set_usage_constraint`."""
+
+    resource: str
+    """The resource actually matched, with the ``publisher/name`` shorthand
+    expanded to its ``pkg:sysand/`` IRI."""
+    found: bool
+    changed: bool
+    old_constraint: typing.Optional[str]
+    new_constraint: typing.Optional[str]
+
+
 class InterchangeProjectInfo(typing.TypedDict):
     publisher: typing.Optional[str]
     name: str

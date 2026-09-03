@@ -113,11 +113,11 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
     """Factory for the project's real starting state.
 
     The manifest is hand-written on purpose: it carries an unknown top-level
-    key, an unknown key inside the usage, and non-canonical key order and
-    whitespace (the input the manifest-fidelity scenario needs), which the
-    typed `add` path would not preserve. The lockfile and environment are then
-    produced by the shipped CLI, in-process, so the 0.10.3 state is real rather
-    than hand-written and depends on none of the APIs the scenarios exercise.
+    key, an unknown key inside the usage, and non-canonical key order (the
+    input the manifest-fidelity scenario needs), which the typed `add` path
+    would not preserve. The lockfile and environment are then produced by the
+    shipped CLI, in-process, so the 0.10.3 state is real rather than
+    hand-written and depends on none of the APIs the scenarios exercise.
     """
 
     def make(
@@ -147,7 +147,10 @@ def make_baseline(tmp_path: Path, mock_index: MockIndex) -> MakeBaseline:
             "x-consumer-extension": {"migrated": False},
             "usage": usages,
         }
-        (root / ".project.json").write_text(json.dumps(manifest, indent=4) + "\n")
+        # sysand's own pretty format (2-space indent, trailing newline):
+        # `set_usage_constraint` only guarantees a one-line diff for manifests
+        # last written by sysand.
+        (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
         baseline = Baseline(root=root, index=mock_index)
         assert baseline.cli("lock"), "baseline `sysand lock` failed"
