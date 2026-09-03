@@ -925,3 +925,160 @@ fn same_project_version_from_different_storages_and_usage_forms_installs_once()
 
     Ok(())
 }
+
+// --- structured failures --------------------------------------------------
+
+use std::assert_matches;
+
+use super::SolveConflict;
+
+fn root_usage(iri: &str, constraint: Option<&str>) -> InterchangeProjectUsage {
+    InterchangeProjectUsage::Resource {
+        resource: Iri::parse(iri).unwrap().into(),
+        version_constraint: constraint.map(|c| semver::VersionReq::parse(c).unwrap()),
+    }
+}
+
+#[test]
+fn conflicts_name_root_pins_that_contradict() {
+    let widget_v1 = trivial_memory_project("widget", "1.0.0", vec![]);
+    let widget_v2 = trivial_memory_project("widget", "2.0.0", vec![]);
+    let resolver = memory_resolver(&[("urn:kpar:widget", &[widget_v1, widget_v2])]);
+
+    let err = super::solve(
+        vec![
+            root_usage("urn:kpar:widget", Some("=1.0.0")),
+            root_usage("urn:kpar:widget", Some("=2.0.0")),
+        ],
+        None,
+        resolver,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.kind(), "no_solution");
+    let conflicts = err.conflicts();
+    for constraint in ["=1.0.0", "=2.0.0"] {
+        assert!(
+            conflicts.contains(&SolveConflict::Constraint {
+                iri: "urn:kpar:widget".to_owned(),
+                constraint: constraint.to_owned(),
+                required_by: None,
+            }),
+            "missing root pin `{constraint}` in {conflicts:?}"
+        );
+    }
+}
+
+#[test]
+fn conflicts_name_the_dependents_that_pin_transitively() {
+    let app_a = trivial_memory_project("app_a", "1.0.0", vec![("urn:kpar:widget", Some("=1.0.0"))]);
+    let app_b = trivial_memory_project("app_b", "1.0.0", vec![("urn:kpar:widget", Some("=2.0.0"))]);
+    let widget_v1 = trivial_memory_project("widget", "1.0.0", vec![]);
+    let widget_v2 = trivial_memory_project("widget", "2.0.0", vec![]);
+    let resolver = memory_resolver(&[
+        ("urn:kpar:app_a", &[app_a]),
+        ("urn:kpar:app_b", &[app_b]),
+        ("urn:kpar:widget", &[widget_v1, widget_v2]),
+    ]);
+
+    let err = super::solve(
+        vec![
+            root_usage("urn:kpar:app_a", None),
+            root_usage("urn:kpar:app_b", None),
+        ],
+        None,
+        resolver,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.kind(), "no_solution");
+    let conflicts = err.conflicts();
+    // The constraint is the *dependent's*, even though pubgrub interns the
+    // `widget` package once (by identifier) with whichever usage came first.
+    for (dependent, constraint) in [("urn:kpar:app_a", "=1.0.0"), ("urn:kpar:app_b", "=2.0.0")] {
+        assert!(
+            conflicts.contains(&SolveConflict::Constraint {
+                iri: "urn:kpar:widget".to_owned(),
+                constraint: constraint.to_owned(),
+                required_by: Some(dependent.to_owned()),
+            }),
+            "missing `{dependent}` pin `{constraint}` in {conflicts:?}"
+        );
+    }
+    assert!(
+        conflicts
+            .iter()
+            .all(|c| !matches!(c, SolveConflict::NotFound { .. })),
+        "{conflicts:?}"
+    );
+}
+
+#[test]
+fn no_matching_version_is_a_retrieval_failure_with_the_found_versions() {
+    let widget_v1 = trivial_memory_project("widget", "1.0.0", vec![]);
+    let widget_v2 = trivial_memory_project("widget", "2.0.0", vec![]);
+    let resolver = memory_resolver(&[("urn:kpar:widget", &[widget_v1, widget_v2])]);
+
+    let err = super::solve(
+        vec![root_usage("urn:kpar:widget", Some(">=3"))],
+        None,
+        resolver,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.kind(), "retrieval");
+    assert_eq!(
+        err.conflicts(),
+        vec![SolveConflict::NoVersions {
+            iri: "urn:kpar:widget".to_owned(),
+            constraint: ">=3".to_owned(),
+            found: vec!["1.0.0".to_owned(), "2.0.0".to_owned()],
+            required_by: None,
+        }]
+    );
+    // The CLI's wording is unchanged.
+    assert_eq!(
+        err.to_string(),
+        "failed to retrieve project(s): requested version unavailable: project `urn:kpar:widget`\n\
+         was found, but the requested version constraint `>=3`\n\
+         was not satisfied by any of the found versions:\n\
+         `1.0.0`, `2.0.0`"
+    );
+}
+
+#[test]
+fn found_versions_are_sorted_by_semver_and_listed_once() {
+    // Resolver order is neither sorted nor free of duplicates: two sources
+    // may offer the same release, and `1.10.0` must sort after `1.9.0`.
+    let widgets: Vec<_> = ["2.0.0", "1.10.0", "1.9.0", "2.0.0"]
+        .into_iter()
+        .map(|v| trivial_memory_project("widget", v, vec![]))
+        .collect();
+    let resolver = memory_resolver(&[("urn:kpar:widget", &widgets)]);
+
+    let err = super::solve(
+        vec![root_usage("urn:kpar:widget", Some(">=3"))],
+        None,
+        resolver,
+    )
+    .unwrap_err();
+
+    assert_matches!(
+        err.conflicts().as_slice(),
+        [SolveConflict::NoVersions { found, .. }] if *found == ["1.9.0", "1.10.0", "2.0.0"]
+    );
+}
+
+#[test]
+fn unknown_project_is_a_not_found_conflict() {
+    let resolver = memory_resolver(&[]);
+
+    let err = super::solve(vec![root_usage("urn:kpar:absent", None)], None, resolver).unwrap_err();
+
+    assert_eq!(err.kind(), "retrieval");
+    assert!(err.resolution_error().is_none());
+    assert_matches!(
+        err.conflicts().as_slice(),
+        [SolveConflict::NotFound { iri, .. }] if iri == "urn:kpar:absent"
+    );
+}

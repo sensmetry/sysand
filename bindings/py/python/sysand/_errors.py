@@ -44,7 +44,9 @@ class SolveError(SysandError):
             conflict with a ``"kind"`` key (``"Constraint"``, ``"NoVersions"``,
             ``"NotFound"``) and the variant's fields.
         report: the human-readable report, identical to the CLI's output.
-        kind: ``"no_solution"`` or ``"retrieval"``.
+        kind: ``"no_solution"`` (the constraints contradict each other),
+            ``"retrieval"`` (a project or version could not be obtained) or
+            ``"choosing_version"``.
     """
 
     conflicts: typing.List[typing.Dict[str, typing.Any]]

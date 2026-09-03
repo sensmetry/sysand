@@ -23,6 +23,7 @@ kpar-ppmd = ["sysand-core/kpar-ppmd", "sysand/kpar-ppmd"]
 [dependencies]
 sysand-core = { path = "../../core", features = ["python", "filesystem", "networking"] }
 sysand = { path = "../../sysand" }
+anyhow = "1.0.102"
 camino.workspace = true
 fluent-uri.workspace = true
 pyo3 = { version = "0.29.0", default-features = false, features = ["macros"] }

@@ -3,7 +3,8 @@
 
 use camino::Utf8PathBuf;
 use pubgrub::{
-    DefaultStringReporter, DependencyConstraints, DependencyProvider, Reporter as _, VersionSet,
+    DefaultStringReporter, DependencyConstraints, DependencyProvider, DerivationTree, External,
+    Reporter as _, VersionSet,
 };
 
 use std::{
@@ -122,7 +123,55 @@ impl Display for DiscreteHashSet {
     }
 }
 
+/// pubgrub's "version" of a project: the position of a candidate in the
+/// list `resolve_candidates` returns for its identifier. The list is
+/// cached per identifier for the whole solve, so a position names the same
+/// candidate every time it is seen. Positions are only ever assigned by
+/// `numbered`; everything that turns a `DiscreteHashSet` back into
+/// candidates goes through that numbering.
 pub type ProjectIndex = usize;
+
+/// Numbers `candidates` the way pubgrub refers to them.
+fn numbered<T>(candidates: &[T]) -> impl Iterator<Item = (ProjectIndex, &T)> {
+    candidates.iter().enumerate()
+}
+
+/// The set of `candidates` that a usage with `constraint` selects: those
+/// whose version matches, or every candidate when there is no constraint.
+fn selected_by<'a>(
+    candidates: impl IntoIterator<Item = (ProjectIndex, &'a semver::Version)>,
+    constraint: Option<&semver::VersionReq>,
+) -> DiscreteHashSet {
+    match constraint {
+        Some(constraint) => DiscreteHashSet::Finite(
+            candidates
+                .into_iter()
+                .filter(|(_, version)| constraint.matches(version))
+                .map(|(index, _)| index)
+                .collect(),
+        ),
+        None => DiscreteHashSet::empty().complement(),
+    }
+}
+
+impl DiscreteHashSet {
+    /// True when the set selects nothing.
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Finite(hash_set) => hash_set.is_empty(),
+            Self::CoFinite(_) => false,
+        }
+    }
+
+    /// True when `self` and `other` select the same candidates out of
+    /// `universe`. Unlike `==`, this does not care whether a set is stored
+    /// as the candidates it contains or as those it excludes.
+    fn selects_same(&self, other: &Self, universe: impl IntoIterator<Item = ProjectIndex>) -> bool {
+        universe
+            .into_iter()
+            .all(|index| self.contains(&index) == other.contains(&index))
+    }
+}
 
 impl VersionSet for DiscreteHashSet {
     type V = ProjectIndex;
@@ -422,41 +471,21 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
                 resource,
                 version_constraint,
             } => {
-                if let Some(constraint) = version_constraint {
-                    let mut valid_candidates = HashSet::new();
-
-                    let mut found_versions = Vec::new();
-                    for (i, candidate_info) in candidates.iter().enumerate() {
-                        found_versions.push(candidate_info.version.clone());
-                        if constraint.matches(&candidate_info.version) {
-                            valid_candidates.insert(i);
-                        }
-                    }
-                    if valid_candidates.is_empty() {
-                        let mut versions = String::new();
-                        // `found_versions` must contain at least one element
-                        write!(versions, "`{}`", found_versions[0]).unwrap();
-                        for v in &found_versions[1..] {
-                            write!(versions, ", `{v}`").unwrap();
-                        }
-                        return Err(InternalSolverError::VersionNotAvailable(format!(
-                            "project `{resource}`\n\
-                            was found, but the requested version constraint `{constraint}`\n\
-                            was not satisfied by any of the found versions:\n\
-                            {versions}"
-                        )));
-                    }
-
-                    deps.push((
-                        DependencyIdentifier::Remote(usage.to_owned()),
-                        DiscreteHashSet::Finite(valid_candidates),
-                    ));
-                } else {
-                    deps.push((
-                        DependencyIdentifier::Remote(usage.to_owned()),
-                        DiscreteHashSet::empty().complement(),
-                    ));
+                let selected = selected_by(
+                    numbered(&candidates).map(|(index, c)| (index, &c.version)),
+                    version_constraint.as_ref(),
+                );
+                if let Some(constraint) = version_constraint
+                    && selected.is_empty()
+                {
+                    return Err(InternalSolverError::VersionNotAvailable {
+                        resource: resource.to_string(),
+                        constraint: constraint.clone(),
+                        found: candidates.iter().map(|c| c.version.clone()).collect(),
+                    });
                 }
+
+                deps.push((DependencyIdentifier::Remote(usage.to_owned()), selected));
             }
             InterchangeProjectUsage::Directory { .. }
             | InterchangeProjectUsage::KparPath { .. } => {
@@ -475,9 +504,69 @@ fn compute_deps<R: ResolveRead + fmt::Debug>(
     Ok(pubgrub::Dependencies::Available(constraints))
 }
 
+/// The versions a `NoVersions` conflict lists: ascending, each once.
+/// Candidates come in resolver order, and two sources offering the same
+/// release put that version in the list twice, so sort (by semver, not
+/// by string) before removing neighbours.
+fn version_strings<'a>(versions: impl IntoIterator<Item = &'a semver::Version>) -> Vec<String> {
+    let mut versions: Vec<&semver::Version> = versions.into_iter().collect();
+    versions.sort_unstable();
+    versions.dedup();
+    versions.into_iter().map(ToString::to_string).collect()
+}
+
+/// Render `found` as `` `v1`, `v2` `` — the shape the CLI has always shown.
+fn format_found_versions(found: &[semver::Version]) -> String {
+    let mut versions = String::new();
+    for (i, v) in found.iter().enumerate() {
+        if i > 0 {
+            versions.push_str(", ");
+        }
+        write!(versions, "`{v}`").unwrap();
+    }
+    versions
+}
+
+/// What the solver learnt about one candidate before it failed: enough to
+/// name versions behind `DiscreteHashSet` indices and to recover the
+/// constraint a dependent put on one of its usages.
+#[derive(Debug, Clone)]
+pub struct CandidateSnapshot {
+    /// The position pubgrub knows this candidate by.
+    pub index: ProjectIndex,
+    pub version: semver::Version,
+    pub usages: Vec<CoalescingUsage>,
+}
+
+/// One machine-readable participant in a failed solve.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SolveConflict {
+    /// `iri` is constrained to `constraint` by `required_by` (`None` when
+    /// the requirement comes from the root request).
+    Constraint {
+        iri: String,
+        constraint: String,
+        required_by: Option<String>,
+    },
+    /// `iri` exists but none of `found` satisfies `constraint`. `found` is
+    /// sorted ascending with duplicates removed.
+    NoVersions {
+        iri: String,
+        constraint: String,
+        found: Vec<String>,
+        required_by: Option<String>,
+    },
+    /// `iri` could not be retrieved at all.
+    NotFound { iri: String, reason: String },
+}
+
 #[derive(Debug)]
 pub struct SolverError<R: ResolveRead + fmt::Debug + 'static> {
     pub inner: Box<pubgrub::PubGrubError<ProjectSolver<R>>>,
+    /// Candidates per identifier, captured by `solve()` on failure. pubgrub
+    /// speaks in candidate indices; this is what turns them back into
+    /// versions and constraints.
+    pub candidates: HashMap<Identifier, Vec<CandidateSnapshot>>,
 }
 
 impl<R: ResolveRead + fmt::Debug + 'static> From<Box<pubgrub::PubGrubError<ProjectSolver<R>>>>
@@ -487,7 +576,10 @@ impl<R: ResolveRead + fmt::Debug + 'static> From<Box<pubgrub::PubGrubError<Proje
         if let pubgrub::PubGrubError::NoSolution(ref mut derivation_tree) = *value {
             derivation_tree.collapse_no_versions();
         }
-        Self { inner: value }
+        Self {
+            inner: value,
+            candidates: HashMap::new(),
+        }
     }
 }
 
@@ -496,6 +588,232 @@ impl<R: ResolveRead + fmt::Debug + 'static> From<pubgrub::PubGrubError<ProjectSo
 {
     fn from(value: pubgrub::PubGrubError<ProjectSolver<R>>) -> Self {
         Self::from(Box::new(value))
+    }
+}
+
+/// The version constraint a usage puts on its resource, `*` when none (or
+/// when the usage is not a `Resource` usage).
+fn constraint_of(usage: &CoalescingUsage) -> String {
+    match usage.usage().usage() {
+        InterchangeProjectUsage::Resource {
+            version_constraint: Some(constraint),
+            ..
+        } => constraint.to_string(),
+        _ => "*".to_owned(),
+    }
+}
+
+/// The identifier a solver package stands for; `None` for the root request.
+fn id_of(package: &DependencyIdentifier) -> Option<&CoalescingUsage> {
+    match package {
+        DependencyIdentifier::Requested(_) => None,
+        DependencyIdentifier::Remote(usage) => Some(usage),
+    }
+}
+
+impl<R: ResolveRead + fmt::Debug + 'static> SolverError<R> {
+    /// Which way the solve failed: `no_solution` (the constraints
+    /// contradict each other), `retrieval` (a project or version could not
+    /// be obtained), or `choosing_version`.
+    pub fn kind(&self) -> &'static str {
+        match self.inner.as_ref() {
+            pubgrub::PubGrubError::NoSolution(_) => "no_solution",
+            pubgrub::PubGrubError::ErrorRetrievingDependencies { .. } => "retrieval",
+            pubgrub::PubGrubError::ErrorChoosingVersion { .. }
+            | pubgrub::PubGrubError::ErrorInShouldCancel(_) => "choosing_version",
+        }
+    }
+
+    /// The resolver error behind a retrieval failure, if that is what this
+    /// is: the caller may want to classify a transport or authentication
+    /// problem differently from a genuine solve failure.
+    pub fn resolution_error(&self) -> Option<&R::Error> {
+        match self.inner.as_ref() {
+            pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                source: InternalSolverError::Resolution(err),
+                ..
+            }
+            | pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                source: InternalSolverError::ResolvedError { source: err, .. },
+                ..
+            } => Some(err),
+            _ => None,
+        }
+    }
+
+    /// Flattened, machine-readable view of the failure, in encounter order
+    /// without duplicates. Empty only for transport failures (see
+    /// [`Self::resolution_error`]) and version-choice failures.
+    pub fn conflicts(&self) -> Vec<SolveConflict> {
+        let mut conflicts = Vec::new();
+        match self.inner.as_ref() {
+            pubgrub::PubGrubError::NoSolution(derivation_tree) => {
+                self.walk(derivation_tree, &mut conflicts);
+            }
+            pubgrub::PubGrubError::ErrorRetrievingDependencies {
+                package, source, ..
+            } => {
+                let required_by = id_of(package).map(|u| u.id().to_string());
+                match source {
+                    InternalSolverError::VersionNotAvailable {
+                        resource,
+                        constraint,
+                        found,
+                    } => conflicts.push(SolveConflict::NoVersions {
+                        iri: resource.clone(),
+                        constraint: constraint.to_string(),
+                        found: version_strings(found),
+                        required_by,
+                    }),
+                    InternalSolverError::Resolution(_)
+                    | InternalSolverError::ResolvedError { .. } => {}
+                    InternalSolverError::NotFound(usage, _)
+                    | InternalSolverError::NoValidCandidates(usage)
+                    | InternalSolverError::UnsupportedUsageType { usage, .. }
+                    | InternalSolverError::Unresolvable { usage, .. }
+                    | InternalSolverError::InvalidProject { usage, .. }
+                    | InternalSolverError::MissingVersion { usage }
+                    | InternalSolverError::MissingUsage { usage }
+                    | InternalSolverError::InvalidResolvedVersion { usage, .. }
+                    | InternalSolverError::VersionObtain { usage, .. }
+                    | InternalSolverError::UsageObtain { usage, .. } => {
+                        conflicts.push(SolveConflict::NotFound {
+                            iri: usage.id().to_string(),
+                            reason: format_err(source),
+                        });
+                    }
+                }
+            }
+            pubgrub::PubGrubError::ErrorChoosingVersion { .. }
+            | pubgrub::PubGrubError::ErrorInShouldCancel(_) => {}
+        }
+        conflicts
+    }
+
+    fn walk(
+        &self,
+        tree: &DerivationTree<DependencyIdentifier, DiscreteHashSet, String>,
+        out: &mut Vec<SolveConflict>,
+    ) {
+        match tree {
+            DerivationTree::Derived(derived) => {
+                self.walk(&derived.cause1, out);
+                self.walk(&derived.cause2, out);
+            }
+            DerivationTree::External(external) => {
+                let conflict = match external {
+                    External::NotRoot(..) => None,
+                    External::FromDependencyOf(
+                        dependent,
+                        dependent_set,
+                        dependency,
+                        dependency_set,
+                    ) => {
+                        // pubgrub interns packages by identifier, so the
+                        // `dependency` package may carry another party's usage,
+                        // so only the identifier of it is correct to use here.
+                        // Because `dependency_set` is currently
+                        // `DiscreteHashSet` which does not include version
+                        // constraints in a user-readable form, version
+                        // constraints are instead extracted from the usage list
+                        // of `dependent`.
+                        // FIXME: make `dependency_set` usable directly
+                        id_of(dependency).map(|dependency| {
+                            let iri = dependency.id().to_string();
+                            let (required_by, constraint) = match dependent {
+                                DependencyIdentifier::Requested(usages) => (
+                                    None,
+                                    self.select_usage(
+                                        usages.iter().filter(|u| u.id() == dependency.id()),
+                                        dependency.id(),
+                                        dependency_set,
+                                    ),
+                                ),
+                                DependencyIdentifier::Remote(usage) => (
+                                    Some(usage.id().to_string()),
+                                    self.select_usage(
+                                        self.candidates_in(usage.id(), dependent_set)
+                                            .into_iter()
+                                            .flat_map(|c| c.usages.iter())
+                                            .filter(|u| u.id() == dependency.id()),
+                                        dependency.id(),
+                                        dependency_set,
+                                    ),
+                                ),
+                            };
+                            SolveConflict::Constraint {
+                                iri,
+                                constraint: constraint_of(constraint.unwrap_or(dependency)),
+                                required_by,
+                            }
+                        })
+                    }
+                    External::NoVersions(package, set) => {
+                        id_of(package).map(|usage| SolveConflict::NoVersions {
+                            iri: usage.id().to_string(),
+                            constraint: constraint_of(usage),
+                            found: self.versions_of(usage.id(), set),
+                            required_by: None,
+                        })
+                    }
+                    External::Custom(package, _, reason) => {
+                        id_of(package).map(|usage| SolveConflict::NotFound {
+                            iri: usage.id().to_string(),
+                            reason: reason.clone(),
+                        })
+                    }
+                };
+                if let Some(conflict) = conflict
+                    && !out.contains(&conflict)
+                {
+                    out.push(conflict);
+                }
+            }
+        }
+    }
+
+    /// The candidates of `id` selected by `set`.
+    fn candidates_in(&self, id: &Identifier, set: &DiscreteHashSet) -> Vec<&CandidateSnapshot> {
+        self.candidates
+            .get(id)
+            .into_iter()
+            .flatten()
+            .filter(|candidate| set.contains(&candidate.index))
+            .collect()
+    }
+
+    /// Among several usages of `dependency` declared by one dependent (a
+    /// project may list the same resource twice), the one whose constraint
+    /// selects exactly the candidates in `dependency_set`; otherwise the
+    /// first.
+    fn select_usage<'a>(
+        &self,
+        mut usages: impl Iterator<Item = &'a CoalescingUsage>,
+        dependency: &Identifier,
+        dependency_set: &DiscreteHashSet,
+    ) -> Option<&'a CoalescingUsage> {
+        let first = usages.next()?;
+        let candidates: &[CandidateSnapshot] =
+            self.candidates.get(dependency).map_or(&[], Vec::as_slice);
+        let selects_set = |usage: &CoalescingUsage| match usage.usage().usage() {
+            InterchangeProjectUsage::Resource {
+                version_constraint: Some(constraint),
+                ..
+            } => selected_by(
+                candidates.iter().map(|c| (c.index, &c.version)),
+                Some(constraint),
+            )
+            .selects_same(dependency_set, candidates.iter().map(|c| c.index)),
+            _ => false,
+        };
+        if selects_set(first) {
+            return Some(first);
+        }
+        Some(usages.find(|u| selects_set(u)).unwrap_or(first))
+    }
+
+    fn versions_of(&self, id: &Identifier, set: &DiscreteHashSet) -> Vec<String> {
+        version_strings(self.candidates_in(id, set).into_iter().map(|c| &c.version))
     }
 }
 
@@ -564,9 +882,19 @@ pub enum InternalSolverError<R: ResolveRead> {
         reason: String,
     },
     /// Project is found, but the requested version is not
-    /// Value is the formatted error message
-    #[error("requested version unavailable: {0}")]
-    VersionNotAvailable(String),
+    #[error(
+        "requested version unavailable: project `{resource}`\n\
+         was found, but the requested version constraint `{constraint}`\n\
+         was not satisfied by any of the found versions:\n\
+         {}",
+        format_found_versions(found)
+    )]
+    VersionNotAvailable {
+        resource: String,
+        constraint: semver::VersionReq,
+        /// Every version the resolver offered, in resolver order.
+        found: Vec<semver::Version>,
+    },
     /// Resolution failed due to an invalid usage that is in principle supported
     #[error("usage {usage} is not resolvable: {reason}")]
     Unresolvable {
@@ -664,15 +992,12 @@ impl<R: ResolveRead + fmt::Debug + 'static> DependencyProvider for ProjectSolver
                             usage,
                             &mut self.resolved_candidates.borrow_mut(),
                         )?;
-                        let mut versions_indexes: Vec<(usize, semver::Version)> =
-                            candidate_versions
-                                .into_iter()
-                                .enumerate()
-                                .map(|(idx, el)| (idx, el.version))
+                        let mut versions_indexes: Vec<(ProjectIndex, semver::Version)> =
+                            numbered(&candidate_versions)
+                                .map(|(index, c)| (index, c.version.clone()))
                                 .collect();
-                        // Choose the highest version. We'll assume that version
-                        // order is stable across multiple `resolve_candidates()`
-                        // calls, as DiscreteHashSet does not save actual versions
+                        // Choose the highest version. Positions are stable
+                        // across `resolve_candidates()` calls, see `ProjectIndex`.
                         versions_indexes.sort_unstable_by(|el1, el2| el2.1.cmp(&el1.1));
                         let mut found = None;
                         for (i, v) in &versions_indexes {
@@ -750,7 +1075,30 @@ pub fn solve<R: ResolveRead + fmt::Debug + 'static>(
 
     let version: usize = 0;
 
-    let solution = pubgrub::resolve(&solver, package, version)?;
+    let solution = match pubgrub::resolve(&solver, package, version) {
+        Ok(solution) => solution,
+        Err(err) => {
+            let mut err = SolverError::from(err);
+            err.candidates = solver
+                .resolved_candidates
+                .take()
+                .into_iter()
+                .map(|(id, candidates)| {
+                    (
+                        id,
+                        numbered(&candidates)
+                            .map(|(index, c)| CandidateSnapshot {
+                                index,
+                                version: c.summary.version.clone(),
+                                usages: c.summary.usage.clone(),
+                            })
+                            .collect(),
+                    )
+                })
+                .collect();
+            return Err(err);
+        }
+    };
 
     let mut map = solver.resolved_candidates.take();
 
