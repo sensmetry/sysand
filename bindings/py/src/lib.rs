@@ -19,10 +19,12 @@ use sysand_core::{
         env::{EnvError, do_env_local_dir},
         init::do_init_local_file,
     },
+    discover::{discover_project, discover_workspace},
     env::{
         DEFAULT_ENV_NAME, ReadEnvironment as _, WriteEnvironment as _,
         local_directory::{
-            LocalDirectoryEnvironment, LocalReadError, LocalWriteError, metadata::EnvMetadataError,
+            LocalDirectoryEnvironment, LocalReadError, LocalWriteError,
+            metadata::{EnvMetadataError, EnvProject, EnvProjectChecksum},
         },
         utils::clone_project,
     },
@@ -524,8 +526,10 @@ mod py_errors {
     // `PyTypeInfo` trait method of the same name.
     #![allow(clippy::same_name_method)]
     pyo3::import_exception!(sysand._errors, ProjectError);
+    pyo3::import_exception!(sysand._errors, EnvError);
 }
-use py_errors::ProjectError;
+// `sysand_core::commands::env::EnvError` is already in scope under that name.
+use py_errors::{EnvError as PyEnvError, ProjectError};
 
 /// Returns `(matched_resource, found, changed, old_constraint, new_constraint)`.
 ///
@@ -710,6 +714,8 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_include_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_exclude_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_env_install_path_py, m)?)?;
+    m.add_function(wrap_pyfunction!(do_env_projects_py, m)?)?;
+    m.add_function(wrap_pyfunction!(do_discover_py, m)?)?;
     // Currently this interop is done with strings instead
     // m.add_class::<KparCompressionMethod>()?;
 
@@ -718,9 +724,48 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 fn env_read_to_pyerr(err: EnvMetadataError) -> PyErr {
-    PyIOError::new_err(format!(
-        "failed to read environment metadata: {}",
-        format_err(err)
+    PyEnvError::new_err(format_err(err))
+}
+
+/// The entries of the environment's `env.toml`, each converted to a dict by
+/// `EnvProject`'s `IntoPyObject`. `path` is returned verbatim (relative to the
+/// environment directory, or to the workspace/project root for editable
+/// entries).
+#[pyfunction(name = "do_env_projects_py")]
+#[pyo3(
+    signature = (env_path),
+)]
+fn do_env_projects_py(env_path: String) -> PyResult<Vec<EnvProject>> {
+    common_init();
+
+    let env = LocalDirectoryEnvironment::read(env_path).map_err(env_read_to_pyerr)?;
+    Ok(env.projects().to_vec())
+}
+
+/// `(project_root, workspace_root)`, both canonicalized as `do_root_py` does,
+/// found by walking up from `path` exactly as the CLI does before every
+/// command.
+#[pyfunction(name = "do_discover_py")]
+#[pyo3(
+    signature = (path),
+)]
+fn do_discover_py(path: String) -> PyResult<(Option<String>, Option<String>)> {
+    common_init();
+
+    let path = Utf8PathBuf::from(path);
+    let project_root = discover_project(&path)
+        .map_err(|e| ProjectError::new_err(format_err(e)))?
+        .map(|project| wrapfs::canonicalize(project.root_path()))
+        .transpose()
+        .map_err(|e| ProjectError::new_err(format_err(e)))?;
+    let workspace_root = discover_workspace(&path)
+        .map_err(|e| ProjectError::new_err(format_err(e)))?
+        .map(|workspace| wrapfs::canonicalize(workspace.root_path()))
+        .transpose()
+        .map_err(|e| ProjectError::new_err(format_err(e)))?;
+    Ok((
+        project_root.map(Utf8PathBuf::into_string),
+        workspace_root.map(Utf8PathBuf::into_string),
     ))
 }
 
@@ -794,6 +839,29 @@ fn info_and_metadata_fields_guard(
                 let InterchangeProjectChecksumRaw { value, algorithm } = cksum;
             }
         }
+        None => (),
+    }
+}
+
+// Same purpose as `info_and_metadata_fields_guard`, for the `EnvProject`
+// typed dict in `_model.py`.
+#[expect(unused)]
+fn env_project_fields_guard(project: EnvProject) {
+    let EnvProject {
+        publisher,
+        name,
+        version,
+        path,
+        identifiers,
+        usages,
+        editable,
+        workspace,
+        checksum,
+    } = project;
+
+    match checksum {
+        Some(EnvProjectChecksum::Kpar { kpar_cksum }) => {}
+        Some(EnvProjectChecksum::Project { src_cksum }) => {}
         None => (),
     }
 }

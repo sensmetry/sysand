@@ -7,12 +7,15 @@ Each test starts from `baseline` / `make_baseline` (conftest.py): a real
 project whose manifest, lockfile and `.sysand` were produced by the shipped
 CLI against the mock index, with the library pinned to the 0.10 line. The
 tests then move that constraint to the 0.11 line with
-`sysand.set_usage_constraint` and check what happened to the manifest.
+`sysand.set_usage_constraint` and check what happened to the manifest, or
+check what the tool driving the migration can find out about the project
+before it starts.
 """
 
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -79,3 +82,25 @@ def test_add_when_missing(make_baseline: MakeBaseline) -> None:
     # A second add merges into the existing usage rather than adding one.
     assert sysand.add(baseline.root, LIBRARY, TARGET_CONSTRAINT) is False
     assert len(json.loads(baseline.manifest.read_text())["usage"]) == 1
+
+
+def test_workspace_detection(baseline: Baseline) -> None:
+    # A tool that must not edit a project inside a workspace checks
+    # `discover` first: the project root is found, the workspace root only
+    # once a `.workspace.json` appears above the project.
+    discovery = sysand.discover(baseline.root)
+    assert discovery["workspace_root"] is None
+    assert discovery["project_root"] is not None
+    assert os.path.samefile(discovery["project_root"], baseline.root)
+
+    workspace = baseline.root.parent
+    (workspace / ".workspace.json").write_text('{"projects": []}\n')
+    discovery = sysand.discover(baseline.root)
+    assert discovery["workspace_root"] is not None
+    assert os.path.samefile(discovery["workspace_root"], workspace)
+    assert os.path.samefile(discovery["project_root"], baseline.root)
+
+    nested = baseline.root / "src" / "deep"
+    nested.mkdir(parents=True)
+    assert os.path.samefile(sysand.discover(nested)["project_root"], baseline.root)
+    assert sysand.discover(workspace)["project_root"] is None

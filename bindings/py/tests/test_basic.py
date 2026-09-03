@@ -1,18 +1,19 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
+import json
 import logging
 import tempfile
 from pathlib import Path
-import re
 import os
+import re
 from typing import List, Union
 
 import pytest
 from pytest_httpserver import HTTPServer
 
 import sysand
-from mockindex import MockIndex
+from mockindex import MockIndex, run_cli_in
 
 
 def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
@@ -257,6 +258,117 @@ def test_add_returns_whether_a_usage_was_added(tmp_path: Path) -> None:
     assert sysand.add(tmp_path, "acme-labs/my.project", ">=1.0.0") is True
     assert sysand.add(tmp_path, "acme-labs/my.project", ">=1.0.0") is False
     assert sysand.add(tmp_path, "acme-labs/other") is True
+
+
+def _project_with_dir_usage(tmp_path: Path) -> tuple[Path, Path]:
+    """A project using a sibling directory project, locked and synced offline
+    by the shipped CLI, plus a `urn:kpar:dep` project installed by path."""
+    root = tmp_path / "proj"
+    dep = tmp_path / "dir-dep"
+    kpar_dep = tmp_path / "kpar-dep"
+    for name, path in [("proj", root), ("dir-dep", dep), ("kpar-dep", kpar_dep)]:
+        path.mkdir()
+        sysand.init(name, "acme", "1.0.0", path)
+        (path / f"{name}.sysml").write_text(f"package P_{name.replace('-', '_')};")
+        sysand.include(path, f"{name}.sysml")
+    manifest = json.loads((root / ".project.json").read_text())
+    manifest["usage"] = [{"dir": "../dir-dep", "publisher": "acme", "name": "dir-dep"}]
+    (root / ".project.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    assert run_cli_in(root, "lock", "--no-config", "--no-index")
+    assert run_cli_in(root, "sync", "--no-config", "--no-index")
+    env_dir = root / sysand.env.DEFAULT_ENV_NAME
+    # After `sync`, which prunes anything not in the lockfile.
+    sysand.env.install_path(env_dir, "urn:kpar:dep", kpar_dep)
+    return root, env_dir
+
+
+def test_env_projects_lists_installed_and_editable(tmp_path: Path) -> None:
+    root, env_dir = _project_with_dir_usage(tmp_path)
+
+    projects = {p["name"]: p for p in sysand.env.projects(env_dir)}
+    assert set(projects) == {"proj", "dir-dep", "kpar-dep"}
+    for project in projects.values():
+        assert set(project) == set(sysand.EnvProject.__annotations__)
+
+    # The locked project itself is the environment's editable entry: `path`
+    # is relative to the project root and it has no identifiers.
+    own = projects["proj"]
+    assert own["editable"] is True
+    assert own["workspace"] is False
+    assert own["publisher"] == "acme"
+    assert own["version"] == "1.0.0"
+    assert own["identifiers"] == []
+    assert os.path.samefile(root / own["path"], root)
+    assert own["usages"] == ["pkg:sysand/acme/dir-dep"]
+    assert own["checksum"] is None
+
+    # A directory usage is installed as a copy, relative to the env dir.
+    dir_dep = projects["dir-dep"]
+    assert dir_dep["editable"] is False
+    assert dir_dep["identifiers"][0] == "pkg:sysand/acme/dir-dep"
+    assert (env_dir / dir_dep["path"] / "dir-dep.sysml").is_file()
+    assert dir_dep["usages"] == []
+    # Installed from a source directory, so `env.toml` records `src_cksum`.
+    assert set(dir_dep["checksum"]) == {"src_cksum"}
+    assert re.fullmatch(r"[0-9a-f]{64}", dir_dep["checksum"]["src_cksum"])
+
+    kpar_dep = projects["kpar-dep"]
+    assert kpar_dep["editable"] is False
+    assert kpar_dep["identifiers"] == ["urn:kpar:dep"]
+    assert (env_dir / kpar_dep["path"] / "kpar-dep.sysml").is_file()
+    assert kpar_dep["path"].startswith("lib/")
+
+
+def test_env_sources_is_exported(tmp_path: Path) -> None:
+    root, env_dir = _project_with_dir_usage(tmp_path)
+    [kpar_dep] = [p for p in sysand.env.projects(env_dir) if p["name"] == "kpar-dep"]
+
+    [source] = sysand.env.sources(env_dir, "urn:kpar:dep")
+
+    assert os.path.samefile(source, env_dir / kpar_dep["path"] / "kpar-dep.sysml")
+    assert "sources" in sysand.env.__all__
+
+
+def test_env_projects_missing_env(tmp_path: Path) -> None:
+    with pytest.raises(sysand.EnvError) as excinfo:
+        sysand.env.projects(tmp_path / "nope")
+    assert excinfo.value.wrote is False
+    assert isinstance(excinfo.value, RuntimeError)
+    assert isinstance(excinfo.value, sysand.SysandError)
+
+    # The same failure raises the same class from `install_path`.
+    with pytest.raises(sysand.EnvError):
+        sysand.env.install_path(tmp_path / "nope", "urn:kpar:x", tmp_path)
+
+
+def test_discover(tmp_path: Path) -> None:
+    assert sysand.discover(tmp_path) == {"project_root": None, "workspace_root": None}
+
+    root = tmp_path / "ws" / "proj"
+    root.mkdir(parents=True)
+    sysand.init("discover", "acme", "1.0.0", root)
+    nested = root / "src" / "deep"
+    nested.mkdir(parents=True)
+
+    for start in (root, nested):
+        found = sysand.discover(start)
+        assert found["project_root"] is not None
+        assert os.path.samefile(found["project_root"], root)
+        assert found["workspace_root"] is None
+    assert sysand.discover(root)["project_root"] == str(sysand.root(root))
+
+    (tmp_path / "ws" / ".workspace.json").write_text('{"projects": []}\n')
+    found = sysand.discover(nested)
+    assert found["workspace_root"] is not None
+    assert os.path.samefile(found["workspace_root"], tmp_path / "ws")
+    assert found["project_root"] is not None
+    assert os.path.samefile(found["project_root"], root)
+    assert sysand.discover(tmp_path / "ws")["project_root"] is None
+
+    (tmp_path / "ws" / ".workspace.json").write_text("not json")
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.discover(root)
+    assert excinfo.value.wrote is False
 
 
 def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
