@@ -12,6 +12,7 @@ import pytest
 from pytest_httpserver import HTTPServer
 
 import sysand
+from mockindex import MockIndex
 
 
 def test_basic_init(caplog: pytest.LogCaptureFixture) -> None:
@@ -151,39 +152,17 @@ def test_http_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> 
     assert meta["checksum"] is None
 
 
-def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) -> None:
+def test_index_info(caplog: pytest.LogCaptureFixture, mock_index: MockIndex) -> None:
     level = logging.DEBUG
     logging.basicConfig(level=level)
     caplog.set_level(level)
 
-    filler_digest = "sha256:" + ("a" * 64)
-    # No discovery document: index_root defaults to the discovery root.
-    httpserver.expect_request("/sysand-index-config.json").respond_with_data(
-        "", status=404
-    )
-    iri_dir = "/_iri/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536"
-    httpserver.expect_request(f"{iri_dir}/versions.json").respond_with_json(
-        {
-            "versions": [
-                {
-                    "version": "1.2.3",
-                    "usage": [],
-                    "kpar_size": 42,
-                    "kpar_digest": filler_digest,
-                }
-            ]
-        }
-    )
-    httpserver.expect_request(f"{iri_dir}/1.2.3/.project.json").respond_with_json(
-        {"name": "test_index_info", "version": "1.2.3"}
-    )
-    httpserver.expect_request(f"{iri_dir}/1.2.3/.meta.json").respond_with_json(
-        {"index": {}, "created": "2026-01-01T00:00:00Z"}
-    )
+    # Non-PURL IRIs live under `/_iri/<sha256hex>/`; the fixture serves the
+    # real index layout, with no discovery document (index_root defaults to
+    # the discovery root).
+    mock_index.publish("urn:kpar:test_index_info", "1.2.3")
 
-    info, meta = sysand.info(
-        "urn:kpar:test_index_info", index_urls=httpserver.url_for("")
-    )
+    info, meta = sysand.info("urn:kpar:test_index_info", index_urls=mock_index.url)
 
     assert info["name"] == "test_index_info"
     assert info["version"] == "1.2.3"
@@ -197,6 +176,10 @@ def test_index_info(caplog: pytest.LogCaptureFixture, httpserver: HTTPServer) ->
     assert meta["includes_derived"] is None
     assert meta["includes_implied"] is None
     assert meta["checksum"] is None
+
+    iri_dir = "/_iri/19148b59a7f258e6eab15189ebcc5b6f884e02690a3b27f3f43e4c6e15dd9536"
+    assert mock_index.requests("*/versions.json") == [f"{iri_dir}/versions.json"]
+    assert mock_index.requests("/index.json") == []
 
 
 def test_model_roundtrip() -> None:

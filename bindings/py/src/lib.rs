@@ -51,7 +51,14 @@ use sysand_core::{
 use typed_path::Utf8UnixPathBuf;
 
 #[pyfunction(name = "_run_cli")]
-fn run_cli(args: Vec<String>) -> bool {
+fn run_cli(py: Python<'_>, args: Vec<String>) -> bool {
+    // The CLI can run for seconds and talk to the network; holding the GIL
+    // would block every other Python thread meanwhile — including an HTTP
+    // server the CLI is talking to (the Python test suite's mock index).
+    py.detach(|| run_cli_blocking(args))
+}
+
+fn run_cli_blocking(args: Vec<String>) -> bool {
     let exit_code;
     // Expand glob arguments, CMD/PowerShell don't do it
     #[cfg(windows)]
