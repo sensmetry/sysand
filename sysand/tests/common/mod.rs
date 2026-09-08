@@ -88,10 +88,16 @@ pub fn sysand_cmd_in_with<'a, I: IntoIterator<Item = &'a str>>(
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("sysand"));
 
     cmd.env("NO_COLOR", "1");
-    // A developer's ambient default-index override must not leak into
-    // tests (it would inject markers or ambiguity notes into asserted
-    // output); tests that need it set it explicitly via `env`.
-    cmd.env_remove("SYSAND_DEFAULT_INDEX");
+    // A developer's ambient `SYSAND_*` overrides (default index, config,
+    // credentials, and whatever is added later) must not leak into tests:
+    // they would inject markers or ambiguity notes into asserted output or
+    // authenticate against the wrong index. Tests that need one set it
+    // explicitly via `env`, which is applied after this sweep.
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("SYSAND_") {
+            cmd.env_remove(name);
+        }
+    }
     // Default the debug-only credential store seam
     // (sysand/src/credential_store.rs) to a simulated-absent keyring so
     // no test ever reads the developer's real OS keyring (which could
