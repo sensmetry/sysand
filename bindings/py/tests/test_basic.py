@@ -79,6 +79,186 @@ def test_remove_accepts_sysand_shorthand() -> None:
         )
 
 
+SYSAND_FORMATTED_MANIFEST = """{
+  "version": "1.2.3",
+  "name": "fidelity",
+  "x-unknown-top-level": {
+    "kept": true
+  },
+  "publisher": "acme",
+  "usage": [
+    {
+      "dir": "../local-lib",
+      "publisher": "local-pub",
+      "name": "local-lib"
+    },
+    {
+      "x-unknown-in-usage": null,
+      "resource": "pkg:sysand/mock/library",
+      "versionConstraint": ">=0.10.0, <0.11.0"
+    }
+  ]
+}
+"""
+
+
+def _one_line_diff(before: str, after: str) -> tuple[str, str]:
+    old_lines = before.splitlines(keepends=True)
+    new_lines = after.splitlines(keepends=True)
+    assert len(old_lines) == len(new_lines)
+    differing = [(o, n) for o, n in zip(old_lines, new_lines) if o != n]
+    assert len(differing) == 1, differing
+    return differing[0]
+
+
+def test_set_usage_constraint_preserves_document(tmp_path: Path) -> None:
+    manifest = tmp_path / ".project.json"
+    manifest.write_text(SYSAND_FORMATTED_MANIFEST)
+
+    change = sysand.set_usage_constraint(tmp_path, "mock/library", ">=0.11.0, <0.12.0")
+
+    assert change == {
+        "resource": "pkg:sysand/mock/library",
+        "found": True,
+        "changed": True,
+        "old_constraint": ">=0.10.0, <0.11.0",
+        "new_constraint": ">=0.11.0, <0.12.0",
+    }
+    old_line, new_line = _one_line_diff(SYSAND_FORMATTED_MANIFEST, manifest.read_text())
+    assert old_line == '      "versionConstraint": ">=0.10.0, <0.11.0"\n'
+    assert new_line == '      "versionConstraint": ">=0.11.0, <0.12.0"\n'
+
+
+def test_set_usage_constraint_purl_matches_shorthand_declaration(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".project.json").write_text(SYSAND_FORMATTED_MANIFEST)
+    change = sysand.set_usage_constraint(tmp_path, "pkg:sysand/mock/library", "0.11.0")
+    assert change["found"] and change["changed"]
+    assert change["new_constraint"] == "0.11.0"
+
+
+def test_set_usage_constraint_clear(tmp_path: Path) -> None:
+    manifest = tmp_path / ".project.json"
+    manifest.write_text(SYSAND_FORMATTED_MANIFEST)
+
+    change = sysand.set_usage_constraint(tmp_path, "mock/library", None)
+
+    assert change["changed"] is True
+    assert change["old_constraint"] == ">=0.10.0, <0.11.0"
+    assert change["new_constraint"] is None
+    expected = SYSAND_FORMATTED_MANIFEST.replace(
+        ',\n      "versionConstraint": ">=0.10.0, <0.11.0"', ""
+    )
+    assert manifest.read_text() == expected
+
+    # Setting a constraint on a usage without one appends it as the last key.
+    sysand.set_usage_constraint(tmp_path, "mock/library", "^0.11")
+    assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST.replace(
+        ">=0.10.0, <0.11.0", "^0.11"
+    )
+
+
+def test_set_usage_constraint_unchanged_does_not_touch_file(tmp_path: Path) -> None:
+    manifest = tmp_path / ".project.json"
+    manifest.write_text(SYSAND_FORMATTED_MANIFEST)
+    os.utime(manifest, ns=(1_000_000_000_000_000_000, 1_000_000_000_000_000_000))
+    before = manifest.stat()
+
+    change = sysand.set_usage_constraint(tmp_path, "mock/library", ">=0.10.0, <0.11.0")
+
+    assert change["found"] is True
+    assert change["changed"] is False
+    assert change["old_constraint"] == change["new_constraint"] == ">=0.10.0, <0.11.0"
+    after = manifest.stat()
+    assert after.st_mtime_ns == before.st_mtime_ns
+    assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
+
+
+def test_set_usage_constraint_not_found(tmp_path: Path) -> None:
+    manifest = tmp_path / ".project.json"
+    manifest.write_text(SYSAND_FORMATTED_MANIFEST)
+
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.set_usage_constraint(tmp_path, "acme/absent", "1.0.0")
+    assert excinfo.value.wrote is False
+    assert isinstance(excinfo.value, RuntimeError)
+    assert "pkg:sysand/acme/absent" in str(excinfo.value)
+
+    change = sysand.set_usage_constraint(
+        tmp_path, "acme/absent", "1.0.0", must_exist=False
+    )
+    assert change == {
+        "resource": "pkg:sysand/acme/absent",
+        "found": False,
+        "changed": False,
+        "old_constraint": None,
+        "new_constraint": None,
+    }
+    assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
+
+    # A missing manifest is an error even with must_exist=False.
+    with pytest.raises(sysand.ProjectError):
+        sysand.set_usage_constraint(
+            tmp_path / "nowhere", "acme/absent", "1.0.0", must_exist=False
+        )
+
+
+def test_set_usage_constraint_rejects_bad_input(tmp_path: Path) -> None:
+    manifest = tmp_path / ".project.json"
+    manifest.write_text(SYSAND_FORMATTED_MANIFEST)
+
+    with pytest.raises(ValueError):
+        sysand.set_usage_constraint(tmp_path, "mock/library", "nonsense")
+    with pytest.raises(ValueError):
+        sysand.set_usage_constraint(tmp_path, "ab/proj0", "1.0.0")
+    assert manifest.read_text() == SYSAND_FORMATTED_MANIFEST
+
+    manifest.write_text(
+        SYSAND_FORMATTED_MANIFEST.replace(
+            '"dir": "../local-lib"', '"resource": "pkg:sysand/mock/library"'
+        )
+    )
+    with pytest.raises(sysand.ProjectError) as excinfo:
+        sysand.set_usage_constraint(tmp_path, "mock/library", "1.0.0")
+    assert "2 times" in str(excinfo.value)
+    assert excinfo.value.wrote is False
+
+
+def test_set_usage_constraint_normalizes_hand_formatted_whitespace(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / ".project.json"
+    manifest.write_text(
+        '{"name":"hand","version":"1.0.0","usage":[{"resource":"a:b","versionConstraint":"1.0.0"}],"z":1}'
+    )
+    sysand.set_usage_constraint(tmp_path, "a:b", "2.0.0")
+    # Same keys, same order, sysand's whitespace.
+    assert (
+        manifest.read_text()
+        == """{
+  "name": "hand",
+  "version": "1.0.0",
+  "usage": [
+    {
+      "resource": "a:b",
+      "versionConstraint": "2.0.0"
+    }
+  ],
+  "z": 1
+}
+"""
+    )
+
+
+def test_add_returns_whether_a_usage_was_added(tmp_path: Path) -> None:
+    sysand.init("test_add_returns", "a", "1.2.3", tmp_path)
+
+    assert sysand.add(tmp_path, "acme-labs/my.project", ">=1.0.0") is True
+    assert sysand.add(tmp_path, "acme-labs/my.project", ">=1.0.0") is False
+    assert sysand.add(tmp_path, "acme-labs/other") is True
+
+
 def test_basic_info(caplog: pytest.LogCaptureFixture) -> None:
     level = logging.DEBUG
     logging.basicConfig(level=level)

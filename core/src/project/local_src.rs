@@ -222,6 +222,58 @@ impl LocalSrcProject {
     }
 }
 
+/// Error of [`LocalSrcProject::edit_info_document`]: either the project
+/// could not be read or written, or the edit itself failed.
+#[derive(Debug, Error)]
+pub enum EditInfoError<E> {
+    #[error(transparent)]
+    Project(#[from] LocalSrcError),
+    #[error(transparent)]
+    Edit(E),
+}
+
+impl LocalSrcProject {
+    /// Read `.project.json` as a JSON document, apply `edit`, and write the
+    /// document back in the byte shape `put_info` produces (pretty-printed,
+    /// trailing newline) — but only if `edit` changed it. An unchanged
+    /// document does not touch the file at all.
+    ///
+    /// Editing the document rather than the typed model keeps every key the
+    /// model does not know and the document's key order intact
+    /// (`serde_json` is built with `preserve_order`). The whole file is
+    /// serialized to memory before anything is written, so a failing edit or
+    /// serialization leaves the file untouched.
+    pub fn edit_info_document<F, T, E>(&mut self, edit: F) -> Result<T, EditInfoError<E>>
+    where
+        F: FnOnce(&mut serde_json::Value) -> Result<T, E>,
+    {
+        let project_json_path = self.info_path();
+
+        let text = wrapfs::read_to_string(&project_json_path).map_err(LocalSrcError::from)?;
+        let mut doc: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+            LocalSrcError::from(ProjectDeserializationError::new(&project_json_path, e))
+        })?;
+        let before = doc.clone();
+
+        let result = edit(&mut doc).map_err(EditInfoError::Edit)?;
+        if doc == before {
+            return Ok(result);
+        }
+
+        let mut buf = Vec::new();
+        serde_json::to_writer_pretty(&mut buf, &doc).map_err(|e| {
+            LocalSrcError::from(ProjectSerializationError::new(
+                format!("failed to serialize and write project info to `{project_json_path}`"),
+                e,
+            ))
+        })?;
+        buf.push(b'\n');
+        wrapfs::write(&project_json_path, buf).map_err(LocalSrcError::from)?;
+
+        Ok(result)
+    }
+}
+
 impl ProjectMut for LocalSrcProject {
     fn put_info(
         &mut self,

@@ -38,7 +38,7 @@ use sysand_core::{
     project::{
         ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
-        local_src::{LocalSrcError, LocalSrcProject},
+        local_src::{EditInfoError, LocalSrcError, LocalSrcProject},
         utils::wrapfs,
     },
     remove::do_remove_guess,
@@ -46,6 +46,7 @@ use sysand_core::{
     root::do_root,
     sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
     symbols::Language,
+    usage::{ConstraintChange, SetConstraintError, do_set_usage_constraint_local},
     utils::format_err,
 };
 use typed_path::Utf8UnixPathBuf;
@@ -505,15 +506,59 @@ pub fn do_sources_project_py(
 #[pyo3(
     signature = (path, iri, version),
 )]
-fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<()> {
+fn do_add_py(path: String, iri: String, version: Option<String>) -> PyResult<bool> {
     common_init();
 
     let mut project = LocalSrcProject::new_access(path, None);
 
     // TODO: do dependency resolution and locking?
-    match do_add_guess(&mut project, iri, version) {
-        Ok(_added) => Ok(()),
-        Err(e) => Err(PyRuntimeError::new_err(format_err(e))),
+    // `true` when a new usage was added, `false` when it was merged into an
+    // existing one.
+    do_add_guess(&mut project, iri, version).map_err(|e| PyRuntimeError::new_err(format_err(e)))
+}
+
+/// The exception classes live in Python (`sysand/_errors.py`) so that `mypy`
+/// sees their attributes; the Rust side only needs to raise them.
+mod py_errors {
+    // `import_exception!` generates an inherent `new_err` next to the
+    // `PyTypeInfo` trait method of the same name.
+    #![allow(clippy::same_name_method)]
+    pyo3::import_exception!(sysand._errors, ProjectError);
+}
+use py_errors::ProjectError;
+
+/// Returns `(matched_resource, found, changed, old_constraint, new_constraint)`.
+///
+/// Invalid input (a malformed shorthand or an invalid version requirement)
+/// raises `ValueError`; a missing, unreadable or malformed manifest and an
+/// ambiguous declaration raise `sysand.ProjectError` (`wrote` stays `False`:
+/// nothing is written unless the edit succeeds). A missing usage is *not* an
+/// error here — `found` is `False` and the Python side decides.
+#[pyfunction(name = "do_set_usage_constraint_py")]
+#[pyo3(
+    signature = (path, resource, constraint),
+)]
+fn do_set_usage_constraint_py(
+    path: String,
+    resource: String,
+    constraint: Option<String>,
+) -> PyResult<(String, bool, bool, Option<String>, Option<String>)> {
+    common_init();
+
+    let mut project = LocalSrcProject::new_access(path, None);
+
+    match do_set_usage_constraint_local(&mut project, &resource, constraint.as_deref()) {
+        Ok((resource, ConstraintChange::Replaced { old, new })) => {
+            Ok((resource, true, true, old, new))
+        }
+        Ok((resource, ConstraintChange::Unchanged { constraint })) => {
+            Ok((resource, true, false, constraint.clone(), constraint))
+        }
+        Ok((resource, ConstraintChange::NotFound)) => Ok((resource, false, false, None, None)),
+        Err(EditInfoError::Edit(
+            e @ (SetConstraintError::InvalidConstraint(..) | SetConstraintError::MalformedUsage(_)),
+        )) => Err(PyValueError::new_err(format_err(e))),
+        Err(e) => Err(ProjectError::new_err(format_err(e))),
     }
 }
 
@@ -660,6 +705,7 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_sources_env_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_sources_project_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_add_py, m)?)?;
+    m.add_function(wrap_pyfunction!(do_set_usage_constraint_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_remove_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_include_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_exclude_py, m)?)?;
