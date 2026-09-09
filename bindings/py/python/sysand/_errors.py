@@ -26,7 +26,12 @@ class ProjectError(SysandError):
     missing, malformed, or does not contain what the call needs."""
 
 
+class EnvError(SysandError):
+    """The ``.sysand`` environment is missing, unreadable or malformed."""
+
+
 __all__ = [
     "SysandError",
     "ProjectError",
+    "EnvError",
 ]

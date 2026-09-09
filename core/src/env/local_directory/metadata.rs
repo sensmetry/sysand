@@ -4,6 +4,8 @@
 use std::{fmt::Display, str::FromStr};
 
 use camino::{Utf8Path, Utf8PathBuf};
+#[cfg(feature = "python")]
+use pyo3::IntoPyObject;
 use serde::Deserialize;
 use thiserror::Error;
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value, value};
@@ -239,6 +241,7 @@ impl EnvMetadata {
 
 /// Metadata describing a project belonging to an environment.
 #[derive(Debug, Deserialize, Clone)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct EnvProject {
     /// Publisher of the project. Intended for display purposes.
     pub publisher: Option<String>,
@@ -251,6 +254,7 @@ pub struct EnvProject {
     /// to the env directory and otherwise it should be relative
     /// to the workspace root.
     #[serde(deserialize_with = "deserialize_unix_path")]
+    #[cfg_attr(feature = "python", pyo3(into_py_with = unix_path_to_py))]
     pub path: Utf8UnixPathBuf,
     /// List of identifiers (IRIs) used for the project.
     /// The first identifier is considered the canonical
@@ -280,10 +284,20 @@ pub struct EnvProject {
 // Serde by default will allow both variants to coexist in the file, this
 // is desirable to have forward compat.
 #[derive(Clone, Debug, Deserialize)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[serde(untagged)]
 pub enum EnvProjectChecksum {
     Kpar { kpar_cksum: String },
     Project { src_cksum: String },
+}
+
+#[cfg(feature = "python")]
+fn unix_path_to_py<'py>(
+    path: std::borrow::Cow<'_, Utf8UnixPathBuf>,
+    py: pyo3::Python<'py>,
+) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::PyAny>> {
+    use pyo3::IntoPyObjectExt as _;
+    path.as_str().into_bound_py_any(py)
 }
 
 impl From<ProjectChecksum> for EnvProjectChecksum {

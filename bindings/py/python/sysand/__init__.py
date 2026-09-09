@@ -12,11 +12,17 @@ from ._model import (
     Dependencies,
     CompressionMethod,
     UsageConstraintChange,
+    EnvProject,
+    EnvProjectChecksum,
+    EnvProjectChecksumKpar,
+    EnvProjectChecksumSrc,
+    Discovery,
 )
 
 from ._errors import (
     SysandError,
     ProjectError,
+    EnvError,
 )
 
 from ._info import info_path, info
@@ -59,6 +65,10 @@ from ._root import (
     root,
 )
 
+from ._discover import (
+    discover,
+)
+
 __all__ = [
     "InterchangeProjectUsageResource",
     "InterchangeProjectUsageDirectory",
@@ -70,9 +80,15 @@ __all__ = [
     "Dependencies",
     "CompressionMethod",
     "UsageConstraintChange",
+    "EnvProject",
+    "EnvProjectChecksum",
+    "EnvProjectChecksumKpar",
+    "EnvProjectChecksumSrc",
+    "Discovery",
     ## Errors
     "SysandError",
     "ProjectError",
+    "EnvError",
     ## Add
     "add",
     ## Usage
@@ -96,4 +112,6 @@ __all__ = [
     "sources",
     ## Root
     "root",
+    ## Discover
+    "discover",
 ]

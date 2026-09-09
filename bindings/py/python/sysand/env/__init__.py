@@ -10,6 +10,14 @@ from ._install import (
     install_path,
 )
 
+from ._projects import (
+    projects,
+)
+
+from ._sources import (
+    sources,
+)
+
 from pathlib import Path
 
 
@@ -22,4 +30,8 @@ __all__ = [
     "DEFAULT_ENV_NAME",
     ## Install
     "install_path",
+    ## Projects
+    "projects",
+    ## Sources
+    "sources",
 ]
