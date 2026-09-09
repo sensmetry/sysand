@@ -85,8 +85,10 @@ class SyncError(SysandError):
     """``sync`` failed part-way.
 
     Attributes:
-        partial: what was installed and pruned before the failure — a
-            ``SyncOutcome`` dict — or ``None`` when nothing was.
+        partial: a :class:`SyncOutcome` dict with what was installed and
+            pruned before the failure (``installed`` and ``pruned`` are
+            empty when nothing was); ``kept`` lists the entries checked
+            before it.
     """
 
     partial: typing.Optional[typing.Dict[str, typing.Any]]

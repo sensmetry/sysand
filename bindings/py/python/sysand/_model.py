@@ -104,6 +104,27 @@ class VersionListing(typing.TypedDict):
     index cannot publish such entries, but other sources can."""
 
 
+class SyncedProject(typing.TypedDict):
+    """One project :func:`sysand.sync` installed, pruned or kept."""
+
+    iri: str
+    version: str
+    path: typing.Optional[str]
+    """Install directory relative to the environment directory, or ``None``
+    once the project has been pruned."""
+
+
+class SyncOutcome(typing.TypedDict):
+    """Result of :func:`sysand.sync`: every change it made, and what it left
+    alone. Also carried by :class:`SyncError` as ``partial`` when a sync
+    failed part-way."""
+
+    installed: typing.List[SyncedProject]
+    pruned: typing.List[SyncedProject]
+    kept: typing.List[SyncedProject]
+    """Lockfile entries that were already installed and verified."""
+
+
 class LockedProject(typing.TypedDict):
     """One ``[[project]]`` entry of a lockfile, see :func:`sysand.lock`."""
 

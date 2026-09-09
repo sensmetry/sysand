@@ -96,6 +96,34 @@ pub enum SyncError<
     EnvWrite(Env::WriteError),
 }
 
+/// One project `do_sync` installed, pruned or kept, by its first identifier.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncedProject {
+    pub iri: String,
+    pub version: String,
+}
+
+/// What a sync did and, on failure, what it had done so far.
+///
+/// Filled in progressively, so a caller that passes `&mut outcome` and gets
+/// an `Err` back holds exactly what was installed and pruned before the
+/// failure.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SyncOutcome {
+    pub installed: Vec<SyncedProject>,
+    pub pruned: Vec<SyncedProject>,
+    /// Lockfile entries that were already installed and verified, or
+    /// editable; provided projects are not recorded.
+    pub kept: Vec<SyncedProject>,
+}
+
+impl SyncOutcome {
+    /// Whether anything on disk changed.
+    pub fn wrote(&self) -> bool {
+        !self.installed.is_empty() || !self.pruned.is_empty()
+    }
+}
+
 // TODO: take `lock` by value
 // TODO: Use AnyProject::try_from_source to avoid having so many arguments
 pub fn do_sync<
@@ -125,6 +153,7 @@ pub fn do_sync<
     remote_git_storage: Option<CreateRemoteGitStorage>,
     provided_usages: &ProvidedProjects,
     no_prune: bool,
+    outcome: &mut SyncOutcome,
 ) -> Result<(), SyncError<UrlParseError, GitError, Environment>>
 where
     Environment: ReadEnvironment + WriteEnvironment,
@@ -147,6 +176,13 @@ where
     let syncing = "Syncing";
     let header = crate::style::get_style_config().header;
     log::info!("{header}{syncing:>12}{header:#} env");
+
+    let synced = |project: &crate::lock::Project| {
+        project.identifiers.first().map(|iri| SyncedProject {
+            iri: iri.clone(),
+            version: project.version.clone(),
+        })
+    };
 
     // Do `continue 'main_loop` if it becomes clear that no env changes will be made
     // for the current iteration `project`
@@ -197,6 +233,7 @@ where
                         == ProjectChecksumResult::Match
                 {
                     log::debug!("`{iri}` found in .sysand");
+                    outcome.kept.extend(synced(project));
                     continue 'main_loop;
                 }
             }
@@ -208,6 +245,7 @@ where
                 Source::Editable { editable } => {
                     // Nothing to install for editable
                     log::debug!("skipping installation of editable project from `{editable}`");
+                    outcome.kept.extend(synced(project));
                     continue 'main_loop;
                 }
                 Source::LocalSrc { src_path, checksum } => {
@@ -356,6 +394,7 @@ where
                 }
             }
         }
+        outcome.installed.extend(synced(project));
         updated = true;
     }
 
@@ -378,8 +417,16 @@ where
                 }
             }
         }
+        // `uris()` may yield one entry per installed version; visit each
+        // project once.
+        let mut env_uris = Vec::new();
         for p_id in env.uris().map_err(SyncError::EnvRead)? {
             let p_id = p_id.map_err(SyncError::EnvRead)?;
+            if !env_uris.contains(&p_id) {
+                env_uris.push(p_id);
+            }
+        }
+        for p_id in env_uris {
             // TODO: more efficient interface to get uri+version+checksum
             if let Some(versions) = lock_projects.get(&p_id.as_str()) {
                 // TODO: make sure checksums match; current env trait does not expose them
@@ -396,11 +443,25 @@ where
                     );
                     env.del_project_version(&p_id, &v)
                         .map_err(SyncError::EnvWrite)?;
+                    outcome.pruned.push(SyncedProject {
+                        iri: p_id.clone(),
+                        version: v,
+                    });
                     updated = true;
                 }
             } else {
                 log::debug!("deleting project `{p_id}` from env: not present in lock");
+                let mut removed = Vec::new();
+                for v in env.versions(&p_id).map_err(SyncError::EnvRead)? {
+                    removed.push(v.map_err(SyncError::EnvRead)?);
+                }
                 env.del_uri(&p_id).map_err(SyncError::EnvWrite)?;
+                outcome
+                    .pruned
+                    .extend(removed.into_iter().map(|version| SyncedProject {
+                        iri: p_id.clone(),
+                        version,
+                    }));
                 updated = true;
             }
         }
