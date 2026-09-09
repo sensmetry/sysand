@@ -10,6 +10,7 @@ use url::ParseError;
 
 use sysand_core::{
     auth::HTTPAuthentication,
+    commands::sync::{SyncError, SyncOutcome},
     env::local_directory::LocalDirectoryEnvironment,
     lock::Lock,
     project::{
@@ -26,6 +27,13 @@ use sysand_core::{
     workspace::Workspace,
 };
 
+/// The error `command_sync` fails with when the sync itself fails (as
+/// opposed to writing the environment metadata); reachable from the
+/// returned `anyhow::Error` through `downcast_ref`.
+pub type CliSyncError = SyncError<ParseError, GixDownloadedError, LocalDirectoryEnvironment>;
+
+/// Install the lockfile into `env`. `outcome` is filled in progressively,
+/// so on `Err` it holds what was installed and pruned before the failure.
 pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     lock: &Lock,
     project_root: P,
@@ -36,6 +44,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
     auth_policy: Arc<Policy>,
     ws: Option<&Workspace>,
     no_prune: bool,
+    outcome: &mut SyncOutcome,
 ) -> Result<()> {
     #[expect(clippy::or_fun_call, reason = "cheap")]
     let relative_root = ws.map_or(project_root.as_ref(), Workspace::root_path);
@@ -138,6 +147,7 @@ pub fn command_sync<P: AsRef<Utf8Path>, Policy: HTTPAuthentication>(
         ),
         provided_usages,
         no_prune,
+        outcome,
     )?;
 
     env.merge_lock(lock, ws);

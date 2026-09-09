@@ -7,9 +7,10 @@ Each test starts from `baseline` / `make_baseline` (conftest.py): a real
 project whose manifest, lockfile and `.sysand` were produced by the shipped
 CLI against the mock index, with the library pinned to the 0.10 line. The
 tests then move that constraint to the 0.11 line with
-`sysand.set_usage_constraint` and check what happened to the manifest,
-resolve the result with `sysand.lock`, or check what the tool driving the
-migration can find out about the project before it starts.
+`sysand.set_usage_constraint`, resolve the result with `sysand.lock`, install
+it with `sysand.sync` and check the environment with `sysand.env.projects`;
+or they check what the tool driving the migration can find out about the
+project before it starts.
 """
 
 from __future__ import annotations
@@ -41,6 +42,18 @@ def project_version(projects: typing.Sequence[dict], iri: str) -> str | None:
         if iri in project["identifiers"]:
             return project["version"]
     return None
+
+
+def env_versions(baseline: Baseline) -> dict[str, str]:
+    return {
+        project["identifiers"][0]: project["version"]
+        for project in sysand.env.projects(baseline.env_dir)
+        if project["identifiers"]
+    }
+
+
+def changed(entries: typing.Sequence[dict]) -> set[tuple[str, str]]:
+    return {(e["iri"], e["version"]) for e in entries}
 
 
 def migrate_constraint(baseline: Baseline) -> None:
@@ -218,3 +231,179 @@ def test_new_version_not_published_yet(baseline: Baseline) -> None:
     result = sysand.lock(baseline.root, resolution=res, write=False)
     assert project_version(result["projects"], LIBRARY) == "0.11.0"
     assert baseline.snapshot() == before
+
+
+# ---------------------------------------------------------------------------
+# Installing the new version
+
+
+def test_root_pins_library(baseline: Baseline) -> None:
+    index = baseline.index
+    index.publish(
+        LIBRARY, "0.11.0", files={"library.sysml": b"package Library; // 0.11\n"}
+    )
+    res = resolution(index)
+
+    migrate_constraint(baseline)
+
+    # What is available, before anything is decided.
+    listing = sysand.versions(LIBRARY, resolution=res)
+    assert listing["versions"] == ["0.11.0", "0.10.3"]
+    assert listing["ignored"] == []
+
+    # The resolution, shown to the user before anything is written.
+    lock_before = baseline.lockfile.read_bytes()
+    dry = sysand.lock(baseline.root, resolution=res, write=False)
+    assert baseline.lockfile.read_bytes() == lock_before
+    assert project_version(dry["projects"], LIBRARY) == "0.11.0"
+
+    written = sysand.lock(baseline.root, resolution=res)
+    assert written["text"] == dry["text"]
+    assert baseline.lockfile.read_text() == written["text"]
+
+    outcome = sysand.sync(baseline.root, resolution=res)
+    assert changed(outcome["installed"]) == {(LIBRARY, "0.11.0")}
+    assert changed(outcome["pruned"]) == {(LIBRARY, "0.10.3")}
+    assert outcome["kept"] == []
+
+    # What the environment holds afterwards.
+    assert env_versions(baseline) == {LIBRARY: "0.11.0"}
+    [installed] = baseline.installed()
+    assert installed.endswith("_0.11.0")
+    assert (baseline.env_dir / "lib" / installed / "library.sysml").read_bytes() == (
+        b"package Library; // 0.11\n"
+    )
+
+
+def test_dependent_pins_internally(
+    make_baseline: MakeBaseline, mock_index: MockIndex
+) -> None:
+    baseline = _dependent_baseline(make_baseline, mock_index, "0.10.1")
+    # The new library version appears together with a dependent release
+    # that follows it.
+    mock_index.publish(LIBRARY, "0.11.0")
+    mock_index.publish(
+        DEPENDENT,
+        "1.1.0",
+        usage=[usage(LIBRARY, TARGET_CONSTRAINT)],
+        files={"dep.sysml": b"package Dep; // 1.1.0\n"},
+    )
+    res = resolution(mock_index)
+
+    migrate_constraint(baseline)
+    result = sysand.lock(baseline.root, resolution=res)
+    assert project_version(result["projects"], LIBRARY) == "0.11.0"
+    assert project_version(result["projects"], DEPENDENT) == "1.1.0"
+
+    outcome = sysand.sync(baseline.root, resolution=res)
+    assert changed(outcome["installed"]) == {
+        (LIBRARY, "0.11.0"),
+        (DEPENDENT, "1.1.0"),
+    }
+    assert changed(outcome["pruned"]) == {
+        (LIBRARY, "0.10.3"),
+        (DEPENDENT, "1.0.0"),
+    }
+    assert env_versions(baseline) == {LIBRARY: "0.11.0", DEPENDENT: "1.1.0"}
+
+
+def test_open_ended_dependent(
+    make_baseline: MakeBaseline, mock_index: MockIndex
+) -> None:
+    # The solver is right to keep dependent 1.0.0 and install 0.11.0; only
+    # the caller's own check after `sync` can notice if the dependent no
+    # longer works against the new library. sysand is silent here by design,
+    # and `env.projects()` is what that check works from.
+    baseline = _dependent_baseline(make_baseline, mock_index, ">=0.10")
+    mock_index.publish(LIBRARY, "0.11.0")
+    res = resolution(mock_index)
+
+    migrate_constraint(baseline)
+    result = sysand.lock(baseline.root, resolution=res)
+    assert project_version(result["projects"], LIBRARY) == "0.11.0"
+    assert project_version(result["projects"], DEPENDENT) == "1.0.0"
+
+    outcome = sysand.sync(baseline.root, resolution=res)
+    assert changed(outcome["installed"]) == {(LIBRARY, "0.11.0")}
+    assert changed(outcome["pruned"]) == {(LIBRARY, "0.10.3")}
+    assert changed(outcome["kept"]) == {(DEPENDENT, "1.0.0")}
+
+    projects = sysand.env.projects(baseline.env_dir)
+    assert env_versions(baseline) == {LIBRARY: "0.11.0", DEPENDENT: "1.0.0"}
+    [dependent] = [p for p in projects if DEPENDENT in p["identifiers"]]
+    assert dependent["editable"] is False
+    assert (baseline.env_dir / dependent["path"] / "dep.sysml").is_file()
+
+
+# ---------------------------------------------------------------------------
+# Operational cases
+
+
+def test_authenticated_index(
+    baseline: Baseline, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    index = baseline.index
+    index.publish(LIBRARY, "0.11.0")
+    index.require_bearer("s3cret")
+    res = resolution(index)
+    # Globs do not cross `/` (`core/src/auth.rs`); `**` matches every path.
+    url_glob = index.url + "**"
+
+    with pytest.raises(sysand.AuthError):
+        sysand.versions(LIBRARY, resolution=res)
+    with pytest.raises(sysand.AuthError):
+        sysand.versions(LIBRARY, resolution=res, auth=sysand.AuthPolicy.none())
+
+    bearer = sysand.AuthPolicy.bearer(url_glob, "s3cret")
+    assert "s3cret" not in repr(bearer)
+    assert "s3cret" not in str(bearer)
+    listing = sysand.versions(LIBRARY, resolution=res, auth=bearer)
+    assert listing["versions"] == ["0.11.0", "0.10.3"]
+
+    # The CLI's own resolution, env vars only (`sysand/src/cred_env.rs`).
+    monkeypatch.setenv("SYSAND_CRED_TEST", url_glob)
+    monkeypatch.setenv("SYSAND_CRED_TEST_BEARER_TOKEN", "s3cret")
+    from_env = sysand.AuthPolicy.from_env(keyring=False)
+    assert "s3cret" not in repr(from_env)
+    listing = sysand.versions(LIBRARY, resolution=res, auth=from_env)
+    assert listing["versions"] == ["0.11.0", "0.10.3"]
+
+    migrate_constraint(baseline)
+    with pytest.raises(sysand.AuthError) as excinfo:
+        sysand.lock(baseline.root, resolution=res, write=False)
+    assert excinfo.value.wrote is False
+    sysand.lock(baseline.root, resolution=res, auth=bearer)
+    outcome = sysand.sync(baseline.root, resolution=res, auth=bearer)
+    assert changed(outcome["installed"]) == {(LIBRARY, "0.11.0")}
+
+
+def test_half_synced(make_baseline: MakeBaseline, mock_index: MockIndex) -> None:
+    baseline = _dependent_baseline(make_baseline, mock_index, ">=0.10")
+    mock_index.publish(LIBRARY, "0.11.0")
+    mock_index.publish(DEPENDENT, "1.1.0", usage=[usage(LIBRARY, TARGET_CONSTRAINT)])
+    res = resolution(mock_index)
+
+    migrate_constraint(baseline)
+    result = sysand.lock(baseline.root, resolution=res)
+    iri_by_name = {"library": LIBRARY, "dependent": DEPENDENT}
+    # `sync` installs in lockfile order; fail the archive of the entry that
+    # comes last so at least one install has already landed.
+    to_install = [p for p in result["projects"] if p["name"] in iri_by_name]
+    assert len(to_install) == 2
+    last = to_install[-1]
+    last_iri = iri_by_name[last["name"]]
+    first_iri = iri_by_name[to_install[0]["name"]]
+    mock_index.fail_next(MockIndex.kpar_path(last_iri, last["version"]), 500)
+
+    with pytest.raises(sysand.SyncError) as excinfo:
+        sysand.sync(baseline.root, resolution=res)
+    error = excinfo.value
+    assert error.wrote is True
+    assert changed(error.partial["installed"]) == {
+        (first_iri, to_install[0]["version"])
+    }
+    assert (last_iri, last["version"]) not in changed(error.partial["installed"])
+    assert error.partial["pruned"] == [], "a failed sync must not have pruned"
+    # The 0.10.3 state is still installed alongside the partial result, so a
+    # caller that kept a copy of `.sysand` can restore it by file copy.
+    assert any(n.endswith("_0.10.3") for n in baseline.installed())
