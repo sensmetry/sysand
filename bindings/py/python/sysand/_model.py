@@ -4,6 +4,9 @@
 from enum import Enum, auto
 import typing
 
+# IMPORTANT
+# Keep the types here in sync with Rust types from sysand-core.
+#
 # Use raw types for components, as these classes are converted
 # to/from Rust `*Raw` model type variants
 
