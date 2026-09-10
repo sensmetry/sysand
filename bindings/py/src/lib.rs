@@ -361,7 +361,7 @@ fn auth_hint(auth: &AuthSpec, policy: &CliAuthPolicy, url: &str) -> String {
         _ => match policy.env_policy().publish_bearer_auth_map() {
             Ok(map) => match map.lookup(url) {
                 GlobMapResult::Found(entry) => format!(
-                    "the bearer token in `SYSAND_CRED_{label}_BEARER_TOKEN` (URL glob \
+                    "the bearer token in `SYSAND_CRED_{label}_BEARER_TOKEN` (URL glob\n\
                      `SYSAND_CRED_{label}`) was rejected by `{url}`",
                     label = entry.label
                 ),
