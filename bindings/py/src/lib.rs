@@ -434,7 +434,7 @@ fn do_info_py(
                 .build()?,
         );
 
-        // Without a `Resolution` no index is consulted, as before.
+        // Without a `Resolution` no index is consulted
         let index_urls = index_locations(resolution.as_ref(), None)?;
         let auth_policy = build_auth_policy(&auth)?;
 
