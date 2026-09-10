@@ -347,8 +347,8 @@ type StandardResolverError = <StandardResolver<CliAuthPolicy> as ResolveRead>::E
 fn auth_hint(auth: &AuthSpec, policy: &CliAuthPolicy, url: &str) -> String {
     match auth.kind.as_str() {
         "none" => format!(
-            "no credentials were configured for `{url}`; pass `auth=AuthPolicy.bearer(...)`, \
-             `AuthPolicy.basic(...)` or `AuthPolicy.from_env()`"
+            "no credentials were configured for `{url}`;\n\
+            pass `auth=AuthPolicy.bearer(...)`, `AuthPolicy.basic(...)` or `AuthPolicy.from_env()`"
         ),
         "bearer" | "basic" => {
             let glob = auth.url_glob.as_deref().unwrap_or("");
