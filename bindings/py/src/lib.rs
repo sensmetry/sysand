@@ -11,17 +11,21 @@ use pyo3::{
     types::PyAny,
 };
 use semver::{Version, VersionReq};
+use sysand::{CliAuthPolicy, DEFAULT_INDEX_URL, standard_auth_policy};
 use sysand_core::{
     add::do_add_guess,
-    auth::Unauthenticated,
+    auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
     build::{KParBuildError, KparCompressionMethod, do_build_kpar},
     commands::{
         env::{EnvError, do_env_local_dir},
         init::do_init_local_file,
     },
+    config::{Config, local_fs::load_configs},
     discover::{discover_project, discover_workspace},
     env::{
         DEFAULT_ENV_NAME, ReadEnvironment as _, WriteEnvironment as _,
+        discovery::DiscoveryError,
+        index::{HttpFetchError, IndexEnvironmentError},
         local_directory::{
             LocalDirectoryEnvironment, LocalReadError, LocalWriteError,
             metadata::{EnvMetadataError, EnvProject, EnvProjectChecksum},
@@ -31,7 +35,7 @@ use sysand_core::{
     exclude::do_exclude,
     include::do_include,
     index_location::IndexLocation,
-    info::{InfoProjectError, do_info, do_info_project},
+    info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
@@ -44,7 +48,12 @@ use sysand_core::{
         utils::wrapfs,
     },
     remove::do_remove_guess,
-    resolve::{net_utils::create_reqwest_client, standard::standard_resolver},
+    resolve::{
+        ResolveRead,
+        combined::CombinedResolverError,
+        net_utils::create_reqwest_client,
+        standard::{StandardResolver, standard_resolver},
+    },
     root::do_root,
     sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
     symbols::Language,
@@ -213,18 +222,211 @@ fn do_info_py_path(
     }
 }
 
+/// Pure configuration of an authentication policy, as `AuthPolicy._spec()`
+/// emits it. The Rust policy is built per call, inside `py.detach`.
+#[derive(FromPyObject, Debug)]
+#[pyo3(from_item_all)]
+struct AuthSpec {
+    kind: String,
+    #[pyo3(default)]
+    keyring: bool,
+    #[pyo3(default)]
+    url_glob: Option<String>,
+    #[pyo3(default)]
+    secret: Option<String>,
+    #[pyo3(default)]
+    username: Option<String>,
+    #[pyo3(default)]
+    label: Option<String>,
+}
+
+impl Default for AuthSpec {
+    fn default() -> Self {
+        Self {
+            kind: "none".to_owned(),
+            keyring: false,
+            url_glob: None,
+            secret: None,
+            username: None,
+            label: None,
+        }
+    }
+}
+
+/// Pure configuration of index resolution, as `Resolution._spec()` emits
+/// it; mirrors the CLI's `ResolutionOptions`.
+#[derive(FromPyObject, Debug)]
+#[pyo3(from_item_all)]
+struct ResolutionSpec {
+    #[pyo3(default)]
+    index: Vec<String>,
+    #[pyo3(default)]
+    default_index: Vec<String>,
+    #[pyo3(default)]
+    no_index: bool,
+    /// Read by `lock`/`sync`, which build the provided-projects set.
+    #[expect(dead_code, reason = "read only by lock and sync, not exposed yet")]
+    #[pyo3(default)]
+    include_std: bool,
+    use_config: bool,
+}
+
+/// Every `AuthPolicy` variant becomes the same concrete policy type as the
+/// CLI's, so the resolver stack is monomorphised once. `none()` is an
+/// empty credential map, which behaves as unauthenticated.
+fn build_auth_policy(spec: &AuthSpec) -> PyResult<Arc<CliAuthPolicy>> {
+    let policy = match spec.kind.as_str() {
+        "none" => CliAuthPolicy::without_store(
+            StandardHTTPAuthenticationBuilder::new()
+                .build()
+                .map_err(|e| PyAuthError::new_err(format_err(e)))?,
+        ),
+        "env" => standard_auth_policy(spec.keyring)
+            .map_err(|e| PyAuthError::new_err(format!("{e:#}")))?,
+        "bearer" | "basic" => {
+            let missing = || PyValueError::new_err("incomplete AuthPolicy specification");
+            let url_glob = spec.url_glob.as_deref().ok_or_else(missing)?;
+            let secret = spec.secret.as_deref().ok_or_else(missing)?;
+            let mut builder = StandardHTTPAuthenticationBuilder::new();
+            if spec.kind == "bearer" {
+                builder.add_bearer_auth(
+                    url_glob,
+                    secret,
+                    spec.label.as_deref().unwrap_or("python"),
+                );
+            } else {
+                let username = spec.username.as_deref().ok_or_else(missing)?;
+                builder.add_basic_auth(url_glob, username, secret);
+            }
+            CliAuthPolicy::without_store(builder.build().map_err(|e| {
+                PyValueError::new_err(format!("invalid URL glob `{url_glob}`: {e}"))
+            })?)
+        }
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown AuthPolicy kind `{other}`"
+            )));
+        }
+    };
+    Ok(Arc::new(policy))
+}
+
+/// The index URLs a call resolves against: `None` means "no index" (the
+/// `no_index` flag, or no `Resolution` at all), otherwise the CLI's merge of
+/// explicit indexes, configuration files, and the default index.
+fn index_locations(
+    spec: Option<&ResolutionSpec>,
+    project_root: Option<&Utf8Path>,
+) -> PyResult<Option<Vec<IndexLocation>>> {
+    let Some(spec) = spec else {
+        return Ok(None);
+    };
+    if spec.no_index {
+        return Ok(None);
+    }
+    let config = if spec.use_config {
+        load_configs(project_root.unwrap_or_else(|| Utf8Path::new(".")))
+            .map_err(|e| ProjectError::new_err(format_err(e)))?
+    } else {
+        Config::default()
+    };
+    let locations = config
+        .index_urls(
+            spec.index.clone(),
+            vec![DEFAULT_INDEX_URL.to_owned()],
+            spec.default_index.clone(),
+        )
+        .map_err(|e| PyValueError::new_err(format_err(e)))?;
+    Ok(Some(locations))
+}
+
+type StandardResolverError = <StandardResolver<CliAuthPolicy> as ResolveRead>::Error;
+
+/// What to tell the user about an HTTP 401/403 from `url`, given the
+/// policy that was in force. Never includes a secret.
+fn auth_hint(auth: &AuthSpec, policy: &CliAuthPolicy, url: &str) -> String {
+    match auth.kind.as_str() {
+        "none" => format!(
+            "no credentials were configured for `{url}`;\n\
+            pass `auth=AuthPolicy.bearer(...)`, `AuthPolicy.basic(...)` or `AuthPolicy.from_env()`"
+        ),
+        "bearer" | "basic" => {
+            let glob = auth.url_glob.as_deref().unwrap_or("");
+            format!(
+                "the {} credential for URL glob `{glob}`\n\
+                was rejected by, or does not match, `{url}`",
+                auth.kind
+            )
+        }
+        _ => match policy.env_policy().publish_bearer_auth_map() {
+            Ok(map) => match map.lookup(url) {
+                GlobMapResult::Found(entry) => format!(
+                    "the bearer token in `SYSAND_CRED_{label}_BEARER_TOKEN` (URL glob\n\
+                     `SYSAND_CRED_{label}`) was rejected by `{url}`",
+                    label = entry.label
+                ),
+                GlobMapResult::NotFound => {
+                    format!("no `SYSAND_CRED_*` bearer token matches `{url}`")
+                }
+                GlobMapResult::Ambiguous(entries) => format!(
+                    "several `SYSAND_CRED_*` URL globs match `{url}`:\n{}",
+                    entries
+                        .iter()
+                        .map(|(_, e)| format!("`SYSAND_CRED_{}`", e.label))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            },
+            Err(_) => format!("credentials from `SYSAND_CRED_*` were rejected by `{url}`"),
+        },
+    }
+}
+
+/// Typed exception for a failed `info`. The resolver's error type is known
+/// statically, so this matches variants rather than walking `source()`
+/// (the `transparent` wrappers in between would collapse that chain).
+fn info_error_to_pyerr(
+    err: InfoError<StandardResolverError>,
+    auth: &AuthSpec,
+    policy: &CliAuthPolicy,
+) -> PyErr {
+    let message = format_err(&err);
+    match &err {
+        InfoError::NotFound { .. } => PyNotFoundError::new_err(message),
+        InfoError::Resolution(CombinedResolverError::Index(
+            IndexEnvironmentError::Discovery(DiscoveryError::Fetch(fetch))
+            | IndexEnvironmentError::Fetch(fetch),
+        )) => match fetch {
+            HttpFetchError::BadHttpStatus { url, status }
+                if matches!(status.as_u16(), 401 | 403) =>
+            {
+                PyAuthError::new_err(format!("{message}\n  {}", auth_hint(auth, policy, url)))
+            }
+            // Connection-level failures are not the index's fault.
+            HttpFetchError::Request { .. } => PyResolutionError::new_err(message),
+            _ => PyIndexProtocolError::new_err(message),
+        },
+        InfoError::Resolution(CombinedResolverError::Index(_)) => {
+            PyIndexProtocolError::new_err(message)
+        }
+        _ => PyResolutionError::new_err(message),
+    }
+}
+
 #[pyfunction(name = "do_info_py")]
 #[pyo3(
-    signature = (uri, index_urls),
+    signature = (uri, resolution, auth),
 )]
 fn do_info_py(
     py: Python,
     uri: String,
-    index_urls: Option<Vec<String>>,
+    resolution: Option<ResolutionSpec>,
+    auth: Option<AuthSpec>,
 ) -> PyResult<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)> {
     common_init();
 
     py.detach(|| {
+        let auth = auth.unwrap_or_default();
         let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
 
         let runtime = Arc::new(
@@ -233,32 +435,17 @@ fn do_info_py(
                 .build()?,
         );
 
-        let index_url = index_urls
-            .map(|url_strs| {
-                url_strs
-                    .iter()
-                    .map(|url_str| IndexLocation::parse(url_str))
-                    .collect()
-            })
-            .transpose()
-            .map_err(|err| PyValueError::new_err(format_err(err)))?;
+        // Without a `Resolution` no index is consulted
+        let index_urls = index_locations(resolution.as_ref(), None)?;
+        let auth_policy = build_auth_policy(&auth)?;
 
-        let combined_resolver = standard_resolver(
-            None,
-            Some(client),
-            index_url,
-            runtime,
-            // FIXME: Add Python support for authentication
-            Arc::new(Unauthenticated {}),
-        )
-        .map_err(|err| PyValueError::new_err(format_err(err)))?;
+        let combined_resolver =
+            standard_resolver(None, Some(client), index_urls, runtime, auth_policy.clone())
+                .map_err(|err| PyValueError::new_err(format_err(err)))?;
 
         let uri = Iri::parse(uri)
             .map_err(|(e, input)| PyValueError::new_err(format!("invalid IRI `{input}`: {e}")))?;
-        match do_info(&uri, &combined_resolver) {
-            Ok(info_meta) => Ok(info_meta),
-            Err(e) => Err(PyRuntimeError::new_err(format_err(e))),
-        }
+        do_info(&uri, &combined_resolver).map_err(|e| info_error_to_pyerr(e, &auth, &auth_policy))
     })
 }
 
@@ -527,9 +714,16 @@ mod py_errors {
     #![allow(clippy::same_name_method)]
     pyo3::import_exception!(sysand._errors, ProjectError);
     pyo3::import_exception!(sysand._errors, EnvError);
+    pyo3::import_exception!(sysand._errors, ResolutionError);
+    pyo3::import_exception!(sysand._errors, NotFoundError);
+    pyo3::import_exception!(sysand._errors, AuthError);
+    pyo3::import_exception!(sysand._errors, IndexProtocolError);
 }
 // `sysand_core::commands::env::EnvError` is already in scope under that name.
-use py_errors::{EnvError as PyEnvError, ProjectError};
+use py_errors::{
+    AuthError as PyAuthError, EnvError as PyEnvError, IndexProtocolError as PyIndexProtocolError,
+    NotFoundError as PyNotFoundError, ProjectError, ResolutionError as PyResolutionError,
+};
 
 /// Returns `(matched_resource, found, changed, old_constraint, new_constraint)`.
 ///

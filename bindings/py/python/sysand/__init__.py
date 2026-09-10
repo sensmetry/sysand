@@ -22,7 +22,18 @@ from ._model import (
 from ._errors import (
     SysandError,
     ProjectError,
+    ResolutionError,
+    NotFoundError,
+    SolveError,
+    AuthError,
+    IndexProtocolError,
+    SyncError,
     EnvError,
+)
+
+from ._auth import (
+    AuthPolicy,
+    Resolution,
 )
 
 from ._info import info_path, info
@@ -88,7 +99,16 @@ __all__ = [
     ## Errors
     "SysandError",
     "ProjectError",
+    "ResolutionError",
+    "NotFoundError",
+    "SolveError",
+    "AuthError",
+    "IndexProtocolError",
+    "SyncError",
     "EnvError",
+    ## Auth and index configuration
+    "AuthPolicy",
+    "Resolution",
     ## Add
     "add",
     ## Usage

@@ -21,7 +21,10 @@ use fluent_uri::Iri;
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser as _;
 use sysand_core::{
-    auth::{HTTPAuthentication, StandardHTTPAuthenticationBuilder, StandardLazyHTTPAuthentication},
+    auth::{
+        HTTPAuthentication, StandardHTTPAuthentication, StandardHTTPAuthenticationBuilder,
+        StandardLazyHTTPAuthentication,
+    },
     commands::lock::DEFAULT_LOCKFILE_NAME,
     config::{
         Config,
@@ -150,6 +153,58 @@ fn set_panic_hook() {
     }));
 }
 
+/// The eager part of the CLI's credential resolution: every validated
+/// `SYSAND_CRED_*` group composed into one policy. Malformed groups are an
+/// error naming the variable to fix.
+pub fn env_auth_policy() -> Result<StandardHTTPAuthentication> {
+    // Validation guarantees every group has a pattern and at least one
+    // complete scheme, so iterating the patterns covers every group.
+    let groups = cred_env::validated_env_groups()?;
+    let mut auths_builder = StandardHTTPAuthenticationBuilder::new();
+    for (k, pattern) in &groups.patterns {
+        if let (Some(username), Some(password)) =
+            (groups.basic_users.get(k), groups.basic_passwords.get(k))
+        {
+            log::debug!("auth: env vars specify HTTP basic for URL glob `{pattern}`");
+            auths_builder.add_basic_auth(pattern, username, password);
+        }
+        if let Some(token) = groups.bearer_tokens.get(k) {
+            log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
+            // The label lets a publish auth failure name the
+            // `SYSAND_CRED_<LABEL>` variable to fix.
+            auths_builder.add_bearer_auth(pattern, token, k);
+        }
+    }
+    Ok(auths_builder.build()?)
+}
+
+/// The CLI's own credential resolution: [`env_auth_policy`] composed with
+/// the lazily read OS credential store that `sysand auth login` writes.
+/// Used by `run_cli` and by the language bindings, so a binding
+/// authenticates exactly as the CLI does.
+///
+/// Opening the store only resolves a lock file path; no keychain access
+/// happens until a request actually needs a stored credential. An
+/// unavailable store is a warning, not an error. With
+/// `use_credential_store == false` the store is never opened and only
+/// `SYSAND_CRED_*` credentials are used — a policy that can never prompt.
+pub fn standard_auth_policy(use_credential_store: bool) -> Result<CliAuthPolicy> {
+    let env_auth_policy = env_auth_policy()?;
+    if !use_credential_store {
+        return Ok(CliAuthPolicy::without_store(env_auth_policy));
+    }
+    Ok(match credential_store::open_cli_credential_store() {
+        Ok(store) => CliAuthPolicy::new(env_auth_policy, store),
+        Err(err) => {
+            log::warn!(
+                "credential store unavailable: {err};\n\
+                 continuing with `SYSAND_CRED_*` credentials only"
+            );
+            CliAuthPolicy::without_store(env_auth_policy)
+        }
+    })
+}
+
 pub fn run_cli(args: cli::Args) -> Result<()> {
     sysand_core::style::set_style_config(crate::style::CONFIG);
 
@@ -239,38 +294,7 @@ pub fn run_cli(args: cli::Args) -> Result<()> {
         command => command,
     };
 
-    // Validation guarantees every group has a pattern and at least one
-    // complete scheme, so iterating the patterns covers every group.
-    let groups = cred_env::validated_env_groups()?;
-    let mut auths_builder = StandardHTTPAuthenticationBuilder::new();
-    for (k, pattern) in &groups.patterns {
-        if let (Some(username), Some(password)) =
-            (groups.basic_users.get(k), groups.basic_passwords.get(k))
-        {
-            log::debug!("auth: env vars specify HTTP basic for URL glob `{pattern}`");
-            auths_builder.add_basic_auth(pattern, username, password);
-        }
-        if let Some(token) = groups.bearer_tokens.get(k) {
-            log::debug!("auth: env vars specify bearer token for URL glob `{pattern}`");
-            // The label lets a publish auth failure name the
-            // `SYSAND_CRED_<LABEL>` variable to fix.
-            auths_builder.add_bearer_auth(pattern, token, k);
-        }
-    }
-    let env_auth_policy = auths_builder.build()?;
-    // Compose the eager env policy with the lazily read OS keyring store.
-    // Opening the store only resolves a lock file path; no keychain access
-    // happens until a request actually needs a stored credential.
-    let auth_policy = Arc::new(match credential_store::open_cli_credential_store() {
-        Ok(store) => CliAuthPolicy::new(env_auth_policy, store),
-        Err(err) => {
-            log::warn!(
-                "credential store unavailable: {err};\n\
-                 continuing with `SYSAND_CRED_*` credentials only"
-            );
-            CliAuthPolicy::without_store(env_auth_policy)
-        }
-    });
+    let auth_policy = Arc::new(standard_auth_policy(true)?);
 
     match command {
         Command::Init {
