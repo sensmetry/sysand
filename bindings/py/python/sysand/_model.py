@@ -92,6 +92,18 @@ class Discovery(typing.TypedDict):
     ``.workspace.json``), or ``None``."""
 
 
+class VersionListing(typing.TypedDict):
+    """Result of :func:`sysand.versions`."""
+
+    iri: str
+    versions: typing.List[str]
+    """Distinct semver versions, highest first. Over an index these are the
+    *available* versions: yanked and removed entries are never listed."""
+    ignored: typing.List[str]
+    """Version strings that are not valid semver, in encounter order. An
+    index cannot publish such entries, but other sources can."""
+
+
 class InterchangeProjectInfo(typing.TypedDict):
     publisher: typing.Optional[str]
     name: str

@@ -2,15 +2,21 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use std::assert_matches;
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
+use camino::Utf8Path;
 use fluent_uri::Iri;
 use indexmap::IndexMap;
+use typed_path::Utf8UnixPath;
 
 use crate::{
+    context::ProjectContext,
     info::{InfoError, do_info},
+    lock::Source,
     model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
-    project::{memory::InMemoryProject, utils::Identifier},
+    project::{ProjectChecksum, ProjectRead, memory::InMemoryProject, utils::Identifier},
     resolve::{
         ResolutionInfo, ResolutionOutcome, ResolveRead,
         combined::{CombinedResolver, NO_RESOLVER},
@@ -267,9 +273,7 @@ fn unsupported_iri() {
         index_resolver: NO_RESOLVER,
     };
 
-    let Ok(crate::resolve::ResolutionOutcome::UnsupportedUsageType { .. }) =
-        resolve(&resolver, example_uri)
-    else {
+    let Ok(ResolutionOutcome::UnsupportedUsageType { .. }) = resolve(&resolver, example_uri) else {
         panic!()
     };
 }
@@ -285,8 +289,7 @@ fn unresolved_iri() {
         index_resolver: empty_any_resolver(),
     };
 
-    let Ok(crate::resolve::ResolutionOutcome::NotFound { .. }) = resolve(&resolver, example_uri)
-    else {
+    let Ok(ResolutionOutcome::NotFound { .. }) = resolve(&resolver, example_uri) else {
         panic!()
     };
 }
@@ -391,4 +394,131 @@ fn no_semantic_versions_error() {
     let info_meta = do_info(&example_uri, &resolver);
 
     assert_matches!(info_meta, Err(InfoError::NoSemanticVersionsFound(_)));
+}
+
+/// An in-memory project that counts how often its info/meta are read, so a
+/// test can assert that a candidate was *not* inspected.
+#[derive(Clone, Debug)]
+struct CountingProject {
+    inner: InMemoryProject,
+    reads: Rc<Cell<usize>>,
+}
+
+impl ProjectRead for CountingProject {
+    type Error = <InMemoryProject as ProjectRead>::Error;
+
+    fn get_project(
+        &self,
+    ) -> Result<
+        (
+            Option<InterchangeProjectInfoRaw>,
+            Option<InterchangeProjectMetadataRaw>,
+        ),
+        Self::Error,
+    > {
+        self.reads.set(self.reads.get() + 1);
+        self.inner.get_project()
+    }
+
+    type SourceReader<'a>
+        = <InMemoryProject as ProjectRead>::SourceReader<'a>
+    where
+        Self: 'a;
+
+    fn read_source<P: AsRef<Utf8UnixPath>>(
+        &self,
+        path: P,
+    ) -> Result<Self::SourceReader<'_>, Self::Error> {
+        self.inner.read_source(path)
+    }
+
+    fn sources(&self, ctx: &ProjectContext) -> Result<Vec<Source>, Self::Error> {
+        self.inner.sources(ctx)
+    }
+
+    fn checksum_canonical_variant(&self) -> Result<ProjectChecksum, Self::Error> {
+        self.inner.checksum_canonical_variant()
+    }
+
+    fn project_root(&self) -> Option<&Utf8Path> {
+        self.inner.project_root()
+    }
+}
+
+fn counting_index_resolver(
+    uri: &str,
+    versions: &[&str],
+) -> (
+    Option<MemoryResolver<AcceptAll, CountingProject>>,
+    Rc<Cell<usize>>,
+) {
+    let reads = Rc::new(Cell::new(0));
+    let projects = versions
+        .iter()
+        .map(|v| CountingProject {
+            inner: minimal_project("counted", v),
+            reads: reads.clone(),
+        })
+        .collect();
+    let mut map = HashMap::new();
+    map.insert(Identifier::from_iri_unchecked_str(uri), projects);
+    (
+        Some(MemoryResolver {
+            iri_predicate: AcceptAll {},
+            projects: map,
+        }),
+        reads,
+    )
+}
+
+#[test]
+fn index_candidates_are_not_probed_when_nothing_local_can_match() {
+    let uri = "urn:kpar:counted";
+    let (index, reads) = counting_index_resolver(uri, &["1.0.0", "2.0.0"]);
+    let resolver = CombinedResolver {
+        file_resolver: NO_RESOLVER,
+        local_resolver: empty_any_resolver(),
+        remote_resolver: NO_RESOLVER,
+        index_resolver: index,
+    };
+
+    let outcome = resolver
+        .resolve_read(&ResolutionInfo::iri(Iri::parse(uri).unwrap().into()))
+        .unwrap();
+    let ResolutionOutcome::Resolved(candidates) = outcome else {
+        panic!("expected the IRI to resolve");
+    };
+    assert_eq!(candidates.count(), 2);
+    assert_eq!(
+        reads.get(),
+        0,
+        "enumerating candidates must not read their info/meta when no local project awaits a match"
+    );
+}
+
+#[test]
+fn index_candidates_are_probed_when_a_local_copy_may_match() {
+    let uri = "urn:kpar:counted";
+    let (index, reads) = counting_index_resolver(uri, &["1.0.0"]);
+    let resolver = CombinedResolver {
+        file_resolver: NO_RESOLVER,
+        local_resolver: single_project_any_resolver(uri, minimal_project("counted", "1.0.0")),
+        remote_resolver: NO_RESOLVER,
+        index_resolver: index,
+    };
+
+    let outcome = resolver
+        .resolve_read(&ResolutionInfo::iri(Iri::parse(uri).unwrap().into()))
+        .unwrap();
+    let ResolutionOutcome::Resolved(candidates) = outcome else {
+        panic!("expected the IRI to resolve");
+    };
+    assert_eq!(candidates.count(), 1);
+    // One checksum probe: `checksum_canonical_hex` reads the info and the
+    // metadata separately, and each goes through `get_project`.
+    assert_eq!(
+        reads.get(),
+        2,
+        "the one candidate must be probed exactly once to match the waiting local copy"
+    );
 }

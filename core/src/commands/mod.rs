@@ -22,3 +22,4 @@ pub mod root;
 pub mod sources;
 pub mod sync;
 pub mod usage;
+pub mod versions;

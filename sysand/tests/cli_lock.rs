@@ -253,7 +253,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let c_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 8, 1, 6],
+        [1, 7, 1, 5],
         "c",
         "lock_basic_http_deps_c",
         "1.0.0",
@@ -263,7 +263,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let a_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 8, 1, 6],
+        [1, 7, 1, 5],
         "a",
         "lock_basic_http_deps_a",
         "1.0.0",
@@ -272,7 +272,7 @@ fn lock_basic_http_deps() -> Result<(), Box<dyn std::error::Error>> {
     let b_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 8, 1, 6],
+        [1, 7, 1, 5],
         "b",
         "lock_basic_http_deps_b",
         "1.0.0",
@@ -831,7 +831,7 @@ fn lock_fail_unsatisfiable() -> Result<(), Box<dyn std::error::Error>> {
     let a_url = mock_project(
         &mut server,
         &mut project_mocks,
-        [1, 4, 1, 2],
+        [1, 3, 1, 1],
         "a",
         "lock_basic_http_deps_a",
         "1.0.0",

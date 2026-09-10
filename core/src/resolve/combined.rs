@@ -156,18 +156,7 @@ impl<
                 if let Some(r) = iter.next() {
                     let next = match r {
                         Ok(project) => {
-                            let cached = match project.checksum_canonical_hex() {
-                                Ok(opt) => {
-                                    opt.and_then(|checksum| self.locals.shift_remove(&checksum))
-                                }
-                                Err(err) => {
-                                    log::debug!(
-                                        "remote-project checksum_canonical_hex failed; skipping local-cache match: {}",
-                                        format_err(err)
-                                    );
-                                    None
-                                }
-                            };
+                            let cached = self.take_cached_local(&project, "remote");
 
                             let p = if let Some(local_project) = cached {
                                 CombinedProjectStorage::CachedRemoteProject(CachedProject::new(
@@ -191,18 +180,7 @@ impl<
                 if let Some(r) = iter.next() {
                     let next = match r {
                         Ok(project) => {
-                            let cached = match project.checksum_canonical_hex() {
-                                Ok(opt) => {
-                                    opt.and_then(|checksum| self.locals.shift_remove(&checksum))
-                                }
-                                Err(err) => {
-                                    log::debug!(
-                                        "index-project checksum_canonical_hex failed; skipping local-cache match: {}",
-                                        format_err(err)
-                                    );
-                                    None
-                                }
-                            };
+                            let cached = self.take_cached_local(&project, "index");
 
                             let p = if let Some(local_project) = cached {
                                 CombinedProjectStorage::CachedIndexProject(CachedProject::new(
@@ -223,6 +201,42 @@ impl<
                 }
             }
         }
+    }
+}
+
+impl<
+    FileResolver: ResolveRead,
+    LocalResolver: ResolveRead,
+    RemoteResolver: ResolveRead,
+    IndexResolver: ResolveRead,
+> CombinedIterator<FileResolver, LocalResolver, RemoteResolver, IndexResolver>
+{
+    /// The locally cached copy of `project`, if one is waiting to be matched.
+    ///
+    /// Matching needs the candidate's canonical checksum, which for a
+    /// remote or index candidate means fetching its `.project.json` and
+    /// `.meta.json`. With nothing left to match there is nothing to gain
+    /// from that, so the probe is skipped — a version listing over an index
+    /// then costs one `versions.json` request, not two more per version.
+    fn take_cached_local<P: ProjectRead>(
+        &mut self,
+        project: &P,
+        kind: &str,
+    ) -> Option<LocalResolver::ProjectStorage> {
+        if self.locals.is_empty() {
+            return None;
+        }
+        let checksum = match project.checksum_canonical_hex() {
+            Ok(checksum) => checksum?,
+            Err(err) => {
+                log::debug!(
+                    "{kind}-project checksum_canonical_hex failed; skipping local-cache match: {}",
+                    format_err(err)
+                );
+                return None;
+            }
+        };
+        self.locals.shift_remove(&checksum)
     }
 }
 
