@@ -353,7 +353,8 @@ fn auth_hint(auth: &AuthSpec, policy: &CliAuthPolicy, url: &str) -> String {
         "bearer" | "basic" => {
             let glob = auth.url_glob.as_deref().unwrap_or("");
             format!(
-                "the {} credential for URL glob `{glob}` was rejected by, or does not match, `{url}`",
+                "the {} credential for URL glob `{glob}`\n\
+                was rejected by, or does not match, `{url}`",
                 auth.kind
             )
         }
