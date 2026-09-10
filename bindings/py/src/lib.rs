@@ -369,7 +369,7 @@ fn auth_hint(auth: &AuthSpec, policy: &CliAuthPolicy, url: &str) -> String {
                     format!("no `SYSAND_CRED_*` bearer token matches `{url}`")
                 }
                 GlobMapResult::Ambiguous(entries) => format!(
-                    "several `SYSAND_CRED_*` URL globs match `{url}`: {}",
+                    "several `SYSAND_CRED_*` URL globs match `{url}`:\n{}",
                     entries
                         .iter()
                         .map(|(_, e)| format!("`SYSAND_CRED_{}`", e.label))
