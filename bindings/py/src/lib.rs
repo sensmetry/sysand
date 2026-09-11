@@ -1,17 +1,26 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2025 Sysand contributors <opensource@sensmetry.com>
 
-use std::{iter, process::ExitCode, sync::Arc};
+use std::{iter, process::ExitCode, str::FromStr as _, sync::Arc};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use fluent_uri::Iri;
 use pyo3::{
+    PyTypeInfo as _,
     exceptions::{PyFileExistsError, PyFileNotFoundError, PyIOError, PyRuntimeError, PyValueError},
     prelude::*,
-    types::PyAny,
+    types::{PyAny, PyDict, PyType},
 };
 use semver::{Version, VersionReq};
-use sysand::{CliAuthPolicy, DEFAULT_INDEX_URL, standard_auth_policy};
+use sysand::{
+    CliAuthPolicy, DEFAULT_INDEX_URL,
+    cli::ResolutionOptions,
+    commands::{
+        lock::{CliLockError, resolve_lock},
+        sync::{CliSyncError, command_sync},
+    },
+    get_env, get_or_create_env, standard_auth_policy,
+};
 use sysand_core::{
     add::do_add_guess,
     auth::{GlobMapResult, StandardHTTPAuthenticationBuilder},
@@ -19,8 +28,11 @@ use sysand_core::{
     commands::{
         env::{EnvError, do_env_local_dir},
         init::do_init_local_file,
+        lock::{DEFAULT_LOCKFILE_NAME, LockError, LockProjectError},
+        sync::{SyncOutcome, SyncedProject},
     },
     config::{Config, local_fs::load_configs},
+    context::ProjectContext,
     discover::{discover_project, discover_workspace},
     env::{
         DEFAULT_ENV_NAME, ReadEnvironment as _, WriteEnvironment as _,
@@ -37,6 +49,7 @@ use sysand_core::{
     index_location::IndexLocation,
     info::{InfoError, InfoProjectError, do_info, do_info_project},
     init::InitError,
+    lock::{Lock, Project as LockedProject},
     model::{
         InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
         InterchangeProjectUsage, InterchangeProjectUsageRaw,
@@ -45,19 +58,24 @@ use sysand_core::{
         ProjectRead as _,
         local_kpar::{KparInnerPath, LocalKParProject},
         local_src::{EditInfoError, LocalSrcError, LocalSrcProject},
-        utils::wrapfs,
+        memory::InMemoryProject,
+        utils::{Identifier, wrapfs},
     },
     remove::do_remove_guess,
     resolve::{
         ResolveRead,
         combined::CombinedResolverError,
         net_utils::create_reqwest_client,
+        priority::PriorityError,
         standard::{StandardResolver, standard_resolver},
     },
     root::do_root,
+    solve::pubgrub::SolveConflict,
     sources::{Dependencies, do_sources_local_src_project_no_deps, resolve_dependencies},
+    stdlib::known_std_libs,
     symbols::Language,
     usage::{ConstraintChange, SetConstraintError, do_set_usage_constraint_local},
+    utils::ProvidedProjects,
     utils::format_err,
     versions::do_versions,
 };
@@ -265,8 +283,6 @@ struct ResolutionSpec {
     default_index: Vec<String>,
     #[pyo3(default)]
     no_index: bool,
-    /// Read by `lock`/`sync`, which build the provided-projects set.
-    #[expect(dead_code, reason = "read only by lock and sync, not exposed yet")]
     #[pyo3(default)]
     include_std: bool,
     use_config: bool,
@@ -394,10 +410,22 @@ fn info_error_to_pyerr(
     let message = format_err(&err);
     match &err {
         InfoError::NotFound { .. } => PyNotFoundError::new_err(message),
-        InfoError::Resolution(CombinedResolverError::Index(
+        InfoError::Resolution(inner) => combined_error_to_pyerr(inner, message, auth, policy),
+        _ => PyResolutionError::new_err(message),
+    }
+}
+
+fn combined_error_to_pyerr<F, L, R>(
+    err: &CombinedResolverError<F, L, R, IndexEnvironmentError>,
+    message: String,
+    auth: &AuthSpec,
+    policy: &CliAuthPolicy,
+) -> PyErr {
+    match err {
+        CombinedResolverError::Index(
             IndexEnvironmentError::Discovery(DiscoveryError::Fetch(fetch))
             | IndexEnvironmentError::Fetch(fetch),
-        )) => match fetch {
+        ) => match fetch {
             HttpFetchError::BadHttpStatus { url, status }
                 if matches!(status.as_u16(), 401 | 403) =>
             {
@@ -407,9 +435,7 @@ fn info_error_to_pyerr(
             HttpFetchError::Request { .. } => PyResolutionError::new_err(message),
             _ => PyIndexProtocolError::new_err(message),
         },
-        InfoError::Resolution(CombinedResolverError::Index(_)) => {
-            PyIndexProtocolError::new_err(message)
-        }
+        CombinedResolverError::Index(_) => PyIndexProtocolError::new_err(message),
         _ => PyResolutionError::new_err(message),
     }
 }
@@ -486,6 +512,433 @@ fn do_versions_py(
             listing.ignored,
         ))
     })
+}
+
+/// A project the caller provides itself, as `ProvidedProject` dicts arrive.
+#[derive(FromPyObject)]
+#[pyo3(from_item_all)]
+struct ProvidedSpec {
+    iri: String,
+    info: InterchangeProjectInfoRaw,
+    meta: InterchangeProjectMetadataRaw,
+}
+
+fn provided_projects(specs: Vec<ProvidedSpec>) -> PyResult<ProvidedProjects> {
+    let mut provided = ProvidedProjects::default();
+    for spec in specs {
+        let iri = parse_iri(spec.iri)?;
+        provided
+            .entry(Identifier::from_iri_owned(iri))
+            .or_default()
+            .push(InMemoryProject::from_info_meta(spec.info, spec.meta));
+    }
+    Ok(provided)
+}
+
+/// The CLI's view of where a call runs: the enclosing project and
+/// workspace found from `start` and the environment that belongs to them
+/// (`run_cli`'s own steps). Fails when `start` is not inside a project.
+fn project_context(start: &Utf8Path) -> PyResult<(ProjectContext, Utf8PathBuf)> {
+    let project_error = |e: String| ProjectError::new_err(e);
+    let cwd = wrapfs::canonicalize(start).map_err(|e| project_error(format_err(e)))?;
+    let current_project = discover_project(&cwd).map_err(|e| project_error(format_err(e)))?;
+    let current_workspace = discover_workspace(&cwd).map_err(|e| project_error(format_err(e)))?;
+    let Some(project) = &current_project else {
+        return Err(project_error(format!(
+            "`{cwd}` is not inside a project - neither it nor any of its parent directories \
+             contain a SysML v2 or KerML project"
+        )));
+    };
+    let project_root = project.root_path().to_owned();
+    let env_root = current_workspace
+        .as_ref()
+        .map_or_else(|| project_root.clone(), |w| w.root_path().to_owned());
+    let env = get_env(&env_root).map_err(|e| project_error(format!("{e:#}")))?;
+    Ok((
+        ProjectContext {
+            env,
+            current_workspace,
+            current_project,
+            current_directory: cwd,
+        },
+        project_root,
+    ))
+}
+
+fn resolution_options(spec: &ResolutionSpec) -> ResolutionOptions {
+    ResolutionOptions {
+        index: spec.index.clone(),
+        default_index: spec.default_index.clone(),
+        no_index: spec.no_index,
+        include_std: spec.include_std,
+    }
+}
+
+fn config_for(spec: &ResolutionSpec, project_root: &Utf8Path) -> PyResult<Config> {
+    if spec.use_config {
+        load_configs(project_root).map_err(|e| ProjectError::new_err(format_err(e)))
+    } else {
+        Ok(Config::default())
+    }
+}
+
+/// A failure computed without the GIL, turned into a Python exception once
+/// the thread is attached again (the typed classes take keyword arguments
+/// that `new_err` cannot pass).
+enum Failure {
+    Py(PyErr),
+    Solve {
+        message: String,
+        report: String,
+        kind: &'static str,
+        conflicts: Vec<SolveConflict>,
+    },
+    /// The lockfile write itself failed after a successful solve.
+    Wrote(String),
+    /// `sync` failed part-way; `partial` is what it had done.
+    Sync {
+        message: String,
+        wrote: bool,
+        partial: SyncOutcome,
+    },
+    /// The environment could not be read or written.
+    Env {
+        message: String,
+        wrote: bool,
+    },
+}
+
+impl From<PyErr> for Failure {
+    fn from(err: PyErr) -> Self {
+        Self::Py(err)
+    }
+}
+
+fn raise_with_kwargs(
+    class: &Bound<'_, PyType>,
+    message: String,
+    kwargs: &Bound<'_, PyDict>,
+) -> PyErr {
+    match class.call((message,), Some(kwargs)) {
+        Ok(exception) => PyErr::from_value(exception),
+        Err(err) => err,
+    }
+}
+
+fn conflict_to_dict<'py>(
+    py: Python<'py>,
+    conflict: &SolveConflict,
+) -> PyResult<Bound<'py, PyDict>> {
+    let dict = PyDict::new(py);
+    match conflict {
+        SolveConflict::Constraint {
+            iri,
+            constraint,
+            required_by,
+        } => {
+            dict.set_item("kind", "Constraint")?;
+            dict.set_item("iri", iri)?;
+            dict.set_item("constraint", constraint)?;
+            dict.set_item("required_by", required_by)?;
+        }
+        SolveConflict::NoVersions {
+            iri,
+            constraint,
+            found,
+            required_by,
+        } => {
+            dict.set_item("kind", "NoVersions")?;
+            dict.set_item("iri", iri)?;
+            dict.set_item("constraint", constraint)?;
+            dict.set_item("found", found)?;
+            dict.set_item("required_by", required_by)?;
+        }
+        SolveConflict::NotFound { iri, reason } => {
+            dict.set_item("kind", "NotFound")?;
+            dict.set_item("iri", iri)?;
+            dict.set_item("reason", reason)?;
+        }
+    }
+    Ok(dict)
+}
+
+impl Failure {
+    fn into_pyerr(self, py: Python<'_>) -> PyErr {
+        match self {
+            Self::Py(err) => err,
+            Self::Solve {
+                message,
+                report,
+                kind,
+                conflicts,
+            } => {
+                let kwargs = PyDict::new(py);
+                let conflicts: PyResult<Vec<_>> =
+                    conflicts.iter().map(|c| conflict_to_dict(py, c)).collect();
+                let result = conflicts
+                    .and_then(|conflicts| kwargs.set_item("conflicts", conflicts))
+                    .and_then(|()| kwargs.set_item("report", report))
+                    .and_then(|()| kwargs.set_item("kind", kind));
+                match result {
+                    Ok(()) => raise_with_kwargs(&PySolveError::type_object(py), message, &kwargs),
+                    Err(err) => err,
+                }
+            }
+            Self::Wrote(message) => {
+                let kwargs = PyDict::new(py);
+                match kwargs.set_item("wrote", true) {
+                    Ok(()) => raise_with_kwargs(&ProjectError::type_object(py), message, &kwargs),
+                    Err(err) => err,
+                }
+            }
+            Self::Sync {
+                message,
+                wrote,
+                partial,
+            } => {
+                let kwargs = PyDict::new(py);
+                let result = outcome_dict(py, &partial)
+                    .and_then(|partial| kwargs.set_item("partial", partial))
+                    .and_then(|()| kwargs.set_item("wrote", wrote));
+                match result {
+                    Ok(()) => raise_with_kwargs(&PySyncError::type_object(py), message, &kwargs),
+                    Err(err) => err,
+                }
+            }
+            Self::Env { message, wrote } => {
+                let kwargs = PyDict::new(py);
+                match kwargs.set_item("wrote", wrote) {
+                    Ok(()) => raise_with_kwargs(&PyEnvError::type_object(py), message, &kwargs),
+                    Err(err) => err,
+                }
+            }
+        }
+    }
+}
+
+/// Typed failure for `resolve_lock`'s `anyhow::Error`: solver failures
+/// become `SolveError` with their conflicts, unless the solver itself hit a
+/// transport or authentication problem, which is classified like `info`'s.
+fn lock_error_to_failure(err: anyhow::Error, auth: &AuthSpec, policy: &CliAuthPolicy) -> Failure {
+    let message = format!("{err:#}");
+    match err.downcast_ref::<CliLockError<CliAuthPolicy>>() {
+        Some(LockProjectError::LockError(LockError::Solver(solver))) => {
+            if let Some(PriorityError::Lower(inner)) = solver.resolution_error() {
+                return Failure::Py(combined_error_to_pyerr(inner, message, auth, policy));
+            }
+            Failure::Solve {
+                message,
+                report: solver.to_string(),
+                kind: solver.kind(),
+                conflicts: solver.conflicts(),
+            }
+        }
+        Some(_) | None => Failure::Py(ProjectError::new_err(message)),
+    }
+}
+
+/// Returns `(canonical lockfile text, projects)`
+#[pyfunction(name = "do_lock_py")]
+#[pyo3(
+    signature = (path, resolution, auth, provided, write),
+)]
+fn do_lock_py(
+    py: Python,
+    path: String,
+    resolution: ResolutionSpec,
+    auth: Option<AuthSpec>,
+    provided: Vec<ProvidedSpec>,
+    write: bool,
+) -> PyResult<(String, Vec<LockedProject>)> {
+    common_init();
+
+    let provided = provided_projects(provided)?;
+    let outcome: Result<(String, Vec<LockedProject>), Failure> = py.detach(|| {
+        let auth = auth.unwrap_or_default();
+        let (ctx, project_root) = project_context(Utf8Path::new(&path))?;
+        let config = config_for(&resolution, &project_root)?;
+        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(PyErr::from)?,
+        );
+        let auth_policy = build_auth_policy(&auth)?;
+
+        let lock: Lock = resolve_lock(
+            ".",
+            resolution_options(&resolution),
+            &config,
+            &project_root,
+            provided,
+            client,
+            runtime,
+            auth_policy.clone(),
+            &ctx,
+        )
+        .map_err(|e| lock_error_to_failure(e, &auth, &auth_policy))?;
+
+        let text = lock.to_string();
+        if write {
+            wrapfs::write(project_root.join(DEFAULT_LOCKFILE_NAME), &text)
+                .map_err(|e| Failure::Wrote(format_err(e)))?;
+        }
+        Ok((text, lock.projects))
+    });
+    outcome.map_err(|failure| failure.into_pyerr(py))
+}
+
+/// `(iri, version, install path)` per synced project; the path is
+/// environment-relative and `None` once pruned.
+type SyncedTuple = (String, String, Option<String>);
+
+fn synced_tuples(
+    entries: &[SyncedProject],
+    env: Option<&LocalDirectoryEnvironment>,
+) -> Vec<SyncedTuple> {
+    entries
+        .iter()
+        .map(|entry| {
+            let path = env.and_then(|env| {
+                env.projects()
+                    .iter()
+                    .find(|p| p.version == entry.version && p.identifiers.contains(&entry.iri))
+                    .map(|p| p.path.as_str().to_owned())
+            });
+            (entry.iri.clone(), entry.version.clone(), path)
+        })
+        .collect()
+}
+
+/// A `SyncOutcome` as the `SyncOutcome` typed dict, for `SyncError.partial`.
+/// Install paths are not resolved here: the environment metadata is not
+/// rewritten after a failed sync.
+fn outcome_dict<'py>(py: Python<'py>, outcome: &SyncOutcome) -> PyResult<Bound<'py, PyDict>> {
+    let entries = |entries: &[SyncedProject]| -> PyResult<Vec<Bound<'py, PyDict>>> {
+        entries
+            .iter()
+            .map(|entry| {
+                let dict = PyDict::new(py);
+                dict.set_item("iri", &entry.iri)?;
+                dict.set_item("version", &entry.version)?;
+                dict.set_item("path", py.None())?;
+                Ok(dict)
+            })
+            .collect()
+    };
+    let dict = PyDict::new(py);
+    dict.set_item("installed", entries(&outcome.installed)?)?;
+    dict.set_item("pruned", entries(&outcome.pruned)?)?;
+    dict.set_item("kept", entries(&outcome.kept)?)?;
+    Ok(dict)
+}
+
+/// Typed failure for `command_sync`'s `anyhow::Error`, with what had been
+/// done before it.
+fn sync_error_to_failure(err: anyhow::Error, outcome: SyncOutcome) -> Failure {
+    let message = format!("{err:#}");
+    let wrote = outcome.wrote();
+    match err.downcast_ref::<CliSyncError>() {
+        Some(CliSyncError::EnvRead(_) | CliSyncError::EnvWrite(_)) => {
+            Failure::Env { message, wrote }
+        }
+        Some(_) => Failure::Sync {
+            message,
+            wrote,
+            partial: outcome,
+        },
+        // `merge_lock` + `write()` of the environment metadata, or anything
+        // else outside the sync loop.
+        None => Failure::Env { message, wrote },
+    }
+}
+
+/// `(installed, pruned, kept)` as `(iri, version, path)` tuples.
+#[pyfunction(name = "do_sync_py")]
+#[pyo3(
+    signature = (path, lock_text, resolution, auth, provided, no_prune),
+)]
+fn do_sync_py(
+    py: Python,
+    path: String,
+    lock_text: Option<String>,
+    resolution: ResolutionSpec,
+    auth: Option<AuthSpec>,
+    provided: Vec<ProvidedSpec>,
+    no_prune: bool,
+) -> PyResult<(Vec<SyncedTuple>, Vec<SyncedTuple>, Vec<SyncedTuple>)> {
+    common_init();
+
+    let extra_provided = provided_projects(provided)?;
+    let outcome: Result<_, Failure> = py.detach(|| {
+        let auth = auth.unwrap_or_default();
+        let (mut ctx, project_root) = project_context(Utf8Path::new(&path))?;
+
+        // The lockfile is read before the environment is created, so a
+        // missing lockfile leaves nothing behind. No implicit `lock`.
+        let lockfile_path = project_root.join(DEFAULT_LOCKFILE_NAME);
+        let lock_text = match lock_text {
+            Some(text) => text,
+            None => wrapfs::read_to_string(&lockfile_path).map_err(|e| {
+                ProjectError::new_err(format!(
+                    "no lockfile at `{lockfile_path}`; run `lock` first ({})",
+                    format_err(e)
+                ))
+            })?,
+        };
+        let lock = Lock::from_str(&lock_text)
+            .map_err(|e| ProjectError::new_err(format!("invalid lockfile: {}", format_err(e))))?;
+
+        let mut provided = if resolution.include_std {
+            ProvidedProjects::default()
+        } else {
+            known_std_libs()
+        };
+        provided.extend(extra_provided);
+
+        let mut env = get_or_create_env(
+            ctx.env.take(),
+            ctx.current_workspace.as_ref(),
+            ctx.current_project.as_ref(),
+            &ctx.current_directory,
+        )
+        .map_err(|e| Failure::Env {
+            message: format!("{e:#}"),
+            wrote: false,
+        })?;
+
+        let client = create_reqwest_client().map_err(|e| PyRuntimeError::new_err(format_err(e)))?;
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(PyErr::from)?,
+        );
+        let auth_policy = build_auth_policy(&auth)?;
+
+        let mut outcome = SyncOutcome::default();
+        command_sync(
+            &lock,
+            &project_root,
+            &mut env,
+            client,
+            &provided,
+            runtime,
+            auth_policy,
+            ctx.current_workspace.as_ref(),
+            no_prune,
+            &mut outcome,
+        )
+        .map_err(|e| sync_error_to_failure(e, outcome.clone()))?;
+
+        Ok((
+            synced_tuples(&outcome.installed, Some(&env)),
+            synced_tuples(&outcome.pruned, None),
+            synced_tuples(&outcome.kept, Some(&env)),
+        ))
+    });
+    outcome.map_err(|failure| failure.into_pyerr(py))
 }
 
 #[pyfunction(name = "do_root_py")]
@@ -757,11 +1210,14 @@ mod py_errors {
     pyo3::import_exception!(sysand._errors, NotFoundError);
     pyo3::import_exception!(sysand._errors, AuthError);
     pyo3::import_exception!(sysand._errors, IndexProtocolError);
+    pyo3::import_exception!(sysand._errors, SolveError);
+    pyo3::import_exception!(sysand._errors, SyncError);
 }
 // `sysand_core::commands::env::EnvError` is already in scope under that name.
 use py_errors::{
     AuthError as PyAuthError, EnvError as PyEnvError, IndexProtocolError as PyIndexProtocolError,
     NotFoundError as PyNotFoundError, ProjectError, ResolutionError as PyResolutionError,
+    SolveError as PySolveError, SyncError as PySyncError,
 };
 
 /// Returns `(matched_resource, found, changed, old_constraint, new_constraint)`.
@@ -938,6 +1394,8 @@ pub fn sysand_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(do_model_roundtrip_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_info_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_versions_py, m)?)?;
+    m.add_function(wrap_pyfunction!(do_lock_py, m)?)?;
+    m.add_function(wrap_pyfunction!(do_sync_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_root_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_build_py, m)?)?;
     m.add_function(wrap_pyfunction!(do_sources_env_py, m)?)?;

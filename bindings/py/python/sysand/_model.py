@@ -104,6 +104,53 @@ class VersionListing(typing.TypedDict):
     index cannot publish such entries, but other sources can."""
 
 
+class SyncedProject(typing.TypedDict):
+    """One project :func:`sysand.sync` installed, pruned or kept."""
+
+    iri: str
+    version: str
+    path: typing.Optional[str]
+    """Install directory relative to the environment directory, or ``None``
+    once the project has been pruned."""
+
+
+class SyncOutcome(typing.TypedDict):
+    """Result of :func:`sysand.sync`: every change it made, and what it left
+    alone. Also carried by :class:`SyncError` as ``partial`` when a sync
+    failed part-way."""
+
+    installed: typing.List[SyncedProject]
+    pruned: typing.List[SyncedProject]
+    kept: typing.List[SyncedProject]
+    """Lockfile entries that were already installed and verified."""
+
+
+class LockedProject(typing.TypedDict):
+    """One ``[[project]]`` entry of a lockfile, see :func:`sysand.lock`."""
+
+    publisher: typing.Optional[str]
+    name: str
+    version: str
+    identifiers: typing.List[str]
+    exports: typing.List[str]
+    usages: typing.List[str]
+    """The usages this project declares, as lockfile usage strings — names
+    who pins what."""
+    sources: typing.List[str]
+    """Where the project can be obtained from, as the lockfile renders each
+    source (opaque; for diagnostics)."""
+
+
+class LockResult(typing.TypedDict):
+    """Result of :func:`sysand.lock`."""
+
+    projects: typing.List[LockedProject]
+    text: str
+    """The canonical ``sysand-lock.toml`` content that was written, or would
+    have been written with ``write=True``. Byte-exact, so a caller can diff
+    and restore it."""
+
+
 class InterchangeProjectInfo(typing.TypedDict):
     publisher: typing.Optional[str]
     name: str
@@ -167,3 +214,13 @@ __all__ = [
     "Dependencies",
     "CompressionMethod",
 ]
+
+
+class ProvidedProject(typing.TypedDict):
+    """A project satisfied by the host itself, so it is never installed.
+    Accepted by :func:`sysand.lock` and :func:`sysand.sync` (``provided=``);
+    this is how the standard libraries are treated."""
+
+    iri: str
+    info: InterchangeProjectInfo
+    meta: InterchangeProjectMetadata

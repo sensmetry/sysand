@@ -4120,6 +4120,7 @@ dependencies = [
 name = "sysand-py"
 version = "0.2.1"
 dependencies = [
+ "anyhow",
  "camino",
  "camino-tempfile",
  "fluent-uri",

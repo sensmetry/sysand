@@ -9,11 +9,17 @@ use camino::Utf8Path;
 
 use sysand_core::{
     auth::HTTPAuthentication,
-    commands::lock::{DEFAULT_LOCKFILE_NAME, LockOutcome, do_lock_local_editable},
+    commands::lock::{
+        DEFAULT_LOCKFILE_NAME, EditableLocalSrcProject, LockOutcome, LockProjectError,
+        do_lock_local_editable,
+    },
     config::Config,
     context::ProjectContext,
-    project::{memory::InMemoryProject, utils::wrapfs},
+    project::{
+        any::AnyProject, memory::InMemoryProject, reference::ProjectReference, utils::wrapfs,
+    },
     resolve::{
+        ResolveRead,
         memory::{AcceptAll, MemoryResolver},
         priority::PriorityResolver,
         standard::{StandardResolver, standard_resolver},
@@ -25,22 +31,48 @@ use typed_path::Utf8UnixPath;
 
 use crate::{DEFAULT_INDEX_URL, cli::ResolutionOptions, get_overrides};
 
-/// Generate a lockfile for `current_project`.
-pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
+/// The resolver [`create_resolver`] builds: overrides, then provided
+/// projects, then the standard file/env/index stack. Named so that callers
+/// (the language bindings) can match the errors it produces.
+pub type CliResolver<Policy> = PriorityResolver<
+    PriorityResolver<
+        MemoryResolver<AcceptAll, ProjectReference<AnyProject<Policy>>>,
+        MemoryResolver<AcceptAll, InMemoryProject>,
+    >,
+    StandardResolver<Policy>,
+>;
+
+/// The error `resolve_lock`/`command_lock` fail with when the lock itself
+/// fails (as opposed to configuration or context errors); reachable from
+/// the returned `anyhow::Error` through `downcast_ref`.
+pub type CliLockError<Policy> = LockProjectError<
+    EditableLocalSrcProject,
+    <CliResolver<Policy> as ResolveRead>::ProjectStorage,
+    CliResolver<Policy>,
+>;
+
+/// Solve for a lockfile without writing it.
+///
+/// `extra_provided` are projects the caller itself provides (satisfied
+/// without installing), merged with the standard libraries unless
+/// `include_std` is set. The returned lock is canonical.
+pub fn resolve_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
     path: P,
     resolution_opts: ResolutionOptions,
     config: &Config,
     project_root: R,
+    extra_provided: ProvidedProjects,
     client: reqwest_middleware::ClientWithMiddleware,
     runtime: Arc<tokio::runtime::Runtime>,
     auth_policy: Arc<Policy>,
     ctx: &ProjectContext,
 ) -> Result<sysand_core::lock::Lock> {
-    let provided_iris = if resolution_opts.include_std {
+    let mut provided_iris = if resolution_opts.include_std {
         HashMap::default()
     } else {
         known_std_libs()
     };
+    provided_iris.extend(extra_provided);
     let wrapped_resolver = create_resolver(
         resolution_opts,
         config,
@@ -75,7 +107,31 @@ pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef
         ctx,
     )?;
 
-    let canonical = lock.canonicalize();
+    Ok(lock.canonicalize())
+}
+
+/// Generate a lockfile for `current_project` and write it.
+pub fn command_lock<P: AsRef<Utf8UnixPath>, Policy: HTTPAuthentication, R: AsRef<Utf8Path>>(
+    path: P,
+    resolution_opts: ResolutionOptions,
+    config: &Config,
+    project_root: R,
+    client: reqwest_middleware::ClientWithMiddleware,
+    runtime: Arc<tokio::runtime::Runtime>,
+    auth_policy: Arc<Policy>,
+    ctx: &ProjectContext,
+) -> Result<sysand_core::lock::Lock> {
+    let canonical = resolve_lock(
+        &path,
+        resolution_opts,
+        config,
+        project_root,
+        ProvidedProjects::default(),
+        client,
+        runtime,
+        auth_policy,
+        ctx,
+    )?;
     wrapfs::write(
         Utf8Path::new(path.as_ref().as_str()).join(DEFAULT_LOCKFILE_NAME),
         canonical.to_string(),

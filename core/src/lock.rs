@@ -12,6 +12,8 @@ use std::{
 };
 
 use fluent_uri::Iri;
+#[cfg(feature = "python")]
+use pyo3::IntoPyObject;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -535,7 +537,12 @@ pub const PROJECT_ENTRIES: &[&str] = &[
 // - `Url`: TBD (maybe URL, maybe URL-encoded publisher+name)
 
 /// Fields that might not be set for every project are `Option`
+///
+/// With the `python` feature a `Project` converts into a dict with these
+/// field names, `usages` as their strings and `sources` as their lockfile
+/// renderings.
 #[derive(Clone, Eq, Debug, Deserialize, PartialEq)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct Project {
     /// Must match the actual project, i.e. be `None` only when the
     /// project does not declare a publisher
@@ -550,7 +557,23 @@ pub struct Project {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub usages: Vec<Usage>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[cfg_attr(feature = "python", pyo3(into_py_with = sources_to_py))]
     pub sources: Vec<Source>,
+}
+
+#[cfg(feature = "python")]
+// The `Cow<'_, Vec<_>>` signature is dictated by `into_py_with`.
+#[expect(clippy::owned_cow)]
+fn sources_to_py<'py>(
+    sources: std::borrow::Cow<'_, Vec<Source>>,
+    py: pyo3::Python<'py>,
+) -> pyo3::PyResult<pyo3::Bound<'py, pyo3::PyAny>> {
+    use pyo3::IntoPyObjectExt as _;
+    sources
+        .iter()
+        .map(|source| source.to_toml().to_string())
+        .collect::<Vec<_>>()
+        .into_bound_py_any(py)
 }
 
 impl Ord for Project {
@@ -812,6 +835,7 @@ impl Source {
 }
 
 #[derive(Clone, Eq, Debug, Ord, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "python", derive(IntoPyObject), pyo3(transparent))]
 pub struct Usage(String);
 
 impl Deref for Usage {
