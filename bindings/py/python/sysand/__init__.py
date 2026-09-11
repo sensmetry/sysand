@@ -18,6 +18,9 @@ from ._model import (
     EnvProjectChecksumSrc,
     Discovery,
     VersionListing,
+    LockedProject,
+    LockResult,
+    ProvidedProject,
 )
 
 from ._errors import (
@@ -40,6 +43,8 @@ from ._auth import (
 from ._info import info_path, info
 
 from ._versions import versions
+
+from ._lock import lock
 
 from . import env
 
@@ -100,6 +105,9 @@ __all__ = [
     "EnvProjectChecksumSrc",
     "Discovery",
     "VersionListing",
+    "LockedProject",
+    "LockResult",
+    "ProvidedProject",
     ## Errors
     "SysandError",
     "ProjectError",
@@ -126,6 +134,8 @@ __all__ = [
     "info",
     ## versions
     "versions",
+    ## lock
+    "lock",
     ## Init
     "init",
     ## Build

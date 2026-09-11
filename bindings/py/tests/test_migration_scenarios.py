@@ -7,21 +7,40 @@ Each test starts from `baseline` / `make_baseline` (conftest.py): a real
 project whose manifest, lockfile and `.sysand` were produced by the shipped
 CLI against the mock index, with the library pinned to the 0.10 line. The
 tests then move that constraint to the 0.11 line with
-`sysand.set_usage_constraint` and check what happened to the manifest, or
-check what the tool driving the migration can find out about the project
-before it starts.
+`sysand.set_usage_constraint` and check what happened to the manifest,
+resolve the result with `sysand.lock`, or check what the tool driving the
+migration can find out about the project before it starts.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import typing
 
 import pytest
 
 import sysand
 from conftest import Baseline, MakeBaseline
-from mockindex import LEGACY_CONSTRAINT, LIBRARY, TARGET_CONSTRAINT, usage
+from mockindex import (
+    DEPENDENT,
+    LEGACY_CONSTRAINT,
+    LIBRARY,
+    TARGET_CONSTRAINT,
+    MockIndex,
+    usage,
+)
+
+
+def resolution(index: MockIndex) -> sysand.Resolution:
+    return sysand.Resolution(default_index=[index.url], use_config=False)
+
+
+def project_version(projects: typing.Sequence[dict], iri: str) -> str | None:
+    for project in projects:
+        if iri in project["identifiers"]:
+            return project["version"]
+    return None
 
 
 def migrate_constraint(baseline: Baseline) -> None:
@@ -104,3 +123,98 @@ def test_workspace_detection(baseline: Baseline) -> None:
     nested.mkdir(parents=True)
     assert os.path.samefile(sysand.discover(nested)["project_root"], baseline.root)
     assert sysand.discover(workspace)["project_root"] is None
+
+
+# ---------------------------------------------------------------------------
+# Resolving the new constraint
+
+
+def _dependent_baseline(
+    make_baseline: MakeBaseline, mock_index: MockIndex, dependent_constraint: str
+) -> Baseline:
+    """A baseline that also uses a second project, which itself uses the
+    library under ``dependent_constraint``."""
+    mock_index.publish(
+        DEPENDENT,
+        "1.0.0",
+        usage=[usage(LIBRARY, dependent_constraint)],
+        files={"dep.sysml": b"package Dep; // 1.0.0\n"},
+    )
+    return make_baseline(extra_usages=[usage(DEPENDENT, ">=1.0.0, <2.0.0")])
+
+
+def test_dependent_excludes_new_version(
+    make_baseline: MakeBaseline, mock_index: MockIndex
+) -> None:
+    # `"0.10.1"` is caret: `>=0.10.1, <0.11.0`. The baseline resolves; the
+    # migration cannot, and the failure names the dependent as the reason.
+    mock_index.publish(DEPENDENT, "1.0.0", usage=[usage(LIBRARY, "0.10.1")])
+    baseline = make_baseline(extra_usages=[usage(DEPENDENT, "1.0.0")])
+    mock_index.publish(LIBRARY, "0.11.0")
+    res = resolution(mock_index)
+
+    migrate_constraint(baseline)
+    before = baseline.snapshot()
+
+    with pytest.raises(sysand.SolveError) as excinfo:
+        sysand.lock(baseline.root, resolution=res, write=False)
+    error = excinfo.value
+    assert error.wrote is False
+    assert isinstance(error.report, str) and error.report
+    assert any(
+        c["kind"] == "Constraint"
+        and c["required_by"] == DEPENDENT
+        and c["iri"] == LIBRARY
+        for c in error.conflicts
+    ), error.conflicts
+
+    after = baseline.snapshot()
+    assert after["lockfile"] == before["lockfile"]
+    assert after["env.toml"] == before["env.toml"]
+    assert after["installed"] == before["installed"]
+
+
+def test_no_compatible_dependent_release(
+    make_baseline: MakeBaseline, mock_index: MockIndex
+) -> None:
+    baseline = _dependent_baseline(make_baseline, mock_index, "0.10.1")
+    mock_index.publish(LIBRARY, "0.11.0")
+    res = resolution(mock_index)
+
+    migrate_constraint(baseline)
+    before = baseline.snapshot()
+    with pytest.raises(sysand.SolveError) as excinfo:
+        sysand.lock(baseline.root, resolution=res, write=False)
+    assert excinfo.value.wrote is False
+    assert any(
+        c["kind"] == "Constraint" and c["required_by"] == DEPENDENT
+        for c in excinfo.value.conflicts
+    ), excinfo.value.conflicts
+    assert baseline.snapshot() == before
+
+
+def test_new_version_not_published_yet(baseline: Baseline) -> None:
+    index = baseline.index
+    res = resolution(index)
+
+    listing = sysand.versions(LIBRARY, resolution=res)
+    assert listing["versions"] == ["0.10.3"]
+
+    migrate_constraint(baseline)
+    before = baseline.snapshot()
+    with pytest.raises(sysand.SolveError) as excinfo:
+        sysand.lock(baseline.root, resolution=res, write=False)
+    error = excinfo.value
+    assert error.wrote is False
+    [conflict] = [c for c in error.conflicts if c["kind"] == "NoVersions"]
+    assert conflict["iri"] == LIBRARY
+    assert conflict["constraint"] == TARGET_CONSTRAINT
+    assert conflict["found"] == ["0.10.3"]
+    assert baseline.snapshot() == before
+
+    # Once the version appears, the same call resolves; a dry run still
+    # writes nothing.
+    index.publish(LIBRARY, "0.11.0")
+    result = sysand.lock(baseline.root, resolution=res, write=False)
+    assert project_version(result["projects"], LIBRARY) == "0.11.0"
+    assert baseline.snapshot() == before
