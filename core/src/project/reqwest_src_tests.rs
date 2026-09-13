@@ -145,3 +145,52 @@ fn sources_keep_userinfo_verbatim() -> Result<(), Box<dyn std::error::Error>> {
     );
     Ok(())
 }
+
+/// A remote project whose information document is missing a key is
+/// reported the way a local one is.
+#[test]
+fn remote_project_without_version_names_the_key() -> Result<(), Box<dyn std::error::Error>> {
+    let mut server = mockito::Server::new();
+    let url = reqwest::Url::parse(&server.url()).unwrap();
+
+    let info_mock = server
+        .mock("GET", "/.project.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"name":"remote"}"#)
+        .expect(1)
+        .create();
+
+    let meta_mock = server
+        .mock("GET", "/.meta.json")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"index":{},"created":"2026-01-01T00:00:00Z"}"#)
+        .expect(1)
+        .create();
+
+    let project = ReqwestSrcProjectAsync {
+        client: create_reqwest_client()?,
+        url,
+        auth_policy: Arc::new(Unauthenticated {}),
+        expected_checksum: None,
+    }
+    .to_tokio_sync(Arc::new(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?,
+    ));
+
+    let error = project
+        .get_project()
+        .expect_err("the information document is not valid")
+        .to_string();
+    assert!(
+        error.contains("missing key `version` in `.project.json`"),
+        "unexpected error: {error}"
+    );
+
+    info_mock.assert();
+    meta_mock.assert();
+    Ok(())
+}

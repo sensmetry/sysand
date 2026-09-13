@@ -14,7 +14,11 @@ use crate::{
     auth::HTTPAuthentication,
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    manifest::diagnostics::Report,
+    model::{
+        InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, PartialManifest,
+    },
     project::{CanonicalizationError, ProjectReadAsync, utils::FsIoError},
     resolve::net_utils::{json_get_request, json_head_request, text_get_request},
 };
@@ -65,6 +69,8 @@ pub enum ReqwestSrcError {
     Reqwest(reqwest::Error),
     #[error("HTTP request to\n  `{0}`\n  returned malformed data: {1}")]
     Deserialize(String, serde_json::Error),
+    #[error("HTTP request to\n  `{0}`\n  returned a document that is not a valid manifest:\n{1}")]
+    InvalidManifest(String, Report),
     #[error("HTTP request to `{0}` returned unexpected status code {1}")]
     BadStatus(Box<str>, reqwest::StatusCode),
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
@@ -73,6 +79,47 @@ pub enum ReqwestSrcError {
     // `io:Error`, which in this case is actually a network/HTTP error
     #[error(transparent)]
     Io(#[from] Box<FsIoError>),
+}
+
+impl<Policy: HTTPAuthentication> ReqwestSrcProjectAsync<Policy> {
+    /// The body of one manifest document, or `None` when the server does
+    /// not have it.
+    async fn fetch(&self, url: reqwest::Url) -> Result<Option<String>, ReqwestSrcError> {
+        let response = self
+            .auth_policy
+            .with_authentication(&self.client, &json_get_request(url))
+            .await
+            .map_err(ReqwestSrcError::ReqwestMiddleware)?;
+
+        if !response.status().is_success() {
+            return Ok(None);
+        }
+        response
+            .text()
+            .await
+            .map(Some)
+            .map_err(ReqwestSrcError::Reqwest)
+    }
+
+    /// One fetched document, parsed and validated; its warnings are
+    /// logged against the URL they came from.
+    fn validate<T: PartialManifest>(
+        url: reqwest::Url,
+        body: String,
+        metamodel: Option<&str>,
+    ) -> Result<T::Validated, ReqwestSrcError> {
+        let partial: T = serde_json::from_str(&body)
+            .map_err(|e| ReqwestSrcError::Deserialize(body.clone(), e))?;
+        match partial.validate_manifest(metamodel) {
+            Ok(validated) => {
+                for warning in &validated.warnings {
+                    log::warn!("`{url}`: {warning}");
+                }
+                Ok(validated.value)
+            }
+            Err(report) => Err(ReqwestSrcError::InvalidManifest(url.to_string(), report)),
+        }
+    }
 }
 
 impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Policy> {
@@ -87,39 +134,48 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for ReqwestSrcProjectAsync<Pol
         ),
         Self::Error,
     > {
-        let (info, meta) = join!(self.get_info_async(), self.get_meta_async());
+        // Both documents are fetched at once, as before, and validated
+        // afterwards: the metadata carries the metamodel a message about
+        // the other document may need to name.
+        let (info, meta) = join!(self.fetch(self.info_url()), self.fetch(self.meta_url()));
+        let (info, meta) = (info?, meta?);
 
-        Ok((info?, meta?))
+        let meta = meta
+            .map(|body| {
+                Self::validate::<InterchangeProjectMetadataPartial>(self.meta_url(), body, None)
+            })
+            .transpose()?;
+        let metamodel = meta
+            .as_ref()
+            .and_then(|meta: &InterchangeProjectMetadataRaw| meta.metamodel.as_deref());
+        let info = info
+            .map(|body| {
+                Self::validate::<InterchangeProjectInfoPartial>(self.info_url(), body, metamodel)
+            })
+            .transpose()?;
+
+        Ok((info, meta))
     }
 
     async fn get_info_async(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
-        let info_resp = self
-            .auth_policy
-            .with_authentication(&self.client, &json_get_request(self.info_url()))
-            .await
-            .map_err(ReqwestSrcError::ReqwestMiddleware)?;
-
-        Ok(if info_resp.status().is_success() {
-            let rep = info_resp.text().await.map_err(ReqwestSrcError::Reqwest)?;
-            Some(serde_json::from_str(&rep).map_err(|e| ReqwestSrcError::Deserialize(rep, e))?)
-        } else {
-            None
-        })
+        // On its own, the information document has no sibling to take a
+        // metamodel from, and fetching one for a message is not worth a
+        // second request.
+        self.fetch(self.info_url())
+            .await?
+            .map(|body| {
+                Self::validate::<InterchangeProjectInfoPartial>(self.info_url(), body, None)
+            })
+            .transpose()
     }
 
     async fn get_meta_async(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
-        let meta_resp = self
-            .auth_policy
-            .with_authentication(&self.client, &json_get_request(self.meta_url()))
-            .await
-            .map_err(ReqwestSrcError::ReqwestMiddleware)?;
-
-        Ok(if meta_resp.status().is_success() {
-            let rep = meta_resp.text().await.map_err(ReqwestSrcError::Reqwest)?;
-            Some(serde_json::from_str(&rep).map_err(|e| ReqwestSrcError::Deserialize(rep, e))?)
-        } else {
-            None
-        })
+        self.fetch(self.meta_url())
+            .await?
+            .map(|body| {
+                Self::validate::<InterchangeProjectMetadataPartial>(self.meta_url(), body, None)
+            })
+            .transpose()
     }
 
     type SourceReader<'a>

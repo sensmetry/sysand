@@ -36,7 +36,12 @@ use crate::{
     context::ProjectContext,
     env::index::{AdvertisedVersion, HttpFetchError, MissingPolicy, fetch_json},
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, InterchangeProjectUsageRaw},
+    manifest::diagnostics::Report,
+    model::{
+        InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw,
+        InterchangeProjectUsageRaw, PartialManifest,
+    },
     project::{
         ProjectReadAsync,
         reqwest_kpar_download::{
@@ -68,6 +73,8 @@ pub enum IndexEntryProjectError {
     Fetch(#[from] HttpFetchError),
     #[error(transparent)]
     Downloaded(#[from] ReqwestKparDownloadedError),
+    #[error("`{0}` is not a valid manifest:\n{1}")]
+    InvalidManifest(String, Report),
 }
 
 impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
@@ -123,12 +130,18 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         self.fetched_info_meta
             .get_or_try_init(|| async {
                 let (info, meta): (
-                    InterchangeProjectInfoRaw,
-                    InterchangeProjectMetadataRaw,
+                    InterchangeProjectInfoPartial,
+                    InterchangeProjectMetadataPartial,
                 ) = futures::try_join!(
                     self.fetch_required_json(self.project_json_url.clone()),
                     self.fetch_required_json(self.meta_json_url.clone()),
                 )?;
+
+                // The metadata carries the metamodel a message about the
+                // other document may need to name.
+                let meta = validate_fetched(&self.meta_json_url, meta, None)?;
+                let info =
+                    validate_fetched(&self.project_json_url, info, meta.metamodel.as_deref())?;
 
                 Ok((info, meta))
             })
@@ -210,6 +223,27 @@ impl<Policy: HTTPAuthentication> ProjectReadAsync for IndexEntryProject<Policy> 
 
     fn project_root(&self) -> Option<&camino::Utf8Path> {
         None
+    }
+}
+
+/// One fetched manifest document, validated; its warnings are logged
+/// against the URL they came from.
+fn validate_fetched<T: PartialManifest>(
+    url: &reqwest::Url,
+    partial: T,
+    metamodel: Option<&str>,
+) -> Result<T::Validated, IndexEntryProjectError> {
+    match partial.validate_manifest(metamodel) {
+        Ok(validated) => {
+            for warning in &validated.warnings {
+                log::warn!("`{url}`: {warning}");
+            }
+            Ok(validated.value)
+        }
+        Err(report) => Err(IndexEntryProjectError::InvalidManifest(
+            url.to_string(),
+            report,
+        )),
     }
 }
 

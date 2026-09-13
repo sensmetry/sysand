@@ -7,7 +7,12 @@ use sysand_core::context::ProjectContext;
 use sysand_core::lock::Source;
 use sysand_core::project::{CanonicalizationError, ProjectChecksum};
 use sysand_core::{
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    manifest::diagnostics::Report,
+    model::{
+        InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
+        PROJECT_JSON_FILE, PartialManifest,
+    },
     project::{ProjectMut, ProjectRead, utils::FsIoError},
 };
 
@@ -57,6 +62,8 @@ pub enum Error {
     KeyNotFound(String),
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
+    #[error("`{0}` is not a valid manifest:\n{1}")]
+    InvalidManifest(&'static str, Report),
 }
 
 impl From<wasm_bindgen::JsValue> for Error {
@@ -96,24 +103,25 @@ impl ProjectRead for ProjectLocalBrowserStorage {
         ),
         Self::Error,
     > {
-        let info_path = self.root_path.join(".project.json");
-
-        let info = match self.vfs.read_string(info_path) {
-            Ok(str) => {
-                Some(serde_json::from_str(&str).map_err(|e| Error::Serialize(".project.json", e))?)
-            }
+        // The metadata is read first because it carries the metamodel,
+        // which a message about the other document may need to name.
+        let meta_path = self.root_path.join(META_JSON_FILE);
+        let meta: Option<InterchangeProjectMetadataRaw> = match self.vfs.read_string(meta_path) {
+            Ok(str) => Some(parse_manifest::<InterchangeProjectMetadataPartial>(
+                &str, None,
+            )?),
             Err(LocalStorageError::KeyNotFound(_)) => None,
             Err(err) => {
                 return Err(err.into());
             }
         };
 
-        let meta_path = self.root_path.join(".meta.json");
-
-        let meta = match self.vfs.read_string(meta_path) {
-            Ok(str) => {
-                Some(serde_json::from_str(&str).map_err(|e| Error::Serialize(".meta.json", e))?)
-            }
+        let info_path = self.root_path.join(PROJECT_JSON_FILE);
+        let info = match self.vfs.read_string(info_path) {
+            Ok(str) => Some(parse_manifest::<InterchangeProjectInfoPartial>(
+                &str,
+                meta.as_ref().and_then(|meta| meta.metamodel.as_deref()),
+            )?),
             Err(LocalStorageError::KeyNotFound(_)) => None,
             Err(err) => {
                 return Err(err.into());
@@ -230,5 +238,23 @@ impl ProjectMut for ProjectLocalBrowserStorage {
         self.vfs.write_reader(&file_path, source)?;
 
         Ok(())
+    }
+}
+
+/// One manifest document from local storage, parsed and validated; its
+/// warnings are logged against the document they came from.
+fn parse_manifest<T: PartialManifest>(
+    text: &str,
+    metamodel: Option<&str>,
+) -> Result<T::Validated, Error> {
+    let partial: T = serde_json::from_str(text).map_err(|e| Error::Serialize(T::FILE, e))?;
+    match partial.validate_manifest(metamodel) {
+        Ok(validated) => {
+            for warning in &validated.warnings {
+                log::warn!("`{}`: {warning}", T::FILE);
+            }
+            Ok(validated.value)
+        }
+        Err(report) => Err(Error::InvalidManifest(T::FILE, report)),
     }
 }

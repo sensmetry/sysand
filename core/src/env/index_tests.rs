@@ -1269,6 +1269,47 @@ mod get_project {
         Ok(())
     }
 
+    /// An index entry whose metadata is missing a key is reported by
+    /// Sysand, naming the key and the document it came from.
+    #[test]
+    fn index_entry_with_a_malformed_meta_names_the_key() -> Result<(), Box<dyn std::error::Error>> {
+        let mut server = mockito::Server::new();
+
+        let env = index_env_sync(&server)?;
+
+        let versions_mock = mock_json_get(
+            &mut server,
+            "/admin/proj0/versions.json",
+            versions_json_body([("0.3.0", "[]")]),
+        );
+        let project_json_mock = mock_json_get(
+            &mut server,
+            "/admin/proj0/0.3.0/.project.json",
+            project_json_body("proj0", Some("admin"), "0.3.0", "[]"),
+        );
+        let meta_json_mock = mock_json_get(
+            &mut server,
+            "/admin/proj0/0.3.0/.meta.json",
+            r#"{"created":"2026-01-01T00:00:00Z"}"#.to_owned(),
+        );
+
+        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
+        let error = project
+            .get_project()
+            .expect_err("the metadata is not valid")
+            .to_string();
+        assert!(
+            error.contains("missing key `index` in `.meta.json`"),
+            "unexpected error: {error}"
+        );
+
+        versions_mock.assert();
+        project_json_mock.assert();
+        meta_json_mock.assert();
+
+        Ok(())
+    }
+
     #[test]
     fn get_project_iri_hash_route() -> Result<(), Box<dyn std::error::Error>> {
         let mut server = mockito::Server::new();
