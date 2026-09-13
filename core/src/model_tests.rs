@@ -428,7 +428,7 @@ mod index_usage {
 
 #[test]
 fn index_publisher_and_name_follow_the_unnormalized_purl_rules() {
-    use crate::model::{IndexFieldError, IndexName, IndexPublisher};
+    use crate::model::{IdentifierError, IdentifierKind, IndexName, IndexPublisher};
 
     for publisher in ["acme", "Acme Labs", "acme-labs", "ACME 2"] {
         let parsed = IndexPublisher::parse(publisher.to_owned()).unwrap();
@@ -452,7 +452,10 @@ fn index_publisher_and_name_follow_the_unnormalized_purl_rules() {
     ] {
         assert_eq!(
             IndexPublisher::parse(publisher.to_owned()),
-            Err((publisher.to_owned(), IndexFieldError::Publisher)),
+            Err(IdentifierError {
+                kind: IdentifierKind::Publisher,
+                value: publisher.to_owned(),
+            }),
             "{publisher}"
         );
     }
@@ -469,7 +472,10 @@ fn index_publisher_and_name_follow_the_unnormalized_purl_rules() {
     for name in ["ab", "my_lib", "my..lib", "my/lib"] {
         assert_eq!(
             IndexName::parse(name.to_owned()),
-            Err((name.to_owned(), IndexFieldError::Name)),
+            Err(IdentifierError {
+                kind: IdentifierKind::Name,
+                value: name.to_owned(),
+            }),
             "{name}"
         );
     }

@@ -235,19 +235,15 @@ pub fn do_index_add<I: AsRef<str>, P: AsRef<Utf8Path>, R: AsRef<Utf8Path>>(
     // The project's publisher and name, which must be spelled as an index
     // spells them
     let index_publisher = |publisher: &str| {
-        IndexPublisher::parse(publisher.to_owned()).map_err(|(publisher, _)| {
-            IndexAddError::InvalidPublisherInProject {
-                publisher,
-                kpar_path: kpar_path.into(),
-            }
+        IndexPublisher::parse(publisher).map_err(|e| IndexAddError::InvalidPublisherInProject {
+            publisher: e.value,
+            kpar_path: kpar_path.into(),
         })
     };
     let index_name = || {
-        IndexName::parse(info.name.clone()).map_err(|(name, _)| {
-            IndexAddError::InvalidNameInProject {
-                name,
-                kpar_path: kpar_path.into(),
-            }
+        IndexName::parse(info.name.clone()).map_err(|e| IndexAddError::InvalidNameInProject {
+            name: e.value,
+            kpar_path: kpar_path.into(),
         })
     };
     let parsed_iri = match (iri, &info.publisher) {

@@ -1109,12 +1109,12 @@ pub fn prepare_publish_payload(path: &Utf8Path) -> Result<PublishPreparation, Pu
         .as_deref()
         .ok_or(PublishError::MissingPublisher)?;
     let normalized_publisher = IndexPublisher::parse(publisher.to_owned())
-        .map_err(|(publisher, _)| PublishError::InvalidPublisher(publisher.into()))?
+        .map_err(|e| PublishError::InvalidPublisher(e.value.into()))?
         .normalized();
 
     let name = &info.name;
     let normalized_name = IndexName::parse(name.clone())
-        .map_err(|(name, _)| PublishError::InvalidName(name.into()))?
+        .map_err(|e| PublishError::InvalidName(e.value.into()))?
         .normalized();
 
     let version = &info.version;

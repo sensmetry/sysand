@@ -186,17 +186,16 @@ pub fn parse_index_usage_spelling(
     publisher: &str,
     name: &str,
 ) -> Result<(IndexPublisher, IndexName), InterchangeProjectValidationError> {
-    let index_publisher =
-        IndexPublisher::parse(publisher.to_owned()).map_err(|(publisher, _)| {
-            InterchangeProjectValidationError::InvalidIndexUsagePublisher {
-                publisher,
-                name: name.to_owned(),
-            }
-        })?;
-    let index_name = IndexName::parse(name.to_owned()).map_err(|(name, _)| {
+    let index_publisher = IndexPublisher::parse(publisher).map_err(|e| {
+        InterchangeProjectValidationError::InvalidIndexUsagePublisher {
+            publisher: e.value,
+            name: name.to_owned(),
+        }
+    })?;
+    let index_name = IndexName::parse(name).map_err(|e| {
         InterchangeProjectValidationError::InvalidIndexUsageName {
             publisher: publisher.to_owned(),
-            name,
+            name: e.value,
         }
     })?;
     Ok((index_publisher, index_name))
@@ -1716,36 +1715,63 @@ impl ProjectName {
     }
 }
 
-/// Why a publisher or name cannot spell a project in an index usage (or an
-/// index), see [`IndexPublisher`] and [`IndexName`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub enum IndexFieldError {
-    #[error(
-        "publisher must be 3-50 ASCII alphanumeric chars, with single ` ` or `-` separators \
-         between words"
-    )]
+/// A publisher or a name: which identifier rule applies, and which
+/// identifier an [`IdentifierError`] is about
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdentifierKind {
     Publisher,
-    #[error(
-        "name must be 3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` separators \
-         between words"
-    )]
     Name,
 }
 
-/// The publisher of a project as an index usage, and an index, spell it:
-/// valid, once normalized (see [`Self::normalized`]), as the
-/// publisher of a `pkg:sysand` PURL. Every such publisher is also a valid
-/// [`ProjectPublisher`], but not the other way around
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Why a publisher or name cannot spell a project in a `model.toml`, an
+/// index usage or an index, see [`IndexPublisher`] and [`IndexName`]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{}", .kind.rule())]
+pub struct IdentifierError {
+    pub kind: IdentifierKind,
+    /// The value as given
+    pub value: String,
+}
+
+impl IdentifierKind {
+    /// Publishers disallow dots, but names permit them so that dotted
+    /// product names (e.g. `foo.bar`) are expressible
+    pub(crate) fn allows_dot_separator(self) -> bool {
+        self == Self::Name
+    }
+
+    fn rule(self) -> &'static str {
+        match self {
+            Self::Publisher => {
+                "publisher must be 3-50 ASCII alphanumeric chars, with single ` ` or `-` \
+                 separators between words"
+            }
+            Self::Name => {
+                "name must be 3-50 ASCII alphanumeric chars, with single ` `, `-`, or `.` \
+                 separators between words"
+            }
+        }
+    }
+}
+
+/// The publisher of a project as a `model.toml`, an index usage and an
+/// index spell it: valid, once normalized (see [`Self::normalized`]), as
+/// the publisher of a `pkg:sysand` PURL. Every such publisher is also a
+/// valid [`ProjectPublisher`], but not the other way around
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct IndexPublisher(String);
 
 impl IndexPublisher {
-    pub fn parse(publisher: String) -> Result<Self, (String, IndexFieldError)> {
+    pub fn parse(publisher: impl Into<String>) -> Result<Self, IdentifierError> {
+        let publisher = publisher.into();
         if crate::purl::is_valid_unnormalized_publisher(&publisher) {
             Ok(Self(publisher))
         } else {
-            Err((publisher, IndexFieldError::Publisher))
+            Err(IdentifierError {
+                kind: IdentifierKind::Publisher,
+                value: publisher,
+            })
         }
     }
 
@@ -1768,20 +1794,24 @@ impl IndexPublisher {
     }
 }
 
-/// The name of a project as an index usage, and an index, spell it: valid,
-/// once normalized (see [`Self::normalized`]), as the name of a
-/// `pkg:sysand` PURL. Every such name is also a valid [`ProjectName`], but
-/// not the other way around
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// The name of a project as a `model.toml`, an index usage and an index
+/// spell it: valid, once normalized (see [`Self::normalized`]), as the
+/// name of a `pkg:sysand` PURL. Every such name is also a valid
+/// [`ProjectName`], but not the other way around
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct IndexName(String);
 
 impl IndexName {
-    pub fn parse(name: String) -> Result<Self, (String, IndexFieldError)> {
+    pub fn parse(name: impl Into<String>) -> Result<Self, IdentifierError> {
+        let name = name.into();
         if crate::purl::is_valid_unnormalized_name(&name) {
             Ok(Self(name))
         } else {
-            Err((name, IndexFieldError::Name))
+            Err(IdentifierError {
+                kind: IdentifierKind::Name,
+                value: name,
+            })
         }
     }
 
@@ -1809,9 +1839,9 @@ impl IndexName {
 /// spell it, otherwise as [`ProjectPublisher::normalized`]. A publisher that
 /// is not even a valid project publisher is kept as it is
 pub(crate) fn normalize_typed_publisher(publisher: &str) -> String {
-    match IndexPublisher::parse(publisher.to_owned()) {
+    match IndexPublisher::parse(publisher) {
         Ok(publisher) => publisher.normalized(),
-        Err((publisher, _)) => match ProjectPublisher::parse(publisher) {
+        Err(e) => match ProjectPublisher::parse(e.value) {
             Ok(publisher) => publisher.into_normalized(),
             Err((publisher, _)) => publisher,
         },
@@ -1821,9 +1851,9 @@ pub(crate) fn normalize_typed_publisher(publisher: &str) -> String {
 /// How the name of a typed usage of any kind normalizes, as
 /// [`normalize_typed_publisher`] does for the publisher
 pub(crate) fn normalize_typed_name(name: &str) -> String {
-    match IndexName::parse(name.to_owned()) {
+    match IndexName::parse(name) {
         Ok(name) => name.normalized(),
-        Err((name, _)) => match ProjectName::parse(name) {
+        Err(e) => match ProjectName::parse(e.value) {
             Ok(name) => name.into_normalized(),
             Err((name, _)) => name,
         },
@@ -1833,10 +1863,10 @@ pub(crate) fn normalize_typed_name(name: &str) -> String {
 macro_rules! index_field_impls {
     ($ty:ty) => {
         impl TryFrom<String> for $ty {
-            type Error = IndexFieldError;
+            type Error = IdentifierError;
 
             fn try_from(value: String) -> Result<Self, Self::Error> {
-                Self::parse(value).map_err(|(_, e)| e)
+                Self::parse(value)
             }
         }
 
