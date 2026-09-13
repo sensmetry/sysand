@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use crate::graph::DependencyGraph;
+use crate::graph::{DependencyGraph, check_metamodel_pair};
+use crate::model::Metamodel;
+
+const OMG_SYSML_2025: &str = "https://www.omg.org/spec/SysML/20250201";
+const OMG_KERML_2025: &str = "https://www.omg.org/spec/KerML/20250201";
+const OMG_KERML_2024: &str = "https://www.omg.org/spec/KerML/20240201";
+const SYSIDE_SYSML_2025: &str = "https://www.sysand.com/spec/SysML/20250201";
 
 /// A graph over the node names given, with an edge for every
 /// `(dependent, dependency)` pair. Edges whose endpoints are all nodes,
@@ -225,4 +231,136 @@ fn build_order_handles_a_long_chain_without_overflowing() {
     assert_eq!(order.len(), LENGTH);
     assert_eq!(*order[0], LENGTH - 1);
     assert_eq!(*order[LENGTH - 1], 0);
+}
+
+// ----------------------------------------------------------------------
+// The metamodel rules over one edge
+
+fn metamodel(value: &str) -> Metamodel {
+    Metamodel::parse(fluent_uri::Iri::parse(value.to_owned()).unwrap())
+        .expect("a well-formed metamodel")
+}
+
+/// model-toml.md "Metamodel": "only Syside-metamodel projects may depend
+/// on Syside-metamodel projects" -- the rule is one-way.
+#[test]
+fn metamodel_pair_allows_an_omg_dependency_of_a_syside_project() {
+    assert_eq!(
+        check_metamodel_pair(
+            (&"acme/a", Some(&metamodel(SYSIDE_SYSML_2025))),
+            (&"acme/b", Some(&metamodel(OMG_SYSML_2025))),
+        ),
+        Ok(None)
+    );
+}
+
+/// model-toml.md: "a `<date>` that differs between a project and one of
+/// its dependencies is a warning".
+#[test]
+fn metamodel_pair_warns_on_a_different_release() {
+    let mismatch = check_metamodel_pair(
+        (&"acme/a", Some(&metamodel(OMG_SYSML_2025))),
+        (&"acme/b", Some(&metamodel(OMG_KERML_2024))),
+    )
+    .expect("a differing release is not an error")
+    .expect("a differing release is a warning");
+
+    assert_eq!(
+        mismatch.to_string(),
+        "`acme/a` targets metamodel release `20250201` but its dependency `acme/b` \
+         targets `20240201`"
+    );
+}
+
+/// model-toml.md: "an OMG-metamodel project must not depend on a
+/// Syside-metamodel project. This is an error".
+#[test]
+fn metamodel_pair_rejects_an_omg_project_depending_on_syside() {
+    let error = check_metamodel_pair(
+        (&"acme/a", Some(&metamodel(OMG_SYSML_2025))),
+        (&"acme/b", Some(&metamodel(SYSIDE_SYSML_2025))),
+    )
+    .expect_err("an OMG project may not depend on a Syside one");
+
+    assert_eq!(
+        error.to_string(),
+        "`acme/a` uses the OMG metamodel `https://www.omg.org/spec/SysML/20250201` and cannot \
+         depend on `acme/b`, which uses the Syside metamodel \
+         `https://www.sysand.com/spec/SysML/20250201`; only Syside-metamodel projects may \
+         depend on Syside-metamodel projects"
+    );
+}
+
+/// model-toml.md: a project without a `metamodel` "is treated as OMG with
+/// an unknown date: the direction rule applies, the release warning does
+/// not".
+#[test]
+fn metamodel_pair_of_a_project_without_a_metamodel() {
+    let none = None;
+
+    assert_eq!(
+        check_metamodel_pair(
+            (&"acme/a", none),
+            (&"acme/b", Some(&metamodel(OMG_KERML_2024)))
+        ),
+        Ok(None)
+    );
+
+    let error = check_metamodel_pair(
+        (&"acme/a", none),
+        (&"acme/b", Some(&metamodel(SYSIDE_SYSML_2025))),
+    )
+    .expect_err("the direction rule applies to an unknown date");
+    assert_eq!(
+        error.to_string(),
+        "`acme/a` uses no declared metamodel (OMG assumed) and cannot depend on `acme/b`, \
+         which uses the Syside metamodel `https://www.sysand.com/spec/SysML/20250201`; \
+         only Syside-metamodel projects may depend on Syside-metamodel projects"
+    );
+}
+
+/// A metamodel this version does not recognize is validated against the
+/// OMG schema, and is an OMG-metamodel project for the direction rule too.
+#[test]
+fn metamodel_pair_of_a_project_with_an_unrecognized_metamodel() {
+    let unrecognized = metamodel("https://example.com/x");
+
+    let error = check_metamodel_pair(
+        (&"acme/a", Some(&unrecognized)),
+        (&"acme/b", Some(&metamodel(SYSIDE_SYSML_2025))),
+    )
+    .expect_err("an unrecognized metamodel is OMG for the direction rule");
+    assert!(
+        error
+            .to_string()
+            .starts_with("`acme/a` uses the unrecognized metamodel `https://example.com/x` and"),
+        "unexpected error: {error}"
+    );
+
+    assert_eq!(
+        check_metamodel_pair(
+            (&"acme/a", Some(&unrecognized)),
+            (&"acme/b", Some(&metamodel(OMG_KERML_2024))),
+        ),
+        Ok(None)
+    );
+}
+
+/// "Only the date is compared, across families and spec kinds."
+#[test]
+fn metamodel_pair_ignores_the_spec_kind() {
+    assert_eq!(
+        check_metamodel_pair(
+            (&"acme/a", Some(&metamodel(OMG_SYSML_2025))),
+            (&"acme/b", Some(&metamodel(OMG_KERML_2025))),
+        ),
+        Ok(None)
+    );
+    assert_eq!(
+        check_metamodel_pair(
+            (&"acme/a", Some(&metamodel(SYSIDE_SYSML_2025))),
+            (&"acme/b", Some(&metamodel(OMG_KERML_2025))),
+        ),
+        Ok(None)
+    );
 }

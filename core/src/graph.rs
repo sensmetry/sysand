@@ -12,6 +12,8 @@ use std::hash::Hash;
 
 use thiserror::Error;
 
+use crate::model::{Metamodel, MetamodelFamily, MetamodelRelease};
+
 /// A directed graph of projects, with an edge from a dependent to each of
 /// its dependencies.
 ///
@@ -292,6 +294,80 @@ pub struct DependencyCycle<N: Display> {
     pub component: Vec<N>,
     /// One cycle, starting and ending at the same project.
     pub path: Vec<N>,
+}
+
+/// model-toml.md "Metamodel", direction rule: "an OMG-metamodel project
+/// must not depend on a Syside-metamodel project. This is an error".
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error(
+    "`{dependent}` uses {} and cannot depend on `{dependency}`, which uses {}; only \
+     Syside-metamodel projects may depend on Syside-metamodel projects",
+    Metamodel::describe(dependent_metamodel.as_ref()),
+    Metamodel::describe(dependency_metamodel.as_ref())
+)]
+pub struct MetamodelDirectionError<N> {
+    pub dependent: N,
+    pub dependent_metamodel: Option<Metamodel>,
+    pub dependency: N,
+    pub dependency_metamodel: Option<Metamodel>,
+}
+
+/// model-toml.md "Metamodel", release rule: "a `<date>` that differs
+/// between a project and one of its dependencies is a warning".
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error(
+    "`{dependent}` targets metamodel release `{dependent_date}` but its dependency \
+     `{dependency}` targets `{dependency_date}`"
+)]
+pub struct MetamodelReleaseMismatch<N> {
+    pub dependent: N,
+    pub dependent_date: MetamodelRelease,
+    pub dependency: N,
+    pub dependency_date: MetamodelRelease,
+}
+
+/// Both metamodel rules for one edge of a dependency graph. Only the date
+/// is compared, across families and specification kinds.
+///
+/// model-toml.md: a project without a `metamodel` "is treated as OMG with
+/// an unknown date: the direction rule applies, the release warning does
+/// not". An unrecognized value has no date to compare either.
+pub fn check_metamodel_pair<N: Clone + Debug + Display>(
+    dependent: (&N, Option<&Metamodel>),
+    dependency: (&N, Option<&Metamodel>),
+) -> Result<Option<MetamodelReleaseMismatch<N>>, Box<MetamodelDirectionError<N>>> {
+    let (dependent, dependent_metamodel) = dependent;
+    let (dependency, dependency_metamodel) = dependency;
+
+    if Metamodel::schema_family(dependent_metamodel) == MetamodelFamily::Omg
+        && Metamodel::schema_family(dependency_metamodel) == MetamodelFamily::Syside
+    {
+        return Err(Box::new(MetamodelDirectionError {
+            dependent: dependent.clone(),
+            dependent_metamodel: dependent_metamodel.cloned(),
+            dependency: dependency.clone(),
+            dependency_metamodel: dependency_metamodel.cloned(),
+        }));
+    }
+
+    Ok(
+        match (
+            dependent_metamodel.and_then(Metamodel::known),
+            dependency_metamodel.and_then(Metamodel::known),
+        ) {
+            (Some(dependent_known), Some(dependency_known))
+                if dependent_known.release != dependency_known.release =>
+            {
+                Some(MetamodelReleaseMismatch {
+                    dependent: dependent.clone(),
+                    dependent_date: dependent_known.release.clone(),
+                    dependency: dependency.clone(),
+                    dependency_date: dependency_known.release.clone(),
+                })
+            }
+            _ => None,
+        },
+    )
 }
 
 fn render_path<N: Display>(path: &[N]) -> String {
