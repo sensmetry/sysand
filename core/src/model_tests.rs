@@ -5,8 +5,8 @@ use indexmap::IndexMap;
 
 use crate::{
     model::{
-        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, PROJECT_FIELD_MAX_LEN,
-        ProjectName, ProjectPublisher,
+        InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw, KERML_SPEC_PREFIX,
+        MetamodelFamily, PROJECT_FIELD_MAX_LEN, ProjectName, ProjectPublisher, SYSML_SPEC_PREFIX,
     },
     utils::lowercase_hex,
 };
@@ -707,4 +707,17 @@ fn urn_sysand_resource_usage_is_rejected() {
         .validate()
         .unwrap();
     }
+}
+
+#[test]
+fn metamodel_family_prefixes_and_names() {
+    assert_eq!(MetamodelFamily::Omg.prefix(), "https://www.omg.org/spec/");
+    assert!(SYSML_SPEC_PREFIX.starts_with(MetamodelFamily::Omg.prefix()));
+    assert!(KERML_SPEC_PREFIX.starts_with(MetamodelFamily::Omg.prefix()));
+    assert_eq!(
+        MetamodelFamily::Syside.prefix(),
+        "https://www.sysand.com/spec/"
+    );
+    assert_eq!(MetamodelFamily::Omg.to_string(), "OMG");
+    assert_eq!(MetamodelFamily::Syside.to_string(), "Syside");
 }

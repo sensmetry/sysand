@@ -36,6 +36,42 @@ pub const KNOWN_METAMODELS: [&str; 2] = [
     "https://www.omg.org/spec/KerML/20250201",
 ];
 
+/// The two families of `metamodel` values Sysand recognizes: the OMG
+/// specifications, and the Syside metamodels that extend them and mirror
+/// the OMG value they extend.
+///
+/// A manifest key may belong to the schema of one family only (`root` is
+/// Syside's), which is what the family is needed for while reading a
+/// manifest; the full parse of a metamodel value (specification kind and
+/// release date) is a separate concern.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MetamodelFamily {
+    /// `https://www.omg.org/spec/<spec-kind>/<date>`
+    Omg,
+    /// `https://www.sysand.com/spec/<spec-kind>/<date>`
+    Syside,
+}
+
+impl MetamodelFamily {
+    /// The prefix every metamodel value of this family starts with, up to
+    /// and including the trailing `/`.
+    pub fn prefix(self) -> &'static str {
+        match self {
+            Self::Omg => "https://www.omg.org/spec/",
+            Self::Syside => "https://www.sysand.com/spec/",
+        }
+    }
+}
+
+impl Display for MetamodelFamily {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Omg => "OMG",
+            Self::Syside => "Syside",
+        })
+    }
+}
+
 /// Prefix shared between SysML v2 metamodel and standard libs
 pub const SYSML_SPEC_PREFIX: &str = "https://www.omg.org/spec/SysML/";
 /// Prefix shared between KerML metamodel and standard libs
