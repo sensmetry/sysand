@@ -188,6 +188,18 @@ impl Metamodel {
             .and_then(Self::known)
             .map_or(MetamodelFamily::Omg, |known| known.family)
     }
+
+    /// How a message names a project's metamodel: "the OMG metamodel
+    /// `<url>`", "no declared metamodel (OMG assumed)" or "the unrecognized
+    /// metamodel `<url>`". Written to follow "uses" in a sentence, so the
+    /// article belongs here rather than in the sentence.
+    pub fn describe(metamodel: Option<&Self>) -> String {
+        match metamodel {
+            Some(Self::Known(known)) => format!("the {} metamodel `{known}`", known.family),
+            Some(Self::Other(iri)) => format!("the unrecognized metamodel `{iri}`"),
+            None => "no declared metamodel (OMG assumed)".to_owned(),
+        }
+    }
 }
 
 impl Display for Metamodel {

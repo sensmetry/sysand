@@ -875,6 +875,28 @@ fn validate_parses_the_metamodel() {
     );
 }
 
+/// The phrase a message uses to name a project's metamodel; it follows
+/// "uses" in the direction error, so it carries its own article.
+#[test]
+fn metamodel_describes_itself() {
+    assert_eq!(
+        Metamodel::describe(Some(&metamodel(OMG_SYSML))),
+        "the OMG metamodel `https://www.omg.org/spec/SysML/20250201`"
+    );
+    assert_eq!(
+        Metamodel::describe(Some(&metamodel(SYSIDE_KERML))),
+        "the Syside metamodel `https://www.sysand.com/spec/KerML/20250201`"
+    );
+    assert_eq!(
+        Metamodel::describe(None),
+        "no declared metamodel (OMG assumed)"
+    );
+    assert_eq!(
+        Metamodel::describe(Some(&metamodel("https://example.com/x"))),
+        "the unrecognized metamodel `https://example.com/x`"
+    );
+}
+
 #[test]
 fn metamodel_release_shape() {
     assert_eq!(
