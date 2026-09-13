@@ -166,7 +166,8 @@ fn do_init_py_local_file(
             | InitError::PublisherParse(..)
             | InitError::SemVerParse(..)
             | InitError::SPDXLicenseParse(..)
-            | InitError::MetamodelParse(..) => PyValueError::new_err(e),
+            | InitError::MetamodelParse(..)
+            | InitError::MalformedMetamodel(..) => PyValueError::new_err(e),
             InitError::Project(err) => match err {
                 LocalSrcError::AlreadyExists(_) => PyFileExistsError::new_err(e),
                 LocalSrcError::Io(_) | LocalSrcError::Path(_) => PyIOError::new_err(e),

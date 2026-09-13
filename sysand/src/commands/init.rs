@@ -44,7 +44,9 @@ pub fn command_init(
     let metamodel = metamodel
         .map(|m| Iri::parse(String::from(m)))
         .transpose()
-        .map_err(|(e, _)| e)?;
+        .map_err(|(e, _)| e)?
+        .map(sysand_core::model::Metamodel::parse)
+        .transpose()?;
     let has_license = license.is_some();
     sysand_core::init::do_init(
         name,

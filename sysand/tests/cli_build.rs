@@ -525,7 +525,9 @@ fn workspace_build_with_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Workspace with unknown `meta.metamodel` — build succeeds with a warning
+/// Workspace with unknown `meta.metamodel` — build succeeds with a warning.
+/// The value is outside both recognized metamodel families: an OMG release
+/// Sysand has not heard of is a perfectly good metamodel and does not warn.
 #[test]
 fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Error>> {
     let (_temp_dir, cwd) = new_temp_cwd()?;
@@ -538,7 +540,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
                 {"path": "project1", "iris": ["urn:kpar:project1"]}
             ],
             "meta": {
-                "metamodel": "https://www.omg.org/spec/SysML/20251201"
+                "metamodel": "https://example.com/spec/SysML/20251201"
             }
         }"#,
     )?;
@@ -576,7 +578,7 @@ fn workspace_build_with_unknown_metamodel() -> Result<(), Box<dyn std::error::Er
     };
     assert_eq!(
         meta.metamodel.as_deref(),
-        Some("https://www.omg.org/spec/SysML/20251201")
+        Some("https://example.com/spec/SysML/20251201")
     );
 
     Ok(())
