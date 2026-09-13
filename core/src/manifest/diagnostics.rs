@@ -255,15 +255,24 @@ impl UnknownKeys {
         self.0.iter().map(String::as_str)
     }
 
-    /// One warning per unrecognized key, attributed to the table it was
-    /// found in (`project`, `workspace.group.legacy`, ...); the empty
-    /// string stands for the top level of the file.
-    pub fn warnings(&self, table: &str) -> Vec<ReadWarning> {
+    /// One warning per unrecognized key, attributed to where it was
+    /// found.
+    pub fn warnings(&self, location: &KeyLocation) -> Vec<ReadWarning> {
+        self.warnings_with_metamodel(location, None)
+    }
+
+    /// The same, with the metamodel the "this may be because" suffix
+    /// names: an unrecognized metamodel may be why the key is not known.
+    pub fn warnings_with_metamodel(
+        &self,
+        location: &KeyLocation,
+        metamodel: Option<&str>,
+    ) -> Vec<ReadWarning> {
         self.iter()
             .map(|key| ReadWarning::UnknownKey {
-                table: table.to_owned(),
+                location: location.clone(),
                 key: key.to_owned(),
-                unrecognized_metamodel: None,
+                unrecognized_metamodel: metamodel.map(str::to_owned),
             })
             .collect()
     }
@@ -300,6 +309,42 @@ impl<'de> Deserialize<'de> for UnknownKeys {
     }
 }
 
+/// Where a key was found, or was expected: a table of a `model.toml`, the
+/// top level of one, or a json manifest, which has no tables to name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum KeyLocation {
+    /// A `[table]` of a `model.toml`, named without its brackets
+    /// (`project`, `workspace.group.legacy`).
+    Table(String),
+    /// The top level of a `model.toml`.
+    TopLevel,
+    /// A json manifest, named by its file name (`.project.json`).
+    File(String),
+}
+
+impl Display for KeyLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Table(table) => write!(f, "`[{table}]`"),
+            Self::TopLevel => f.write_str("the top level"),
+            Self::File(file) => write!(f, "`{file}`"),
+        }
+    }
+}
+
+/// A key the manifest must carry is not there, and an
+/// unrecognized metamodel may be the reason.
+///
+/// Both manifest formats report a missing key through this function, so
+/// that the two cannot drift apart.
+pub fn missing_key(key: &str, location: &KeyLocation, metamodel: Option<&str>) -> Diagnostic {
+    let mut message = format!("missing key `{key}` in {location}");
+    if let Some(url) = metamodel {
+        message.push_str(&unsupported_metamodel_suffix(url));
+    }
+    Diagnostic::error(message)
+}
+
 /// What reading a manifest can report without failing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadWarning {
@@ -308,7 +353,7 @@ pub enum ReadWarning {
     /// (model-toml.md "Metamodel", rule (a)): the key may then belong to
     /// an unsupported schema, and the warning says so.
     UnknownKey {
-        table: String,
+        location: KeyLocation,
         key: String,
         unrecognized_metamodel: Option<String>,
     },
@@ -316,13 +361,16 @@ pub enum ReadWarning {
     /// metamodel's schema (`root` in an OMG-metamodel project) is a
     /// warning naming the metamodel that supports it".
     ForeignSchemaKey {
-        table: String,
+        location: KeyLocation,
         key: String,
         supported_by: MetamodelFamily,
     },
     /// model-toml.md "Metamodel": "Any other value is a warning, not an
     /// error."
-    UnknownMetamodel { table: String, value: String },
+    UnknownMetamodel {
+        location: KeyLocation,
+        value: String,
+    },
     /// workspaces.md "Source overrides": "A `sysand.toml` anywhere else
     /// under the workspace is ignored as a whole ... with a warning on any
     /// operation touching the overrides."
@@ -346,14 +394,14 @@ impl Display for ReadWarning {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UnknownKey {
-                table,
+                location,
                 key,
                 unrecognized_metamodel,
             } => {
-                if table.is_empty() {
+                if *location == KeyLocation::TopLevel {
                     write!(f, "unknown top-level key `{key}`")?;
                 } else {
-                    write!(f, "unknown key `{key}` in `[{table}]`")?;
+                    write!(f, "unknown key `{key}` in {location}")?;
                 }
                 if let Some(url) = unrecognized_metamodel {
                     write!(f, "{}", unsupported_metamodel_suffix(url))?;
@@ -361,17 +409,17 @@ impl Display for ReadWarning {
                 Ok(())
             }
             Self::ForeignSchemaKey {
-                table,
+                location,
                 key,
                 supported_by,
             } => write!(
                 f,
-                "`{key}` in `[{table}]` is only supported by the {supported_by} metamodel \
+                "`{key}` in {location} is only supported by the {supported_by} metamodel \
                  and is ignored here"
             ),
-            Self::UnknownMetamodel { table, value } => write!(
+            Self::UnknownMetamodel { location, value } => write!(
                 f,
-                "`[{table}]` declares metamodel `{value}`, which this version of Sysand does \
+                "{location} declares metamodel `{value}`, which this version of Sysand does \
                  not recognize"
             ),
             Self::IgnoredSourceOverrides { path } => write!(

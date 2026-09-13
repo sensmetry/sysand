@@ -20,11 +20,13 @@ use typed_path::Utf8UnixPathBuf;
 use zip::{self, result::ZipError};
 
 use crate::{
+    manifest::diagnostics::{Report, Validated},
     model::{
         IndexName, IndexPublisher, InterchangeProjectUsage, InterchangeProjectUsageRaw,
         ProjectName, ProjectPublisher,
     },
     purl::PKG_SYSAND_PREFIX,
+    utils::SP,
 };
 
 /// A file that is guaranteed to exist as long as the lifetime.
@@ -336,19 +338,62 @@ pub mod wrapfs {
 }
 
 #[derive(Debug, Error)]
-#[error("project deserialization error: failed to deserialize `{path}`: {err}")]
-pub struct ProjectDeserializationError {
-    path: Box<Utf8Path>,
-    err: serde_json::Error,
+pub enum ProjectDeserializationError {
+    /// The document is not json, or a value in it has the wrong type.
+    /// Serde knows where, so it reports it.
+    #[error("project deserialization error: failed to deserialize `{path}`: {err}")]
+    Syntax {
+        path: Box<Utf8Path>,
+        err: serde_json::Error,
+    },
+    /// The document is json, but not a manifest: a key it must carry is
+    /// absent. Every reason is reported at once.
+    #[error("`{path}` is not a valid manifest:\n{}", indent(report))]
+    Invalid { path: Box<Utf8Path>, report: Report },
 }
 
 impl ProjectDeserializationError {
     pub fn new(path: impl AsRef<Utf8Path>, err: serde_json::Error) -> Self {
-        Self {
+        Self::Syntax {
             path: path.as_ref().into(),
             err,
         }
     }
+
+    pub fn invalid(path: impl AsRef<Utf8Path>, report: Report) -> Self {
+        Self::Invalid {
+            path: path.as_ref().into(),
+            report,
+        }
+    }
+}
+
+/// Takes a validated manifest, logging every warning its read produced
+/// against the document it came from.
+pub fn validate_manifest<T>(
+    path: impl AsRef<Utf8Path>,
+    validated: Result<Validated<T>, Report>,
+) -> Result<T, ProjectDeserializationError> {
+    match validated {
+        Ok(validated) => {
+            for warning in &validated.warnings {
+                log::warn!("`{}`: {warning}", path.as_ref());
+            }
+            Ok(validated.value)
+        }
+        Err(report) => Err(ProjectDeserializationError::invalid(path, report)),
+    }
+}
+
+/// A report is several lines; every line after the first is indented to
+/// align with the text of the first, as `DEVELOPMENT.md` asks.
+fn indent(report: &Report) -> String {
+    report
+        .to_string()
+        .lines()
+        .map(|line| format!("{SP:>8}{line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[derive(Debug, Error)]

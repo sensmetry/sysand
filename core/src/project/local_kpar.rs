@@ -10,7 +10,6 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use camino_tempfile::{Utf8TempDir, tempdir};
-use serde::de::DeserializeOwned;
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
@@ -19,7 +18,11 @@ use zip::{ZipArchive, read::ZipFile, result::ZipError};
 use crate::{
     context::ProjectContext,
     lock::Source,
-    model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw},
+    model::{
+        InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
+        InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
+        PROJECT_JSON_FILE, PartialManifest,
+    },
     project::{
         self, KparMeta, ProjectChecksum, ProjectRead, hash_reader,
         utils::{RelativizePathError, ZipArchiveError, relativize_path},
@@ -27,7 +30,9 @@ use crate::{
     utils::{lowercase_hex, sha256_lowercase_hex},
 };
 
-use super::utils::{FsIoError, ProjectDeserializationError, ToPathBuf as _, wrapfs};
+use super::utils::{
+    FsIoError, ProjectDeserializationError, ToPathBuf as _, validate_manifest, wrapfs,
+};
 
 #[derive(Debug, Clone)]
 pub enum KparInnerPath {
@@ -471,15 +476,31 @@ impl LocalKParProjectRaw {
         }
     }
 
-    fn get_parsed<T: DeserializeOwned, P: AsRef<Utf8UnixPath>>(
+    fn get_meta_from(
+        &self,
+        zip: &mut ZipArchive<File>,
+    ) -> Result<Option<InterchangeProjectMetadataRaw>, LocalKParError> {
+        self.get_parsed::<InterchangeProjectMetadataPartial, _>(zip, META_JSON_FILE, None)
+    }
+
+    /// Reads one of the two manifest documents out of the archive and
+    /// validates it, naming `metamodel` as a possible reason for a key
+    /// this version requires but the document does not carry.
+    fn get_parsed<T: PartialManifest, P: AsRef<Utf8UnixPath>>(
         &self,
         zip: &mut ZipArchive<File>,
         path: P,
-    ) -> Result<Option<T>, LocalKParError> {
+        metamodel: Option<&str>,
+    ) -> Result<Option<T::Validated>, LocalKParError> {
         match self.get_relative(zip, &path) {
-            Ok(f) => Ok(Some(serde_json::from_reader(f).map_err(|e| {
-                ProjectDeserializationError::new(path.as_ref().as_str(), e)
-            })?)),
+            Ok(f) => {
+                let partial: T = serde_json::from_reader(f)
+                    .map_err(|e| ProjectDeserializationError::new(path.as_ref().as_str(), e))?;
+                Ok(Some(validate_manifest(
+                    path.as_ref().as_str(),
+                    partial.validate_manifest(metamodel),
+                )?))
+            }
             Err((_, ZipError::FileNotFound)) => Ok(None),
             Err((path, err)) => Err(LocalKParError::Zip(ZipArchiveError::NamedFileMeta(
                 path.into_string().into(),
@@ -504,21 +525,34 @@ impl ProjectRead for LocalKParProjectRaw {
         Self::Error,
     > {
         let mut archive = self.open_archive()?;
-        let info = self.get_parsed(&mut archive, ".project.json")?;
-        let meta = self.get_parsed(&mut archive, ".meta.json")?;
+        // The metadata carries the metamodel, so it is read first.
+        let meta = self.get_meta_from(&mut archive)?;
+        let info = self.get_parsed::<InterchangeProjectInfoPartial, _>(
+            &mut archive,
+            PROJECT_JSON_FILE,
+            meta.as_ref().and_then(|meta| meta.metamodel.as_deref()),
+        )?;
         Ok((info, meta))
     }
 
     fn get_info(&self) -> Result<Option<InterchangeProjectInfoRaw>, Self::Error> {
         let mut archive = self.open_archive()?;
-        let info = self.get_parsed(&mut archive, ".project.json")?;
-        Ok(info)
+        // Reading the metadata as well costs one more entry of an
+        // archive that is already open, and buys the same message the
+        // caller of `get_project` gets.
+        let metamodel = self
+            .get_meta_from(&mut archive)?
+            .and_then(|meta| meta.metamodel);
+        self.get_parsed::<InterchangeProjectInfoPartial, _>(
+            &mut archive,
+            PROJECT_JSON_FILE,
+            metamodel.as_deref(),
+        )
     }
 
     fn get_meta(&self) -> Result<Option<InterchangeProjectMetadataRaw>, Self::Error> {
         let mut archive = self.open_archive()?;
-        let meta = self.get_parsed(&mut archive, ".meta.json")?;
-        Ok(meta)
+        self.get_meta_from(&mut archive)
     }
 
     type SourceReader<'a>
