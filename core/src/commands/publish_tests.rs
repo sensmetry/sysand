@@ -2,16 +2,16 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use super::{
-    AllowedMetamodelKind, PublishBearerConflict, PublishBearerProvenance, PublishError,
-    PublishPreparation, SelectedPublishBearer, TrustedPublishingEnvironment, TrustedPublishingMode,
-    build_upload_url, check_metamodel, check_usage, do_publish, error_body_to_string,
-    map_publish_response, resolve_publish_bearer, resolve_publish_bearer_from_config,
-    stored_bearer_clearly_expired, validate_api_root_url_shape,
+    PublishBearerConflict, PublishBearerProvenance, PublishError, PublishPreparation,
+    SelectedPublishBearer, TrustedPublishingEnvironment, TrustedPublishingMode, build_upload_url,
+    check_metamodel, check_usage, do_publish, error_body_to_string, map_publish_response,
+    resolve_publish_bearer, resolve_publish_bearer_from_config, stored_bearer_clearly_expired,
+    validate_api_root_url_shape,
 };
 use crate::{
     auth::{EnvBearerAuth, ForceBearerAuth, GlobMap, GlobMapBuilder, StoredBearerAuth},
     index_location::IndexLocation,
-    model::InterchangeProjectUsageRaw,
+    model::{InterchangeProjectUsageRaw, Metamodel, SpecKind},
     resolve::net_utils::create_reqwest_client,
 };
 use bytes::Bytes;
@@ -657,52 +657,41 @@ fn error_body_to_string_reports_empty_body() {
 
 // --- check_metamodel ---
 
-#[test]
-fn check_metamodel_accepts_valid_sysml() {
-    assert_eq!(
-        check_metamodel("https://www.omg.org/spec/SysML/20250201").unwrap(),
-        AllowedMetamodelKind::SysML,
-    );
+fn metamodel(value: &str) -> Metamodel {
+    Metamodel::parse(fluent_uri::Iri::parse(value.to_owned()).unwrap())
+        .expect("a well-formed metamodel")
 }
 
 #[test]
-fn check_metamodel_accepts_valid_kerml() {
-    assert_eq!(
-        check_metamodel("https://www.omg.org/spec/KerML/20250201").unwrap(),
-        AllowedMetamodelKind::KerML,
-    );
+fn check_metamodel_accepts_omg_metamodels() {
+    for (value, spec) in [
+        ("https://www.omg.org/spec/SysML/20250201", SpecKind::SysMl),
+        ("https://www.omg.org/spec/KerML/20250201", SpecKind::KerMl),
+    ] {
+        assert_eq!(check_metamodel(&metamodel(value)).unwrap(), spec);
+    }
 }
 
+/// The index holds OMG-metamodel projects only: neither a Syside metamodel
+/// nor any other one can be published.
 #[test]
-fn check_metamodel_rejects_unsupported_metamodel() {
-    let err = check_metamodel("https://example.com/some-meta").unwrap_err();
-    assert_matches!(err, PublishError::UnsupportedMetamodel { metamodel: _ });
-}
-
-#[test]
-fn check_metamodel_rejects_invalid_sysml_version() {
-    // Valid SysML prefix but non-date version string.
-    let err = check_metamodel("https://www.omg.org/spec/SysML/notadate").unwrap_err();
-    assert_matches!(
-        err,
-        PublishError::InvalidMetamodelVersion {
-            metamodel: _,
-            version: _
-        }
-    );
-}
-
-#[test]
-fn check_metamodel_rejects_invalid_kerml_version() {
-    // Month 13 is not a valid calendar month.
-    let err = check_metamodel("https://www.omg.org/spec/KerML/20251301").unwrap_err();
-    assert_matches!(
-        err,
-        PublishError::InvalidMetamodelVersion {
-            metamodel: _,
-            version: _
-        }
-    );
+fn check_metamodel_rejects_other_metamodels() {
+    for value in [
+        "https://www.sysand.com/spec/SysML/20250201",
+        "https://www.sysand.com/spec/KerML/20250201",
+        "https://example.com/some-meta",
+        "https://www.omg.org/spec/UML/20250201",
+        "https://www.omg.org/spec/SysML",
+    ] {
+        let err = check_metamodel(&metamodel(value)).unwrap_err();
+        let PublishError::UnsupportedMetamodel {
+            metamodel: reported,
+        } = &err
+        else {
+            panic!("{value} should be unsupported, got: {err}");
+        };
+        assert_eq!(reported, value);
+    }
 }
 
 // --- check_usage ---

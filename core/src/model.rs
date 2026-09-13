@@ -31,11 +31,6 @@ use crate::utils::{
 // pub struct ParsedIri(fluent_uri::Iri<String>);
 // pub struct NormalisedIri(fluent_uri::Iri<String>);
 
-pub const KNOWN_METAMODELS: [&str; 2] = [
-    "https://www.omg.org/spec/SysML/20250201",
-    "https://www.omg.org/spec/KerML/20250201",
-];
-
 /// The two families of `metamodel` values Sysand recognizes: the OMG
 /// specifications, and the Syside metamodels that extend them and mirror
 /// the OMG value they extend.
@@ -69,6 +64,216 @@ impl Display for MetamodelFamily {
             Self::Omg => "OMG",
             Self::Syside => "Syside",
         })
+    }
+}
+
+/// The specification a metamodel value names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SpecKind {
+    SysMl,
+    KerMl,
+}
+
+impl SpecKind {
+    /// The segment a metamodel value spells this specification with.
+    pub fn segment(self) -> &'static str {
+        match self {
+            Self::SysMl => "SysML",
+            Self::KerMl => "KerML",
+        }
+    }
+
+    /// The extension every source file of a project with this
+    /// specification has.
+    pub fn file_ext(self) -> &'static str {
+        match self {
+            Self::SysMl => ".sysml",
+            Self::KerMl => ".kerml",
+        }
+    }
+
+    /// The language its source files are written in, as messages name it.
+    pub fn lang(self) -> &'static str {
+        match self {
+            Self::SysMl => "SysMLv2",
+            Self::KerMl => "KerML",
+        }
+    }
+
+    fn parse(segment: &str) -> Option<Self> {
+        match segment {
+            "SysML" => Some(Self::SysMl),
+            "KerML" => Some(Self::KerMl),
+            _ => None,
+        }
+    }
+}
+
+impl Display for SpecKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.segment())
+    }
+}
+
+/// A metamodel value that has the prefix of a recognized metamodel but not
+/// a release after it.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+#[error(
+    "metamodel `{metamodel}` has an invalid release `{release}`; a release is eight digits \
+     `20YYMMNN`, with month `MM` between `01` and `12`"
+)]
+pub struct MetamodelParseError {
+    pub metamodel: String,
+    pub release: String,
+}
+
+/// A project's `metamodel`, parsed.
+///
+/// A value of the form `<family prefix><spec-kind>/<release>` is `Known`.
+/// A value with a recognized `<family prefix><spec-kind>/` but anything
+/// other than a release after it does not parse, so that a typo in a
+/// recognized metamodel is not mistaken for some other metamodel. Every
+/// other IRI is `Other`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Metamodel {
+    Known(KnownMetamodel),
+    Other(Iri<String>),
+}
+
+impl Metamodel {
+    /// Nothing is trimmed: a trailing `/` makes the release invalid, so
+    /// that a value is recognized under exactly one spelling and `Display`
+    /// returns the value it was parsed from.
+    pub fn parse(metamodel: Iri<String>) -> Result<Self, MetamodelParseError> {
+        let Some((family, spec, release)) = Self::split_known(metamodel.as_str()) else {
+            return Ok(Self::Other(metamodel));
+        };
+        let Some(release) = MetamodelRelease::parse(release) else {
+            return Err(MetamodelParseError {
+                release: release.to_owned(),
+                metamodel: metamodel.into_string(),
+            });
+        };
+        Ok(Self::Known(KnownMetamodel {
+            family,
+            spec,
+            release,
+        }))
+    }
+
+    fn split_known(metamodel: &str) -> Option<(MetamodelFamily, SpecKind, &str)> {
+        [MetamodelFamily::Omg, MetamodelFamily::Syside]
+            .into_iter()
+            .find_map(|family| {
+                let (spec, release) = metamodel.strip_prefix(family.prefix())?.split_once('/')?;
+                Some((family, SpecKind::parse(spec)?, release))
+            })
+    }
+
+    pub fn known(&self) -> Option<&KnownMetamodel> {
+        match self {
+            Self::Known(known) => Some(known),
+            Self::Other(_) => None,
+        }
+    }
+
+    /// The schema a project's manifest is validated against: the OMG one
+    /// unless the project declares a recognized Syside metamodel.
+    ///
+    /// model-toml.md: "A project without a `metamodel` is treated as an
+    /// OMG-metamodel project"; an unrecognized value is validated against
+    /// the OMG schema too (rule (a)).
+    pub fn schema_family(metamodel: Option<&Self>) -> MetamodelFamily {
+        metamodel
+            .and_then(Self::known)
+            .map_or(MetamodelFamily::Omg, |known| known.family)
+    }
+}
+
+impl Display for Metamodel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Known(known) => known.fmt(f),
+            Self::Other(iri) => f.write_str(iri.as_str()),
+        }
+    }
+}
+
+impl From<Metamodel> for String {
+    fn from(value: Metamodel) -> Self {
+        match value {
+            Metamodel::Known(known) => known.to_string(),
+            Metamodel::Other(iri) => iri.into_string(),
+        }
+    }
+}
+
+/// A recognized metamodel: `<family prefix><spec-kind>/<release>`. Every
+/// field is valid on its own, so any combination is a valid metamodel.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct KnownMetamodel {
+    pub family: MetamodelFamily,
+    pub spec: SpecKind,
+    pub release: MetamodelRelease,
+}
+
+impl Display for KnownMetamodel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}/{}",
+            self.family.prefix(),
+            self.spec.segment(),
+            self.release
+        )
+    }
+}
+
+/// A metamodel release: `20yymmxx`, where `yy` and `xx` are pairs of
+/// digits and `1 <= mm <= 12`. The last pair is unspecified: releases are
+/// not necessarily on a given day.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum MetamodelRelease {
+    /// The SysML v2 / KerML release of 2025-02-01.
+    Release20250201,
+    /// A well-formed release this version of Sysand does not know.
+    Other(UnknownRelease),
+}
+
+/// The value of [`MetamodelRelease::Other`], well formed by construction.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct UnknownRelease(String);
+
+impl MetamodelRelease {
+    pub fn parse(release: &str) -> Option<Self> {
+        if release == "20250201" {
+            return Some(Self::Release20250201);
+        }
+        let rest = release.strip_prefix("20")?;
+        let &[_, _, tens, ones, _, _] = rest.as_bytes() else {
+            return None;
+        };
+        if !rest.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let month = (tens - b'0') * 10 + (ones - b'0');
+        if !(1..=12).contains(&month) {
+            return None;
+        }
+        Some(Self::Other(UnknownRelease(release.to_owned())))
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Release20250201 => "20250201",
+            Self::Other(UnknownRelease(release)) => release,
+        }
+    }
+}
+
+impl Display for MetamodelRelease {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -1084,13 +1289,13 @@ pub struct InterchangeProjectChecksumRaw {
     pyo3(from_item_all)
 )]
 #[serde(rename_all = "camelCase")]
-pub struct InterchangeProjectMetadataG<Iri, Path: Eq + Hash, DateTime, IPC> {
+pub struct InterchangeProjectMetadataG<MM, Path: Eq + Hash, DateTime, IPC> {
     pub index: IndexMap<String, Path>,
 
     pub created: DateTime,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub metamodel: Option<Iri>,
+    pub metamodel: Option<MM>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub includes_derived: Option<bool>,
@@ -1105,7 +1310,7 @@ pub struct InterchangeProjectMetadataG<Iri, Path: Eq + Hash, DateTime, IPC> {
 pub type InterchangeProjectMetadataRaw =
     InterchangeProjectMetadataG<String, String, String, InterchangeProjectChecksumRaw>;
 pub type InterchangeProjectMetadata = InterchangeProjectMetadataG<
-    fluent_uri::Iri<String>,
+    Metamodel,
     Utf8UnixPathBuf,
     jiff::Timestamp,
     InterchangeProjectChecksum,
@@ -1135,7 +1340,7 @@ impl From<InterchangeProjectMetadata> for InterchangeProjectMetadataRaw {
                 .map(|(k, v)| (k, v.into_string()))
                 .collect(),
             created: format_created(&value.created),
-            metamodel: value.metamodel.map(fluent_uri::Iri::into_string),
+            metamodel: value.metamodel.map(String::from),
             includes_derived: value.includes_derived,
             includes_implied: value.includes_implied,
             checksum: value.checksum.map(|m| {
@@ -1163,6 +1368,8 @@ pub enum InterchangeProjectValidationError {
     InvalidUsageResource(String, #[source] fluent_uri::ParseError),
     #[error("invalid metamodel (`metamodel` field in `.meta.json`) `{0}`")]
     InvalidMetamodel(String, #[source] fluent_uri::ParseError),
+    #[error("invalid metamodel (`metamodel` field in `.meta.json`)")]
+    MalformedMetamodel(#[source] MetamodelParseError),
     #[error("project has an invalid Semantic Version `{0}`")]
     InvalidProjectVersion(Box<str>, #[source] semver::Error),
     #[error("project has an invalid name `{0}`")]
@@ -1327,15 +1534,14 @@ impl InterchangeProjectMetadataRaw {
         };
 
         let metamodel = if let Some(m) = &self.metamodel {
-            if !KNOWN_METAMODELS.contains(&m.as_str()) {
-                log::warn!("project uses an unknown metamodel `{m}`");
+            let iri = fluent_uri::Iri::parse(m.to_owned())
+                .map_err(|(e, val)| InterchangeProjectValidationError::InvalidMetamodel(val, e))?;
+            let metamodel = Metamodel::parse(iri)
+                .map_err(InterchangeProjectValidationError::MalformedMetamodel)?;
+            if let Metamodel::Other(iri) = &metamodel {
+                log::warn!("project uses an unknown metamodel `{iri}`");
             }
-            match fluent_uri::Iri::parse(m.to_owned()) {
-                Ok(i) => Some(i),
-                Err((e, val)) => {
-                    return Err(InterchangeProjectValidationError::InvalidMetamodel(val, e));
-                }
-            }
+            Some(metamodel)
         } else {
             None
         };
