@@ -15,6 +15,7 @@ pub mod config;
 pub mod context;
 pub mod credential_store;
 pub mod env;
+pub mod graph;
 #[cfg(feature = "filesystem")]
 pub mod index;
 pub mod index_location;
