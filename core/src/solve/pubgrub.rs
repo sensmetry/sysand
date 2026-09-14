@@ -1261,7 +1261,7 @@ pub enum InternalSolverError<R: ResolveRead> {
         version: Option<String>,
         source: CandidateError<R>,
     },
-    #[error("usage {usage} resolved to an error")]
+    #[error("usage {usage} resolved to a project that could not be read")]
     ResolvedError {
         usage: ResolutionInfo,
         source: R::Error,

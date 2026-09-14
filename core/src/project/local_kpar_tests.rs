@@ -4,6 +4,7 @@
 use camino_tempfile::tempdir;
 use zip::write::SimpleFileOptions;
 
+use std::assert_matches;
 use std::io::{Read as _, Write as _};
 
 use crate::project::local_kpar::KparInnerPath;

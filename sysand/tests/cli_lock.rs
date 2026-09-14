@@ -1244,3 +1244,39 @@ fn lock_fails_on_a_misspelled_kpar_usage() -> Result<(), Box<dyn std::error::Err
 
     Ok(())
 }
+
+/// When a `dir` usage's target declares a different publisher, the
+/// solver refuses it — and has to say so: not only "failed to obtain
+/// version of resolved usage", but which publisher was found.
+#[test]
+fn lock_reports_why_a_dir_usage_failed() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp_dir, cwd, out) = cli_init_project_basic("a", "app", "1.2.3")?;
+    out.assert().success();
+
+    let widget_dir = cwd.join("deps").join("widget");
+    std::fs::create_dir_all(&widget_dir)?;
+    cli_init_project_in(&widget_dir, None, "b", Some("widget"), Some("1.0.0"), None)?
+        .assert()
+        .success();
+
+    run_sysand_in(
+        &cwd,
+        ["add", "--no-index", "--no-sync", "--dir", "deps/widget"],
+        None,
+    )?
+    .assert()
+    .success();
+
+    // The usage was written against publisher `b`; the target is then
+    // edited to say something else.
+    let info_path = widget_dir.join(".project.json");
+    let text = std::fs::read_to_string(&info_path)?;
+    std::fs::write(&info_path, text.replace("\"b\"", "\"someone-else\""))?;
+
+    run_sysand_in(&cwd, ["lock", "--no-index"], None)?
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("someone-else"));
+
+    Ok(())
+}

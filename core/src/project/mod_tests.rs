@@ -117,6 +117,10 @@ struct Toml;
 impl ProjectRead for Toml {
     type Error = InMemoryError;
 
+    fn source_may_offer_multiple_versions(&self) -> bool {
+        false
+    }
+
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         Ok(ProjectFormat::Toml)
     }
