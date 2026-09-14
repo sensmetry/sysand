@@ -3,9 +3,7 @@
 
 use camino_tempfile::tempdir;
 
-use std::assert_matches;
-
-use super::{LocalSrcError, LocalSrcProject, ProjectFormat, detect_format};
+use super::{LocalSrcProject, ProjectFormat, detect_format};
 use crate::project::ProjectRead as _;
 
 fn write_project_json(dir: &camino::Utf8Path, content: &str) {
@@ -197,6 +195,229 @@ fn an_ambiguous_directory_names_the_json_file_it_has() {
             "`{}` has both `model.toml` and `.meta.json`;",
             dir.path()
         )),
+        "unexpected message: {}",
+        read_error(dir.path())
+    );
+}
+
+// ----- reading a `model.toml` -----
+
+/// The three keys `[project]` requires plus the `sources` an
+/// OMG-metamodel project needs.
+const TOML_REQUIRED: &str = "\
+manifest-version = 1
+
+[project]
+publisher = \"acme\"
+name = \"widgets\"
+version = \"1.2.3\"
+sources = []
+";
+
+fn toml_project(dir: &camino::Utf8Path) -> LocalSrcProject {
+    LocalSrcProject::new_access(dir, None)
+}
+
+#[test]
+fn a_model_toml_project_reads_as_the_pair_a_build_would_write() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        "manifest-version = 1\n\n\
+         [project]\n\
+         publisher = \"acme\"\n\
+         name = \"widgets\"\n\
+         version = \"1.2.3\"\n\
+         sources = [\"a.sysml\"]\n\
+         description = \"A description.\"\n\
+         license = \"MIT\"\n\
+         metamodel = \"https://www.omg.org/spec/SysML/20250201\"\n",
+    );
+    std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
+
+    let (info, meta) = toml_project(dir.path()).get_project().expect("readable");
+    let info = info.expect("`.project.json`");
+    let meta = meta.expect("`.meta.json`");
+    assert_eq!(info.name, "widgets");
+    assert_eq!(info.publisher.as_deref(), Some("acme"));
+    assert_eq!(info.version, "1.2.3");
+    assert_eq!(info.description.as_deref(), Some("A description."));
+    assert_eq!(info.license.as_deref(), Some("MIT"));
+    assert_eq!(
+        meta.metamodel.as_deref(),
+        Some("https://www.omg.org/spec/SysML/20250201")
+    );
+}
+
+#[test]
+fn a_model_toml_projects_sources_are_indexed_and_hashed() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        &TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"),
+    );
+    std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
+
+    let meta = toml_project(dir.path())
+        .get_meta()
+        .expect("readable")
+        .expect("`.meta.json`");
+    assert_eq!(meta.index["A"], "a.sysml");
+    let checksum = &meta.checksum.expect("checksums")["a.sysml"];
+    assert_eq!(
+        checksum.value,
+        crate::utils::sha256_lowercase_hex("part def A;")
+    );
+    assert_eq!(checksum.algorithm, "SHA256");
+}
+
+/// A view's `created` is not the time it was taken: the project checksum
+/// covers it, and that checksum reaches the lockfile.
+#[test]
+fn a_model_toml_project_has_a_fixed_created() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), TOML_REQUIRED);
+    let meta = toml_project(dir.path())
+        .get_meta()
+        .expect("readable")
+        .expect("`.meta.json`");
+    assert_eq!(meta.created, "1970-01-01T00:00:00Z");
+}
+
+/// The property the fixed `created` exists for. Asserted across two
+/// project values, since one would answer from its cache either way.
+///
+/// This one cannot enforce the decision on its own: `format_created`
+/// truncates to whole seconds, so two reads inside the same second would
+/// agree even against a clock. `a_model_toml_project_has_a_fixed_created`
+/// is what pins it; this records what the pinning is *for*.
+#[test]
+fn two_reads_of_one_model_toml_project_agree_on_its_checksum() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        &TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"),
+    );
+    std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
+
+    let first = toml_project(dir.path())
+        .checksum_canonical_hex()
+        .expect("readable");
+    let second = toml_project(dir.path())
+        .checksum_canonical_hex()
+        .expect("readable");
+    assert!(first.is_some());
+    assert_eq!(first, second);
+}
+
+/// The cache is observable only through what it stops happening:
+/// `get_project` is what reads the sources, so an uncached second read
+/// would fail on a file that is gone.
+#[test]
+fn a_model_toml_project_is_read_once() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        &TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"),
+    );
+    std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
+
+    let project = toml_project(dir.path());
+    let first = project.get_project().expect("readable");
+    std::fs::remove_file(dir.path().join("a.sysml")).expect("remove a.sysml");
+    assert_eq!(project.get_project().expect("cached"), first);
+}
+
+#[test]
+fn a_model_toml_that_is_not_toml_names_the_file() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), "this is not toml\n");
+    assert!(
+        read_error(dir.path()).contains("`model.toml` is not valid TOML"),
+        "unexpected message: {}",
+        read_error(dir.path())
+    );
+}
+
+/// A workspace configuration is a valid `model.toml` and not a project.
+#[test]
+fn a_model_toml_that_defines_a_workspace_is_not_a_project() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n",
+    );
+    assert!(
+        read_error(dir.path()).contains("`model.toml` defines a workspace, not a project"),
+        "unexpected message: {}",
+        read_error(dir.path())
+    );
+}
+
+#[test]
+fn a_model_toml_missing_a_required_key_reports_every_one() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        "manifest-version = 1\n\n[project]\nsources = []\n",
+    );
+    let error = read_error(dir.path());
+    for key in ["publisher", "name", "version"] {
+        assert!(
+            error.contains(&format!("missing key `{key}` in `[project]`")),
+            "`{key}` is not reported in: {error}"
+        );
+    }
+}
+
+/// A member's manifest read on its own, with no workspace to inherit
+/// from, says so.
+#[test]
+fn a_model_toml_that_inherits_outside_a_workspace_says_so() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        "manifest-version = 1\n\n\
+         [project]\n\
+         name = \"widgets\"\n\
+         version = \"1.2.3\"\n\
+         publisher.workspace = true\n\
+         sources = []\n",
+    );
+    assert!(
+        read_error(dir.path()).contains("not a member of any workspace"),
+        "unexpected message: {}",
+        read_error(dir.path())
+    );
+}
+
+/// `sources` does not check that its files exist -- that is "only
+/// checked for build/publish" -- so a missing one is found when the view
+/// is built, and the message is the reader's own.
+#[test]
+fn a_source_that_cannot_be_read_names_the_file_on_disk() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        &TOML_REQUIRED.replace("sources = []", "sources = [\"gone.sysml\"]"),
+    );
+    assert!(
+        read_error(dir.path()).contains("gone.sysml"),
+        "unexpected message: {}",
+        read_error(dir.path())
+    );
+}
+
+#[test]
+fn a_source_that_does_not_parse_is_reported() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        &TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"),
+    );
+    std::fs::write(dir.path().join("a.sysml"), "package Foo { /*").expect("write a.sysml");
+    assert!(
+        read_error(dir.path()).starts_with("failed to extract symbol names from `a.sysml`"),
         "unexpected message: {}",
         read_error(dir.path())
     );

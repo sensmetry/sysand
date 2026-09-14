@@ -124,7 +124,9 @@ fn init<'local>(
                     LocalSrcError::AlreadyExists(_) => {
                         env.throw_exception(ExceptionKind::ProjectAlreadyExists, e)
                     }
-                    LocalSrcError::Deserialize(_) | LocalSrcError::AmbiguousFormat { .. } => {
+                    LocalSrcError::Deserialize(_)
+                    | LocalSrcError::AmbiguousFormat { .. }
+                    | LocalSrcError::Symbols(_) => {
                         env.throw_exception(ExceptionKind::InvalidValue, e)
                     }
                     LocalSrcError::Io(_) => env.throw_exception(ExceptionKind::IOError, e),
