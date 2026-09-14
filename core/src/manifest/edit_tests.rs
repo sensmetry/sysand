@@ -8,12 +8,14 @@ use toml_edit::{DocumentMut, Value};
 use typed_path::Utf8UnixPathBuf;
 
 use crate::manifest::common::{
-    InheritFrom, Maintainer, ResolvedUrls, Sources, SourcesError, StdlibStem,
+    InheritFrom, Maintainer, NormalizedIdentity, ResolvedUrls, Sources, SourcesError, StdlibStem,
+    normalized_identity,
 };
 use crate::manifest::diagnostics::Position;
 use crate::manifest::edit::{
     EditError, INHERITABLE_KEYS, ProjectKey, clear_project_key, clear_url_key, exclude_source,
-    include_source, open, render_new, set_inherit_marker, set_project_key, set_url_key,
+    include_source, open, push_member, push_usage, remove_usage, render_new, set_inherit_marker,
+    set_project_key, set_url_key, set_usage_version,
 };
 use crate::manifest::inherit::{Inherited, MetaProperty};
 use crate::manifest::project::{PROJECT_KEYS, ProjectManifest, ProjectTable, Urls};
@@ -1088,4 +1090,220 @@ fn including_into_a_sources_that_is_already_invalid_says_which_entry() {
         error,
         EditError::Sources(SourcesError::NotModelFile("README.md".to_owned()))
     );
+}
+
+// --- usages, and a workspace's members --------------------------------
+
+fn identity(publisher_raw: &str, name_raw: &str) -> NormalizedIdentity {
+    normalized_identity(&publisher(publisher_raw), &name(name_raw))
+}
+
+fn declared(project: &str, constraint: &str) -> MemberUsage {
+    MemberUsage::Declared(index_usage(project, constraint))
+}
+
+const WITH_USAGES: &str = r#"manifest-version = 1
+
+[project]
+publisher = "acme"
+name = "widgets"
+version = "1.0.0"
+sources = []
+
+# the dependency we vendor
+[[inline-usages]]
+publisher = "acme"
+name = "dep"
+version = "^1"  # pinned for now
+
+[[inline-usages]]
+publisher = "acme"
+name = "local"
+dir = "../local"
+
+# a note at the end
+"#;
+
+#[test]
+fn pushing_a_usage_appends_it_before_the_files_trailing_comment() {
+    let mut doc = opened(WITH_USAGES);
+    push_usage(&mut doc, &declared("extra", "^3")).expect("a new usage");
+
+    let text = doc.to_string();
+    assert!(
+        text.contains(
+            "[[inline-usages]]\npublisher = \"acme\"\nname = \"extra\"\nversion = \"^3\"\n"
+        )
+    );
+    assert!(text.trim_end().ends_with("# a note at the end"));
+}
+
+#[test]
+fn pushing_a_usage_into_a_manifest_with_none_creates_the_array() {
+    let mut doc = opened(&with_sources("[]"));
+    push_usage(&mut doc, &declared("dep", "^1")).expect("a new usage");
+
+    assert!(
+        doc.to_string()
+            .contains("[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\n")
+    );
+    ModelToml::parse("model.toml", &doc.to_string()).expect("still a manifest");
+}
+
+#[test]
+fn pushing_a_usage_that_is_already_declared_is_refused() {
+    let mut doc = opened(WITH_USAGES);
+
+    // Normalized: `DEP` is the same project as `dep`.
+    assert_eq!(
+        push_usage(&mut doc, &declared("DEP", "^2")),
+        Err(EditError::DuplicateUsage(identity("acme", "dep")))
+    );
+}
+
+#[test]
+fn an_entry_too_broken_to_name_a_project_is_not_matched() {
+    // The broken entry comes *first*, so an implementation that matched
+    // it would remove the wrong one.
+    let broken = "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n\n[[inline-usages]]\npublisher = \"acme\"\nname = 3\n\n[[inline-usages]]\npublisher = \"acme\"\nname = \"dep\"\nversion = \"^1\"\n";
+    let mut doc = opened(broken);
+
+    // The entry yields no identity, so it is neither matched nor in the
+    // way of the one that is.
+    remove_usage(&mut doc, &identity("acme", "dep")).expect("the readable entry is removed");
+
+    let text = doc.to_string();
+    assert!(text.contains("name = 3"), "the broken entry is left alone");
+    assert!(!text.contains("name = \"dep\""));
+}
+
+#[test]
+fn a_usage_is_matched_by_its_normalized_identity() {
+    // model-toml.md "Normalization": a usage is addressed by the
+    // normalized pair, whatever spelling the entry uses.
+    let shouted = WITH_USAGES.replace("name = \"dep\"", "name = \"DEP\"");
+    let mut doc = opened(&shouted);
+
+    remove_usage(&mut doc, &identity("acme", "dep")).expect("the same project");
+    assert!(!doc.to_string().contains("DEP"));
+}
+
+#[test]
+fn removing_a_usage_takes_the_comment_that_introduces_it() {
+    let mut doc = opened(WITH_USAGES);
+    remove_usage(&mut doc, &identity("acme", "dep")).expect("a declared usage");
+
+    let text = doc.to_string();
+    assert!(!text.contains("# the dependency we vendor"));
+    assert!(!text.contains("name = \"dep\""));
+    assert!(text.contains("name = \"local\""));
+    assert!(text.trim_end().ends_with("# a note at the end"));
+}
+
+#[test]
+fn removing_a_usage_that_is_not_declared_is_refused() {
+    let mut doc = opened(WITH_USAGES);
+
+    assert_eq!(
+        remove_usage(&mut doc, &identity("acme", "absent")),
+        Err(EditError::UsageNotFound(identity("acme", "absent")))
+    );
+}
+
+#[test]
+fn an_inherited_usage_is_removed_by_its_identity() {
+    let inherited = WITH_USAGES.replace("dir = \"../local\"", "workspace = true");
+    let mut doc = opened(&inherited);
+
+    remove_usage(&mut doc, &identity("acme", "local")).expect("an opt-in entry");
+    assert!(!doc.to_string().contains("workspace = true"));
+}
+
+#[test]
+fn setting_a_usage_version_keeps_the_rest_of_the_entry() {
+    let mut doc = opened(WITH_USAGES);
+    set_usage_version(
+        &mut doc,
+        &identity("acme", "dep"),
+        &VersionReq::parse("^2").expect("a constraint"),
+    )
+    .expect("an index usage");
+
+    assert_eq!(
+        doc.to_string(),
+        WITH_USAGES.replace("version = \"^1\"", "version = \"^2\"")
+    );
+}
+
+#[test]
+fn setting_the_version_of_a_local_usage_is_refused() {
+    let mut doc = opened(WITH_USAGES);
+
+    assert_eq!(
+        set_usage_version(
+            &mut doc,
+            &identity("acme", "local"),
+            &VersionReq::parse("^2").expect("a constraint")
+        ),
+        Err(EditError::NotAnIndexUsage(identity("acme", "local")))
+    );
+}
+
+#[test]
+fn setting_the_version_of_an_inherited_usage_is_refused() {
+    // Different reason, same refusal: an opt-in takes the group's entry
+    // whole, so there is no version of its own to set.
+    let inherited = WITH_USAGES.replace("dir = \"../local\"", "workspace = true");
+    let mut doc = opened(&inherited);
+
+    assert_eq!(
+        set_usage_version(
+            &mut doc,
+            &identity("acme", "local"),
+            &VersionReq::parse("^2").expect("a constraint")
+        ),
+        Err(EditError::NotAnIndexUsage(identity("acme", "local")))
+    );
+}
+
+#[test]
+fn pushing_a_member_appends_it_to_members_normalized() {
+    let workspace =
+        "manifest-version = 1\n\n[workspace]\nmembers = [\n    \"app\",  # the app\n]\n";
+    let mut doc = opened(workspace);
+    push_member(&mut doc, "./lib").expect("a new member");
+
+    // Normalized: a manifest admits a `members` entry in that form only.
+    assert_eq!(
+        doc.to_string(),
+        "manifest-version = 1\n\n[workspace]\nmembers = [\n    \"app\",  # the app\n    \"lib\",\n]\n"
+    );
+}
+
+#[test]
+fn pushing_a_member_that_is_already_listed_is_refused() {
+    let workspace = "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n";
+    let mut doc = opened(workspace);
+
+    // Normalized: `./app` is the same directory as `app`.
+    assert_eq!(
+        push_member(&mut doc, "./app"),
+        Err(EditError::DuplicateMember("app".into()))
+    );
+}
+
+#[test]
+fn pushing_a_member_to_a_project_file_is_refused() {
+    let mut doc = opened(WITH_USAGES);
+
+    assert_eq!(push_member(&mut doc, "app"), Err(EditError::NotAWorkspace));
+}
+
+#[test]
+fn a_workspace_with_no_members_yet_gains_the_array() {
+    let workspace = "manifest-version = 1\n\n[workspace]\n";
+    let mut doc = opened(workspace);
+    push_member(&mut doc, "app").expect("a new member");
+
+    assert!(doc.to_string().contains("members = [\"app\"]"));
 }
