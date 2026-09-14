@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use crate::manifest::diagnostics::{Diagnostic, Report, Severity, Validated};
-use crate::manifest::spans::Positions;
 use crate::manifest::spans::Source;
 use crate::manifest::usage::Usage;
 use crate::manifest::workspace_table::WorkspaceTable;
