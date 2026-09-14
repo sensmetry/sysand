@@ -659,7 +659,7 @@ fn env_install_no_deps_purl_ignores_prereleases() -> Result<(), Box<dyn std::err
 
     let mut server = Server::new();
 
-    let (kpar_bytes, info, meta) = build_index_kpar_bytes("widget", "2.0.0");
+    let (kpar_bytes, info, meta) = build_index_kpar_bytes("acme", "widget", "2.0.0");
     let kpar_digest_hex = sha256_lowercase_hex(&kpar_bytes);
 
     let config_mock = server
@@ -684,7 +684,8 @@ fn env_install_no_deps_purl_ignores_prereleases() -> Result<(), Box<dyn std::err
         .expect_at_least(1)
         .create();
 
-    let (_, prerelease_info, prerelease_meta) = build_index_kpar_bytes("widget", "3.0.0-beta.1");
+    let (_, prerelease_info, prerelease_meta) =
+        build_index_kpar_bytes("acme", "widget", "3.0.0-beta.1");
     for (version, version_info, version_meta) in [
         ("3.0.0-beta.1", &prerelease_info, &prerelease_meta),
         ("2.0.0", &info, &meta),
@@ -792,7 +793,7 @@ fn env_install_no_deps_purl_with_only_prereleases_fails() -> Result<(), Box<dyn 
         .create();
 
     for version in ["1.0.0-beta.1", "1.0.0-alpha.1"] {
-        let (_, info, meta) = build_index_kpar_bytes("widget", version);
+        let (_, info, meta) = build_index_kpar_bytes("acme", "widget", version);
         server
             .mock(
                 "GET",
@@ -843,7 +844,7 @@ fn env_install_no_deps_purl_named_prerelease_is_installed() -> Result<(), Box<dy
 
     let mut server = Server::new();
 
-    let (kpar_bytes, info, meta) = build_index_kpar_bytes("widget", "3.0.0-beta.1");
+    let (kpar_bytes, info, meta) = build_index_kpar_bytes("acme", "widget", "3.0.0-beta.1");
     let kpar_digest_hex = sha256_lowercase_hex(&kpar_bytes);
 
     let config_mock = server

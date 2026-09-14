@@ -44,7 +44,10 @@ use crate::{
     },
     index_location::IndexLocation,
     model::InterchangeProjectUsageRaw,
-    project::index_entry::{IndexEntryProject, IndexEntryProjectError},
+    project::{
+        index_entry::{IndexEntryProject, IndexEntryProjectError},
+        utils::ExpectedIdentity,
+    },
     resolve::net_utils::json_get_request,
 };
 
@@ -627,6 +630,27 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
         let project_json_url = endpoints.project_json_url(&uri, &advertised_version)?;
         let meta_json_url = endpoints.meta_json_url(&uri, &advertised_version)?;
 
+        // An index usage's identity is its PURL, so the expectation is
+        // derived here rather than threaded through the resolver. A
+        // non-PURL identifier -- an OMG standard-library IRI, say --
+        // names no pair, and nothing is expected of the entry.
+        let expected = match crate::purl::parse_sysand_purl(uri.as_ref()) {
+            Ok(Some((publisher, name))) => Some(ExpectedIdentity::resolving(
+                Some(publisher.to_owned()),
+                name.to_owned(),
+            )),
+            Ok(None) => None,
+            Err(e) => {
+                log::debug!(
+                    "index: `{}` is not a `pkg:sysand` PURL, so the entry it finds\n\
+                    {SP:>8} is not checked against one: {e}",
+                    uri.as_ref(),
+                    SP = ' '
+                );
+                None
+            }
+        };
+
         let project = IndexEntryProject::new(
             kpar_url,
             project_json_url,
@@ -634,6 +658,7 @@ impl<Policy: HTTPAuthentication> ReadEnvironmentAsync for IndexEnvironmentAsync<
             advertised,
             self.client.clone(),
             self.auth_policy.clone(),
+            expected,
         )
         .map_err(Box::new)?;
 

@@ -1515,7 +1515,13 @@ mod get_project {
     fn get_project_returns_real_info_meta_from_per_version_files()
     -> Result<(), Box<dyn std::error::Error>> {
         // Fixture uses values no IRI-derived heuristic could invent,
-        // so a regression that re-introduces synthesis would fail.
+        // so a regression that re-introduces synthesis would fail. The
+        // route is the `_iri/<sha256>` one of `get_project_iri_hash_route`
+        // rather than a PURL: a `pkg:sysand` identifier *is* an identity,
+        // and an entry that disagrees with it is refused, which would
+        // stop this fixture ever reaching the assertions it exists for.
+        const IRI: &str = "urn:kpar:b";
+        const HASH: &str = "621a5fdf587a3ecc878a98c8be2240dd5bbe561860d11f4da1ece4a4fe2fb8b5";
         let mut server = mockito::Server::new();
 
         let env = index_env_sync(&server)?;
@@ -1532,16 +1538,23 @@ mod get_project {
 
         let versions_mock = mock_json_get(
             &mut server,
-            "/admin/proj0/versions.json",
+            &format!("/_iri/{HASH}/versions.json"),
             versions_json_body([("0.3.0", &usage_json)]),
         );
 
-        let project_json_mock =
-            mock_json_get(&mut server, "/admin/proj0/0.3.0/.project.json", info_json);
+        let project_json_mock = mock_json_get(
+            &mut server,
+            &format!("/_iri/{HASH}/0.3.0/.project.json"),
+            info_json,
+        );
 
-        let meta_json_mock = mock_json_get(&mut server, "/admin/proj0/0.3.0/.meta.json", meta_json);
+        let meta_json_mock = mock_json_get(
+            &mut server,
+            &format!("/_iri/{HASH}/0.3.0/.meta.json"),
+            meta_json,
+        );
 
-        let project = env.get_project(purl("admin/proj0"), "0.3.0")?;
+        let project = env.get_project(IRI, "0.3.0")?;
         let (info, meta) = project.get_project()?;
         let info = info.expect("info should be prefetched");
         let meta = meta.expect("meta should be prefetched");
@@ -1560,6 +1573,89 @@ mod get_project {
         assert_eq!(
             meta.metamodel.as_deref(),
             Some("https://www.omg.org/spec/KerML/20250201")
+        );
+
+        versions_mock.assert();
+        project_json_mock.assert();
+        meta_json_mock.assert();
+
+        Ok(())
+    }
+
+    /// An index usage's identity is its PURL, so the entry the index
+    /// serves has to be the project that PURL names. The entry itself is
+    /// where this is checked: `versions.json` advertises no publisher or
+    /// name.
+    #[test]
+    fn an_index_entry_must_declare_the_publisher_its_purl_names()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut server = mockito::Server::new();
+        let env = index_env_sync(&server)?;
+
+        let versions_mock = mock_json_get(
+            &mut server,
+            "/acme/widgets/versions.json",
+            versions_json_body([("1.0.0", "[]")]),
+        );
+        let project_json_mock = mock_json_get(
+            &mut server,
+            "/acme/widgets/1.0.0/.project.json",
+            project_json_body("widgets", Some("globex"), "1.0.0", "[]"),
+        );
+        let meta_json_mock = mock_json_get(
+            &mut server,
+            "/acme/widgets/1.0.0/.meta.json",
+            meta_json_body(),
+        );
+
+        let project = env.get_project(purl("acme/widgets"), "1.0.0")?;
+        assert_eq!(
+            project
+                .get_project()
+                .expect_err("the entry is another project")
+                .to_string(),
+            "project publisher `globex` does not match expected `acme`"
+        );
+
+        versions_mock.assert();
+        project_json_mock.assert();
+        meta_json_mock.assert();
+
+        Ok(())
+    }
+
+    /// A publisher-less entry is the same failure, against `<none>`. An
+    /// index resolver is given no usage origin, so the entry gets the
+    /// plain publisher mismatch rather than `IdentityMismatch::NoPublisher`,
+    /// which names the fix.
+    #[test]
+    fn an_index_entry_with_no_publisher_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+        let mut server = mockito::Server::new();
+        let env = index_env_sync(&server)?;
+
+        let versions_mock = mock_json_get(
+            &mut server,
+            "/acme/widgets/versions.json",
+            versions_json_body([("1.0.0", "[]")]),
+        );
+        let project_json_mock = mock_json_get(
+            &mut server,
+            "/acme/widgets/1.0.0/.project.json",
+            project_json_body("widgets", None, "1.0.0", "[]"),
+        );
+        let meta_json_mock = mock_json_get(
+            &mut server,
+            "/acme/widgets/1.0.0/.meta.json",
+            meta_json_body(),
+        );
+
+        let project = env.get_project(purl("acme/widgets"), "1.0.0")?;
+        assert_eq!(
+            project
+                .get_project()
+                .expect_err("the entry declares no publisher")
+                .to_string(),
+            "project publisher `<none>` does not match expected `acme`"
         );
 
         versions_mock.assert();

@@ -389,6 +389,7 @@ pub fn await_exit(p: PtySession) -> Result<std::process::ExitStatus, Box<dyn Err
 /// The fixture has no `meta.checksum` entries, so its canonical project
 /// digest is `project_hash_raw(info, meta)`.
 pub fn build_index_kpar_bytes(
+    publisher: &str,
     name: &str,
     version: &str,
 ) -> (
@@ -398,7 +399,12 @@ pub fn build_index_kpar_bytes(
 ) {
     use std::io::Write as _;
 
-    let info_json = format!(r#"{{"name":"{name}","version":"{version}"}}"#);
+    // The publisher is the one the `pkg:sysand/<publisher>/<name>` route
+    // names: an index entry is checked against the identity that found it,
+    // so a publisher-less fixture would be refused before it could be
+    // locked.
+    let info_json =
+        format!(r#"{{"name":"{name}","publisher":"{publisher}","version":"{version}"}}"#);
     // Fixed created-timestamp so the digest is reproducible.
     let meta_json = r#"{"index":{},"created":"2026-01-01T00:00:00.000000000Z"}"#;
 

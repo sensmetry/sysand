@@ -48,6 +48,7 @@ use crate::{
             ReqwestIndexKparDownloadedProject, ReqwestKparDownloadedError,
             ReqwestRemoteKparDownloadedProject,
         },
+        utils::{ExpectedIdentity, IdentityMismatch},
     },
 };
 
@@ -65,6 +66,11 @@ pub struct IndexEntryProject<Policy> {
     pub(crate) meta_json_url: reqwest::Url,
     pub(crate) fetched_info_meta:
         OnceCell<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw)>,
+    /// The identity the IRI that found this entry names, when it is a
+    /// `pkg:sysand` PURL. An index usage's identity *is* its PURL, so
+    /// nothing has to be threaded in for the entry to be checked
+    /// against what the usage asked for.
+    pub(crate) expected: Option<ExpectedIdentity>,
 }
 
 #[derive(Error, Debug)]
@@ -75,6 +81,17 @@ pub enum IndexEntryProjectError {
     Downloaded(#[from] ReqwestKparDownloadedError),
     #[error("`{0}` is not a valid manifest:\n{1}")]
     InvalidManifest(String, Report),
+    #[error(
+        "project publisher `{}` does not match expected `{}`",
+        if let Some(a) = actual { a.as_str() } else { "<none>" },
+        if let Some(p) = expected { p.as_str() } else { "<none>" }
+    )]
+    PublisherMismatch {
+        expected: Option<String>,
+        actual: Option<String>,
+    },
+    #[error("project name `{actual}` does not match expected `{expected}`")]
+    NameMismatch { expected: String, actual: String },
 }
 
 impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
@@ -88,6 +105,7 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
         advertised: AdvertisedVersion,
         client: reqwest_middleware::ClientWithMiddleware,
         auth_policy: Arc<Policy>,
+        expected: Option<ExpectedIdentity>,
     ) -> Result<Self, IndexEntryProjectError> {
         Ok(Self {
             archive: ReqwestIndexKparDownloadedProject::new(
@@ -101,6 +119,7 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
             project_json_url,
             meta_json_url,
             fetched_info_meta: OnceCell::new(),
+            expected,
         })
     }
 
@@ -142,6 +161,33 @@ impl<Policy: HTTPAuthentication> IndexEntryProject<Policy> {
                 let meta = validate_fetched(&self.meta_json_url, meta, None)?;
                 let info =
                     validate_fetched(&self.project_json_url, info, meta.metamodel.as_deref())?;
+
+                // The entry has to be the project the identity that found
+                // it names. The advertised tier carries no publisher or
+                // name, so a `versions.json` that
+                // points at another project's files is accepted until the
+                // `.project.json` is read, which is here.
+                if let Some(expected) = &self.expected {
+                    expected
+                        .check(info.publisher.as_deref(), &info.name)
+                        .map_err(|mismatch| match mismatch {
+                            // No origin reaches an index resolver, so a
+                            // publisher-less entry is the row 29 mismatch
+                            // rather than row 21
+                            IdentityMismatch::NoPublisher { .. } => {
+                                IndexEntryProjectError::PublisherMismatch {
+                                    expected: expected.publisher().map(ToOwned::to_owned),
+                                    actual: None,
+                                }
+                            }
+                            IdentityMismatch::Publisher { expected, actual } => {
+                                IndexEntryProjectError::PublisherMismatch { expected, actual }
+                            }
+                            IdentityMismatch::Name { expected, actual } => {
+                                IndexEntryProjectError::NameMismatch { expected, actual }
+                            }
+                        })?;
+                }
 
                 Ok((info, meta))
             })
