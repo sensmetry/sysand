@@ -43,7 +43,7 @@ use crate::model::{IndexName, IndexPublisher, KnownMetamodel, Metamodel, Metamod
 
 /// Every key model-toml.md "Main project metadata" documents, in the
 /// order it documents them, which is the order a generated file writes.
-const PROJECT_KEYS: &[&str] = &[
+pub(crate) const PROJECT_KEYS: &[&str] = &[
     "publisher",
     "name",
     "version",
@@ -60,7 +60,7 @@ const PROJECT_KEYS: &[&str] = &[
 
 /// model-toml.md `urls`: "currently allowed keys: website, repository,
 /// documentation".
-const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
+pub(crate) const URL_KEYS: &[&str] = &["website", "documentation", "repository"];
 
 /// How this table names itself in a message and addresses itself in the
 /// span index.
