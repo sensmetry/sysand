@@ -10,7 +10,7 @@ use crate::{
     env::{SyncStreamIter, utils::ErrorBound},
     model::InterchangeProjectUsage,
     project::{
-        AsAsyncProject, AsSyncProjectTokio, ProjectRead, ProjectReadAsync,
+        AsAsyncProject, AsSyncProjectTokio, ProjectFormat, ProjectRead, ProjectReadAsync,
         utils::{Identifier, wrapfs},
     },
 };
@@ -63,6 +63,37 @@ impl<T> ResolutionOutcome<T> {
     }
 }
 
+/// The manifest a usage was written in.
+///
+/// A usage reaches resolution stripped of the format it was declared
+/// in: the KPAR view maps a `model.toml` usage onto the same
+/// `InterchangeProjectUsageRaw` a `.project.json` would carry, which is
+/// what keeps a read-only consumer format-blind. Some rules, though,
+/// are about the manifest rather than the usage -- a target that
+/// declares no publisher is refused as such only under a usage written
+/// in a `model.toml` -- so the format travels beside the usage rather
+/// than in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UsageOrigin {
+    Json,
+    Toml,
+}
+
+impl UsageOrigin {
+    /// The origin of a usage declared by a project of this format.
+    ///
+    /// Written out rather than derived, because only two of the four
+    /// formats can have declared anything: `Both` is the ambiguity
+    /// error and `Neither` the project with no manifest at all, and
+    /// neither of them is a project a usage was read from.
+    pub fn of_format(format: ProjectFormat) -> Self {
+        match format {
+            ProjectFormat::Toml => Self::Toml,
+            ProjectFormat::Json | ProjectFormat::Both | ProjectFormat::Neither => Self::Json,
+        }
+    }
+}
+
 /// Information needed to resolve a usage
 #[derive(Debug, Clone)]
 pub struct ResolutionInfo {
@@ -70,6 +101,8 @@ pub struct ResolutionInfo {
     /// Base path to resolve this usage against. Not relevant for
     /// usages that do not involve filesystem paths
     base_path: Option<Utf8PathBuf>,
+    /// The manifest this usage was declared in.
+    origin: UsageOrigin,
 }
 
 /// Information needed to resolve a usage, which determines equivalency
@@ -81,8 +114,12 @@ pub struct CoalescingUsage {
 }
 
 impl CoalescingUsage {
-    pub fn new_usage(usage: InterchangeProjectUsage, base_path: Option<Utf8PathBuf>) -> Self {
-        let usage = ResolutionInfo::new(usage, base_path);
+    pub fn new_usage(
+        usage: InterchangeProjectUsage,
+        base_path: Option<Utf8PathBuf>,
+        origin: UsageOrigin,
+    ) -> Self {
+        let usage = ResolutionInfo::new_declared_in(usage, base_path, origin);
         Self {
             id: usage.id(),
             usage,
@@ -146,18 +183,33 @@ impl PartialEq for CoalescingUsage {
 impl Eq for CoalescingUsage {}
 
 impl ResolutionInfo {
+    /// A usage of unrecorded origin, which is json: a usage without one
+    /// is taken to come from a `.project.json`, or from a caller that
+    /// does not read a manifest at all.
     pub fn new(usage: InterchangeProjectUsage, base_path: Option<Utf8PathBuf>) -> Self {
-        Self { usage, base_path }
+        Self::new_declared_in(usage, base_path, UsageOrigin::Json)
+    }
+
+    pub fn new_declared_in(
+        usage: InterchangeProjectUsage,
+        base_path: Option<Utf8PathBuf>,
+        origin: UsageOrigin,
+    ) -> Self {
+        Self {
+            usage,
+            base_path,
+            origin,
+        }
     }
 
     pub fn iri(iri: Iri<String>) -> Self {
-        Self {
-            usage: InterchangeProjectUsage::Resource {
+        Self::new(
+            InterchangeProjectUsage::Resource {
                 resource: iri,
                 version_constraint: None,
             },
-            base_path: None,
-        }
+            None,
+        )
     }
 
     pub fn usage(&self) -> &InterchangeProjectUsage {
@@ -166,6 +218,11 @@ impl ResolutionInfo {
 
     pub fn base_path(&self) -> Option<&Utf8Path> {
         self.base_path.as_deref()
+    }
+
+    /// The manifest this usage was declared in.
+    pub fn origin(&self) -> UsageOrigin {
+        self.origin
     }
 
     /// Identifier of this usage, to be used in lock/env.
@@ -385,3 +442,7 @@ where
         )
     }
 }
+
+#[cfg(test)]
+#[path = "./mod_tests.rs"]
+mod tests;
