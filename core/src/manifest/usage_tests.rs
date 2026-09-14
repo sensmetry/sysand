@@ -1,33 +1,39 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
-use serde::Deserialize;
-use toml_edit::Document;
-
 use crate::manifest::common::InheritFrom;
 use crate::manifest::diagnostics::{Report, Severity};
-use crate::manifest::spans::{Positions, Source};
+use crate::manifest::spans::Positions;
+use crate::manifest::spans::Source;
 use crate::manifest::usage::{
     MemberUsage, Usage, UsageRaw, UsageSite, check_duplicates, normalize_local_path,
 };
 use crate::model::{IndexName, IndexPublisher};
 
-#[derive(Debug, Deserialize)]
-struct TestDocument {
-    #[serde(rename = "inline-usages", default)]
-    inline_usages: Vec<UsageRaw>,
-}
-
-/// The whole reading flow of a `model.toml`, minus the tables the later
-/// slices add.
+/// The reading flow of a `model.toml`, minus the `[project]` and
+/// `[workspace]` tables: parse once, harvest the spans, read the entries
+/// out of the values.
 fn read(text: &str) -> (Vec<UsageRaw>, Positions<'_>) {
     let (table, positions) = Source::new("model.toml", text)
         .read()
         .expect("the test document parses");
-    let parsed: TestDocument = toml::Value::Table(table)
-        .try_into()
-        .expect("the test document deserializes");
-    (parsed.inline_usages, positions)
+    let raws = entries(&table, "inline-usages");
+    (raws, positions)
+}
+
+/// The `[[inline-usages]]` of a parsed document, wherever they sit.
+fn entries(table: &toml::Table, key: &str) -> Vec<UsageRaw> {
+    table
+        .get(key)
+        .and_then(toml::Value::as_array)
+        .map(|array| {
+            array
+                .iter()
+                .filter_map(toml::Value::as_table)
+                .map(UsageRaw::from_table)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn site(index: usize) -> UsageSite<'static> {
@@ -143,16 +149,20 @@ fn unaccepted_keys_are_collected_not_dropped() {
     assert_eq!(raw.publisher.as_deref(), Some("a !b"));
 }
 
-/// The one class of problem this reader cannot accumulate: a value of the
-/// wrong TOML *type* fails inside serde, which stops at the first one.
-/// It still carries a position.
+/// A value of the wrong TOML *type* is a diagnostic like any other, so
+/// it accumulates with what else the entry gets wrong rather than
+/// stopping the read of the rest of the file.
 #[test]
-fn a_toml_type_error_is_one_positioned_diagnostic() {
-    let text = one("name = 3\npublisher = \"acme\"\n");
-    let document = Document::parse(&text).expect("parses");
-    let error = TestDocument::deserialize(toml_edit::de::Deserializer::from(document))
-        .expect_err("a number is not a name");
-    assert_eq!(error.span(), Some(25..26));
+fn a_toml_type_error_accumulates_like_every_other() {
+    let report = rejected("name = 3\npublisher = \"a !b\"\n");
+    assert_eq!(
+        texts(&report),
+        [
+            "`name` in usage `a !b/<none>` must be a string, but it is an integer",
+            "publisher must be 3-50 ASCII alphanumeric chars, with single ` ` or `-` separators between words",
+        ]
+    );
+    assert_eq!(places(&report), [(2, 1), (3, 1)]);
 }
 
 #[test]
@@ -590,21 +600,12 @@ fn a_marker_naming_an_impossible_group_is_rejected() {
 /// from.
 #[test]
 fn a_group_entry_cannot_carry_a_marker() {
-    #[derive(Deserialize)]
-    struct Wrapper {
-        workspace: Group,
-    }
-    #[derive(Deserialize)]
-    struct Group {
-        #[serde(rename = "inline-usages")]
-        inline_usages: Vec<UsageRaw>,
-    }
-
     let text =
         "[[workspace.inline-usages]]\npublisher = \"acme\"\nname = \"lib\"\nworkspace = true\n";
     let (table, positions) = Source::new("model.toml", text).read().expect("parses");
-    let parsed: Wrapper = toml::Value::Table(table).try_into().expect("deserializes");
-    let report = parsed.workspace.inline_usages[0]
+    let group = table["workspace"].as_table().expect("a table");
+    let raws = entries(group, "inline-usages");
+    let report = raws[0]
         .clone()
         .validate_declared(
             &UsageSite {
@@ -765,4 +766,79 @@ fn an_opt_in_round_trips_as_a_marker() {
         .expect("one entry")
         .expect("validates");
     assert_eq!(again, usage);
+}
+
+// ----------------------------------------------------------------------
+// An entry is read from a plain table, so that no value
+// can stop the read of the file it is in.
+
+#[test]
+fn a_usage_entry_reads_from_a_table() {
+    let (raws, _) = read(&one(concat!(
+        "publisher = \"acme\"\n",
+        "name = \"lib\"\n",
+        "version = \"^1\"\n",
+        "dir = \"../lib\"\n",
+        "kpar-path = \"../lib.kpar\"\n",
+        "url = \"https://example.com/l.kpar\"\n",
+        "git = \"https://example.com/l.git\"\n",
+        "rev = \"abc\"\n",
+        "tag = \"v1\"\n",
+        "branch = \"main\"\n",
+        "workspace = \"legacy\"\n",
+    )));
+    let raw = &raws[0];
+    assert_eq!(raw.publisher.as_deref(), Some("acme"));
+    assert_eq!(raw.name.as_deref(), Some("lib"));
+    assert_eq!(raw.version.as_deref(), Some("^1"));
+    assert_eq!(raw.dir.as_deref(), Some("../lib"));
+    assert_eq!(raw.kpar_path.as_deref(), Some("../lib.kpar"));
+    assert_eq!(raw.url.as_deref(), Some("https://example.com/l.kpar"));
+    assert_eq!(raw.git.as_deref(), Some("https://example.com/l.git"));
+    assert_eq!(raw.rev.as_deref(), Some("abc"));
+    assert_eq!(raw.tag.as_deref(), Some("v1"));
+    assert_eq!(raw.branch.as_deref(), Some("main"));
+    assert_eq!(
+        raw.workspace,
+        Some(crate::manifest::common::InheritMarker::Group(
+            "legacy".to_owned()
+        ))
+    );
+    assert!(raw.wrong_typed.is_empty());
+}
+
+/// A key whose value has the wrong type leaves nothing behind to read,
+/// so the entry has no shape: asking it for a kind would invent one.
+/// Here `dir` is gone, and without this rule the entry would *also* be
+/// reported as an index usage that is missing its `version`.
+#[test]
+fn a_wrong_typed_usage_key_does_not_make_up_a_kind() {
+    let report = rejected("publisher = \"acme\"\nname = \"lib\"\ndir = 3\n");
+    assert_eq!(
+        texts(&report),
+        ["`dir` in usage `acme/lib` must be a string, but it is an integer"]
+    );
+    assert_eq!(places(&report), [(4, 1)]);
+}
+
+/// The marker is the one key of an entry that is neither a string nor a
+/// table: `workspace = true` and `workspace = "group"` are both it.
+#[test]
+fn a_wrong_typed_marker_says_what_it_should_be() {
+    let report = rejected("publisher = \"acme\"\nname = \"lib\"\nworkspace = 3\n");
+    assert_eq!(
+        texts(&report),
+        ["`workspace` in usage `acme/lib` must be a boolean or a string, but it is an integer"]
+    );
+}
+
+/// A wrong-typed identity key is one problem, not two: it must not also
+/// be reported as a key that is missing.
+#[test]
+fn a_wrong_typed_name_is_not_also_a_missing_name() {
+    let report = rejected("publisher = \"acme\"\nname = 3\n");
+    assert_eq!(
+        texts(&report),
+        ["`name` in usage `acme/<none>` must be a string, but it is an integer"]
+    );
 }
