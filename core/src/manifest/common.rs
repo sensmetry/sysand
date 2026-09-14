@@ -191,7 +191,7 @@ impl Display for InheritFrom {
 /// separate from [`InheritFrom`] so that the `workspace = false`
 /// explanation survives: matching the marker shape with an untagged enum
 /// discards the error of every variant it tries.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum InheritMarker {
     Flag(bool),
@@ -224,6 +224,15 @@ pub enum InheritMarkerError {
     InvalidGroupName(String),
 }
 
+impl From<InheritFrom> for InheritMarker {
+    fn from(from: InheritFrom) -> Self {
+        match from {
+            InheritFrom::DefaultGroup => Self::Flag(true),
+            InheritFrom::Group(group) => Self::Group(group),
+        }
+    }
+}
+
 impl TryFrom<InheritMarker> for InheritFrom {
     type Error = InheritMarkerError;
 
@@ -240,10 +249,7 @@ impl TryFrom<InheritMarker> for InheritFrom {
 impl Serialize for InheritFrom {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         InheritMarkerTable {
-            workspace: match self {
-                Self::DefaultGroup => InheritMarker::Flag(true),
-                Self::Group(group) => InheritMarker::Group(group.clone()),
-            },
+            workspace: InheritMarker::from(self.clone()),
         }
         .serialize(serializer)
     }
