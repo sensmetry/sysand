@@ -2063,3 +2063,79 @@ fn info_reads_a_model_toml_project() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+/// Write a bare `model.toml` project into a fresh directory.
+fn toml_project_cwd() -> Result<(Utf8TempDir, Utf8PathBuf), Box<dyn Error>> {
+    let (temp_dir, cwd) = new_temp_cwd()?;
+    wrapfs::write(
+        cwd.join("model.toml"),
+        "manifest-version = 1\n\n\
+         [project]\n\
+         publisher = \"acme\"\n\
+         name = \"widgets\"\n\
+         version = \"1.2.3\"\n\
+         sources = []\n",
+    )?;
+    Ok((temp_dir, cwd))
+}
+
+/// model-toml.md "Editing the manifest": the verbs on the fields a build
+/// computes error on a toml project. Unlike every other key, this is not
+/// a "not yet": a `model.toml` has no room for these.
+#[test]
+fn edit_includes_derived_is_refused_on_a_toml_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+
+    let out = run_sysand_in(&cwd, ["edit", "--includes-derived", "true"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "`includes-derived` is computed when the KPAR is built\n         \
+         and cannot be set on a `model.toml` project",
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn edit_clear_includes_implied_is_refused_on_a_toml_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+
+    let out = run_sysand_in(&cwd, ["edit", "--clear-includes-implied"], None)?;
+
+    out.assert().failure().stderr(predicate::str::contains(
+        "`includes-implied` is computed when the KPAR is built\n         \
+         and cannot be cleared on a `model.toml` project",
+    ));
+
+    Ok(())
+}
+
+/// model-toml.md: "`info index get` may compute the map on the fly". It
+/// does, through the KPAR view.
+#[test]
+fn info_index_get_works_on_a_toml_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+
+    run_sysand_in(&cwd, ["info", "--get", "index"], None)?
+        .assert()
+        .success();
+
+    Ok(())
+}
+
+/// The other side of the distinction: `metamodel` is a real `[project]`
+/// key, so writing it is refused as *not yet supported*, not as
+/// impossible. Pinned so that the refusal above cannot swallow it.
+#[test]
+fn edit_metamodel_on_a_toml_project_is_not_yet_supported() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = toml_project_cwd()?;
+
+    let out = run_sysand_in(&cwd, ["edit", "--metamodel", "sysml"], None)?;
+
+    out.assert().failure().stderr(
+        predicate::str::contains("is a `model.toml` project")
+            .and(predicate::str::contains("computed when the KPAR is built").not()),
+    );
+
+    Ok(())
+}
