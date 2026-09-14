@@ -46,6 +46,14 @@ impl<P: ProjectRead> ProjectRead for EditableProject<P> {
         self.inner.format()
     }
 
+    /// Forwarded for the same reason as [`Self::format`].
+    fn manifest(
+        &self,
+    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
+    {
+        self.inner.manifest()
+    }
+
     type Error = P::Error;
 
     fn get_project(

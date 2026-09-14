@@ -94,6 +94,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         project_root_match_part: TokenStream2,
         source_may_offer_multiple_versions_match_part: TokenStream2,
         format_match_part: TokenStream2,
+        manifest_match_part: TokenStream2,
         get_info_match_part: TokenStream2,
         get_meta_match_part: TokenStream2,
         version_match_part: TokenStream2,
@@ -191,6 +192,11 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
                         .format()
                         .map_err(#error_ident::#variant_ident)
                 },
+                manifest_match_part: quote! {
+                    #enum_ident::#variant_ident(project) => project
+                        .manifest()
+                        .map_err(|e| e.map_project_read(#error_ident::#variant_ident))
+                },
                 get_info_match_part: quote! {
                     #enum_ident::#variant_ident(project) => project
                         .get_info()
@@ -246,6 +252,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
     let mut read_source_match = vec![];
     let mut sources_match = vec![];
     let mut format_match = vec![];
+    let mut manifest_match = vec![];
     let mut get_info_match = vec![];
     let mut get_meta_match = vec![];
     let mut version_match = vec![];
@@ -267,6 +274,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         project_root_match_part,
         source_may_offer_multiple_versions_match_part,
         format_match_part,
+        manifest_match_part,
         get_info_match_part,
         get_meta_match_part,
         version_match_part,
@@ -289,6 +297,7 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
         read_source_match.push(read_source_match_part);
         sources_match.push(sources_match_part);
         format_match.push(format_match_part);
+        manifest_match.push(manifest_match_part);
         get_info_match.push(get_info_match_part);
         get_meta_match.push(get_meta_match_part);
         version_match.push(version_match_part);
@@ -382,6 +391,17 @@ pub fn project_read_derive(input: TokenStream) -> TokenStream {
             ) -> ::std::result::Result<::sysand_core::project::ProjectFormat, Self::Error> {
                 match self {
                     #( #format_match ),*
+                }
+            }
+
+            fn manifest(
+                &self,
+            ) -> ::std::result::Result<
+                ::sysand_core::manifest::project::ResolvedProject,
+                ::sysand_core::project::ManifestError<Self::Error>,
+            > {
+                match self {
+                    #( #manifest_match ),*
                 }
             }
 

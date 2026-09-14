@@ -32,6 +32,14 @@ impl<Local: ProjectRead, Remote: ProjectRead> ProjectRead for CachedProject<Loca
         self.local.format()
     }
 
+    /// Forwarded for the same reason as [`Self::format`].
+    fn manifest(
+        &self,
+    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
+    {
+        self.local.manifest()
+    }
+
     type Error = Local::Error;
 
     fn get_project(
