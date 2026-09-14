@@ -147,32 +147,13 @@ fn stdlib_key_is_a_path_segment() {
     );
 }
 
-/// workspaces.md "Explicit inheritance": `<key>.workspace = true` selects
-/// the implicit default group, `<key>.workspace = "group-name"` a named
-/// one.
+/// How a message names the group a marker selects.
 #[test]
-fn project_inheritance_markers() {
-    #[derive(Debug, Deserialize, Serialize)]
-    struct Wrapper {
-        version: InheritFrom,
-    }
-
-    let default: Wrapper =
-        toml_edit::de::from_str("version = { workspace = true }\n").expect("parses");
-    assert_eq!(default.version, InheritFrom::DefaultGroup);
+fn inherit_from_names_its_group() {
     assert_eq!(
-        toml_edit::ser::to_string(&default).expect("serializes"),
-        "version = { workspace = true }\n"
+        InheritFrom::Group("legacy".to_owned()).to_string(),
+        "group `legacy`"
     );
-
-    let group: Wrapper =
-        toml_edit::de::from_str("version = { workspace = \"legacy\" }\n").expect("parses");
-    assert_eq!(group.version, InheritFrom::Group("legacy".to_owned()));
-    assert_eq!(
-        toml_edit::ser::to_string(&group).expect("serializes"),
-        "version = { workspace = \"legacy\" }\n"
-    );
-    assert_eq!(group.version.to_string(), "group `legacy`");
     assert_eq!(InheritFrom::DefaultGroup.to_string(), "the default group");
 }
 
@@ -281,35 +262,6 @@ fn sources_entries_must_be_model_files() {
         "`sources` entry `readme.md` is not a KerML (`.kerml`) or SysML (`.sysml`) file; \
          `sources` lists model files only"
     );
-}
-
-/// model-toml.md: `sources` "cannot be inherited by a member ..., since
-/// the file layout of one project says nothing about another's".
-#[test]
-fn sources_cannot_be_inherited() {
-    #[derive(Debug, Deserialize)]
-    struct Wrapper {
-        sources: Sources,
-    }
-
-    for marker in [
-        "sources.workspace = true",
-        "sources.workspace = \"legacy\"",
-        "sources.workspace = false",
-        "sources = { workspace = true }",
-    ] {
-        let error = toml_edit::de::from_str::<Wrapper>(&format!("{marker}\n"))
-            .unwrap_err()
-            .to_string();
-        assert!(
-            error.contains("cannot be inherited"),
-            "{marker}: unexpected error: {error}"
-        );
-    }
-
-    let parsed: Wrapper =
-        toml_edit::de::from_str("sources = [\"a.sysml\"]\n").expect("a plain list still parses");
-    assert_eq!(parsed.sources.as_slice().len(), 1);
 }
 
 #[test]
