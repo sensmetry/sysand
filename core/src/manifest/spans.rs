@@ -37,12 +37,11 @@ use crate::manifest::diagnostics::{Diagnostic, Position};
 /// contain a dot: `"a.b" = 1` and `[a]` with `b = 2` are different keys
 /// that may both appear in one file, and both would flatten to `a.b`.
 ///
-/// An element of an array of tables is addressed by its index
-/// (`["inline-usages", "0"]`) and holds the span of its `[[...]]` header,
-/// which is what a diagnostic about the entry as a whole points at.
-/// Elements of an array that are not tables are not indexed: a diagnostic
-/// about one points at the key of the array, which is where the reader
-/// can act.
+/// An element of an array is addressed by its index
+/// (`["inline-usages", "0"]`, `["members", "1"]`). An element of an array
+/// of *tables* holds the span of its `[[...]]` header, which is what a
+/// diagnostic about the entry as a whole points at; every other element
+/// holds the span of its own value, since it has no key of its own.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SpanIndex(BTreeMap<Vec<String>, Range<usize>>);
 
@@ -116,20 +115,35 @@ impl SpanIndex {
     }
 
     fn walk_value(&mut self, path: &mut Vec<String>, value: &Value) {
-        // An inline table is the same table written differently, so it is
-        // indexed the same way; every other value is a leaf, and the key
-        // that holds it is already indexed.
-        let Value::InlineTable(table) = value else {
-            return;
-        };
-        for (key, value) in table {
-            let Some((key, _)) = table.get_key_value(key) else {
-                continue;
-            };
-            path.push(key.get().to_owned());
-            self.insert(path, key.span());
-            self.walk_value(path, value);
-            path.pop();
+        match value {
+            // An inline table is the same table written differently, so
+            // it is indexed the same way.
+            Value::InlineTable(table) => {
+                for (key, value) in table {
+                    let Some((key, _)) = table.get_key_value(key) else {
+                        continue;
+                    };
+                    path.push(key.get().to_owned());
+                    self.insert(path, key.span());
+                    self.walk_value(path, value);
+                    path.pop();
+                }
+            }
+            // An element of an array is addressed by its index, exactly
+            // as an element of an array of tables is. It has no key of
+            // its own, so what is recorded is the span of the value --
+            // the one place in this index where that is so.
+            Value::Array(array) => {
+                for (index, element) in array.iter().enumerate() {
+                    path.push(index.to_string());
+                    self.insert(path, element.span());
+                    self.walk_value(path, element);
+                    path.pop();
+                }
+            }
+            // Every other value is a leaf, and the key that holds it is
+            // already indexed.
+            _ => {}
         }
     }
 }
