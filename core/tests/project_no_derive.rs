@@ -23,6 +23,15 @@ where
 
 // What comes after there should essentially be what the ProjectRead and ProjectMut macros expand to,
 // so in case the macros are not working properly first make sure this here works.
+//
+// One deliberate exception: `ProjectMut::put_manifest_document` is not
+// forwarded here, where the derive forwards it. The method has a
+// refusing default, and leaving it unwritten is what proves that an
+// implementation outside this crate compiles without it -- which is the
+// reason the default exists. The cost is that
+// `Variant3`, an `InMemoryProject` that *can* store a manifest, refuses
+// one through this wrapper; `a_hand_written_project_refuses_a_manifest`
+// pins exactly that, so the divergence is visible rather than latent.
 
 #[derive(Debug, Error)]
 pub enum GenericProjectError<Variant1, Variant2, Variant3> {
@@ -214,5 +223,28 @@ fn generic_project_create() {
         GenericProject::<InMemoryProject, InMemoryProject>::Variant2(InMemoryProject::new());
     let _project3 = GenericProject::<InMemoryProject, InMemoryProject>::Variant3(Box::new(
         InMemoryProject::new(),
+    ));
+}
+
+#[test]
+fn a_hand_written_project_refuses_a_manifest() {
+    use sysand_core::manifest::edit::DocumentMut;
+    use sysand_core::project::ManifestWriteError;
+
+    let document: DocumentMut =
+        "manifest-version = 1\n\n[project]\npublisher = \"acme\"\nname = \"widgets\"\nversion = \"1.0.0\"\nsources = []\n"
+            .parse()
+            .expect("a valid manifest document");
+
+    // The inner project could store one; this wrapper does not forward
+    // the method, so the trait's default answers. That an
+    // implementation which omits the method compiles is the property
+    // under test.
+    let mut project: GenericProject<InMemoryProject, InMemoryProject> =
+        GenericProject::Variant3(Box::new(InMemoryProject::new()));
+
+    assert!(matches!(
+        project.put_manifest_document(&document, false),
+        Err(ManifestWriteError::Unsupported)
     ));
 }
