@@ -79,6 +79,7 @@ impl From<LocalSrcError> for GixDownloadedError {
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
             LocalSrcError::MissingInfoMeta => Self::MissingInfoMeta,
+            error @ LocalSrcError::AmbiguousFormat { .. } => Self::Other(error.to_string()),
         }
     }
 }

@@ -28,6 +28,11 @@ use crate::manifest::reader::TableReader;
 use crate::manifest::spans::{Positions, Source};
 use crate::manifest::workspace_table::WorkspaceTable;
 
+/// The name of the manifest this module reads. The two json manifests
+/// are named in `model.rs`, beside the types they parse into; this one
+/// is named here, beside the type that parses it.
+pub const MODEL_TOML_FILE: &str = "model.toml";
+
 /// model-toml.md "Manifest version": the highest `manifest-version` this
 /// reader supports, and the value generated files carry.
 ///

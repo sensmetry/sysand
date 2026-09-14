@@ -3,7 +3,9 @@
 
 use camino_tempfile::tempdir;
 
-use super::LocalSrcProject;
+use std::assert_matches;
+
+use super::{LocalSrcError, LocalSrcProject, ProjectFormat, detect_format};
 use crate::project::ProjectRead as _;
 
 fn write_project_json(dir: &camino::Utf8Path, content: &str) {
@@ -12,6 +14,10 @@ fn write_project_json(dir: &camino::Utf8Path, content: &str) {
 
 fn write_meta_json(dir: &camino::Utf8Path, content: &str) {
     std::fs::write(dir.join(".meta.json"), content).expect("write .meta.json");
+}
+
+fn write_model_toml(dir: &camino::Utf8Path, content: &str) {
+    std::fs::write(dir.join("model.toml"), content).expect("write model.toml");
 }
 
 fn read_error(dir: &camino::Utf8Path) -> String {
@@ -105,4 +111,93 @@ fn an_unknown_key_does_not_stop_a_read() -> Result<(), Box<dyn std::error::Error
     let (info, _) = LocalSrcProject::new_access(dir.path(), None).get_project()?;
     assert_eq!(info.expect("a project").name, "p");
     Ok(())
+}
+
+// ----- which manifest a directory holds -----
+
+#[test]
+fn an_empty_directory_has_neither_format() {
+    let dir = tempdir().expect("a temporary directory");
+    assert_eq!(
+        detect_format(dir.path()).expect("readable"),
+        ProjectFormat::Neither
+    );
+}
+
+#[test]
+fn a_project_json_alone_is_the_json_format() {
+    let dir = tempdir().expect("a temporary directory");
+    write_project_json(dir.path(), "{}");
+    assert_eq!(
+        detect_format(dir.path()).expect("readable"),
+        ProjectFormat::Json
+    );
+}
+
+/// The json side is *either* file, not both: a directory holding only a
+/// `.meta.json` is a broken json project, not a directory without one.
+#[test]
+fn a_meta_json_alone_is_the_json_format() {
+    let dir = tempdir().expect("a temporary directory");
+    write_meta_json(dir.path(), "{}");
+    assert_eq!(
+        detect_format(dir.path()).expect("readable"),
+        ProjectFormat::Json
+    );
+}
+
+#[test]
+fn a_model_toml_alone_is_the_toml_format() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), "manifest-version = 1\n");
+    assert_eq!(
+        detect_format(dir.path()).expect("readable"),
+        ProjectFormat::Toml
+    );
+}
+
+#[test]
+fn a_directory_with_both_is_ambiguous() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), "manifest-version = 1\n");
+    write_project_json(dir.path(), "{}");
+    assert_eq!(
+        detect_format(dir.path()).expect("readable"),
+        ProjectFormat::Both
+    );
+}
+
+/// model-toml.md "Mixed manifests": "current project has toml and json
+/// configs: error out that it's unclear if the project is meant to be a
+/// non-zipped KPAR, or dev project".
+#[test]
+fn an_ambiguous_directory_is_refused_when_it_is_read() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), "manifest-version = 1\n");
+    write_project_json(dir.path(), "{}");
+    write_meta_json(dir.path(), "{}");
+    assert_eq!(
+        read_error(dir.path()),
+        format!(
+            "`{}` has both `model.toml` and `.project.json`;\n         \
+             it is unclear whether it is a non-zipped KPAR or a development project",
+            dir.path()
+        )
+    );
+}
+
+/// The message names the json file that is actually there.
+#[test]
+fn an_ambiguous_directory_names_the_json_file_it_has() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), "manifest-version = 1\n");
+    write_meta_json(dir.path(), "{}");
+    assert!(
+        read_error(dir.path()).starts_with(&format!(
+            "`{}` has both `model.toml` and `.meta.json`;",
+            dir.path()
+        )),
+        "unexpected message: {}",
+        read_error(dir.path())
+    );
 }

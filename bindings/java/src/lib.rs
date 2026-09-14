@@ -124,7 +124,7 @@ fn init<'local>(
                     LocalSrcError::AlreadyExists(_) => {
                         env.throw_exception(ExceptionKind::ProjectAlreadyExists, e)
                     }
-                    LocalSrcError::Deserialize(_) => {
+                    LocalSrcError::Deserialize(_) | LocalSrcError::AmbiguousFormat { .. } => {
                         env.throw_exception(ExceptionKind::InvalidValue, e)
                     }
                     LocalSrcError::Io(_) => env.throw_exception(ExceptionKind::IOError, e),
@@ -185,7 +185,7 @@ fn create_env<'local>(
                     format!("Path already exists: {path}"),
                 ),
                 commands::env::EnvError::Write(suberror) => match suberror {
-                    LocalWriteError::Deserialize(_) => {
+                    LocalWriteError::Deserialize(_) | LocalWriteError::Format(_) => {
                         env.throw_exception(ExceptionKind::InvalidValue, e)
                     }
                     LocalWriteError::ImpossibleRelativePath(_) | LocalWriteError::Path(_) => {

@@ -415,6 +415,12 @@ pub enum LocalWriteError {
     MissingInfoMeta,
     #[error("project `{0}` not found in env")]
     ProjectNotFound(String),
+    /// A directory whose manifests do not say what kind of project it
+    /// is, or that is a `model.toml` project and so cannot be written
+    /// as a json one. Passed through rather than re-spelled: these are
+    /// about the *format*, and an env writer adds nothing to them.
+    #[error(transparent)]
+    Format(LocalSrcError),
 }
 
 impl From<FsIoError> for LocalWriteError {
@@ -443,6 +449,7 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
             LocalSrcError::MissingInfoMeta => Self::MissingInfoMeta,
+            error @ LocalSrcError::AmbiguousFormat { .. } => Self::Format(error),
         }
     }
 }

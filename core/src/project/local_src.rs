@@ -17,6 +17,7 @@ use crate::{
     context::ProjectContext,
     env::utils::{CloneError, clone_project},
     lock::Source,
+    manifest::MODEL_TOML_FILE,
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
         InterchangeProjectMetadataPartial, InterchangeProjectMetadataRaw, META_JSON_FILE,
@@ -32,6 +33,52 @@ use super::{
     CanonicalizationError, ProjectChecksum,
     utils::{FsIoError, ProjectDeserializationError, ProjectSerializationError, validate_manifest},
 };
+
+/// Which manifest a directory holds, and so which kind of project it is.
+///
+/// model-toml.md "Mixed manifests": a directory with only json config or
+/// only toml config is supported without warnings, and one with both is
+/// an error -- "it's unclear if the project is meant to be a non-zipped
+/// KPAR, or dev project".
+///
+/// The json side is *either* of the two json manifests, not both, which
+/// is how the rest of this code base already treats the pair: a
+/// directory holding only a `.meta.json` is a broken json project rather
+/// than a directory without one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectFormat {
+    Json,
+    Toml,
+    Both,
+    Neither,
+}
+
+/// Which manifests `dir` holds.
+///
+/// `wrapfs::is_file` rather than `Utf8Path::exists`, so that an IO error
+/// is reported instead of swallowed and a *directory* named
+/// `.project.json` is not mistaken for a manifest.
+pub fn detect_format(dir: &Utf8Path) -> Result<ProjectFormat, Box<FsIoError>> {
+    let toml = wrapfs::is_file(dir.join(MODEL_TOML_FILE))?;
+    Ok(match (toml, json_manifest(dir)?.is_some()) {
+        (true, true) => ProjectFormat::Both,
+        (true, false) => ProjectFormat::Toml,
+        (false, true) => ProjectFormat::Json,
+        (false, false) => ProjectFormat::Neither,
+    })
+}
+
+/// The json manifest `dir` holds, `.project.json` first when it holds
+/// both. Only a message needs to know which one, and naming a file that
+/// is not there would send the reader looking for it.
+fn json_manifest(dir: &Utf8Path) -> Result<Option<&'static str>, Box<FsIoError>> {
+    for file in [PROJECT_JSON_FILE, META_JSON_FILE] {
+        if wrapfs::is_file(dir.join(file))? {
+            return Ok(Some(file));
+        }
+    }
+    Ok(None)
+}
 
 /// Project stored in a local directory as an extracted KPAR archive.
 /// Source file paths with (unix) segments `segment1/.../segmentN` are
@@ -343,6 +390,17 @@ pub enum LocalSrcError {
     MissingMeta,
     #[error("project is missing `.project.json` and/or `.meta.json` files")]
     MissingInfoMeta,
+    /// model-toml.md "Mixed manifests". The CLI appends the hint that
+    /// `sysand migrate` reads both and leaves the `model.toml`.
+    #[error(
+        "`{dir}` has both `model.toml` and `{json}`;\n\
+        {SP:>8} it is unclear whether it is a non-zipped KPAR or a development project",
+        SP = ' '
+    )]
+    AmbiguousFormat {
+        dir: Utf8PathBuf,
+        json: &'static str,
+    },
     #[error(transparent)]
     Deserialize(#[from] ProjectDeserializationError),
     #[error(transparent)]
@@ -397,6 +455,15 @@ impl ProjectRead for LocalSrcProject {
         ),
         LocalSrcError,
     > {
+        // model-toml.md "Mixed manifests": a directory holding both
+        // kinds of manifest is refused before either is read.
+        if detect_format(&self.project_path)? == ProjectFormat::Both {
+            return Err(LocalSrcError::AmbiguousFormat {
+                dir: self.project_path.clone(),
+                json: json_manifest(&self.project_path)?.unwrap_or(PROJECT_JSON_FILE),
+            });
+        }
+
         let info_json_path = self.info_path();
         let meta_json_path = self.meta_path();
 
