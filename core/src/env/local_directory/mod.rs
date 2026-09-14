@@ -449,9 +449,9 @@ impl From<LocalSrcError> for LocalWriteError {
             LocalSrcError::ImpossibleRelativePath(err) => Self::ImpossibleRelativePath(err),
             LocalSrcError::MissingMeta => Self::MissingMeta,
             LocalSrcError::MissingInfoMeta => Self::MissingInfoMeta,
-            error @ (LocalSrcError::AmbiguousFormat { .. } | LocalSrcError::Symbols(_)) => {
-                Self::Format(error)
-            }
+            error @ (LocalSrcError::AmbiguousFormat { .. }
+            | LocalSrcError::Symbols(_)
+            | LocalSrcError::JsonWriteToTomlProject { .. }) => Self::Format(error),
         }
     }
 }

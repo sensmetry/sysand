@@ -3,8 +3,11 @@
 
 use camino_tempfile::tempdir;
 
-use super::{LocalSrcProject, ProjectFormat, detect_format};
-use crate::project::ProjectRead as _;
+use std::assert_matches;
+
+use super::{LocalSrcError, LocalSrcProject, ProjectFormat, detect_format};
+use crate::model::{InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw};
+use crate::project::{ProjectMut as _, ProjectRead as _};
 
 fn write_project_json(dir: &camino::Utf8Path, content: &str) {
     std::fs::write(dir.join(".project.json"), content).expect("write .project.json");
@@ -420,5 +423,64 @@ fn a_source_that_does_not_parse_is_reported() {
         read_error(dir.path()).starts_with("failed to extract symbol names from `a.sysml`"),
         "unexpected message: {}",
         read_error(dir.path())
+    );
+}
+
+// ----- the writers a `model.toml` project refuses -----
+
+#[test]
+fn a_model_toml_project_refuses_a_json_info_write() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), TOML_REQUIRED);
+    let error = toml_project(dir.path())
+        .put_info(
+            &InterchangeProjectInfoRaw::minimal("w".into(), "1.0.0".into()),
+            true,
+        )
+        .expect_err("a json write into a toml project");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "`{}` is a `model.toml` project;\n         \
+             `.project.json` cannot be written into one",
+            dir.path()
+        )
+    );
+}
+
+#[test]
+fn a_model_toml_project_refuses_a_json_meta_write() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), TOML_REQUIRED);
+    assert_matches!(
+        toml_project(dir.path())
+            .put_meta(&InterchangeProjectMetadataRaw::default(), true)
+            .expect_err("a json write into a toml project"),
+        LocalSrcError::JsonWriteToTomlProject { .. }
+    );
+}
+
+/// The reason the guard exists. `do_include` reads the metadata --
+/// which the view supplies -- and writes it straight back, so
+/// without the guard it would leave a `.meta.json` beside the
+/// `model.toml` and make the directory unreadable.
+#[test]
+fn including_a_file_does_not_turn_a_toml_project_into_both() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), TOML_REQUIRED);
+    std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
+
+    let mut project = toml_project(dir.path());
+    crate::commands::include::do_include(
+        &mut project,
+        [typed_path::Utf8UnixPathBuf::from("a.sysml")].into_iter(),
+        true,
+        true,
+        None,
+    )
+    .expect_err("including into a toml project");
+    assert_eq!(
+        detect_format(dir.path()).expect("readable"),
+        ProjectFormat::Toml
     );
 }

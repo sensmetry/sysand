@@ -2037,3 +2037,29 @@ fn edit_accepts_spaces_in_name_and_publisher() -> Result<(), Box<dyn Error>> {
 
     Ok(())
 }
+
+/// A directory holding only a `model.toml` is a project: discovery finds
+/// it, and `info` reads it through the KPAR view synthesized from the
+/// manifest.
+#[test]
+fn info_reads_a_model_toml_project() -> Result<(), Box<dyn Error>> {
+    let (_temp_dir, cwd) = new_temp_cwd()?;
+    wrapfs::write(
+        cwd.join("model.toml"),
+        "manifest-version = 1\n\n\
+         [project]\n\
+         publisher = \"acme\"\n\
+         name = \"widgets\"\n\
+         version = \"1.2.3\"\n\
+         sources = []\n",
+    )?;
+
+    let out = run_sysand_in(&cwd, ["info"], None)?;
+
+    out.assert()
+        .success()
+        .stdout(predicate::str::contains("Name: widgets"))
+        .stdout(predicate::str::contains("Version: 1.2.3"));
+
+    Ok(())
+}

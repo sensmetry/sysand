@@ -5,7 +5,7 @@ use anyhow::{Result, bail};
 use camino::Utf8Path;
 use sysand_core::{
     build::{KParBuildError, KparCompressionMethod, do_build_kpar, do_build_workspace_kpars},
-    project::local_src::LocalSrcProject,
+    project::local_src::{LocalSrcProject, ProjectFormat, detect_format},
     workspace::Workspace,
 };
 
@@ -16,6 +16,17 @@ pub fn command_build_for_project<P: AsRef<Utf8Path>>(
     update_index: bool,
     allow_path_usage: bool,
 ) -> Result<()> {
+    // A view of a `model.toml` project is not what a build needs:
+    // `created` is a placeholder and the local usages are not rewritten
+    // into the PURLs an archive carries. Refusing is better than writing
+    // an archive that looks right and is not.
+    if detect_format(current_project.root_path())? == ProjectFormat::Toml {
+        bail!(
+            "building a `model.toml` project is not supported yet;\n\
+            {SP:>8} this version of Sysand builds KPARs from `.project.json` projects only",
+            SP = ' '
+        );
+    }
     match do_build_kpar(
         &current_project,
         &path,
