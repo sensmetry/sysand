@@ -4,10 +4,14 @@
 use fluent_uri::Iri;
 use semver::{Version, VersionReq};
 use spdx::Expression;
+use toml_edit::{DocumentMut, Value};
 
 use crate::manifest::common::{InheritFrom, Maintainer, ResolvedUrls, Sources, StdlibStem};
 use crate::manifest::diagnostics::Position;
-use crate::manifest::edit::render_new;
+use crate::manifest::edit::{
+    EditError, INHERITABLE_KEYS, ProjectKey, clear_project_key, clear_url_key, open, render_new,
+    set_inherit_marker, set_project_key, set_url_key,
+};
 use crate::manifest::inherit::{Inherited, MetaProperty};
 use crate::manifest::project::{PROJECT_KEYS, ProjectManifest, ProjectTable, Urls};
 use crate::manifest::usage::{MemberUsage, Usage};
@@ -536,4 +540,290 @@ fn a_generated_workspace_file_parses_back_into_itself() {
 
     // The fixed point: nothing shifts on a second pass.
     assert_eq!(render(&ModelToml::Workspace(Box::new(table))), text);
+}
+
+// ---------------------------------------------------------------------
+// In-place editing. model-toml.md "Editing the manifest": every command
+// that writes a `model.toml` "edits the existing document in place,
+// preserving comments, key order and formatting; comments are the
+// reason a TOML manifest exists, so no writer may drop them."
+// ---------------------------------------------------------------------
+
+/// A manifest with a comment in every place a comment can be.
+const COMMENTED: &str = r#"manifest-version = 1
+
+# what this project is
+[project]
+# who publishes it
+publisher = "acme"  # the publisher
+name = "widgets"
+version = "1.0.0"
+sources = [  # the list
+    # the base
+    "Base.kerml",  # first
+    "Parts.sysml",
+]
+
+[project.urls]
+website = "https://example.com"  # the site
+
+# the dependency we vendor
+[[inline-usages]]
+publisher = "acme"
+name = "dep"
+version = "^1"
+
+# a note at the end
+"#;
+
+fn open_commented() -> DocumentMut {
+    open("model.toml", COMMENTED).expect("the fixture is valid TOML")
+}
+
+fn opened(text: &str) -> DocumentMut {
+    open("model.toml", text).expect("the fixture is valid TOML")
+}
+
+#[test]
+fn a_file_that_is_not_toml_is_refused_the_way_reading_refuses_it() {
+    let broken = "manifest-version = 1\n[project\n";
+
+    let editing = open("model.toml", broken).expect_err("not valid TOML");
+    let reading = ModelToml::parse("model.toml", broken).expect_err("not valid TOML");
+
+    assert_eq!(editing.message, reading.diagnostics()[0].message);
+    assert_eq!(
+        editing.position.map(|at| (at.line, at.column)),
+        reading.diagnostics()[0]
+            .position
+            .as_ref()
+            .map(|at| (at.line, at.column))
+    );
+}
+
+#[test]
+fn setting_a_key_keeps_the_comment_after_its_value() {
+    let mut doc = open_commented();
+    set_project_key(&mut doc, ProjectKey::Publisher, Value::from("other"))
+        .expect("publisher is settable");
+
+    assert!(
+        doc.to_string()
+            .contains("publisher = \"other\"  # the publisher\n")
+    );
+}
+
+#[test]
+fn setting_a_key_changes_one_line_and_nothing_else() {
+    let mut doc = open_commented();
+    // The hardest key in the fixture: a comment above it and one after
+    // its value, so this guards the decor transplant as well as the
+    // order and whitespace of every line it does not touch.
+    set_project_key(&mut doc, ProjectKey::Publisher, Value::from("other")).expect("settable");
+
+    // "comments, key order and formatting" is a property of the file,
+    // not of one line: every other byte is unchanged. `replacen`
+    // because the usage entry names a publisher too.
+    assert_eq!(
+        doc.to_string(),
+        COMMENTED.replacen("publisher = \"acme\"", "publisher = \"other\"", 1)
+    );
+}
+
+#[test]
+fn setting_a_key_that_is_not_there_appends_it_inside_the_table() {
+    let mut doc = open_commented();
+    set_project_key(&mut doc, ProjectKey::Description, Value::from("Widgets.")).expect("settable");
+
+    let text = doc.to_string();
+    // Inside `[project]`: after its last scalar, before the first
+    // sub-table header.
+    assert!(text.contains("]\ndescription = \"Widgets.\"\n\n[project.urls]"));
+}
+
+#[test]
+fn an_edit_keeps_keys_in_the_order_the_file_wrote_them() {
+    let scrambled = "manifest-version = 1\n\n[project]\nversion = \"1.0.0\"\nname = \"widgets\"\npublisher = \"acme\"\n";
+    let mut doc = opened(scrambled);
+    set_project_key(&mut doc, ProjectKey::Name, Value::from("gadgets")).expect("settable");
+
+    assert_eq!(
+        doc.to_string(),
+        scrambled.replace("name = \"widgets\"", "name = \"gadgets\"")
+    );
+}
+
+#[test]
+fn setting_a_key_twice_is_the_same_as_setting_it_once() {
+    let mut once = open_commented();
+    set_project_key(&mut once, ProjectKey::Publisher, Value::from("other")).expect("settable");
+
+    let mut twice = open_commented();
+    set_project_key(&mut twice, ProjectKey::Publisher, Value::from("first")).expect("settable");
+    set_project_key(&mut twice, ProjectKey::Publisher, Value::from("other")).expect("settable");
+
+    assert_eq!(twice.to_string(), once.to_string());
+}
+
+#[test]
+fn clearing_a_key_says_whether_it_was_there() {
+    let mut doc = open_commented();
+
+    assert_eq!(clear_project_key(&mut doc, ProjectKey::Publisher), Ok(true));
+    assert_eq!(
+        clear_project_key(&mut doc, ProjectKey::Publisher),
+        Ok(false)
+    );
+    assert!(
+        !doc.to_string()
+            .contains("publisher = \"acme\"  # the publisher")
+    );
+    // The comment that introduced the table is not the key's.
+    assert!(
+        doc.to_string()
+            .contains("# what this project is\n[project]\n")
+    );
+}
+
+#[test]
+fn a_url_key_is_set_inside_a_project_urls_table() {
+    let mut doc = open_commented();
+    set_url_key(&mut doc, "repository", "https://example.com/git").expect("a url key");
+
+    let text = doc.to_string();
+    assert!(text.contains(
+        "[project.urls]\nwebsite = \"https://example.com\"  # the site\nrepository = \"https://example.com/git\"\n"
+    ));
+}
+
+#[test]
+fn a_url_key_is_set_inside_an_inline_urls_table() {
+    // `urls` may be an inline or a standard table; users write both.
+    let inline = "manifest-version = 1\n\n[project]\nname = \"w\"\nurls = { website = \"https://a\" }  # links\n";
+    let mut doc = opened(inline);
+    set_url_key(&mut doc, "documentation", "https://d").expect("a url key");
+
+    let text = doc.to_string();
+    assert!(text.contains("documentation = \"https://d\""));
+    assert!(text.contains("# links"));
+    assert!(text.contains("urls = {"), "the table stays inline");
+}
+
+#[test]
+fn a_url_key_is_set_beside_a_dotted_urls_key() {
+    let dotted = "manifest-version = 1\n\n[project]\nname = \"w\"\nurls.website = \"https://a\"  # the site\n";
+    let mut doc = opened(dotted);
+    set_url_key(&mut doc, "repository", "https://r").expect("a url key");
+
+    let text = doc.to_string();
+    assert!(text.contains("urls.website = \"https://a\"  # the site\n"));
+    assert!(text.contains("urls.repository = \"https://r\"\n"));
+}
+
+#[test]
+fn setting_a_url_key_creates_a_header_table_not_an_inline_one() {
+    let bare = "manifest-version = 1\n\n[project]\nname = \"w\"\n";
+    let mut doc = opened(bare);
+    set_url_key(&mut doc, "website", "https://a").expect("a url key");
+
+    let text = doc.to_string();
+    assert!(text.contains("[project.urls]\nwebsite = \"https://a\"\n"));
+    assert!(!text.contains("urls = {"));
+}
+
+#[test]
+fn clearing_the_last_url_key_leaves_the_container() {
+    // Removing the table too is a second edit the caller did not ask
+    // for, and it would take the comments in it.
+    let mut doc = open_commented();
+    assert_eq!(clear_url_key(&mut doc, "website"), Ok(true));
+
+    let text = doc.to_string();
+    assert!(text.contains("[project.urls]"));
+    assert!(!text.contains("website = "));
+}
+
+#[test]
+fn a_marker_replaces_a_value_and_keeps_both_its_comments() {
+    let commented = "manifest-version = 1\n\n[project]\n# which version\nversion = \"1.0.0\"  # pinned\nname = \"w\"\n";
+    let mut doc = opened(commented);
+    set_inherit_marker(&mut doc, "version", &InheritFrom::DefaultGroup).expect("inheritable");
+
+    assert_eq!(
+        doc.to_string(),
+        "manifest-version = 1\n\n[project]\n# which version\nversion.workspace = true  # pinned\nname = \"w\"\n"
+    );
+}
+
+#[test]
+fn a_value_replaces_a_marker_and_keeps_both_its_comments() {
+    let inherited = "manifest-version = 1\n\n[project]\n# which version\nversion.workspace = true  # inherited\nname = \"w\"\n";
+    let mut doc = opened(inherited);
+    set_project_key(&mut doc, ProjectKey::Version, Value::from("2.0.0")).expect("settable");
+
+    assert_eq!(
+        doc.to_string(),
+        "manifest-version = 1\n\n[project]\n# which version\nversion = \"2.0.0\"  # inherited\nname = \"w\"\n"
+    );
+}
+
+#[test]
+fn inheriting_a_whole_urls_table_loses_the_comments_inside_it() {
+    // Inherent: the table those comments annotate no longer exists.
+    let mut doc = open_commented();
+    set_inherit_marker(&mut doc, "urls", &InheritFrom::DefaultGroup).expect("inheritable");
+
+    let text = doc.to_string();
+    assert!(text.contains("urls.workspace = true"));
+    assert!(!text.contains("[project.urls]"));
+    assert!(!text.contains("# the site"));
+}
+
+#[test]
+fn the_inheritable_keys_are_the_ones_the_reader_accepts_a_marker_for() {
+    // `edit.rs` has to name the inheritable keys, and `project.rs`
+    // decides them one `inheritable(..)` call at a time. This is what
+    // keeps the two from drifting.
+    for key in PROJECT_KEYS {
+        // The marker takes the place of the key's own value: writing
+        // both is a duplicate key, which is a different refusal.
+        let required: String = [
+            ("publisher", "publisher = \"acme\"\n"),
+            ("name", "name = \"widgets\"\n"),
+            ("version", "version = \"1.0.0\"\n"),
+            ("sources", "sources = []\n"),
+        ]
+        .into_iter()
+        .filter(|(name, _)| name != key)
+        .map(|(_, line)| line)
+        .collect();
+        let text = format!("manifest-version = 1\n\n[project]\n{required}{key}.workspace = true\n");
+        let accepted = ModelToml::parse("model.toml", &text).is_ok();
+        assert_eq!(
+            accepted,
+            INHERITABLE_KEYS.contains(key),
+            "`{key}`: the reader and `INHERITABLE_KEYS` disagree"
+        );
+    }
+}
+
+#[test]
+fn a_key_that_cannot_be_inherited_is_refused_a_marker() {
+    let mut doc = open_commented();
+
+    assert_eq!(
+        set_inherit_marker(&mut doc, "name", &InheritFrom::DefaultGroup),
+        Err(EditError::NotInheritable("name".to_owned()))
+    );
+}
+
+#[test]
+fn editing_a_workspace_file_as_a_project_is_refused() {
+    let workspace = "manifest-version = 1\n\n[workspace]\nmembers = [\"app\"]\n";
+    let mut doc = opened(workspace);
+
+    assert_eq!(
+        set_project_key(&mut doc, ProjectKey::Name, Value::from("w")),
+        Err(EditError::NotAProject)
+    );
 }

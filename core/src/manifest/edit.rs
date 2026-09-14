@@ -25,11 +25,15 @@
 //!
 //! Like the rest of `manifest/`, this module is free of Cargo features.
 
-use toml_edit::{Array, ArrayOfTables, DocumentMut, Item, Table, Value, value};
+use thiserror::Error;
+use toml_edit::{Array, ArrayOfTables, Decor, DocumentMut, Item, Table, Value, value};
+use typed_path::Utf8UnixPathBuf;
 
-use crate::manifest::common::{InheritFrom, Sources};
+use crate::manifest::common::{InheritFrom, NormalizedIdentity, Sources, SourcesError};
+use crate::manifest::diagnostics::Diagnostic;
 use crate::manifest::inherit::{Inherited, MetaProperty};
 use crate::manifest::project::{PROJECT_KEYS, ProjectTable, URL_KEYS, Urls};
+use crate::manifest::spans::Source;
 use crate::manifest::usage::UsageRaw;
 use crate::manifest::workspace_table::{GROUP_KEYS, GroupProperties, WorkspaceTable};
 use crate::manifest::{ModelToml, SUPPORTED_MANIFEST_VERSION};
@@ -362,6 +366,326 @@ fn group(table: &mut Table, properties: &GroupProperties) {
             _ => {}
         }
     }
+}
+
+// ---------------------------------------------------------------------
+// Editing an existing document.
+//
+// model-toml.md "Editing the manifest": every command that writes a
+// `model.toml` "edits the existing document in place, preserving
+// comments, key order and formatting; comments are the reason a TOML
+// manifest exists, so no writer may drop them."
+//
+// `toml_edit` does not give that for free. A value replaced the obvious
+// way loses the comment after it, because the comment lives in the
+// `Decor` of the value that was replaced; a key replaced by a dotted
+// table loses the comment above it as well, because `Table::insert`
+// with a `&str` key throws the old key's decor away. So every editor
+// below moves decor deliberately.
+// ---------------------------------------------------------------------
+
+/// workspaces.md "Common metadata": the `[project]` keys a member may
+/// inherit from a workspace group.
+///
+/// `project.rs` decides this one `inheritable(..)` call at a time and
+/// has no list to borrow. `the_inheritable_keys_are_the_ones_the_reader_
+/// accepts_a_marker_for` is what keeps the two from drifting: it writes
+/// a marker for every key of `PROJECT_KEYS` and checks that the reader
+/// agrees with this list.
+pub const INHERITABLE_KEYS: &[&str] = &[
+    "publisher",
+    "version",
+    "license",
+    "topics",
+    "metamodel",
+    "maintainers",
+    "urls",
+];
+
+/// Why an edit was refused.
+///
+/// Every variant is a fact about the *document*. A refusal of a flag
+/// rather than a document (`--compute-checksum` on a toml project)
+/// belongs to the command that owns the flag.
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum EditError {
+    #[error("the document has no `[project]` table")]
+    NotAProject,
+    #[error("the document has no `[workspace]` table")]
+    NotAWorkspace,
+    #[error("`{0}` is not a `[project]` key")]
+    UnknownKey(String),
+    #[error("`{0}` cannot be inherited from a workspace")]
+    NotInheritable(String),
+    #[error("`[project]` has no `sources` array; add one")]
+    NoSources,
+    #[error(transparent)]
+    Sources(#[from] SourcesError),
+    #[error("`{0}` is not listed in `sources`")]
+    SourceNotListed(Utf8UnixPathBuf),
+    #[error("`{0}` is already declared")]
+    DuplicateUsage(NormalizedIdentity),
+    #[error("`{0}` is not declared")]
+    UsageNotFound(NormalizedIdentity),
+    #[error("`{0}` is not an index usage and has no version")]
+    NotAnIndexUsage(NormalizedIdentity),
+}
+
+/// Parse a `model.toml` for editing.
+///
+/// The failure is the reader's, word for word: a file that is not TOML
+/// must not be described one way when it is read and another when it is
+/// edited. The reader's *second* failure -- deserializing into
+/// `toml::Value`s -- is unreachable for anything that parses, since
+/// duplicate keys are refused at parse time and every TOML type is a
+/// `toml::Value`, so this matches only the parse.
+pub fn open(file: &str, text: &str) -> Result<DocumentMut, Diagnostic> {
+    Source::new(file, text).parse_mut()
+}
+
+fn project_mut<'a>(doc: &'a mut DocumentMut) -> Result<&'a mut Table, EditError> {
+    doc.get_mut("project")
+        .and_then(Item::as_table_mut)
+        .ok_or(EditError::NotAProject)
+}
+
+/// The comments around a key that is about to be replaced: the one on
+/// the line above it, and the one after its value.
+///
+/// Which of the two shapes holds them depends on what is written. A
+/// scalar keeps the first on its own key and the second on its value; a
+/// dotted marker (`version.workspace = true`) keeps *both* on the inner
+/// `workspace` key and value, and its outer key carries nothing.
+#[derive(Default)]
+struct KeyComments {
+    above: Option<String>,
+    after: Option<String>,
+}
+
+impl KeyComments {
+    fn read(table: &Table, key: &str) -> Self {
+        let outer = table
+            .key(key)
+            .and_then(|key| key.leaf_decor().prefix())
+            .and_then(|prefix| prefix.as_str())
+            .map(str::to_owned);
+        match table.get(key) {
+            Some(Item::Value(value)) => Self {
+                above: outer,
+                after: decor_suffix(value.decor()),
+            },
+            // A dotted table: the comments are on its one inner key.
+            Some(Item::Table(inner)) if inner.is_dotted() => {
+                let (above, after) = inner
+                    .iter()
+                    .next()
+                    .map(|(name, _)| {
+                        (
+                            inner
+                                .key(name)
+                                .and_then(|key| key.leaf_decor().prefix())
+                                .and_then(|prefix| prefix.as_str())
+                                .map(str::to_owned),
+                            inner
+                                .get(name)
+                                .and_then(Item::as_value)
+                                .and_then(|value| decor_suffix(value.decor())),
+                        )
+                    })
+                    .unwrap_or_default();
+                Self { above, after }
+            }
+            _ => Self {
+                above: outer,
+                after: None,
+            },
+        }
+    }
+
+    /// Put them back on a scalar.
+    fn onto_value(self, table: &mut Table, key: &str, mut value: Value) {
+        if let Some(after) = self.after {
+            value.decor_mut().set_suffix(after);
+        }
+        table.insert(key, Item::Value(value));
+        if let Some(above) = self.above
+            && let Some(mut key) = table.key_mut(key)
+        {
+            key.leaf_decor_mut().set_prefix(above);
+        }
+    }
+
+    /// Put them back on a dotted marker's inner key and value.
+    fn onto_marker(self, table: &mut Table, key: &str, mut marker: Table) {
+        if let Some(after) = self.after
+            && let Some(value) = marker.get_mut(MARKER).and_then(Item::as_value_mut)
+        {
+            value.decor_mut().set_suffix(after);
+        }
+        if let Some(above) = self.above
+            && let Some(mut inner) = marker.key_mut(MARKER)
+        {
+            inner.leaf_decor_mut().set_prefix(above);
+        }
+        table.insert(key, Item::Table(marker));
+    }
+}
+
+/// The key a marker is written under.
+const MARKER: &str = "workspace";
+
+fn decor_suffix(decor: &Decor) -> Option<String> {
+    decor
+        .suffix()
+        .and_then(|suffix| suffix.as_str())
+        .filter(|suffix| !suffix.trim().is_empty())
+        .map(str::to_owned)
+}
+
+/// Set a `[project]` key to a value, keeping the comments around it.
+///
+/// A key that is not there is appended after the table's existing
+/// values -- inside `[project]`, before the first sub-table header.
+/// Not in the documented order of a generated file: putting a new key
+/// in its documented place means moving the lines that are already
+/// there, and every such move drags a comment to a place it no longer
+/// describes.
+pub fn set_project_key(
+    doc: &mut DocumentMut,
+    key: ProjectKey,
+    value: Value,
+) -> Result<(), EditError> {
+    let key = key.as_str();
+    let project = project_mut(doc)?;
+    KeyComments::read(project, key).onto_value(project, key, value);
+    Ok(())
+}
+
+/// Remove a `[project]` key. Answers whether it was there.
+pub fn clear_project_key(doc: &mut DocumentMut, key: ProjectKey) -> Result<bool, EditError> {
+    Ok(project_mut(doc)?.remove(key.as_str()).is_some())
+}
+
+/// A `[project]` key that [`set_project_key`] and [`clear_project_key`]
+/// edit as a whole value.
+///
+/// `sources` has rules of its own and goes through [`include_source`];
+/// `urls` is a table and goes through [`set_url_key`]; `root` belongs to
+/// a schema v1 does not implement. Whether a value is one the project
+/// accepts is the reader's question, as it is for every other key here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProjectKey {
+    Publisher,
+    Name,
+    Version,
+    License,
+    Description,
+    Topics,
+    Metamodel,
+    Maintainers,
+    Stdlib,
+}
+
+impl ProjectKey {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Publisher => "publisher",
+            Self::Name => "name",
+            Self::Version => "version",
+            Self::License => "license",
+            Self::Description => "description",
+            Self::Topics => "topics",
+            Self::Metamodel => "metamodel",
+            Self::Maintainers => "maintainers",
+            Self::Stdlib => "stdlib",
+        }
+    }
+}
+
+/// Set one key of `[project.urls]`.
+///
+/// model-toml.md allows three shapes and users write all of them: a
+/// `[project.urls]` header, an inline `urls = { .. }`, and dotted
+/// `urls.website = ..` keys. An existing table is edited in whichever
+/// shape it has; a table that is not there is created as a *header*,
+/// which is what a generated file has. Indexing into the document would
+/// silently create the inline form instead.
+pub fn set_url_key(doc: &mut DocumentMut, key: &str, url: &str) -> Result<(), EditError> {
+    check_url_key(key)?;
+    let project = project_mut(doc)?;
+    match project.get_mut("urls") {
+        Some(Item::Value(Value::InlineTable(inline))) => {
+            inline.insert(key, Value::from(url));
+        }
+        Some(Item::Table(table)) => {
+            let comments = KeyComments::read(table, key);
+            comments.onto_value(table, key, Value::from(url));
+        }
+        _ => {
+            let mut urls = Table::new();
+            urls[key] = value(url);
+            project.insert("urls", Item::Table(urls));
+        }
+    }
+    Ok(())
+}
+
+/// Remove one key of `[project.urls]`. Answers whether it was there.
+///
+/// The table is left even when the last key goes: removing it is a
+/// second edit the caller did not ask for, and it would take whatever
+/// comments are in it.
+pub fn clear_url_key(doc: &mut DocumentMut, key: &str) -> Result<bool, EditError> {
+    check_url_key(key)?;
+    let project = project_mut(doc)?;
+    Ok(match project.get_mut("urls") {
+        Some(Item::Value(Value::InlineTable(inline))) => inline.remove(key).is_some(),
+        Some(Item::Table(table)) => table.remove(key).is_some(),
+        _ => false,
+    })
+}
+
+fn check_url_key(key: &str) -> Result<(), EditError> {
+    if URL_KEYS.contains(&key) {
+        Ok(())
+    } else {
+        Err(EditError::UnknownKey(key.to_owned()))
+    }
+}
+
+/// Replace a `[project]` key's value with an inheritance marker.
+///
+/// workspaces.md "Explicit inheritance" calls this one of the rewrites
+/// that must preserve comments, and it is the one that moves them
+/// furthest: a dotted marker keeps both its comments on its *inner*
+/// key and value, where a scalar keeps them on the outer key and its
+/// own value.
+///
+/// `urls` is the exception the rule cannot cover: a whole-table marker
+/// replaces the table, so comments written inside `[project.urls]` are
+/// gone with it. There is no line left for them to annotate.
+pub fn set_inherit_marker(
+    doc: &mut DocumentMut,
+    key: &str,
+    from: &InheritFrom,
+) -> Result<(), EditError> {
+    if !PROJECT_KEYS.contains(&key) {
+        return Err(EditError::UnknownKey(key.to_owned()));
+    }
+    if !INHERITABLE_KEYS.contains(&key) {
+        return Err(EditError::NotInheritable(key.to_owned()));
+    }
+    let project = project_mut(doc)?;
+    let comments = KeyComments::read(project, key);
+    comments.onto_marker(
+        project,
+        key,
+        marker(&Inherited {
+            from: from.clone(),
+            at: None,
+        }),
+    );
+    Ok(())
 }
 
 #[cfg(test)]
