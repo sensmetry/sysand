@@ -522,3 +522,125 @@ fn an_editable_project_reports_the_format_of_what_it_wraps() {
     );
     assert_eq!(wrapped.format().expect("readable"), ProjectFormat::Toml);
 }
+
+// ----- the manifest behind the view -----
+
+#[test]
+fn reading_from_text_gives_what_reading_from_disk_gives() {
+    let dir = tempdir().expect("a temporary directory");
+    let text = TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]");
+    write_model_toml(dir.path(), &text);
+    std::fs::write(dir.path().join("a.sysml"), "part def A;").expect("write a.sysml");
+
+    let from_disk = toml_project(dir.path()).get_project().expect("readable");
+    let from_text = crate::manifest::kpar_view::of_model_toml(&text, |source| {
+        std::fs::read_to_string(dir.path().join(source.as_str())).map_err(|e| e.to_string())
+    })
+    .expect("readable");
+    assert_eq!(from_disk, (Some(from_text.0), Some(from_text.1)));
+}
+
+#[test]
+fn a_model_toml_project_gives_its_manifest() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        &TOML_REQUIRED.replace("sources = []", "sources = [\"a.sysml\"]"),
+    );
+    let manifest = toml_project(dir.path()).manifest().expect("a manifest");
+    assert_eq!(manifest.publisher.as_str(), "acme");
+    assert_eq!(manifest.name.as_str(), "widgets");
+    assert_eq!(
+        manifest
+            .sources
+            .iter()
+            .map(|p| p.as_str())
+            .collect::<Vec<_>>(),
+        ["a.sysml"]
+    );
+}
+
+/// The reason the seam exists: a `.project.json` has no room for some of
+/// what a `model.toml` says, so a caller that needs it comes here.
+/// model-toml.md: `urls.repository` and `urls.documentation` "have no
+/// counterpart in `.project.json` and are dropped".
+#[test]
+fn a_manifest_carries_what_the_view_drops() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(
+        dir.path(),
+        &format!(
+            "{TOML_REQUIRED}\n\
+             [project.urls]\n\
+             website = \"https://example.com/\"\n\
+             documentation = \"https://example.com/docs\"\n\
+             repository = \"https://example.com/git\"\n"
+        ),
+    );
+    let project = toml_project(dir.path());
+
+    let manifest = project.manifest().expect("a manifest");
+    assert_eq!(
+        manifest
+            .urls
+            .repository
+            .as_ref()
+            .map(fluent_uri::Iri::as_str),
+        Some("https://example.com/git")
+    );
+    assert_eq!(
+        manifest
+            .urls
+            .documentation
+            .as_ref()
+            .map(fluent_uri::Iri::as_str),
+        Some("https://example.com/docs")
+    );
+
+    let rendered = serde_json::to_string(&project.get_info().expect("readable").expect("info"))
+        .expect("serializes");
+    assert!(!rendered.contains("example.com/git"), "{rendered}");
+    assert!(!rendered.contains("example.com/docs"), "{rendered}");
+}
+
+#[test]
+fn a_json_project_has_no_toml_manifest() {
+    let dir = tempdir().expect("a temporary directory");
+    write_project_json(
+        dir.path(),
+        r#"{"name":"widgets","publisher":"acme","version":"1.2.3"}"#,
+    );
+    let error = toml_project(dir.path())
+        .manifest()
+        .expect_err("a json project");
+    assert_eq!(
+        error.to_string(),
+        "this project has no `model.toml` manifest"
+    );
+}
+
+#[test]
+fn a_project_that_cannot_be_read_reports_its_own_error() {
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), "this is not toml\n");
+    let error = toml_project(dir.path())
+        .manifest()
+        .expect_err("not a manifest");
+    assert_matches!(error, crate::project::ManifestError::Project(_));
+}
+
+#[test]
+fn an_editable_project_forwards_the_manifest() {
+    use crate::project::editable::EditableProject;
+
+    let dir = tempdir().expect("a temporary directory");
+    write_model_toml(dir.path(), TOML_REQUIRED);
+    let wrapped = EditableProject::new(
+        typed_path::Utf8UnixPathBuf::from("lib"),
+        toml_project(dir.path()),
+    );
+    assert_eq!(
+        wrapped.manifest().expect("a manifest").name.as_str(),
+        "widgets"
+    );
+}

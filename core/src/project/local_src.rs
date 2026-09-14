@@ -19,9 +19,9 @@ use crate::{
     env::utils::{CloneError, clone_project},
     lock::Source,
     manifest::{
-        MODEL_TOML_FILE, ModelToml,
-        diagnostics::Report,
+        MODEL_TOML_FILE,
         kpar_view::{self, ViewError},
+        project::ResolvedProject,
     },
     model::{
         InterchangeProjectInfoPartial, InterchangeProjectInfoRaw,
@@ -29,7 +29,7 @@ use crate::{
         PROJECT_JSON_FILE,
     },
     project::{
-        ProjectMut, ProjectRead,
+        ManifestError, ProjectMut, ProjectRead,
         utils::{RelativizePathError, ToPathBuf as _, ToUnixPathBuf as _, relativize_path, wrapfs},
     },
 };
@@ -330,44 +330,30 @@ impl LocalSrcProject {
 
     /// Read `model.toml` and synthesize the KPAR view of it.
     ///
-    /// model-toml.md "TOML to KPAR" specifies the pair a *build* writes;
-    /// `kpar_view` follows it except where the archive needs something a
-    /// manifest alone cannot supply. `created` is one of those: a build
-    /// records the time it ran, and a view must not, because
-    /// `checksum_canonical_hex` hashes the whole `.meta.json` and that
-    /// checksum goes into the lockfile and is recomputed and compared by
-    /// `sysand sync`. A view whose `created` moved would fail every
-    /// `sync`. It is a function of the manifest and the sources; the
-    /// clock is not one of its inputs.
-    ///
-    /// The project is resolved *standalone*. Nothing here knows whether
-    /// the directory is a workspace member, so a manifest that inherits
-    /// reports that it is not read inside a workspace.
+    /// The reading, parsing and mapping all live in `kpar_view`, which
+    /// is free of Cargo features, so that a store without a filesystem
+    /// answers with the same pair. What is left here is the two things
+    /// only a directory can supply: the manifest's text, and a way to
+    /// read a source file safely from inside the project.
     fn read_model_toml(&self) -> Result<ViewPair, LocalSrcError> {
-        let path = self.project_path.join(MODEL_TOML_FILE);
-        let text = wrapfs::read_to_string(&path)?;
-
-        let manifest =
-            validate_manifest(MODEL_TOML_FILE, ModelToml::parse(MODEL_TOML_FILE, &text))?
-                .into_project(MODEL_TOML_FILE)
-                .map_err(|problem| {
-                    ProjectDeserializationError::invalid(
-                        MODEL_TOML_FILE,
-                        Report::from_iter([problem]),
-                    )
-                })?;
-        let resolved = validate_manifest(MODEL_TOML_FILE, manifest.resolve(None))?;
-
-        let (info, meta) = kpar_view::view(&resolved, &jiff::Timestamp::UNIX_EPOCH, |source| {
+        let text = self.model_toml_text()?;
+        let (info, meta) = kpar_view::of_model_toml(&text, |source| {
             let source_path = self.get_source_path(source)?;
             Ok(wrapfs::read_to_string(&source_path)?)
         })
         .map_err(|error| match error {
+            ViewError::Manifest(error) => LocalSrcError::Deserialize(error),
             ViewError::Read(error) => error,
             ViewError::Symbols(error) => LocalSrcError::Symbols(error),
         })?;
 
         Ok((Some(info), Some(meta)))
+    }
+
+    fn model_toml_text(&self) -> Result<String, LocalSrcError> {
+        Ok(wrapfs::read_to_string(
+            self.project_path.join(MODEL_TOML_FILE),
+        )?)
     }
 
     /// Refuse to write a json manifest into a `model.toml` project.
@@ -548,6 +534,15 @@ impl ProjectRead for LocalSrcProject {
 
     fn format(&self) -> Result<ProjectFormat, Self::Error> {
         Ok(detect_format(&self.project_path)?)
+    }
+
+    fn manifest(&self) -> Result<ResolvedProject, ManifestError<Self::Error>> {
+        if self.format().map_err(ManifestError::Project)? != ProjectFormat::Toml {
+            return Err(ManifestError::NoTomlManifest);
+        }
+        let text = self.model_toml_text().map_err(ManifestError::Project)?;
+        kpar_view::resolved_of_text(MODEL_TOML_FILE, &text)
+            .map_err(|error| ManifestError::Project(LocalSrcError::Deserialize(error)))
     }
 
     fn get_project(

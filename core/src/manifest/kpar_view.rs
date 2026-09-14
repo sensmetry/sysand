@@ -25,12 +25,15 @@ use thiserror::Error;
 use typed_path::Utf8UnixPath;
 
 use crate::manifest::common::Sources;
-use crate::manifest::project::ResolvedProject;
+use crate::manifest::diagnostics::Report;
+use crate::manifest::project::{ProjectManifest, ResolvedProject};
 use crate::manifest::usage::Usage;
+use crate::manifest::{MODEL_TOML_FILE, ModelToml};
 use crate::model::{
     InterchangeProjectChecksumRaw, InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw,
     InterchangeProjectUsageRaw, KerMlChecksumAlg, format_created,
 };
+use crate::project::utils::{ProjectDeserializationError, validate_manifest};
 use crate::symbols::{SymbolsError, top_level_symbols};
 use crate::utils::sha256_lowercase_hex;
 
@@ -41,9 +44,23 @@ pub type SymbolIndex = IndexMap<String, String>;
 /// `checksum`, as a `.meta.json` carries it: one entry per source file.
 pub type ChecksumMap = IndexMap<String, InterchangeProjectChecksumRaw>;
 
+/// What a view records as `created`.
+///
+/// A build records the instant it ran, so that two builds of identical
+/// sources are not byte-identical. A *view* must not: the project
+/// checksum covers the whole `.meta.json`, and that checksum is written
+/// into the lockfile and recomputed and compared by `sysand sync`. A
+/// view is a function of the manifest and the source files; the clock is
+/// not one of its inputs.
+pub const VIEW_CREATED: jiff::Timestamp = jiff::Timestamp::UNIX_EPOCH;
+
 /// Why a view could not be built.
 #[derive(Debug, Error)]
 pub enum ViewError<E> {
+    /// The `model.toml` is not one, or does not define a project, or
+    /// does not validate.
+    #[error(transparent)]
+    Manifest(#[from] ProjectDeserializationError),
     /// The caller could not hand over a source file's contents. Passed
     /// through rather than wrapped: the caller's error already names the
     /// file it failed on, and a second sentence would print the path
@@ -232,6 +249,52 @@ pub fn view<E>(
 ) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
     let (index, checksum) = source_maps(&project.sources, read)?;
     Ok((info(project), meta(project, created, index, checksum)))
+}
+
+/// Read a `model.toml` into the manifest model.
+///
+/// `file` names the document in messages; nothing here opens one. The
+/// project is resolved *standalone*: a caller that knows the project is
+/// a workspace member has to resolve it itself, against the table it
+/// belongs to.
+///
+/// Warnings are logged rather than returned, which is what the json
+/// readers do with theirs, so that a manifest warns the same way
+/// whichever format it is written in.
+pub fn resolved_of_text(
+    file: &str,
+    text: &str,
+) -> Result<ResolvedProject, ProjectDeserializationError> {
+    let manifest: ProjectManifest = validate_manifest(file, ModelToml::parse(file, text))?
+        .into_project(file)
+        .map_err(|problem| {
+            ProjectDeserializationError::invalid(file, Report::from_iter([problem]))
+        })?;
+    validate_manifest(file, manifest.resolve(None))
+}
+
+/// The KPAR view of a `model.toml`, from its text.
+///
+/// This is the whole of what a toml-backed project answers with, and it
+/// is free of Cargo features so that a store without a filesystem
+/// produces the same answer: `read` hands over one source file's
+/// contents and nothing here opens anything.
+pub fn of_text<E>(
+    file: &str,
+    text: &str,
+    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
+) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
+    let project = resolved_of_text(file, text)?;
+    view(&project, &VIEW_CREATED, read)
+}
+
+/// [`of_text`] for a document named `model.toml`, which every source
+/// project's is.
+pub fn of_model_toml<E>(
+    text: &str,
+    read: impl FnMut(&Utf8UnixPath) -> Result<String, E>,
+) -> Result<(InterchangeProjectInfoRaw, InterchangeProjectMetadataRaw), ViewError<E>> {
+    of_text(MODEL_TOML_FILE, text, read)
 }
 
 #[cfg(test)]

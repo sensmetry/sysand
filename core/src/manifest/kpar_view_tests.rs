@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: © 2026 Sysand contributors <opensource@sensmetry.com>
 
 use fluent_uri::Iri;
-use typed_path::Utf8UnixPathBuf;
+use typed_path::{Utf8UnixPath, Utf8UnixPathBuf};
 
 use super::*;
 
@@ -599,4 +599,43 @@ fn the_view_is_the_two_halves() {
     let (index, checksum) = source_maps(&project.sources, reader(&files)).expect("readable");
     assert_eq!(whole_info, info(&project));
     assert_eq!(whole_meta, meta(&project, &created, index, checksum));
+}
+
+// ----- the view of a manifest text -----
+
+const MANIFEST: &str = "\
+manifest-version = 1
+
+[project]
+publisher = \"acme\"
+name = \"widgets\"
+version = \"1.2.3\"
+sources = []
+";
+
+fn nothing_to_read(path: &Utf8UnixPath) -> Result<String, String> {
+    Err(format!("no such file `{path}`"))
+}
+
+#[test]
+fn a_manifest_that_does_not_parse_is_reported_as_a_deserialization_error() {
+    let error =
+        of_text("model.toml", "this is not toml\n", nothing_to_read).expect_err("not a manifest");
+    assert!(
+        matches!(error, ViewError::Manifest(_)),
+        "unexpected error: {error}"
+    );
+    assert!(
+        error.to_string().contains("`model.toml` is not valid TOML"),
+        "unexpected message: {error}"
+    );
+}
+
+/// A view's `created` is not the instant it was taken, because the
+/// project checksum covers it and that checksum reaches the lockfile.
+#[test]
+fn the_view_of_a_text_records_the_fixed_created() {
+    let (_, meta) = of_text("model.toml", MANIFEST, nothing_to_read).expect("no sources to read");
+    assert_eq!(meta.created, crate::model::format_created(&VIEW_CREATED));
+    assert_eq!(meta.created, "1970-01-01T00:00:00Z");
 }

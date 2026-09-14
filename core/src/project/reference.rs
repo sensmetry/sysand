@@ -40,6 +40,14 @@ impl<Project: ProjectRead> ProjectRead for ProjectReference<Project> {
         self.project.format()
     }
 
+    /// Forwarded for the same reason as [`Self::format`].
+    fn manifest(
+        &self,
+    ) -> Result<crate::manifest::project::ResolvedProject, crate::project::ManifestError<Self::Error>>
+    {
+        self.project.manifest()
+    }
+
     type Error = Project::Error;
 
     fn get_project(
