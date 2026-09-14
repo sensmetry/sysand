@@ -1161,3 +1161,16 @@ fn inherits_answers_before_resolving() {
         .inherits()
     );
 }
+
+/// A `project` key that is written but is not a table has one thing
+/// wrong with it. Reading an empty table on top of the type error would
+/// report `publisher`, `name` and `version` missing as well -- four
+/// complaints for one mistake.
+#[test]
+fn a_project_that_is_not_a_table_is_one_diagnostic() {
+    let report = read("project = 3\n").expect_err("not a table");
+    assert_eq!(
+        texts(&report),
+        ["`project` in the top level must be a table, but it is an integer"]
+    );
+}

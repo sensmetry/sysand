@@ -455,18 +455,28 @@ impl ProjectManifest {
         // An absent `[project]` is an empty one: the three required
         // keys are then reported missing, which is what a file with no
         // project side has wrong with it.
+        //
+        // A `project` that is *written* but is not a table is a
+        // different thing: `TableReader::table` has already said so, and
+        // reading an empty table on top of that would add three
+        // missing-key errors for one mistake.
         let empty = toml::Table::new();
         let table = top.table(TABLE, &mut report);
-        let table = table.as_ref().map_or(&empty, TableReader::raw);
-        let project = match ProjectTable::validate(table, positions) {
-            Ok(validated) => {
-                let (value, warnings) = validated.into_parts();
-                report.extend(warnings);
-                Some(value)
-            }
-            Err(problems) => {
-                report.extend(problems.into_diagnostics());
-                None
+        let malformed = table.is_none() && top.has(TABLE);
+        let project = if malformed {
+            None
+        } else {
+            let table = table.as_ref().map_or(&empty, TableReader::raw);
+            match ProjectTable::validate(table, positions) {
+                Ok(validated) => {
+                    let (value, warnings) = validated.into_parts();
+                    report.extend(warnings);
+                    Some(value)
+                }
+                Err(problems) => {
+                    report.extend(problems.into_diagnostics());
+                    None
+                }
             }
         };
 
